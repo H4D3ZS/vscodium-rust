@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VSCodium Rust</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+</head>
+
+<body>
+  <!-- Command Palette -->
+  <div id="command-palette" class="command-palette hidden">
+    <div class="command-input-container">
+      <input type="text" id="command-input" placeholder="Type a command or search..." />
+    </div>
+    <div id="command-list" class="command-list">
+      <!-- Dynamic command items -->
+    </div>
+  </div>
+
+  <!-- Custom Title Bar -->
+  <div id="title-bar" data-tauri-drag-region>
+    <div class="window-controls-left">
+      <div class="menu-item">File</div>
+      <div class="menu-item">Edit</div>
+      <div class="menu-item">Selection</div>
+      <div class="menu-item">View</div>
+      <div class="menu-item">Go</div>
+    </div>
+    <div class="command-center" onclick="showCommandPalette()">
+      <div class="command-box">
+        <span class="icon">🔍</span>
+        <span class="text">vscode-rust</span>
+      </div>
+    </div>
+    <div class="window-controls-right">
+      <div class="control-button" id="win-min" title="Minimize">⎯</div>
+      <div class="control-button" id="win-max" title="Maximize">▢</div>
+      <div class="control-button close" id="win-close" title="Close">✕</div>
+    </div>
+  </div>
+
+  <div id="workbench">
+    <!-- Activity Bar -->
+    <aside class="activity-bar">
+      <div class="activity-item active" title="Explorer">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M19 5H5c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 12H5V7h14v10zM6 8h12v2H6V8zm0 4h12v2H6v-2z" />
+        </svg>
+      </div>
+      <div class="activity-item" title="Search">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+        </svg>
+      </div>
+      <div class="activity-item" title="Run and Debug">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M19 7h-1.42l-1.6-1.6L17.58 4 16.17 2.59 13.59 5.17l-1.42-1.42L9.58 6.33 11 7.75l-1.42 1.42L8.17 7.75 6.75 9.17l2.58 2.58-1.42 1.42L5.33 10.59 4 12.01l2.59 2.59-1.6 1.6H3.57l-1.41 1.41 2.82 2.82 1.41-1.41V17.58l1.6-1.6 2.59 2.59 1.41-1.41-2.58-2.58 1.41-1.41 2.58 2.58 1.42-1.42-2.59-2.59 1.42-1.42 2.58 2.58 1.42-1.42-2.58-2.58 1.41-1.41 2.59 2.59 1.41-1.41-2.82-2.82zM12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z" />
+        </svg>
+      </div>
+      <div class="activity-item" title="Source Control">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M12 2C6.48 2 2 6.48 2 12c0 4.42 3.58 8 8 8s8-3.58 8-8c0-5.52-4.48-10-10-10zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-4.5-9L11 14.5l6-6-1.41-1.41L11 11.67l-2.09-2.09L7.5 11z" />
+        </svg>
+      </div>
+      <div class="activity-item" title="Extensions" id="activity-extensions">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5c0-1.38-1.12-2.5-2.5-2.5S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z" />
+        </svg>
+      </div>
+    </aside>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-title" id="sidebar-title">Explorer</div>
+      <div id="explorer-view" class="sidebar-section">
+        <div class="sidebar-section-header">⌄ VSCODE-RUST</div>
+        <div id="explorer-content" class="sidebar-content"></div>
+      </div>
+      <div id="search-view" class="sidebar-section hidden">
+        <div class="sidebar-section-header">SEARCH</div>
+        <div class="sidebar-search-container">
+          <input type="text" id="search-input" placeholder="Search" />
+        </div>
+        <div id="search-results" class="sidebar-content"></div>
+      </div>
+      <div id="extensions-view" class="sidebar-section hidden">
+        <div class="sidebar-section-header">EXTENSIONS</div>
+        <div class="sidebar-search-container">
+          <input type="text" id="extensions-search-input" placeholder="Search Extensions in Marketplace" />
+        </div>
+        <div id="extensions-content" class="sidebar-content">
+          <div class="extension-section-title">Installed</div>
+          <div id="installed-extensions-list"></div>
+          <div class="extension-section-title">Marketplace</div>
+          <div id="marketplace-extensions-list"></div>
+        </div>
+      </div>
+      <div id="source-control-view" class="sidebar-section hidden">
+        <div class="sidebar-section-header">SOURCE CONTROL</div>
+        <div class="sidebar-search-container">
+          <input type="text" id="scm-input" placeholder="Message (Cmd+Enter to commit)" />
+        </div>
+        <div id="scm-changes" class="sidebar-content"></div>
+      </div>
+      <div id="debug-view" class="sidebar-section hidden">
+        <div class="sidebar-section-header">RUN AND DEBUG</div>
+        <div class="debug-controls">
+          <button id="start-debug" class="debug-btn primary">Start Debugging</button>
+        </div>
+        <div id="debug-content" class="sidebar-content">
+          <div class="debug-section">
+            <div class="debug-section-header">⌄ VARIABLES</div>
+            <div id="debug-variables" class="debug-section-content"></div>
+          </div>
+          <div class="debug-section">
+            <div class="debug-section-header">⌄ WATCH</div>
+            <div id="debug-watch" class="debug-section-content"></div>
+          </div>
+          <div class="debug-section">
+            <div class="debug-section-header">⌄ CALL STACK</div>
+            <div id="debug-callstack" class="debug-section-content"></div>
+          </div>
+          <div class="debug-section">
+            <div class="debug-section-header">⌄ BREAKPOINTS</div>
+            <div id="debug-breakpoints" class="debug-section-content"></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Sidebar Resizer -->
+    <div class="resizer-v" id="sidebar-resizer"></div>
+
+    <main class="editors-layout" id="editors-layout"
+      style="display: flex; flex: 1; overflow: hidden; background: var(--bg-secondary);">
+      <!-- Primary Editor Group -->
+      <div class="editor-group active" id="group-1"
+        style="display: flex; flex: 1; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border-color);">
+        <div class="editor-main">
+          <div class="tabs-row"></div>
+          <div class="breadcrumbs" id="breadcrumbs">vscode-rust > src > main.rs</div>
+          <div class="editor-wrapper">
+            <div class="line-numbers" id="line-numbers"></div>
+            <div id="editor" class="editor-surface" contenteditable="true" spellcheck="false"></div>
+            <div id="notebook-view" class="notebook-view hidden"></div>
+            <canvas id="minimap"></canvas>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Panel Resizer -->
+    <div class="resizer-h" id="panel-resizer"></div>
+
+    <!-- Bottom Panel -->
+    <footer class="bottom-panel" id="bottom-panel">
+      <div class="panel-header" style="display: flex; background: var(--bg-primary);">
+        <div class="panel-tabs">
+          <div class="panel-tab active">Terminal</div>
+          <div class="panel-tab">Output</div>
+          <div class="panel-tab">Problems</div>
+          <div class="panel-tab">Debug Console</div>
+        </div>
+        <div id="terminal-tabs"
+          style="display: flex; gap: 4px; margin-left: auto; padding: 0 10px; align-items: center;">
+          <button id="new-terminal" class="icon-btn" title="New Terminal"
+            style="background:none; border:none; color:var(--text-secondary); cursor:pointer;">+</button>
+        </div>
+      </div>
+      <div class="panel-content" id="panel-content">
+        Welcome to the native Rust terminal...
+      </div>
+    </footer>
+  </div>
+  </div>
+
+  <!-- Status Bar -->
+  <footer class="status-bar">
+    <div class="status-left">
+      <div class="status-item" id="git-indicator">🌿 main</div>
+      <div class="status-item">⟳</div>
+      <div class="status-item" id="perf-stats">RAM: -- | CPU: --</div>
+    </div>
+    <div class="status-right">
+      <div class="status-item" id="cursor-pos">Ln 1, Col 1</div>
+      <div class="status-item">Spaces: 4</div>
+      <div class="status-item">UTF-8</div>
+      <div class="status-item">Rust</div>
+    </div>
+  </footer>
+
+  <!-- Debug Toolbar -->
+  <div id="debug-toolbar" class="debug-toolbar hidden">
+    <div class="debug-tool-item" id="debug-continue" title="Continue (F5)">▶️</div>
+    <div class="debug-tool-item" id="debug-step-over" title="Step Over (F10)">↷</div>
+    <div class="debug-tool-item" id="debug-step-into" title="Step Into (F11)">↴</div>
+    <div class="debug-tool-item" id="debug-step-out" title="Step Out (Shift+F11)">⤴</div>
+    <div class="debug-tool-item" id="debug-restart" title="Restart (Ctrl+Shift+F5)">↻</div>
+    <div class="debug-tool-item stop" id="debug-stop" title="Stop (Shift+F5)">⏹️</div>
+  </div>
+
+  <!-- Context Menu -->
+  <div id="context-menu" class="context-menu hidden">
+    <div class="menu-item" id="cm-cut">Cut</div>
+    <div class="menu-item" id="cm-copy">Copy</div>
+    <div class="menu-item" id="cm-paste">Paste</div>
+    <div class="menu-separator"></div>
+    <div class="menu-item" id="cm-palette">Command Palette...</div>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+
+</html>
