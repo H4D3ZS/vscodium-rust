@@ -90,74 +90,100 @@ function createPopover(x: number, y: number, items: { label: string, value: stri
     }, 0);
 }
 
+export function openModeDropdown(element: HTMLElement, onSelect: (label: string) => void) {
+    const rect = element.getBoundingClientRect();
+    createPopover(rect.left, rect.top, [
+        { label: "Planning", value: "Planning", desc: "Agent can plan before executing tasks. Use for deep research, complex tasks, or collaborative work" },
+        { label: "Planning (Source Control)", value: "Planning (Source Control)", desc: "Deep dive into git history and planning source control workflows" },
+        { label: "Fast", value: "Fast", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" }
+    ], (val) => {
+        const store = (window as any).useStore;
+        if (store) {
+            store.getState().setAgentMode(val);
+            // If it's planning source control, maybe auto-switch to planning view
+            if (val.includes("Source Control")) {
+                store.getState().setActiveSidebarView('planning-view');
+            }
+        }
+        onSelect(val);
+    });
+}
+
 export function setupAgentUI() {
-    const modeDropdown = document.getElementById("agent-mode-dropdown");
-    const modeLabel = document.getElementById("agent-mode-label");
+    // Legacy setup for non-react parts if any, but we'll mainly use exports now
+}
 
-    if (modeDropdown) {
-        modeDropdown.onclick = (e) => {
-            const rect = modeDropdown.getBoundingClientRect();
-            createPopover(rect.left, rect.top, [
-                { label: "Planning", value: "Planning", desc: "Agent can plan before executing tasks. Use for deep research, complex tasks, or collaborative work" },
-                { label: "Fast", value: "Fast", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" }
-            ], (val, label) => {
-                currentAgentMode = val;
-                if (modeLabel) modeLabel.innerText = label;
-            });
-        };
-    }
+export function openModelDropdown(element: HTMLElement, onSelect: (label: string) => void) {
+    const rect = element.getBoundingClientRect();
+    const items: { label: string, value: string, desc?: string }[] = [];
 
-    const modelDropdown = document.getElementById("agent-model-dropdown");
-    const modelLabel = document.getElementById("agent-model-label");
+    // Premium custom labels as requested
+    items.push({ label: "Gemini 3.1 Pro (High) New", value: "Google|gemini-1.5-pro" });
+    items.push({ label: "Gemini 3.1 Pro (Low) New", value: "Google|gemini-1.5-flash" });
+    items.push({ label: "Claude Sonnet 4.6 (Thinking)", value: "Anthropic|claude-3-5-sonnet-20241022" });
+    items.push({ label: "Claude Opus 4.6 (Thinking)", value: "Anthropic|claude-3-opus-20240229" });
+    items.push({ label: "GPT-OSS 120B (Medium)", value: "OpenRouter|meta-llama/llama-3-70b-instruct" });
 
-    if (modelDropdown) {
-        modelDropdown.onclick = (e) => {
-            const rect = modelDropdown.getBoundingClientRect();
-            const items: { label: string, value: string, desc?: string }[] = [];
+    // Append the rest of ApiRadar options
+    Object.keys(providerModels).forEach(prov => {
+        providerModels[prov].forEach(mod => {
+            // Don't add duplicates
+            if (!items.find(i => i.value === `${prov}|${mod}`)) {
+                items.push({ label: `${prov} - ${mod}`, value: `${prov}|${mod}` });
+            }
+        });
+    });
 
-            // Premium custom labels as requested
-            items.push({ label: "Gemini 3.1 Pro (High) New", value: "Google|gemini-1.5-pro" });
-            items.push({ label: "Gemini 3.1 Pro (Low) New", value: "Google|gemini-1.5-flash" });
-            items.push({ label: "Claude Sonnet 4.6 (Thinking)", value: "Anthropic|claude-3-5-sonnet-20241022" });
-            items.push({ label: "Claude Opus 4.6 (Thinking)", value: "Anthropic|claude-3-opus-20240229" });
-            items.push({ label: "GPT-OSS 120B (Medium)", value: "OpenRouter|meta-llama/llama-3-70b-instruct" });
+    createPopover(rect.left, rect.top, items, (val) => {
+        const store = (window as any).useStore;
+        if (store) store.getState().setAgentModel(val);
+        onSelect(val);
+    });
+}
 
-            // Append the rest of ApiRadar options
-            Object.keys(providerModels).forEach(prov => {
-                providerModels[prov].forEach(mod => {
-                    // Don't add duplicates
-                    if (!items.find(i => i.value === `${prov}|${mod}`)) {
-                        items.push({ label: `${prov} - ${mod}`, value: `${prov}|${mod}` });
-                    }
-                });
-            });
+export function openContextDropdown(element: HTMLElement, onSelect: (label: string) => void) {
+    const rect = element.getBoundingClientRect();
+    createPopover(rect.left, rect.top, [
+        { label: "Media", value: "media" },
+        { label: "Mentions", value: "mentions" },
+        { label: "Workflows", value: "workflows" }
+    ], (val, label) => {
+        onSelect(label);
+    });
+}
 
-            createPopover(rect.left, rect.top, items, (val, label) => {
-                const parts = val.split("|");
-                currentAgentProvider = parts[0];
-                currentAgentModel = parts[1];
-                if (modelLabel) modelLabel.innerText = label;
-            });
-        };
-    }
+export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
+    const prompt = inputElement.value.trim();
+    if (!prompt) return;
 
-    const contextBtn = document.querySelector('.agent-input-toolbar .codicon-add')?.parentElement;
-    if (contextBtn) {
-        contextBtn.onclick = (e) => {
-            const rect = contextBtn.getBoundingClientRect();
-            createPopover(rect.left, rect.top, [
-                { label: "Media", value: "media" },
-                { label: "Mentions", value: "mentions" },
-                { label: "Workflows", value: "workflows" }
-            ], (val, label) => {
-                // Future handling of adding context
-                const input = document.getElementById("agent-input") as HTMLInputElement;
-                if (input) {
-                    input.value += ` [Context: ${label}] `;
-                    input.focus();
-                }
-            });
-        };
+    inputElement.value = "";
+    
+    // Simple UI feedback: clear input and show message in history
+    const messagesContainer = document.getElementById("agent-messages");
+    if (messagesContainer) {
+        const userMsg = document.createElement("div");
+        userMsg.className = "agent-message user-message";
+        userMsg.style.padding = "8px 12px";
+        userMsg.style.background = "rgba(0,0,0,0.2)";
+        userMsg.style.borderRadius = "6px";
+        userMsg.style.alignSelf = "flex-end";
+        userMsg.innerText = prompt;
+        messagesContainer.appendChild(userMsg);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        const assistantMsg = document.createElement("div");
+        assistantMsg.className = "agent-message assistant-message";
+        assistantMsg.style.padding = "8px 12px";
+        assistantMsg.style.background = "rgba(109, 40, 217, 0.1)";
+        assistantMsg.style.borderRadius = "6px";
+        assistantMsg.innerText = "Thinking...";
+        messagesContainer.appendChild(assistantMsg);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        await sendAgentMessage(prompt, (msg) => {
+            assistantMsg.innerText = msg;
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        });
     }
 }
 
@@ -168,8 +194,11 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
     let currentCycle = 0;
     let agentResponse = "";
 
-    const provider = currentAgentProvider;
-    const model = currentAgentModel;
+    const { agentModel, agentMode, setAiStatus } = (window as any).useStore.getState();
+    const [provider, model] = agentModel.includes("|") ? agentModel.split("|") : ["Google", "gemini-1.5-pro"];
+    const mode = agentMode || "Planning";
+
+    setAiStatus('alive');
 
     while (currentCycle < maxCycles) {
         onUpdate("Thinking...");
@@ -189,6 +218,10 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
             agentResponse = response;
             chatHistory.push({ role: "assistant", content: agentResponse });
 
+            // Mock token usage increase for testing UI warning
+            const { tokenUsage, setTokenUsage } = (window as any).useStore.getState();
+            setTokenUsage(Math.min(100, tokenUsage + 15));
+
             // Parse for tool calls
             const toolCall = parseToolCall(agentResponse);
             if (!toolCall) {
@@ -206,6 +239,8 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
             currentCycle++;
         } catch (e: any) {
             console.error("Agent chat failed:", e);
+            const { setAiStatus } = (window as any).useStore.getState();
+            setAiStatus('dead');
             if (e.toString().includes("401") || e.toString().includes("Incorrect API key")) {
                 onUpdate(`⚠️ **Missing AI API Key**\n\nThe Antigravity Agent requires an OpenAI API key.\n\nTo configure it, either:\n1. Save your key in a \`.env\` file in this workspace as \`OPENAI_API_KEY=sk-...\`\n2. Export it in your system: \`export OPENAI_API_KEY="sk-..."\``);
             } else {
@@ -240,6 +275,15 @@ function parseToolCall(text: string) {
         target: modifyFileMatch[2].trim(),
         replacement: modifyFileMatch[3].trim()
     };
+
+    const runCommandMatch = text.match(/\[RUN_COMMAND:\s*([^\]]+)\]/);
+    if (runCommandMatch) return { type: "RUN_COMMAND", arg: runCommandMatch[1].trim() };
+
+    const searchFilesMatch = text.match(/\[SEARCH_FILES:\s*([^\]]+)\]/);
+    if (searchFilesMatch) return { type: "SEARCH_FILES", arg: searchFilesMatch[1].trim() };
+
+    const listFilesMatch = text.match(/\[LIST_FILES:\s*([^\]]+)\]/);
+    if (listFilesMatch) return { type: "LIST_FILES", arg: listFilesMatch[1].trim(), recursive: text.includes("| recursive") };
 
     const readFileMatch = text.match(/\[READ_FILE:\s*([^\]]+)\]/);
     if (readFileMatch) return { type: "READ_FILE", arg: readFileMatch[1].trim() };
@@ -278,6 +322,19 @@ async function executeTool(tool: any): Promise<string> {
             case "CREATE_DIR":
                 await invoke("create_dir", { path: tool.arg });
                 return `Successfully created directory: ${tool.arg}`;
+            case "RUN_COMMAND":
+                return await invoke("ai_execute_command", { command: tool.arg });
+            case "SEARCH_FILES":
+                const searchRes = await invoke<any[]>("search_project", { query: tool.arg });
+                return JSON.stringify(searchRes);
+            case "LIST_FILES":
+                const listRes = await invoke<any>("list_directory", { path: tool.arg });
+                return JSON.stringify(listRes);
+            case "READ_FILE":
+                return await invoke("read_file", { path: tool.arg });
+            case "CREATE_FILE":
+                await invoke("create_file", { path: tool.arg });
+                return `Successfully created file: ${tool.arg}`;
             default:
                 return "Unknown tool";
         }

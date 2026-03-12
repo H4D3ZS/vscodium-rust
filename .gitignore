@@ -27,3 +27,4 @@ apikeys.txt
 # Rust
 src-tauri/target/
 src-tauri/zed/
+native/

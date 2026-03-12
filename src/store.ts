@@ -8,6 +8,7 @@ interface EditorTab {
     content: string;
     isModified: boolean;
     language: string;
+    type?: 'file' | 'settings';
 }
 
 export interface FileEntry {
@@ -24,11 +25,21 @@ interface AppState {
     isBottomPanelOpen: boolean;
     activePanelTab: string;
     isRightSidebarOpen: boolean;
+    theme: string;
 
     // Editor State
     activeTabId: string | null;
     tabs: EditorTab[];
     fileTree: FileEntry[];
+    aiStatus: 'alive' | 'dead';
+    tokenUsage: number; // 0 to 100
+    iconThemeMapping: any;
+    agentMode: string;
+    agentModel: string;
+    activeRoot: string | null;
+    activeRootName: string | null;
+    activeDevice: string | null;
+    emulators: string[];
 
     // Actions
     toggleSidebar: () => void;
@@ -36,13 +47,23 @@ interface AppState {
     toggleBottomPanel: () => void;
     setActivePanelTab: (tab: string) => void;
     toggleRightSidebar: () => void;
+    setTheme: (theme: string) => void;
     setFileTree: (tree: FileEntry[]) => void;
+    setAiStatus: (status: 'alive' | 'dead') => void;
+    setTokenUsage: (usage: number) => void;
+    setIconThemeMapping: (mapping: any) => void;
+    setAgentMode: (mode: string) => void;
+    setAgentModel: (model: string) => void;
+    setActiveRoot: (path: string | null) => void;
+    setActiveDevice: (id: string | null) => void;
+    setEmulators: (ems: string[]) => void;
     refreshFileTree: () => Promise<void>;
     openFile: (path: string) => Promise<void>;
     closeTab: (id: string) => void;
     setActiveTab: (id: string) => void;
     updateTabContent: (id: string, content: string) => void;
     saveActiveFile: () => Promise<void>;
+    openSettings: () => void;
 
     // Backend Actions
     backendPing: () => Promise<string>;
@@ -64,14 +85,25 @@ export const useStore = create<AppState>((set, get) => ({
     // Initial Layout State
     isSidebarOpen: true,
     activeSidebarView: 'explorer-view',
-    isBottomPanelOpen: true,
+    // Start with a clean workspace: panel closed by default
+    isBottomPanelOpen: false,
     activePanelTab: 'TERMINAL',
     isRightSidebarOpen: false,
+    theme: 'vs-dark',
 
     // Initial Editor State
     activeTabId: null,
     tabs: [],
     fileTree: [],
+    aiStatus: 'alive',
+    tokenUsage: 0,
+    iconThemeMapping: null,
+    agentMode: 'Planning',
+    agentModel: 'Google|gemini-1.5-pro', // Match internal value format
+    activeRoot: localStorage.getItem('activeRoot'),
+    activeRootName: localStorage.getItem('activeRootName'),
+    activeDevice: null,
+    emulators: [],
 
     // Actions
     toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
@@ -79,7 +111,27 @@ export const useStore = create<AppState>((set, get) => ({
     toggleBottomPanel: () => set((state) => ({ isBottomPanelOpen: !state.isBottomPanelOpen })),
     setActivePanelTab: (tab) => set(() => ({ activePanelTab: tab, isBottomPanelOpen: true })),
     toggleRightSidebar: () => set((state) => ({ isRightSidebarOpen: !state.isRightSidebarOpen })),
+    setTheme: (theme) => set({ theme }),
     setFileTree: (tree) => set({ fileTree: tree }),
+    setAiStatus: (aiStatus) => set({ aiStatus }),
+    setTokenUsage: (tokenUsage) => set({ tokenUsage }),
+    setIconThemeMapping: (iconThemeMapping) => set({ iconThemeMapping }),
+    setAgentMode: (agentMode) => set({ agentMode }),
+    setAgentModel: (agentModel) => set({ agentModel }),
+    setActiveRoot: (path) => {
+        if (path) {
+            const name = path.split('/').pop() || path;
+            localStorage.setItem('activeRoot', path);
+            localStorage.setItem('activeRootName', name);
+            set({ activeRoot: path, activeRootName: name });
+        } else {
+            localStorage.removeItem('activeRoot');
+            localStorage.removeItem('activeRootName');
+            set({ activeRoot: null, activeRootName: null });
+        }
+    },
+    setActiveDevice: (activeDevice) => set({ activeDevice }),
+    setEmulators: (emulators) => set({ emulators }),
 
     refreshFileTree: async () => {
         try {
@@ -129,7 +181,7 @@ export const useStore = create<AppState>((set, get) => ({
     saveActiveFile: async () => {
         const { tabs, activeTabId } = get();
         const tab = tabs.find(t => t.id === activeTabId);
-        if (!tab) return;
+        if (!tab || tab.type === 'settings') return;
         try {
             await invoke('write_file', { path: tab.path, content: tab.content });
             set((state) => ({
@@ -138,6 +190,25 @@ export const useStore = create<AppState>((set, get) => ({
         } catch (error) {
             console.error('Save File Error:', error);
         }
+    },
+
+    openSettings: () => {
+        const settingsTab = get().tabs.find(t => t.type === 'settings');
+        if (settingsTab) {
+            set({ activeTabId: settingsTab.id });
+            return;
+        }
+        const id = 'settings-tab';
+        const tab: EditorTab = {
+            id,
+            filename: 'Settings',
+            path: 'vscode://settings',
+            content: '',
+            isModified: false,
+            language: '',
+            type: 'settings'
+        };
+        set((state) => ({ tabs: [...state.tabs, tab], activeTabId: id }));
     },
 
     // Backend Actions
@@ -150,3 +221,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
     },
 }));
+
+if (typeof window !== 'undefined') {
+    (window as any).useStore = useStore;
+}

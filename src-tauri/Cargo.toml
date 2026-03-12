@@ -20,6 +20,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 semver = "1.0"
@@ -40,36 +41,6 @@ headless_chrome = "1.0.12"
 base64 = "0.21"
 regex = "1.12.3"
 uuid = { version = "1", features = ["v4", "serde"] }
-
-
-
-text = { path = "zed/crates/text" }
-gpui = { path = "zed/crates/gpui" }
-project = { path = "zed/crates/project" }
-lsp = { path = "zed/crates/lsp" }
-client = { path = "zed/crates/client" }
-language = { path = "zed/crates/language" }
-languages = { path = "zed/crates/languages" }
-fs = { path = "zed/crates/fs" }
-node_runtime = { path = "zed/crates/node_runtime" }
-clock = { path = "zed/crates/clock" }
-http_client = { path = "zed/crates/http_client" }
-worktree = { path = "zed/crates/worktree" }
-collections = { path = "zed/crates/collections" }
-rpc = { path = "zed/crates/rpc" }
-settings = { path = "zed/crates/settings" }
-theme = { path = "zed/crates/theme" }
-util = { path = "zed/crates/util" }
-watch = { path = "zed/crates/watch" }
-rope = { path = "zed/crates/rope" }
-sum_tree = { path = "zed/crates/sum_tree" }
-paths = { path = "zed/crates/paths" }
-release_channel = { path = "zed/crates/release_channel" }
-diagnostics = { path = "zed/crates/diagnostics" }
-# Add any other missing crates as needed based on zed_bridge usage
-gpui_platform = { path = "zed/crates/gpui_platform" }
-gpui_macos = { path = "zed/crates/gpui_macos", features = ["runtime_shaders"] }
 futures = "0.3.32"
 async-trait = "0.1.89"
-objc = "0.2"
-cocoa = "0.26.0"
+urlencoding = "2.1"

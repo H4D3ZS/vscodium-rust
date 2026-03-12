@@ -29,6 +29,10 @@ pub struct ZedProjectRepository {
 
 impl ZedProjectRepository {
     pub async fn create(cx: &AsyncApp) -> Self {
+        // Yield to the executor to allow the initial App borrow by Application::run to be released.
+        // This avoids a RefCell borrow conflict during GPUI initialization.
+        cx.background_executor().timer(std::time::Duration::from_millis(10)).await;
+
         let (inner_http, http_client, clock): (Arc<BlockedHttpClient>, Arc<HttpClientWithUrl>, Arc<RealSystemClock>) = cx.update(|_cx| {
             let inner_http = Arc::new(BlockedHttpClient::new());
             let http_client = Arc::new(HttpClientWithUrl::new(inner_http.clone(), "https://api.vscodium-rust.com", None));

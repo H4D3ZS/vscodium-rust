@@ -8,6 +8,15 @@ pub struct GitFileStatus {
     pub status: String, // "M", "A", "D", "??"
 }
 
+#[derive(Serialize, Debug)]
+pub struct GitCommitInfo {
+    pub hash: String,
+    pub author: String,
+    pub date: String,
+    pub message: String,
+    pub parents: Vec<String>,
+}
+
 pub struct GitManager;
 
 impl GitManager {
@@ -71,5 +80,38 @@ impl GitManager {
             .status()
             .map_err(|e| e.to_string())?;
         if status.success() { Ok(()) } else { Err("Git commit failed".to_string()) }
+    }
+
+    pub fn get_history<P: AsRef<Path>>(&self, repo_path: P) -> Result<Vec<GitCommitInfo>, String> {
+        let output = Command::new("git")
+            .arg("log")
+            .arg("--format=%H|%an|%ai|%s|%P")
+            .arg("-n")
+            .arg("50")
+            .current_dir(repo_path)
+            .output()
+            .map_err(|e| format!("Failed to execute git log: {}", e))?;
+
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut history = Vec::new();
+
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split('|').collect();
+            if parts.len() >= 4 {
+                history.push(GitCommitInfo {
+                    hash: parts[0].to_string(),
+                    author: parts[1].to_string(),
+                    date: parts[2].to_string(),
+                    message: parts[3].to_string(),
+                    parents: parts.get(4).unwrap_or(&"").split_whitespace().map(|s| s.to_string()).collect(),
+                });
+            }
+        }
+
+        Ok(history)
     }
 }

@@ -10,6 +10,7 @@ const Editor: React.FC = () => {
     const tabs = useStore(state => state.tabs);
     const updateTabContent = useStore(state => state.updateTabContent);
     const saveActiveFile = useStore(state => state.saveActiveFile);
+    const theme = useStore(state => state.theme);
 
     const activeTab = tabs.find(t => t.id === activeTabId) ?? null;
 
@@ -44,15 +45,19 @@ const Editor: React.FC = () => {
         <MonacoEditor
             height="100%"
             width="100%"
-            theme="vs-dark"
+            theme={theme}
             language={activeTab.language}
             value={activeTab.content}
             onMount={handleMount}
             onChange={handleChange}
             options={{
                 fontSize: 13,
-                fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
+                fontFamily: 'var(--font-mono)',
                 lineNumbers: 'on',
+                lineNumbersMinChars: 3,
+                glyphMargin: false,
+                folding: true,
+                lineDecorationsWidth: 10,
                 minimap: { enabled: true },
                 scrollBeyondLastLine: false,
                 wordWrap: 'off',

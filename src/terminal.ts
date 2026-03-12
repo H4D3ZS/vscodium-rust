@@ -11,13 +11,31 @@ export class TerminalManager {
     constructor() {
         this.terminals = new Map();
         this.activeId = null;
+        this.container = null;
+        this.tabsContainer = null;
+        this.idCounter = 1;
+        this.rebind();
+    }
+
+    rebind(): void {
         this.container = document.getElementById("terminal-container");
         this.tabsContainer = document.getElementById("terminal-tabs");
-        this.idCounter = 1;
-
+        
         const newBtn = document.getElementById("new-terminal");
         if (newBtn) {
             newBtn.onclick = () => this.createTerminal();
+        }
+
+        // If we have existing terminals, re-append their wrappers to the new container
+        if (this.container && this.terminals.size > 0) {
+            this.container.innerHTML = "";
+            for (const [id, t] of this.terminals.entries()) {
+                this.container.appendChild(t.wrapper);
+                this.createTab(id);
+            }
+            if (this.activeId) {
+                this.switchTo(this.activeId);
+            }
         }
     }
 
@@ -32,8 +50,7 @@ export class TerminalManager {
         const FitAddonKlass = (window as any).FitAddon ? (window as any).FitAddon.FitAddon : null;
 
         if (!TerminalKlass) {
-            console.error("Terminal class not found. xterm.js failed to load.");
-            if (wrapper) wrapper.innerHTML = "<div style='color:red; padding:10px;'>Terminal load failed: xterm.js not found</div>";
+            console.error("Terminal class not found.");
             return;
         }
 
@@ -44,25 +61,21 @@ export class TerminalManager {
             cursorBlink: true,
         });
 
+        const terminalData = { term, fitAddon: null, wrapper };
         if (FitAddonKlass) {
             const fitAddon = new FitAddonKlass();
             term.loadAddon(fitAddon);
-            this.terminals.set(id, { term, fitAddon, wrapper });
-        } else {
-            console.warn("FitAddon not found.");
-            this.terminals.set(id, { term, fitAddon: null, wrapper });
+            terminalData.fitAddon = fitAddon;
         }
-
+        
+        this.terminals.set(id, terminalData);
         term.open(wrapper);
         term.write("> Loading terminal backend...\r\n");
 
-        if (this.terminals.get(id).fitAddon) {
-            setTimeout(() => {
-                this.terminals.get(id).fitAddon.fit();
-            }, 100);
+        if (terminalData.fitAddon) {
+            setTimeout(() => terminalData.fitAddon.fit(), 100);
         }
 
-        // Use imported invoke
         term.onData((data: string) => invoke("write_to_terminal", { termId: id, data }));
         term.onResize(({ cols, rows }: { cols: number, rows: number }) => invoke("resize_terminal", { termId: id, cols, rows }));
 
@@ -71,20 +84,28 @@ export class TerminalManager {
         try {
             await invoke("spawn_terminal", { termId: id });
         } catch (e) {
-            console.error("Failed to spawn terminal:", e);
             term.write(`\r\n\x1b[31mError spawning terminal: ${e}\x1b[0m\r\n`);
         }
         this.switchTo(id);
     }
 
     createTab(id: string): void {
+        if (!this.tabsContainer) return;
+        
+        // Remove existing tab if any
+        const existing = Array.from(this.tabsContainer.querySelectorAll(".terminal-tab-btn")).find(el => (el as any).innerText.includes(`(${id.split('-')[1]})`));
+        if (existing) existing.remove();
+
         const btn = document.createElement("button");
-        btn.className = "terminal-tab-btn";
+        btn.className = "terminal-tab-btn" + (this.activeId === id ? " active" : "");
         btn.innerText = `zsh (${id.split('-')[1]})`;
         btn.onclick = () => this.switchTo(id);
+        
         const newTermBtn = document.getElementById("new-terminal");
-        if (this.tabsContainer && newTermBtn) {
+        if (newTermBtn) {
             this.tabsContainer.insertBefore(btn, newTermBtn);
+        } else {
+            this.tabsContainer.appendChild(btn);
         }
     }
 
@@ -101,9 +122,11 @@ export class TerminalManager {
         t.term.focus();
         if (t.fitAddon) t.fitAddon.fit();
 
-        document.querySelectorAll(".terminal-tab-btn").forEach((btn: any) => {
-            btn.classList.toggle("active", btn.innerText.includes(`(${id.split('-')[1]})` || id));
-        });
+        if (this.tabsContainer) {
+            this.tabsContainer.querySelectorAll(".terminal-tab-btn").forEach((btn: any) => {
+                btn.classList.toggle("active", btn.innerText.includes(`(${id.split('-')[1]})`));
+            });
+        }
     }
 
     handleData(termId: string, data: string): void {
@@ -112,18 +135,10 @@ export class TerminalManager {
     }
 }
 
-let terminalManager: TerminalManager;
+export let terminalManager: TerminalManager | null = null;
 
 export async function initTerminal(): Promise<void> {
-    const terminalElement = document.getElementById("terminal-container");
-    if (terminalElement) {
-        terminalElement.innerHTML = "";
-    }
-
     terminalManager = new TerminalManager();
-
-    // Do not create terminal automatically on startup
-    // await terminalManager.createTerminal();
 
     listen("terminal-data", (event: any) => {
         const { term_id, data } = event.payload;
@@ -141,4 +156,16 @@ export async function initTerminal(): Promise<void> {
             }
         }
     });
+
+    (window as any).spawnTerminal = () => {
+        if (terminalManager) {
+            terminalManager.createTerminal();
+        }
+    };
+    
+    (window as any).rebindTerminal = () => {
+        if (terminalManager) {
+            terminalManager.rebind();
+        }
+    };
 }

@@ -1,9 +1,11 @@
 import React from 'react';
 import ActivityBar from './ActivityBar';
+import { invoke } from '../tauri_bridge';
 import Sidebar from './Sidebar';
 import BottomPanel from './BottomPanel';
 import RightSidebar from './RightSidebar';
 import Editor from './Editor';
+import SettingsPage from './SettingsPage';
 import { useStore } from '../store';
 
 const Workbench: React.FC = () => {
@@ -93,23 +95,33 @@ const Workbench: React.FC = () => {
                                         <h2 style={{ fontSize: '18px', fontWeight: 300, color: 'var(--vscode-sideBar-foreground)', opacity: 0.6, marginBottom: '30px' }}>Editing evolved</h2>
                                         <div className="welcome-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
                                             <span style={{ fontSize: '14px', color: 'var(--vscode-sideBar-foreground)', fontWeight: 400, marginBottom: '10px' }}>Start</span>
-                                            <a href="#" className="welcome-link" id="welcome-new-file" style={{ color: 'var(--vscode-focusBorder)', textDecoration: 'none', fontSize: '13px', display: 'flex', alignItems: 'center', cursor: 'pointer', marginBottom: '4px' }}>
+                                            <a href="#" className="welcome-link" id="welcome-new-file" 
+                                               onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.newFile'); }}
+                                               style={{ color: 'var(--vscode-focusBorder)', textDecoration: 'none', fontSize: '13px', display: 'flex', alignItems: 'center', cursor: 'pointer', marginBottom: '4px' }}>
                                                 <i className="codicon codicon-new-file" style={{ marginRight: '8px', fontSize: '16px' }} />New File...
                                             </a>
-                                            <a href="#" className="welcome-link" id="welcome-open-folder" style={{ color: 'var(--vscode-focusBorder)', textDecoration: 'none', fontSize: '13px', display: 'flex', alignItems: 'center', cursor: 'pointer', marginBottom: '4px' }}>
+                                            <a href="#" className="welcome-link" id="welcome-open-folder" 
+                                               onClick={(e) => { e.preventDefault(); invoke('open_folder'); }}
+                                               style={{ color: 'var(--vscode-focusBorder)', textDecoration: 'none', fontSize: '13px', display: 'flex', alignItems: 'center', cursor: 'pointer', marginBottom: '4px' }}>
                                                 <i className="codicon codicon-folder-opened" style={{ marginRight: '8px', fontSize: '16px' }} />Open Folder...
                                             </a>
-                                            <a href="#" className="welcome-link" style={{ color: 'var(--vscode-focusBorder)', textDecoration: 'none', fontSize: '13px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                                            <a href="#" className="welcome-link" 
+                                               onClick={(e) => { e.preventDefault(); (window as any).executeCommand('git.clone'); }}
+                                               style={{ color: 'var(--vscode-focusBorder)', textDecoration: 'none', fontSize: '13px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
                                                 <i className="codicon codicon-repo-clone" style={{ marginRight: '8px', fontSize: '16px' }} />Clone Git Repository...
                                             </a>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Monaco Editor - shown when a file is open */}
+                                {/* Monaco Editor or Settings Page */}
                                 {hasOpenFile && (
                                     <div style={{ width: '100%', height: '100%' }}>
-                                        <Editor />
+                                        {tabs.find(t => t.id === activeTabId)?.type === 'settings' ? (
+                                            <SettingsPage />
+                                        ) : (
+                                            <Editor />
+                                        )}
                                     </div>
                                 )}
                             </div>

@@ -89,8 +89,14 @@ export async function refreshInstalledExtensions() {
     try {
         const extensions = await invoke<any[]>("get_running_extensions");
         renderInstalled(extensions, installedList);
+
+        // Check for icon themes
+        const iconThemeMapping = await invoke<any>("get_icon_theme_mapping");
+        if (iconThemeMapping) {
+            (window as any).useStore.getState().setIconThemeMapping(iconThemeMapping);
+        }
     } catch (err) {
-        console.error("Failed to get installed extensions:", err);
+        console.error("Failed to get installed extensions or icon themes:", err);
     }
 }
 
@@ -109,25 +115,37 @@ function renderMarketplace(extensions: any[], container: HTMLElement) {
         item.style.gap = "12px";
         item.style.borderBottom = "1px solid var(--border-color)";
         item.style.transition = "background 0.2s";
+        item.style.cursor = "pointer";
         item.onmouseenter = () => item.style.background = "rgba(255,255,255,0.03)";
         item.onmouseleave = () => item.style.background = "transparent";
 
         const icon = ext.files?.icon || "https://open-vsx.org/api/icons/default.png";
+        const downloads = ext.downloadCount ? (ext.downloadCount > 1000 ? (ext.downloadCount / 1000).toFixed(1) + "k" : ext.downloadCount) : "0";
+        const rating = ext.averageRating ? ext.averageRating.toFixed(1) : "0.0";
 
         item.innerHTML = `
-            <img src="${icon}" class="extension-icon" />
-            <div class="extension-info">
-                <div class="extension-name">${ext.displayName || ext.name}</div>
-                <div class="extension-publisher">${ext.namespace}</div>
-                <div class="extension-description">${ext.description || "No description provided."}</div>
-                <div style="margin-top: 6px;">
-                    <button class="extension-install-btn install-btn">Install</button>
+            <img src="${icon}" style="width: 42px; height: 42px; flex-shrink: 0;" />
+            <div class="extension-info" style="flex: 1; min-width: 0;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div class="extension-name" style="font-weight: 600; font-size: 13px; color: var(--accent-color);">${ext.displayName || ext.name}</div>
+                </div>
+                <div class="extension-publisher" style="font-size: 11px; opacity: 0.8;">${ext.namespace}</div>
+                <div class="extension-description" style="font-size: 12px; margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">${ext.description || "No description provided."}</div>
+                
+                <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px; font-size: 11px; opacity: 0.6;">
+                    <span style="display: flex; align-items: center; gap: 3px;"><i class="codicon codicon-cloud-download"></i> ${downloads}</span>
+                    <span style="display: flex; align-items: center; gap: 3px;"><i class="codicon codicon-star-full" style="color: #f1c40f;"></i> ${rating}</span>
+                </div>
+
+                <div style="margin-top: 8px;">
+                    <button class="extension-install-btn install-btn" style="padding: 4px 12px; background: var(--accent-color); color: white; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; width: 100%;">Install</button>
                 </div>
             </div>
         `;
 
         const installBtn = item.querySelector(".install-btn") as HTMLButtonElement;
-        installBtn.onclick = async () => {
+        installBtn.onclick = async (e) => {
+            e.stopPropagation();
             installBtn.innerText = "Installing...";
             installBtn.disabled = true;
             try {
@@ -164,14 +182,29 @@ function renderInstalled(extensions: any[], container: HTMLElement) {
     extensions.forEach(ext => {
         const item = document.createElement("div");
         item.className = "extension-item";
+        item.style.padding = "10px";
+        item.style.display = "flex";
+        item.style.gap = "12px";
+        item.style.position = "relative";
+        item.style.transition = "background 0.2s";
+        item.onmouseenter = () => item.style.background = "rgba(255,255,255,0.03)";
+        item.onmouseleave = () => item.style.background = "transparent";
+
+        const iconHtml = ext.base64_icon 
+            ? `<img src="${ext.base64_icon}" style="width: 32px; height: 32px; flex-shrink: 0; border-radius: 4px;" />`
+            : `<i class="codicon codicon-extensions" style="font-size: 32px; color: var(--accent-color);"></i>`;
 
         item.innerHTML = `
-            <div class="extension-icon" style="display: flex; align-items: center; justify-content: center;">
-                <i class="codicon codicon-extensions" style="font-size: 24px; color: var(--accent-color);"></i>
-            </div>
-            <div class="extension-info">
-                <div class="extension-name">${ext.name}</div>
-                <div class="extension-publisher">Version: ${ext.version}</div>
+            ${iconHtml}
+            <div class="extension-info" style="flex: 1; min-width: 0;">
+                <div class="extension-name" style="font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${ext.name}</div>
+                <div class="extension-publisher" style="font-size: 11px; opacity: 0.7;">${ext.publisher} v${ext.version}</div>
+                <div class="extension-description" style="font-size: 12px; margin-top: 2px; color: var(--text-secondary); height: 1.2en; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;">${ext.description || ""}</div>
+                <div class="extension-actions" style="margin-top: 6px; display: flex; gap: 12px; opacity: 0.5;">
+                     <i class="codicon codicon-settings" style="font-size: 14px; cursor: pointer;" title="Extension Settings"></i>
+                     <i class="codicon codicon-debug-pause" style="font-size: 14px; cursor: pointer;" title="Disable Extension"></i>
+                     <i class="codicon codicon-trash" style="font-size: 14px; cursor: pointer;" title="Uninstall"></i>
+                </div>
             </div>
         `;
         container.appendChild(item);

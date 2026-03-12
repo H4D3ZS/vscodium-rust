@@ -1,10 +1,44 @@
 import React, { useEffect } from 'react';
+import { invoke } from './tauri_bridge';
 import TitleBar from './components/TitleBar';
 import Workbench from './components/Workbench';
 import StatusBar from './components/StatusBar';
 import './styles.css';
+import { initSearch } from './search';
+import { initStatusBar } from './status_bar';
+import { initExtensions } from './extensions';
+import { initSpecs } from './specs';
+import { initMobile } from './mobile';
+import { useStore } from './store.ts';
+import { initCommands } from './commands.ts';
+import { initScm } from './scm';
+import { initDebugUI } from './debug_ui';
+import { initTerminal } from './terminal';
 
 const App: React.FC = () => {
+    useEffect(() => {
+        (window as any).useStore = useStore;
+        // Initialize non-React behaviors once the shell is mounted.
+        initCommands();
+        initSearch();
+        initStatusBar();
+        initExtensions();
+        initSpecs();
+        initMobile();
+        initScm();
+        initDebugUI();
+        initTerminal();
+
+        // Restore last folder
+        const { activeRoot, refreshFileTree } = useStore.getState();
+        if (activeRoot) {
+            (window as any).activeRoot = activeRoot;
+            invoke('set_active_root', { path: activeRoot }).then(() => {
+                refreshFileTree();
+            });
+        }
+    }, []);
+
     return (
         <>
             <div id="command-palette" className="command-palette hidden">
@@ -28,11 +62,16 @@ const App: React.FC = () => {
                 <div className="debug-tool-item stop" id="debug-stop" title="Stop (Shift+F5)">⏹️</div>
             </div>
 
-            {/* Context Menu */}
+            {/* Context Menu – used primarily for Explorer items */}
             <div id="context-menu" className="context-menu hidden">
-                <div className="menu-item" id="cm-cut">Cut</div>
-                <div className="menu-item" id="cm-copy">Copy</div>
-                <div className="menu-item" id="cm-paste">Paste</div>
+                <div className="menu-item" id="cm-open">Open</div>
+                <div className="menu-item" id="cm-reveal">Reveal in Finder</div>
+                <div className="menu-separator"></div>
+                <div className="menu-item" id="cm-new-file">New File...</div>
+                <div className="menu-item" id="cm-new-folder">New Folder...</div>
+                <div className="menu-separator"></div>
+                <div className="menu-item" id="cm-rename">Rename...</div>
+                <div className="menu-item" id="cm-delete">Delete</div>
                 <div className="menu-separator"></div>
                 <div className="menu-item" id="cm-palette">Command Palette...</div>
             </div>
