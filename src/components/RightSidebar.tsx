@@ -84,6 +84,7 @@ const RightSidebar: React.FC = () => {
         { label: "Gemini 1.5 Pro (High)", value: "Google|gemini-1.5-pro" },
         { label: "Gemini 1.5 Flash (Low)", value: "Google|gemini-1.5-flash" },
         { label: "Claude 3.5 Sonnet", value: "Anthropic|claude-3-5-sonnet-20241022" },
+        { label: "Qwen 3.5 Plus (Fast)", value: "Alibaba|qwen3.5-plus" },
         { label: "GPT4-o (Router)", value: "OpenRouter|openai/gpt-4o" }
     ];
 

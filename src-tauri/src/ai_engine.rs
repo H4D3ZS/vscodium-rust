@@ -296,6 +296,7 @@ impl Sentient {
             "openrouter" => "OPENROUTER_API_KEY",
             "xai" => "XAI_API_KEY",
             "cerebras" => "CEREBRAS_API_KEY",
+            "alibaba" => "ALIBABA_API_KEY",
             _ => "OPENAI_API_KEY",
         };
         std::env::var(env_var).unwrap_or_else(|_| self.api_key.clone())
@@ -308,6 +309,7 @@ impl Sentient {
             "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
             "xai" => "https://api.x.ai/v1/chat/completions",
             "cerebras" => "https://api.cerebras.ai/v1/chat/completions",
+            "alibaba" => "https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions",
             _ => "https://api.openai.com/v1/chat/completions",
         }
     }

@@ -15,7 +15,8 @@ const providerModels: Record<string, string[]> = {
     "Groq": ["llama3-8b-8192", "mixtral-8x7b-32768", "llama3-70b-8192"],
     "OpenRouter": ["anthropic/claude-3.5-sonnet", "meta-llama/llama-3-70b-instruct"],
     "xAI": ["grok-beta"],
-    "Cerebras": ["llama3.1-8b", "llama3.1-70b"]
+    "Cerebras": ["llama3.1-8b", "llama3.1-70b"],
+    "Alibaba": ["qwen3.5-plus", "qwen2.5-72b-instruct"]
 };
 
 let currentAgentProvider = "Google";
@@ -122,6 +123,7 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
     items.push({ label: "Gemini 3.1 Pro (Low) New", value: "Google|gemini-1.5-flash" });
     items.push({ label: "Claude Sonnet 4.6 (Thinking)", value: "Anthropic|claude-3-5-sonnet-20241022" });
     items.push({ label: "Claude Opus 4.6 (Thinking)", value: "Anthropic|claude-3-opus-20240229" });
+    items.push({ label: "Qwen 3.5 Plus (Fast) New", value: "Alibaba|qwen3.5-plus" });
     items.push({ label: "GPT-OSS 120B (Medium)", value: "OpenRouter|meta-llama/llama-3-70b-instruct" });
 
     // Append the rest of ApiRadar options

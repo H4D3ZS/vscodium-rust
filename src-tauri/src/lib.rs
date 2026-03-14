@@ -175,6 +175,8 @@ struct ApiKeys {
     anthropic: Option<String>,
     #[serde(default)]
     google: Option<String>,
+    #[serde(default)]
+    alibaba: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -188,9 +190,9 @@ struct Highlight {
 use domain::FileEntry;
 
 #[tauri::command]
-fn set_active_root(state: State<'_, EditorState>, path: String) -> Result<(), String> {
+fn set_active_root(state: State<'_, EditorState>, path: Option<String>) -> Result<(), String> {
     let mut root = state.active_root.lock().unwrap();
-    *root = Some(PathBuf::from(path));
+    *root = path.map(PathBuf::from);
     Ok(())
 }
 
@@ -370,6 +372,9 @@ fn save_api_keys(state: State<'_, EditorState>, keys: ApiKeys) -> Result<(), Str
     }
     if let Some(ref k) = keys.google {
         std::env::set_var("GOOGLE_API_KEY", k);
+    }
+    if let Some(ref k) = keys.alibaba {
+        std::env::set_var("ALIBABA_API_KEY", k);
     }
 
     Ok(())

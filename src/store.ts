@@ -64,6 +64,7 @@ interface AppState {
     setActiveDevice: (id: string | null) => void;
     setEmulators: (ems: string[]) => void;
     refreshFileTree: () => Promise<void>;
+    closeFolder: () => void;
     openFile: (path: string) => Promise<void>;
     closeTab: (id: string) => void;
     setActiveTab: (id: string) => void;
@@ -160,7 +161,16 @@ export const useStore = create<AppState>((set, get) => ({
             set({ fileTree: tree });
         } catch (error) {
             console.error('Refresh File Tree Error:', error);
+            // If it fails because no root is set, clear the tree
+            set({ fileTree: [] });
         }
+    },
+
+    closeFolder: () => {
+        localStorage.removeItem('activeRoot');
+        localStorage.removeItem('activeRootName');
+        invoke('set_active_root', { path: null });
+        set({ activeRoot: null, activeRootName: null, fileTree: [] });
     },
 
     openFile: async (path: string) => {

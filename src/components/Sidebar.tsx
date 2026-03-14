@@ -112,6 +112,7 @@ const Sidebar: React.FC = () => {
     const fileTree = useStore(state => state.fileTree);
     const refreshFileTree = useStore(state => state.refreshFileTree);
     const setActiveRoot = useStore(state => state.setActiveRoot);
+    const closeFolder = useStore(state => state.closeFolder);
     const activeRoot = useStore(state => state.activeRoot);
     const activeRootName = useStore(state => state.activeRootName);
     const activeDevice = useStore(state => state.activeDevice);
@@ -122,6 +123,7 @@ const Sidebar: React.FC = () => {
     const [openAIKey, setOpenAIKey] = useState('');
     const [anthropicKey, setAnthropicKey] = useState('');
     const [googleKey, setGoogleKey] = useState('');
+    const [alibabaKey, setAlibabaKey] = useState('');
     const [statusMessage, setStatusMessage] = useState('');
 
     useEffect(() => {
@@ -129,6 +131,7 @@ const Sidebar: React.FC = () => {
             if (keys.openai) setOpenAIKey(keys.openai);
             if (keys.anthropic) setAnthropicKey(keys.anthropic);
             if (keys.google) setGoogleKey(keys.google);
+            if (keys.alibaba) setAlibabaKey(keys.alibaba);
         }).catch(err => console.error("Failed to load keys", err));
     }, []);
 
@@ -152,7 +155,8 @@ const Sidebar: React.FC = () => {
                 keys: {
                     openai: openAIKey,
                     anthropic: anthropicKey,
-                    google: googleKey
+                    google: googleKey,
+                    alibaba: alibabaKey
                 }
             });
             setStatusMessage('API Keys Saved Successfully.');
@@ -317,6 +321,11 @@ const Sidebar: React.FC = () => {
         await refreshFileTree();
     };
 
+    const handleCloseFolder = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        closeFolder();
+    };
+
     if (!isOpen) return null;
 
     const titles: Record<string, string> = {
@@ -343,11 +352,12 @@ const Sidebar: React.FC = () => {
                             <i className="codicon codicon-new-file" onClick={handleNewFile} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8 }} title="New File"></i>
                             <i className="codicon codicon-new-folder" onClick={handleNewFolder} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8 }} title="New Folder"></i>
                             <i className="codicon codicon-refresh" onClick={handleRefresh} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8 }} title="Refresh Explorer"></i>
+                            <i className="codicon codicon-close-all" onClick={handleCloseFolder} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8 }} title="Close Folder"></i>
                         </div>
                     )}
                 </div>
                 <div id="explorer-content" className="sidebar-content" style={{ display: 'flex', flexDirection: 'column', padding: '0 0 10px 0', overflowY: 'auto', flex: 1 }}>
-                    {fileTree.length > 0 ? (
+                    {(activeRoot && fileTree.length > 0) ? (
                         <div className="file-tree" style={{ width: '100%' }}>
                             {fileTree.map(entry => (
                                 <FileTreeItem key={entry.path} entry={entry} depth={0} />
@@ -383,6 +393,10 @@ const Sidebar: React.FC = () => {
                     <div style={{ marginBottom: '15px' }}>
                         <label style={{ display: 'block', marginBottom: '5px', color: 'var(--vscode-sideBar-foreground)', opacity: 0.8, fontSize: '11px' }}>Google API Key</label>
                         <input type="password" value={googleKey} onChange={(e) => setGoogleKey(e.target.value)} id="google-api-key" placeholder="AIza..." style={{ width: '100%', boxSizing: 'border-box', background: 'var(--vscode-input-background)', color: 'var(--vscode-sideBar-foreground)', border: '1px solid transparent', padding: '4px 6px', fontSize: '12px', outline: 'none' }} />
+                    </div>
+                    <div style={{ marginBottom: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', color: 'var(--vscode-sideBar-foreground)', opacity: 0.8, fontSize: '11px' }}>Alibaba API Key</label>
+                        <input type="password" value={alibabaKey} onChange={(e) => setAlibabaKey(e.target.value)} id="alibaba-api-key" placeholder="sk-..." style={{ width: '100%', boxSizing: 'border-box', background: 'var(--vscode-input-background)', color: 'var(--vscode-sideBar-foreground)', border: '1px solid transparent', padding: '4px 6px', fontSize: '12px', outline: 'none' }} />
                     </div>
                     <button className="primary-button" id="save-api-keys" onClick={saveKeys} style={{ width: '100%', marginTop: '10px', background: 'var(--vscode-statusBar-background)', color: '#fff', border: 'none', padding: '6px', cursor: 'pointer', fontSize: '12px' }}>Save Keys</button>
                     {statusMessage && <div id="api-key-status" style={{ marginTop: '10px', fontSize: '11px', textAlign: 'center', color: '#89d185' }}>{statusMessage}</div>}
