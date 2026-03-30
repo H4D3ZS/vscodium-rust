@@ -123,12 +123,12 @@ const ExtensionItem: React.FC<ExtensionItemProps> = ({ ext, isInstalled, onInsta
                     onClick={handleInstall}
                     disabled={installing}
                     style={{
-                        position: 'absolute',
-                        right: '12px',
-                        bottom: '12px',
                         padding: '4px 10px',
                         fontSize: '11px',
-                        fontWeight: 600
+                        fontWeight: 600,
+                        alignSelf: 'center',
+                        flexShrink: 0,
+                        marginLeft: 'auto'
                     }}
                 >
                     {installing ? 'Installing...' : (error || 'Install')}

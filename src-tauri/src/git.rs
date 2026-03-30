@@ -114,4 +114,14 @@ impl GitManager {
 
         Ok(history)
     }
+    pub fn clone<P: AsRef<Path>>(&self, url: &str, dest: P) -> Result<(), String> {
+        let status = Command::new("git")
+            .arg("clone")
+            .arg(url)
+            .arg(".")
+            .current_dir(dest)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if status.success() { Ok(()) } else { Err("Git clone failed".to_string()) }
+    }
 }

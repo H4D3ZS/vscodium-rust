@@ -38,10 +38,10 @@ export const TrustDialog: React.FC = () => {
                 animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ 
-                        width: '48px', 
-                        height: '48px', 
-                        borderRadius: '10px', 
+                    <div style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '10px',
                         background: 'linear-gradient(135deg, #f59e0b, #d97706)',
                         display: 'flex',
                         alignItems: 'center',
@@ -56,22 +56,22 @@ export const TrustDialog: React.FC = () => {
                     </div>
                 </div>
 
-                <div style={{ 
-                    background: 'rgba(255, 255, 255, 0.03)', 
-                    padding: '16px', 
+                <div style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    padding: '16px',
                     borderRadius: '8px',
                     border: '1px solid rgba(255, 255, 255, 0.05)',
                     fontSize: '14px',
                     lineHeight: '1.5'
                 }}>
-                    Antigravity is about to install <strong>{request.publisher}.{request.name}</strong> (v{request.version}). 
+                    TERMINATOR is about to install <strong>{request.publisher}.{request.name}</strong> (v{request.version}).
                     Installing extensions from untrusted sources can potentially harm your system.
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                    <input 
-                        type="checkbox" 
-                        id="always-trust-checkbox" 
+                    <input
+                        type="checkbox"
+                        id="always-trust-checkbox"
                         checked={alwaysTrust}
                         onChange={(e) => setAlwaysTrust(e.target.checked)}
                         style={{ cursor: 'pointer' }}
@@ -82,7 +82,7 @@ export const TrustDialog: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                    <button 
+                    <button
                         onClick={() => resolve(false)}
                         style={{
                             background: 'transparent',
@@ -98,7 +98,7 @@ export const TrustDialog: React.FC = () => {
                     >
                         Don't Install
                     </button>
-                    <button 
+                    <button
                         onClick={() => resolve(true, alwaysTrust)}
                         style={{
                             background: 'linear-gradient(135deg, #3b82f6, #2563eb)',

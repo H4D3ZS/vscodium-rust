@@ -77,24 +77,51 @@ function registerCoreCommands() {
         {
             id: 'explorer.newFile',
             label: 'File: New File...',
-            run: () => {
+            run: async () => {
                 const path = store.activeRoot;
                 if (!path) return;
-                invoke('create_file', { path: `${path}/new_file.txt` }).then(() => store.refreshFileTree());
+                const name = window.prompt('Enter file name', 'untitled.txt');
+                if (!name) return;
+                await invoke('create_file', { path: `${path}/${name}` });
+                await store.refreshFileTree();
             },
         },
         {
             id: 'explorer.newFolder',
             label: 'File: New Folder...',
+            run: async () => {
+                const path = store.activeRoot;
+                if (!path) return;
+                const name = window.prompt('Enter folder name', 'new_folder');
+                if (!name) return;
+                await invoke('create_directory', { path: `${path}/${name}` });
+                await store.refreshFileTree();
+            },
+        },
+        {
+            id: 'workbench.action.closeFolder',
+            label: 'File: Close Folder',
             run: () => {
-                // Fixed implementation placeholder
+                store.closeFolder();
             },
         },
         {
             id: 'git.clone',
             label: 'Git: Clone Repository...',
-            run: () => {
-                // Implementation for git clone
+            run: async () => {
+                const url = window.prompt('Enter Repository URL');
+                if (!url) return;
+
+                // Choose destination
+                const result = await invoke<string | null>('open_folder');
+                if (result) {
+                    try {
+                        await invoke('git_clone', { url, path: result });
+                        store.setActiveRoot(result);
+                    } catch (e) {
+                        alert(`Clone failed: ${e}`);
+                    }
+                }
             },
         },
         {
@@ -105,7 +132,7 @@ function registerCoreCommands() {
             },
         },
     ];
-    
+
     // Expose the command registry so the React CommandPalette component can access it
     (window as any).commandRegistry = commands;
 }

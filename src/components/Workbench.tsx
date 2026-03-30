@@ -88,8 +88,8 @@ const Workbench: React.FC = () => {
             <div className="main-content" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0 }}>
                 <main className="editors-layout" id="editors-layout" style={{ display: 'flex', flex: 1, overflow: 'hidden', background: 'var(--vscode-editor-background)' }}>
                     {/* Primary Editor Group */}
-                    <div className="editor-group active" id="group-1" style={{ display: 'flex', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
-                        <div className="editor-main">
+                    <div className="editor-group active" id="group-1" style={{ display: 'flex', flex: 1, flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+                        <div className="editor-main" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', width: '100%', height: '100%' }}>
                             {/* Tab strip */}
                             <div className="tabs-row">
                                 {tabs.map(tab => {
@@ -140,42 +140,40 @@ const Workbench: React.FC = () => {
                                 </div>
                             )}
 
-                            <div className="editor-wrapper" style={{ position: 'relative', width: '100%', height: '100%', flex: 1 }}>
-                                { /* Welcome screen when no root is open and no tabs */}
-                                {!activeRoot && tabs.length === 0 && (
-                                    <div style={{
+                            <div className="editor-wrapper" style={{ position: 'relative', width: '100%', height: '100%', flex: 1, overflow: 'hidden' }}>
+                                {(!activeRoot && tabs.length === 0) ? (
+                                    /* Welcome screen when no root is open and no tabs */
+                                    <div className="welcome-screen-container" style={{
                                         position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
+                                        inset: 0,
                                         display: 'flex',
                                         flexDirection: 'column',
                                         alignItems: 'flex-start',
                                         justifyContent: 'flex-start',
                                         zIndex: 1,
-                                        overflowY: 'auto'
+                                        overflowY: 'auto',
+                                        background: 'var(--vscode-editor-background)'
                                     }}>
                                         <div className="welcome-view-content" style={{
                                             display: 'flex',
                                             flexDirection: 'column',
                                             flex: 1,
+                                            height: '100%',
                                             alignItems: 'flex-start',
                                             justifyContent: 'flex-start',
                                             padding: '10px 48px 40px',
                                             width: '100%',
                                             textAlign: 'left',
-                                            marginTop: 0,
-                                            borderTop: '2px solid transparent' // Placeholder for verification
+                                            marginTop: 0
                                         }}>
                                             <div className="hero-section-beside" style={{ maxWidth: '900px', marginBottom: '2vh', width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '24px' }}>
-                                                <img src="../assets/rust-logo.png" alt="Rust Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
+                                                <img src="/assets/rust-logo.png" alt="Rust Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
                                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                                                     <h1 style={{ fontSize: 'min(5vw, 42px)', fontWeight: 800, marginBottom: '2px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)', lineHeight: 1, margin: 0 }}>
-                                                        VSCodium Rust <span style={{ fontSize: '10px', background: 'var(--antigravity-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>v0.1.0-TOP</span>
+                                                        TERMINATOR <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>v0.2.0-ELITE</span>
                                                     </h1>
-                                                    <p style={{ fontSize: '14px', opacity: 0.8, color: 'var(--vscode-foreground)', marginBottom: '0', marginTop: '4px' }}>
-                                                        Integrated with Antigravity AI — Powered by Rust
+                                                    <p style={{ fontSize: '14px', opacity: 0.6, maxWidth: '600px', margin: '8px 0 0', lineHeight: '1.4' }}>
+                                                        The ultimate high-performance, native IDE optimized for speed, autonomy, and the future of software construction.
                                                     </p>
                                                 </div>
                                             </div>
@@ -190,16 +188,16 @@ const Workbench: React.FC = () => {
                                                 maxWidth: '900px'
                                             }}>
                                                 <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                                                    <div style={{ color: 'var(--antigravity-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-zap" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Performance</strong></div>
+                                                    <div style={{ color: 'var(--terminator-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-zap" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Performance</strong></div>
                                                     <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Zero-cost abstractions and Rust efficiency.</div>
                                                 </div>
                                                 <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                                                    <div style={{ color: 'var(--antigravity-success)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-shield" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Privacy</strong></div>
+                                                    <div style={{ color: 'var(--terminator-success)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-shield" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Privacy</strong></div>
                                                     <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Local-first processing, safe and secure.</div>
                                                 </div>
                                                 <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                                                    <div style={{ color: 'var(--antigravity-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-bot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Autonomy</strong></div>
-                                                    <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Integrated agent with full filesystem access.</div>
+                                                    <div style={{ color: 'var(--terminator-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-bot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Autonomy</strong></div>
+                                                    <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Integrated TERMINATOR agent with full filesystem access.</div>
                                                 </div>
                                             </div>
 
@@ -212,7 +210,7 @@ const Workbench: React.FC = () => {
                                                             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
                                                             onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
                                                             onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.newFile'); }}>
-                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--antigravity-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
+                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
                                                                 <i className="codicon codicon-new-file" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
                                                             </div>
                                                             <div className="premium-card-content">
@@ -225,7 +223,7 @@ const Workbench: React.FC = () => {
                                                             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
                                                             onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
                                                             onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.openFolder'); }}>
-                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--antigravity-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
+                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
                                                                 <i className="codicon codicon-folder-opened" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
                                                             </div>
                                                             <div className="premium-card-content">
@@ -238,7 +236,7 @@ const Workbench: React.FC = () => {
                                                             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
                                                             onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
                                                             onClick={(e) => { e.preventDefault(); (window as any).executeCommand('git.clone'); }}>
-                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--antigravity-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
+                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
                                                                 <i className="codicon codicon-source-control" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
                                                             </div>
                                                             <div className="premium-card-content">
@@ -259,16 +257,19 @@ const Workbench: React.FC = () => {
                                             </div>
                                         </div>
                                     </div>
-                                )}
-
-                                {/* Monaco Editor or Settings Page */}
-                                {hasOpenFile && (
-                                    <div style={{ width: '100%', height: '100%' }}>
+                                ) : hasOpenFile ? (
+                                    /* Monaco Editor or Settings Page */
+                                    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
                                         {tabs.find(t => t.id === activeTabId)?.type === 'settings' ? (
                                             <SettingsPage />
                                         ) : (
                                             <Editor />
                                         )}
+                                    </div>
+                                ) : (
+                                    /* Fallback when a folder is open but no file is selected */
+                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.2 }}>
+                                        <i className="codicon codicon-symbol-method" style={{ fontFamily: 'codicon', fontSize: '64px' }} />
                                     </div>
                                 )}
                             </div>

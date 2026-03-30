@@ -1592,6 +1592,11 @@ async fn set_ollama_url(
     Ok(())
 }
 
+#[tauri::command]
+async fn git_clone(url: String, path: String) -> Result<(), String> {
+    GitManager::new().clone(&url, path)
+}
+
 pub fn run() {
     let filter = EnvFilter::from_default_env()
         .add_directive(tracing::Level::INFO.into());
@@ -1678,6 +1683,7 @@ pub fn run() {
             set_ollama_url, check_ollama_status, pull_ollama_model, stop_ai_agent,
             register_ida_pro, ai_execute_command, ai_modify_file, propose_file_change,
             get_icon_theme_mapping, hunt_api_keys, optimize_memory,
+            git_clone,
             start_mitm_server, stop_mitm_server, get_mitm_status,
             editor_get_active_file,
             analyze_file_symbols,

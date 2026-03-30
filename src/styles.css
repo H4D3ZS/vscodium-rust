@@ -63,11 +63,11 @@
   --vscode-editorError-foreground: #f48771;
   --vscode-editorWarning-foreground: #ff9800;
 
-  /* Custom Antigravity Tokens */
-  --antigravity-accent: #007acc;
-  --antigravity-success: #89d185;
-  --antigravity-warning: #cca700;
-  --antigravity-error: #f48771;
+  /* Custom Terminator Tokens */
+  --terminator-accent: #007acc;
+  --terminator-success: #89d185;
+  --terminator-warning: #cca700;
+  --terminator-error: #f48771;
 
   /* Layout Metrics (Pixel Perfect VS Code) */
   --activity-bar-width: 40px;
@@ -88,11 +88,21 @@
   --panel-bg: var(--vscode-sideBar-background);
   --panel-border: var(--vscode-sideBar-border, rgba(0, 0, 0, 0.2));
   --sidebar-bg: var(--vscode-sideBar-background);
+  --glass-border: rgba(255, 255, 255, 0.08);
 
   /* Native-like Shadows */
   --shadow-macos: 0 10px 30px rgba(0, 0, 0, 0.45);
   --shadow-menu: 0 5px 15px rgba(0, 0, 0, 0.4);
   --shadow-tooltip: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+body {
+  background-color: var(--vscode-editor-background, #1e1e1e);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
 }
 
 .glass-effect {
@@ -108,7 +118,7 @@ body::before {
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: var(--antigravity-wallpaper);
+  background-image: var(--terminator-wallpaper);
   background-size: cover;
   background-position: center;
   opacity: 0.3;
@@ -128,8 +138,9 @@ body::before {
   transition: opacity 0.3s ease;
 }
 
-body.has-antigravity-wallpaper .body-backdrop {
+body.has-terminator-wallpaper .body-backdrop {
   opacity: 0.7;
+  background-color: var(--vscode-editor-background);
   /* native blend */
 }
 
@@ -140,7 +151,7 @@ body::after {
   right: 10px;
   width: 250px;
   height: 250px;
-  background-image: var(--antigravity-sticker);
+  background-image: var(--terminator-sticker);
   background-size: contain;
   background-repeat: no-repeat;
   background-position: bottom right;
@@ -153,17 +164,17 @@ body::after {
   transition: opacity 0.3s ease;
 }
 
-body:not(.has-antigravity-wallpaper)::after {
+body:not(.has-terminator-wallpaper)::after {
   opacity: 0;
   pointer-events: none;
 }
 
 /* Centralized Native Theming (No Glassmorphism) */
-body.has-antigravity-wallpaper .sidebar,
-body.has-antigravity-wallpaper .bottom-panel,
-body.has-antigravity-wallpaper .right-sidebar,
-body.has-antigravity-wallpaper .activity-bar,
-body.has-antigravity-wallpaper #title-bar {
+body.has-terminator-wallpaper .sidebar,
+body.has-terminator-wallpaper .bottom-panel,
+body.has-terminator-wallpaper .right-sidebar,
+body.has-terminator-wallpaper .activity-bar,
+body.has-terminator-wallpaper #title-bar {
   background: transparent !important;
   /* NO BLUR, NO SATURATE */
 }
@@ -252,23 +263,23 @@ body.has-antigravity-wallpaper #title-bar {
 }
 
 /* Global transparent state for Doki Themes */
-body.has-antigravity-wallpaper .sidebar,
-body.has-antigravity-wallpaper .activity-bar,
-body.has-antigravity-wallpaper .bottom-panel,
-body.has-antigravity-wallpaper .sidebar-section-header,
-body.has-antigravity-wallpaper .pane-header {
+body.has-terminator-wallpaper .sidebar,
+body.has-terminator-wallpaper .activity-bar,
+body.has-terminator-wallpaper .bottom-panel,
+body.has-terminator-wallpaper .sidebar-section-header,
+body.has-terminator-wallpaper .pane-header {
   background: rgba(var(--vscode-sideBar-background-rgb), 0.75) !important;
 }
 
-body.has-antigravity-wallpaper .right-sidebar {
+body.has-terminator-wallpaper .right-sidebar {
   background: rgba(var(--vscode-sideBar-background-rgb), 0.75) !important;
 }
 
-body.has-antigravity-wallpaper .editor-container {
+body.has-terminator-wallpaper .editor-container {
   background: rgba(var(--vscode-editor-background-rgb), 0.75) !important;
 }
 
-body.has-antigravity-wallpaper .activity-bar {
+body.has-terminator-wallpaper .activity-bar {
   background-color: rgba(var(--vscode-activityBar-background-rgb, 30, 30, 31), 0.6) !important;
 }
 
@@ -278,19 +289,9 @@ body.has-antigravity-wallpaper .activity-bar {
   background: transparent !important;
 }
 
-/* Force Global Theming Integration for Monaco Editor */
-.monaco-editor,
-.monaco-editor .margin,
-.monaco-editor-background,
-.monaco-editor .inputarea.ime-input,
-.monaco-editor .monaco-scrollable-element {
-  background-color: transparent !important;
-  background: transparent !important;
-}
-
 /* Force the line numbers and margin to match the sidebar mood */
 .monaco-editor .line-numbers.active-line-number {
-  color: var(--vscode-editorLineNumber-activeForeground, var(--antigravity-accent)) !important;
+  color: var(--vscode-editorLineNumber-activeForeground, var(--terminator-accent)) !important;
 }
 
 .monaco-editor .line-numbers {
@@ -300,12 +301,12 @@ body.has-antigravity-wallpaper .activity-bar {
 /* Ensure the editor container provides the theme background/wallpaper */
 .editor-container {
   background-color: var(--vscode-editor-background) !important;
-  background-image: var(--antigravity-wallpaper) !important;
+  background-image: var(--terminator-wallpaper) !important;
   background-size: cover !important;
   background-position: center !important;
 }
 
-body.has-antigravity-wallpaper .editor-container {
+body.has-terminator-wallpaper .editor-container {
   background-color: rgba(var(--vscode-editor-background-rgb), 0.7) !important;
 }
 
@@ -475,7 +476,7 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: transparent !important;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -492,7 +493,12 @@ body {
 }
 
 ::-webkit-scrollbar-corner {
-  background: transparent;
+  background: transparent !important;
+}
+
+/* Force Monaco Scrollbar Transparency */
+.monaco-scrollable-element>.scrollbar {
+  background: transparent !important;
 }
 
 /* Common Inputs */
@@ -2687,7 +2693,7 @@ body {
   border-radius: 4px;
 }
 
-/* Antigravity Premium UI Enhancements */
+/* TERMINATOR Premium UI Enhancements */
 
 @keyframes agent-pulse {
   0% {
@@ -2855,7 +2861,7 @@ body {
 
 .chat-input-container:focus-within {
   background: rgba(255, 255, 255, 0.05);
-  border-color: var(--antigravity-accent);
+  border-color: var(--terminator-accent);
   box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
 }
 
@@ -2877,7 +2883,7 @@ body {
   border-radius: 6px;
   background: transparent;
   border: none;
-  color: var(--antigravity-accent);
+  color: var(--terminator-accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2886,7 +2892,7 @@ body {
 }
 
 .chat-send-btn:hover:not(:disabled) {
-  background: var(--antigravity-accent);
+  background: var(--terminator-accent);
   color: #fff;
 }
 

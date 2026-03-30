@@ -402,9 +402,9 @@ const Sidebar: React.FC = () => {
                             defaultCollapsed={false}
                             actions={activeRoot ? (
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', paddingRight: '8px' }}>
-                                    <i className="codicon codicon-new-file" onClick={() => (window as any).cm_new_file?.()} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New File"></i>
-                                    <i className="codicon codicon-new-folder" onClick={() => (window as any).cm_new_folder?.()} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New Folder"></i>
-                                    <i className="codicon codicon-collapse-all" onClick={refreshFileTree} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Collapse Folders"></i>
+                                    <i className="codicon codicon-new-file" onClick={() => (window as any).executeCommand('explorer.newFile')} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New File"></i>
+                                    <i className="codicon codicon-new-folder" onClick={() => (window as any).executeCommand('explorer.newFolder')} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New Folder"></i>
+                                    <i className="codicon codicon-close-all" onClick={() => (window as any).executeCommand('workbench.action.closeFolder')} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Close Folder"></i>
                                     <i className="codicon codicon-refresh" onClick={refreshFileTree} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Refresh"></i>
                                 </div>
                             ) : null}

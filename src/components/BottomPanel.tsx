@@ -68,7 +68,7 @@ const BottomPanel: React.FC = () => {
                             {tab}
                             {tab === 'Problems' && (
                                 <span style={{
-                                    background: 'var(--antigravity-accent)',
+                                    background: 'var(--terminator-accent)',
                                     color: '#ffffff',
                                     padding: '0px 6px',
                                     borderRadius: '10px',

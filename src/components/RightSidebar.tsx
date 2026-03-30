@@ -271,7 +271,7 @@ const RightSidebar: React.FC = () => {
                         fontSize: '14px',
                         color: '#ff4d4f'
                     }}></i>
-                    <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.05em', opacity: 0.8 }}>ANTIGRAVITY</span>
+                    <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.05em', opacity: 0.8 }}>TERMINATOR</span>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <div onClick={() => setView('chat')} style={{ cursor: 'pointer', opacity: view === 'chat' ? 1 : 0.4 }} title="Chat"><i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
@@ -296,7 +296,7 @@ const RightSidebar: React.FC = () => {
                                 <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.5 }}>
                                         <i className={`codicon codicon-${msg.role === 'assistant' ? 'sparkle' : 'account'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
-                                        <span style={{ fontSize: '11px', fontWeight: 800 }}>{msg.role === 'assistant' ? 'AGENT' : 'YOU'}</span>
+                                        <span style={{ fontSize: '11px', fontWeight: 800 }}>{msg.role === 'assistant' ? 'TERMINATOR' : 'YOU'}</span>
                                     </div>
                                     <div style={{
                                         background: msg.role === 'user' ? 'var(--vscode-list-hoverBackground, rgba(59, 130, 246, 0.05))' : 'rgba(255, 255, 255, 0.01)',

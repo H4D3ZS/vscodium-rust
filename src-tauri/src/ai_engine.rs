@@ -298,7 +298,7 @@ impl Sentient {
             }
         }
 
-        let base_prompt_template = "You are Antigravity-IDE, an elite autonomous AI software engineer. \
+        let base_prompt_template = "You are TERMINATOR AI, an elite autonomous AI software engineer. \
             Your goal is to architect, implement, and audit complex systems with absolute scientific rigor. \
             \n\n### OPERATIONAL DIRECTIVES:\n\
             1. FULL AUTONOMY: You are EMPOWERED to take direct action. Use tools PROACTIVELY. \
@@ -452,9 +452,9 @@ impl Sentient {
             let system_msg = messages.iter()
                 .find(|m| m.role == "system")
                 .and_then(|m| m.content.as_ref().map(|c| c.as_str().to_string()))
-                .unwrap_or_else(|| "You are Antigravity Ghost, a powerful autonomous AI agent.".to_string());
+                .unwrap_or_else(|| "You are TERMINATOR AGI, a powerful autonomous AI agent.".to_string());
 
-            let final_messages: Vec<Value> = messages.iter().map(|m| {
+            let _final_messages: Vec<Value> = messages.iter().map(|m| {
                 let mut msg = json!({
                     "role": &m.role,
                 });
