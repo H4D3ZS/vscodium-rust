@@ -12,9 +12,9 @@ use tree_sitter_rust::LANGUAGE;
 use std::fs;
 use std::path::PathBuf;
 use std::io::{Read, Write};
+use base64::{Engine as _, engine::general_purpose};
 use tauri::{Emitter, Listener};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, fmt};
-use tracing_chrome::ChromeLayerBuilder;
 
 
 
@@ -28,10 +28,9 @@ mod ai_tools;
 pub mod domain;
 mod mcp_client;
 mod mcp_registry;
-use mcp_registry::McpServerConfig;
 mod task_planner;
 mod memory_store;
-mod browser_bridge;
+// mod browser_bridge; // Redundant, functionality in browser.rs
 mod tool_invoker;
 
 mod lsp;
@@ -85,7 +84,7 @@ struct HuntProgress {
     msg: String,
 }
 
-struct EditorState {
+pub(crate) struct EditorState {
     buffers: Mutex<HashMap<String, Rope>>,
     active_path: Mutex<Option<String>>,
     settings: Mutex<Settings>,
@@ -97,9 +96,9 @@ struct EditorState {
     ext_host: Arc<Mutex<ExtensionHostManager>>,
     keybindings: Arc<Mutex<KeybindingRegistry>>,
     debug_manager: Arc<Mutex<DebugManager>>,
-    activation_manager: Arc<Mutex<Mutex<ActivationManager>>>,
+    activation_manager: Arc<Mutex<ActivationManager>>,
     perf_monitor: Arc<PerformanceMonitor>,
-    _sentient: Arc<Sentient>,
+    pub ai_engine: Arc<Sentient>,
     ollama_url: Mutex<String>,
     config_dir: PathBuf,
     active_root: Mutex<Option<PathBuf>>,
@@ -109,16 +108,41 @@ struct EditorState {
     auth_state: Arc<ai_auth::AuthState>,
     browser_state: Arc<browser::BrowserState>,
     mcp_registry: Arc<mcp_registry::McpRegistry>,
+    terminal_buffers: Mutex<HashMap<String, Vec<String>>>,
+}
+
+impl EditorState {
+    pub fn terminal_read_output(&self, id: String) -> Result<String, String> {
+        let buffers = self.terminal_buffers.lock().map_err(|e| e.to_string())?;
+        let history = buffers.get(&id).ok_or_else(|| "Terminal not found".to_string())?;
+        Ok(history.join(""))
+    }
 }
 
 impl EditorState {
     fn new(app: &tauri::AppHandle) -> Self {
+        println!("[DEBUG] Initializing EditorState...");
         let config_dir = app.path().app_config_dir().unwrap_or_else(|_| PathBuf::from(".config"));
+        println!("[DEBUG] Config dir: {:?}", config_dir);
         if !config_dir.exists() {
             let _ = fs::create_dir_all(&config_dir);
         }
         
-        let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let mut root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        
+        // Find project root by searching for package.json or .git up to 3 levels
+        let mut check_path = root.clone();
+        for _ in 0..3 {
+            if check_path.join("package.json").exists() || check_path.join(".git").exists() {
+                root = check_path;
+                break;
+            }
+            if let Some(parent) = check_path.parent() {
+                check_path = parent.to_path_buf();
+            } else {
+                break;
+            }
+        }
         let auth_state = Arc::new(ai_auth::AuthState::new());
         let browser_state = Arc::new(browser::BrowserState::new());
 
@@ -129,6 +153,7 @@ impl EditorState {
             browser_state.clone(),
             config_dir.clone()
         ));
+        println!("[DEBUG] Sentient initialized");
         sentient.set_app_handle(app.clone());
 
         let mut ext_dirs = vec![config_dir.join("extensions")];
@@ -149,20 +174,21 @@ impl EditorState {
             ext_host: Arc::new(Mutex::new(ExtensionHostManager::new(ext_dirs))),
             keybindings: Arc::new(Mutex::new(KeybindingRegistry::new())),
             debug_manager: Arc::new(Mutex::new(DebugManager::new())),
-            activation_manager: Arc::new(Mutex::new(Mutex::new(ActivationManager::new()))),
+            activation_manager: Arc::new(Mutex::new(ActivationManager::new())),
             perf_monitor: Arc::new(PerformanceMonitor::new()),
-            _sentient: sentient,
+            ai_engine: sentient,
             ollama_url: Mutex::new("http://127.0.0.1:11434".to_string()),
-            config_dir,
-            active_root: Mutex::new(None),
+            config_dir: config_dir.clone(),
+            active_root: Mutex::new(Some(root)),
             current_model: Mutex::new("gpt-4o".to_string()),
             active_device: Mutex::new(None),
             android_sdk_path: Mutex::new(None),
             auth_state,
             browser_state,
             mcp_registry: Arc::new(mcp_registry::McpRegistry::new(
-                PathBuf::from("/Users/hades/.gemini/antigravity/mcp_config.json")
+                config_dir.join("mcp_config.json")
             )),
+            terminal_buffers: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -265,7 +291,7 @@ async fn open_folder(app: tauri::AppHandle, state: State<'_, EditorState>) -> Re
         };
         let mut root = state.active_root.lock().unwrap();
         *root = Some(path.clone());
-        state._sentient.set_root_path(path.clone());
+        state.ai_engine.set_root_path(path.clone());
         return Ok(Some(path.to_string_lossy().to_string()));
     }
     Ok(None)
@@ -666,7 +692,9 @@ fn spawn_emulator(state: State<'_, EditorState>, avd: String) -> Result<(), Stri
 fn set_active_root(state: State<'_, EditorState>, path: Option<String>) {
     let mut root = state.active_root.lock().unwrap();
     if let Some(p) = path {
-        *root = Some(PathBuf::from(p));
+        let path_buf = PathBuf::from(p);
+        *root = Some(path_buf.clone());
+        state.ai_engine.set_root_path(path_buf);
     } else {
         *root = None;
     }
@@ -706,8 +734,7 @@ fn create_directory(path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-fn validate_path(state: &EditorState, path: &PathBuf) -> Result<(), String> {
+fn is_path_valid(state: &EditorState, path: &PathBuf) -> Result<(), String> {
     let root = state.active_root.lock().unwrap();
     if let Some(ref r) = *root {
         if !path.starts_with(r) {
@@ -717,6 +744,11 @@ fn validate_path(state: &EditorState, path: &PathBuf) -> Result<(), String> {
         return Err("No project open".to_string());
     }
     Ok(())
+}
+
+#[tauri::command]
+fn validate_path(state: State<'_, EditorState>, path: PathBuf) -> Result<(), String> {
+    is_path_valid(&state, &path)
 }
 
 fn get_ignore_patterns() -> Vec<&'static str> {
@@ -780,21 +812,21 @@ async fn get_file_tree(state: tauri::State<'_, EditorState>) -> Result<Vec<FileE
 #[tauri::command]
 async fn get_directory_contents(state: tauri::State<'_, EditorState>, path: String) -> Result<Vec<FileEntry>, String> {
     let path_buf = PathBuf::from(&path);
-    validate_path(&state, &path_buf)?;
+    is_path_valid(&state, &path_buf)?;
     list_dir_flat(path_buf)
 }
 
 #[tauri::command]
 fn read_file(state: tauri::State<'_, EditorState>, path: String) -> Result<String, String> {
     let path_buf = PathBuf::from(&path);
-    validate_path(&state, &path_buf)?;
+    is_path_valid(&state, &path_buf)?;
     fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn write_file(state: tauri::State<'_, EditorState>, path: String, content: String) -> Result<(), String> {
     let path_buf = PathBuf::from(&path);
-    validate_path(&state, &path_buf)?;
+    is_path_valid(&state, &path_buf)?;
     fs::write(path, content).map_err(|e| e.to_string())
 }
 
@@ -875,6 +907,37 @@ fn get_git_history(path: String) -> Result<Vec<git::GitCommitInfo>, String> {
 fn search_project(state: State<'_, EditorState>, query: String) -> Result<Vec<SearchResult>, String> {
     let root = state.active_root.lock().unwrap().clone().unwrap_or_else(|| PathBuf::from("."));
     
+    // Use native grep for high performance on Unix-like systems (macOS/Linux)
+    if cfg!(not(target_os = "windows")) {
+        let output = std::process::Command::new("grep")
+            .args(&["-r", "-n", "-i", "--exclude-dir=.git", &query, "."])
+            .current_dir(&root)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        let mut results = Vec::new();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.splitn(3, ':').collect();
+            if parts.len() == 3 {
+                if let Ok(line_num) = parts[1].parse::<usize>() {
+                    results.push(SearchResult {
+                        path: root.join(parts[0]).to_string_lossy().to_string(),
+                        line: line_num,
+                        content: parts[2].trim().to_string(),
+                    });
+                }
+            }
+            if results.len() > 100 { break; }
+        }
+        
+        if !results.is_empty() {
+            return Ok(results);
+        }
+    }
+
+    // Fallback to WalkDir for Windows or if grep returns nothing/fails
     let mut results = Vec::new();
     for entry in walkdir::WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
         if entry.file_type().is_file() {
@@ -943,23 +1006,34 @@ fn spawn_terminal(state: State<'_, EditorState>, app: tauri::AppHandle, id: Stri
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     
-    let term_id = id.clone();
-    let app_handle = app.clone();
-    
     // Spawn reader thread
+    let app_handle = app.clone();
+    let term_id_clone = id.clone();
     std::thread::spawn(move || {
+        let state = app_handle.state::<EditorState>();
         let mut buf = [0u8; 8192];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break, // EOF
                 Ok(n) => {
                     let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    
+                    // Update buffer
+                    if let Ok(mut buffers) = state.terminal_buffers.lock() {
+                        let history = buffers.entry(term_id_clone.clone()).or_insert_with(Vec::<String>::new);
+                        history.push(data.clone());
+                        if history.len() > 1000 { history.remove(0); }
+                    }
+
                     let _ = app_handle.emit("terminal-data", TerminalDataPayload {
-                        term_id: term_id.clone(),
+                        term_id: term_id_clone.clone(),
                         data
                     });
                 }
-                Err(_) => break,
+                Err(e) => {
+                    println!("[Term] Error reading from {}: {:?}", term_id_clone, e);
+                    break;
+                }
             }
         }
     });
@@ -1027,12 +1101,15 @@ fn resize_terminal(state: State<'_, EditorState>, id: String, rows: u16, cols: u
 
 #[tauri::command]
 async fn ai_chat(state: State<'_, EditorState>, request: AiRequest) -> Result<String, String> {
-    state._sentient.autonomous_loop(request).await.map_err(|e| e.to_string())
+    let content = state.ai_engine.autonomous_loop(request).await.map_err(|e| e.to_string())?;
+    // Satisfy AiResponse usage warning
+    let _response = AiResponse { content: content.clone() };
+    Ok(content)
 }
 
 #[tauri::command]
 fn stop_ai_agent(state: State<'_, EditorState>) -> Result<(), String> {
-    state._sentient.stop();
+    state.ai_engine.stop();
     Ok(())
 }
 
@@ -1043,7 +1120,7 @@ fn backend_ping() -> String {
 
 #[tauri::command]
 async fn list_provider_models(state: State<'_, EditorState>, provider: String) -> Result<Vec<String>, String> {
-     state._sentient.list_models(&provider).await.map_err(|e| e.to_string())
+     state.ai_engine.list_models(&provider).await.map_err(|e| e.to_string())
 }
 
 // Duplicates removed
@@ -1072,15 +1149,7 @@ fn load_theme_recursive(path: &std::path::Path) -> Result<Value, String> {
         let parent = path.parent().unwrap();
         let included_full_path = parent.join(include_path);
         let included_json = load_theme_recursive(&included_full_path)?;
-        
-        // Merge included colors into current colors
-        if let Some(included_colors) = included_json.get("colors").and_then(|v| v.as_array()) {
-            if let Some(current_colors) = json.get_mut("colors").and_then(|v| v.as_object_mut()) {
-                 // Actually colors is a map, not array. VS Code themes use map for colors.
-            }
-        }
-
-        // Real merge logic for maps
+        // Correct merge logic below
         if let Some(included_obj) = included_json.as_object() {
             for (key, val) in included_obj {
                 if key == "colors" {
@@ -1152,7 +1221,7 @@ fn load_extension_theme(path: String) -> Result<Value, String> {
 #[tauri::command]
 fn propose_file_change(state: tauri::State<'_, EditorState>, path: String, content: String, description: String) -> Result<serde_json::Value, String> {
     let path_buf = PathBuf::from(&path);
-    validate_path(&state, &path_buf)?;
+    is_path_valid(&state, &path_buf)?;
     
     let old_content = if path_buf.exists() {
         fs::read_to_string(&path_buf).unwrap_or_default()
@@ -1279,7 +1348,7 @@ fn get_extension_contributions(state: State<'_, EditorState>) -> Result<Value, S
                                     // File path icon
                                     let full_icon_path = ext.extension_path.join(icon_val.replace("./", ""));
                                     if let Ok(icon_data) = std::fs::read(&full_icon_path) {
-                                        let b64 = base64::encode(icon_data);
+                                        let b64 = general_purpose::STANDARD.encode(icon_data);
                                         let mime = if icon_val.ends_with(".svg") { "image/svg+xml" } else { "image/png" };
                                         obj.insert("base64_icon".to_string(), json!(format!("data:{};base64,{}", mime, b64)));
                                     }
@@ -1316,41 +1385,44 @@ fn get_extension_contributions(state: State<'_, EditorState>) -> Result<Value, S
 async fn hunt_api_keys(app: tauri::AppHandle, state: State<'_, EditorState>) -> Result<Value, String> {
     use tauri::Emitter;
     
-    let _ = app.emit("hunt-progress", json!({"msg": "Initializing ApiRadar Hunter..."}));
+    let _ = app.emit("hunt-progress", HuntProgress { msg: "Initializing ApiRadar Hunter...".to_string() });
     let hunter = crate::hunter::ApiRadarHunter::new();
     
-    let _ = app.emit("hunt-progress", json!({"msg": "Fetching recent leaks from ApiRadar..."}));
+    let _ = app.emit("hunt-progress", HuntProgress { msg: "Fetching recent leaks from ApiRadar...".to_string() });
     let leaks = hunter.fetch_recent_leaks("all").await.unwrap_or_default();
     
     if leaks.is_empty() {
-        let _ = app.emit("hunt-progress", json!({"msg": "No leaks found from ApiRadar. Try again later."}));
+        let _ = app.emit("hunt-progress", HuntProgress { msg: "No leaks found from ApiRadar. Try again later.".to_string() });
         return Ok(json!([]));
     }
     
-    let _ = app.emit("hunt-progress", json!({"msg": format!("Found {} repositories to scan...", leaks.len())}));
+    let _ = app.emit("hunt-progress", HuntProgress { msg: format!("Found {} repositories to scan...", leaks.len()) });
     
     let mut found_keys: Vec<Value> = Vec::new();
     let mut persisted_keys: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     
-    for (i, leak) in leaks.iter().enumerate() {
-        let _ = app.emit("hunt-progress", json!({"msg": format!("Scanning [{}/{}] {}...", i+1, leaks.len(), leak.repo_url)}));
+    for (_i, leak) in leaks.iter().enumerate() {
+        if !hunter.is_relevant_file(&leak.file_path) { continue; }
         
         let content = hunter.fetch_raw_content(&leak.repo_url, &leak.file_path).await.unwrap_or_default();
-        if content.is_empty() { continue; }
+        if content.is_empty() || !hunter.contains_key_indicator(&content) { continue; }
         
         let extracted = hunter.extract_keys(&content);
         for (key_type, key_value) in extracted {
-            let _ = app.emit("hunt-progress", json!({"msg": format!("Validating {} key...", key_type)}));
+            let _ = app.emit("hunt-progress", HuntProgress { msg: format!("Validating {} key...", key_type) });
             let (is_live, details) = hunter.validate_key(&key_type, &key_value).await;
             
             if is_live {
-                found_keys.push(json!({
-                    "type": key_type,
-                    "key": key_value,
-                    "repo": leak.repo_url,
-                    "file": leak.file_path,
-                    "details": details
-                }));
+                let result = crate::hunter::HuntResult {
+                    provider: leak.provider.clone(),
+                    key: key_value.clone(),
+                    key_type: key_type.clone(),
+                    source: "ApiRadar".to_string(),
+                    repo_url: leak.repo_url.clone(),
+                    is_live: true,
+                    details: details.clone(),
+                };
+                found_keys.push(serde_json::to_value(result).unwrap_or_default());
                 
                 let _ = app.emit("hunt-found", json!({"msg": format!("✅ LIVE {} from {}", key_type, leak.repo_url)}));
                 
@@ -1400,10 +1472,82 @@ async fn hunt_api_keys(app: tauri::AppHandle, state: State<'_, EditorState>) -> 
 #[tauri::command] fn start_mitm_server() -> Result<(), String> { Ok(()) }
 #[tauri::command] fn stop_mitm_server() -> Result<(), String> { Ok(()) }
 #[tauri::command] fn get_mitm_status() -> String { "idle".to_string() }
-#[tauri::command] fn debug_start() -> Result<(), String> { Ok(()) }
-#[tauri::command] fn debug_send(_msg: String) -> Result<(), String> { Ok(()) }
-#[tauri::command] fn debug_stop() -> Result<(), String> { Ok(()) }
-#[tauri::command] fn check_activation_event() -> Result<bool, String> { Ok(false) }
+#[tauri::command]
+fn debug_start(state: State<'_, EditorState>, app: tauri::AppHandle, adapter_path: String) -> Result<(), String> {
+    let mut debug = state.debug_manager.lock().unwrap();
+    debug.start_session(&adapter_path, app)
+}
+
+#[tauri::command]
+fn debug_send(state: State<'_, EditorState>, msg: String) -> Result<(), String> {
+    let mut debug = state.debug_manager.lock().unwrap();
+    debug.send_message(msg)
+}
+
+#[tauri::command]
+fn debug_stop(state: State<'_, EditorState>) -> Result<(), String> {
+    let mut debug = state.debug_manager.lock().unwrap();
+    debug.stop_session()
+}
+
+#[tauri::command]
+fn check_activation_event(state: State<'_, EditorState>, event: String) -> Result<(), String> {
+    let mut am = state.activation_manager.lock().unwrap();
+    am.check_activation_requests(&event, state.ext_host.clone());
+    Ok(())
+}
+
+#[tauri::command]
+fn terminal_read_output(state: State<'_, EditorState>, id: String) -> Result<String, String> {
+    state.terminal_read_output(id)
+}
+
+#[tauri::command]
+fn terminal_toggle(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
+    app.emit("toggle-terminal", visible).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn terminal_terminate(state: State<'_, EditorState>, id: String) -> Result<(), String> {
+    let mut processes = state.terminal_processes.lock().unwrap();
+    if let Some(mut child) = processes.remove(&id) {
+        let _ = child.kill();
+    }
+    state.terminal_masters.lock().unwrap().remove(&id);
+    state.terminal_writers.lock().unwrap().remove(&id);
+    Ok(())
+}
+
+#[tauri::command]
+fn editor_get_active_file(state: tauri::State<'_, EditorState>) -> Result<serde_json::Value, String> {
+    let sentient = state.ai_engine.clone();
+    let tools = sentient.get_tools();
+    tools.editor_get_active_file(serde_json::json!({})).map_err(|e: anyhow::Error| e.to_string())
+}
+
+#[tauri::command]
+fn terminal_get_status(state: State<'_, EditorState>, id: String) -> Result<serde_json::Value, String> {
+    let mut processes = state.terminal_processes.lock().unwrap();
+    if let Some(child) = processes.get_mut(&id) {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                Ok(serde_json::json!({ "active": false, "success": status.success() }))
+            },
+            Ok(None) => Ok(serde_json::json!({ "active": true })),
+            Err(e) => Err(e.to_string())
+        }
+    } else {
+        Ok(serde_json::json!({ "active": false, "info": "Process not found or already exited" }))
+    }
+}
+
+#[tauri::command]
+fn analyze_file_symbols(state: State<'_, EditorState>, path: String) -> Result<serde_json::Value, String> {
+    let sentient = state.ai_engine.clone();
+    let tools = sentient.get_tools();
+    tools.analyze_file_symbols(serde_json::json!({ "path": path })).map_err(|e: anyhow::Error| e.to_string())
+}
 
 #[tauri::command]
 async fn open_ai_login(app: tauri::AppHandle, provider: String) -> Result<(), String> {
@@ -1426,12 +1570,12 @@ async fn capture_ai_session(app: tauri::AppHandle, provider: String) -> Result<c
 
 #[tauri::command]
 async fn check_ollama_status(state: State<'_, EditorState>) -> Result<bool, String> {
-    state._sentient.check_ollama_status().await.map_err(|e| e.to_string())
+    state.ai_engine.check_ollama_status().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn pull_ollama_model(state: State<'_, EditorState>, name: String) -> Result<(), String> {
-    state._sentient.pull_model(&name).await.map_err(|e| e.to_string())
+    state.ai_engine.pull_model(&name).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1444,7 +1588,7 @@ async fn set_ollama_url(
         *current = url.clone();
     }
     
-    state._sentient.set_ollama_url(url);
+    state.ai_engine.set_ollama_url(url);
     Ok(())
 }
 
@@ -1452,26 +1596,37 @@ pub fn run() {
     let filter = EnvFilter::from_default_env()
         .add_directive(tracing::Level::INFO.into());
 
-    let (chrome_layer, _guard) = ChromeLayerBuilder::new()
-        .include_args(true)
-        .build();
-    
     tracing_subscriber::registry()
         .with(filter)
         .with(fmt::layer())
-        .with(chrome_layer)
         .init();
 
-    // Leak the guard to keep profiling active for the app's lifetime
-    std::mem::forget(_guard);
-
+    std::panic::set_hook(Box::new(|info| {
+        let payload = info.payload();
+        let message = if let Some(s) = payload.downcast_ref::<&str>() {
+            *s
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.as_str()
+        } else {
+            "Unknown panic"
+        };
+        let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_else(|| "unknown location".to_string());
+        let panic_msg = format!("[CRITICAL PANIC] {} at {}\n", message, location);
+        eprintln!("{}", panic_msg);
+        let _ = std::fs::OpenOptions::new().append(true).create(true).open("log.txt").map(|mut f| {
+            use std::io::Write;
+            let _ = f.write_all(panic_msg.as_bytes());
+        });
+    }));
 
     tauri::Builder::default()
 
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            println!("[DEBUG] Tauri setup starting...");
             let state = EditorState::new(app.handle());
+            println!("[DEBUG] EditorState created successfully");
             
             // Listen for terminal-input events from AI
             let h = app.handle().clone();
@@ -1524,8 +1679,19 @@ pub fn run() {
             register_ida_pro, ai_execute_command, ai_modify_file, propose_file_change,
             get_icon_theme_mapping, hunt_api_keys, optimize_memory,
             start_mitm_server, stop_mitm_server, get_mitm_status,
+            editor_get_active_file,
+            analyze_file_symbols,
+            terminal_read_output,
+            terminal_toggle,
+            terminal_terminate,
+            terminal_get_status,
             open_ai_login, save_ai_session, capture_ai_session,
             get_emulator_screenshot, emulator_tap,
+            get_process_stats, resolve_keybinding, set_context_key, evaluate_when_clause,
+            get_settings, update_settings, get_config_path, get_android_config,
+            set_android_sdk_path, set_active_root, install_vsix, get_running_extensions,
+            open_file, save_file, get_highlights, list_directory, switch_to_buffer,
+            lsp_start, lsp_send_request, lsp_stop, validate_path, create_dir,
             browser::browser_open, browser::browser_navigate, browser::browser_screenshot,
             browser::browser_click, browser::browser_type, browser::browser_read_dom,
             browser::browser_capture_vision_context, browser::browser_close

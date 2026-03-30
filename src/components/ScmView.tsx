@@ -68,25 +68,25 @@ const ScmView: React.FC = () => {
         <div className="scm-view" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Commit input (always visible) */}
             <div style={{ padding: '10px 10px 0 10px', flexShrink: 0 }}>
-                <textarea 
+                <textarea
                     value={commitMessage}
                     onChange={(e) => setCommitMessage(e.target.value)}
                     placeholder="Commit message (Ctrl+Enter to commit)"
-                    style={{ 
-                        width: '100%', height: '50px', 
-                        background: 'var(--vscode-input-background)', 
-                        color: 'var(--vscode-input-foreground)', 
-                        border: '1px solid var(--vscode-panel-border)', 
+                    style={{
+                        width: '100%', height: '50px',
+                        background: 'var(--vscode-input-background)',
+                        color: 'var(--vscode-input-foreground)',
+                        border: '1px solid var(--vscode-input-border, var(--vscode-panel-border))',
                         padding: '6px', fontSize: '12px', outline: 'none',
                         resize: 'none', borderRadius: '2px'
                     }}
                 />
-                <button 
+                <button
                     onClick={handleCommit}
                     disabled={!commitMessage}
-                    style={{ 
-                        width: '100%', marginTop: '6px', 
-                        background: 'var(--vscode-button-background)', 
+                    style={{
+                        width: '100%', marginTop: '6px',
+                        background: 'var(--vscode-button-background)',
                         color: 'white', border: 'none', padding: '5px',
                         cursor: 'pointer', borderRadius: '2px',
                         fontSize: '12px', opacity: commitMessage ? 1 : 0.6
@@ -99,7 +99,7 @@ const ScmView: React.FC = () => {
             {/* Tab bar */}
             <div style={{
                 display: 'flex', margin: '10px 10px 0 10px',
-                borderBottom: '1px solid var(--vscode-panel-border)',
+                borderBottom: '1px solid var(--vscode-sideBar-border, var(--vscode-panel-border))',
                 flexShrink: 0
             }}>
                 <button

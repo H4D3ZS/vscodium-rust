@@ -57,7 +57,7 @@ const TitleBar: React.FC = () => {
                 <div className="menu-items-container">
                     {menus.map(menu => (
                         <div key={menu.label} className="menu-item-wrapper">
-                            <div 
+                            <div
                                 className={`menu-label ${activeMenu === menu.label ? 'active' : ''}`}
                                 onClick={() => handleMenuClick(menu.label)}
                             >
@@ -66,8 +66,8 @@ const TitleBar: React.FC = () => {
                             {activeMenu === menu.label && (
                                 <div className="menu-dropdown">
                                     {menu.items.map(item => (
-                                        <div 
-                                            key={item} 
+                                        <div
+                                            key={item}
                                             className="menu-dropdown-item"
                                             onClick={() => handleItemClick(item)}
                                         >
@@ -85,31 +85,13 @@ const TitleBar: React.FC = () => {
                 <div className="command-box">
                     <i className="codicon codicon-search"></i>
                     <div className="text">
-                        { (window as any).activeRootName || 'vscodium-rust' } — { (window as any).useStore?.getState().activeTabId ? ( (window as any).useStore?.getState().tabs.find((t:any) => t.id === (window as any).useStore?.getState().activeTabId)?.filename || 'Welcome' ) : 'Welcome' }
+                        {(window as any).activeRootName || 'vscodium-rust'} — {(window as any).useStore?.getState().activeTabId ? ((window as any).useStore?.getState().tabs.find((t: any) => t.id === (window as any).useStore?.getState().activeTabId)?.filename || 'Welcome') : 'Welcome'}
                     </div>
                 </div>
             </div>
 
             <div className="title-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '12px' }}>
-                {/* AI Model Badge */}
-                <div className="ai-model-badge">
-                    <i className="codicon codicon-sparkle"></i>
-                    <span>{(agentModel.split('|')[1] || agentModel).split(':')[0].toUpperCase()}</span>
-                    {agentModel.toLowerCase().includes('ollama') && (
-                        <div 
-                            title={ollamaStatus === 'running' ? 'Ollama: Connected' : 'Ollama: Not Connected'}
-                            style={{
-                                width: '6px',
-                                height: '6px',
-                                borderRadius: '50%',
-                                background: ollamaStatus === 'running' ? '#10b981' : '#f43f5e',
-                                boxShadow: ollamaStatus === 'running' ? '0 0 4px #10b981' : 'none'
-                            }}
-                        ></div>
-                    )}
-                </div>
-
-                <div 
+                <div
                     title="Privacy Guard Active"
                     style={{
                         display: 'flex',

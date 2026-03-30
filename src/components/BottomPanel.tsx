@@ -1,28 +1,40 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useStore } from '../store';
 import TerminalView from './terminal/TerminalView';
+import { listen } from '@tauri-apps/api/event';
 
 const BottomPanel: React.FC = () => {
     const isOpen = useStore(state => state.isBottomPanelOpen);
     const activeTab = useStore(state => state.activePanelTab);
     const setActiveTab = useStore(state => state.setActivePanelTab);
     const toggleBottomPanel = useStore(state => state.toggleBottomPanel);
-    
+
     const terminalGroups = useStore(state => state.terminalGroups);
     const activeTerminalGroupId = useStore(state => state.activeTerminalGroupId);
     const addTerminalGroup = useStore(state => state.addTerminalGroup);
     const splitTerminal = useStore(state => state.splitTerminal);
-    
+
+    useEffect(() => {
+        const unlisten = listen<boolean>('toggle-terminal', (event) => {
+            if (event.payload) {
+                setActiveTab('TERMINAL');
+            } else if (isOpen) {
+                toggleBottomPanel();
+            }
+        });
+        return () => { unlisten.then(f => f()); };
+    }, [isOpen, setActiveTab, toggleBottomPanel]);
+
     const activeGroup = terminalGroups.find(g => g.id === activeTerminalGroupId);
     const agentTask = useStore(state => state.agentTask);
 
     if (!isOpen) return null;
 
     return (
-        <div 
+        <div
             className="bottom-panel"
-            style={{ 
-                height: '300px',
+            style={{
+                height: '100%',
                 width: '100%',
                 background: 'var(--vscode-panel-background)',
                 borderTop: '1px solid var(--vscode-panel-border)',
@@ -48,18 +60,18 @@ const BottomPanel: React.FC = () => {
             }}>
                 <div className="panel-tabs" style={{ display: 'flex', gap: '2px', height: '100%', alignItems: 'center' }}>
                     {['Problems', 'Output', 'Debug Console', 'Terminal', 'Ports'].map(tab => (
-                        <div 
+                        <div
                             key={tab}
-                            className={`panel-tab ${activeTab === tab.toUpperCase() ? 'active' : ''}`} 
+                            className={`panel-tab ${activeTab === tab.toUpperCase() ? 'active' : ''}`}
                             onClick={() => setActiveTab(tab.toUpperCase() as any)}
                         >
                             {tab}
                             {tab === 'Problems' && (
-                                <span style={{ 
-                                    background: 'var(--antigravity-accent)', 
-                                    color: '#ffffff', 
-                                    padding: '0px 6px', 
-                                    borderRadius: '10px', 
+                                <span style={{
+                                    background: 'var(--antigravity-accent)',
+                                    color: '#ffffff',
+                                    padding: '0px 6px',
+                                    borderRadius: '10px',
                                     fontSize: '9px',
                                     fontWeight: 700,
                                     height: '14px',
@@ -76,16 +88,16 @@ const BottomPanel: React.FC = () => {
                 <div className="panel-toolbar" style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '12px' }}>
                     {activeTab === 'TERMINAL' && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <div className="toolbar-item" style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '6px', 
+                            <div className="toolbar-item" style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
                                 padding: '2px 8px',
                                 borderRadius: '4px',
-                                background: 'rgba(255,255,255,0.05)',
+                                background: 'var(--vscode-badge-background, rgba(255,255,255,0.05))',
                                 fontSize: '11px',
                                 cursor: 'pointer',
-                                color: '#ccc'
+                                color: 'var(--vscode-badge-foreground, #ccc)'
                             }}>
                                 <i className="codicon codicon-terminal" style={{ fontSize: '13px', opacity: 0.7 }}></i>
                                 <span>zsh</span>
@@ -96,14 +108,14 @@ const BottomPanel: React.FC = () => {
                             <div className="toolbar-icon" title="Kill Terminal"><i className="codicon codicon-trash"></i></div>
                         </div>
                     )}
-                    <span style={{ height: '14px', width: '1px', background: 'rgba(255,255,255,0.1)', margin: '0 4px' }}></span>
+                    <span style={{ height: '14px', width: '1px', background: 'var(--vscode-panel-border, rgba(255,255,255,0.1))', margin: '0 4px' }}></span>
                     <div className="toolbar-icon" title="Maximize Panel Size"><i className="codicon codicon-chevron-up"></i></div>
                     <div className="toolbar-icon" title="Close Panel" onClick={toggleBottomPanel}><i className="codicon codicon-close"></i></div>
                 </div>
             </div>
 
             {/* Content Area */}
-            <div className="panel-content" style={{ flex: 1, overflow: 'hidden', background: '#1e1e1e' }}>
+            <div className="panel-content" style={{ flex: 1, overflow: 'hidden', background: 'var(--vscode-terminal-background, var(--vscode-panel-background))' }}>
                 {activeTab === 'TERMINAL' && <TerminalView />}
                 {activeTab === 'OUTPUT' && (
                     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -132,9 +144,9 @@ const BottomPanel: React.FC = () => {
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', color: '#ccc', fontSize: '12px', marginTop: 'auto' }}>
                             <i className="codicon codicon-chevron-right" style={{ fontSize: '12px', marginRight: '8px', color: '#3794ef' }}></i>
-                            <input 
-                                type="text" 
-                                placeholder="Filter or evaluate expression" 
+                            <input
+                                type="text"
+                                placeholder="Filter or evaluate expression"
                                 style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '12px', width: '100%', outline: 'none' }}
                             />
                         </div>
@@ -142,7 +154,7 @@ const BottomPanel: React.FC = () => {
                 )}
                 {['PROBLEMS', 'PORTS'].includes(activeTab) && (
                     <div style={{ padding: '32px', color: '#666', fontSize: '12px', textAlign: 'center' }}>
-                         {activeTab} view is currently empty.
+                        {activeTab} view is currently empty.
                     </div>
                 )}
             </div>

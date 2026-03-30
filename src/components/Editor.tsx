@@ -39,6 +39,29 @@ const Editor: React.FC = () => {
     const pendingChanges = useStore(state => state.pendingChanges);
     const activeFilePendingChange = pendingChanges.find(c => c.path === activeTab?.path);
 
+    // When theme changes in store, ensure it's applied correctly to monaco instance
+    useEffect(() => {
+        import('@monaco-editor/react').then(({ loader }) => {
+            loader.init().then(monaco => {
+                if (theme) {
+                    try {
+                        // Check if it's a custom theme name
+                        if (theme.startsWith('vscode-theme-')) {
+                            // If registration is known to be successful (or at least attempted), apply it.
+                            // Monaco might throw if the theme name doesn't exist yet.
+                            monaco.editor.setTheme(theme);
+                        } else {
+                            monaco.editor.setTheme(theme);
+                        }
+                    } catch (e) {
+                        console.warn("[Editor] Custom theme not ready, falling back to vs-dark");
+                        monaco.editor.setTheme('vs-dark');
+                    }
+                }
+            });
+        });
+    }, [theme]);
+
     // When switching tabs, sync the editor value
     useEffect(() => {
         if (editorRef.current && activeTab) {
@@ -65,26 +88,27 @@ const Editor: React.FC = () => {
                 value={activeFilePendingChange ? activeFilePendingChange.newContent : activeTab.content}
                 onMount={handleMount}
                 onChange={handleChange}
-            options={{
-                fontSize: 13,
-                fontFamily: 'var(--font-mono)',
-                lineNumbers: 'on',
-                lineNumbersMinChars: 3,
-                glyphMargin: false,
-                folding: true,
-                lineDecorationsWidth: 10,
-                minimap: { enabled: true },
-                scrollBeyondLastLine: false,
-                wordWrap: 'off',
-                tabSize: 4,
-                insertSpaces: true,
-                automaticLayout: true,
-                renderWhitespace: 'selection',
-                smoothScrolling: true,
-                cursorBlinking: 'smooth',
-                cursorSmoothCaretAnimation: 'on',
-                bracketPairColorization: { enabled: true },
-            }}
+                loading={<div className="editor-loading" style={{ background: 'var(--vscode-editor-background)', color: 'var(--vscode-editor-foreground)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', opacity: 0.5 }}>Loading IDE Editor Assets...</div>}
+                options={{
+                    fontSize: 13,
+                    fontFamily: 'var(--font-mono)',
+                    lineNumbers: 'on',
+                    lineNumbersMinChars: 3,
+                    glyphMargin: false,
+                    folding: true,
+                    lineDecorationsWidth: 10,
+                    minimap: { enabled: true },
+                    scrollBeyondLastLine: false,
+                    wordWrap: 'off',
+                    tabSize: 4,
+                    insertSpaces: true,
+                    automaticLayout: true,
+                    renderWhitespace: 'selection',
+                    smoothScrolling: true,
+                    cursorBlinking: 'smooth',
+                    cursorSmoothCaretAnimation: 'on',
+                    bracketPairColorization: { enabled: true },
+                }}
             />
         </div>
     );

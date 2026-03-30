@@ -96,19 +96,15 @@ impl ApiRadarHunter {
     pub fn is_relevant_file(&self, file_path: &str) -> bool {
         let path = Path::new(file_path);
         if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-            return ALLOWED_EXTENSIONS.contains(&ext.to_lowercase().as_str());
+            let lower_ext = ext.to_lowercase();
+            return ALLOWED_EXTENSIONS.iter().any(|&e| e == lower_ext);
         }
         false
     }
 
     pub fn contains_key_indicator(&self, content: &str) -> bool {
         let lower_content = content.to_lowercase();
-        for indicator in KEYNAME_INDICATORS {
-            if lower_content.contains(indicator) {
-                return true;
-            }
-        }
-        false
+        KEYNAME_INDICATORS.iter().any(|&indicator| lower_content.contains(indicator))
     }
 
     pub fn extract_keys(&self, content: &str) -> Vec<(String, String)> {

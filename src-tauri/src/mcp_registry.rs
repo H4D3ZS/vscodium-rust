@@ -70,7 +70,7 @@ impl McpRegistry {
 
     async fn add_server_internal(&self, name: &str, config: McpServerConfig) -> Result<()> {
         let client = match config {
-            McpServerConfig::Stdio { command, args, env } => {
+            McpServerConfig::Stdio { command, args, env: _ } => {
                 let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 // Note: env is supported by Child but McpClient::spawn doesn't take it yet.
                 // For now we assume env is handled by npx or outer shell if needed, 

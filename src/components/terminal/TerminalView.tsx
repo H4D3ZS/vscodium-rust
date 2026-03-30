@@ -8,6 +8,7 @@ const TerminalView: React.FC = () => {
     const activeGroupId = useStore(state => state.activeTerminalGroupId);
     const addTerminalGroup = useStore(state => state.addTerminalGroup);
     const closeTerminalGroup = useStore(state => state.closeTerminalGroup);
+    const toggleBottomPanel = useStore(state => state.toggleBottomPanel);
 
     const handleAddTerminal = () => {
         addTerminalGroup();
@@ -55,7 +56,7 @@ const TerminalView: React.FC = () => {
                         <i className="codicon codicon-trash"></i>
                     </div>
                     <div className="terminal-action-separator" style={{ width: '1px', height: '16px', background: 'var(--vscode-panel-border)', margin: '0 4px' }}></div>
-                    <div className="terminal-action-item" onClick={handleKillTerminal} title="Close Panel">
+                    <div className="terminal-action-item" onClick={toggleBottomPanel} title="Close Panel">
                         <i className="codicon codicon-close"></i>
                     </div>
                 </div>

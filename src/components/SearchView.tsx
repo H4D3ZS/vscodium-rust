@@ -49,22 +49,22 @@ const SearchView: React.FC = () => {
         <div className="search-view" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <div className="sidebar-search-container" style={{ padding: '10px' }}>
                 <div style={{ position: 'relative' }}>
-                    <input 
-                        type="text" 
+                    <input
+                        type="text"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Search (min 3 chars)" 
-                        style={{ 
-                            width: '100%', 
-                            boxSizing: 'border-box', 
-                            background: 'var(--vscode-input-background)', 
-                            color: 'var(--vscode-input-foreground)', 
-                            border: '1px solid var(--vscode-panel-border)', 
-                            padding: '4px 24px 4px 6px', 
-                            fontSize: '12px', 
+                        placeholder="Search (min 3 chars)"
+                        style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            background: 'var(--vscode-input-background)',
+                            color: 'var(--vscode-input-foreground)',
+                            border: '1px solid var(--vscode-input-border, var(--vscode-panel-border))',
+                            padding: '4px 24px 4px 6px',
+                            fontSize: '12px',
                             outline: 'none',
                             borderRadius: '2px'
-                        }} 
+                        }}
                     />
                     {isSearching && (
                         <div style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)' }}>
@@ -76,13 +76,13 @@ const SearchView: React.FC = () => {
             <div className="search-results" style={{ flex: 1, overflowY: 'auto', padding: '0 10px' }}>
                 {results.length > 0 ? (
                     results.map((result, index) => (
-                        <div 
+                        <div
                             key={`${result.path}-${index}`}
                             className="search-result-item"
                             onClick={() => handleResultClick(result)}
-                            style={{ 
-                                padding: '6px 0', 
-                                borderBottom: '1px solid var(--vscode-panel-border)', 
+                            style={{
+                                padding: '6px 0',
+                                borderBottom: '1px solid var(--vscode-panel-border)',
                                 cursor: 'pointer',
                                 fontSize: '12px'
                             }}

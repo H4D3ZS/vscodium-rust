@@ -105,6 +105,10 @@ pub async fn browser_read_dom(state: tauri::State<'_, BrowserState>) -> Result<S
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_capture_vision_context(state: tauri::State<'_, BrowserState>) -> Result<Value, String> {
+    capture_vision_context_internal(&state).await
+}
+
+pub async fn capture_vision_context_internal(state: &BrowserState) -> Result<Value, String> {
     let browser_lock = state.browser.lock().unwrap();
     let browser = browser_lock.as_ref().ok_or("Browser not launched")?;
 
@@ -154,6 +158,37 @@ pub async fn browser_capture_vision_context(state: tauri::State<'_, BrowserState
         "screenshot": screenshot_b64,
         "dom_summary": dom_summary
     }))
+}
+
+#[tauri::command]
+pub async fn browser_get_content_summary(state: tauri::State<'_, BrowserState>) -> Result<Value, String> {
+    let browser_lock = state.browser.lock().unwrap();
+    let browser = browser_lock.as_ref().ok_or("Browser not launched")?;
+    let tab = browser.get_tabs().lock().unwrap().first().ok_or("No tabs open")?.clone();
+
+    let extraction_script = r#"
+        (function() {
+            const bodyText = document.body.innerText.substring(0, 5000);
+            const links = Array.from(document.querySelectorAll('a')).map(a => ({
+                text: a.innerText.trim(),
+                href: a.href
+            })).filter(l => l.text.length > 5 && l.href.startsWith('http')).slice(0, 15);
+            
+            const headers = Array.from(document.querySelectorAll('h1, h2, h3')).map(h => h.innerText.trim()).filter(t => t.length > 0);
+            
+            return JSON.stringify({
+                text: bodyText,
+                links: links,
+                headers: headers
+            });
+        })()
+    "#;
+
+    let result = tab.evaluate(extraction_script, false)
+        .map_err(|e| e.to_string())?
+        .value.ok_or("Failed to get content summary")?;
+
+    Ok(serde_json::from_str(result.as_str().unwrap_or("{}")).unwrap_or(json!({})))
 }
 
 #[tauri::command]

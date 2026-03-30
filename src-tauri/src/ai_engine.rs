@@ -81,6 +81,7 @@ pub struct ChatMessage {
     pub role: String,
     pub content: Option<MessageContent>,
     pub tool_calls: Option<Vec<ToolCall>>,
+    pub tool_call_id: Option<String>,
     pub metadata: Option<Value>,
 }
 
@@ -108,6 +109,7 @@ pub struct AiRequest {
     pub autonomous: bool,
     pub mode: Option<String>,
     pub cyber_mode: Option<bool>,
+    pub root_access: Option<bool>,
     pub ollama_url: Option<String>,
 }
 
@@ -123,8 +125,9 @@ pub struct Sentient {
     app_handle: Mutex<Option<AppHandle>>,
     auth_state: Arc<AuthState>,
     ollama_url: Mutex<String>,
-    browser_state: Arc<crate::browser::BrowserState>,
+    _browser_state: Arc<crate::browser::BrowserState>,
     stop_signal: Arc<AtomicBool>,
+    brain_dir: PathBuf,
 }
 
 impl Sentient {
@@ -134,6 +137,11 @@ impl Sentient {
         let task_planner = Arc::new(TaskPlanner::new());
         let memory_store = Arc::new(MemoryStore::new());
         let tool_invoker = Arc::new(ToolInvoker::new(ai_tools.clone(), mcp_registry.clone()));
+        
+        let brain_dir = config_dir.join("brain");
+        if !brain_dir.exists() {
+            let _ = std::fs::create_dir_all(&brain_dir);
+        }
 
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
@@ -153,8 +161,9 @@ impl Sentient {
             app_handle: Mutex::new(None),
             auth_state,
             ollama_url: Mutex::new("http://127.0.0.1:11434".to_string()),
-            browser_state,
+            _browser_state: browser_state,
             stop_signal: Arc::new(AtomicBool::new(false)),
+            brain_dir,
         }
     }
 
@@ -163,6 +172,9 @@ impl Sentient {
         *u = url;
     }
 
+    pub fn get_tools(&self) -> Arc<AiTools> {
+        self.ai_tools.clone()
+    }
 
     pub fn set_app_handle(&self, handle: AppHandle) {
         let mut h = self.app_handle.lock().unwrap();
@@ -252,7 +264,7 @@ impl Sentient {
         };
         let root = self.ai_tools.get_root_path();
 
-        let model_display_name = if req.model.to_lowercase().contains("gemini") {
+        let _model_display_name = if req.model.to_lowercase().contains("gemini") {
             format!("Gemini ({})", req.model)
         } else if req.model.to_lowercase().contains("claude") {
             format!("Claude ({})", req.model)
@@ -263,35 +275,71 @@ impl Sentient {
         };
 
         let mut project_memory = String::new();
-        let memory_files = ["MEMORY.md", "AGENTS.md", "CLAUDE.md", ".agent/memory.md"];
+        let memory_files = ["MEMORY.md", "GEMINI.md", "AGENTS.md", "CLAUDE.md", ".agent/memory.md"];
         for file_name in memory_files {
             let memory_path = root.join(file_name);
             if memory_path.exists() {
                 if let Ok(content) = std::fs::read_to_string(&memory_path) {
-                    project_memory.push_str(&format!("\n### Project Memory: {}\n{}\n", file_name, content));
+                    project_memory.push_str(&format!("\n### Workspace Memory: {}\n{}\n", file_name, content));
+                }
+            }
+        }
+        
+        // Load Global Brain Memory
+        if let Ok(entries) = std::fs::read_dir(&self.brain_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let name = path.file_name().unwrap_or_default().to_string_lossy();
+                        project_memory.push_str(&format!("\n### Global Brain ({}):\n{}\n", name, content));
+                    }
                 }
             }
         }
 
-        let base_prompt = format!(
-            "You are a high-performance, autonomous AI coding agent powered by {}. \
-            Your goal is to assist the user with complex engineering tasks, research, and project maintenance. \
-            YOU ARE FULLY AGENTIC: If the user mentions a file or asks a question that requires codebase knowledge, USE TOOLS (`list_files`, `view_file`, etc.) IMMEDIATELY AND AUTONOMOUSLY. \
-            Do not ask for permission to read files. If the user says 'read readme.md', just call `view_file`. \
-            CURRENT PROJECT: {} (Path: {}) \
-            TOP-LEVEL FILES: {} \
-            {} \
-            PROJECT AWARENESS: Always look for project-specific automation in `.agent/workflows/` or `.agents/workflows/`. \
-            SKILL CATALOG: You have access to over 500+ specialized master skills documented in `SKILLS.md`. \
-            CAPABILITIES: You can edit files, run terminal commands, browse the web, and use MCP servers. \
-            ALWAYS use the correct tool names and arguments: \
-            - `list_files`: `{{\"path\": \".\", \"recursive\": false}}` \
-            - `view_file`: `{{\"TargetFile\": \"path/to/file.rs\"}}` \
-            - `write_to_file`: `{{\"TargetFile\": \"path/to/file.rs\", \"CodeContent\": \"...\"}}` \
-            - `run_command`: `{{\"command\": \"cargo check\"}}` \
-            - `browser_open`: {{}}",
-            model_display_name, project_name, project_path, files_list, project_memory
-        );
+        let base_prompt_template = "You are Antigravity-IDE, an elite autonomous AI software engineer. \
+            Your goal is to architect, implement, and audit complex systems with absolute scientific rigor. \
+            \n\n### OPERATIONAL DIRECTIVES:\n\
+            1. FULL AUTONOMY: You are EMPOWERED to take direct action. Use tools PROACTIVELY. \
+            2. HIGH RIGOR: Follow the PDCA cycle (PLAN -> DO -> CHECK -> ACT). Always verify changes. \
+            5. TERMINAL MASTERY: Use `terminal_send_data` and `terminal_read_output` for INTERACTIVE tasks. If no terminal exists, one will be created AUTO-MAGICALLY. \
+            6. COMMAND VERIFICATION: Always verify your code changes by running tests or build commands in the terminal. \
+            7. PROGRESS TRACKING: Update `task.md` using `manage_task` frequently. \
+            8. RECURSIVE LEARNING: Record insights in `MEMORY.md` via `manage_memory` to improve your own performance. \
+            \n\nRemember: You are a high-performance engineer. Speak less, code more, and EXECUTE with absolute confidence. \
+            7. SHARED STANDARDS: Respect API Standards, Security Armor, and UI/UX Pro Max modules in `.agent/.shared`. \
+            \n\n### TOOLS & GUIDANCE:\n\
+            - Navigation: `list_files`, `view_file_outline`, `view_code_item`. \
+            - CRUD: `write_to_file`, `replace_file_content`, `patch_file_content`, `create_directory`. \
+            - CLI: `terminal_send_data`, `terminal_read_output`, `run_command`. \
+            - Intelligence: `browser_open`, `perplexity_ask`, `read_url_content`. \
+            - Management: `manage_task` (status updates), `manage_memory` (insights). \
+            \n\n### TOOL CALL FORMAT:\n\
+            Output JSON blocks in your response. You can output multiple tool calls sequentially. \
+            YOU MUST wrap EACH tool call in a ```json code block. \
+            ALWAYS provide a brief natural language explanation of what you are doing BEFORE your tool calls. \
+            IF you create or modify a file, ALWAYS use `editor_open_file` immediately after to show it to the user. \
+            ONCE you have finished your task, conclude with a brief summary for the user. \
+            \n\nExample:\n\
+            ```json\n\
+            {\"name\": \"write_to_file\", \"arguments\": {\"path\": \"test.txt\", \"content\": \"hello\"}}\n\
+            ```\n\
+            OR:\n\
+            {\"name\": \"run_command\", \"arguments\": {\"command\": \"ls\"}}\n\
+            \n\nCURRENT PROJECT: {PROJECT_NAME} (Path: {PROJECT_PATH}) \
+            CURRENT OS: {OS} \
+            TOP-LEVEL FILES: {FILES} \
+            {MEMORY} \
+            \nPROJECT WORKFLOWS: Explore `.agent/workflows/` for mission-specific automation. \
+            SKILLS: You have thousands of specialized skills in `.agent/skills/`. Use them to master any domain.";
+
+        let base_prompt = base_prompt_template
+            .replace("{PROJECT_NAME}", &project_name)
+            .replace("{PROJECT_PATH}", &project_path)
+            .replace("{OS}", std::env::consts::OS)
+            .replace("{FILES}", &files_list)
+            .replace("{MEMORY}", &project_memory);
 
         let mut messages = req.messages.clone();
 
@@ -321,8 +369,9 @@ impl Sentient {
             }
         }
 
-        // [CONTEXT LOGIC] - Token Limit / Context Pruning (Character-based)
-        messages = self.trim_context(messages, 500_000).await;
+        // [CONTEXT LOGIC] - High-performance context for self-hosted models
+        let context_limit = 500_000;
+        messages = self.trim_context(messages, context_limit).await;
         {
             let mut state = self.conversation_state.lock().await;
             *state = messages.clone();
@@ -359,6 +408,7 @@ impl Sentient {
                 role: "system".to_string(),
                 content: Some(MessageContent::Text(system_prompt)),
                 tool_calls: None,
+                tool_call_id: None,
                 metadata: None,
             });
         }
@@ -398,31 +448,37 @@ impl Sentient {
             let _provider_key = self.get_key_for_provider(&active_provider);
             let _endpoint = self.get_endpoint(&active_provider, &req);
             
-            let mut system_msg = String::new();
-            for m in &messages {
-                if m.role == "system" {
-                    system_msg = m.content.as_ref().map(|c| c.as_str().to_string()).unwrap_or_default();
-                    break;
-                }
-            }
-            if system_msg.is_empty() {
-                system_msg = "You are Antigravity, a helpful assistant.".to_string();
-            }
+            // Transform messages to JSON format for the API request
+            let system_msg = messages.iter()
+                .find(|m| m.role == "system")
+                .and_then(|m| m.content.as_ref().map(|c| c.as_str().to_string()))
+                .unwrap_or_else(|| "You are Antigravity Ghost, a powerful autonomous AI agent.".to_string());
 
-            let _filtered_messages: Vec<Value> = messages.iter().filter_map(|m| {
-                if m.role == "system" {
-                    None
-                } else {
-                    let content = match &m.content {
-                        Some(MessageContent::Text(t)) => json!(t),
-                        Some(MessageContent::Parts(p)) => json!(p),
-                        None => json!(null),
+            let final_messages: Vec<Value> = messages.iter().map(|m| {
+                let mut msg = json!({
+                    "role": &m.role,
+                });
+                
+                if let Some(content) = &m.content {
+                    msg["content"] = match content {
+                        MessageContent::Text(t) => json!(t),
+                        MessageContent::Parts(p) => json!(p),
                     };
-                    Some(json!({
-                        "role": &m.role,
-                        "content": content
-                    }))
+                } else if m.role == "assistant" && m.tool_calls.is_none() {
+                    msg["content"] = json!(""); // OpenAI requires content or tool_calls
+                } else if m.role == "tool" {
+                    msg["content"] = json!("");
                 }
+
+                if let Some(tool_calls) = &m.tool_calls {
+                    msg["tool_calls"] = json!(tool_calls);
+                }
+
+                if let Some(tool_call_id) = &m.tool_call_id {
+                    msg["tool_call_id"] = json!(tool_call_id);
+                }
+
+                msg
             }).collect();
 
             let mut payload = if active_provider.to_lowercase() == "anthropic" {
@@ -493,6 +549,7 @@ impl Sentient {
                         role: "system".to_string(),
                         content: Some(MessageContent::Text(ollama_system)),
                         tool_calls: None,
+                        tool_call_id: None,
                         metadata: None,
                     });
                 } else {
@@ -594,6 +651,7 @@ impl Sentient {
             }
 
             let mut full_content = String::new();
+            let mut native_tool_calls: Vec<ToolCall> = Vec::new(); // Accumulate native tool calls
             let mut stream = response.bytes_stream();
             let mut line_buffer = String::new();
             
@@ -638,13 +696,56 @@ impl Sentient {
                                 content_found = true;
                             }
                         }
-
-                        if !content_found {
-                            println!("[AI] Chunk received but no content field: {:?}", val);
+                        
+                        // Extract native tool calls (OpenAI style)
+                        if let Some(tool_calls) = val["choices"][0]["delta"]["tool_calls"].as_array() {
+                            for tc in tool_calls {
+                                let index = tc["index"].as_u64().unwrap_or(0) as usize;
+                                while native_tool_calls.len() <= index {
+                                    native_tool_calls.push(ToolCall {
+                                        id: String::new(),
+                                        type_field: "function".to_string(),
+                                        function: ToolFunction { name: String::new(), arguments: String::new() },
+                                        context: None,
+                                    });
+                                }
+                                
+                                let current_tc = &mut native_tool_calls[index];
+                                if let Some(id) = tc["id"].as_str() { current_tc.id.push_str(id); }
+                                if let Some(name) = tc["function"]["name"].as_str() { current_tc.function.name.push_str(name); }
+                                if let Some(args) = tc["function"]["arguments"].as_str() { current_tc.function.arguments.push_str(args); }
+                            }
+                        }
+                        // Anthropic style tool use (simple version for now)
+                        else if val["type"] == "tool_use" {
+                            if let (Some(id), Some(name)) = (val["id"].as_str(), val["name"].as_str()) {
+                                native_tool_calls.push(ToolCall {
+                                    id: id.to_string(),
+                                    type_field: "function".to_string(),
+                                    function: ToolFunction {
+                                        name: name.to_string(),
+                                        arguments: val["input"].to_string(),
+                                    },
+                                    context: None,
+                                });
+                            }
                         }
 
                         if content_found {
-                            self.emit_event("ai-content", json!({ "content": full_content }));
+                            // Always emit the full content for transparency
+                            let final_content = full_content.trim();
+                            if !final_content.is_empty() {
+                                self.emit_event("ai-content", json!({ "content": final_content }));
+                            }
+                        }
+
+                        // Extract thoughts/reasoning if available (Gemini/OpenAI o1/etc.)
+                        if let Some(thought) = val["choices"][0]["delta"]["thought"].as_str() {
+                            self.emit_event("ai-thinking", json!({ "thought": thought }));
+                        } else if let Some(thought) = val["choices"][0]["delta"]["reasoning_content"].as_str() {
+                            self.emit_event("ai-thinking", json!({ "thought": thought }));
+                        } else if let Some(thought) = val["message"]["thought"].as_str() {
+                             self.emit_event("ai-thinking", json!({ "thought": thought }));
                         }
                     } else {
                         // If not JSON and not empty, it might be a raw chunk (some providers do this)
@@ -658,7 +759,8 @@ impl Sentient {
             let mut chat_message = ChatMessage {
                 role: "assistant".to_string(),
                 content: Some(MessageContent::Text(full_content.clone())),
-                tool_calls: None,
+                tool_calls: if native_tool_calls.is_empty() { None } else { Some(native_tool_calls) },
+                tool_call_id: None,
                 metadata: None,
             };
 
@@ -670,11 +772,11 @@ impl Sentient {
                 *state = messages.clone();
             }
 
-            // Fallback for Ollama tool calling if not using native tool_calls
-            if active_provider.to_lowercase() == "ollama" && chat_message.tool_calls.is_none() {
+            // Fallback for tool calling if not using native tool_calls (supports MD-JSON and raw NDJSON)
+            if chat_message.tool_calls.is_none() {
                 if let Some(ref content) = chat_message.content {
-                let content_str = content.as_str();
-                let parsed_tools = self.try_parse_ollama_tool_calls(content_str);
+                    let content_str = content.as_str();
+                    let parsed_tools = self.try_parse_markdown_tool_calls(content_str);
                     if !parsed_tools.is_empty() {
                         let last_msg = messages.last_mut().unwrap();
                         last_msg.tool_calls = Some(parsed_tools);
@@ -688,25 +790,20 @@ impl Sentient {
                 for tool_call in tool_calls {
                     self.emit_event("ai-tool-call", json!({ "name": tool_call.function.name, "args": tool_call.function.arguments }));
                     
-                    let tool_result = if tool_call.function.name == "write_to_file" {
-                        // INTERCEPT: Propose change instead of writing
-                        if let Ok(args) = serde_json::from_str::<Value>(&tool_call.function.arguments) {
-                            let path = args.get("TargetFile").or(args.get("path")).and_then(|v| v.as_str()).unwrap_or("");
-                            let content = args.get("CodeContent").and_then(|v| v.as_str()).unwrap_or("");
-                            
-                            self.emit_event("ai-file-proposal", json!({
-                                "path": path,
-                                "content": content,
-                                "description": "AI proposed changes"
-                            }));
+                    let mut tool_name = tool_call.function.name.clone();
+                    // EXTENSIVE TOOL ALIASES for "Do Anything" capability
+                    if tool_name == "write_file" || tool_name == "create_file" || tool_name == "save_file" || tool_name == "write" { tool_name = "write_to_file".to_string(); }
+                    if tool_name == "sh" || tool_name == "bash" || tool_name == "execute" || tool_name == "exec" || tool_name == "command" || tool_name == "cmd" || tool_name == "run" || tool_name == "terminal" { tool_name = "run_command".to_string(); }
+                    if tool_name == "ls" || tool_name == "list_files" || tool_name == "list_dir" || tool_name == "list_directory" || tool_name == "dir" || tool_name == "files" { tool_name = "list_files".to_string(); }
+                    if tool_name == "read_file" || tool_name == "cat" || tool_name == "view" || tool_name == "get_file" || tool_name == "read" { tool_name = "view_file".to_string(); }
+                    if tool_name == "mkdir" || tool_name == "md" || tool_name == "create_dir" { tool_name = "create_directory".to_string(); }
+                    if tool_name == "terminal_send" || tool_name == "send_terminal" || tool_name == "term_send" || tool_name == "type_to_terminal" { tool_name = "terminal_send_data".to_string(); }
+                    if tool_name == "terminal_read" || tool_name == "read_terminal" || tool_name == "term_read" || tool_name == "get_output" { tool_name = "terminal_read_output".to_string(); }
+                    if tool_name == "search" || tool_name == "find_string" || tool_name == "grep_search" { tool_name = "grep".to_string(); }
+                    if tool_name == "research" || tool_name == "web_search" || tool_name == "internet_search" || tool_name == "browse" { tool_name = "browser_subagent".to_string(); }
+                    if tool_name == "ask" || tool_name == "query_web" { tool_name = "perplexity_ask".to_string(); }
 
-                            Ok(json!({"status": "SUCCESS: Change proposed for user review. PLEASE NOTE: The file has NOT been written yet. Do not attempt to run commands that depend on this content until the user accepts it."}))
-                        } else {
-                            Err(anyhow!("Invalid arguments for write_to_file"))
-                        }
-                    } else {
-                        self.tool_invoker.execute_tool(&tool_call.function.name, &tool_call.function.arguments).await
-                    };
+                    let tool_result = self.tool_invoker.execute_tool(&tool_name, &tool_call.function.arguments).await;
                     
                     self.emit_event("ai-tool-result", json!({ "name": tool_call.function.name, "result": tool_result.as_ref().map(|v| v.to_string()).unwrap_or_else(|e| e.to_string()) }));
 
@@ -717,7 +814,8 @@ impl Sentient {
                             Err(e) => format!("Error: {}", e),
                         })),
                         tool_calls: None,
-                        metadata: Some(json!({"tool_call_id": tool_call.id.clone(), "iteration": iteration})),
+                        tool_call_id: Some(tool_call.id.clone()),
+                        metadata: Some(json!({"iteration": iteration})),
                     });
                     self.memory_store.store_message(messages.last().unwrap()).await;
                 }
@@ -911,6 +1009,11 @@ impl Sentient {
             }
         }
 
+        // Add offensive specialized tools
+        for tool in self.get_offensive_tools() {
+            tools.push(tool);
+        }
+
         tools
     }
 
@@ -1051,46 +1154,42 @@ impl Sentient {
         }
     }
 
-    fn try_parse_ollama_tool_calls(&self, content: &str) -> Vec<ToolCall> {
+    fn try_parse_markdown_tool_calls(&self, content: &str) -> Vec<ToolCall> {
         let mut tools = Vec::new();
         
-        // Find JSON blocks: ```json ... ```
-        if let Some(start) = content.find("```json") {
-            let rest = &content[start + 7..];
+        // 1. First try finding JSON blocks: ```json ... ```
+        let mut found_any_block = false;
+        let mut search_pos = 0;
+        while let Some(start) = content[search_pos..].find("```json") {
+            let actual_start = search_pos + start;
+            let rest = &content[actual_start + 7..];
             if let Some(end) = rest.find("```") {
-                let json_str = rest[..end].trim();
-                if let Ok(val) = serde_json::from_str::<Value>(json_str) {
-                    // Check for OpenAI-style single object
-                    if let Some(name) = val.get("name").and_then(|v| v.as_str()) {
-                        let arguments = val.get("arguments").map(|v| v.to_string())
-                                            .or_else(|| val.get("args").map(|v| v.to_string()))
-                                            .unwrap_or_else(|| "{}".to_string());
-                        tools.push(ToolCall {
-                            id: format!("call_{}", uuid::Uuid::new_v4()),
-                            type_field: "function".to_string(),
-                            function: ToolFunction {
-                                name: name.to_string(),
-                                arguments,
-                            },
-                            context: None,
-                        });
-                    } 
-                    // Check for OpenAI-style array
-                    else if let Some(arr) = val.as_array() {
-                        for item in arr {
-                            if let Some(name) = item.get("name").and_then(|v| v.as_str()) {
-                                let arguments = item.get("arguments").map(|v| v.to_string())
-                                                    .or_else(|| item.get("args").map(|v| v.to_string()))
-                                                    .unwrap_or_else(|| "{}".to_string());
-                                tools.push(ToolCall {
-                                    id: format!("call_{}", uuid::Uuid::new_v4()),
-                                    type_field: "function".to_string(),
-                                    function: ToolFunction {
-                                        name: name.to_string(),
-                                        arguments,
-                                    },
-                                    context: None,
-                                });
+                let json_block = rest[..end].trim();
+                search_pos = actual_start + 7 + end + 3;
+                found_any_block = true;
+
+                self.parse_json_to_tools(json_block, &mut tools);
+            } else {
+                break;
+            }
+        }
+
+        // 2. If no code blocks found, or if there's trailing content, try parsing THE WHOLE CONTENT as JSON
+        // This handles cases where models output raw multi-line JSON without blocks.
+        if !found_any_block || tools.is_empty() {
+            let trimmed = content.trim();
+            if let Some(start_idx) = trimmed.find('{') {
+                // Try parsing from the first { to the end
+                let json_candidate = &trimmed[start_idx..];
+                if let Ok(val) = serde_json::from_str::<Value>(json_candidate) {
+                    self.parse_single_json_item_to_tools(val, &mut tools);
+                } else {
+                    // Failover: try line by line still, just in case
+                    for line in trimmed.lines() {
+                        let line = line.trim();
+                        if let Some(s_idx) = line.find('{') {
+                            if let Ok(val) = serde_json::from_str::<Value>(&line[s_idx..]) {
+                                self.parse_single_json_item_to_tools(val, &mut tools);
                             }
                         }
                     }
@@ -1099,6 +1198,59 @@ impl Sentient {
         }
         
         tools
+    }
+
+    fn parse_json_to_tools(&self, json_block: &str, tools: &mut Vec<ToolCall>) {
+        // Try parsing the full block first (valid if it's one object or an array)
+        if let Ok(val) = serde_json::from_str::<Value>(json_block) {
+            self.parse_single_json_item_to_tools(val, tools);
+        } else {
+            // Try splitting by newline for NDJSON inside the block
+            for line in json_block.lines() {
+                let line = line.trim();
+                if !line.is_empty() {
+                    if let Ok(val) = serde_json::from_str::<Value>(line) {
+                        self.parse_single_json_item_to_tools(val, tools);
+                    }
+                }
+            }
+        }
+    }
+
+    fn parse_single_json_item_to_tools(&self, val: Value, tools: &mut Vec<ToolCall>) {
+        let items = if val.is_array() {
+            val.as_array().unwrap().clone()
+        } else {
+            vec![val]
+        };
+
+        for item in items {
+            let name = item.get("name")
+                .or_else(|| item.get("function").and_then(|f| f.get("name")))
+                .and_then(|v| v.as_str());
+            
+            let arguments = item.get("arguments")
+                .or_else(|| item.get("args"))
+                .or_else(|| item.get("function").and_then(|f| f.get("arguments")));
+            
+            if let Some(name) = name {
+                let args_str = match arguments {
+                    Some(Value::String(s)) => s.clone(),
+                    Some(obj) => obj.to_string(),
+                    None => "{}".to_string(),
+                };
+
+                tools.push(ToolCall {
+                    id: format!("call_{}", uuid::Uuid::new_v4()),
+                    type_field: "function".to_string(),
+                    function: ToolFunction {
+                        name: name.to_string(),
+                        arguments: args_str,
+                    },
+                    context: None,
+                });
+            }
+        }
     }
 
     fn emit_event(&self, event: &str, payload: Value) {

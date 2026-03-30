@@ -27,14 +27,14 @@ export class TerminalManager {
 
     async createTerminal(shell?: string, theme?: any, providedId?: string): Promise<string> {
         const id = providedId || `term-${Date.now()}`;
-        
+
         // Create a persistent hidden container for this terminal instance
         const element = document.createElement('div');
         element.style.width = '100%';
         element.style.height = '100%';
         element.style.position = 'relative';
         element.className = 'terminal-instance-element';
-        
+
         const term = new Terminal({
             theme: theme || getVSCodeTheme(),
             fontSize: 12,
@@ -47,18 +47,18 @@ export class TerminalManager {
         const searchAddon = new SearchAddon();
         term.loadAddon(fitAddon);
         term.loadAddon(searchAddon);
-        
+
         term.open(element);
-        
-        const terminalData: TerminalData = { 
-            id, 
-            term, 
-            fitAddon, 
+
+        const terminalData: TerminalData = {
+            id,
+            term,
+            fitAddon,
             searchAddon,
             element,
-            shell: shell || "" 
+            shell: shell || ""
         };
-        
+
         this.terminals.set(id, terminalData);
         this.activeId = id;
 
@@ -87,7 +87,7 @@ export class TerminalManager {
                     t.fitAddon.fit();
                     const { cols, rows } = t.term;
                     invoke("resize_terminal", { id, cols, rows });
-                } catch (e) {}
+                } catch (e) { }
             }, 50);
         }
     }
@@ -113,15 +113,15 @@ export class TerminalManager {
         const t = this.terminals.get(termId);
         if (t) t.term.write(data);
     }
-    
+
     resize(id: string) {
         const t = this.terminals.get(id);
         if (t && t.element.offsetParent) { // Only fit if visible
-            try { 
+            try {
                 t.fitAddon.fit();
                 const { cols, rows } = t.term;
                 invoke("resize_terminal", { id, cols, rows });
-            } catch (e) {}
+            } catch (e) { }
         }
     }
 
@@ -178,6 +178,11 @@ export async function initTerminal(): Promise<void> {
     listen("terminal-data", (event: any) => {
         const { term_id, data } = event.payload;
         terminalManager.handleData(term_id, data);
+    });
+
+    listen("terminal-create", (event: any) => {
+        const { shell } = event.payload || {};
+        useStore.getState().addTerminalGroup(shell);
     });
 
     window.addEventListener("resize", () => {

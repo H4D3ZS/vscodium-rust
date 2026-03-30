@@ -33,6 +33,43 @@ const AgentSettingsView: React.FC = () => {
 
     return (
         <div className="agent-settings-view" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '20px', height: '100%', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '10px', padding: '20px 0', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ position: 'relative', marginBottom: '12px' }}>
+                    <div style={{
+                        width: '64px', height: '64px',
+                        background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                        borderRadius: '20px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 8px 24px rgba(37, 99, 235, 0.4)'
+                    }}>
+                        <i className="codicon codicon-sparkle" style={{ fontSize: '32px', color: '#fff' }}></i>
+                    </div>
+                    {ollamaStatus === 'running' && (
+                        <div style={{
+                            position: 'absolute', bottom: '-4px', right: '-4px',
+                            width: '16px', height: '16px', borderRadius: '50%',
+                            background: '#4ade80',
+                            border: '3px solid var(--vscode-sideBar-background)',
+                            boxShadow: '0 0 12px rgba(74, 222, 128, 0.6)'
+                        }}></div>
+                    )}
+                </div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#fff', letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    Antigravity Engine
+                    <div style={{
+                        padding: '2px 8px',
+                        background: 'rgba(255,255,255,0.05)',
+                        borderRadius: '100px',
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        color: ollamaStatus === 'running' ? '#4ade80' : 'rgba(255,255,255,0.6)'
+                    }}>
+                        {(agentModel.split('|').pop() || '').split(':')[0].toUpperCase()}
+                    </div>
+                </div>
+                <div style={{ fontSize: '11px', opacity: 0.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Core Configuration</div>
+            </div>
 
             <section>
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
@@ -40,7 +77,7 @@ const AgentSettingsView: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ fontSize: '11px', opacity: 0.8 }}>Active Model</label>
-                    <select 
+                    <select
                         value={agentModel}
                         onChange={(e) => setAgentModel(e.target.value)}
                         style={{ background: 'var(--vscode-dropdown-background)', color: 'var(--vscode-dropdown-foreground)', border: '1px solid var(--vscode-dropdown-border)', padding: '4px', fontSize: '12px', cursor: 'pointer', position: 'relative', zIndex: 1 }}
@@ -61,26 +98,26 @@ const AgentSettingsView: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <label style={{ fontSize: '11px', opacity: 0.8 }}>Self-Hosted URL</label>
-                        <input 
-                            type="text" 
+                        <input
+                            type="text"
                             value={ollamaUrl}
                             onChange={(e) => setOllamaUrl(e.target.value)}
                             style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
                             placeholder="http://localhost:11434"
                         />
                     </div>
-                    
+
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ 
-                            width: '8px', 
-                            height: '8px', 
-                            borderRadius: '50%', 
+                        <div style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
                             background: ollamaStatus === 'running' ? '#4ade80' : ollamaStatus === 'error' ? '#f87171' : '#fbbf24'
                         }}></div>
                         <span style={{ fontSize: '12px' }}>
                             {ollamaStatus === 'running' ? 'Connected' : ollamaStatus === 'error' ? 'Error' : 'Checking...'}
                         </span>
-                        <button 
+                        <button
                             onClick={() => refreshModels('ollama')}
                             style={{ marginLeft: 'auto', background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '2px 8px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px' }}
                         >
@@ -91,7 +128,7 @@ const AgentSettingsView: React.FC = () => {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px', padding: '10px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '2px' }}>
                         <label style={{ fontSize: '11px', fontWeight: 600, opacity: 0.7 }}>Pull New Model</label>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            <input 
+                            <input
                                 type="text"
                                 placeholder="e.g. deepseek-v3"
                                 value={pullInput}
@@ -99,7 +136,7 @@ const AgentSettingsView: React.FC = () => {
                                 style={{ flex: 1, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '11px' }}
                                 disabled={isPullingModel}
                             />
-                            <button 
+                            <button
                                 onClick={() => {
                                     if (pullInput) {
                                         pullOllamaModel(pullInput);
@@ -107,12 +144,12 @@ const AgentSettingsView: React.FC = () => {
                                     }
                                 }}
                                 disabled={isPullingModel || !pullInput}
-                                style={{ 
-                                    background: isPullingModel ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)', 
-                                    color: 'var(--vscode-button-foreground)', 
-                                    border: 'none', 
-                                    padding: '4px 12px', 
-                                    fontSize: '11px', 
+                                style={{
+                                    background: isPullingModel ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)',
+                                    color: 'var(--vscode-button-foreground)',
+                                    border: 'none',
+                                    padding: '4px 12px',
+                                    fontSize: '11px',
                                     cursor: isPullingModel ? 'wait' : 'pointer',
                                     borderRadius: '2px',
                                     fontWeight: 600
@@ -133,7 +170,7 @@ const AgentSettingsView: React.FC = () => {
             <section>
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     MCP Servers
-                    <button 
+                    <button
                         onClick={() => setIsAddingMcp(!isAddingMcp)}
                         style={{ background: 'transparent', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '10px' }}
                     >
@@ -143,13 +180,13 @@ const AgentSettingsView: React.FC = () => {
 
                 {isAddingMcp && (
                     <div style={{ marginBottom: '16px', padding: '10px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '2px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <input 
+                        <input
                             placeholder="Server Name (e.g. filesystem)"
                             value={newMcpName}
                             onChange={e => setNewMcpName(e.target.value)}
                             style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '11px' }}
                         />
-                        <select 
+                        <select
                             value={newMcpType}
                             onChange={e => setNewMcpType(e.target.value as any)}
                             style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }}
@@ -159,13 +196,13 @@ const AgentSettingsView: React.FC = () => {
                         </select>
                         {newMcpType === 'command' ? (
                             <>
-                                <input 
+                                <input
                                     placeholder="Command (e.g. npx)"
                                     value={newMcpCommand}
                                     onChange={e => setNewMcpCommand(e.target.value)}
                                     style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }}
                                 />
-                                <input 
+                                <input
                                     placeholder="Args (comma separated)"
                                     value={newMcpArgs}
                                     onChange={e => setNewMcpArgs(e.target.value)}
@@ -173,14 +210,14 @@ const AgentSettingsView: React.FC = () => {
                                 />
                             </>
                         ) : (
-                            <input 
+                            <input
                                 placeholder="URL (e.g. http://localhost:3000/sse)"
                                 value={newMcpUrl}
                                 onChange={e => setNewMcpUrl(e.target.value)}
                                 style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }}
                             />
                         )}
-                        <button 
+                        <button
                             onClick={async () => {
                                 let config: any = {};
                                 if (newMcpType === 'command') {
@@ -212,8 +249,8 @@ const AgentSettingsView: React.FC = () => {
                                     {server.config.command ? `${server.config.command} ${server.config.args.join(' ')}` : server.config.url}
                                 </span>
                             </div>
-                            <i 
-                                className="codicon codicon-trash" 
+                            <i
+                                className="codicon codicon-trash"
                                 onClick={() => removeMcpServer(server.name)}
                                 style={{ fontSize: '14px', opacity: 0.4, cursor: 'pointer' }}
                                 title="Remove Server"
@@ -223,7 +260,7 @@ const AgentSettingsView: React.FC = () => {
                 </div>
             </section>
 
-         </div>
+        </div>
     );
 };
 

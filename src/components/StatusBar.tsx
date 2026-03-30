@@ -8,6 +8,8 @@ const StatusBar: React.FC = () => {
     const setActiveSidebarView = useStore(state => state.setActiveSidebarView);
     const toggleBottomPanel = useStore(state => state.toggleBottomPanel);
     const agentModel = useStore(state => state.agentModel);
+    const ollamaStatus = useStore(state => state.ollamaStatus);
+    const toggleRightSidebar = useStore(state => state.toggleRightSidebar);
 
     const toggleTheme = () => {
         const themes = ['vs', 'vs-dark', 'hc-black'];
@@ -44,11 +46,11 @@ const StatusBar: React.FC = () => {
             zIndex: 1000
         }}>
             <div className="status-left" style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                <div style={{ 
-                    background: 'var(--vscode-statusBarItem-remoteBackground, #16825d)', 
-                    height: '100%', 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                <div style={{
+                    background: 'var(--vscode-statusBarItem-remoteBackground, #16825d)',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
                     padding: '0 8px',
                     marginRight: '8px'
                 }}>
@@ -68,22 +70,40 @@ const StatusBar: React.FC = () => {
                     <i className="codicon codicon-error" style={{ fontSize: '12px', marginRight: '2px' }}></i>0
                     <i className="codicon codicon-warning" style={{ fontSize: '12px', marginLeft: '6px', marginRight: '2px' }}></i>0
                 </div>
-                <div className="status-item hoverable" style={{ 
-                    cursor: 'pointer', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    height: '100%', 
-                    padding: '0 8px',
-                    marginLeft: '4px',
-                    borderLeft: '1px solid rgba(255,255,255,0.1)'
-                }}>
-                    <i className={`codicon codicon-sparkle`} style={{ 
-                        fontSize: '12px', 
-                        marginRight: '6px',
+                <div
+                    className="status-item hoverable"
+                    onClick={() => toggleRightSidebar()}
+                    style={{
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        height: '100%',
+                        padding: '0 8px',
+                        marginLeft: '4px',
+                        borderLeft: '1px solid rgba(255,255,255,0.1)',
+                        gap: '6px'
+                    }}
+                >
+                    <i className={`codicon codicon-sparkle`} style={{
+                        fontSize: '12px',
                         color: useStore.getState().isAgentThinking ? '#4ade80' : 'rgba(255,255,255,0.7)',
                         animation: useStore.getState().isAgentThinking ? 'spin 2s linear infinite' : 'none'
                     }}></i>
-                    <span style={{ fontSize: '11px', opacity: 0.9 }}>{agentModel.split('|').pop()?.split(':')[0] || 'Agent'}</span>
+                    <span style={{ fontSize: '11px', opacity: 0.9 }}>
+                        {agentModel.split('|').pop()?.split(':')[0].toUpperCase() || 'AGENT'}
+                    </span>
+                    {agentModel.toLowerCase().includes('ollama') && (
+                        <div
+                            title={ollamaStatus === 'running' ? 'Ollama: Connected' : 'Ollama: Not Connected'}
+                            style={{
+                                width: '6px',
+                                height: '6px',
+                                borderRadius: '50%',
+                                background: ollamaStatus === 'running' ? '#10b981' : '#f43f5e',
+                                boxShadow: ollamaStatus === 'running' ? '0 0 4px #10b981' : 'none'
+                            }}
+                        ></div>
+                    )}
                 </div>
             </div>
             <div className="status-right" style={{ display: 'flex', alignItems: 'center', height: '100%' }}>

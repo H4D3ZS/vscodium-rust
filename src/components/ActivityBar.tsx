@@ -6,7 +6,7 @@ import { applyTheme, type VscodeTheme } from '../theme_engine';
 const ActivityBar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
     const setActiveView = useStore(state => state.setActiveSidebarView);
-    
+
     const [isThemePickerOpen, setIsThemePickerOpen] = useState(false);
     const [installedThemes, setInstalledThemes] = useState<VscodeTheme[]>([]);
     const setTheme = useStore(state => state.setTheme);
@@ -19,20 +19,30 @@ const ActivityBar: React.FC = () => {
         { id: 'scm-view', icon: 'source-control', title: 'Source Control' },
         { id: 'debug-view', icon: 'debug-alt', title: 'Run and Debug' },
         { id: 'extensions-view', icon: 'extensions', title: 'Extensions' },
-        { id: 'specs-view', icon: 'book', title: 'Specs' },
-        { id: 'agent-view', icon: 'sparkle', title: 'Agent' },
         { id: 'mobile-view', icon: 'device-mobile', title: 'Mobile Emulators (Android & iOS)' },
     ];
 
     const items = [
         ...coreItems,
-        ...extensionItems.map((ext: any) => ({
-            id: ext.id,
-            icon: ext.icon,
-            title: ext.title,
-            base64_icon: ext.base64_icon,
-            isExtension: true
-        }))
+        ...extensionItems
+            .filter((ext: any) => {
+                const id = String(ext.id || '').toLowerCase();
+                const title = String(ext.title || '').toLowerCase();
+                const icon = String(ext.icon || '').toLowerCase();
+                // Strictly exclude any agentic/specs/chat views to consolidate in the Right Sidebar
+                // This targets robot, sparkle, bot, specs, and AI icons
+                const isAgentic = id.includes('agent') || id.includes('specs') || id.includes('ai') || id.includes('chat') ||
+                    title.includes('agent') || title.includes('specs') || title.includes('ai') || title.includes('chat') ||
+                    icon.includes('robot') || icon.includes('sparkle') || icon.includes('bot') || icon.includes('stars');
+                return !isAgentic;
+            })
+            .map((ext: any) => ({
+                id: ext.id,
+                icon: ext.icon,
+                title: ext.title,
+                base64_icon: ext.base64_icon,
+                isExtension: true
+            }))
     ];
 
     const openThemePicker = async () => {
@@ -89,10 +99,10 @@ const ActivityBar: React.FC = () => {
                         <i className="codicon codicon-paintcan"></i>
                     </div>
                 </div>
-                <div 
-                    className="activity-item" 
-                    title="Manage" 
-                    id="activity-settings" 
+                <div
+                    className="activity-item"
+                    title="Manage"
+                    id="activity-settings"
                     onClick={() => (window as any).useStore?.getState().openSettings()}
                 >
                     <div className="activity-item-icon">
@@ -110,7 +120,7 @@ const ActivityBar: React.FC = () => {
                         {installedThemes.length === 0 && (
                             <div style={{ padding: '20px', fontSize: '12px', opacity: 0.7, textAlign: 'center' }}>
                                 <i className="codicon codicon-info" style={{ fontSize: '24px', display: 'block', marginBottom: '8px' }}></i>
-                                No extension themes found.<br/>
+                                No extension themes found.<br />
                                 Scanning standard VS Code paths...
                             </div>
                         )}
@@ -124,10 +134,10 @@ const ActivityBar: React.FC = () => {
                             Predefined:
                         </div>
                         <div className="theme-item" onClick={() => { setTheme('vs-dark'); setIsThemePickerOpen(false); }}>
-                             <span className="theme-label">Dark (Visual Studio)</span>
+                            <span className="theme-label">Dark (Visual Studio)</span>
                         </div>
                         <div className="theme-item" onClick={() => { setTheme('vs'); setIsThemePickerOpen(false); }}>
-                             <span className="theme-label">Light (Visual Studio)</span>
+                            <span className="theme-label">Light (Visual Studio)</span>
                         </div>
                     </div>
                 </div>

@@ -10,6 +10,10 @@
     "opener:default",
     "dialog:allow-open",
     "dialog:allow-message",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "shell:allow-spawn",
+    "shell:allow-execute",
+    "core:event:allow-listen",
+    "core:event:allow-emit"
   ]
 }

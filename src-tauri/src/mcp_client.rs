@@ -33,7 +33,7 @@ pub struct JsonRpcError {
 
 pub enum McpTransport {
     Stdio {
-        child: Child,
+        _child: Child,
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
     },
     Http {
@@ -49,7 +49,18 @@ pub struct McpClient {
 
 impl McpClient {
     pub fn spawn(command: &str, args: Vec<&str>) -> Result<Arc<Self>> {
-        let mut child = Command::new(command)
+        #[allow(unused_mut)]
+        let mut final_command = command.to_string();
+        
+        #[cfg(target_os = "windows")]
+        {
+            // On Windows, npx/npm/yarn are batch files
+            if command == "npx" || command == "npm" || command == "yarn" || command == "pnpm" {
+                final_command = format!("{}.cmd", command);
+            }
+        }
+
+        let mut child = Command::new(final_command)
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -62,7 +73,7 @@ impl McpClient {
         
         let client = Arc::new(Self {
             transport: McpTransport::Stdio {
-                child,
+                _child: child,
                 writer: Arc::new(Mutex::new(Box::new(stdin))),
             },
             pending_requests: Arc::new(Mutex::new(HashMap::new())),

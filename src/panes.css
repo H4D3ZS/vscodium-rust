@@ -36,26 +36,46 @@
   margin-left: auto;
   opacity: 0;
   font-size: 14px;
+  padding: 2px;
+  border-radius: 3px;
 }
 
 .pane-item:hover .close-icon {
   opacity: 1;
 }
 
+.pane-item .close-icon:hover {
+  background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.open-editors-list {
+  padding: 2px 0;
+}
+
+.modified-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--vscode-tab-activeForeground);
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
 /* Pane Headers */
 .pane-header {
-  height: var(--pane-header-height, 22px);
+  height: 22px;
   padding: 0 4px;
   display: flex;
   align-items: center;
-  background-color: var(--vscode-sideBarSectionHeader-background, rgba(255, 255, 255, 0.05));
+  background-color: var(--vscode-sideBarSectionHeader-background);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-sideBar-foreground));
+  color: var(--vscode-sideBarSectionHeader-foreground);
   cursor: pointer;
-  border-top: 1px solid var(--vscode-panel-border);
-  letter-spacing: 0.2px;
+  border-top: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border));
+  letter-spacing: 0.1px;
+  user-select: none;
 }
 
 .pane-header:hover {

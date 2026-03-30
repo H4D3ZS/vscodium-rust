@@ -24,7 +24,7 @@ function createPopover(element: HTMLElement, items: { label: string, value: stri
     const popover = document.createElement("div");
     popover.id = "agent-popover";
     popover.style.position = "absolute";
-    
+
     // Smart positioning: if on the right half of the screen, right-align.
     const isRight = rect.left > window.innerWidth / 2;
     if (isRight) {
@@ -32,7 +32,7 @@ function createPopover(element: HTMLElement, items: { label: string, value: stri
     } else {
         popover.style.left = `${rect.left}px`;
     }
-    
+
     popover.style.bottom = `${window.innerHeight - rect.top + 10}px`;
     popover.style.background = "var(--vscode-menu-background, #252526)";
     popover.style.border = "1px solid var(--vscode-menu-border, #454545)";
@@ -84,7 +84,7 @@ function createPopover(element: HTMLElement, items: { label: string, value: stri
         titleRow.style.display = "flex";
         titleRow.style.alignItems = "center";
         titleRow.style.gap = "8px";
-        
+
         if (item.icon) {
             const icon = document.createElement("i");
             icon.className = `codicon codicon-${item.icon}`;
@@ -128,8 +128,7 @@ export function openModeDropdown(element: HTMLElement, onSelect: (label: string)
     createPopover(element, [
         { label: "Planning", value: "Planning", icon: "beaker", desc: "Agent can plan before executing tasks. Use for deep research, complex tasks, or collaborative work" },
         { label: "Planning (Source Control)", value: "Planning (Source Control)", icon: "git-branch", desc: "Deep dive into git history and planning source control workflows" },
-        { label: "Fast", value: "Fast", icon: "zap", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" },
-        { label: "Cybersecurity", value: "Cybersecurity", icon: "shield", desc: "Unrestricted mode for exploit research, reverse engineering, and offensive programming." }
+        { label: "Fast", value: "Fast", icon: "zap", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" }
     ], (val) => {
         const store = (window as any).useStore;
         if (store) {
@@ -146,13 +145,13 @@ export async function initAgent() {
     console.log("Initializing Agent global listeners...");
     const { listen } = await import('@tauri-apps/api/event');
     const useStore = (window as any).useStore;
-    
+
     // Listen for session capture from auth flow
     await listen('session-captured', (event: any) => {
         console.log('Session captured:', event.payload);
         const { setSession } = useStore.getState();
         setSession(event.payload);
-        
+
         const { provider, cookies, userAgent } = event.payload;
         const session = {
             provider,
@@ -165,7 +164,7 @@ export async function initAgent() {
             if (store) {
                 store.getState().setAiStatus('alive');
                 store.getState().refreshAvailableModels(provider);
-                
+
                 // Visual feedback
                 const messagesContainer = document.getElementById("agent-messages");
                 if (messagesContainer) {
@@ -194,8 +193,8 @@ export async function initAgent() {
         const { updateLastAgentMessage, setIsAgentThinking } = useStore.getState();
         setIsAgentThinking(false);
         // Payload from Rust is { content: string }
-        const content = typeof event.payload === 'object' && event.payload.content 
-            ? event.payload.content 
+        const content = typeof event.payload === 'object' && event.payload.content
+            ? event.payload.content
             : (typeof event.payload === 'string' ? event.payload : '');
         updateLastAgentMessage(content);
     });
@@ -212,8 +211,8 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
     const rect = element.getBoundingClientRect();
     const store = (window as any).useStore;
     const availableModels = store ? store.getState().availableModels : [];
-    const setAgentModel = store ? store.getState().setAgentModel : () => {};
-    
+    const setAgentModel = store ? store.getState().setAgentModel : () => { };
+
     const items: { label: string, value: string, desc?: string }[] = [];
 
     if (availableModels && availableModels.length > 0) {
@@ -234,10 +233,10 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
 
     // Always offer Hunting/Settings if list is low or empty
     if (items.length < 3) {
-        items.push({ 
-            label: "🛰️ Hunt for Working AI Keys", 
-            value: "action|hunt", 
-            desc: "Scans for leaked but alive API keys" 
+        items.push({
+            label: "🛰️ Hunt for Working AI Keys",
+            value: "action|hunt",
+            desc: "Scans for leaked but alive API keys"
         });
     }
 
@@ -252,7 +251,7 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
         value: "action|login|gemini",
         desc: "Use your personal Gemini subscription"
     });
-    
+
     if (items.length === 0) {
         items.push({ label: "⚙️ Add API keys in settings", value: "action|settings" });
     }
@@ -286,15 +285,18 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
     });
 }
 
-export function openContextDropdown(target: HTMLElement, onSelect: (type: 'attachment' | 'mention' | 'workflow', name: string, data?: any) => void) {
+export async function openContextDropdown(target: HTMLElement, onSelect: (type: 'attachment' | 'mention' | 'workflow', name: string, data?: any, path?: string) => void) {
     const items = [
-        { label: 'Attachment', value: 'attachment', icon: 'file-media', desc: 'Attach any file (image, script, doc)' },
-        { label: 'Mention', value: 'mention', icon: 'mention', desc: 'Reference a file or codebase entity' },
-        { label: 'Workflow', value: 'workflow', icon: 'repo-forked', desc: 'Attach a task workflow or plan' },
+        { label: 'Attachment', value: 'attachment', icon: 'file-media', desc: 'Attach any local file (image, script, doc)' },
+        { label: 'Mention', value: 'mention', icon: 'mention', desc: 'Reference a project file or entity' },
+        { label: 'Workflow', value: 'workflow', icon: 'repo-forked', desc: 'Select a task workflow or plan' },
         { label: 'Web Screenshot', value: 'browser', icon: 'browser', desc: 'Capture current webpage vision + DOM' }
     ];
 
-    createPopover(target, items, (val) => {
+    createPopover(target, items, async (val) => {
+        const store = (window as any).useStore;
+        const activeRoot = store?.getState().activeRoot || '';
+
         if (val === 'attachment') {
             const input = document.createElement('input');
             input.type = 'file';
@@ -309,11 +311,64 @@ export function openContextDropdown(target: HTMLElement, onSelect: (type: 'attac
             };
             input.click();
         } else if (val === 'mention') {
-            const name = prompt('Mention file or entity (e.g. src/main.tsx or @MainComponent):');
-            if (name) onSelect('mention', name);
+            const files = store?.getState().getFlattenedFiles() || [];
+            if (files.length === 0) {
+                const name = prompt('Mention project file (e.g. src/main.tsx):');
+                if (name) onSelect('mention', name);
+                return;
+            }
+
+            const fileItems = files.map(f => ({
+                label: f.name,
+                value: f.path,
+                icon: 'file',
+                desc: f.path.replace(activeRoot, '').replace(/^[\\\/]/, '')
+            }));
+
+            createPopover(target, fileItems, (filePath) => {
+                const selectedFile = files.find(f => f.path === filePath);
+                if (selectedFile) {
+                    onSelect('mention', selectedFile.name, undefined, selectedFile.path);
+                }
+            });
         } else if (val === 'workflow') {
-            const name = prompt('Enter workflow path or identifier:');
-            if (name) onSelect('workflow', name);
+            if (!activeRoot) {
+                alert("Please open a project folder first to use workflows.");
+                return;
+            }
+
+            try {
+                const paths = [`${activeRoot}/.agent/workflows`, `${activeRoot}/.agents/workflows`];
+                let allWfs: any[] = [];
+                for (const p of paths) {
+                    try {
+                        const entries = await invoke<any[]>('list_directory', { path: p });
+                        allWfs = [...allWfs, ...entries.filter((e: any) => !e.is_dir && e.name.endsWith('.md'))];
+                    } catch (_) { }
+                }
+
+                if (allWfs.length === 0) {
+                    const name = prompt('No workflows found. Enter workflow filename manualy:');
+                    if (name) onSelect('workflow', name);
+                    return;
+                }
+
+                const workflowItems = allWfs.map(wf => ({
+                    label: wf.name.replace('.md', ''),
+                    value: wf.name,
+                    icon: 'repo-forked',
+                    desc: wf.path.replace(activeRoot, '').replace(/^[\\\/]/, '')
+                }));
+
+                // Show secondary popover for selection
+                createPopover(target, workflowItems, (wfVal) => {
+                    onSelect('workflow', wfVal);
+                });
+            } catch (e) {
+                console.error("Failed to load workflows:", e);
+                const name = prompt('Enter workflow path or identifier:');
+                if (name) onSelect('workflow', name);
+            }
         } else if (val === 'browser') {
             const url = prompt('Enter URL to capture (leave empty for current browser view):');
             invoke<any>("browser_capture_vision_context", { url: url || undefined })
@@ -339,21 +394,21 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
     if (!store) return;
 
     const state = store.getState();
-    
+
     // Kick off a background memory load whenever the user first sends a message
     if (state.activeRoot && !state.projectMemory) {
-        loadProjectMemory(state.activeRoot).catch(() => {});
+        loadProjectMemory(state.activeRoot).catch(() => { });
     }
 
     // Add user message
     state.addAgentMessage('user', prompt);
-    
+
     // Add empty assistant message for streaming
     state.addAgentMessage('assistant', '');
     state.setIsAgentThinking(true);
 
     try {
-        await sendAgentMessage(prompt, () => {});
+        await sendAgentMessage(prompt, () => { });
         // Clear context on successful send
         state.clearAttachedContext();
     } catch (error: any) {
@@ -409,7 +464,7 @@ export async function loadProjectMemory(root: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // IDE Context Builder — extracted from sendAgentMessage so it stays readable.
 // ---------------------------------------------------------------------------
-function buildIdeContext(): string {
+async function buildIdeContext(): Promise<string> {
     const store = (window as any).useStore;
     if (!store) return 'You are an AI coding agent embedded inside a VSCode-like IDE.';
 
@@ -460,17 +515,57 @@ function buildIdeContext(): string {
     const context = storeState.attachedContext || [];
     if (context.length > 0) {
         parts.push(`\n## Attached Context`);
-        context.forEach((c: any) => {
-            if (c.type === 'mention') {
-                parts.push(`- Referenced File/Entity: \`${c.name}\``);
+        for (const c of context) {
+            if (c.type === 'mention' || c.type === 'file') {
+                let content = c.data;
+                if (!content && activeRoot) {
+                    try {
+                        const fullPath = c.path || (c.name.startsWith('/') ? c.name : `${activeRoot}/${c.name}`);
+                        const rawContent = await invoke<string>("read_file", { path: fullPath });
+                        if (rawContent) {
+                            const lines = rawContent.split('\n');
+                            content = lines.slice(0, 300).join('\n');
+                            if (lines.length > 300) content += `\n... (truncated, ${lines.length - 300} more lines)`;
+                        }
+                    } catch (e) {
+                        content = `(Error: Could not read file content for ${c.name})`;
+                    }
+                }
+                parts.push(`### File: ${c.name}\n\`\`\`\n${content || '(No content)'}\n\`\`\``);
             } else if (c.type === 'workflow') {
-                parts.push(`- Related Workflow/Plan: \`${c.name}\``);
+                let content = c.data;
+                if (!content && activeRoot) {
+                    try {
+                        const wfPath = `${activeRoot}/.agent/workflows/${c.name.endsWith('.md') ? c.name : c.name + '.md'}`;
+                        const rawContent = await invoke<string>("read_file", { path: wfPath });
+                        if (rawContent) {
+                            const lines = rawContent.split('\n');
+                            content = lines.slice(0, 300).join('\n');
+                            if (lines.length > 300) content += `\n... (truncated)`;
+                        }
+                    } catch (e) {
+                        try {
+                            const wfPathAlt = `${activeRoot}/.agents/workflows/${c.name.endsWith('.md') ? c.name : c.name + '.md'}`;
+                            const rawContentAlt = await invoke<string>("read_file", { path: wfPathAlt });
+                            if (rawContentAlt) {
+                                const lines = rawContentAlt.split('\n');
+                                content = lines.slice(0, 300).join('\n');
+                                if (lines.length > 300) content += `\n... (truncated)`;
+                            }
+                        } catch (e2) {
+                            content = `(Error: Could not read workflow content for ${c.name})`;
+                        }
+                    }
+                }
+                parts.push(`### Workflow: ${c.name}\n\`\`\`markdown\n${content || '(No content)'}\n\`\`\``);
             } else if (c.type === 'attachment') {
-                parts.push(`- Attached File/Image: \`${c.name}\` (Base64 data included separately by vision-capable models if available)`);
-                // Note: If we had a vision model adapter, we'd pass the actual data bytes here.
-                // For now, we reference it in the metadata.
+                if (c.data && c.data.startsWith('data:image/')) {
+                    parts.push(`- Attached Image: \`${c.name}\` (Sent as multimodal data)`);
+                } else {
+                    parts.push(`### Attachment: ${c.name}\n\`\`\`\n${c.data || '(Binary or no content)'}\n\`\`\``);
+                }
             }
-        });
+        }
     }
 
     return parts.join('\n');
@@ -485,9 +580,9 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
         const handled = await processSlashCommand(userPrompt);
         if (handled) return;
     }
-    
+
     const { agentModel, agentMessages, setAiStatus, availableModels } = store.getState();
-    
+
     // Determine provider and model
     let provider = "OpenAI";
     let model = agentModel;
@@ -497,7 +592,7 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
     if (found) {
         provider = found.provider;
         model = found.id;
-    } 
+    }
     // 2. Fallback to format parsing etc.
     else if (agentModel.includes("|")) {
         [provider, model] = agentModel.split("|");
@@ -514,9 +609,10 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
     const normalizedProvider = provider.toLowerCase() === 'apiradar' ? 'apiradar' : provider.toLowerCase();
 
     // --- Build system message from IDE context + cached project memory ---
+    const systemContext = await buildIdeContext();
     const systemMessage = {
         role: 'system',
-        content: buildIdeContext(),
+        content: systemContext,
         tool_calls: null,
         metadata: null,
     };
@@ -526,7 +622,7 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
         systemMessage,
         ...agentMessages.map((m: any) => {
             let content: any = m.content || "";
-            
+
             // If message has attachment context, convert to multi-modal parts for images
             const attachmentContext = m.context?.filter((c: any) => c.type === 'attachment' && c.data);
             if (attachmentContext && attachmentContext.length > 0) {
@@ -536,12 +632,16 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
                     // Other files are just mentioned by name in the text if we want, 
                     // but for general files we might want to just include their reference.
                     if (ac.data.startsWith('data:image/')) {
-                        parts.push({ 
-                            type: 'image_url', 
-                            image_url: { url: ac.data } 
+                        parts.push({
+                            type: 'image_url',
+                            image_url: { url: ac.data }
                         });
+                    } else if (ac.data && ac.data.startsWith('data:text/')) {
+                        // For text-based attachments, include the content in the text part
+                        const textContent = atob(ac.data.split(',')[1]);
+                        parts[0].text = `[Attached file: ${ac.name}]\n\`\`\`\n${textContent}\n\`\`\`\n\n${parts[0].text}`;
                     } else {
-                        // For non-image files, we prepend an "Attached file: [name]" to the content
+                        // Fallback for other files
                         parts[0].text = `[Attached file: ${ac.name}]\n${parts[0].text}`;
                     }
                 });
@@ -567,12 +667,13 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
                 messages: messages,
                 temperature: 0.7,
                 autonomous: true,
+                root_access: true, // Internal AI now operates with permanent elevated privileges
                 mode: store.getState().agentMode,
                 ollama_url: store.getState().ollamaUrl
             }
         });
         // Auto-log a task summary to MEMORY.md after every successful AI response
-        logTaskToMemory(userPrompt).catch(() => {});
+        logTaskToMemory(userPrompt).catch(() => { });
     } catch (e: any) {
         console.error("Agent chat failed:", e);
         setAiStatus('dead');
@@ -644,7 +745,7 @@ async function loadSpecKitTemplate(name: string, args: string): Promise<string> 
             let content = await invoke<string>('read_file', { path: p });
             content = content.replace(/\$ARGUMENTS/g, args);
             return content;
-        } catch (_) {}
+        } catch (_) { }
     }
 
     return BUILTIN_PROMPTS[name]?.(args) ?? `Execute spec-kit command: ${name} ${args}`;
@@ -692,7 +793,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                     try {
                         const entries = await invoke<any[]>('list_directory', { path: p });
                         allWfs = [...allWfs, ...entries.filter((e: any) => !e.is_dir && e.name.endsWith('.md'))];
-                    } catch (_) {}
+                    } catch (_) { }
                 }
                 if (allWfs.length === 0) {
                     store.getState().updateLastAgentMessage('No workflows found in `.agent/workflows` or `.agents/workflows`.');
@@ -908,7 +1009,7 @@ export async function startKeyHunt() {
     huntBox.className = "agent-message assistant-message-box";
     huntBox.style.borderColor = "#60a5fa";
     huntBox.style.background = "rgba(59, 130, 246, 0.05)";
-    
+
     const title = document.createElement("div");
     title.style.fontWeight = "600";
     title.style.display = "flex";
@@ -1007,25 +1108,37 @@ export async function startKeyHunt() {
 // Global Listeners
 listen('ai-file-proposal', async (event: { payload: { path: string, content: string, description: string } }) => {
     const { path, content, description } = event.payload;
-    
+
     try {
         // Get old content from the backend to compute diff
-        const result = await invoke('propose_file_change', { 
-            path, 
-            content, 
-            description: description || 'AI proposed changes' 
+        const result = await invoke('propose_file_change', {
+            path,
+            content,
+            description: description || 'AI proposed changes'
         }) as PendingChange;
-        
+
         useStore.getState().proposePendingChange(result);
     } catch (error) {
         console.error('Failed to handle file proposal:', error);
     }
 });
 
+listen('ai-thinking', (event: { payload: { thought: string } | any }) => {
+    if (event.payload && event.payload.thought) {
+        useStore.getState().updateLastAgentThought(event.payload.thought);
+    }
+});
+
+listen('ai-content', (event: { payload: { content: string } | any }) => {
+    if (event.payload && event.payload.content) {
+        useStore.getState().updateLastAgentMessage(event.payload.content);
+    }
+});
+
 listen('ai-tool-call', (event: { payload: { name: string, args: string } | any }) => {
-    // Only process if payload structure matches
     if (event.payload && event.payload.name) {
-        const { updateAgentStepStatus } = useStore.getState();
+        const { addAgentStep, updateAgentStepStatus } = useStore.getState();
+        addAgentStep(event.payload.name);
         updateAgentStepStatus(event.payload.name, 'running', 'Executing...');
     }
 });
@@ -1034,5 +1147,26 @@ listen('ai-tool-result', (event: { payload: { name: string, result: string } | a
     if (event.payload && event.payload.name) {
         const { updateAgentStepStatus } = useStore.getState();
         updateAgentStepStatus(event.payload.name, 'success', event.payload.result);
+    }
+});
+
+listen('ai-artifact', (event: { payload: { type: string, path: string, title: string } | any }) => {
+    if (event.payload) {
+        useStore.getState().addAgentArtifact(event.payload);
+    }
+});
+
+listen('update-agent-task', (event: { payload: { id: string, title: string, summary: string, status: string, progress: number } | any }) => {
+    if (event.payload) {
+        useStore.getState().updateAgentTask(event.payload);
+    }
+});
+
+listen('add-agent-step', (event: { payload: { name: string, status: string } | any }) => {
+    if (event.payload) {
+        useStore.getState().addAgentStep(event.payload.name);
+        if (event.payload.status) {
+            useStore.getState().updateAgentStepStatus(event.payload.name, event.payload.status === 'success' ? 'success' : 'running', '');
+        }
     }
 });

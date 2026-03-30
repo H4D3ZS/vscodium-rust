@@ -15,8 +15,7 @@ pub struct PerformanceMonitor {
 
 impl PerformanceMonitor {
     pub fn new() -> Self {
-        let mut sys = System::new_all();
-        sys.refresh_all();
+        let sys = System::new(); // Don't refresh_all on main thread
         let pid = Pid::from(std::process::id() as usize);
         Self {
             sys: Mutex::new(sys),

@@ -27,18 +27,22 @@ semver = "1.0"
 ropey = "1.6"
 tree-sitter = "0.26"
 tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-python = "0.23"
 tokio = { version = "1", features = ["full"] }
 walkdir = "2"
 tauri-plugin-dialog = "2"
 portable-pty = "0.8.1"
 tokio-util = { version = "0.7.10", features = ["codec"] }
 lsp-types = "0.94.1"
-reqwest = { version = "0.11", features = ["json", "stream"] }
+reqwest = { version = "0.11", features = ["json", "stream", "blocking"] }
 anyhow = "1"
 sysinfo = "0.30"
 zip = "0.6"
 headless_chrome = "1.0.12"
 base64 = "0.21"
+glob = "0.3"
 regex = "1.12.3"
 uuid = { version = "1", features = ["v4", "serde"] }
 futures = "0.3.32"
@@ -59,3 +63,10 @@ harness = false
 
 [profile.bench]
 debug = true
+
+[profile.release]
+panic = "abort"
+lto = false
+opt-level = 2
+codegen-units = 1 # Minimize parallel memory usage
+strip = false # Disable stripping to reduce post-build processing

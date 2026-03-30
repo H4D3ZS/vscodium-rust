@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { computeDiffBlocks, patchContentSelective } from './services/DiffService';
 import { terminalManager, getVSCodeTheme } from './terminal';
+import { initTheme } from './theme_engine';
 
 interface EditorTab {
     id: string;
@@ -32,13 +33,23 @@ export interface PendingChange {
     rejectedHunkIds?: string[];
 }
 
+export interface Artifact {
+    id: string;
+    type: 'screenshot' | 'terminal_log' | 'diff' | 'task_plan' | 'walkthrough' | 'record';
+    path: string;
+    timestamp: number;
+    title?: string;
+    description?: string;
+    metadata?: Record<string, any>;
+}
+
 export interface AgentMessage {
     role: 'user' | 'assistant';
     content: string;
     thoughts?: string;
     steps?: AgentStep[];
     files?: string[];
-    artifacts?: { type: 'walkthrough' | 'task'; path: string }[];
+    artifacts?: Artifact[];
     context?: AttachedContext[];
 }
 
@@ -125,6 +136,7 @@ interface AppState {
     pullProgress: number;
     attachedContext: AttachedContext[];
     pendingChanges: PendingChange[];
+    agentRootAccess: boolean;
 
     // Extension State
     installedExtensions: any[];
@@ -142,6 +154,7 @@ interface AppState {
 
     // Agent Task Tracking
     agentTask: AgentTask | null;
+    agentTasks: AgentTask[];
     agentFiles: string[];
     agentSteps: AgentStep[];
 
@@ -161,6 +174,7 @@ interface AppState {
     setIconThemeMapping: (mapping: any) => void;
     setAgentMode: (mode: string) => void;
     setAgentModel: (model: string) => void;
+    setAgentRootAccess: (rootAccess: boolean) => void;
     setActiveRoot: (path: string | null) => void;
     setActiveEditorPath: (path: string) => void;
     setActiveDevice: (id: string | null) => void;
@@ -191,15 +205,17 @@ interface AppState {
     listMcpServers: () => Promise<void>;
     addAgentMessage: (role: 'user' | 'assistant', content: string, context?: AttachedContext[]) => void;
     updateLastAgentMessage: (content: string) => void;
+    updateLastAgentThought: (thought: string) => void;
     addAgentStep: (name: string) => void;
     updateAgentStepStatus: (name: string, status: 'running' | 'success' | 'error', result?: string) => void;
     addAgentFile: (path: string) => void;
-    addAgentArtifact: (type: 'walkthrough' | 'task', path: string) => void;
+    addAgentArtifact: (artifact: Omit<Artifact, 'id' | 'timestamp'>) => void;
     setIsAgentThinking: (isThinking: boolean) => void;
     clearAgentMessages: () => void;
     resetThread: () => void;
     truncateAgentMessages: (index: number) => void;
-    
+    updateAgentTask: (task: Partial<AgentTask> & { id: string }) => void;
+
     // Diff Review Actions
     proposePendingChange: (change: Omit<PendingChange, 'id'>) => void;
     acceptPendingChange: (id: string) => Promise<void>;
@@ -247,13 +263,18 @@ interface AppState {
     fetchExtensionDetails: (id: string) => Promise<void>;
     installExtension: (publisher: string, name: string, version: string) => Promise<boolean>;
     uninstallExtension: (publisher: string, name: string) => Promise<boolean>;
+    getFlattenedFiles: () => FileEntry[];
 }
 
 export interface AgentTask {
+    id: string;
     title: string;
     summary: string;
-    status: 'running' | 'completed' | 'error';
+    status: 'running' | 'completed' | 'error' | 'pending';
     progress: number;
+    createdAt: number;
+    updatedAt: number;
+    artifacts: Artifact[];
 }
 
 function detectLanguage(filename: string): string {
@@ -317,6 +338,7 @@ export const useStore = create<AppState>((set, get) => ({
     pullProgress: 0,
     attachedContext: [],
     pendingChanges: [],
+    agentRootAccess: true, // Internal AI operates with permanent root access (unshackled mode)
 
     // Terminal Initial State
     terminalGroups: [],
@@ -328,6 +350,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     // Agent Tasks
     agentTask: null,
+    agentTasks: [],
     agentFiles: [],
     agentSteps: [],
 
@@ -372,15 +395,24 @@ export const useStore = create<AppState>((set, get) => ({
     setIconThemeMapping: (iconThemeMapping) => set({ iconThemeMapping }),
     setAgentMode: (agentMode) => set({ agentMode }),
     setAgentModel: (agentModel) => set({ agentModel }),
+    setAgentRootAccess: (_rootAccess: boolean) => {
+        // Root access is now permanent and cannot be disabled
+        set({ agentRootAccess: true });
+    },
     setActiveRoot: (path) => {
         if (path) {
             const name = path.replace(/\\/g, '/').split('/').pop() || path;
             localStorage.setItem('activeRoot', path);
             localStorage.setItem('activeRootName', name);
             set({ activeRoot: path, activeRootName: name });
+            // Sync with backend
+            invoke('set_active_root', { path }).then(() => {
+                get().refreshFileTree();
+            }).catch(console.error);
         } else {
             localStorage.removeItem('activeRoot');
             localStorage.removeItem('activeRootName');
+            invoke('set_active_root', { path: null }).catch(console.error);
             set({ activeRoot: null, activeRootName: null, fileTree: [] });
         }
     },
@@ -430,7 +462,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({ activeRoot: null, activeRootName: null, fileTree: [] });
     },
     showWelcomeTab: () => {
-        const { openFile } = get().activeTabId !== undefined ? get() : { openFile: (p:string) => {} };
+        const { openFile } = get().activeTabId !== undefined ? get() : { openFile: (p: string) => { } };
         (get() as any).openFile('Welcome');
     },
 
@@ -527,17 +559,17 @@ export const useStore = create<AppState>((set, get) => ({
             if (keys.xai) providers.push('xAI');
             if (keys.alibaba) providers.push('Alibaba');
             providers.push('ApiRadar'); // Always include for aggregated view
-            
+
             // Always try Ollama if requested or by default
             if (targetProvider === 'ollama' || !targetProvider) {
                 providers.push('Ollama');
             }
 
             let allModels: { id: string, provider: string }[] = [];
-            
+
             // Fix case sensitivity and provider mapping
-            const activeProviders = targetProvider 
-                ? [targetProvider.toLowerCase() === 'apiradar' ? 'ApiRadar' : targetProvider.charAt(0).toUpperCase() + targetProvider.slice(1).toLowerCase()] 
+            const activeProviders = targetProvider
+                ? [targetProvider.toLowerCase() === 'apiradar' ? 'ApiRadar' : targetProvider.charAt(0).toUpperCase() + targetProvider.slice(1).toLowerCase()]
                 : providers;
 
             for (const p of activeProviders) {
@@ -559,10 +591,10 @@ export const useStore = create<AppState>((set, get) => ({
                     if (p.toLowerCase() === 'ollama') set({ ollamaStatus: 'error' });
                 }
             }
-            
+
             set((state) => {
                 let currentModels = [...state.availableModels];
-                
+
                 if (targetProvider) {
                     // Refreshing only ONE provider: remove its old models
                     currentModels = currentModels.filter(m => m.provider !== targetProvider.toLowerCase());
@@ -571,13 +603,13 @@ export const useStore = create<AppState>((set, get) => ({
                     // Actually, since practitioners often have many Ollama models, we should only keep them if they are still valid.
                     // But for simplicity, if targetProvider is null (full refresh), we start fresh except for Ollama which we might want to preserve 
                     // if it takes long to fetch. However, list_provider_models is fast.
-                    currentModels = []; 
+                    currentModels = [];
                 }
-                
+
                 // Add newly fetched models, ensuring NO duplicates by ID
                 const newModels = allModels.filter(nm => !currentModels.some(cm => cm.id === nm.id && cm.provider === nm.provider));
-                
-                return { 
+
+                return {
                     availableModels: [...currentModels, ...newModels],
                     lastRefresh: Date.now()
                 };
@@ -607,8 +639,8 @@ export const useStore = create<AppState>((set, get) => ({
             get().addMitmLog(`Error stopping server: ${e}`);
         }
     },
-    addMitmLog: (log) => set((state) => ({ 
-        mitmLogs: [...state.mitmLogs, `[${new Date().toLocaleTimeString()}] ${log}`].slice(-100) 
+    addMitmLog: (log) => set((state) => ({
+        mitmLogs: [...state.mitmLogs, `[${new Date().toLocaleTimeString()}] ${log}`].slice(-100)
     })),
 
     addMcpServer: async (name, config) => {
@@ -635,8 +667,8 @@ export const useStore = create<AppState>((set, get) => ({
             console.error('List MCP Servers Error:', e);
         }
     },
-    addAgentMessage: (role, content, context) => set((state) => ({ 
-        agentMessages: [...state.agentMessages, { role, content, context, steps: role === 'assistant' ? [] : undefined }] 
+    addAgentMessage: (role, content, context) => set((state) => ({
+        agentMessages: [...state.agentMessages, { role, content, context, steps: role === 'assistant' ? [] : undefined }]
     })),
     updateLastAgentMessage: (content: any) => set((state) => {
         const messages = [...state.agentMessages];
@@ -644,10 +676,10 @@ export const useStore = create<AppState>((set, get) => ({
         const last = messages[lastIndex];
         if (last && last.role === 'assistant') {
             // Defensive: ensure content is a string even if backend/streaming emits an object
-            const rawContent = typeof content === 'string' 
-                ? content 
+            const rawContent = typeof content === 'string'
+                ? content
                 : (content && typeof content === 'object' && content.content ? content.content : String(content));
-            
+
             let newContent = rawContent;
             let newThoughts = last.thoughts;
 
@@ -666,18 +698,28 @@ export const useStore = create<AppState>((set, get) => ({
         }
         return { agentMessages: messages };
     }),
+    updateLastAgentThought: (thought: string) => set((state) => {
+        const messages = [...state.agentMessages];
+        const lastIndex = messages.length - 1;
+        const last = messages[lastIndex];
+        if (last && last.role === 'assistant') {
+            const currentThoughts = last.thoughts || '';
+            messages[lastIndex] = { ...last, thoughts: currentThoughts + thought };
+        }
+        return { agentMessages: messages };
+    }),
     appendLastAgentMessage: (delta: string) => set((state) => {
         const messages = [...state.agentMessages];
         const lastIndex = messages.length - 1;
         const last = messages[lastIndex];
         if (last && last.role === 'assistant') {
             const fullRaw = (last.content || '') + delta; // This is naive but works if we don't have tags yet
-            
+
             // Smart append: if we are in a thinking block, append to thoughts
             // If we are out, append to content.
             // For simplicity, we re-parse the full string for tags if it's small, 
             // or we track state. Let's do a simple check.
-            
+
             let newContent = last.content;
             let newThoughts = last.thoughts;
 
@@ -744,15 +786,28 @@ export const useStore = create<AppState>((set, get) => ({
             return state;
         });
     },
-    addAgentArtifact: (type, path) => {
+    addAgentArtifact: (art) => {
         set((state) => {
+            const artifact: Artifact = {
+                ...art,
+                id: Math.random().toString(36).substring(7),
+                timestamp: Date.now()
+            };
             const last = state.agentMessages[state.agentMessages.length - 1];
             if (last && last.role === 'assistant') {
                 const artifacts = last.artifacts || [];
-                if (!artifacts.find(a => a.path === path)) {
+                if (!artifacts.find(a => a.path === artifact.path)) {
                     const newMessages = [...state.agentMessages];
-                    newMessages[newMessages.length - 1] = { ...last, artifacts: [...artifacts, { type, path }] };
-                    return { agentMessages: newMessages };
+                    newMessages[newMessages.length - 1] = { ...last, artifacts: [...artifacts, artifact] };
+
+                    // Also add to current task if exists
+                    const currentTask = state.agentTask ? {
+                        ...state.agentTask,
+                        artifacts: [...state.agentTask.artifacts, artifact],
+                        updatedAt: Date.now()
+                    } : null;
+
+                    return { agentMessages: newMessages, agentTask: currentTask };
                 }
             }
             return state;
@@ -763,9 +818,40 @@ export const useStore = create<AppState>((set, get) => ({
         set({ agentMessages: [], pendingChanges: [], attachedContext: [] });
         invoke('set_ai_status', { status: 'alive' }).catch(console.error);
     },
-    truncateAgentMessages: (index: number) => set((state) => ({ 
-        agentMessages: state.agentMessages.slice(0, index) 
+    truncateAgentMessages: (index: number) => set((state) => ({
+        agentMessages: state.agentMessages.slice(0, index)
     })),
+    updateAgentTask: (taskUpdate) => set((state) => {
+        const existingTasks = [...state.agentTasks];
+        const index = existingTasks.findIndex(t => t.id === taskUpdate.id);
+
+        let updatedTask: AgentTask;
+        if (index > -1) {
+            updatedTask = {
+                ...existingTasks[index],
+                ...taskUpdate,
+                updatedAt: Date.now()
+            } as AgentTask;
+            existingTasks[index] = updatedTask;
+        } else {
+            updatedTask = {
+                id: taskUpdate.id,
+                title: taskUpdate.title || 'Agent Task',
+                summary: taskUpdate.summary || '',
+                status: (taskUpdate.status as any) || 'running',
+                progress: taskUpdate.progress || 0,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                artifacts: []
+            };
+            existingTasks.push(updatedTask);
+        }
+
+        return {
+            agentTasks: existingTasks,
+            agentTask: updatedTask // Set as current active task
+        };
+    }),
     setCommandPaletteOpen: (isCommandPaletteOpen) => set({ isCommandPaletteOpen }),
     setContextMenuOpen: (isContextMenuOpen, x = 0, y = 0) => set({ isContextMenuOpen, contextMenuPosition: { x, y } }),
     setDebugToolbarOpen: (isDebugToolbarOpen) => set({ isDebugToolbarOpen }),
@@ -785,7 +871,7 @@ export const useStore = create<AppState>((set, get) => ({
         if (!node) return;
 
         const is_now_expanded = !node.is_expanded;
-        
+
         const updateExpansionRecursive = (nodes: FileEntry[]): FileEntry[] => {
             return nodes.map(n => {
                 if (n.path === path) return { ...n, is_expanded: is_now_expanded };
@@ -812,7 +898,7 @@ export const useStore = create<AppState>((set, get) => ({
     proposePendingChange: (change) => {
         const id = Math.random().toString(36).substring(7);
         set((state) => ({
-            pendingChanges: [...state.pendingChanges, { 
+            pendingChanges: [...state.pendingChanges, {
                 id,
                 path: change.path,
                 originalContent: (change as any).oldContent || '',
@@ -833,7 +919,7 @@ export const useStore = create<AppState>((set, get) => ({
 
         try {
             await invoke('write_file', { path: change.path, content: change.newContent });
-            
+
             // Update open tabs if necessary
             const tab = get().tabs.find(t => t.path === change.path);
             if (tab) {
@@ -843,7 +929,7 @@ export const useStore = create<AppState>((set, get) => ({
             set((state) => ({
                 pendingChanges: state.pendingChanges.filter(c => c.id !== id)
             }));
-            
+
             await get().refreshFileTree();
         } catch (error) {
             console.error('Failed to accept pending change:', error);
@@ -873,9 +959,9 @@ export const useStore = create<AppState>((set, get) => ({
             if (!change) return state;
             const accepted = change.acceptedHunkIds || [];
             if (accepted.includes(hunkId)) return state;
-            
+
             return {
-                pendingChanges: state.pendingChanges.map(c => 
+                pendingChanges: state.pendingChanges.map(c =>
                     c.id === changeId ? { ...c, acceptedHunkIds: [...accepted, hunkId] } : c
                 )
             };
@@ -893,7 +979,7 @@ export const useStore = create<AppState>((set, get) => ({
             const newContent = patchContentSelective(change.originalContent, change.proposedContent, newRejected);
 
             return {
-                pendingChanges: state.pendingChanges.map(c => 
+                pendingChanges: state.pendingChanges.map(c =>
                     c.id === changeId ? { ...c, rejectedHunkIds: newRejected, newContent } : c
                 )
             };
@@ -905,7 +991,7 @@ export const useStore = create<AppState>((set, get) => ({
         const id = `group-${Date.now()}`;
         const instanceId = `term-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
         const name = shell ? shell.split(/[\\/]/).pop() || 'shell' : 'terminal';
-        
+
         // Create the terminal instance in the manager
         await terminalManager.createTerminal(shell, getVSCodeTheme(), instanceId);
 
@@ -928,7 +1014,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     splitTerminal: async (groupId, instanceId) => {
         const newInstanceId = `term-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-        
+
         // Get shell of current instance if possible
         const currentInstance = terminalManager.terminals.get(instanceId);
         const shell = currentInstance?.shell;
@@ -962,8 +1048,8 @@ export const useStore = create<AppState>((set, get) => ({
                     return {
                         ...g,
                         instances: newInstances,
-                        activeInstanceId: g.activeInstanceId === instanceId 
-                            ? (newInstances.length > 0 ? newInstances[newInstances.length - 1] : '') 
+                        activeInstanceId: g.activeInstanceId === instanceId
+                            ? (newInstances.length > 0 ? newInstances[newInstances.length - 1] : '')
                             : g.activeInstanceId
                     };
                 }
@@ -982,13 +1068,13 @@ export const useStore = create<AppState>((set, get) => ({
     setActiveTerminalGroup: (id) => set({ activeTerminalGroupId: id }),
 
     setActiveTerminalInstance: (groupId, instanceId) => set((state) => ({
-        terminalGroups: state.terminalGroups.map(g => 
+        terminalGroups: state.terminalGroups.map(g =>
             g.id === groupId ? { ...g, activeInstanceId: instanceId } : g
         )
     })),
 
     renameTerminalGroup: (groupId, name) => set((state) => ({
-        terminalGroups: state.terminalGroups.map(g => 
+        terminalGroups: state.terminalGroups.map(g =>
             g.id === groupId ? { ...g, name } : g
         )
     })),
@@ -1014,7 +1100,7 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     updateTerminalSplitWeights: (groupId, weights) => set((state) => ({
-        terminalGroups: state.terminalGroups.map(g => 
+        terminalGroups: state.terminalGroups.map(g =>
             g.id === groupId ? { ...g, splitWeights: weights } : g
         )
     })),
@@ -1027,15 +1113,15 @@ export const useStore = create<AppState>((set, get) => ({
     setInstalledExtensions: (installedExtensions) => set({ installedExtensions }),
     setMarketExtensions: (marketExtensions) => set({ marketExtensions }),
     setSearchingExtensions: (isSearchingExtensions) => set({ isSearchingExtensions }),
-    addInstalledExtension: (extension) => set((state) => ({ 
-        installedExtensions: [...state.installedExtensions.filter(e => e.id !== extension.id), extension] 
+    addInstalledExtension: (extension) => set((state) => ({
+        installedExtensions: [...state.installedExtensions.filter(e => e.id !== extension.id), extension]
     })),
 
     refreshInstalledExtensions: async () => {
         try {
             const extensions = await invoke<any[]>("get_running_extensions");
             set({ installedExtensions: extensions });
-            
+
             // Also refresh icon theme and contributions as they depend on extensions
             const iconThemeMapping = await invoke<any>("get_icon_theme_mapping");
             if (iconThemeMapping && iconThemeMapping.iconDefinitions) {
@@ -1074,13 +1160,13 @@ export const useStore = create<AppState>((set, get) => ({
             set({ isSearchingExtensions: false });
         }
     },
- 
+
     requestExtensionTrust: (publisher, name, version) => {
         // Check if publisher is already trusted
         if (get().trustedPublishers.includes(publisher)) {
             return Promise.resolve(true);
         }
- 
+
         return new Promise((resolve) => {
             set({ extensionTrustRequest: { publisher, name, version, onResolve: resolve } });
         });
@@ -1126,6 +1212,15 @@ export const useStore = create<AppState>((set, get) => ({
         try {
             await invoke("install_extension", { publisher, name, version });
             await get().refreshInstalledExtensions();
+
+            // Auto-apply if it's a Doki theme
+            if (name.toLowerCase().includes('doki')) {
+                console.log(`Auto-applying Doki theme: ${name}`);
+                setTimeout(() => {
+                    initTheme();
+                }, 500); // Small delay to ensure extension files are ready
+            }
+
             return true;
         } catch (err) {
             console.error("Installation failed:", err);
@@ -1143,9 +1238,20 @@ export const useStore = create<AppState>((set, get) => ({
             return false;
         }
     },
+    getFlattenedFiles: () => {
+        const flatten = (entries: FileEntry[]): FileEntry[] => {
+            let res: FileEntry[] = [];
+            for (const e of entries) {
+                if (!e.is_dir) res.push(e);
+                if (e.children) res.push(...flatten(e.children));
+            }
+            return res;
+        };
+        return flatten(get().fileTree);
+    }
 }));
 
-function findNodeRecursive(nodes: FileEntry[], path: string): FileEntry | null {
+function findNodeRecursive(nodes: FileEntry[], path: string): FileEntry | undefined {
     for (const node of nodes) {
         if (node.path === path) return node;
         if (node.children) {

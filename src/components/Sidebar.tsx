@@ -20,7 +20,7 @@ const flattenTree = (entries: FileEntry[], depth = 0, visited = new Set<string>(
     for (const entry of entries) {
         if (visited.has(entry.path)) continue;
         visited.add(entry.path);
-        
+
         result.push({ entry, depth });
         if (entry.is_expanded && entry.children) {
             result = [...result, ...flattenTree(entry.children, depth + 1, visited)];
@@ -35,7 +35,7 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
     const activeTabId = useStore(state => state.activeTabId);
     const tabs = useStore(state => state.tabs);
     const setContextMenuOpen = useStore(state => state.setContextMenuOpen);
-    
+
     const isExpanded = entry.is_expanded ?? false;
     const isActive = tabs.find(t => t.id === activeTabId)?.path === entry.path;
 
@@ -52,7 +52,7 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
                 } else if (iconThemeMapping.folder) {
                     iconId = iconThemeMapping.folder;
                 }
-                
+
                 // Specific folder names if needed (advanced, skipping for now to keep it simple but better than before)
             } else {
                 // File icons
@@ -69,18 +69,18 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
                 const def = iconThemeMapping.iconDefinitions[iconId];
                 if (def.iconPath) {
                     // Try to use convertFileSrc if available, otherwise raw path (Tauri handles it with protocol)
-                    const src = (window as any).__TAURI__?.core?.convertFileSrc 
+                    const src = (window as any).__TAURI__?.core?.convertFileSrc
                         ? (window as any).__TAURI__.core.convertFileSrc(def.iconPath)
                         : `asset://localhost/${encodeURIComponent(def.iconPath)}`;
                     return { type: 'img', value: src };
                 }
             }
         }
-        
+
         if (entry.is_dir) {
             return { type: 'icon', value: `codicon codicon-${isExpanded ? 'chevron-down' : 'chevron-right'}` };
         }
-        
+
         return { type: 'icon', value: 'codicon codicon-file' };
     };
 
@@ -107,7 +107,7 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
     };
 
     return (
-        <div 
+        <div
             className={`tree-row${isActive ? ' active' : ''}`}
             onClick={handleToggle}
             onContextMenu={handleContextMenu}
@@ -126,7 +126,7 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
                 display: 'flex',
                 alignItems: 'center',
                 height: '22px',
-                paddingLeft: `${depth * 12 + 12}px`,
+                paddingLeft: `${depth * 8 + 8}px`,
                 cursor: 'pointer',
                 fontSize: '13px',
                 color: 'var(--vscode-sideBar-foreground)',
@@ -195,7 +195,7 @@ const OpenEditorsItem: React.FC<{ tab: any; active: boolean; onClick: () => void
     <div className={`pane-item${active ? ' active' : ''}`} onClick={onClick}>
         <i className={`codicon codicon-${detectLanguageIcon(tab.filename)}`}></i>
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tab.filename}</span>
-        {tab.isModified && <div className="modified-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--vscode-tab-activeForeground)', marginRight: 4 }}></div>}
+        {tab.isModified && <div className="modified-dot"></div>}
         <i className="codicon codicon-close close-icon" onClick={(e) => { e.stopPropagation(); onClose(); }}></i>
     </div>
 );
@@ -213,7 +213,7 @@ function detectLanguageIcon(filename: string): string {
 const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultCollapsed?: boolean; actions?: React.ReactNode }> = ({ title, children, defaultCollapsed = false, actions }) => {
     const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
     return (
-        <div className="sidebar-pane" style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, minHeight: isCollapsed ? '35px' : 'auto', flex: isCollapsed ? 0 : 1 }}>
+        <div className={`sidebar-pane${isCollapsed ? ' collapsed' : ''}`} style={{ flex: isCollapsed ? 0 : 1 }}>
             <div className={`pane-header${isCollapsed ? ' collapsed' : ''}`} onClick={() => setIsCollapsed(!isCollapsed)}>
                 <i className="codicon codicon-chevron-down"></i>
                 <span style={{ flex: 1 }}>{title}</span>
@@ -248,62 +248,72 @@ const Sidebar: React.FC = () => {
         const hideMenu = () => menu.classList.add('hidden');
 
         const handlers: Array<{ id: string; fn: () => void }> = [
-            { id: 'cm-open', fn: () => {
-                const ctx = (window as any).__explorerContext;
-                if (!ctx) return;
-                if (!ctx.isDir) {
-                    useStore.getState().openFile(ctx.path).catch(err => console.error(err));
+            {
+                id: 'cm-open', fn: () => {
+                    const ctx = (window as any).__explorerContext;
+                    if (!ctx) return;
+                    if (!ctx.isDir) {
+                        useStore.getState().openFile(ctx.path).catch(err => console.error(err));
+                    }
+                    hideMenu();
                 }
-                hideMenu();
-            }},
-            { id: 'cm-new-file', fn: async () => {
-                const ctx = (window as any).__explorerContext;
-                if (!ctx) return;
-                const baseDir = ctx.isDir ? ctx.path : ctx.path.substring(0, ctx.path.lastIndexOf('/'));
-                const name = window.prompt('New file name:');
-                if (!name) return;
-                try {
-                    await invoke('create_file', { path: `${baseDir}/${name}` });
-                    await refreshFileTree();
-                } catch (e) { console.error(e); }
-                hideMenu();
-            }},
-            { id: 'cm-new-folder', fn: async () => {
-                const ctx = (window as any).__explorerContext;
-                if (!ctx) return;
-                const baseDir = ctx.isDir ? ctx.path : ctx.path.substring(0, ctx.path.lastIndexOf('/'));
-                const name = window.prompt('New folder name:');
-                if (!name) return;
-                try {
-                    await invoke('create_directory', { path: `${baseDir}/${name}` });
-                    await refreshFileTree();
-                } catch (e) { console.error(e); }
-                hideMenu();
-            }},
-            { id: 'cm-rename', fn: async () => {
-                const ctx = (window as any).__explorerContext;
-                if (!ctx) return;
-                const parent = ctx.path.includes('/') ? ctx.path.substring(0, ctx.path.lastIndexOf('/')) : '';
-                const name = window.prompt('Rename to:', ctx.name);
-                if (!name || name === ctx.name) return;
-                const newPath = parent ? `${parent}/${name}` : name;
-                try {
-                    await invoke('rename_path', { oldPath: ctx.path, newPath });
-                    await refreshFileTree();
-                } catch (e) { console.error(e); }
-                hideMenu();
-            }},
-            { id: 'cm-delete', fn: async () => {
-                const ctx = (window as any).__explorerContext;
-                if (!ctx) return;
-                const confirmDelete = window.confirm(`Delete '${ctx.name}'?`);
-                if (!confirmDelete) return;
-                try {
-                    await invoke('delete_path', { path: ctx.path });
-                    await refreshFileTree();
-                } catch (e) { console.error(e); }
-                hideMenu();
-            }},
+            },
+            {
+                id: 'cm-new-file', fn: async () => {
+                    const ctx = (window as any).__explorerContext;
+                    if (!ctx) return;
+                    const baseDir = ctx.isDir ? ctx.path : ctx.path.substring(0, ctx.path.lastIndexOf('/'));
+                    const name = window.prompt('New file name:');
+                    if (!name) return;
+                    try {
+                        await invoke('create_file', { path: `${baseDir}/${name}` });
+                        await refreshFileTree();
+                    } catch (e) { console.error(e); }
+                    hideMenu();
+                }
+            },
+            {
+                id: 'cm-new-folder', fn: async () => {
+                    const ctx = (window as any).__explorerContext;
+                    if (!ctx) return;
+                    const baseDir = ctx.isDir ? ctx.path : ctx.path.substring(0, ctx.path.lastIndexOf('/'));
+                    const name = window.prompt('New folder name:');
+                    if (!name) return;
+                    try {
+                        await invoke('create_directory', { path: `${baseDir}/${name}` });
+                        await refreshFileTree();
+                    } catch (e) { console.error(e); }
+                    hideMenu();
+                }
+            },
+            {
+                id: 'cm-rename', fn: async () => {
+                    const ctx = (window as any).__explorerContext;
+                    if (!ctx) return;
+                    const parent = ctx.path.includes('/') ? ctx.path.substring(0, ctx.path.lastIndexOf('/')) : '';
+                    const name = window.prompt('Rename to:', ctx.name);
+                    if (!name || name === ctx.name) return;
+                    const newPath = parent ? `${parent}/${name}` : name;
+                    try {
+                        await invoke('rename_path', { oldPath: ctx.path, newPath });
+                        await refreshFileTree();
+                    } catch (e) { console.error(e); }
+                    hideMenu();
+                }
+            },
+            {
+                id: 'cm-delete', fn: async () => {
+                    const ctx = (window as any).__explorerContext;
+                    if (!ctx) return;
+                    const confirmDelete = window.confirm(`Delete '${ctx.name}'?`);
+                    if (!confirmDelete) return;
+                    try {
+                        await invoke('delete_path', { path: ctx.path });
+                        await refreshFileTree();
+                    } catch (e) { console.error(e); }
+                    hideMenu();
+                }
+            },
         ];
 
         handlers.forEach(({ id, fn }) => {
@@ -346,8 +356,9 @@ const Sidebar: React.FC = () => {
             <div className="sidebar-content-wrapper" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {activeView === 'explorer-view' && (
                     <div className="sidebar-content" style={{ display: 'flex', flexDirection: 'column', overflowY: 'hidden', flex: 1 }}>
-                        <SidebarPane 
-                            title={activeRootName || 'No Folder Opened'} 
+
+                        <SidebarPane
+                            title={activeRootName || 'NO FOLDER OPENED'}
                             defaultCollapsed={false}
                             actions={activeRoot ? (
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', paddingRight: '8px' }}>
@@ -377,6 +388,18 @@ const Sidebar: React.FC = () => {
                                 )}
                             </div>
                         </SidebarPane>
+
+                        <SidebarPane title="OUTLINE" defaultCollapsed={true}>
+                            <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>
+                                No outline information found.
+                            </div>
+                        </SidebarPane>
+
+                        <SidebarPane title="TIMELINE" defaultCollapsed={true}>
+                            <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>
+                                The timeline view is not yet available.
+                            </div>
+                        </SidebarPane>
                     </div>
                 )}
 
@@ -397,7 +420,7 @@ const Sidebar: React.FC = () => {
                                         <div style={{ fontSize: '12px', marginBottom: '8px' }}>{view.name} View</div>
                                         <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>ID: {view.id}</div>
                                         <div style={{ fontSize: '10px', marginTop: '12px', fontStyle: 'italic' }}>
-                                            This view is provided by extension: <br/> {view.extensionId}
+                                            This view is provided by extension: <br /> {view.extensionId}
                                         </div>
                                         {/* In a real scenario, we'd render a webview or iframe here for the extension's UI */}
                                         <div style={{ marginTop: '20px', padding: '8px', border: '1px dashed var(--vscode-panel-border)', fontSize: '11px' }}>
