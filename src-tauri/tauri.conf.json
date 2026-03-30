@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:11434 https://*.gallery.vsassets.io https://open-vsx.org; script-src 'self' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;"
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:11434 https://*.gallery.vsassets.io https://open-vsx.org; script-src 'self' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; img-src 'self' data: https: asset:; style-src 'self' 'unsafe-inline' data: http://localhost:5173 https://fonts.googleapis.com asset:; font-src 'self' data: https://fonts.gstatic.com asset:;"
     }
   },
   "bundle": {

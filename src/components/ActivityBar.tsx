@@ -80,7 +80,7 @@ const ActivityBar: React.FC = () => {
                             {item.base64_icon ? (
                                 <img src={item.base64_icon} style={{ width: '24px', height: '24px', opacity: activeView === item.id ? 1 : 0.6 }} />
                             ) : (
-                                <i className={`codicon codicon-${item.icon}`}></i>
+                                <i className={`codicon codicon-${item.icon}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                             )}
                         </div>
                         {item.id === 'scm-view' && <div className="badge dot"></div>}
@@ -91,12 +91,12 @@ const ActivityBar: React.FC = () => {
             <div className="activity-bar-bottom">
                 <div className="activity-item" title="Accounts">
                     <div className="activity-item-icon">
-                        <i className="codicon codicon-account"></i>
+                        <i className="codicon codicon-account" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                     </div>
                 </div>
                 <div className="activity-item" title="Color Theme" onClick={openThemePicker}>
                     <div className="activity-item-icon">
-                        <i className="codicon codicon-paintcan"></i>
+                        <i className="codicon codicon-paintcan" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                     </div>
                 </div>
                 <div
@@ -106,7 +106,7 @@ const ActivityBar: React.FC = () => {
                     onClick={() => (window as any).useStore?.getState().openSettings()}
                 >
                     <div className="activity-item-icon">
-                        <i className="codicon codicon-settings-gear"></i>
+                        <i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                     </div>
                 </div>
             </div>
@@ -119,7 +119,7 @@ const ActivityBar: React.FC = () => {
                         </div>
                         {installedThemes.length === 0 && (
                             <div style={{ padding: '20px', fontSize: '12px', opacity: 0.7, textAlign: 'center' }}>
-                                <i className="codicon codicon-info" style={{ fontSize: '24px', display: 'block', marginBottom: '8px' }}></i>
+                                <i className="codicon codicon-info" style={{ fontSize: '24px', display: 'block', marginBottom: '8px', fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                                 No extension themes found.<br />
                                 Scanning standard VS Code paths...
                             </div>

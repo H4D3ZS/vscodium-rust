@@ -2,7 +2,6 @@ import { invoke, listen } from './tauri_bridge.ts';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { useStore } from './store.ts';
 import '@xterm/xterm/css/xterm.css';
 
 export interface TerminalData {
@@ -171,7 +170,7 @@ export const terminalManager = new TerminalManager();
 
 let isInitialized = false;
 
-export async function initTerminal(): Promise<void> {
+export async function initTerminal(onTerminalCreate?: (shell?: string) => void): Promise<void> {
     if (isInitialized) return;
     isInitialized = true;
 
@@ -182,7 +181,7 @@ export async function initTerminal(): Promise<void> {
 
     listen("terminal-create", (event: any) => {
         const { shell } = event.payload || {};
-        useStore.getState().addTerminalGroup(shell);
+        if (onTerminalCreate) onTerminalCreate(shell);
     });
 
     window.addEventListener("resize", () => {
@@ -197,6 +196,6 @@ export async function initTerminal(): Promise<void> {
 
     // Expose a global way to spawn/manage terminals for the TitleBar
     (window as any).spawnTerminal = () => {
-        useStore.getState().addTerminalGroup();
+        if (onTerminalCreate) onTerminalCreate();
     };
 }

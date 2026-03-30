@@ -179,7 +179,7 @@ impl EditorState {
             ai_engine: sentient,
             ollama_url: Mutex::new("http://127.0.0.1:11434".to_string()),
             config_dir: config_dir.clone(),
-            active_root: Mutex::new(Some(root)),
+            active_root: Mutex::new(None),
             current_model: Mutex::new("gpt-4o".to_string()),
             active_device: Mutex::new(None),
             android_sdk_path: Mutex::new(None),

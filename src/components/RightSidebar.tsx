@@ -28,7 +28,7 @@ const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultC
                     opacity: 0.8
                 }}
             >
-                <i className={`codicon codicon-chevron-${isCollapsed ? 'right' : 'down'}`} style={{ marginRight: '8px', fontSize: '12px' }}></i>
+                <i className={`codicon codicon-chevron-${isCollapsed ? 'right' : 'down'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: '8px', fontSize: '12px' }}></i>
                 <span style={{ flex: 1 }}>{title}</span>
                 {actions && <div className="pane-actions" onClick={e => e.stopPropagation()}>{actions}</div>}
             </div>
@@ -266,17 +266,19 @@ const RightSidebar: React.FC = () => {
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <i className={`codicon codicon-shield${isAgentThinking ? ' codicon-modifier-spin' : ''}`} style={{
+                        fontFamily: 'codicon',
+                        fontStyle: 'normal',
                         fontSize: '14px',
                         color: '#ff4d4f'
                     }}></i>
                     <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.05em', opacity: 0.8 }}>ANTIGRAVITY</span>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                    <div onClick={() => setView('chat')} style={{ cursor: 'pointer', opacity: view === 'chat' ? 1 : 0.4 }} title="Chat"><i className="codicon codicon-comment-discussion"></i></div>
-                    <div onClick={() => setView('history')} style={{ cursor: 'pointer', opacity: view === 'history' ? 1 : 0.4 }} title="History"><i className="codicon codicon-history"></i></div>
-                    <div onClick={() => setView('dashboard')} style={{ cursor: 'pointer', opacity: view === 'dashboard' ? 1 : 0.4 }} title="Dashboard"><i className="codicon codicon-dashboard"></i></div>
-                    <div onClick={() => setView('settings')} style={{ cursor: 'pointer', opacity: view === 'settings' ? 1 : 0.4 }} title="Settings"><i className="codicon codicon-settings-gear"></i></div>
-                    <div onClick={toggle} style={{ cursor: 'pointer', opacity: 0.5 }} title="Close"><i className="codicon codicon-close"></i></div>
+                    <div onClick={() => setView('chat')} style={{ cursor: 'pointer', opacity: view === 'chat' ? 1 : 0.4 }} title="Chat"><i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
+                    <div onClick={() => setView('history')} style={{ cursor: 'pointer', opacity: view === 'history' ? 1 : 0.4 }} title="History"><i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
+                    <div onClick={() => setView('dashboard')} style={{ cursor: 'pointer', opacity: view === 'dashboard' ? 1 : 0.4 }} title="Dashboard"><i className="codicon codicon-dashboard" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
+                    <div onClick={() => setView('settings')} style={{ cursor: 'pointer', opacity: view === 'settings' ? 1 : 0.4 }} title="Settings"><i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
+                    <div onClick={toggle} style={{ cursor: 'pointer', opacity: 0.5 }} title="Close"><i className="codicon codicon-close" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                 </div>
             </div>
 
@@ -285,7 +287,7 @@ const RightSidebar: React.FC = () => {
                     <div style={{ display: 'flex', flexDirection: 'column', padding: '16px', gap: '20px' }}>
                         {messages.length === 0 ? (
                             <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.5 }}>
-                                <i className="codicon codicon-copilot" style={{ fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
+                                <i className="codicon codicon-copilot" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
                                 <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>How can I help you today?</div>
                                 <div style={{ fontSize: '12px' }}>Ask me to write code, explain logic, or debug errors.</div>
                             </div>
@@ -293,7 +295,7 @@ const RightSidebar: React.FC = () => {
                             messages.map((msg, idx) => (
                                 <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.5 }}>
-                                        <i className={`codicon codicon-${msg.role === 'assistant' ? 'sparkle' : 'account'}`} style={{ fontSize: '12px' }}></i>
+                                        <i className={`codicon codicon-${msg.role === 'assistant' ? 'sparkle' : 'account'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
                                         <span style={{ fontSize: '11px', fontWeight: 800 }}>{msg.role === 'assistant' ? 'AGENT' : 'YOU'}</span>
                                     </div>
                                     <div style={{
@@ -313,7 +315,7 @@ const RightSidebar: React.FC = () => {
                         )}
                         {isAgentThinking && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', opacity: 0.5 }}>
-                                <i className="codicon codicon-sync codicon-modifier-spin" style={{ fontSize: '12px' }}></i>
+                                <i className="codicon codicon-sync codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
                                 <span style={{ fontSize: '11px', fontWeight: 600 }}>Thinking...</span>
                             </div>
                         )}
@@ -341,7 +343,7 @@ const RightSidebar: React.FC = () => {
                                 {attachedContext.map((item, i) => (
                                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '10px' }}>
                                         <span>{item.name}</span>
-                                        <i className="codicon codicon-close" onClick={() => removeAttachedContext(i)} style={{ cursor: 'pointer', opacity: 0.5 }}></i>
+                                        <i className="codicon codicon-close" onClick={() => removeAttachedContext(i)} style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', opacity: 0.5 }}></i>
                                     </div>
                                 ))}
                             </div>
@@ -357,7 +359,7 @@ const RightSidebar: React.FC = () => {
                                 <span onClick={onModelClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }} className="hoverable-bg">{(model.split('|')[1] || model).split(':')[0]}</span>
                             </div>
                             <div onClick={onSend} style={{ width: '24px', height: '24px', borderRadius: '50%', background: inputValue.trim() ? '#fff' : 'rgba(255,255,255,0.1)', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                                <i className="codicon codicon-arrow-right" style={{ fontSize: '12px' }}></i>
+                                <i className="codicon codicon-arrow-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
                             </div>
                         </div>
                     </div>

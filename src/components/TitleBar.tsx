@@ -48,10 +48,10 @@ const TitleBar: React.FC = () => {
                 <div className="window-controls-spacer"></div>
                 <div className="navigation-controls" style={{ display: 'flex', gap: '2px', marginRight: '8px' }}>
                     <div className="nav-btn hoverable" title="Go Back">
-                        <i className="codicon codicon-arrow-left"></i>
+                        <i className="codicon codicon-arrow-left" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                     </div>
                     <div className="nav-btn hoverable" title="Go Forward">
-                        <i className="codicon codicon-arrow-right"></i>
+                        <i className="codicon codicon-arrow-right" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                     </div>
                 </div>
                 <div className="menu-items-container">
@@ -83,7 +83,7 @@ const TitleBar: React.FC = () => {
 
             <div className="command-center" onClick={() => (window as any).showCommandPalette?.()}>
                 <div className="command-box">
-                    <i className="codicon codicon-search"></i>
+                    <i className="codicon codicon-search" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                     <div className="text">
                         {(window as any).activeRootName || 'vscodium-rust'} — {(window as any).useStore?.getState().activeTabId ? ((window as any).useStore?.getState().tabs.find((t: any) => t.id === (window as any).useStore?.getState().activeTabId)?.filename || 'Welcome') : 'Welcome'}
                     </div>
@@ -101,12 +101,13 @@ const TitleBar: React.FC = () => {
                         cursor: 'help'
                     }}
                 >
-                    <i className="codicon codicon-shield" style={{ fontSize: '12px' }}></i>
+                    <i className="codicon codicon-shield" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
                 </div>
 
-                <i className="codicon codicon-layout-centered-single hoverable" title="Toggle Layout"></i>
+                <i className="codicon codicon-layout-centered-single hoverable" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} title="Toggle Layout"></i>
                 <i
                     className="codicon codicon-layout-sidebar-right hoverable"
+                    style={{ fontFamily: 'codicon', fontStyle: 'normal' }}
                     title="Toggle Agent (⌥⌘B)"
                     onClick={() => (window as any).useStore?.getState().toggleRightSidebar()}
                 ></i>

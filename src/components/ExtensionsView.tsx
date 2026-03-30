@@ -99,8 +99,8 @@ const ExtensionItem: React.FC<ExtensionItemProps> = ({ ext, isInstalled, onInsta
                 <div style={{ opacity: 0.5, fontSize: '12px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.3' }}>{description}</div>
 
                 <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '11px', opacity: 0.5, alignItems: 'center' }}>
-                    {downloads && <span><i className="codicon codicon-cloud-download" style={{ fontSize: '11px', marginRight: '4px' }}></i>{downloads}</span>}
-                    {rating && <span><i className="codicon codicon-star-full" style={{ fontSize: '11px', marginRight: '4px', color: '#f1c40f' }}></i>{rating}</span>}
+                    {downloads && <span><i className="codicon codicon-cloud-download" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px', marginRight: '4px' }}></i>{downloads}</span>}
+                    {rating && <span><i className="codicon codicon-star-full" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px', marginRight: '4px', color: '#f1c40f' }}></i>{rating}</span>}
                     {ext.categories && ext.categories.length > 0 && (
                         <span style={{ padding: '1px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>
                             {ext.categories[0]}
@@ -110,9 +110,9 @@ const ExtensionItem: React.FC<ExtensionItemProps> = ({ ext, isInstalled, onInsta
 
                 {installed && (
                     <div className="extension-actions" style={{ display: 'flex', gap: '12px', marginTop: '8px', fontSize: '14px', opacity: 0.7 }}>
-                        <i className="codicon codicon-settings-gear interactive-hover" style={{ cursor: 'pointer' }} title="Extension Settings"></i>
-                        <i className="codicon codicon-debug-pause interactive-hover" style={{ cursor: 'pointer' }} title="Disable"></i>
-                        <i className="codicon codicon-trash interactive-hover" style={{ cursor: 'pointer', color: 'var(--vscode-errorForeground)' }} title="Uninstall"></i>
+                        <i className="codicon codicon-settings-gear interactive-hover" style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer' }} title="Extension Settings"></i>
+                        <i className="codicon codicon-debug-pause interactive-hover" style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer' }} title="Disable"></i>
+                        <i className="codicon codicon-trash interactive-hover" style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', color: 'var(--vscode-errorForeground)' }} title="Uninstall"></i>
                     </div>
                 )}
             </div>
@@ -184,6 +184,8 @@ const ExtensionsView: React.FC = () => {
             <div className="extensions-header" style={{ padding: '12px', borderBottom: '1px solid var(--glass-border)' }}>
                 <form onSubmit={handleSearch} style={{ position: 'relative' }}>
                     <i className="codicon codicon-search" style={{
+                        fontFamily: 'codicon',
+                        fontStyle: 'normal',
                         position: 'absolute',
                         left: '10px',
                         top: '50%',
@@ -206,7 +208,7 @@ const ExtensionsView: React.FC = () => {
                     />
                     {isSearchingExtensions && (
                         <div style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)' }}>
-                            <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: '14px', opacity: 0.6 }}></i>
+                            <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', opacity: 0.6 }}></i>
                         </div>
                     )}
                 </form>
@@ -231,7 +233,7 @@ const ExtensionsView: React.FC = () => {
                             letterSpacing: '0.5px'
                         }}
                     >
-                        <i className={`codicon codicon-chevron-${activeAccordion === 'installed' ? 'down' : 'right'}`} style={{ marginRight: '8px', opacity: 0.7 }}></i>
+                        <i className={`codicon codicon-chevron-${activeAccordion === 'installed' ? 'down' : 'right'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: '8px', opacity: 0.7 }}></i>
                         <span>Installed</span>
                         <span style={{
                             marginLeft: 'auto',
@@ -279,7 +281,7 @@ const ExtensionsView: React.FC = () => {
                             letterSpacing: '0.5px'
                         }}
                     >
-                        <i className={`codicon codicon-chevron-${activeAccordion === 'marketplace' ? 'down' : 'right'}`} style={{ marginRight: '8px', opacity: 0.7 }}></i>
+                        <i className={`codicon codicon-chevron-${activeAccordion === 'marketplace' ? 'down' : 'right'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: '8px', opacity: 0.7 }}></i>
                         <span>{searchQuery && marketExtensions.length > 0 ? 'Marketplace' : 'Popular'}</span>
                     </div>
                     {activeAccordion === 'marketplace' && (

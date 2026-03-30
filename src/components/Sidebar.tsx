@@ -29,6 +29,29 @@ const flattenTree = (entries: FileEntry[], depth = 0, visited = new Set<string>(
     return result;
 };
 
+const TreeItemIcon: React.FC<{ icon: { type: 'img' | 'icon'; value: string } }> = ({ icon }) => {
+    if (icon.type === 'img') {
+        return <img src={icon.value} style={{ marginRight: '6px', width: '16px', height: '16px', opacity: 0.9, objectFit: 'contain' }} />;
+    }
+    // Force the codicon font via explicit style to avoid overrides in some environments
+    return <i className={icon.value} style={{
+        fontFamily: 'codicon',
+        marginRight: '6px',
+        fontSize: '16px',
+        width: '16px',
+        height: '16px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        opacity: 0.85,
+        fontStyle: 'normal',
+        fontWeight: 'normal',
+        lineHeight: 1,
+        WebkitFontSmoothing: 'antialiased'
+    }}></i>;
+};
+
 const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping: any; style: React.CSSProperties }> = ({ entry, depth, iconThemeMapping, style }) => {
     const openFile = useStore(state => state.openFile);
     const toggleDirectory = useStore(state => state.toggleDirectory);
@@ -39,23 +62,19 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
     const isExpanded = entry.is_expanded ?? false;
     const isActive = tabs.find(t => t.id === activeTabId)?.path === entry.path;
 
-    const getIcon = () => {
+    const getIcon = (): { type: 'img' | 'icon'; value: string } => {
         if (iconThemeMapping) {
             const fileName = entry.name.toLowerCase();
             const ext = entry.name.split('.').pop()?.toLowerCase();
             let iconId = null;
 
             if (entry.is_dir) {
-                // Folder icons
                 if (isExpanded && iconThemeMapping.folderExpanded) {
                     iconId = iconThemeMapping.folderExpanded;
                 } else if (iconThemeMapping.folder) {
                     iconId = iconThemeMapping.folder;
                 }
-
-                // Specific folder names if needed (advanced, skipping for now to keep it simple but better than before)
             } else {
-                // File icons
                 if (iconThemeMapping.fileNames && iconThemeMapping.fileNames[fileName]) {
                     iconId = iconThemeMapping.fileNames[fileName];
                 } else if (ext && iconThemeMapping.fileExtensions && iconThemeMapping.fileExtensions[ext]) {
@@ -68,7 +87,6 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
             if (iconId && iconThemeMapping.iconDefinitions && iconThemeMapping.iconDefinitions[iconId]) {
                 const def = iconThemeMapping.iconDefinitions[iconId];
                 if (def.iconPath) {
-                    // Try to use convertFileSrc if available, otherwise raw path (Tauri handles it with protocol)
                     const src = (window as any).__TAURI__?.core?.convertFileSrc
                         ? (window as any).__TAURI__.core.convertFileSrc(def.iconPath)
                         : `asset://localhost/${encodeURIComponent(def.iconPath)}`;
@@ -78,11 +96,13 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
         }
 
         if (entry.is_dir) {
-            return { type: 'icon', value: `codicon codicon-${isExpanded ? 'chevron-down' : 'chevron-right'}` };
+            return { type: 'icon', value: `codicon codicon-folder${isExpanded ? '-opened' : ''}` };
         }
 
         return { type: 'icon', value: 'codicon codicon-file' };
     };
+
+    const icon = getIcon();
 
     const handleToggle = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -134,15 +154,35 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
                 userSelect: 'none'
             }}
         >
-            {(() => {
-                const icon = getIcon();
-                if (icon.type === 'img') {
-                    return <img src={icon.value} style={{ marginRight: '6px', width: '16px', height: '16px', opacity: 0.9 }} />;
-                } else {
-                    return <i className={icon.value} style={{ marginRight: '6px', fontSize: '14px', width: '16px', textAlign: 'center', opacity: 0.8 }}></i>;
-                }
-            })()}
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.name}</span>
+            {entry.is_dir && (
+                <i
+                    className={`codicon codicon-${isExpanded ? 'chevron-down' : 'chevron-right'}`}
+                    style={{
+                        fontFamily: 'codicon',
+                        fontStyle: 'normal',
+                        fontWeight: 'normal',
+                        marginRight: '4px',
+                        fontSize: '12px',
+                        width: '16px',
+                        textAlign: 'center',
+                        opacity: 0.6,
+                        cursor: 'pointer',
+                        lineHeight: 1,
+                        WebkitFontSmoothing: 'antialiased'
+                    }}
+                    onClick={handleToggle}
+                ></i>
+            )}
+            {!entry.is_dir && (
+                <div style={{ width: '20px' }}></div>
+            )}
+            <TreeItemIcon icon={icon} />
+            <span style={{
+                flex: 1,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                color: isActive ? 'var(--vscode-list-activeSelectionForeground)' : 'inherit'
+            }}>{entry.name}</span>
         </div>
     );
 };
@@ -193,10 +233,10 @@ const VirtualizedFileTree: React.FC<{ entries: FileEntry[]; iconThemeMapping: an
 
 const OpenEditorsItem: React.FC<{ tab: any; active: boolean; onClick: () => void; onClose: () => void }> = ({ tab, active, onClick, onClose }) => (
     <div className={`pane-item${active ? ' active' : ''}`} onClick={onClick}>
-        <i className={`codicon codicon-${detectLanguageIcon(tab.filename)}`}></i>
+        <i className={`codicon codicon-${detectLanguageIcon(tab.filename)}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tab.filename}</span>
         {tab.isModified && <div className="modified-dot"></div>}
-        <i className="codicon codicon-close close-icon" onClick={(e) => { e.stopPropagation(); onClose(); }}></i>
+        <i className="codicon codicon-close close-icon" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} onClick={(e) => { e.stopPropagation(); onClose(); }}></i>
     </div>
 );
 
@@ -215,7 +255,7 @@ const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultC
     return (
         <div className={`sidebar-pane${isCollapsed ? ' collapsed' : ''}`} style={{ flex: isCollapsed ? 0 : 1 }}>
             <div className={`pane-header${isCollapsed ? ' collapsed' : ''}`} onClick={() => setIsCollapsed(!isCollapsed)}>
-                <i className="codicon codicon-chevron-down"></i>
+                <i className="codicon codicon-chevron-down" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                 <span style={{ flex: 1 }}>{title}</span>
                 {actions && <div className="pane-actions" onClick={e => e.stopPropagation()}>{actions}</div>}
             </div>
@@ -362,10 +402,10 @@ const Sidebar: React.FC = () => {
                             defaultCollapsed={false}
                             actions={activeRoot ? (
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', paddingRight: '8px' }}>
-                                    <i className="codicon codicon-new-file" onClick={() => (window as any).cm_new_file?.()} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8 }} title="New File"></i>
-                                    <i className="codicon codicon-new-folder" onClick={() => (window as any).cm_new_folder?.()} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8 }} title="New Folder"></i>
-                                    <i className="codicon codicon-collapse-all" onClick={refreshFileTree} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8 }} title="Collapse Folders"></i>
-                                    <i className="codicon codicon-refresh" onClick={refreshFileTree} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8 }} title="Refresh"></i>
+                                    <i className="codicon codicon-new-file" onClick={() => (window as any).cm_new_file?.()} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New File"></i>
+                                    <i className="codicon codicon-new-folder" onClick={() => (window as any).cm_new_folder?.()} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New Folder"></i>
+                                    <i className="codicon codicon-collapse-all" onClick={refreshFileTree} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Collapse Folders"></i>
+                                    <i className="codicon codicon-refresh" onClick={refreshFileTree} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Refresh"></i>
                                 </div>
                             ) : null}
                         >

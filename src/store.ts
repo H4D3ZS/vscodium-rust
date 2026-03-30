@@ -66,7 +66,7 @@ export interface FileEntry {
     path: string;
     is_dir: boolean;
     is_expanded?: boolean;
-    children?: FileEntry[];
+    children?: any[]; // Break type recursion for tsc performance
 }
 
 export interface McpServer {
@@ -101,12 +101,12 @@ interface AppState {
     bottomPanelHeight: number;
 
     // Terminal State
-    terminalGroups: TerminalGroup[];
+    terminalGroups: any[];
     activeTerminalGroupId: string | null;
 
     // Editor State
     activeTabId: string | null;
-    tabs: EditorTab[];
+    tabs: any[];
     fileTree: FileEntry[];
     aiStatus: 'alive' | 'dead';
     tokenUsage: number; // 0 to 100
@@ -118,13 +118,13 @@ interface AppState {
     activeRootName: string | null;
     activeDevice: string | null;
     emulators: string[];
-    availableModels: { id: string, provider: string }[];
+    availableModels: any[];
     extensionContributions: any;
     mitmStatus: 'idle' | 'running' | 'error';
     mitmLogs: string[];
-    mcpServers: McpServer[];
+    mcpServers: any[];
     ollamaStatus: 'idle' | 'checking' | 'running' | 'error';
-    agentMessages: AgentMessage[];
+    agentMessages: any[];
     isAgentThinking: boolean;
     isCommandPaletteOpen: boolean;
     isContextMenuOpen: boolean;
@@ -134,8 +134,8 @@ interface AppState {
     ollamaUrl: string;
     isPullingModel: boolean;
     pullProgress: number;
-    attachedContext: AttachedContext[];
-    pendingChanges: PendingChange[];
+    attachedContext: any[];
+    pendingChanges: any[];
     agentRootAccess: boolean;
 
     // Extension State
@@ -154,9 +154,9 @@ interface AppState {
 
     // Agent Task Tracking
     agentTask: AgentTask | null;
-    agentTasks: AgentTask[];
+    agentTasks: any[];
     agentFiles: string[];
-    agentSteps: AgentStep[];
+    agentSteps: any[];
 
     // Actions
     toggleSidebar: () => void;
@@ -289,7 +289,7 @@ function detectLanguage(filename: string): string {
     return map[ext] ?? 'plaintext';
 }
 
-export const useStore = create<AppState>((set, get) => ({
+const storeImplementation: any = (set: any, get: any) => ({
     // Initial Layout State
     isSidebarOpen: true,
     activeSidebarView: 'explorer-view',
@@ -312,9 +312,9 @@ export const useStore = create<AppState>((set, get) => ({
     agentMode: 'Planning',
     agentModel: 'Google|gemini-1.5-pro', // Match internal value format
     trustedPublishers: JSON.parse(localStorage.getItem('trustedPublishers') || '[]'),
-    activeRoot: localStorage.getItem('activeRoot'),
+    activeRoot: null,
     activeEditorPath: '',
-    activeRootName: localStorage.getItem('activeRootName'),
+    activeRootName: null,
     activeDevice: null,
     emulators: [],
     availableModels: [],
@@ -402,8 +402,6 @@ export const useStore = create<AppState>((set, get) => ({
     setActiveRoot: (path) => {
         if (path) {
             const name = path.replace(/\\/g, '/').split('/').pop() || path;
-            localStorage.setItem('activeRoot', path);
-            localStorage.setItem('activeRootName', name);
             set({ activeRoot: path, activeRootName: name });
             // Sync with backend
             invoke('set_active_root', { path }).then(() => {
@@ -456,8 +454,6 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     closeFolder: () => {
-        localStorage.removeItem('activeRoot');
-        localStorage.removeItem('activeRootName');
         invoke('set_active_root', { path: null });
         set({ activeRoot: null, activeRootName: null, fileTree: [] });
     },
@@ -1249,7 +1245,9 @@ export const useStore = create<AppState>((set, get) => ({
         };
         return flatten(get().fileTree);
     }
-}));
+});
+
+export const useStore = create<AppState>(storeImplementation);
 
 function findNodeRecursive(nodes: FileEntry[], path: string): FileEntry | undefined {
     for (const node of nodes) {

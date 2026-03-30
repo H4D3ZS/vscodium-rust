@@ -73,7 +73,7 @@ const Workbench: React.FC = () => {
     const activeRootName = useStore(state => state.activeRootName);
 
     return (
-        <div id="workbench">
+        <div id="workbench" style={{ display: 'flex', flex: 1, height: '100%', minHeight: 0, overflow: 'hidden' }}>
             <ActivityBar />
             {isSidebarOpen && <div style={{ width: sidebarWidth, flexShrink: 0, display: 'flex' }}><Sidebar /></div>}
 
@@ -103,6 +103,8 @@ const Workbench: React.FC = () => {
                                             title={tab.path}
                                         >
                                             <i className={`codicon codicon-${icon} tab-icon`} style={{
+                                                fontFamily: 'codicon',
+                                                fontStyle: 'normal',
                                                 fontSize: '14px',
                                                 marginRight: '6px',
                                                 color: isActive ? 'inherit' : 'var(--vscode-tab-activeForeground)',
@@ -115,6 +117,7 @@ const Workbench: React.FC = () => {
                                                 ) : (
                                                     <i
                                                         className="codicon codicon-close"
+                                                        style={{ fontFamily: 'codicon', fontStyle: 'normal' }}
                                                         onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
                                                     />
                                                 )}
@@ -125,90 +128,134 @@ const Workbench: React.FC = () => {
                             </div>
 
                             {/* Breadcrumbs */}
-                            <div className="breadcrumbs" id="breadcrumbs">
-                                {hasOpenFile ? (
-                                    <>
-                                        <i className="codicon codicon-folder" style={{ fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
-                                        <span className="breadcrumb-item" style={{ cursor: 'pointer' }}>{(tabs.find(t => t.id === activeTabId)?.path.split('/').slice(-2, -1)[0]) ?? (activeRootName || 'vscodium-rust')}</span>
-                                        <i className="codicon codicon-chevron-right" style={{ fontSize: '12px', margin: '0 4px', opacity: 0.4 }} />
-                                        <i className={`codicon codicon-${detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '')}`} style={{ fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
-                                        <span className="breadcrumb-item active" style={{ color: 'var(--vscode-tab-activeForeground)', fontWeight: 400 }}>
-                                            {tabs.find(t => t.id === activeTabId)?.filename}
-                                        </span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <i className="codicon codicon-folder" style={{ fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
-                                        <span className="breadcrumb-item">{activeRootName || 'vscodium-rust'}</span>
-                                        <i className="codicon codicon-chevron-right" style={{ fontSize: '12px', margin: '0 4px', opacity: 0.4 }} />
-                                        <span className="breadcrumb-item active" style={{ color: 'var(--vscode-tab-activeForeground)' }}>Welcome</span>
-                                    </>
-                                )}
-                            </div>
+                            {hasOpenFile && (
+                                <div className="breadcrumbs" id="breadcrumbs">
+                                    <i className="codicon codicon-folder" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
+                                    <span className="breadcrumb-item" style={{ cursor: 'pointer' }}>{(tabs.find(t => t.id === activeTabId)?.path.split('/').slice(-2, -1)[0]) ?? (activeRootName || 'vscodium-rust')}</span>
+                                    <i className="codicon codicon-chevron-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', margin: '0 4px', opacity: 0.4 }} />
+                                    <i className={`codicon codicon-${detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '')}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
+                                    <span className="breadcrumb-item active" style={{ color: 'var(--vscode-tab-activeForeground)', fontWeight: 400 }}>
+                                        {tabs.find(t => t.id === activeTabId)?.filename}
+                                    </span>
+                                </div>
+                            )}
 
                             <div className="editor-wrapper" style={{ position: 'relative', width: '100%', height: '100%', flex: 1 }}>
-                                {/* Welcome screen when no root is open and no tabs */}
+                                { /* Welcome screen when no root is open and no tabs */}
                                 {!activeRoot && tabs.length === 0 && (
-                                    <div id="welcome-view" className="welcome-container">
-                                        <div className="premium-glow" style={{ top: '-100px', right: '-100px', background: 'radial-gradient(circle, rgba(0, 114, 255, 0.2) 0%, transparent 70%)' }}></div>
-                                        <div className="premium-glow" style={{ bottom: '-100px', left: '-100px' }}></div>
-
-                                        <div className="welcome-hero">
-                                            <div className="welcome-badge">Community Edition</div>
-                                            <div className="welcome-logo" style={{ marginBottom: '32px' }}>
-                                                <svg width="80" height="80" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                    <path d="M72.4 15.2L28.8 45.3L15.6 33.7L6.4 41.5L25.3 71.3L72.4 84.8C75.8 85.8 79.1 83.3 79.1 79.7V20.3C79.1 16.7 75.8 14.2 72.4 15.2Z" fill="#00C6FF" />
-                                                    <path d="M28.8 45.3L15.6 33.7L25.3 54.7L28.8 45.3Z" fill="#0072FF" />
-                                                </svg>
-                                            </div>
-                                            <h1 className="welcome-title" style={{ fontSize: '48px', fontWeight: 800, marginBottom: '12px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)' }}>
-                                                VSCodium <span className="premium-gradient-text">Rust</span>
-                                            </h1>
-                                            <h2 style={{ fontSize: '20px', fontWeight: 300, opacity: 0.6, marginBottom: '0', maxWidth: '500px', lineHeight: '1.5' }}>
-                                                The high-performance, open-source IDE built for the modern developer.
-                                            </h2>
-                                        </div>
-
-                                        <div className="welcome-content-wrapper">
-                                            <div className="welcome-main-section">
-                                                <h3 className="section-title">Get Started</h3>
-
-                                                <div className="premium-cards-grid">
-                                                    <a href="#" className="premium-card" onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.newFile'); }}>
-                                                        <div className="premium-card-icon">
-                                                            <i className="codicon codicon-new-file" />
-                                                        </div>
-                                                        <div className="premium-card-content">
-                                                            <span className="premium-card-title">New File...</span>
-                                                            <span className="premium-card-desc">Create a new workspace member</span>
-                                                        </div>
-                                                    </a>
-
-                                                    <a href="#" className="premium-card" onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.openFolder'); }}>
-                                                        <div className="premium-card-icon">
-                                                            <i className="codicon codicon-folder-opened" />
-                                                        </div>
-                                                        <div className="premium-card-content">
-                                                            <span className="premium-card-title">Open Folder...</span>
-                                                            <span className="premium-card-desc">Open an existing project folder</span>
-                                                        </div>
-                                                    </a>
-
-                                                    <a href="#" className="premium-card" onClick={(e) => { e.preventDefault(); (window as any).executeCommand('git.clone'); }}>
-                                                        <div className="premium-card-icon">
-                                                            <i className="codicon codicon-source-control" />
-                                                        </div>
-                                                        <div className="premium-card-content">
-                                                            <span className="premium-card-title">Clone Repository...</span>
-                                                            <span className="premium-card-desc">Download project from a remote host</span>
-                                                        </div>
-                                                    </a>
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        bottom: 0,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'flex-start',
+                                        justifyContent: 'flex-start',
+                                        zIndex: 1,
+                                        overflowY: 'auto'
+                                    }}>
+                                        <div className="welcome-view-content" style={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            flex: 1,
+                                            alignItems: 'flex-start',
+                                            justifyContent: 'flex-start',
+                                            padding: '10px 48px 40px',
+                                            width: '100%',
+                                            textAlign: 'left',
+                                            marginTop: 0,
+                                            borderTop: '2px solid transparent' // Placeholder for verification
+                                        }}>
+                                            <div className="hero-section-beside" style={{ maxWidth: '900px', marginBottom: '2vh', width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '24px' }}>
+                                                <img src="../assets/rust-logo.png" alt="Rust Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
+                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                                                    <h1 style={{ fontSize: 'min(5vw, 42px)', fontWeight: 800, marginBottom: '2px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)', lineHeight: 1, margin: 0 }}>
+                                                        VSCodium Rust <span style={{ fontSize: '10px', background: 'var(--antigravity-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>v0.1.0-TOP</span>
+                                                    </h1>
+                                                    <p style={{ fontSize: '14px', opacity: 0.8, color: 'var(--vscode-foreground)', marginBottom: '0', marginTop: '4px' }}>
+                                                        Integrated with Antigravity AI — Powered by Rust
+                                                    </p>
                                                 </div>
                                             </div>
 
-                                            <div className="welcome-recent-section">
-                                                <h3 className="section-title">Recent</h3>
-                                                <div className="recent-empty-state">No recent folders found</div>
+                                            <div className="pros-grid" style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                                gap: '12px',
+                                                textAlign: 'left',
+                                                marginBottom: '2vh',
+                                                width: '100%',
+                                                maxWidth: '900px'
+                                            }}>
+                                                <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
+                                                    <div style={{ color: 'var(--antigravity-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-zap" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Performance</strong></div>
+                                                    <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Zero-cost abstractions and Rust efficiency.</div>
+                                                </div>
+                                                <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
+                                                    <div style={{ color: 'var(--antigravity-success)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-shield" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Privacy</strong></div>
+                                                    <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Local-first processing, safe and secure.</div>
+                                                </div>
+                                                <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
+                                                    <div style={{ color: 'var(--antigravity-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-bot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Autonomy</strong></div>
+                                                    <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Integrated agent with full filesystem access.</div>
+                                                </div>
+                                            </div>
+
+                                            <div className="welcome-content-wrapper" style={{ width: '100%', maxWidth: '900px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', textAlign: 'left' }}>
+                                                <div className="welcome-main-section" style={{ textAlign: 'left' }}>
+                                                    <h3 className="section-title" style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', opacity: 0.5, marginBottom: '12px' }}>Get Started</h3>
+
+                                                    <div className="premium-cards-grid" style={{ display: 'grid', gap: '10px' }}>
+                                                        <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                                                            onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.newFile'); }}>
+                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--antigravity-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
+                                                                <i className="codicon codicon-new-file" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                                            </div>
+                                                            <div className="premium-card-content">
+                                                                <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>New File...</span>
+                                                                <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Create in workspace</span>
+                                                            </div>
+                                                        </a>
+
+                                                        <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                                                            onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.openFolder'); }}>
+                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--antigravity-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
+                                                                <i className="codicon codicon-folder-opened" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                                            </div>
+                                                            <div className="premium-card-content">
+                                                                <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>Open Folder...</span>
+                                                                <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Open from filesystem</span>
+                                                            </div>
+                                                        </a>
+
+                                                        <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                                                            onClick={(e) => { e.preventDefault(); (window as any).executeCommand('git.clone'); }}>
+                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--antigravity-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
+                                                                <i className="codicon codicon-source-control" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                                            </div>
+                                                            <div className="premium-card-content">
+                                                                <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>Clone Repository...</span>
+                                                                <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Sync with Git</span>
+                                                            </div>
+                                                        </a>
+                                                    </div>
+                                                </div>
+
+                                                <div className="welcome-recent-section" style={{ textAlign: 'left' }}>
+                                                    <h3 className="section-title" style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', opacity: 0.5, marginBottom: '12px' }}>Recent Workspaces</h3>
+                                                    <div className="recent-empty-state" style={{ padding: '20px 16px', borderRadius: '10px', background: 'var(--vscode-editor-background)', border: '1px dashed var(--vscode-panel-border)', fontSize: '11px', opacity: 0.4, textAlign: 'center' }}>
+                                                        <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '18px', display: 'block', marginBottom: '6px' }} />
+                                                        No recent folders found
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -228,7 +275,6 @@ const Workbench: React.FC = () => {
                         </div>
                     </div>
                 </main>
-
                 {isBottomPanelOpen && (
                     <div
                         className="resizer-h"
@@ -264,7 +310,7 @@ const Workbench: React.FC = () => {
                     <RightSidebar />
                 </div>
             </div>
-        </div>
+        </div >
     );
 };
 

@@ -1,3 +1,7 @@
+.codicon {
+  font-family: 'codicon' !important;
+}
+
 .sidebar {
   background-color: var(--vscode-sideBar-background);
   color: var(--vscode-sideBar-foreground);
@@ -80,17 +84,15 @@
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: "SF Mono", Monaco, Menlo, Consolas, "JetBrains Mono", monospace;
 
-  /* High-End Glassmorphism & UI Polish */
-  --glass-bg: rgba(25, 25, 26, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-blur: blur(20px) saturate(180%);
-  --sidebar-glass-bg: rgba(30, 30, 31, 0.65);
+  /* Native IDE Theme Tokens (Replacing glassmorphism) */
+  --panel-bg: var(--vscode-sideBar-background);
+  --panel-border: var(--vscode-sideBar-border, rgba(0, 0, 0, 0.2));
+  --sidebar-bg: var(--vscode-sideBar-background);
 
   /* Native-like Shadows */
   --shadow-macos: 0 10px 30px rgba(0, 0, 0, 0.45);
   --shadow-menu: 0 5px 15px rgba(0, 0, 0, 0.4);
   --shadow-tooltip: 0 2px 8px rgba(0, 0, 0, 0.45);
-  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
 .glass-effect {

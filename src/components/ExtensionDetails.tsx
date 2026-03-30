@@ -116,7 +116,7 @@ const ExtensionDetails: React.FC<ExtensionDetailsProps> = ({ extensionId, onBack
                     alignItems: 'center',
                     justifyContent: 'center'
                 }}>
-                    <i className="codicon codicon-arrow-left" style={{ fontSize: '16px' }}></i>
+                    <i className="codicon codicon-arrow-left" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '16px' }}></i>
                 </button>
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <h2 style={{ margin: 0, fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</h2>
@@ -156,13 +156,13 @@ const ExtensionDetails: React.FC<ExtensionDetailsProps> = ({ extensionId, onBack
                                 {isInstalled ? (
                                     <div style={{ display: 'flex', gap: '8px' }}>
                                         <button className="vscode-button secondary" disabled style={{ opacity: 0.8, cursor: 'default', background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '4px 12px', borderRadius: '2px', display: 'flex', alignItems: 'center' }}>
-                                            <i className="codicon codicon-check" style={{ marginRight: '6px' }}></i> Installed
+                                            <i className="codicon codicon-check" style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: '6px' }}></i> Installed
                                         </button>
                                         <button onClick={handleUninstall} className="vscode-button" style={{ background: 'transparent', color: 'var(--vscode-errorForeground)', border: '1px solid var(--vscode-errorForeground)', padding: '4px 12px', borderRadius: '2px', cursor: 'pointer' }}>
                                             Uninstall
                                         </button>
                                         <button className="vscode-button secondary" style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '4px 8px', borderRadius: '2px', cursor: 'pointer' }}>
-                                            <i className="codicon codicon-gear"></i>
+                                            <i className="codicon codicon-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                                         </button>
                                     </div>
                                 ) : (
@@ -182,7 +182,7 @@ const ExtensionDetails: React.FC<ExtensionDetailsProps> = ({ extensionId, onBack
                                     >
                                         {isInstalling ? (
                                             <>
-                                                <i className="codicon codicon-loading codicon-modifier-spin" style={{ marginRight: '8px' }}></i>
+                                                <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: '8px' }}></i>
                                                 Installing...
                                             </>
                                         ) : 'Install'}
@@ -198,7 +198,7 @@ const ExtensionDetails: React.FC<ExtensionDetailsProps> = ({ extensionId, onBack
                                         <div style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.5, fontWeight: 600 }}>Rating</div>
                                         <div style={{ fontWeight: 600, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                             {rating > 0 ? rating.toFixed(1) : '—'}
-                                            <i className="codicon codicon-star-full" style={{ color: 'var(--vscode-terminal-ansiYellow, #f1c40f)', fontSize: '10px' }}></i>
+                                            <i className="codicon codicon-star-full" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: 'var(--vscode-terminal-ansiYellow, #f1c40f)', fontSize: '10px' }}></i>
                                         </div>
                                     </div>
                                 </div>
@@ -217,7 +217,7 @@ const ExtensionDetails: React.FC<ExtensionDetailsProps> = ({ extensionId, onBack
                                 borderRadius: '4px'
                             }}>
                                 <h3 style={{ marginTop: 0, marginBottom: '16px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <i className="codicon codicon-book" style={{ color: 'var(--vscode-textLink-foreground)', fontSize: '14px' }}></i>
+                                    <i className="codicon codicon-book" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: 'var(--vscode-textLink-foreground)', fontSize: '14px' }}></i>
                                     Extension Details
                                 </h3>
                                 <div className="extension-markdown-content" style={{ opacity: 0.9, lineHeight: '1.6', fontSize: '13px' }}>
@@ -264,10 +264,10 @@ const ExtensionDetails: React.FC<ExtensionDetailsProps> = ({ extensionId, onBack
                                     <div style={{ fontSize: '10px', opacity: 0.6, marginBottom: '10px' }}>Links</div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                         <a href={details.homepage} style={{ fontSize: '12px', color: 'var(--vscode-textLink-foreground)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <i className="codicon codicon-home" style={{ fontSize: '12px' }}></i> Homepage
+                                            <i className="codicon codicon-home" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i> Homepage
                                         </a>
                                         <a href={details.repository?.url} style={{ fontSize: '12px', color: 'var(--vscode-textLink-foreground)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <i className="codicon codicon-github" style={{ fontSize: '12px' }}></i> Repository
+                                            <i className="codicon codicon-github" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i> Repository
                                         </a>
                                     </div>
                                 </div>

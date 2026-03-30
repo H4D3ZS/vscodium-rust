@@ -42,7 +42,7 @@ const AgentSettingsView: React.FC = () => {
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         boxShadow: '0 8px 24px rgba(37, 99, 235, 0.4)'
                     }}>
-                        <i className="codicon codicon-sparkle" style={{ fontSize: '32px', color: '#fff' }}></i>
+                        <i className="codicon codicon-sparkle" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '32px', color: '#fff' }}></i>
                     </div>
                     {ollamaStatus === 'running' && (
                         <div style={{
@@ -242,7 +242,7 @@ const AgentSettingsView: React.FC = () => {
                     )}
                     {mcpServers.map(server => (
                         <div key={server.name} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '2px' }}>
-                            <i className="codicon codicon-server" style={{ fontSize: '14px', color: '#89d185', opacity: 0.8 }}></i>
+                            <i className="codicon codicon-server" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', color: '#89d185', opacity: 0.8 }}></i>
                             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                                 <span style={{ fontSize: '12px', fontWeight: 600 }}>{server.name}</span>
                                 <span style={{ fontSize: '10px', opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -252,7 +252,7 @@ const AgentSettingsView: React.FC = () => {
                             <i
                                 className="codicon codicon-trash"
                                 onClick={() => removeMcpServer(server.name)}
-                                style={{ fontSize: '14px', opacity: 0.4, cursor: 'pointer' }}
+                                style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', opacity: 0.4, cursor: 'pointer' }}
                                 title="Remove Server"
                             ></i>
                         </div>
