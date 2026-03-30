@@ -1468,7 +1468,16 @@ async fn hunt_api_keys(app: tauri::AppHandle, state: State<'_, EditorState>) -> 
     let _ = app.emit("hunt-progress", json!({"msg": format!("Hunt complete. Found {} live keys.", found_keys.len())}));
     Ok(json!(found_keys))
 }
-#[tauri::command] fn optimize_memory() {}
+#[tauri::command]
+async fn optimize_memory(state: State<'_, EditorState>) -> Result<(), String> {
+    state.ai_engine.optimize_memory().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn resume_ai_agent(state: State<'_, EditorState>) -> Result<(), String> {
+    state.ai_engine.reset_stop_signal();
+    Ok(())
+}
 #[tauri::command] fn start_mitm_server() -> Result<(), String> { Ok(()) }
 #[tauri::command] fn stop_mitm_server() -> Result<(), String> { Ok(()) }
 #[tauri::command] fn get_mitm_status() -> String { "idle".to_string() }

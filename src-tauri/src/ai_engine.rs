@@ -207,6 +207,30 @@ impl Sentient {
         self.stop_signal.load(Ordering::SeqCst)
     }
 
+    pub async fn optimize_memory(&self) -> Result<()> {
+        let mut state = self.conversation_state.lock().await;
+        if state.len() <= 5 {
+            return Ok(());
+        }
+        
+        println!("[AI] Optimizing memory: summarizing history of {} messages", state.len());
+        
+        // Keep system prompt, first user message, and last 2 messages
+        let system_msg = state.iter().find(|m| m.role == "system").cloned();
+        let last_messages: Vec<ChatMessage> = state.iter().rev().take(3).rev().cloned().collect();
+        
+        let mut new_state = Vec::new();
+        if let Some(s) = system_msg {
+            new_state.push(s);
+        }
+        
+        new_state.extend(last_messages);
+        
+        *state = new_state;
+        Ok(())
+    }
+
+
 
 
     pub async fn check_ollama_status(&self) -> Result<bool> {
@@ -803,6 +827,11 @@ impl Sentient {
                     if tool_name == "research" || tool_name == "web_search" || tool_name == "internet_search" || tool_name == "browse" { tool_name = "browser_subagent".to_string(); }
                     if tool_name == "ask" || tool_name == "query_web" { tool_name = "perplexity_ask".to_string(); }
 
+                    // Trigger mission progress if relevant
+                    if tool_name == "manage_task" {
+                         self.emit_event("mission-progress", json!({ "msg": "Task plan updated.", "active": true }));
+                    }
+
                     let tool_result = self.tool_invoker.execute_tool(&tool_name, &tool_call.function.arguments).await;
                     
                     self.emit_event("ai-tool-result", json!({ "name": tool_call.function.name, "result": tool_result.as_ref().map(|v| v.to_string()).unwrap_or_else(|e| e.to_string()) }));
@@ -821,6 +850,18 @@ impl Sentient {
                 }
                 continue; // Continue next iteration with tool results
             } else {
+                // No tool calls, AI just answered. 
+                // If in Planning mode, emit a checkpoint for user review.
+                if req.mode.as_deref() == Some("Planning") {
+                    println!("[AI] Planning phase complete, emitting checkpoint");
+                    self.emit_event("ai-checkpoint", json!({
+                        "id": uuid::Uuid::new_v4().to_string(),
+                        "message": "Planning complete. Review implementation_plan.md and task.md.",
+                        "command": "/proceed",
+                        "open_file": "implementation_plan.md"
+                    }));
+                }
+                
                 // No tool calls, return final response
                 return Ok(chat_message.content.as_ref().map(|c| c.as_str().to_string()).unwrap_or_default());
             }
