@@ -30,7 +30,8 @@ import {
     Settings,
     RefreshCw,
     Maximize2,
-    Eraser
+    Eraser,
+    Upload
 } from 'lucide-react';
 import { useStore } from '../../store';
 
@@ -268,6 +269,28 @@ const VisualLabInner: React.FC = () => {
         [setNodes]
     );
 
+    const handleImport = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const content = e.target?.result as string;
+            // Use the global store to set experimental visual data
+            const store = (window as any).useStore?.getState();
+            if (store) {
+                store.setVisualLabData(content);
+                // Auto-detect mode based on extension or content
+                if (file.name.endsWith('.sql')) {
+                    store.setVisualLabMode('erd');
+                } else {
+                    store.setVisualLabMode('json');
+                }
+            }
+        };
+        reader.readAsText(file);
+    }, []);
+
     // Backend handles parsing now
     useEffect(() => {
         if (visualLabData && visualLabMode !== 'none') {
@@ -426,6 +449,25 @@ const VisualLabInner: React.FC = () => {
                         <Eraser size={16} /> <span style={{ fontSize: '12px' }}>Clear</span>
                     </button>
                     <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }}></div>
+                    <input
+                        type="file"
+                        id="visual-lab-import"
+                        style={{ display: 'none' }}
+                        accept=".json,.sql"
+                        onChange={handleImport}
+                    />
+                    <button
+                        onClick={() => document.getElementById('visual-lab-import')?.click()}
+                        style={{
+                            background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                            padding: '4px 8px', borderRadius: '4px', transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <Upload size={16} /> <span style={{ fontSize: '12px' }}>Import</span>
+                    </button>
                     <button style={{
                         background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)',
                         cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
