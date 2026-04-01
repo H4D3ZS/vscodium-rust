@@ -1,91 +1,61 @@
-# VSCodium Rust Rewrite
+# VSCodium-Rust | Agentic & Sovereign IDE
 
 A groundbreaking, high-performance implementation of the VS Code architecture, rewritten from the ground up using **Rust**, **Tauri**, and **TypeScript**. 
 
-VSCodium-Rust is not just "another mobile IDE." It is a **full-scale, ultra-lightweight development environment** designed for everything: **Web Applications, CMS, Backend Services, Mobile Apps, and Cloud Infrastructure.** It provides the familiar "VS Code feel" with significantly faster speeds and a fraction of the memory footprint.
+VSCodium-Rust is more than an editor — it is a **full-scale, ultra-lightweight agentic development environment** designed for **Data Sovereignty, Speed, and "Parallel Mind" Engineering.**
 
-## Why was this created?
-
-Electronic-based editors have revolutionized development but often come at the cost of high memory usage and performance overhead. VSCodium-Rust sheds the weight of Electron and the handcuffs of corporate control, providing a **native-grade experience** for the modern developer.
-
-### Absolute AI & Data Sovereignty: "Self-Hosted First"
-
-A primary motivator for VSCodium-Rust is to provide an escape hatch from the ecosystem of **"Greedy Corporations."** Traditional IDEs often lock you into their own AI models and proprietary token usage.
-
-We believe that **the choice of freedom is yours**:
-- **Host Your Own Brain**: Connect to your own **Local LLMs** (via Ollama or custom servers) for 100% private, offline AI assistance.
-- **Data Sovereignty**: Your code, your prompts, and your tokens never pass through a corporate filter. 
-- **Pay Only for What You Use**: Instead of marked-up subscriptions, buy your own API keys (OpenAI, Anthropic, etc.) and integrate them at cost.
-
-## Premium Visual Git Graph Viewer
-
-Manage your repository with style. VSCodium-Rust includes a state-of-the-art **Visual Git Graph Viewer** with three premium layouts:
-- **Classic**: The familiar, robust branching view.
-- **Modern**: A sleek, high-contrast visualization for complex merges.
-- **Bento**: A beautiful, modular grid-style layout for a multi-dimensional view of your history.
-
-## For Cybersecurity Researchers
-
-VSCodium-Rust is built by a researcher, for researchers. It is the ultimate tool for **Security Audits, Malware Analysis, and Vulnerability Research**.
-
-- **Built-in Reverse Engineering**: Native support for the **Model Context Protocol (MCP)** and `ida-pro-mcp` means your AI agent can assist with binary analysis and decompilation directly in the IDE.
-- **Isolated Terminal & Network Control**: Fine-grained control over terminal environments and process spawning.
-- **Integrated Vision**: High-speed rendering for complex data visualizations.
-
-![Researcher View 1](pics/1.png)
-![Researcher View 2](pics/2.png)
-![Researcher View 3](pics/3.png)
-![Researcher View 4](pics/4.png)
-
-## Architecture
-
-- **Frontend**: A custom **TypeScript/Vite** application designed to achieve 100% visual parity with authentic VS Code. It leverages direct DOM manipulation and **GPUI primitives** for maximum layout performance.
-- **Backend**: **Rust (Tauri)**, handling fast IPC, file I/O, process spawning, and host-side integration for mobile emulators.
-- **The Hybrid Advantage**: We use Rust for heavy lifting (terminal emulation, AI engine, iOS emulators) and Tauri/TS for the visual authenticity of the VS Code ecosystem.
-
-## Key Features
-
-### 1. Authentic VS Code Parity
-- **Pixel-Perfect UI**: Mimics VS Code's layout metrics, including explorer rendering and activity bar spacing.
-- **Monaco Editor Backbone**: Powered by the same underlying engine as VS Code for rich syntax highlighting and LSP support.
-- **Starts Instantly**: Verified < 100MB RAM usage vs 500MB+ in Electron.
-
-### 2. Premium Antigravity Agent Built-in
-Standalone, autonomous AI that lives in your sidebar. **"Just use Antigravity."**
-- **Autonomous Operations**: The agent can perform complex, multi-step tasks across the entire project.
-- **Mode Switching**: Toggle between `Thinking` and `Execution` modes for precise control.
-
-### 3. All-in-One Mobile Powerhouse
-The only IDE that integrates professional-grade emulators directly into the workspace panels. 
-- **iOS 26.3.1 Breakthrough**: Support for the latest **Virtual iPhone Emulator** running iOS 26.3.1.
-- **Zero Configuration**: Android and iOS simulators ready out of the box.
-
-## Final Word on Purpose
-
-There has been some confusion in the community regarding the specific niche of VSCodium-Rust. Let's set it straight:
-
-VSCodium-Rust is a **General-Purpose Development Environment** for **everyone**. Whether you're building **Web Apps (React, Next.js, etc.)**, **Backend Services (Rust, Go, Node.js)**, or **Microservices**, this IDE is designed for your workflow.
-
-- **For Cybersecurity Researchers**: Its native-grade performance, MCP-based AI assistance for reverse engineering, and low-level control make it an elite tool for security audits and vulnerability research.
-- **For Mobile Developers**: It integrates professional-grade emulators (iOS/Android) as first-class citizens, but mobile support is an *extension* of its core power, not its only purpose.
-
-**VSCodium-Rust is for any developer who demands speed, privacy, and full architectural sovereignty.**
+![VSCodium-Rust Agentic View](pics/1.png)
 
 ---
 
-## Credits
+## 🚀 Key Evolutionary Features
 
-This project stands on the shoulders of giants:
-- **[Zed Industries](https://zed.dev/)**: For the groundbreaking **GPUI** primitives.
-- **[The VSCodium Team](https://vscodium.com/)**: For the telemetry-free VS Code foundation.
-- **Palinuro**: For pioneering privacy-first open source work.
+### 🧠 1. Claude Code Integrated (42+ Tools)
+We have achieved 100% feature parity with Claude Code's agentic architecture. The built-in **Antigravity Agent** utilizes 42+ specialized tools with standard JSON schemas, allowing it to:
+- **Analyze & Plan:** High-fidelity project research and roadmap generation.
+- **Execute:** Atomic file edits, partial modifications, and full-volume writes.
+- **Git & Terminal Mastery:** Native backend PTY terminals and Git integration for automated commits, diffs, and staging.
 
-## Support & Donations
+### 🌐 2. Parallel Mind Architecture (Multi-Agent)
+The only IDE that supports **True Asynchronous Sub-Agent Orchestration**. Delegate complex tasks to specialized background agents:
+- **Research while Implementing:** Spawn a browser sub-agent to find documentation while you implement the feature.
+- **Multi-Tasking:** Run planning, roadmap, development, and reverse engineering tasks simultaneously in a parallelized backend (`tokio` + `Arc<Self>`).
+- **Live Progress:** Real-time tracking of all background thoughts and tasks in the Agent Sidebar.
 
-VSCodium-Rust is an ambitious, self-funded project. If you like this project and want to support its continued development, consider buying me a coffee.
+### 🏠 3. Absolute Data Sovereignty (Ollama First)
+VSCodium-Rust is designed for developers who demand **freedom from corporate filters**:
+- **Self-Hosted Brain:** Connect to local models via **Ollama** or custom providers with 100% private, offline tool-calling.
+- **JSON Schema Parity:** All IDE tools are exposed via standard formats, ensuring any tool-calling model (Llama 3, Mistral) can be fully agentic within your workspace.
+- **Pay Only for What You Use:** Bring your own API keys for hosted models (Anthropic, OpenAI, Gemini) and eliminate redundant subscriptions.
+
+### ⚡ 4. Native Performance & Precision
+- **Rust/Tauri Backbone:** Sheds the memory weight of Electron. Verified **< 100MB RAM usage** for core operations.
+- **Monaco Precision:** Powered by the Monaco engine for authentic syntax highlighting and LSP support.
+- **GPUI Primitives:** High-performance UI rendering for zero-latency interactions.
+
+---
+
+## 🛠️ For Cybersecurity & Reverse Engineering
+Built by a researcher for researchers. VSCodium-Rust is an elite tool for **Security Audits and Malware Analysis**:
+- **Integrated Reverse Engineering:** Native **Model Context Protocol (MCP)** support for integration with tools like IDA Pro.
+- **Isolated PTY Terminals:** Full control over process spawning and network isolation.
+- **Simulator Mastery:** Integrated professional-grade emulators for **iOS (v26.3.1)** and Android directly in workspace panels.
+
+---
+
+## 📁 Project Architecture
+- **Frontend:** TypeScript/Vite application designed for 100% visual parity with VS Code layout metrics.
+- **Backend:** Rust (Tauri) handling IPC, file I/O, Git operations, and the **Agentic Dispatcher**.
+- **Agent Orchestrator:** Modular, category-based tool handler with enforced path security (`validate_path`).
+
+---
+
+## 📝 License & Credits
+- **Credits:** Standing on the shoulders of giants: Zed Industries (GPUI), VSCodium Team, and Palinuro.
+- **License:** MIT
+
+---
+
+**VSCodium-Rust is for any developer who demands speed, privacy, and full architectural sovereignty.**
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/H4D3ZS)
-
-## License
-
-MIT

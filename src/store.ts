@@ -18,6 +18,7 @@ export interface AgentStep {
     name: string;
     status: 'running' | 'success' | 'error';
     result?: string;
+    type?: 'filesystem' | 'git' | 'terminal' | 'browser' | 'system' | 'other';
 }
 
 export interface PendingChange {
@@ -203,11 +204,11 @@ interface AppState {
     addMcpServer: (name: string, config: any) => Promise<void>;
     removeMcpServer: (name: string) => Promise<void>;
     listMcpServers: () => Promise<void>;
-    addAgentMessage: (role: 'user' | 'assistant', content: string, context?: AttachedContext[]) => void;
+    addAgentMessage: (role: 'user' | 'assistant', content: string, context?: AttachedContext[] | boolean) => void;
     updateLastAgentMessage: (content: string) => void;
     updateLastAgentThought: (thought: string) => void;
-    addAgentStep: (name: string) => void;
     updateAgentStepStatus: (name: string, status: 'running' | 'success' | 'error', result?: string) => void;
+    addAgentStep: (name: string, type?: AgentStep['type']) => void;
     addAgentFile: (path: string) => void;
     addAgentArtifact: (artifact: Omit<Artifact, 'id' | 'timestamp'>) => void;
     setIsAgentThinking: (isThinking: boolean) => void;
@@ -215,6 +216,8 @@ interface AppState {
     resetThread: () => void;
     truncateAgentMessages: (index: number) => void;
     updateAgentTask: (task: Partial<AgentTask> & { id: string }) => void;
+    setAgentMessages: (messages: any[]) => void;
+    setAgentTasks: (tasks: any[]) => void;
 
     // Diff Review Actions
     proposePendingChange: (change: Omit<PendingChange, 'id'>) => void;
@@ -270,7 +273,8 @@ export interface AgentTask {
     id: string;
     title: string;
     summary: string;
-    status: 'running' | 'completed' | 'error' | 'pending';
+    message?: string; // Progress or details
+    status: 'running' | 'completed' | 'error' | 'pending' | 'failed';
     progress: number;
     createdAt: number;
     updatedAt: number;
@@ -663,9 +667,19 @@ const storeImplementation: any = (set: any, get: any) => ({
             console.error('List MCP Servers Error:', e);
         }
     },
-    addAgentMessage: (role, content, context) => set((state) => ({
-        agentMessages: [...state.agentMessages, { role, content, context, steps: role === 'assistant' ? [] : undefined }]
-    })),
+    addAgentMessage: (role, content, contextOrSubAgent) => set((state) => {
+        const isSubAgent = typeof contextOrSubAgent === 'boolean' ? contextOrSubAgent : false;
+        const context = Array.isArray(contextOrSubAgent) ? contextOrSubAgent : [];
+        const newMessage: any = {
+            role,
+            content,
+            context,
+            timestamp: Date.now(),
+            isSubAgentResponse: isSubAgent,
+            steps: role === 'assistant' ? [] : undefined
+        };
+        return { agentMessages: [...state.agentMessages, newMessage] };
+    }),
     updateLastAgentMessage: (content: any) => set((state) => {
         const messages = [...state.agentMessages];
         const lastIndex = messages.length - 1;
@@ -740,7 +754,7 @@ const storeImplementation: any = (set: any, get: any) => ({
         }
         return { agentMessages: messages };
     }),
-    addAgentStep: (name) => set((state) => {
+    addAgentStep: (name, type) => set((state) => {
         const messages = [...state.agentMessages];
         if (messages.length === 0) return state;
         const last = messages[messages.length - 1];
@@ -748,7 +762,7 @@ const storeImplementation: any = (set: any, get: any) => ({
             const steps = last.steps || [];
             // Avoid duplicate steps if redelivered
             if (!steps.find(s => s.name === name)) {
-                last.steps = [...steps, { name, status: 'running' }];
+                last.steps = [...steps, { name, status: 'running', type }];
             }
         }
         return { agentMessages: messages };
@@ -809,6 +823,8 @@ const storeImplementation: any = (set: any, get: any) => ({
             return state;
         });
     },
+    setAgentMessages: (agentMessages) => set({ agentMessages }),
+    setAgentTasks: (agentTasks) => set({ agentTasks }),
     clearAgentMessages: () => set({ agentMessages: [] }),
     resetThread: () => {
         set({ agentMessages: [], pendingChanges: [], attachedContext: [] });
@@ -823,12 +839,11 @@ const storeImplementation: any = (set: any, get: any) => ({
 
         let updatedTask: AgentTask;
         if (index > -1) {
-            updatedTask = {
+            existingTasks[index] = {
                 ...existingTasks[index],
                 ...taskUpdate,
                 updatedAt: Date.now()
             } as AgentTask;
-            existingTasks[index] = updatedTask;
         } else {
             updatedTask = {
                 id: taskUpdate.id,

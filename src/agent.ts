@@ -1,7 +1,25 @@
 import { invoke, listen } from './tauri_bridge.ts';
 import { browserOpen, browserNavigate, browserScreenshot, browserClose } from './browser.ts';
 import { useStore } from './store.ts';
+import { TaskManager, SubAgentManager } from './task_manager.ts';
 import type { PendingChange } from './store.ts';
+import {
+    getAllTools,
+    getToolSchemas,
+    getToolSchemasAnthropic,
+    getToolSchemasGoogle,
+    executeToolCall,
+    generateToolCallId,
+    type ToolCall,
+    type ToolCallResult,
+    type ToolContext,
+    type ToolDef,
+} from './tool_registry.ts';
+import {
+    buildSystemPrompt,
+    clearGitStatusCache,
+    type SystemPromptConfig,
+} from './system_prompt.ts';
 
 export interface ChatMessage {
     role: "system" | "user" | "assistant";
@@ -203,8 +221,32 @@ export async function initAgent() {
     await listen<any>("ai-tool-call", (event) => {
         const { addAgentStep } = useStore.getState();
         const toolName = event.payload.name || 'tool_call';
-        addAgentStep(toolName);
+
+        // Categorize tool for UI
+        let type: any = 'other';
+        if (toolName.startsWith('git_')) type = 'git';
+        else if (toolName.startsWith('terminal_')) type = 'terminal';
+        else if (toolName.includes('file') || toolName.includes('glob')) type = 'filesystem';
+        else if (toolName.startsWith('browser_')) type = 'browser';
+        else if (toolName.includes('health') || toolName.includes('system')) type = 'system';
+
+        addAgentStep(toolName, type);
     });
+
+    // Listen for asynchronous sub-agent progress and results
+    await listen<any>("subagent-progress", (event) => {
+        console.log(`[Agent] Sub-agent update:`, event.payload);
+        SubAgentManager.handleProgress(event.payload);
+    });
+
+    // Auto-load session if active root exists
+    const root = useStore.getState().activeRoot;
+    if (root) {
+        console.log("Found active root, attempting to resume session...");
+        TaskManager.loadSession().then(success => {
+            if (success) console.log("Session resumed successfully.");
+        });
+    }
 }
 
 export function openModelDropdown(element: HTMLElement, onSelect: (label: string) => void) {
@@ -411,6 +453,15 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
         await sendAgentMessage(prompt, () => { });
         // Clear context on successful send
         state.clearAttachedContext();
+        // Auto-save session after a successful response
+        TaskManager.saveSession();
+
+        // Phase 6: Automatic Context Compaction
+        const msgLimit = 20;
+        if (state.agentMessages.length > msgLimit) {
+            console.log(`Context message limit (${msgLimit}) reached. Triggering automatic compaction...`);
+            processSlashCommand('/compact');
+        }
     } catch (error: any) {
         console.error('Agent chat error:', error);
         store.getState().setIsAgentThinking(false);
@@ -601,15 +652,27 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
     } else if (agentModel.toLowerCase().includes("anthropic") || agentModel.toLowerCase().includes("claude")) {
         provider = "Anthropic";
     } else if (agentModel.toLowerCase().includes("ollama") || agentModel.includes("/") || agentModel.includes(":")) {
-        // Deep local model detection (Ollama often uses slashes and colons)
         provider = "Ollama";
     }
 
-    // Normalized provider for backend
     const normalizedProvider = provider.toLowerCase() === 'apiradar' ? 'apiradar' : provider.toLowerCase();
 
-    // --- Build system message from IDE context + cached project memory ---
-    const systemContext = await buildIdeContext();
+    // --- Build enhanced system prompt with Claude Code-style context ---
+    const storeState = store.getState();
+    const tabs = (storeState as any).tabs || [];
+    const promptConfig: SystemPromptConfig = {
+        activeRoot: storeState.activeRoot || '',
+        activeFile: storeState.activeEditorPath || undefined,
+        openTabs: tabs.map((t: any) => ({
+            path: t.path,
+            language: t.language || '',
+            content: t.path === storeState.activeEditorPath ? t.content : undefined,
+        })),
+        agentMode: storeState.agentMode || 'Execution',
+        projectMemory: storeState.projectMemory || undefined,
+        attachedContext: storeState.attachedContext || [],
+    };
+    const systemContext = await buildSystemPrompt(promptConfig);
     const systemMessage = {
         role: 'system',
         content: systemContext,
@@ -617,31 +680,36 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
         metadata: null,
     };
 
+    // --- Get tool schemas for the provider ---
+    let toolSchemas: any[] = [];
+    if (normalizedProvider === 'anthropic') {
+        toolSchemas = getToolSchemasAnthropic();
+    } else if (normalizedProvider === 'google') {
+        toolSchemas = getToolSchemasGoogle();
+    } else {
+        toolSchemas = getToolSchemas();
+    }
+
     // Map messages to the format expected by the backend
     const messages = [
         systemMessage,
         ...agentMessages.map((m: any) => {
             let content: any = m.content || "";
 
-            // If message has attachment context, convert to multi-modal parts for images
+            // Multi-modal support for image attachments
             const attachmentContext = m.context?.filter((c: any) => c.type === 'attachment' && c.data);
             if (attachmentContext && attachmentContext.length > 0) {
                 const parts: any[] = [{ type: 'text', text: content }];
                 attachmentContext.forEach((ac: any) => {
-                    // Only images are sent as multimodal parts for now. 
-                    // Other files are just mentioned by name in the text if we want, 
-                    // but for general files we might want to just include their reference.
                     if (ac.data.startsWith('data:image/')) {
                         parts.push({
                             type: 'image_url',
                             image_url: { url: ac.data }
                         });
                     } else if (ac.data && ac.data.startsWith('data:text/')) {
-                        // For text-based attachments, include the content in the text part
                         const textContent = atob(ac.data.split(',')[1]);
                         parts[0].text = `[Attached file: ${ac.name}]\n\`\`\`\n${textContent}\n\`\`\`\n\n${parts[0].text}`;
                     } else {
-                        // Fallback for other files
                         parts[0].text = `[Attached file: ${ac.name}]\n${parts[0].text}`;
                     }
                 });
@@ -667,18 +735,97 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
                 messages: messages,
                 temperature: 0.7,
                 autonomous: true,
-                root_access: true, // Internal AI now operates with permanent elevated privileges
+                root_access: true,
                 mode: store.getState().agentMode,
-                ollama_url: store.getState().ollamaUrl
+                ollama_url: store.getState().ollamaUrl,
+                // NEW: Send structured tool definitions to the backend
+                tools: toolSchemas,
             }
         });
-        // Auto-log a task summary to MEMORY.md after every successful AI response
         logTaskToMemory(userPrompt).catch(() => { });
     } catch (e: any) {
         console.error("Agent chat failed:", e);
         setAiStatus('dead');
         throw e;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tool Call Executor — called by the backend when the AI wants to use a tool.
+// This is the structured replacement for the old parseToolCall/executeTool.
+// ---------------------------------------------------------------------------
+export async function handleToolCall(toolName: string, toolArgs: any): Promise<string> {
+    const store = (window as any).useStore;
+    const ctx: ToolContext = {
+        activeRoot: store?.getState().activeRoot || '',
+        activeFile: store?.getState().activeEditorPath || '',
+        agentMode: store?.getState().agentMode || 'Execution',
+    };
+
+    const toolCall: ToolCall = {
+        id: generateToolCallId(),
+        name: toolName,
+        arguments: toolArgs,
+    };
+
+    // Log tool usage to the UI
+    if (store) {
+        let type: any = 'other';
+        if (toolName.startsWith('git_')) type = 'git';
+        else if (toolName.startsWith('terminal_')) type = 'terminal';
+        else if (toolName.includes('file') || toolName.includes('glob')) type = 'filesystem';
+        else if (toolName.startsWith('browser_')) type = 'browser';
+        else if (toolName.includes('health') || toolName.includes('system')) type = 'system';
+
+        store.getState().addAgentStep(toolName, type);
+    }
+
+    const result = await executeToolCall(toolCall, ctx);
+
+    // Update step status
+    if (store) {
+        const currentSteps = store.getState().agentSteps || [];
+        const lastStep = currentSteps[currentSteps.length - 1];
+        if (lastStep && lastStep.name === toolName) {
+            lastStep.status = 'success';
+            lastStep.result = result.content.slice(0, 200);
+            store.getState().setAgentSteps?.([...currentSteps]);
+        }
+    }
+
+    return result.content;
+}
+
+// ---------------------------------------------------------------------------
+// Register tool call listener from backend (Tauri event bridge)
+// ---------------------------------------------------------------------------
+let _toolListenerInitialized = false;
+export function initToolCallListener() {
+    if (_toolListenerInitialized) return;
+    _toolListenerInitialized = true;
+
+    listen('ai-tool-call', async (event: any) => {
+        const { tool_name, tool_args, call_id } = event.payload;
+        try {
+            const result = await handleToolCall(tool_name, tool_args);
+            await invoke('ai_tool_result', {
+                callId: call_id,
+                result: result,
+            });
+        } catch (e: any) {
+            await invoke('ai_tool_result', {
+                callId: call_id,
+                result: `Tool execution error: ${e.message || e}`,
+            });
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Get available tool names for the UI (tool palette)
+// ---------------------------------------------------------------------------
+export function getAvailableToolNames(): string[] {
+    return getAllTools().map(t => t.name);
 }
 
 // ---------------------------------------------------------------------------
@@ -880,7 +1027,22 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 **Memory**
 - \`/memory\` — Show loaded project memory (AGENTS.md / CLAUDE.md)
 - \`/memory reload\` — Re-read memory files from disk
-- \`/learn <text>\` — Manually write a note to MEMORY.md (permanent)`;
+- \`/learn <text>\` — Manually write a note to MEMORY.md (permanent)
+
+**Git (Claude Code)**
+- \`/commit [message]\` — Stage all & commit (AI generates message if none given)
+- \`/diff\` — Show current git diff
+- \`/review\` — AI-powered code review of staged changes
+
+**Session (Claude Code)**
+- \`/compact\` — Compress conversation context (save tokens)
+- \`/doctor\` — Environment diagnostics
+- \`/cost\` — Show token usage & estimated cost
+- \`/context\` — Show what IDE context the agent sees
+- \`/model <name>\` — Switch the active model
+- \`/stats\` — Session statistics
+- \`/resume\` — Restore state from last session
+- \`/tools\` — List all available tools`;
             addAgentMessage('assistant', helpMsg);
             return true;
         }
@@ -900,9 +1062,249 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 await invoke('update_project_memory', { content: summary });
                 await loadProjectMemory(activeRoot);
                 store.getState().updateLastAgentMessage(`✅ Memory updated! Added to \`MEMORY.md\`:\n\n> ${summary}`);
+                // Ensure session is saved with the new memory content
+                TaskManager.saveSession();
             } catch (err: any) {
                 store.getState().updateLastAgentMessage(`❌ Failed to write memory: ${err.message || err}`);
             }
+            return true;
+        }
+
+        // ==================================================================
+        // Claude Code-ported slash commands
+        // ==================================================================
+
+        case '/commit': {
+            if (!activeRoot) { addAgentMessage('assistant', '❌ No project root open.'); return true; }
+            const commitMsg = args.trim();
+            addAgentMessage('assistant', '🔄 Preparing git commit...');
+            try {
+                if (commitMsg) {
+                    // Auto-stage everything and commit
+                    await handleToolCall('git_add', { files: ["."] });
+                    const result = await handleToolCall('git_commit', { message: commitMsg });
+                    store.getState().updateLastAgentMessage(`✅ Committed:\n\`\`\`\n${result}\n\`\`\``);
+                } else {
+                    // Use AI to generate commit message
+                    const status = await handleToolCall('git_status', {});
+                    const diff = await handleToolCall('git_diff', { staged: true });
+
+                    if (!diff || diff.trim() === 'No changes detected.' || diff.trim() === '') {
+                        store.getState().updateLastAgentMessage('No staged changes found. Use `/commit <message>` to auto-stage and commit, or `git add` some files first.');
+                    } else {
+                        addAgentMessage('user', `Generate a concise conventional commit message for these staged changes and commit them:\n\`\`\`diff\n${diff.slice(0, 4000)}\n\`\`\``);
+                        await sendAgentMessage(`Generate a concise conventional commit message for these changes, then CALL the git_commit tool with it:\n\`\`\`diff\n${diff.slice(0, 4000)}\n\`\`\``, (msg) => store.getState().updateLastAgentMessage(msg));
+                    }
+                }
+            } catch (err: any) {
+                store.getState().updateLastAgentMessage(`❌ Commit failed: ${err.message || err}`);
+            }
+            return true;
+        }
+
+        case '/diff': {
+            if (!activeRoot) { addAgentMessage('assistant', '❌ No project root open.'); return true; }
+            addAgentMessage('assistant', '🔍 Fetching git diff...');
+            try {
+                const diff = await handleToolCall('git_diff', { staged: args.includes('--staged') });
+                const truncated = diff && diff.length > 5000 ? diff.slice(0, 5000) + '\n\n_…(truncated)_' : diff;
+                store.getState().updateLastAgentMessage(`### Git Diff ${args.includes('--staged') ? '(Staged)' : '(Unstaged)'}\n\`\`\`diff\n${truncated || 'No changes detected.'}\n\`\`\``);
+            } catch (err: any) {
+                store.getState().updateLastAgentMessage(`❌ Diff failed: ${err.message || err}`);
+            }
+            return true;
+        }
+
+        case '/review': {
+            if (!activeRoot) { addAgentMessage('assistant', '❌ No project root open.'); return true; }
+            addAgentMessage('assistant', '🔍 Starting code review...');
+            try {
+                const diff = await invoke<string>('ai_execute_command', {
+                    command: `cd "${activeRoot}" && git diff HEAD`,
+                });
+                if (!diff || diff.trim() === '') {
+                    store.getState().updateLastAgentMessage('No changes to review. Make some changes first.');
+                } else {
+                    await sendAgentMessage(
+                        `Review these code changes for bugs, security issues, performance problems, and best practice violations. Be specific and actionable:\n\`\`\`diff\n${diff.slice(0, 8000)}\n\`\`\``,
+                        (msg) => store.getState().updateLastAgentMessage(msg)
+                    );
+                }
+            } catch (err: any) {
+                store.getState().updateLastAgentMessage(`❌ Review failed: ${err.message || err}`);
+            }
+            return true;
+        }
+
+        case '/compact': {
+            const { agentMessages } = store.getState();
+            const messageCount = agentMessages.length;
+            if (messageCount <= 4) {
+                addAgentMessage('assistant', 'Context is already compact (≤4 messages).');
+                return true;
+            }
+            addAgentMessage('assistant', '🗜️ Compacting conversation...');
+            // Keep system + first 2 + last 4 messages, summarize the rest
+            const toKeep = [...agentMessages.slice(0, 2), ...agentMessages.slice(-4)];
+            const dropped = messageCount - toKeep.length;
+            store.getState().setAgentMessages?.(toKeep);
+            store.getState().updateLastAgentMessage(`✅ Compacted: kept ${toKeep.length} messages, dropped ${dropped} older messages to save context window.`);
+            return true;
+        }
+
+        case '/doctor': {
+            addAgentMessage('assistant', '🩺 Running high-fidelity environment diagnostics...');
+            try {
+                const health = await handleToolCall('get_system_health', {});
+                const data = JSON.parse(health);
+
+                const sections: string[] = ['### System Health Report\n'];
+
+                // Git
+                const git = data.git || {};
+                sections.push(`**Git:** ${git.is_repo ? '✅ Repository detected' : '❌ Not a repository'}`);
+                if (git.current_branch) sections.push(`  - Branch: \`${git.current_branch}\``);
+
+                // Tools
+                const tools = data.tools || {};
+                sections.push(`**Node.js:** ${tools.node || '❌ Not found'}`);
+                sections.push(`**Rust/Cargo:** ${tools.cargo || '❌ Not found'}`);
+
+                // MCP
+                const mcp = data.mcp_servers || [];
+                if (mcp.length > 0) {
+                    sections.push(`\n**MCP Servers (${mcp.length}):**`);
+                    mcp.forEach((s: any) => {
+                        const statusIcon = s.status === 'connected' ? '🟢' : '🔴';
+                        sections.push(`${statusIcon} ${s.name} (${s.status})`);
+                    });
+                } else {
+                    sections.push('\n**MCP Servers:** None registered.');
+                }
+
+                const { agentModel, agentMode } = store.getState();
+                sections.push(`\n**Active Model:** \`${agentModel}\``);
+                sections.push(`**Agent Mode:** ${agentMode || 'Unknown'}`);
+
+                store.getState().updateLastAgentMessage(sections.join('\n'));
+            } catch (err: any) {
+                store.getState().updateLastAgentMessage(`❌ Diagnostics failed: ${err.message || err}`);
+            }
+            return true;
+        }
+
+        case '/cost': {
+            const { agentMessages } = store.getState();
+            // Rough token estimation: ~4 chars per token
+            const totalChars = agentMessages.reduce((acc: number, m: any) => acc + (m.content?.length || 0), 0);
+            const estimatedTokens = Math.ceil(totalChars / 4);
+            const costPerMToken = 3.00; // rough average
+            const estimatedCost = (estimatedTokens / 1_000_000) * costPerMToken;
+            addAgentMessage('assistant', `### Token Usage Estimate
+
+| Metric | Value |
+|--------|-------|
+| Messages | ${agentMessages.length} |
+| Est. Characters | ${totalChars.toLocaleString()} |
+| Est. Tokens | ~${estimatedTokens.toLocaleString()} |
+| Est. Cost | ~$${estimatedCost.toFixed(4)} |
+
+_Note: This is a rough estimate. Actual usage depends on the model and provider._`);
+            return true;
+        }
+
+        case '/context': {
+            addAgentMessage('assistant', '📋 Building context snapshot...');
+            try {
+                const config: SystemPromptConfig = {
+                    activeRoot: store.getState().activeRoot || '',
+                    activeFile: store.getState().activeEditorPath || undefined,
+                    agentMode: store.getState().agentMode || 'Execution',
+                    projectMemory: store.getState().projectMemory || undefined,
+                };
+                const ctx = await buildSystemPrompt(config);
+                const lines = ctx.split('\n').length;
+                const chars = ctx.length;
+                store.getState().updateLastAgentMessage(`### Agent Context (${lines} lines, ~${Math.ceil(chars / 4)} tokens)\n\n\`\`\`\n${ctx.slice(0, 3000)}\n\`\`\`${ctx.length > 3000 ? '\n\n_…(truncated)_' : ''}`);
+            } catch (err: any) {
+                store.getState().updateLastAgentMessage(`❌ Context build failed: ${err.message || err}`);
+            }
+            return true;
+        }
+
+        case '/model': {
+            if (!args.trim()) {
+                const { agentModel, availableModels } = store.getState();
+                const modelList = (availableModels || []).map((m: any) => `- \`${m.provider}|${m.id}\`${m.id === agentModel ? ' ← **current**' : ''}`).join('\n');
+                addAgentMessage('assistant', `### Current Model: \`${agentModel}\`\n\nAvailable models:\n${modelList || '_None discovered. Check settings._'}\n\n**Usage:** \`/model <provider|model_id>\``);
+            } else {
+                store.getState().setAgentModel?.(args.trim());
+                addAgentMessage('assistant', `✅ Model switched to: \`${args.trim()}\``);
+            }
+            return true;
+        }
+
+        case '/stats': {
+            const { agentMessages } = store.getState();
+            const userMsgs = agentMessages.filter((m: any) => m.role === 'user').length;
+            const assistantMsgs = agentMessages.filter((m: any) => m.role === 'assistant').length;
+            const totalChars = agentMessages.reduce((acc: number, m: any) => acc + (m.content?.length || 0), 0);
+            addAgentMessage('assistant', `### Session Statistics
+
+| Metric | Value |
+|--------|-------|
+| Total Messages | ${agentMessages.length} |
+| User Messages | ${userMsgs} |
+| Assistant Messages | ${assistantMsgs} |
+| Total Characters | ${totalChars.toLocaleString()} |
+| Est. Tokens | ~${Math.ceil(totalChars / 4).toLocaleString()} |
+| Model | \`${store.getState().agentModel}\` |
+| Mode | ${store.getState().agentMode || 'Unknown'} |
+| Tools Available | ${getAllTools().length} |`);
+            return true;
+        }
+
+        case '/resume': {
+            addAgentMessage('assistant', '🔄 Attempting to restore session from `.agent/sessions/`...');
+            const success = await TaskManager.loadSession();
+            if (success) {
+                store.getState().updateLastAgentMessage('✅ Session restored successfully!');
+            } else {
+                store.getState().updateLastAgentMessage('❌ No previous session found for this project.');
+            }
+            return true;
+        }
+
+        case '/tools': {
+            const tools = getAllTools();
+            const categories: Record<string, any[]> = {
+                '📂 Filesystem': tools.filter(t => ['ls', 'read', 'write', 'edit', 'mv', 'cp', 'rm', 'mkdir', 'grep', 'find'].some(k => t.name.includes(k) || t.name === k)),
+                '🌳 Git': tools.filter(t => t.name.startsWith('git_')),
+                '🖥️ Terminal': tools.filter(t => t.name.startsWith('terminal_') || t.name === 'bash'),
+                '🌐 Browser': tools.filter(t => t.name.startsWith('browser_')),
+                '🩺 System': tools.filter(t => t.name.includes('health') || t.name.includes('mcp')),
+            };
+
+            const sections = [`### Available Tools (${tools.length})\n`];
+            for (const [cat, catTools] of Object.entries(categories)) {
+                if (catTools.length > 0) {
+                    sections.push(`**${cat}**`);
+                    catTools.forEach(t => {
+                        sections.push(`- \`${t.name}\`: ${t.description.split('.')[0]}.`);
+                    });
+                    sections.push('');
+                }
+            }
+
+            // Others
+            const handled = Object.values(categories).flat();
+            const others = tools.filter(t => !handled.includes(t));
+            if (others.length > 0) {
+                sections.push(`**🔧 Utilities**`);
+                others.forEach(t => sections.push(`- \`${t.name}\`: ${t.description.split('.')[0]}.`));
+            }
+
+            addAgentMessage('assistant', sections.join('\n'));
             return true;
         }
 
@@ -912,6 +1314,11 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 }
 
 
+// ---------------------------------------------------------------------------
+// Legacy tool call parser — DEPRECATED but kept for backward compatibility
+// with models that don't support structured function calling.
+// New code should use the tool_registry.ts system via handleToolCall().
+// ---------------------------------------------------------------------------
 function parseToolCall(text: string) {
     if (!text) return null;
     const browserOpenMatch = text.match(/\[BROWSER_OPEN\]/);
@@ -958,47 +1365,29 @@ function parseToolCall(text: string) {
     return null;
 }
 
+// Legacy tool executor — routes to the new tool registry when possible
 async function executeTool(tool: any): Promise<string> {
-    try {
-        switch (tool.type) {
-            case "BROWSER_OPEN":
-                return await invoke("browser_open");
-            case "BROWSER_NAVIGATE":
-                return await invoke("browser_navigate", { url: tool.arg });
-            case "BROWSER_SCREENSHOT":
-                const b64 = await invoke<string>("browser_screenshot");
-                return "Screenshot captured and stored in memory (Base64 omitted from log).";
-            case "BROWSER_CLOSE":
-                return await invoke("browser_close");
-            case "EXEC_COMMAND":
-                return await invoke("ai_execute_command", { command: tool.arg });
-            case "MODIFY_FILE":
-                await invoke("ai_modify_file", { path: tool.path, target: tool.target, replacement: tool.replacement });
-                return `Successfully modified ${tool.path}`;
-            case "OPEN_FILE":
-                return await invoke("open_file", { path: tool.arg });
-            case "CREATE_FILE":
-                await invoke("create_file", { path: tool.arg });
-                return `Successfully created file: ${tool.arg}`;
-            case "CREATE_DIR":
-                await invoke("create_dir", { path: tool.arg });
-                return `Successfully created directory: ${tool.arg}`;
-            case "RUN_COMMAND":
-                return await invoke("ai_execute_command", { command: tool.arg });
-            case "SEARCH_FILES":
-                const searchRes = await invoke<any[]>("search_project", { query: tool.arg });
-                return JSON.stringify(searchRes);
-            case "LIST_FILES":
-                const listRes = await invoke<any>("list_directory", { path: tool.arg });
-                return JSON.stringify(listRes);
-            case "READ_FILE":
-                return await invoke("read_file", { path: tool.arg });
-            default:
-                return "Unknown tool";
-        }
-    } catch (e) {
-        return `Tool Error: ${e}`;
+    // Map legacy tool types to new registry names
+    const legacyMapping: Record<string, { name: string; args: any }> = {
+        'BROWSER_OPEN': { name: 'browser_open', args: {} },
+        'BROWSER_NAVIGATE': { name: 'browser_navigate', args: { url: tool.arg } },
+        'BROWSER_SCREENSHOT': { name: 'browser_screenshot', args: {} },
+        'BROWSER_CLOSE': { name: 'browser_close', args: {} },
+        'EXEC_COMMAND': { name: 'bash', args: { command: tool.arg } },
+        'RUN_COMMAND': { name: 'bash', args: { command: tool.arg } },
+        'MODIFY_FILE': { name: 'file_edit', args: { file_path: tool.path, old_string: tool.target, new_string: tool.replacement } },
+        'SEARCH_FILES': { name: 'grep', args: { pattern: tool.arg } },
+        'LIST_FILES': { name: 'list_directory', args: { path: tool.arg } },
+        'READ_FILE': { name: 'file_read', args: { file_path: tool.arg } },
+        'CREATE_FILE': { name: 'file_write', args: { file_path: tool.arg, content: '' } },
+        'CREATE_DIR': { name: 'create_directory', args: { path: tool.arg } },
+    };
+
+    const mapped = legacyMapping[tool.type];
+    if (mapped) {
+        return handleToolCall(mapped.name, mapped.args);
     }
+    return `Unknown tool: ${tool.type}`;
 }
 export async function startKeyHunt() {
     const messagesContainer = document.getElementById("agent-messages");

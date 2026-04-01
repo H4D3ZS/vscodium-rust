@@ -1,35 +1,33 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use portable_pty::{native_pty_system, CommandBuilder, PtySize, MasterPty, Child};
-use tauri::State;
+use base64::{engine::general_purpose, Engine as _};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use ropey::Rope;
-use tauri::Manager;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::fs;
+use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::process::Command;
-use serde::{Serialize, Deserialize};
-use serde_json::{Value, json};
+use std::sync::{Arc, Mutex};
+use tauri::Manager;
+use tauri::State;
+use tauri::{Emitter, Listener};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 use tree_sitter_rust::LANGUAGE;
-use std::fs;
-use std::path::PathBuf;
-use std::io::{Read, Write};
-use base64::{Engine as _, engine::general_purpose};
-use tauri::{Emitter, Listener};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, fmt};
-
-
 
 mod hunter;
 use hunter::ApiRadarHunter;
 mod ai_auth;
 
 pub mod ai_engine;
-use ai_engine::{Sentient, AiRequest};
+use ai_engine::{AiRequest, Sentient};
 mod ai_tools;
 pub mod domain;
 mod mcp_client;
 mod mcp_registry;
-mod task_planner;
 mod memory_store;
+mod task_planner;
 // mod browser_bridge; // Redundant, functionality in browser.rs
 mod tool_invoker;
 
@@ -57,7 +55,11 @@ use debug_adapter::DebugManager;
 #[cfg(target_os = "windows")]
 extern "system" {
     fn GetCurrentProcess() -> isize;
-    fn SetProcessWorkingSetSize(hProcess: isize, dwMinimumWorkingSetSize: usize, dwMaximumWorkingSetSize: usize) -> i32;
+    fn SetProcessWorkingSetSize(
+        hProcess: isize,
+        dwMinimumWorkingSetSize: usize,
+        dwMaximumWorkingSetSize: usize,
+    ) -> i32;
 }
 
 mod activation;
@@ -109,12 +111,15 @@ pub(crate) struct EditorState {
     browser_state: Arc<browser::BrowserState>,
     mcp_registry: Arc<mcp_registry::McpRegistry>,
     terminal_buffers: Mutex<HashMap<String, Vec<String>>>,
+    advisor_model: Mutex<Option<String>>,
 }
 
 impl EditorState {
     pub fn terminal_read_output(&self, id: String) -> Result<String, String> {
         let buffers = self.terminal_buffers.lock().map_err(|e| e.to_string())?;
-        let history = buffers.get(&id).ok_or_else(|| "Terminal not found".to_string())?;
+        let history = buffers
+            .get(&id)
+            .ok_or_else(|| "Terminal not found".to_string())?;
         Ok(history.join(""))
     }
 }
@@ -122,14 +127,17 @@ impl EditorState {
 impl EditorState {
     fn new(app: &tauri::AppHandle) -> Self {
         println!("[DEBUG] Initializing EditorState...");
-        let config_dir = app.path().app_config_dir().unwrap_or_else(|_| PathBuf::from(".config"));
+        let config_dir = app
+            .path()
+            .app_config_dir()
+            .unwrap_or_else(|_| PathBuf::from(".config"));
         println!("[DEBUG] Config dir: {:?}", config_dir);
         if !config_dir.exists() {
             let _ = fs::create_dir_all(&config_dir);
         }
-        
+
         let mut root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        
+
         // Find project root by searching for package.json or .git up to 3 levels
         let mut check_path = root.clone();
         for _ in 0..3 {
@@ -146,12 +154,14 @@ impl EditorState {
         let auth_state = Arc::new(ai_auth::AuthState::new());
         let browser_state = Arc::new(browser::BrowserState::new());
 
+        let git_manager = Arc::new(crate::git::GitManager::new());
         let sentient = Arc::new(Sentient::new(
             "".to_string(), // Initial empty API key
             root.clone(),
             auth_state.clone(),
             browser_state.clone(),
-            config_dir.clone()
+            git_manager.clone(),
+            config_dir.clone(),
         ));
         println!("[DEBUG] Sentient initialized");
         sentient.set_app_handle(app.clone());
@@ -165,7 +175,10 @@ impl EditorState {
         Self {
             buffers: Mutex::new(HashMap::new()),
             active_path: Mutex::new(None),
-            settings: Mutex::new(Settings { theme: "vs-dark".to_string(), font_size: 14 }),
+            settings: Mutex::new(Settings {
+                theme: "vs-dark".to_string(),
+                font_size: 14,
+            }),
             terminal_masters: Mutex::new(HashMap::new()),
             terminal_writers: Mutex::new(HashMap::new()),
             terminal_processes: Mutex::new(HashMap::new()),
@@ -186,9 +199,10 @@ impl EditorState {
             auth_state,
             browser_state,
             mcp_registry: Arc::new(mcp_registry::McpRegistry::new(
-                config_dir.join("mcp_config.json")
+                config_dir.join("mcp_config.json"),
             )),
             terminal_buffers: Mutex::new(HashMap::new()),
+            advisor_model: Mutex::new(None),
         }
     }
 }
@@ -209,15 +223,14 @@ struct AiResponse {
 
 #[tauri::command]
 fn open_file(state: State<'_, EditorState>, path: String) -> Result<String, String> {
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
-    
+    let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?;
+
     let mut buffers = state.buffers.lock().unwrap();
     buffers.insert(path.clone(), Rope::from_str(&content));
-    
+
     let mut active = state.active_path.lock().unwrap();
     *active = Some(path);
-    
+
     Ok(content)
 }
 
@@ -235,12 +248,12 @@ fn get_highlights(code: String) -> Result<Value, String> {
     let lang: tree_sitter::Language = LANGUAGE.into(); // Convert for 0.26 API
     parser.set_language(&lang).map_err(|e| e.to_string())?;
     let tree = parser.parse(&code, None).ok_or("Failed to parse code")?;
-    
+
     let query = Query::new(&lang, "(function_item) @function (struct_item) @struct")
         .map_err(|e| e.to_string())?;
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
-    
+
     let mut highlights = Vec::new();
     while let Some(m) = matches.next() {
         for capture in m.captures {
@@ -256,9 +269,8 @@ fn get_highlights(code: String) -> Result<Value, String> {
 
 #[tauri::command]
 fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
-    let entries = fs::read_dir(&path)
-        .map_err(|e| format!("Failed to read directory: {}", e))?;
-    
+    let entries = fs::read_dir(&path).map_err(|e| format!("Failed to read directory: {}", e))?;
+
     let mut results = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
@@ -275,19 +287,24 @@ fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
 }
 
 #[tauri::command]
-async fn open_folder(app: tauri::AppHandle, state: State<'_, EditorState>) -> Result<Option<String>, String> {
+async fn open_folder(
+    app: tauri::AppHandle,
+    state: State<'_, EditorState>,
+) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog().file().pick_folder(move |folder| {
         let _ = tx.send(folder);
     });
-    
+
     let folder_path = rx.await.map_err(|e| e.to_string())?;
 
     if let Some(folder) = folder_path {
         let path = match folder {
             tauri_plugin_dialog::FilePath::Path(p) => p,
-            tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().unwrap_or(PathBuf::from(u.path())),
+            tauri_plugin_dialog::FilePath::Url(u) => {
+                u.to_file_path().unwrap_or(PathBuf::from(u.path()))
+            }
         };
         let mut root = state.active_root.lock().unwrap();
         *root = Some(path.clone());
@@ -321,15 +338,25 @@ fn update_settings(state: State<'_, EditorState>, settings: Settings) {
 }
 
 #[tauri::command]
-fn lsp_start(state: State<'_, EditorState>, app: tauri::AppHandle, command: String) -> Result<(), String> {
+fn lsp_start(
+    state: State<'_, EditorState>,
+    app: tauri::AppHandle,
+    command: String,
+) -> Result<(), String> {
     let mut lsp = state.lsp_client.lock().unwrap();
     lsp.start(&command, app).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn lsp_send_request(state: State<'_, EditorState>, id: i32, method: String, params: Value) -> Result<(), String> {
+fn lsp_send_request(
+    state: State<'_, EditorState>,
+    id: i32,
+    method: String,
+    params: Value,
+) -> Result<(), String> {
     let mut lsp = state.lsp_client.lock().unwrap();
-    lsp.send_request(id, &method, params).map_err(|e| e.to_string())
+    lsp.send_request(id, &method, params)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -374,20 +401,34 @@ fn resolve_keybinding(state: State<'_, EditorState>, key: String) -> Option<Stri
 }
 
 #[tauri::command]
-async fn search_extensions(query: String) -> Result<Vec<marketplace::MarketplaceExtension>, String> {
-    marketplace::search_extensions(query).await.map_err(|e| e.to_string())
+async fn search_extensions(
+    query: String,
+) -> Result<Vec<marketplace::MarketplaceExtension>, String> {
+    marketplace::search_extensions(query)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn install_extension(state: State<'_, EditorState>, publisher: String, name: String, version: String) -> Result<extension_host::ExtensionMetadata, String> {
+async fn install_extension(
+    state: State<'_, EditorState>,
+    publisher: String,
+    name: String,
+    version: String,
+) -> Result<extension_host::ExtensionMetadata, String> {
     let extensions_dir = {
         let eh = state.ext_host.lock().unwrap();
         eh.primary_extensions_dir()
     };
-    
-    let _id = marketplace::install_extension(publisher.clone(), name.clone(), version.clone(), extensions_dir.clone())
-        .await
-        .map_err(|e| e.to_string())?;
+
+    let _id = marketplace::install_extension(
+        publisher.clone(),
+        name.clone(),
+        version.clone(),
+        extensions_dir.clone(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     // Dynamically load the extension
     let target_dir = extensions_dir.join(format!("{}.{}-{}", publisher, name, version));
@@ -417,7 +458,9 @@ async fn install_extension(state: State<'_, EditorState>, publisher: String, nam
 
 #[tauri::command]
 async fn get_popular_extensions() -> Result<Vec<marketplace::MarketplaceExtension>, String> {
-     marketplace::get_popular_extensions().await.map_err(|e| e.to_string())
+    marketplace::get_popular_extensions()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -428,11 +471,15 @@ async fn get_extension_details(id: String) -> Result<Value, String> {
     }
     let publisher = parts[0].to_string();
     let name = parts[1..].join(".").to_string();
-    marketplace::get_extension_details(publisher, name).await.map_err(|e| e.to_string())
+    marketplace::get_extension_details(publisher, name)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn get_installed_extensions(state: State<'_, EditorState>) -> Vec<extension_host::ExtensionMetadata> {
+fn get_installed_extensions(
+    state: State<'_, EditorState>,
+) -> Vec<extension_host::ExtensionMetadata> {
     let eh = state.ext_host.lock().unwrap();
     eh.extensions.clone()
 }
@@ -452,10 +499,13 @@ fn get_running_extensions(state: State<'_, EditorState>) -> Vec<extension_host::
 
 #[tauri::command]
 fn get_process_stats(state: State<'_, EditorState>) -> performance::ProcessStats {
-    state.perf_monitor.get_stats().unwrap_or(performance::ProcessStats {
-        memory_mb: 0,
-        cpu_usage: 0.0,
-    })
+    state
+        .perf_monitor
+        .get_stats()
+        .unwrap_or(performance::ProcessStats {
+            memory_mb: 0,
+            cpu_usage: 0.0,
+        })
 }
 
 #[tauri::command]
@@ -472,7 +522,7 @@ fn get_api_keys(state: State<'_, EditorState>) -> Result<Value, String> {
     } else {
         serde_json::Map::new()
     };
-    
+
     // Merge env var overrides (from hunt_api_keys or manual export)
     let env_mappings = vec![
         ("google", "GOOGLE_API_KEY"),
@@ -484,7 +534,7 @@ fn get_api_keys(state: State<'_, EditorState>) -> Result<Value, String> {
         ("groq", "GROQ_API_KEY"),
         ("alibaba", "ALIBABA_API_KEY"),
     ];
-    
+
     for (field, env_var) in env_mappings {
         if let Ok(val) = std::env::var(env_var) {
             if !val.is_empty() && !keys.contains_key(field) {
@@ -492,7 +542,7 @@ fn get_api_keys(state: State<'_, EditorState>) -> Result<Value, String> {
             }
         }
     }
-    
+
     Ok(json!(keys))
 }
 
@@ -506,8 +556,12 @@ pub struct ApiKeys {
 }
 
 #[tauri::command]
-async fn save_api_keys(state: State<'_, EditorState>, keys: Value) -> Result<HashMap<String, String>, String> {
-    let mut keys: ApiKeys = serde_json::from_value(keys).map_err(|e| format!("Invalid keys format: {}", e))?;
+async fn save_api_keys(
+    state: State<'_, EditorState>,
+    keys: Value,
+) -> Result<HashMap<String, String>, String> {
+    let mut keys: ApiKeys =
+        serde_json::from_value(keys).map_err(|e| format!("Invalid keys format: {}", e))?;
     let mut results = HashMap::new();
     let hunter = ApiRadarHunter::new();
 
@@ -515,12 +569,12 @@ async fn save_api_keys(state: State<'_, EditorState>, keys: Value) -> Result<Has
     if let Some(ref k) = keys.openai {
         if !k.is_empty() {
             let (alive, details) = hunter.validate_key("openai_api_key", k).await;
-            if !alive { 
+            if !alive {
                 results.insert("openai".to_string(), format!("Dead: {}", details));
-                keys.openai = None; 
+                keys.openai = None;
             } else {
                 results.insert("openai".to_string(), "Alive".to_string());
-                std::env::set_var("OPENAI_API_KEY", k); 
+                std::env::set_var("OPENAI_API_KEY", k);
             }
         }
     }
@@ -528,12 +582,12 @@ async fn save_api_keys(state: State<'_, EditorState>, keys: Value) -> Result<Has
     if let Some(ref k) = keys.anthropic {
         if !k.is_empty() {
             let (alive, details) = hunter.validate_key("anthropic_api_key", k).await;
-            if !alive { 
+            if !alive {
                 results.insert("anthropic".to_string(), format!("Dead: {}", details));
-                keys.anthropic = None; 
+                keys.anthropic = None;
             } else {
                 results.insert("anthropic".to_string(), "Alive".to_string());
-                std::env::set_var("ANTHROPIC_API_KEY", k); 
+                std::env::set_var("ANTHROPIC_API_KEY", k);
             }
         }
     }
@@ -541,19 +595,20 @@ async fn save_api_keys(state: State<'_, EditorState>, keys: Value) -> Result<Has
     if let Some(ref k) = keys.google {
         if !k.is_empty() {
             let (alive, details) = hunter.validate_key("google_api_key", k).await;
-            if !alive { 
+            if !alive {
                 results.insert("google".to_string(), format!("Dead: {}", details));
-                keys.google = None; 
+                keys.google = None;
             } else {
                 results.insert("google".to_string(), "Alive".to_string());
-                std::env::set_var("GOOGLE_API_KEY", k); 
+                std::env::set_var("GOOGLE_API_KEY", k);
             }
         }
     }
-    
+
     // Save filtered keys
     let path = state.config_dir.join("api_keys.json");
-    let contents = serde_json::to_string_pretty(&keys).map_err(|e| format!("Failed to encode api keys: {}", e))?;
+    let contents = serde_json::to_string_pretty(&keys)
+        .map_err(|e| format!("Failed to encode api keys: {}", e))?;
     fs::write(&path, contents).map_err(|e| format!("Failed to write api_keys.json: {}", e))?;
 
     Ok(results)
@@ -565,18 +620,37 @@ async fn list_mcp_servers(state: State<'_, EditorState>) -> Result<Value, String
 }
 
 #[tauri::command]
-async fn add_mcp_server(state: State<'_, EditorState>, name: String, config: mcp_registry::McpServerConfig) -> Result<(), String> {
-    state.mcp_registry.add_server(name, config).await.map_err(|e| e.to_string())
+async fn add_mcp_server(
+    state: State<'_, EditorState>,
+    name: String,
+    config: mcp_registry::McpServerConfig,
+) -> Result<(), String> {
+    state
+        .mcp_registry
+        .add_server(name, config)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn remove_mcp_server(state: State<'_, EditorState>, name: String) -> Result<(), String> {
-    state.mcp_registry.remove_server(&name).await.map_err(|e| e.to_string())
+    state
+        .mcp_registry
+        .remove_server(&name)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn set_ai_model(state: State<'_, EditorState>, model: String) -> Result<(), String> {
     let mut current = state.current_model.lock().unwrap();
+    *current = model;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_advisor_model(state: State<'_, EditorState>, model: Option<String>) -> Result<(), String> {
+    let mut current = state.advisor_model.lock().unwrap();
     *current = model;
     Ok(())
 }
@@ -589,7 +663,10 @@ fn adb_list_devices(state: State<'_, EditorState>) -> Result<Vec<String>, String
         if p.join("adb").exists() {
             p.join("adb").to_string_lossy().to_string()
         } else if p.join("platform-tools").join("adb").exists() {
-            p.join("platform-tools").join("adb").to_string_lossy().to_string()
+            p.join("platform-tools")
+                .join("adb")
+                .to_string_lossy()
+                .to_string()
         } else {
             "adb".to_string()
         }
@@ -597,12 +674,16 @@ fn adb_list_devices(state: State<'_, EditorState>) -> Result<Vec<String>, String
         "adb".to_string()
     };
 
-    let output = std::process::Command::new(&adb_cmd).arg("devices").output()
+    let output = std::process::Command::new(&adb_cmd)
+        .arg("devices")
+        .output()
         .map_err(|e| format!("ADB error ({}): {}", adb_cmd, e))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut devices = Vec::new();
     for line in stdout.lines().skip(1) {
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 && parts[1] == "device" {
             devices.push(parts[0].to_string());
@@ -628,11 +709,13 @@ fn adb_install_and_run(_state: State<'_, EditorState>, _apk_path: String) -> Res
 fn get_android_config(state: State<'_, EditorState>) -> Result<Value, String> {
     let sdk_path = state.android_sdk_path.lock().unwrap();
     let adb_found = if let Some(path) = sdk_path.as_ref() {
-        std::path::PathBuf::from(path).join("platform-tools/adb").exists()
+        std::path::PathBuf::from(path)
+            .join("platform-tools/adb")
+            .exists()
     } else {
         false
     };
-    
+
     Ok(json!({
         "sdk_path": *sdk_path,
         "adb_found": adb_found
@@ -660,7 +743,9 @@ fn adb_list_emulators(state: State<'_, EditorState>) -> Result<Vec<String>, Stri
         "emulator".to_string()
     };
 
-    let output = std::process::Command::new(emulator_cmd).arg("-list-avds").output()
+    let output = std::process::Command::new(emulator_cmd)
+        .arg("-list-avds")
+        .output()
         .map_err(|e| format!("Emulator error: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(stdout.lines().map(|s| s.to_string()).collect())
@@ -753,8 +838,16 @@ fn validate_path(state: State<'_, EditorState>, path: PathBuf) -> Result<(), Str
 
 fn get_ignore_patterns() -> Vec<&'static str> {
     vec![
-        ".git", "node_modules", "target", ".DS_Store", "__pycache__", 
-        ".next", "dist", "build", ".svelte-kit", ".turbo"
+        ".git",
+        "node_modules",
+        "target",
+        ".DS_Store",
+        "__pycache__",
+        ".next",
+        "dist",
+        "build",
+        ".svelte-kit",
+        ".turbo",
     ]
 }
 
@@ -767,8 +860,12 @@ fn list_dir_flat(path: PathBuf) -> Result<Vec<FileEntry>, String> {
     if let Ok(entries) = fs::read_dir(&path) {
         for entry in entries.filter_map(|e| e.ok()) {
             let entry_path = entry.path();
-            let name = entry_path.file_name().unwrap_or_default().to_string_lossy().to_string();
-            
+            let name = entry_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+
             // Skip ignored patterns at the high level to keep UI clean
             if ignore_list.iter().any(|&p| name == p) {
                 continue;
@@ -784,7 +881,7 @@ fn list_dir_flat(path: PathBuf) -> Result<Vec<FileEntry>, String> {
             });
         }
     }
-    
+
     // Sort: directories first, then alphabetically
     tree.sort_by(|a, b| {
         if a.is_dir != b.is_dir {
@@ -793,7 +890,7 @@ fn list_dir_flat(path: PathBuf) -> Result<Vec<FileEntry>, String> {
             a.name.to_lowercase().cmp(&b.name.to_lowercase())
         }
     });
-    
+
     Ok(tree)
 }
 
@@ -801,16 +898,21 @@ fn list_dir_flat(path: PathBuf) -> Result<Vec<FileEntry>, String> {
 async fn get_file_tree(state: tauri::State<'_, EditorState>) -> Result<Vec<FileEntry>, String> {
     let root = {
         let root_guard = state.active_root.lock().unwrap();
-        root_guard.clone().ok_or_else(|| "No project open".to_string())?
+        root_guard
+            .clone()
+            .ok_or_else(|| "No project open".to_string())?
     };
-    
+
     // EXTREME SCALE FIX: Never walk recursively on initial load.
     // Only return the top-level files/folders of the root.
     list_dir_flat(root)
 }
 
 #[tauri::command]
-async fn get_directory_contents(state: tauri::State<'_, EditorState>, path: String) -> Result<Vec<FileEntry>, String> {
+async fn get_directory_contents(
+    state: tauri::State<'_, EditorState>,
+    path: String,
+) -> Result<Vec<FileEntry>, String> {
     let path_buf = PathBuf::from(&path);
     is_path_valid(&state, &path_buf)?;
     list_dir_flat(path_buf)
@@ -824,15 +926,27 @@ fn read_file(state: tauri::State<'_, EditorState>, path: String) -> Result<Strin
 }
 
 #[tauri::command]
-fn write_file(state: tauri::State<'_, EditorState>, path: String, content: String) -> Result<(), String> {
+fn write_file(
+    state: tauri::State<'_, EditorState>,
+    path: String,
+    content: String,
+) -> Result<(), String> {
     let path_buf = PathBuf::from(&path);
     is_path_valid(&state, &path_buf)?;
     fs::write(path, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn update_project_memory(state: tauri::State<'_, EditorState>, content: String) -> Result<(), String> {
-    let root = state.active_root.lock().unwrap().clone().unwrap_or_else(|| PathBuf::from("."));
+fn update_project_memory(
+    state: tauri::State<'_, EditorState>,
+    content: String,
+) -> Result<(), String> {
+    let root = state
+        .active_root
+        .lock()
+        .unwrap()
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("."));
     let memory_path = root.join("MEMORY.md");
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -841,7 +955,10 @@ fn update_project_memory(state: tauri::State<'_, EditorState>, content: String) 
         .map_err(|e| e.to_string())?;
     use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     // Format as YYYY-MM-DD HH:MM (UTC) from unix seconds
     let (y, mo, d, h, mi) = {
         let s = secs;
@@ -853,11 +970,11 @@ fn update_project_memory(state: tauri::State<'_, EditorState>, content: String) 
         let z = days + 719468;
         let era = z / 146097;
         let doe = z - era * 146097;
-        let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
         let y = yoe + era * 400;
-        let doy = doe - (365*yoe + yoe/4 - yoe/100);
-        let mp = (5*doy + 2) / 153;
-        let d = doy - (153*mp+2)/5 + 1;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
         let mo = if mp < 10 { mp + 3 } else { mp - 9 };
         let y = if mo <= 2 { y + 1 } else { y };
         (y, mo, d, h, mi)
@@ -892,7 +1009,9 @@ fn git_commit(path: String, message: String) -> Result<(), String> {
 
 #[tauri::command]
 fn get_git_branch() -> Result<String, String> {
-    let output = Command::new("git").args(["rev-parse", "--abbrev-ref", "HEAD"]).output()
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
         .map_err(|_| "Git not found".to_string())?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
@@ -904,9 +1023,17 @@ fn get_git_history(path: String) -> Result<Vec<git::GitCommitInfo>, String> {
 }
 
 #[tauri::command]
-fn search_project(state: State<'_, EditorState>, query: String) -> Result<Vec<SearchResult>, String> {
-    let root = state.active_root.lock().unwrap().clone().unwrap_or_else(|| PathBuf::from("."));
-    
+fn search_project(
+    state: State<'_, EditorState>,
+    query: String,
+) -> Result<Vec<SearchResult>, String> {
+    let root = state
+        .active_root
+        .lock()
+        .unwrap()
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("."));
+
     // Use native grep for high performance on Unix-like systems (macOS/Linux)
     if cfg!(not(target_os = "windows")) {
         let output = std::process::Command::new("grep")
@@ -917,7 +1044,7 @@ fn search_project(state: State<'_, EditorState>, query: String) -> Result<Vec<Se
 
         let mut results = Vec::new();
         let stdout = String::from_utf8_lossy(&output.stdout);
-        
+
         for line in stdout.lines() {
             let parts: Vec<&str> = line.splitn(3, ':').collect();
             if parts.len() == 3 {
@@ -929,9 +1056,11 @@ fn search_project(state: State<'_, EditorState>, query: String) -> Result<Vec<Se
                     });
                 }
             }
-            if results.len() > 100 { break; }
+            if results.len() > 100 {
+                break;
+            }
         }
-        
+
         if !results.is_empty() {
             return Ok(results);
         }
@@ -939,7 +1068,10 @@ fn search_project(state: State<'_, EditorState>, query: String) -> Result<Vec<Se
 
     // Fallback to WalkDir for Windows or if grep returns nothing/fails
     let mut results = Vec::new();
-    for entry in walkdir::WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(&root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if entry.file_type().is_file() {
             if let Ok(content) = fs::read_to_string(entry.path()) {
                 for (i, line) in content.lines().enumerate() {
@@ -949,12 +1081,16 @@ fn search_project(state: State<'_, EditorState>, query: String) -> Result<Vec<Se
                             line: i + 1,
                             content: line.trim().to_string(),
                         });
-                        if results.len() > 100 { break; }
+                        if results.len() > 100 {
+                            break;
+                        }
                     }
                 }
             }
         }
-        if results.len() > 100 { break; }
+        if results.len() > 100 {
+            break;
+        }
     }
     Ok(results)
 }
@@ -966,12 +1102,212 @@ struct SearchResult {
     content: String,
 }
 
+// =============================================================================
+// NEW: Tool Registry Backend Commands — supports structured function calling
+// =============================================================================
+
+/// Glob file search — find files matching a pattern (like Claude Code's GlobTool)
 #[tauri::command]
-fn spawn_terminal(state: State<'_, EditorState>, app: tauri::AppHandle, id: String, shell: Option<String>) -> Result<(), String> {
+fn glob_files(
+    state: State<'_, EditorState>,
+    pattern: String,
+    path: Option<String>,
+) -> Result<Vec<String>, String> {
+    let root = if let Some(p) = path {
+        PathBuf::from(p)
+    } else {
+        state
+            .active_root
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."))
+    };
+
+    let full_pattern = if pattern.starts_with('/') || pattern.starts_with('.') {
+        pattern.clone()
+    } else {
+        format!("{}/{}", root.to_string_lossy(), pattern)
+    };
+
+    let mut results = Vec::new();
+    for entry in glob::glob(&full_pattern).map_err(|e| format!("Invalid glob pattern: {}", e))? {
+        match entry {
+            Ok(path) => {
+                let rel = path.strip_prefix(&root).unwrap_or(&path);
+                results.push(rel.to_string_lossy().to_string());
+            }
+            Err(e) => eprintln!("Glob error: {}", e),
+        }
+        if results.len() >= 100 {
+            break;
+        }
+    }
+    Ok(results)
+}
+
+/// Grep file search — search content in files (like Claude Code's GrepTool backed by ripgrep)
+#[tauri::command]
+fn grep_files(
+    state: State<'_, EditorState>,
+    pattern: String,
+    path: Option<String>,
+    include: Option<String>,
+) -> Result<Vec<SearchResult>, String> {
+    let root = if let Some(p) = path {
+        PathBuf::from(p)
+    } else {
+        state
+            .active_root
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."))
+    };
+
+    let mut results = Vec::new();
+
+    // Try ripgrep first (fastest), then fall back to grep, then WalkDir
+    let rg_result = {
+        let mut cmd = std::process::Command::new("rg");
+        cmd.args(&["-n", "--no-heading", "--max-count=100", "--color=never"]);
+        if let Some(ref inc) = include {
+            cmd.args(&["-g", inc]);
+        }
+        cmd.arg(&pattern).current_dir(&root);
+        cmd.output()
+    };
+
+    if let Ok(output) = rg_result {
+        if output.status.success() || !output.stdout.is_empty() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines().take(100) {
+                let parts: Vec<&str> = line.splitn(3, ':').collect();
+                if parts.len() == 3 {
+                    if let Ok(line_num) = parts[1].parse::<usize>() {
+                        results.push(SearchResult {
+                            path: root.join(parts[0]).to_string_lossy().to_string(),
+                            line: line_num,
+                            content: parts[2].trim().to_string(),
+                        });
+                    }
+                }
+            }
+            return Ok(results);
+        }
+    }
+
+    // Fallback: use grep
+    let grep_result = {
+        let mut cmd = std::process::Command::new("grep");
+        cmd.args(&[
+            "-r",
+            "-n",
+            "-i",
+            "--exclude-dir=.git",
+            "--exclude-dir=node_modules",
+            "--exclude-dir=target",
+        ]);
+        if let Some(ref inc) = include {
+            cmd.args(&["--include", inc]);
+        }
+        cmd.arg(&pattern).current_dir(&root);
+        cmd.output()
+    };
+
+    if let Ok(output) = grep_result {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines().take(100) {
+            let parts: Vec<&str> = line.splitn(3, ':').collect();
+            if parts.len() == 3 {
+                if let Ok(line_num) = parts[1].parse::<usize>() {
+                    results.push(SearchResult {
+                        path: root.join(parts[0]).to_string_lossy().to_string(),
+                        line: line_num,
+                        content: parts[2].trim().to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+/// Write file content with auto-mkdir — the tool_registry's file_write tool backend
+#[tauri::command]
+fn write_file_content(path: String, content: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    // Auto-create parent directories
+    if let Some(parent) = p.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+    }
+    fs::write(&p, &content).map_err(|e| format!("Failed to write file: {}", e))
+}
+
+/// Web fetch — fetch URL content (the tool_registry's web_fetch tool backend)
+#[tauri::command]
+async fn web_fetch(url: String) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let response = client
+        .get(&url)
+        .header("User-Agent", "Antigravity/1.0")
+        .send()
+        .await
+        .map_err(|e| format!("Fetch error: {}", e))?;
+
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("Read error: {}", e))?;
+
+    // Truncate to prevent overwhelming the AI context
+    Ok(if text.len() > 50000 {
+        text[..50000].to_string()
+    } else {
+        text
+    })
+}
+
+/// AI tool result callback — frontend sends back tool execution results to the backend
+#[tauri::command]
+async fn ai_tool_result(
+    _state: State<'_, EditorState>,
+    call_id: String,
+    result: String,
+) -> Result<(), String> {
+    // Store the tool result for the AI engine to pick up
+    eprintln!(
+        "[Tool Result] call_id={}, result_len={}",
+        call_id,
+        result.len()
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn spawn_terminal(
+    state: State<'_, EditorState>,
+    app: tauri::AppHandle,
+    id: String,
+    shell: Option<String>,
+) -> Result<(), String> {
     let pty_system = native_pty_system();
-    let pair = pty_system.openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+    let pair = pty_system
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| e.to_string())?;
-    
+
     // Determine the shell
     let shell_exe = if let Some(s) = shell {
         if s.is_empty() {
@@ -997,38 +1333,78 @@ fn spawn_terminal(state: State<'_, EditorState>, app: tauri::AppHandle, id: Stri
     {
         let root = state.active_root.lock().unwrap();
         if let Some(ref r) = *root {
-            cmd.cwd(r.clone());
+            let r_owned: String = r.display().to_string();
+            cmd.cwd(r_owned);
         }
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-    
+
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    
+
     // Spawn reader thread
     let app_handle = app.clone();
     let term_id_clone = id.clone();
     std::thread::spawn(move || {
         let state = app_handle.state::<EditorState>();
         let mut buf = [0u8; 8192];
+        let mut pending_data = String::new();
+        let mut last_emit = std::time::Instant::now();
+
         loop {
+            // Check if we should emit pending data due to timeout (50ms)
+            if !pending_data.is_empty()
+                && last_emit.elapsed() >= std::time::Duration::from_millis(50)
+            {
+                let _ = app_handle.emit(
+                    "terminal-data",
+                    TerminalDataPayload {
+                        term_id: term_id_clone.clone(),
+                        data: pending_data.clone(),
+                    },
+                );
+                pending_data.clear();
+                last_emit = std::time::Instant::now();
+            }
+
+            // Non-blocking read or small timeout to allow the loop to check last_emit
+            // Note: reader.read is typically blocking. For high-perf throttle,
+            // we could use non-blocking or just accept that the NEXT read will trigger the emit.
+            // Given the architectural constraints, we'll append to pending and emit if burst or time.
+
             match reader.read(&mut buf) {
                 Ok(0) => break, // EOF
                 Ok(n) => {
                     let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    
-                    // Update buffer
+
+                    // Update persistent buffer
                     if let Ok(mut buffers) = state.terminal_buffers.lock() {
-                        let history = buffers.entry(term_id_clone.clone()).or_insert_with(Vec::<String>::new);
+                        let history = buffers
+                            .entry(term_id_clone.clone())
+                            .or_insert_with(Vec::<String>::new);
                         history.push(data.clone());
-                        if history.len() > 1000 { history.remove(0); }
+                        if history.len() > 1000 {
+                            history.remove(0);
+                        }
                     }
 
-                    let _ = app_handle.emit("terminal-data", TerminalDataPayload {
-                        term_id: term_id_clone.clone(),
-                        data
-                    });
+                    pending_data.push_str(&data);
+
+                    // If we have a lot of data or 50ms passed, emit
+                    if pending_data.len() > 2048
+                        || last_emit.elapsed() >= std::time::Duration::from_millis(50)
+                    {
+                        let _ = app_handle.emit(
+                            "terminal-data",
+                            TerminalDataPayload {
+                                term_id: term_id_clone.clone(),
+                                data: pending_data.clone(),
+                            },
+                        );
+                        pending_data.clear();
+                        last_emit = std::time::Instant::now();
+                    }
                 }
                 Err(e) => {
                     println!("[Term] Error reading from {}: {:?}", term_id_clone, e);
@@ -1038,8 +1414,16 @@ fn spawn_terminal(state: State<'_, EditorState>, app: tauri::AppHandle, id: Stri
         }
     });
 
-    state.terminal_masters.lock().unwrap().insert(id.clone(), pair.master);
-    state.terminal_writers.lock().unwrap().insert(id.clone(), writer);
+    state
+        .terminal_masters
+        .lock()
+        .unwrap()
+        .insert(id.clone(), pair.master);
+    state
+        .terminal_writers
+        .lock()
+        .unwrap()
+        .insert(id.clone(), writer);
     state.terminal_processes.lock().unwrap().insert(id, child);
     Ok(())
 }
@@ -1062,7 +1446,13 @@ fn get_available_shells() -> Vec<String> {
         shells.push("powershell.exe".to_string());
         shells.push("cmd.exe".to_string());
     } else {
-        for path in &["/bin/zsh", "/bin/bash", "/usr/bin/zsh", "/usr/bin/bash", "/bin/sh"] {
+        for path in &[
+            "/bin/zsh",
+            "/bin/bash",
+            "/usr/bin/zsh",
+            "/usr/bin/bash",
+            "/bin/sh",
+        ] {
             if std::path::Path::new(path).exists() {
                 shells.push(path.to_string());
             }
@@ -1072,10 +1462,16 @@ fn get_available_shells() -> Vec<String> {
 }
 
 #[tauri::command]
-fn write_to_terminal(state: State<'_, EditorState>, id: String, data: String) -> Result<(), String> {
+fn write_to_terminal(
+    state: State<'_, EditorState>,
+    id: String,
+    data: String,
+) -> Result<(), String> {
     let mut writers = state.terminal_writers.lock().unwrap();
     if let Some(writer) = writers.get_mut(&id) {
-        writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+        writer
+            .write_all(data.as_bytes())
+            .map_err(|e| e.to_string())?;
         writer.flush().map_err(|e| e.to_string())?;
         Ok(())
     } else {
@@ -1084,15 +1480,22 @@ fn write_to_terminal(state: State<'_, EditorState>, id: String, data: String) ->
 }
 
 #[tauri::command]
-fn resize_terminal(state: State<'_, EditorState>, id: String, rows: u16, cols: u16) -> Result<(), String> {
+fn resize_terminal(
+    state: State<'_, EditorState>,
+    id: String,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
     let masters = state.terminal_masters.lock().unwrap();
     if let Some(master) = masters.get(&id) {
-        master.resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        }).map_err(|e| e.to_string())?;
+        master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| e.to_string())?;
         Ok(())
     } else {
         Err("Terminal not found".to_string())
@@ -1101,9 +1504,15 @@ fn resize_terminal(state: State<'_, EditorState>, id: String, rows: u16, cols: u
 
 #[tauri::command]
 async fn ai_chat(state: State<'_, EditorState>, request: AiRequest) -> Result<String, String> {
-    let content = state.ai_engine.autonomous_loop(request).await.map_err(|e| e.to_string())?;
+    let content = state
+        .ai_engine
+        .autonomous_loop(request)
+        .await
+        .map_err(|e| e.to_string())?;
     // Satisfy AiResponse usage warning
-    let _response = AiResponse { content: content.clone() };
+    let _response = AiResponse {
+        content: content.clone(),
+    };
     Ok(content)
 }
 
@@ -1119,8 +1528,15 @@ fn backend_ping() -> String {
 }
 
 #[tauri::command]
-async fn list_provider_models(state: State<'_, EditorState>, provider: String) -> Result<Vec<String>, String> {
-     state.ai_engine.list_models(&provider).await.map_err(|e| e.to_string())
+async fn list_provider_models(
+    state: State<'_, EditorState>,
+    provider: String,
+) -> Result<Vec<String>, String> {
+    state
+        .ai_engine
+        .list_models(&provider)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // Duplicates removed
@@ -1130,20 +1546,21 @@ fn load_jsonc(path: &std::path::Path) -> Result<Value, String> {
         return Err(format!("File not found: {:?}", path));
     }
     let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    
+
     // Strip comments (JSONC)
     let re_block = regex::Regex::new(r"/\*[\s\S]*?\*/").unwrap();
     let re_line = regex::Regex::new(r"//.*").unwrap();
     let sanitized = re_block.replace_all(&content, "");
     let sanitized = re_line.replace_all(&sanitized, "");
-    
-    let json: Value = serde_json::from_str(&sanitized).map_err(|e| format!("JSON Error in {:?}: {}", path, e))?;
+
+    let json: Value =
+        serde_json::from_str(&sanitized).map_err(|e| format!("JSON Error in {:?}: {}", path, e))?;
     Ok(json)
 }
 
 fn load_theme_recursive(path: &std::path::Path) -> Result<Value, String> {
     let mut json = load_jsonc(path)?;
-    
+
     // Handle 'include'
     if let Some(include_path) = json.get("include").and_then(|v| v.as_str()) {
         let parent = path.parent().unwrap();
@@ -1153,29 +1570,37 @@ fn load_theme_recursive(path: &std::path::Path) -> Result<Value, String> {
         if let Some(included_obj) = included_json.as_object() {
             for (key, val) in included_obj {
                 if key == "colors" {
-                     if let Some(target_colors) = json.get_mut("colors").and_then(|v| v.as_object_mut()) {
-                         for (ckey, cval) in val.as_object().unwrap() {
-                             if !target_colors.contains_key(ckey) {
-                                 target_colors.insert(ckey.clone(), cval.clone());
-                             }
-                         }
-                     } else {
-                         json.as_object_mut().unwrap().insert("colors".to_string(), val.clone());
-                     }
+                    if let Some(target_colors) =
+                        json.get_mut("colors").and_then(|v| v.as_object_mut())
+                    {
+                        for (ckey, cval) in val.as_object().unwrap() {
+                            if !target_colors.contains_key(ckey) {
+                                target_colors.insert(ckey.clone(), cval.clone());
+                            }
+                        }
+                    } else {
+                        json.as_object_mut()
+                            .unwrap()
+                            .insert("colors".to_string(), val.clone());
+                    }
                 } else if key == "tokenColors" {
-                     // Aggregate token colors (array)
-                     if let Some(target_tokens) = json.get_mut("tokenColors").and_then(|v| v.as_array_mut()) {
-                         if let Some(src_tokens) = val.as_array() {
-                             target_tokens.extend(src_tokens.iter().cloned());
-                         }
-                     } else {
-                         json.as_object_mut().unwrap().insert("tokenColors".to_string(), val.clone());
-                     }
+                    // Aggregate token colors (array)
+                    if let Some(target_tokens) =
+                        json.get_mut("tokenColors").and_then(|v| v.as_array_mut())
+                    {
+                        if let Some(src_tokens) = val.as_array() {
+                            target_tokens.extend(src_tokens.iter().cloned());
+                        }
+                    } else {
+                        json.as_object_mut()
+                            .unwrap()
+                            .insert("tokenColors".to_string(), val.clone());
+                    }
                 }
             }
         }
     }
-    
+
     Ok(json)
 }
 
@@ -1183,7 +1608,7 @@ fn load_theme_recursive(path: &std::path::Path) -> Result<Value, String> {
 fn get_installed_themes(state: State<'_, EditorState>) -> Result<Vec<Value>, String> {
     let host = state.ext_host.lock().map_err(|e| e.to_string())?;
     let mut themes = Vec::new();
-    
+
     for ext in &host.extensions {
         if let Some(contributes) = &ext.contributes {
             if let Some(contributed_themes) = contributes.get("themes").and_then(|v| v.as_array()) {
@@ -1192,7 +1617,7 @@ fn get_installed_themes(state: State<'_, EditorState>) -> Result<Vec<Value>, Str
                         if let Some(path) = theme.get("path").and_then(|v| v.as_str()) {
                             let extension_path = &ext.extension_path;
                             let theme_file_path = extension_path.join(path);
-                            
+
                             themes.push(json!({
                                 "id": format!("{}-{}", ext.name, label),
                                 "label": label,
@@ -1206,7 +1631,7 @@ fn get_installed_themes(state: State<'_, EditorState>) -> Result<Vec<Value>, Str
             }
         }
     }
-    
+
     Ok(themes)
 }
 
@@ -1216,13 +1641,24 @@ fn load_extension_theme(path: String) -> Result<Value, String> {
     load_theme_recursive(p)
 }
 
-#[tauri::command] fn register_ida_pro() -> Result<(), String> { Ok(()) }
-#[tauri::command] fn ai_execute_command(_command: String) -> Result<String, String> { Ok("Executed".to_string()) }
 #[tauri::command]
-fn propose_file_change(state: tauri::State<'_, EditorState>, path: String, content: String, description: String) -> Result<serde_json::Value, String> {
+fn register_ida_pro() -> Result<(), String> {
+    Ok(())
+}
+#[tauri::command]
+fn ai_execute_command(_command: String) -> Result<String, String> {
+    Ok("Executed".to_string())
+}
+#[tauri::command]
+fn propose_file_change(
+    state: tauri::State<'_, EditorState>,
+    path: String,
+    content: String,
+    description: String,
+) -> Result<serde_json::Value, String> {
     let path_buf = PathBuf::from(&path);
     is_path_valid(&state, &path_buf)?;
-    
+
     let old_content = if path_buf.exists() {
         fs::read_to_string(&path_buf).unwrap_or_default()
     } else {
@@ -1238,16 +1674,23 @@ fn propose_file_change(state: tauri::State<'_, EditorState>, path: String, conte
 }
 
 #[tauri::command]
-fn ai_modify_file(_state: tauri::State<'_, EditorState>, path: String, instruction: String) -> Result<(), String> {
+fn ai_modify_file(
+    _state: tauri::State<'_, EditorState>,
+    path: String,
+    instruction: String,
+) -> Result<(), String> {
     // This is a stub for the AI to "think" about a modification
     // The actual modification will come back as a write_file which we intercept
-    println!("AI requested modification for path: {}, instruction: {}", path, instruction);
+    println!(
+        "AI requested modification for path: {}, instruction: {}",
+        path, instruction
+    );
     Ok(())
 }
-#[tauri::command] 
+#[tauri::command]
 fn get_icon_theme_mapping(state: State<'_, EditorState>) -> Result<Value, String> {
     let host = state.ext_host.lock().map_err(|e| e.to_string())?;
-    
+
     // Find vs-seti-icon-theme (usually in theme-seti extension)
     for ext in &host.extensions {
         if let Some(contributes) = &ext.contributes {
@@ -1257,12 +1700,19 @@ fn get_icon_theme_mapping(state: State<'_, EditorState>) -> Result<Value, String
                         let full_path = ext.extension_path.join(path);
                         if let Ok(mut mapping) = load_jsonc(&full_path) {
                             // Convert font paths to full paths
-                            if let Some(fonts) = mapping.get_mut("fonts").and_then(|v| v.as_array_mut()) {
+                            if let Some(fonts) =
+                                mapping.get_mut("fonts").and_then(|v| v.as_array_mut())
+                            {
                                 for font in fonts {
-                                    if let Some(srcs) = font.get_mut("src").and_then(|v| v.as_array_mut()) {
+                                    if let Some(srcs) =
+                                        font.get_mut("src").and_then(|v| v.as_array_mut())
+                                    {
                                         for src in srcs {
-                                            if let Some(path_val) = src.get_mut("path").and_then(|v| v.as_str()) {
-                                                let font_path = full_path.parent().unwrap().join(path_val);
+                                            if let Some(path_val) =
+                                                src.get_mut("path").and_then(|v| v.as_str())
+                                            {
+                                                let font_path =
+                                                    full_path.parent().unwrap().join(path_val);
                                                 *src = json!({ "path": font_path.to_string_lossy().to_string(), "format": "woff" });
                                             }
                                         }
@@ -1271,7 +1721,10 @@ fn get_icon_theme_mapping(state: State<'_, EditorState>) -> Result<Value, String
                             }
                             // Add extension path for relative URI resolution in frontend
                             if let Some(obj) = mapping.as_object_mut() {
-                                obj.insert("extensionPath".to_string(), json!(ext.extension_path.to_string_lossy().to_string()));
+                                obj.insert(
+                                    "extensionPath".to_string(),
+                                    json!(ext.extension_path.to_string_lossy().to_string()),
+                                );
                             }
                             return Ok(mapping);
                         }
@@ -1302,10 +1755,13 @@ fn get_extension_contributions(state: State<'_, EditorState>) -> Result<Value, S
                 for snippet in ext_snippets {
                     let mut s = snippet.clone();
                     if let Some(spath) = s.get("path").and_then(|v| v.as_str()) {
-                         let full_spath = ext.extension_path.join(spath.replace("./", ""));
-                         if let Some(obj) = s.as_object_mut() {
-                             obj.insert("absolutePath".to_string(), json!(full_spath.to_string_lossy().to_string()));
-                         }
+                        let full_spath = ext.extension_path.join(spath.replace("./", ""));
+                        if let Some(obj) = s.as_object_mut() {
+                            obj.insert(
+                                "absolutePath".to_string(),
+                                json!(full_spath.to_string_lossy().to_string()),
+                            );
+                        }
                     }
                     contribs["snippets"].as_array_mut().unwrap().push(s);
                 }
@@ -1313,7 +1769,10 @@ fn get_extension_contributions(state: State<'_, EditorState>) -> Result<Value, S
             // Languages
             if let Some(ext_langs) = contributes.get("languages").and_then(|v| v.as_array()) {
                 for lang in ext_langs {
-                    contribs["languages"].as_array_mut().unwrap().push(lang.clone());
+                    contribs["languages"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(lang.clone());
                 }
             }
             // Grammars
@@ -1323,7 +1782,10 @@ fn get_extension_contributions(state: State<'_, EditorState>) -> Result<Value, S
                     if let Some(gpath) = g.get("path").and_then(|v| v.as_str()) {
                         let full_gpath = ext.extension_path.join(gpath.replace("./", ""));
                         if let Some(obj) = g.as_object_mut() {
-                            obj.insert("absolutePath".to_string(), json!(full_gpath.to_string_lossy().to_string()));
+                            obj.insert(
+                                "absolutePath".to_string(),
+                                json!(full_gpath.to_string_lossy().to_string()),
+                            );
                         }
                     }
                     contribs["grammars"].as_array_mut().unwrap().push(g);
@@ -1331,31 +1793,46 @@ fn get_extension_contributions(state: State<'_, EditorState>) -> Result<Value, S
             }
             // Views Containers (Activity Bar)
             if let Some(containers) = contributes.get("viewsContainers") {
-                if let Some(activitybar) = containers.get("activitybar").and_then(|v| v.as_array()) {
+                if let Some(activitybar) = containers.get("activitybar").and_then(|v| v.as_array())
+                {
                     for container in activitybar {
                         let mut c = container.clone();
                         if let Some(obj) = c.as_object_mut() {
-                            obj.insert("extensionPath".to_string(), json!(ext.extension_path.to_string_lossy().to_string()));
+                            obj.insert(
+                                "extensionPath".to_string(),
+                                json!(ext.extension_path.to_string_lossy().to_string()),
+                            );
                             obj.insert("extensionId".to_string(), json!(ext.id));
-                            
+
                             // Handle icons
                             if let Some(icon_val) = obj.get("icon").and_then(|v| v.as_str()) {
                                 if icon_val.starts_with("$(") && icon_val.ends_with(")") {
                                     // Codicon reference: $(references) -> references
-                                    let icon_name = &icon_val[2..icon_val.len()-1];
+                                    let icon_name = &icon_val[2..icon_val.len() - 1];
                                     obj.insert("icon".to_string(), json!(icon_name));
                                 } else {
                                     // File path icon
-                                    let full_icon_path = ext.extension_path.join(icon_val.replace("./", ""));
+                                    let full_icon_path =
+                                        ext.extension_path.join(icon_val.replace("./", ""));
                                     if let Ok(icon_data) = std::fs::read(&full_icon_path) {
                                         let b64 = general_purpose::STANDARD.encode(icon_data);
-                                        let mime = if icon_val.ends_with(".svg") { "image/svg+xml" } else { "image/png" };
-                                        obj.insert("base64_icon".to_string(), json!(format!("data:{};base64,{}", mime, b64)));
+                                        let mime = if icon_val.ends_with(".svg") {
+                                            "image/svg+xml"
+                                        } else {
+                                            "image/png"
+                                        };
+                                        obj.insert(
+                                            "base64_icon".to_string(),
+                                            json!(format!("data:{};base64,{}", mime, b64)),
+                                        );
                                     }
                                 }
                             }
                         }
-                        contribs["viewsContainers"]["activitybar"].as_array_mut().unwrap().push(c);
+                        contribs["viewsContainers"]["activitybar"]
+                            .as_array_mut()
+                            .unwrap()
+                            .push(c);
                     }
                 }
             }
@@ -1363,12 +1840,20 @@ fn get_extension_contributions(state: State<'_, EditorState>) -> Result<Value, S
             if let Some(views) = contributes.get("views").and_then(|v| v.as_object()) {
                 for (location, view_list) in views {
                     if let Some(arr) = view_list.as_array() {
-                        let target_arr = contribs["views"].as_object_mut().unwrap()
-                            .entry(location.clone()).or_insert(json!([])).as_array_mut().unwrap();
+                        let target_arr = contribs["views"]
+                            .as_object_mut()
+                            .unwrap()
+                            .entry(location.clone())
+                            .or_insert(json!([]))
+                            .as_array_mut()
+                            .unwrap();
                         for view in arr {
                             let mut v = view.clone();
                             if let Some(obj) = v.as_object_mut() {
-                                obj.insert("extensionPath".to_string(), json!(ext.extension_path.to_string_lossy().to_string()));
+                                obj.insert(
+                                    "extensionPath".to_string(),
+                                    json!(ext.extension_path.to_string_lossy().to_string()),
+                                );
                                 obj.insert("extensionId".to_string(), json!(ext.id));
                             }
                             target_arr.push(v);
@@ -1378,40 +1863,76 @@ fn get_extension_contributions(state: State<'_, EditorState>) -> Result<Value, S
             }
         }
     }
-    
+
     Ok(contribs)
 }
-#[tauri::command] 
-async fn hunt_api_keys(app: tauri::AppHandle, state: State<'_, EditorState>) -> Result<Value, String> {
+#[tauri::command]
+async fn hunt_api_keys(
+    app: tauri::AppHandle,
+    state: State<'_, EditorState>,
+) -> Result<Value, String> {
     use tauri::Emitter;
-    
-    let _ = app.emit("hunt-progress", HuntProgress { msg: "Initializing ApiRadar Hunter...".to_string() });
+
+    let _ = app.emit(
+        "hunt-progress",
+        HuntProgress {
+            msg: "Initializing ApiRadar Hunter...".to_string(),
+        },
+    );
     let hunter = crate::hunter::ApiRadarHunter::new();
-    
-    let _ = app.emit("hunt-progress", HuntProgress { msg: "Fetching recent leaks from ApiRadar...".to_string() });
+
+    let _ = app.emit(
+        "hunt-progress",
+        HuntProgress {
+            msg: "Fetching recent leaks from ApiRadar...".to_string(),
+        },
+    );
     let leaks = hunter.fetch_recent_leaks("all").await.unwrap_or_default();
-    
+
     if leaks.is_empty() {
-        let _ = app.emit("hunt-progress", HuntProgress { msg: "No leaks found from ApiRadar. Try again later.".to_string() });
+        let _ = app.emit(
+            "hunt-progress",
+            HuntProgress {
+                msg: "No leaks found from ApiRadar. Try again later.".to_string(),
+            },
+        );
         return Ok(json!([]));
     }
-    
-    let _ = app.emit("hunt-progress", HuntProgress { msg: format!("Found {} repositories to scan...", leaks.len()) });
-    
+
+    let _ = app.emit(
+        "hunt-progress",
+        HuntProgress {
+            msg: format!("Found {} repositories to scan...", leaks.len()),
+        },
+    );
+
     let mut found_keys: Vec<Value> = Vec::new();
-    let mut persisted_keys: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    
+    let mut persisted_keys: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+
     for (_i, leak) in leaks.iter().enumerate() {
-        if !hunter.is_relevant_file(&leak.file_path) { continue; }
-        
-        let content = hunter.fetch_raw_content(&leak.repo_url, &leak.file_path).await.unwrap_or_default();
-        if content.is_empty() || !hunter.contains_key_indicator(&content) { continue; }
-        
+        if !hunter.is_relevant_file(&leak.file_path) {
+            continue;
+        }
+
+        let content = hunter
+            .fetch_raw_content(&leak.repo_url, &leak.file_path)
+            .await
+            .unwrap_or_default();
+        if content.is_empty() || !hunter.contains_key_indicator(&content) {
+            continue;
+        }
+
         let extracted = hunter.extract_keys(&content);
         for (key_type, key_value) in extracted {
-            let _ = app.emit("hunt-progress", HuntProgress { msg: format!("Validating {} key...", key_type) });
+            let _ = app.emit(
+                "hunt-progress",
+                HuntProgress {
+                    msg: format!("Validating {} key...", key_type),
+                },
+            );
             let (is_live, details) = hunter.validate_key(&key_type, &key_value).await;
-            
+
             if is_live {
                 let result = crate::hunter::HuntResult {
                     provider: leak.provider.clone(),
@@ -1423,9 +1944,12 @@ async fn hunt_api_keys(app: tauri::AppHandle, state: State<'_, EditorState>) -> 
                     details: details.clone(),
                 };
                 found_keys.push(serde_json::to_value(result).unwrap_or_default());
-                
-                let _ = app.emit("hunt-found", json!({"msg": format!("✅ LIVE {} from {}", key_type, leak.repo_url)}));
-                
+
+                let _ = app.emit(
+                    "hunt-found",
+                    json!({"msg": format!("✅ LIVE {} from {}", key_type, leak.repo_url)}),
+                );
+
                 // Set env var AND track for persistence
                 let (env_var, json_field) = match key_type.as_str() {
                     "openrouter_key" => ("OPENROUTER_API_KEY", "openrouter"),
@@ -1435,18 +1959,21 @@ async fn hunt_api_keys(app: tauri::AppHandle, state: State<'_, EditorState>) -> 
                     "mistral_api_key" => ("MISTRAL_API_KEY", "mistral"),
                     "xai_key" => ("XAI_API_KEY", "xai"),
                     "groq_key" => ("GROQ_API_KEY", "groq"),
-                    _ => ("", "")
+                    _ => ("", ""),
                 };
                 if !env_var.is_empty() {
                     std::env::set_var(env_var, &key_value);
                     persisted_keys.insert(json_field.to_string(), key_value.clone());
                 }
             } else {
-                let _ = app.emit("hunt-progress", json!({"msg": format!("❌ {} dead: {}", key_type, details)}));
+                let _ = app.emit(
+                    "hunt-progress",
+                    json!({"msg": format!("❌ {} dead: {}", key_type, details)}),
+                );
             }
         }
     }
-    
+
     // Persist found keys to api_keys.json so refreshAvailableModels can find them
     if !persisted_keys.is_empty() {
         let path = state.config_dir.join("api_keys.json");
@@ -1456,21 +1983,34 @@ async fn hunt_api_keys(app: tauri::AppHandle, state: State<'_, EditorState>) -> 
         } else {
             serde_json::Map::new()
         };
-        
+
         for (field, key) in &persisted_keys {
             existing.insert(field.clone(), json!(key));
         }
-        
-        let _ = fs::write(&path, serde_json::to_string_pretty(&existing).unwrap_or_default());
-        let _ = app.emit("hunt-progress", json!({"msg": format!("Persisted {} keys to config.", persisted_keys.len())}));
+
+        let _ = fs::write(
+            &path,
+            serde_json::to_string_pretty(&existing).unwrap_or_default(),
+        );
+        let _ = app.emit(
+            "hunt-progress",
+            json!({"msg": format!("Persisted {} keys to config.", persisted_keys.len())}),
+        );
     }
-    
-    let _ = app.emit("hunt-progress", json!({"msg": format!("Hunt complete. Found {} live keys.", found_keys.len())}));
+
+    let _ = app.emit(
+        "hunt-progress",
+        json!({"msg": format!("Hunt complete. Found {} live keys.", found_keys.len())}),
+    );
     Ok(json!(found_keys))
 }
 #[tauri::command]
 async fn optimize_memory(state: State<'_, EditorState>) -> Result<(), String> {
-    state.ai_engine.optimize_memory().await.map_err(|e| e.to_string())
+    state
+        .ai_engine
+        .optimize_memory()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1478,11 +2018,24 @@ fn resume_ai_agent(state: State<'_, EditorState>) -> Result<(), String> {
     state.ai_engine.reset_stop_signal();
     Ok(())
 }
-#[tauri::command] fn start_mitm_server() -> Result<(), String> { Ok(()) }
-#[tauri::command] fn stop_mitm_server() -> Result<(), String> { Ok(()) }
-#[tauri::command] fn get_mitm_status() -> String { "idle".to_string() }
 #[tauri::command]
-fn debug_start(state: State<'_, EditorState>, app: tauri::AppHandle, adapter_path: String) -> Result<(), String> {
+fn start_mitm_server() -> Result<(), String> {
+    Ok(())
+}
+#[tauri::command]
+fn stop_mitm_server() -> Result<(), String> {
+    Ok(())
+}
+#[tauri::command]
+fn get_mitm_status() -> String {
+    "idle".to_string()
+}
+#[tauri::command]
+fn debug_start(
+    state: State<'_, EditorState>,
+    app: tauri::AppHandle,
+    adapter_path: String,
+) -> Result<(), String> {
     let mut debug = state.debug_manager.lock().unwrap();
     debug.start_session(&adapter_path, app)
 }
@@ -1513,7 +2066,8 @@ fn terminal_read_output(state: State<'_, EditorState>, id: String) -> Result<Str
 
 #[tauri::command]
 fn terminal_toggle(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
-    app.emit("toggle-terminal", visible).map_err(|e| e.to_string())?;
+    app.emit("toggle-terminal", visible)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1529,22 +2083,29 @@ fn terminal_terminate(state: State<'_, EditorState>, id: String) -> Result<(), S
 }
 
 #[tauri::command]
-fn editor_get_active_file(state: tauri::State<'_, EditorState>) -> Result<serde_json::Value, String> {
+fn editor_get_active_file(
+    state: tauri::State<'_, EditorState>,
+) -> Result<serde_json::Value, String> {
     let sentient = state.ai_engine.clone();
     let tools = sentient.get_tools();
-    tools.editor_get_active_file(serde_json::json!({})).map_err(|e: anyhow::Error| e.to_string())
+    tools
+        .editor_get_active_file(serde_json::json!({}))
+        .map_err(|e: anyhow::Error| e.to_string())
 }
 
 #[tauri::command]
-fn terminal_get_status(state: State<'_, EditorState>, id: String) -> Result<serde_json::Value, String> {
+fn terminal_get_status(
+    state: State<'_, EditorState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
     let mut processes = state.terminal_processes.lock().unwrap();
     if let Some(child) = processes.get_mut(&id) {
         match child.try_wait() {
             Ok(Some(status)) => {
                 Ok(serde_json::json!({ "active": false, "success": status.success() }))
-            },
+            }
             Ok(None) => Ok(serde_json::json!({ "active": true })),
-            Err(e) => Err(e.to_string())
+            Err(e) => Err(e.to_string()),
         }
     } else {
         Ok(serde_json::json!({ "active": false, "info": "Process not found or already exited" }))
@@ -1552,10 +2113,15 @@ fn terminal_get_status(state: State<'_, EditorState>, id: String) -> Result<serd
 }
 
 #[tauri::command]
-fn analyze_file_symbols(state: State<'_, EditorState>, path: String) -> Result<serde_json::Value, String> {
+fn analyze_file_symbols(
+    state: State<'_, EditorState>,
+    path: String,
+) -> Result<serde_json::Value, String> {
     let sentient = state.ai_engine.clone();
     let tools = sentient.get_tools();
-    tools.analyze_file_symbols(serde_json::json!({ "path": path })).map_err(|e: anyhow::Error| e.to_string())
+    tools
+        .analyze_file_symbols(serde_json::json!({ "path": path }))
+        .map_err(|e: anyhow::Error| e.to_string())
 }
 
 #[tauri::command]
@@ -1564,39 +2130,56 @@ async fn open_ai_login(app: tauri::AppHandle, provider: String) -> Result<(), St
 }
 
 #[tauri::command]
-async fn save_ai_session(session: crate::ai_auth::AiSession, state: State<'_, EditorState>) -> Result<(), String> {
+async fn save_ai_session(
+    session: crate::ai_auth::AiSession,
+    state: State<'_, EditorState>,
+) -> Result<(), String> {
     crate::ai_auth::save_session(&state.auth_state, session);
     Ok(())
 }
 
 #[tauri::command]
-async fn capture_ai_session(app: tauri::AppHandle, provider: String) -> Result<crate::ai_auth::AiSession, String> {
+async fn capture_ai_session(
+    app: tauri::AppHandle,
+    provider: String,
+) -> Result<crate::ai_auth::AiSession, String> {
     crate::ai_auth::capture_session(app, provider).await
 }
 
-#[tauri::command] fn get_emulator_screenshot() -> Result<String, String> { Ok("".to_string()) }
-#[tauri::command] fn emulator_tap(_x: i32, _y: i32) -> Result<(), String> { Ok(()) }
+#[tauri::command]
+fn get_emulator_screenshot() -> Result<String, String> {
+    Ok("".to_string())
+}
+#[tauri::command]
+fn emulator_tap(_x: i32, _y: i32) -> Result<(), String> {
+    Ok(())
+}
 
 #[tauri::command]
 async fn check_ollama_status(state: State<'_, EditorState>) -> Result<bool, String> {
-    state.ai_engine.check_ollama_status().await.map_err(|e| e.to_string())
+    state
+        .ai_engine
+        .check_ollama_status()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn pull_ollama_model(state: State<'_, EditorState>, name: String) -> Result<(), String> {
-    state.ai_engine.pull_model(&name).await.map_err(|e| e.to_string())
+    state
+        .ai_engine
+        .pull_model(&name)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn set_ollama_url(
-    state: State<'_, EditorState>,
-    url: String,
-) -> Result<(), String> {
+async fn set_ollama_url(state: State<'_, EditorState>, url: String) -> Result<(), String> {
     {
         let mut current = state.ollama_url.lock().unwrap();
         *current = url.clone();
     }
-    
+
     state.ai_engine.set_ollama_url(url);
     Ok(())
 }
@@ -1607,8 +2190,7 @@ async fn git_clone(url: String, path: String) -> Result<(), String> {
 }
 
 pub fn run() {
-    let filter = EnvFilter::from_default_env()
-        .add_directive(tracing::Level::INFO.into());
+    let filter = EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into());
 
     tracing_subscriber::registry()
         .with(filter)
@@ -1624,37 +2206,69 @@ pub fn run() {
         } else {
             "Unknown panic"
         };
-        let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_else(|| "unknown location".to_string());
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown location".to_string());
         let panic_msg = format!("[CRITICAL PANIC] {} at {}\n", message, location);
         eprintln!("{}", panic_msg);
-        let _ = std::fs::OpenOptions::new().append(true).create(true).open("log.txt").map(|mut f| {
-            use std::io::Write;
-            let _ = f.write_all(panic_msg.as_bytes());
-        });
+        let _ = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open("log.txt")
+            .map(|mut f| {
+                use std::io::Write;
+                let _ = f.write_all(panic_msg.as_bytes());
+            });
     }));
 
     tauri::Builder::default()
-
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+            let ctrl_alt_a = Shortcut::new(
+                Some(
+                    tauri_plugin_global_shortcut::Modifiers::CONTROL
+                        | tauri_plugin_global_shortcut::Modifiers::ALT,
+                ),
+                tauri_plugin_global_shortcut::Code::KeyA,
+            );
+
+            let h = app.handle().clone();
+            app.global_shortcut()
+                .on_shortcut(ctrl_alt_a, move |_app, shortcut, _event| {
+                    if shortcut == &ctrl_alt_a {
+                        if let Some(window) = h.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                })
+                .ok();
+
             println!("[DEBUG] Tauri setup starting...");
             let state = EditorState::new(app.handle());
             println!("[DEBUG] EditorState created successfully");
-            
+
             // Listen for terminal-input events from AI
             let h = app.handle().clone();
             app.listen("terminal-input", move |event: tauri::Event| {
                 if let Ok(args) = serde_json::from_str::<Value>(event.payload()) {
                     let data = args["data"].as_str().unwrap_or_default().to_string();
                     let term_id = args["term_id"].as_str().map(|s| s.to_string());
-                    
+
                     let state = h.state::<EditorState>();
                     let mut writers = state.terminal_writers.lock().unwrap();
-                    
+
                     // Use specified ID or find first available
                     let target_id = term_id.or_else(|| writers.keys().next().cloned());
-                    
+
                     if let Some(id) = target_id {
                         if let Some(writer) = writers.get_mut(&id) {
                             let _ = writer.write_all(data.as_bytes());
@@ -1667,49 +2281,129 @@ pub fn run() {
             app.manage(state.browser_state.clone());
             let mcp_registry = state.mcp_registry.clone();
             app.manage(state);
-            
+
             // Initialize MCP servers in background
             tauri::async_runtime::spawn(async move {
                 let _ = mcp_registry.initialize_servers().await;
             });
-            
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            open_folder, get_file_tree, get_directory_contents, read_file, write_file, update_project_memory,
-            create_file, create_directory, rename_path, delete_path, list_dir_flat,
-            search_project, get_git_branch, git_status, git_stage,
-            git_unstage, git_commit, get_api_keys, save_api_keys,
-            list_provider_models, ai_chat, spawn_terminal, write_to_terminal,
-            resize_terminal, close_terminal, get_available_shells, search_extensions, install_extension,
-            get_popular_extensions, get_installed_extensions, get_extension_details,
-            get_installed_themes, load_extension_theme, get_extension_contributions,
-            ext_host_init, ext_host_send,
-            debug_start, debug_send, debug_stop, check_activation_event,
-            adb_list_devices, adb_list_emulators, spawn_emulator, 
-            set_active_device, set_ai_model, list_mcp_servers, add_mcp_server, remove_mcp_server,
-            backend_ping, get_git_history, adb_install_and_run,
-            set_ollama_url, check_ollama_status, pull_ollama_model, stop_ai_agent,
-            register_ida_pro, ai_execute_command, ai_modify_file, propose_file_change,
-            get_icon_theme_mapping, hunt_api_keys, optimize_memory,
+            open_folder,
+            get_file_tree,
+            get_directory_contents,
+            read_file,
+            write_file,
+            update_project_memory,
+            create_file,
+            create_directory,
+            rename_path,
+            delete_path,
+            list_dir_flat,
+            search_project,
+            get_git_branch,
+            git_status,
+            git_stage,
+            git_unstage,
+            git_commit,
+            get_api_keys,
+            save_api_keys,
+            list_provider_models,
+            ai_chat,
+            spawn_terminal,
+            write_to_terminal,
+            resize_terminal,
+            close_terminal,
+            get_available_shells,
+            search_extensions,
+            install_extension,
+            get_popular_extensions,
+            get_installed_extensions,
+            get_extension_details,
+            get_installed_themes,
+            load_extension_theme,
+            get_extension_contributions,
+            ext_host_init,
+            ext_host_send,
+            debug_start,
+            debug_send,
+            debug_stop,
+            check_activation_event,
+            adb_list_devices,
+            adb_list_emulators,
+            spawn_emulator,
+            set_active_device,
+            set_ai_model,
+            set_advisor_model,
+            list_mcp_servers,
+            add_mcp_server,
+            remove_mcp_server,
+            backend_ping,
+            get_git_history,
+            adb_install_and_run,
+            set_ollama_url,
+            check_ollama_status,
+            pull_ollama_model,
+            stop_ai_agent,
+            register_ida_pro,
+            ai_execute_command,
+            ai_modify_file,
+            propose_file_change,
+            get_icon_theme_mapping,
+            hunt_api_keys,
+            optimize_memory,
             git_clone,
-            start_mitm_server, stop_mitm_server, get_mitm_status,
+            start_mitm_server,
+            stop_mitm_server,
+            get_mitm_status,
             editor_get_active_file,
             analyze_file_symbols,
             terminal_read_output,
             terminal_toggle,
             terminal_terminate,
             terminal_get_status,
-            open_ai_login, save_ai_session, capture_ai_session,
-            get_emulator_screenshot, emulator_tap,
-            get_process_stats, resolve_keybinding, set_context_key, evaluate_when_clause,
-            get_settings, update_settings, get_config_path, get_android_config,
-            set_android_sdk_path, set_active_root, install_vsix, get_running_extensions,
-            open_file, save_file, get_highlights, list_directory, switch_to_buffer,
-            lsp_start, lsp_send_request, lsp_stop, validate_path, create_dir,
-            browser::browser_open, browser::browser_navigate, browser::browser_screenshot,
-            browser::browser_click, browser::browser_type, browser::browser_read_dom,
-            browser::browser_capture_vision_context, browser::browser_close
+            open_ai_login,
+            save_ai_session,
+            capture_ai_session,
+            get_emulator_screenshot,
+            emulator_tap,
+            get_process_stats,
+            resolve_keybinding,
+            set_context_key,
+            evaluate_when_clause,
+            get_settings,
+            update_settings,
+            get_config_path,
+            get_android_config,
+            set_android_sdk_path,
+            set_active_root,
+            install_vsix,
+            get_running_extensions,
+            open_file,
+            save_file,
+            get_highlights,
+            list_directory,
+            switch_to_buffer,
+            lsp_start,
+            lsp_send_request,
+            lsp_stop,
+            validate_path,
+            create_dir,
+            browser::browser_open,
+            browser::browser_navigate,
+            browser::browser_screenshot,
+            browser::browser_click,
+            browser::browser_type,
+            browser::browser_read_dom,
+            browser::browser_capture_vision_context,
+            browser::browser_close,
+            // NEW: Tool Registry Backend Commands
+            glob_files,
+            grep_files,
+            write_file_content,
+            web_fetch,
+            ai_tool_result
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -61,6 +61,7 @@ const RightSidebar: React.FC = () => {
     const resetThread = useStore(state => state.resetThread);
     const pendingChanges = useStore(state => state.pendingChanges);
     const truncateAgentMessages = useStore(state => state.truncateAgentMessages);
+    const [sessionAge, setSessionAge] = useState<string>('');
     const attachedContext = useStore(state => state.attachedContext);
     const addAttachedContext = useStore(state => state.addAttachedContext);
     const removeAttachedContext = useStore(state => state.removeAttachedContext);
@@ -69,9 +70,11 @@ const RightSidebar: React.FC = () => {
     const setAgentRootAccess = useStore(state => state.setAgentRootAccess);
     const fileTree = useStore(state => state.fileTree);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const agentTasks = useStore(state => state.agentTasks);
     const [inputValue, setInputValue] = useState('');
     const [isMentionDropdownOpen, setIsMentionDropdownOpen] = useState(false);
     const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
+    const [isHelpOpen, setIsHelpOpen] = useState(false);
 
     const allFiles = useMemo(() => {
         const flatten = (entries: FileEntry[]): FileEntry[] => {
@@ -91,6 +94,23 @@ const RightSidebar: React.FC = () => {
         const query = lastWord.slice(1).toLowerCase();
         return allFiles.filter(f => f.name.toLowerCase().includes(query)).slice(0, 10);
     }, [inputValue, allFiles]);
+
+    useEffect(() => {
+        if (messages.length > 0 && messages[0].timestamp) {
+            const updateAge = () => {
+                const diff = Date.now() - messages[0].timestamp;
+                const mins = Math.floor(diff / 60000);
+                const hrs = Math.floor(mins / 60);
+                if (hrs > 0) setSessionAge(`${hrs}h ${mins % 60}m`);
+                else setSessionAge(`${mins}m`);
+            };
+            updateAge();
+            const interval = setInterval(updateAge, 60000);
+            return () => clearInterval(interval);
+        } else {
+            setSessionAge('');
+        }
+    }, [messages]);
 
     useEffect(() => {
         const container = document.querySelector('.right-sidebar-messages');
@@ -254,6 +274,27 @@ const RightSidebar: React.FC = () => {
                     font-weight: 600;
                     color: #fff;
                 }
+                .help-modal-overlay {
+                    position: absolute;
+                    top: 0; left: 0; right: 0; bottom: 0;
+                    background: rgba(0,0,0,0.8);
+                    backdrop-filter: blur(4px);
+                    z-index: 1000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 20px;
+                }
+                .help-modal-content {
+                    background: var(--vscode-sideBar-background);
+                    border: 1px solid var(--vscode-sideBar-border);
+                    border-radius: 12px;
+                    width: 100%;
+                    max-height: 80%;
+                    overflow-y: auto;
+                    padding: 24px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+                }
             `}</style>
 
             <div className="sidebar-header" style={{
@@ -271,16 +312,54 @@ const RightSidebar: React.FC = () => {
                         fontSize: '14px',
                         color: '#ff4d4f'
                     }}></i>
-                    <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.05em', opacity: 0.8 }}>TERMINATOR</span>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.05em', opacity: 0.8 }}>TERMINATOR</span>
+                        {sessionAge && <span style={{ fontSize: '9px', opacity: 0.4, fontWeight: 400 }}>Active: {sessionAge}</span>}
+                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <div onClick={() => setView('chat')} style={{ cursor: 'pointer', opacity: view === 'chat' ? 1 : 0.4 }} title="Chat"><i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setView('history')} style={{ cursor: 'pointer', opacity: view === 'history' ? 1 : 0.4 }} title="History"><i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setView('dashboard')} style={{ cursor: 'pointer', opacity: view === 'dashboard' ? 1 : 0.4 }} title="Dashboard"><i className="codicon codicon-dashboard" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setView('settings')} style={{ cursor: 'pointer', opacity: view === 'settings' ? 1 : 0.4 }} title="Settings"><i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
+                    <div onClick={() => setIsHelpOpen(true)} style={{ cursor: 'pointer', opacity: 0.8, color: '#3b82f6' }} title="Command Help"><i className="codicon codicon-question" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={toggle} style={{ cursor: 'pointer', opacity: 0.5 }} title="Close"><i className="codicon codicon-close" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                 </div>
             </div>
+
+            {isHelpOpen && (
+                <div className="help-modal-overlay" onClick={() => setIsHelpOpen(false)}>
+                    <div className="help-modal-content" onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h3 style={{ margin: 0, fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Command Reference</h3>
+                            <i className="codicon codicon-close" style={{ cursor: 'pointer', fontFamily: 'codicon', fontStyle: 'normal' }} onClick={() => setIsHelpOpen(false)}></i>
+                        </div>
+                        <div className="markdown-content" style={{ fontSize: '12px', opacity: 0.9 }}>
+                            <p><strong>CORE COMMANDS:</strong></p>
+                            <ul>
+                                <li><code>/doctor</code> - Run system environment diagnostics.</li>
+                                <li><code>/help</code> - Show this reference in chat.</li>
+                                <li><code>/tools</code> - List all available tools & schemas.</li>
+                                <li><code>/clear</code> - Reset conversation context.</li>
+                                <li><code>/resume</code> - Restore last persistent session.</li>
+                            </ul>
+                            <p><strong>ENGINEERING COMMANDS:</strong></p>
+                            <ul>
+                                <li><code>/diff</code> - View workspace changes.</li>
+                                <li><code>/commit</code> - Automated staging and committing.</li>
+                                <li><code>/compact</code> - Compress chat history.</li>
+                            </ul>
+                            <p><strong>REASONING TIERS:</strong></p>
+                            <ul>
+                                <li><code>/advisor &lt;model&gt;</code> - Delegate planning to high-tier model.</li>
+                                <li><code>/ultraplan</code> - Trigger deep architectural reasoning loop.</li>
+                                <li><code>/insights</code> - Generate project architectural report.</li>
+                            </ul>
+                            <p style={{ marginTop: '20px', fontSize: '10px', opacity: 0.5 }}><em>Integrates all features from the original Claude Code architecture.</em></p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                 {view === 'chat' ? (
@@ -292,34 +371,87 @@ const RightSidebar: React.FC = () => {
                                 <div style={{ fontSize: '12px' }}>Ask me to write code, explain logic, or debug errors.</div>
                             </div>
                         ) : (
-                            messages.map((msg, idx) => (
-                                <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.5 }}>
-                                        <i className={`codicon codicon-${msg.role === 'assistant' ? 'sparkle' : 'account'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
-                                        <span style={{ fontSize: '11px', fontWeight: 800 }}>{msg.role === 'assistant' ? 'TERMINATOR' : 'YOU'}</span>
-                                    </div>
-                                    <div style={{
-                                        background: msg.role === 'user' ? 'var(--vscode-list-hoverBackground, rgba(59, 130, 246, 0.05))' : 'rgba(255, 255, 255, 0.01)',
-                                        padding: '12px 16px', borderRadius: '14px', border: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))'
+                            <>
+                                {agentTasks.filter((t: any) => t.status === 'running' && t.id.includes('-')).map((task: any) => (
+                                    <div key={task.id} style={{
+                                        background: 'rgba(59, 130, 246, 0.05)',
+                                        border: '1px solid rgba(59, 130, 246, 0.2)',
+                                        padding: '12px',
+                                        borderRadius: '8px',
+                                        marginBottom: '12px',
+                                        animation: 'pulse 2s infinite'
                                     }}>
-                                        {msg.thoughts && (
-                                            <details style={{ marginBottom: '8px', opacity: 0.6 }}>
-                                                <summary style={{ fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Thoughts process...</summary>
-                                                <div style={{ fontSize: '11px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px' }}>{msg.thoughts}</div>
-                                            </details>
-                                        )}
-                                        <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.6' }} dangerouslySetInnerHTML={{ __html: marked.parse(msg.content || "") as string }} />
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: '#3b82f6' }}></i>
+                                                <span style={{ fontSize: '11px', fontWeight: 600 }}>{task.title}</span>
+                                            </div>
+                                            <span style={{ fontSize: '10px', opacity: 0.6 }}>{task.progress}%</span>
+                                        </div>
+                                        <div style={{ background: 'rgba(0,0,0,0.2)', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
+                                            <div style={{ background: '#3b82f6', width: `${task.progress}%`, height: '100%', transition: 'width 0.3s ease' }}></div>
+                                        </div>
+                                        {task.message && <div style={{ fontSize: '10px', marginTop: '6px', opacity: 0.6 }}>{task.message}</div>}
                                     </div>
-                                </div>
-                            ))
+                                ))}
+                                {messages.map((msg, idx) => (
+                                    <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.5 }}>
+                                            <i className={`codicon codicon-${msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'hubot' : 'sparkle') : 'account'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: msg.isSubAgentResponse ? '#3b82f6' : 'inherit' }}></i>
+                                            <span style={{ fontSize: '11px', fontWeight: 800, color: msg.isSubAgentResponse ? '#3b82f6' : 'inherit' }}>{msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'SUB-AGENT' : 'TERMINATOR') : 'YOU'}</span>
+                                        </div>
+                                        <div style={{
+                                            background: msg.role === 'user' ? 'var(--vscode-list-hoverBackground, rgba(59, 130, 246, 0.05))' : (msg.isSubAgentResponse ? 'rgba(59, 130, 246, 0.03)' : 'rgba(255, 255, 255, 0.01)'),
+                                            padding: '12px 16px', borderRadius: '14px', border: msg.isSubAgentResponse ? '1px solid rgba(59, 130, 246, 0.1)' : '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))'
+                                        }}>
+                                            {msg.thoughts && (
+                                                <details style={{ marginBottom: '8px', opacity: 0.6 }}>
+                                                    <summary style={{ fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Thoughts process...</summary>
+                                                    <div style={{ fontSize: '11px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px' }}>{msg.thoughts}</div>
+                                                </details>
+                                            )}
+                                            {msg.steps && msg.steps.length > 0 && (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
+                                                    {msg.steps.map((step: any, sIdx: number) => {
+                                                        const getIcon = (type?: string) => {
+                                                            switch (type) {
+                                                                case 'git': return 'git-branch';
+                                                                case 'terminal': return 'terminal';
+                                                                case 'filesystem': return 'file-code';
+                                                                case 'browser': return 'browser';
+                                                                case 'system': return 'server-process';
+                                                                default: return 'gear';
+                                                            }
+                                                        };
+                                                        const getStatusColor = (status: string) => {
+                                                            if (status === 'running') return '#3b82f6';
+                                                            if (status === 'success') return '#10b981';
+                                                            if (status === 'error') return '#ef4444';
+                                                            return '#666';
+                                                        };
+                                                        return (
+                                                            <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', opacity: 0.8 }}>
+                                                                <i className={`codicon codicon-${getIcon(step.type)}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px', color: getStatusColor(step.status) }}></i>
+                                                                <span style={{ fontFamily: 'var(--font-mono)', opacity: 0.7 }}>{step.name}</span>
+                                                                {step.status === 'running' && <i className="codicon codicon-sync codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px', opacity: 0.4 }}></i>}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                            <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.6' }} dangerouslySetInnerHTML={{ __html: marked.parse(msg.content || "") as string }} />
+                                        </div>
+                                    </div>
+                                ))}
+                                {isAgentThinking && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', opacity: 0.5 }}>
+                                        <i className="codicon codicon-sync codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
+                                        <span style={{ fontSize: '11px', fontWeight: 600 }}>Thinking...</span>
+                                    </div>
+                                )}
+                                <div ref={messagesEndRef} />
+                            </>
                         )}
-                        {isAgentThinking && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', opacity: 0.5 }}>
-                                <i className="codicon codicon-sync codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
-                                <span style={{ fontSize: '11px', fontWeight: 600 }}>Thinking...</span>
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
                     </div>
                 ) : view === 'history' ? (
                     <div style={{ padding: '20px', opacity: 0.5, textAlign: 'center', fontSize: '12px' }}>No chat history found.</div>
@@ -331,7 +463,6 @@ const RightSidebar: React.FC = () => {
                     <AgentSettingsView />
                 )}
             </div>
-
             {view === 'chat' && (
                 <div style={{ padding: '16px', borderTop: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1))' }}>
                     <div style={{

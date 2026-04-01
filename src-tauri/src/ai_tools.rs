@@ -1,12 +1,12 @@
 use anyhow::{anyhow, Result};
+use glob;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
-use glob;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -15,18 +15,28 @@ pub struct ToolDefinition {
     pub input_schema: Value,
 }
 
+#[derive(Clone)]
 pub struct AiTools {
     root_path: Arc<Mutex<PathBuf>>,
     browser_state: Arc<crate::browser::BrowserState>,
     app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
+    git_manager: Arc<crate::git::GitManager>,
+    mcp_registry: Arc<crate::mcp_registry::McpRegistry>,
 }
 
 impl AiTools {
-    pub fn new(root_path: PathBuf, browser_state: Arc<crate::browser::BrowserState>) -> Self {
-        Self { 
-            root_path: Arc::new(Mutex::new(root_path)), 
+    pub fn new(
+        root_path: PathBuf,
+        browser_state: Arc<crate::browser::BrowserState>,
+        git_manager: Arc<crate::git::GitManager>,
+        mcp_registry: Arc<crate::mcp_registry::McpRegistry>,
+    ) -> Self {
+        Self {
+            root_path: Arc::new(Mutex::new(root_path)),
             browser_state,
             app_handle: Arc::new(Mutex::new(None)),
+            git_manager,
+            mcp_registry,
         }
     }
 
@@ -43,7 +53,10 @@ impl AiTools {
     }
 
     pub fn get_root_path(&self) -> PathBuf {
-        self.root_path.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.root_path
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn list_tools(&self) -> Vec<ToolDefinition> {
@@ -597,32 +610,181 @@ impl AiTools {
                     "required": ["path", "StartLine", "EndLine", "ReplacementContent"]
                 }),
             },
+            ToolDefinition {
+                name: "git_status".to_string(),
+                description: "View the status of the git repository (staged, unstaged, untracked files).".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+            ToolDefinition {
+                name: "git_add".to_string(),
+                description: "Stage a file or directory for commit.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "The path to the file or directory to stage." }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "git_commit".to_string(),
+                description: "Commit staged changes with a message.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "message": { "type": "string", "description": "The commit message." }
+                    },
+                    "required": ["message"]
+                }),
+            },
+            ToolDefinition {
+                name: "git_diff".to_string(),
+                description: "View changes in the working directory or staged area.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Optional path to show diff for." },
+                        "staged": { "type": "boolean", "description": "Whether to show staged changes.", "default": false }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "git_log".to_string(),
+                description: "View the git commit history.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "limit": { "type": "integer", "description": "Limit the number of commits shown.", "default": 10 }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "get_system_health".to_string(),
+                description: "Check the health and status of system dependencies (Git, Node, Rust, MCP).".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
         ]
     }
 
     pub fn call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
         match name {
+            // Filesystem Operations
+            "view_file"
+            | "write_to_file"
+            | "remove_item"
+            | "list_files"
+            | "search_files"
+            | "grep"
+            | "replace_file_content"
+            | "multi_replace_file_content"
+            | "find_by_name"
+            | "get_directory_structure"
+            | "create_directory"
+            | "rename_path"
+            | "editor_open_file"
+            | "editor_get_active_file" => self.handle_fs_tool(name, arguments),
+
+            // Terminal Operations
+            "run_command"
+            | "terminal_send_data"
+            | "terminal_read_output"
+            | "terminal_toggle"
+            | "terminal_create"
+            | "terminal_terminate"
+            | "terminal_get_status"
+            | "terminal_list" => self.handle_terminal_tool(name, arguments),
+
+            // Browser Operations
+            "browser_close"
+            | "browser_capture_vision_context"
+            | "browser_open"
+            | "browser_navigate"
+            | "browser_search"
+            | "browser_get_content_summary"
+            | "browser_screenshot"
+            | "browser_click"
+            | "browser_type"
+            | "browser_read_dom" => self.handle_browser_tool(name, arguments),
+
+            // Advanced Agentic Operations
+            "spawn_subagent" => self.spawn_subagent(arguments),
+            "browser_subagent" => AiTools::browser_subagent(Arc::new(self.clone()), arguments),
+            "perplexity_ask" => AiTools::perplexity_proxy(Arc::new(self.clone()), arguments),
+            "perplexity_reason" => Ok(
+                serde_json::json!({"status": "Reasoning engine initialized. Researching real-time sources...", "result": "The current codebase follows a modular Tauri structure. (Structured Stub)"}),
+            ),
+            "get_command_help" => self.get_command_help(arguments),
+
+            // Git Operations
+            "git_status" | "git_add" | "git_commit" | "git_diff" | "git_log" => {
+                self.handle_git_tool(name, arguments)
+            }
+
+            // System & Multimedia
+            "generate_image" => self.generate_image(arguments),
+            "analyze_image" => self.analyze_image(arguments),
+            "code_search" => self.code_search(arguments),
+            "dependency_graph" => self.dependency_graph(arguments),
+            "get_system_info" | "get_system_health" => self.handle_system_tool(name, arguments),
+
+            // Experimental / Stubs
+            "code_generation" => {
+                Ok(serde_json::json!({"result": "Code generated (Mock Implementation)"}))
+            }
+            "generate_0day_exploit" => {
+                Ok(serde_json::json!({"status": "Autonomous PoC generating... (Functional Stub)"}))
+            }
+            "reverse_engineer_firmware" => Ok(
+                serde_json::json!({"analysis": "Firmware analysis successful. (Functional Stub)"}),
+            ),
+
+            _ => Err(anyhow!("Unknown tool: {}", name)),
+        }
+    }
+
+    fn handle_fs_tool(&self, name: &str, arguments: Value) -> Result<Value> {
+        match name {
             "view_file" => self.read_file(arguments),
             "write_to_file" => self.write_file(arguments),
             "remove_item" => self.remove_item(arguments),
             "list_files" => self.list_files(arguments),
-            "run_command" => self.run_command(arguments),
             "search_files" => self.search_files(arguments),
             "grep" => self.grep(arguments),
-             "terminal_send_data" => self.terminal_send_data(arguments),
-             "terminal_read_output" => self.terminal_read_output(arguments),
-             "terminal_toggle" => self.terminal_toggle(arguments),
-             "browser_close" => self.browser_close(arguments),
-             "spawn_subagent" => self.spawn_subagent(arguments),
-             "generate_image" => self.generate_image(arguments),
-             "analyze_image" => self.analyze_image(arguments),
-             "code_search" => self.code_search(arguments),
-             "dependency_graph" => self.dependency_graph(arguments),
-             "terminal_create" => self.terminal_create(arguments),
-             "terminal_terminate" => self.terminal_terminate(arguments),
-             "terminal_get_status" => self.terminal_get_status(arguments),
-             "terminal_list" => self.terminal_get_state(arguments), // alias
-             "get_system_info" => self.get_system_info(arguments),
+            "replace_file_content" => self.replace_file_content(arguments),
+            "multi_replace_file_content" => self.multi_replace_file_content(arguments),
+            "find_by_name" => self.find_by_name(arguments),
+            "get_directory_structure" => self.get_directory_structure(arguments),
+            "create_directory" => self.create_directory(arguments),
+            "rename_path" => self.rename_path(arguments),
+            "editor_open_file" => self.editor_open_file(arguments),
+            "editor_get_active_file" => self.editor_get_active_file(arguments),
+            _ => unreachable!(),
+        }
+    }
+
+    fn handle_terminal_tool(&self, name: &str, arguments: Value) -> Result<Value> {
+        match name {
+            "run_command" => self.run_command(arguments),
+            "terminal_send_data" => self.terminal_send_data(arguments),
+            "terminal_read_output" => self.terminal_read_output(arguments),
+            "terminal_toggle" => self.terminal_toggle(arguments),
+            "terminal_create" => self.terminal_create(arguments),
+            "terminal_terminate" => self.terminal_terminate(arguments),
+            "terminal_get_status" => self.terminal_get_status(arguments),
+            "terminal_list" => self.terminal_get_state(arguments),
+            _ => unreachable!(),
+        }
+    }
+
+    fn handle_browser_tool(&self, name: &str, arguments: Value) -> Result<Value> {
+        match name {
+            "browser_close" => self.browser_close(arguments),
             "browser_capture_vision_context" => self.browser_capture_vision_context(arguments),
             "browser_open" => self.browser_open(arguments),
             "browser_navigate" => self.browser_navigate(arguments),
@@ -632,42 +794,41 @@ impl AiTools {
             "browser_click" => self.browser_click(arguments),
             "browser_type" => self.browser_type(arguments),
             "browser_read_dom" => self.browser_read_dom(arguments),
-            "replace_file_content" => self.replace_file_content(arguments),
-            "multi_replace_file_content" => self.multi_replace_file_content(arguments),
-            "find_by_name" => self.find_by_name(arguments),
-            "get_directory_structure" => self.get_directory_structure(arguments),
-            "find_api_keys" => self.find_api_keys(arguments),
-            "create_directory" => self.create_directory(arguments),
-            "rename_path" => self.rename_path(arguments),
-            "editor_open_file" => self.editor_open_file(arguments),
-            "editor_get_active_file" => self.editor_get_active_file(arguments),
-            "analyze_file_symbols" => self.analyze_file_symbols(arguments),
-            "view_file_outline" => self.view_file_outline(arguments),
-            "view_code_item" => self.view_code_item(arguments),
-            "patch_file_content" => self.patch_file_content(arguments),
-            "manage_task" => self.manage_task(arguments),
-            "manage_memory" => self.manage_memory(arguments),
-            "read_url_content" => self.read_url_content(arguments),
-            "perplexity_reason" => Ok(serde_json::json!({"status": "Reasoning engine initialized. Researching real-time sources...", "result": "The current codebase follows a modular Tauri structure. To implement X, you should use the Y pattern as confirmed by recent documentation. (Structured Stub)"})),
-            "perplexity_ask" => self.perplexity_proxy(arguments),
-"browser_subagent" => self.browser_subagent(arguments),
-            "code_generation" => Ok(serde_json::json!({"result": "Code generated based on specification. (Mock implementation)"})),
-            "generate_0day_exploit" => Ok(serde_json::json!({"status": "Vulnerability identified in target kernel module. Generating autonomous PoC...", "exploit_path": "/tmp/exploit_poc.c", "notes": "Memory corruption triggered via heap spray. (Functional Stub)"})),
-            "reverse_engineer_firmware" => Ok(serde_json::json!({"analysis": "Firmware unpacked. Found embedded SQLite database and plain-text credentials in /etc/config. (Functional Stub)"})),
-            "develop_web_mobile_app" => Ok(serde_json::json!({"status": "App boilerplate generated. React Native and Fastify services initialized. (Functional Stub)"})),
-            "kernel_exploit_chain" => Ok(serde_json::json!({"status": "LPE (Local Privilege Escalation) achieved. Kernel state: Pwned. (Functional Stub)"})),
-            "jailbreak_activation_bypass" => Ok(serde_json::json!({"status": "Activation lock bypassed. Filesystem remounted as R/W. IDE-ready. (Functional Stub)"})),
-            "advanced_reverse_engineering" => Ok(serde_json::json!({"result": "Advanced analysis complete. (Mock implementation)"})),
-            _ => Err(anyhow!("Unknown built-in tool: {}", name)),
+            _ => unreachable!(),
+        }
+    }
+
+    fn handle_git_tool(&self, name: &str, arguments: Value) -> Result<Value> {
+        match name {
+            "git_status" => self.git_status(arguments),
+            "git_add" => self.git_add(arguments),
+            "git_commit" => self.git_commit(arguments),
+            "git_diff" => self.git_diff(arguments),
+            "git_log" => self.git_log(arguments),
+            _ => unreachable!(),
+        }
+    }
+
+    fn handle_system_tool(&self, name: &str, arguments: Value) -> Result<Value> {
+        match name {
+            "get_system_info" => self.get_system_info(arguments),
+            "get_system_health" => self.get_system_health(arguments),
+            _ => unreachable!(),
         }
     }
 
     fn view_file_outline(&self, args: Value) -> Result<Value> {
-        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let path_str = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
         let root = self.root_path.lock().map_err(|_e| anyhow!("Lock error"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
+        let full_path = if PathBuf::from(path_str).is_absolute() {
+            PathBuf::from(path_str)
+        } else {
+            root.join(path_str)
+        };
         let content = fs::read_to_string(&full_path)?;
-        
+
         let ext = full_path.extension().and_then(|s| s.to_str()).unwrap_or("");
         let mut results = Vec::new();
 
@@ -681,8 +842,12 @@ impl AiTools {
             _ => return self.analyze_file_symbols(args), // Fallback to regex-based
         };
 
-        parser.set_language(&lang).map_err(|e| anyhow!(e.to_string()))?;
-        let tree = parser.parse(&content, None).ok_or_else(|| anyhow!("Parse failed"))?;
+        parser
+            .set_language(&lang)
+            .map_err(|e| anyhow!(e.to_string()))?;
+        let tree = parser
+            .parse(&content, None)
+            .ok_or_else(|| anyhow!("Parse failed"))?;
         let query = Query::new(&lang, query_str).map_err(|e| anyhow!(e.to_string()))?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&query, tree.root_node(), content.as_bytes());
@@ -703,7 +868,8 @@ impl AiTools {
                 }
             }
             if !name.is_empty() {
-                results.push(json!({ "name": name, "start_line": start_line, "end_line": end_line }));
+                results
+                    .push(json!({ "name": name, "start_line": start_line, "end_line": end_line }));
             }
         }
 
@@ -711,79 +877,118 @@ impl AiTools {
     }
 
     fn view_code_item(&self, args: Value) -> Result<Value> {
-        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
-        let item_name = args["name"].as_str().ok_or_else(|| anyhow!("Missing name"))?;
+        let path_str = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let item_name = args["name"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing name"))?;
         let outline = self.view_file_outline(args.clone())?;
-        
+
         if let Some(items) = outline.as_array() {
             for item in items {
                 if item["name"].as_str() == Some(item_name) {
                     let start = item["start_line"].as_u64().unwrap_or(1) as usize;
                     let end = item["end_line"].as_u64().unwrap_or(1) as usize;
-                    
+
                     let root = self.root_path.lock().map_err(|_e| anyhow!("Lock error"))?;
-                    let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
+                    let full_path = if PathBuf::from(path_str).is_absolute() {
+                        PathBuf::from(path_str)
+                    } else {
+                        root.join(path_str)
+                    };
                     let content = fs::read_to_string(full_path)?;
                     let lines: Vec<&str> = content.lines().collect();
-                    
-                    let result_lines = &lines[start-1..std::cmp::min(end, lines.len())];
+
+                    let result_lines = &lines[start - 1..std::cmp::min(end, lines.len())];
                     return Ok(json!({ "content": result_lines.join("\n") }));
                 }
             }
         }
 
-        Err(anyhow!("Code item '{}' not found in {}", item_name, path_str))
+        Err(anyhow!(
+            "Code item '{}' not found in {}",
+            item_name,
+            path_str
+        ))
     }
 
     fn manage_task(&self, args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("App handle error"))?;
-        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
-        
-        let task_id = args["task_id"].as_str().ok_or_else(|| anyhow!("Missing task_id"))?;
-        let status = args["status"].as_str().ok_or_else(|| anyhow!("Missing status"))?;
+        let h_lock = self
+            .app_handle
+            .lock()
+            .map_err(|_| anyhow!("App handle error"))?;
+        let h = h_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("App handle not set"))?;
+
+        let task_id = args["task_id"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing task_id"))?;
+        let status = args["status"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing status"))?;
 
         // Emit UI event for the Agent Task View
-        h.emit("update-agent-task", json!({ 
-            "id": task_id,
-            "title": task_id,
-            "summary": format!("Executing task: {}", task_id),
-            "status": if status == "done" { "completed" } else { "running" },
-            "progress": if status == "done" { 100 } else { 50 }
-        }))?;
-        
+        h.emit(
+            "update-agent-task",
+            json!({
+                "id": task_id,
+                "title": task_id,
+                "summary": format!("Executing task: {}", task_id),
+                "status": if status == "done" { "completed" } else { "running" },
+                "progress": if status == "done" { 100 } else { 50 }
+            }),
+        )?;
+
         h.emit("add-agent-step", json!({ "name": task_id, "status": if status == "done" { "success" } else { "running" } }))?;
-        
-        let entry = format!("- [{}] {}\n", if status == "done" { "x" } else if status == "in_progress" { "/" } else { " " }, task_id);
+
+        let entry = format!(
+            "- [{}] {}\n",
+            if status == "done" {
+                "x"
+            } else if status == "in_progress" {
+                "/"
+            } else {
+                " "
+            },
+            task_id
+        );
 
         // Also write to task.md if it exists
         let root = self.root_path.lock().map_err(|_| anyhow!("Lock error"))?;
         let task_path = root.join("task.md");
         if task_path.exists() {
-             let mut content = fs::read_to_string(&task_path)?;
-             // Simple naive replacement for now, real agent would use grep/regex
-             if !content.contains(task_id) {
-                 content.push_str(&entry);
-             }
-             fs::write(task_path, content)?;
+            let mut content = fs::read_to_string(&task_path)?;
+            // Simple naive replacement for now, real agent would use grep/regex
+            if !content.contains(task_id) {
+                content.push_str(&entry);
+            }
+            fs::write(task_path, content)?;
         }
 
         Ok(json!({ "status": "success" }))
     }
 
     fn manage_memory(&self, args: Value) -> Result<Value> {
-        let entry = args["entry"].as_str().ok_or_else(|| anyhow!("Missing entry"))?;
-        
+        let entry = args["entry"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing entry"))?;
+
         let root = self.root_path.lock().map_err(|_| anyhow!("Lock error"))?;
         let memory_path = root.join("MEMORY.md");
-        
+
         use std::io::Write;
         use std::time::{SystemTime, UNIX_EPOCH};
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&memory_path)?;
-            
-        let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         let (y, mo, d, h, mi) = {
             let s = secs;
             let days = s / 86400;
@@ -793,23 +998,69 @@ impl AiTools {
             let z = days + 719468;
             let era = z / 146097;
             let doe = z - era * 146097;
-            let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
+            let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
             let y = yoe + era * 400;
-            let doy = doe - (365*yoe + yoe/4 - yoe/100);
-            let mp = (5*doy + 2) / 153;
-            let d = doy - (153*mp+2)/5 + 1;
+            let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+            let mp = (5 * doy + 2) / 153;
+            let d = doy - (153 * mp + 2) / 5 + 1;
             let mo = if mp < 10 { mp + 3 } else { mp - 9 };
             let y = if mo <= 2 { y + 1 } else { y };
             (y, mo, d, h, mi)
         };
-        
-        let entry_formatted = format!("\n\n### [{y:04}-{mo:02}-{d:02} {h:02}:{mi:02} UTC]\n{}\n", entry);
+
+        let entry_formatted = format!(
+            "\n\n### [{y:04}-{mo:02}-{d:02} {h:02}:{mi:02} UTC]\n{}\n",
+            entry
+        );
         file.write_all(entry_formatted.as_bytes())?;
 
         // Signal task update
         let _ = self.manage_task(json!({ "task_id": "Recursive Learning", "status": "done" }));
-        
+
         Ok(json!({ "status": "success", "file": "MEMORY.md" }))
+    }
+
+    fn validate_path(&self, root: &std::path::Path, path_str: &str) -> Result<PathBuf> {
+        let path = PathBuf::from(path_str);
+        let full_path = if path.is_absolute() {
+            path
+        } else {
+            root.join(path)
+        };
+
+        // Canonicalize to resolve .. and symlinks
+        let canonical_root = root
+            .canonicalize()
+            .map_err(|e| anyhow!("Failed to canonicalize root: {}", e))?;
+
+        // If file doesn't exist yet, we check the parent
+        let to_check = if full_path.exists() {
+            full_path
+                .canonicalize()
+                .map_err(|e| anyhow!("Access denied or invalid path: {}", e))?
+        } else {
+            let parent = full_path
+                .parent()
+                .ok_or_else(|| anyhow!("Invalid path structure"))?;
+            if parent.exists() {
+                parent
+                    .canonicalize()
+                    .map_err(|e| anyhow!("Invalid parent path: {}", e))?
+            } else {
+                // For new nested dirs, we can't easily check canonical path yet,
+                // but we can check if the relative path contains ".."
+                if path_str.contains("..") {
+                    return Err(anyhow!("Directory traversal detected"));
+                }
+                return Ok(full_path);
+            }
+        };
+
+        if !to_check.starts_with(&canonical_root) {
+            return Err(anyhow!("Security Error: Path is outside of project root"));
+        }
+
+        Ok(full_path)
     }
 
     fn read_file(&self, args: Value) -> Result<Value> {
@@ -818,13 +1069,12 @@ impl AiTools {
             .or_else(|| args.get("path"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing TargetFile"))?;
-        
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() {
-            PathBuf::from(path_str)
-        } else {
-            root.join(path_str)
-        };
+
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let full_path = self.validate_path(&root, path_str)?;
 
         let content = fs::read_to_string(full_path)?;
         Ok(Value::String(content))
@@ -841,25 +1091,30 @@ impl AiTools {
             .or_else(|| args.get("content"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing CodeContent"))?;
-        
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
 
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let full_path = self.validate_path(&root, path_str)?;
 
         if let Some(parent) = full_path.parent() {
             fs::create_dir_all(parent)?;
         }
         fs::write(&full_path, content)?;
-        
+
         // Emit artifact for UI card
         if let Ok(h_lock) = self.app_handle.lock() {
             if let Some(h) = h_lock.as_ref() {
-                let _ = h.emit("ai-artifact", json!({
-                    "type": "file",
-                    "path": path_str,
-                    "title": format!("Written: {}", path_str),
-                    "content": "File saved successfully"
-                }));
+                let _ = h.emit(
+                    "ai-artifact",
+                    json!({
+                        "type": "file",
+                        "path": path_str,
+                        "title": format!("Written: {}", path_str),
+                        "content": "File saved successfully"
+                    }),
+                );
             }
         }
 
@@ -871,11 +1126,16 @@ impl AiTools {
             .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing path"))?;
-        let recursive = args.get("recursive").and_then(|v| v.as_bool()).unwrap_or(true);
-        
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
+        let recursive = args
+            .get("recursive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
 
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let full_path = self.validate_path(&root, path_str)?;
 
         if full_path.is_dir() {
             if recursive {
@@ -890,22 +1150,36 @@ impl AiTools {
     }
 
     fn create_directory(&self, args: Value) -> Result<Value> {
-        let path_str = args.get("path").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing path"))?;
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
-
+        let path_str = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let full_path = self.validate_path(&root, path_str)?;
 
         fs::create_dir_all(full_path)?;
         Ok(serde_json::json!({ "status": "success" }))
     }
 
     fn rename_path(&self, args: Value) -> Result<Value> {
-        let old_path_str = args.get("old_path").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing old_path"))?;
-        let new_path_str = args.get("new_path").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing new_path"))?;
-        
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let old_full = if PathBuf::from(old_path_str).is_absolute() { PathBuf::from(old_path_str) } else { root.join(old_path_str) };
-        let new_full = if PathBuf::from(new_path_str).is_absolute() { PathBuf::from(new_path_str) } else { root.join(new_path_str) };
+        let old_path_str = args
+            .get("old_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing old_path"))?;
+        let new_path_str = args
+            .get("new_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing new_path"))?;
+
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let old_full = self.validate_path(&root, old_path_str)?;
+        let new_full = self.validate_path(&root, new_path_str)?;
 
         fs::rename(old_full, new_full)?;
         Ok(serde_json::json!({ "status": "success" }))
@@ -913,17 +1187,28 @@ impl AiTools {
 
     fn list_files(&self, args: Value) -> Result<Value> {
         let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-        let recursive = args.get("recursive").and_then(|v| v.as_bool()).unwrap_or(false);
-        
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
+        let recursive = args
+            .get("recursive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let full_path = self.validate_path(&root, path_str)?;
 
         let mut files = Vec::new();
         if recursive {
             use walkdir::WalkDir;
-            for entry in WalkDir::new(full_path).max_depth(3).into_iter().filter_map(|e| e.ok()) {
-                let rel_path = entry.path().strip_prefix(&*root)
+            for entry in WalkDir::new(full_path)
+                .max_depth(3)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let rel_path = entry
+                    .path()
+                    .strip_prefix(&*root)
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|_| entry.path().to_string_lossy().to_string());
                 let is_dir = entry.file_type().is_dir();
@@ -961,21 +1246,44 @@ impl AiTools {
     }
 
     fn run_command(&self, args: Value) -> Result<Value> {
-        let command = args.get("command").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing command"))?;
-        let background = args.get("background").and_then(|v| v.as_bool()).unwrap_or(false);
-        
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
-        
+        let command = args
+            .get("command")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing command"))?;
+        let background = args
+            .get("background")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+
         if background {
-            let h_lock = self.app_handle.lock().map_err(|_| anyhow!("Failed to lock app_handle"))?;
-            let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
-            
-            let id = format!("bg-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-            h.emit("terminal-create", json!({ "id": id.clone(), "command": command }))?;
-            
-            return Ok(json!({ 
-                "status": "success", 
-                "info": "Command started in background terminal. You MUST use terminal_get_status(term_id) to check if it finished, and terminal_read_output(term_id) to see what happened. DO NOT assume it finished immediately.", 
+            let h_lock = self
+                .app_handle
+                .lock()
+                .map_err(|_| anyhow!("Failed to lock app_handle"))?;
+            let h = h_lock
+                .as_ref()
+                .ok_or_else(|| anyhow!("App handle not set"))?;
+
+            let id = format!(
+                "bg-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+            );
+            h.emit(
+                "terminal-create",
+                json!({ "id": id.clone(), "command": command }),
+            )?;
+
+            return Ok(json!({
+                "status": "success",
+                "info": "Command started in background terminal. You MUST use terminal_get_status(term_id) to check if it finished, and terminal_read_output(term_id) to see what happened. DO NOT assume it finished immediately.",
                 "term_id": id,
                 "hint": "Status polling is required for background tasks."
             }));
@@ -1016,18 +1324,25 @@ impl AiTools {
     }
 
     fn browser_search(&self, args: Value) -> Result<Value> {
-        let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing query"))?;
-        let url = format!("https://www.google.com/search?q={}", urlencoding::encode(query));
+        let query = args["query"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing query"))?;
+        let url = format!(
+            "https://www.google.com/search?q={}",
+            urlencoding::encode(query)
+        );
         self.browser_navigate(json!({ "url": url }))
     }
 
     fn browser_get_content_summary(&self, _args: Value) -> Result<Value> {
         let h_lock = self.app_handle.lock().map_err(|_| anyhow!("Lock error"))?;
         if let Some(h) = h_lock.as_ref() {
-            let res = tauri::async_runtime::block_on(crate::browser::browser_get_content_summary(h.state()));
+            let res = tauri::async_runtime::block_on(crate::browser::browser_get_content_summary(
+                h.state(),
+            ));
             match res {
                 Ok(v) => Ok(v),
-                Err(e) => Err(anyhow!("{}", e))
+                Err(e) => Err(anyhow!("{}", e)),
             }
         } else {
             Err(anyhow!("App handle not set"))
@@ -1035,21 +1350,28 @@ impl AiTools {
     }
 
     fn spawn_subagent(&self, args: Value) -> Result<Value> {
-        let sub_task = args["task"].as_str().ok_or_else(|| anyhow!("Missing task"))?;
+        let sub_task = args["task"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing task"))?;
         let h_lock = self.app_handle.lock().map_err(|_| anyhow!("Lock error"))?;
-        
+
         if let Some(h) = h_lock.as_ref() {
             let state: tauri::State<crate::EditorState> = h.state();
             let engine = state.ai_engine.clone();
-            
-            // Extract current model/provider settings to pass to subagent
-            // For now, use the same model as the main agent
+            let handle = h.clone();
+            let task_id = uuid::Uuid::new_v4().to_string();
+            let task_id_clone = task_id.clone();
+            let sub_task_clone = sub_task.to_string();
+
+            // Prepare sub-agent request
             let req = crate::ai_engine::AiRequest {
                 provider: "google".to_string(), // Default fallback
                 model: "gemini-2.0-flash-exp".to_string(),
                 messages: vec![crate::ai_engine::ChatMessage {
                     role: "user".to_string(),
-                    content: Some(crate::ai_engine::MessageContent::Text(sub_task.to_string())),
+                    content: Some(crate::ai_engine::MessageContent::Text(
+                        sub_task_clone.clone(),
+                    )),
                     tool_calls: None,
                     tool_call_id: None,
                     metadata: None,
@@ -1060,33 +1382,76 @@ impl AiTools {
                 cyber_mode: None,
                 root_access: Some(true),
                 ollama_url: None,
+                tools: None,
             };
 
-            // TODO: Intelligently inherit provider/model from current request context if possible
-            
-            println!("[SUBAGENT] Spawning sub-agent for task: {}", sub_task);
-            
-            let res = tauri::async_runtime::block_on(async move {
-                engine.autonomous_loop(req).await
+            println!(
+                "[SUBAGENT] Spawning async sub-agent [{}] for task: {}",
+                task_id, sub_task
+            );
+
+            // Spawn background task
+            tauri::async_runtime::spawn(async move {
+                let _ = handle.emit(
+                    "subagent-progress",
+                    json!({
+                        "task_id": task_id_clone,
+                        "status": "running",
+                        "progress": 5,
+                        "message": "Initializing sub-agent session..."
+                    }),
+                );
+
+                let res = engine.autonomous_loop(req).await;
+
+                match res {
+                    Ok(answer) => {
+                        let _ = handle.emit(
+                            "subagent-progress",
+                            json!({
+                                "task_id": task_id_clone,
+                                "status": "completed",
+                                "progress": 100,
+                                "result": answer
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        let _ = handle.emit(
+                            "subagent-progress",
+                            json!({
+                                "task_id": task_id_clone,
+                                "status": "failed",
+                                "progress": 0,
+                                "error": e.to_string()
+                            }),
+                        );
+                    }
+                }
             });
 
-            match res {
-                Ok(answer) => Ok(json!({ "status": "success", "subagent_response": answer })),
-                Err(e) => Ok(json!({ "status": "error", "message": format!("Sub-agent failed: {}", e) }))
-            }
+            Ok(json!({
+                "status": "success",
+                "task_id": task_id,
+                "message": "Sub-agent spawned in background."
+            }))
         } else {
             Err(anyhow!("App handle not set"))
         }
     }
 
     fn generate_image(&self, args: Value) -> Result<Value> {
-        let prompt = args["prompt"].as_str().ok_or_else(|| anyhow!("Missing prompt"))?;
-        let _path = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
-        
+        let prompt = args["prompt"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing prompt"))?;
+        let _path = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
+
         // Mocking for now, as it requires a specific Image Gen API
         // In a real implementation, we'd use OpenAI DALL-E or similar
         println!("[GENERATE_IMAGE] Prompt: {}", prompt);
-        
+
         Ok(json!({
             "status": "success",
             "message": "Image generation requested. (Note: Asset generation currently using fallback placeholders)",
@@ -1095,11 +1460,19 @@ impl AiTools {
     }
 
     fn analyze_image(&self, args: Value) -> Result<Value> {
-        let path = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
-        let question = args.get("question").and_then(|v| v.as_str()).unwrap_or("Describe this image.");
-        
-        println!("[ANALYZE_IMAGE] Analyzing {} with question: {}", path, question);
-        
+        let path = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let question = args
+            .get("question")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Describe this image.");
+
+        println!(
+            "[ANALYZE_IMAGE] Analyzing {} with question: {}",
+            path, question
+        );
+
         // Mocking analysis
         Ok(json!({
             "status": "success",
@@ -1109,23 +1482,34 @@ impl AiTools {
     }
 
     fn code_search(&self, args: Value) -> Result<Value> {
-        let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing query"))?;
-        let pattern = args.get("file_pattern").and_then(|v| v.as_str()).unwrap_or("*");
-        
+        let query = args["query"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing query"))?;
+        let pattern = args
+            .get("file_pattern")
+            .and_then(|v| v.as_str())
+            .unwrap_or("*");
+
         let root = self.root_path.lock().unwrap().clone();
         let mut results = Vec::new();
         let glob_pattern = format!("**/{}", pattern);
-        
+
         // Use walkdir for recursive search
-        for entry in walkdir::WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             if entry.file_type().is_file() {
                 let path = entry.path();
-                
+
                 // Match file pattern if provided
                 if pattern != "*" {
                     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if !glob::Pattern::new(&glob_pattern).unwrap().matches_path(path) && 
-                       !glob::Pattern::new(pattern).unwrap().matches(file_name) {
+                    if !glob::Pattern::new(&glob_pattern)
+                        .unwrap()
+                        .matches_path(path)
+                        && !glob::Pattern::new(pattern).unwrap().matches(file_name)
+                    {
                         continue;
                     }
                 }
@@ -1139,9 +1523,11 @@ impl AiTools {
                     }
                 }
             }
-            if results.len() > 100 { break; } 
+            if results.len() > 100 {
+                break;
+            }
         }
-        
+
         Ok(json!({
             "status": "success",
             "results": results,
@@ -1150,18 +1536,24 @@ impl AiTools {
     }
 
     fn dependency_graph(&self, args: Value) -> Result<Value> {
-        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
-        
+        let path_str = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
+
         let root = self.root_path.lock().unwrap().clone();
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
-        
+        let full_path = if PathBuf::from(path_str).is_absolute() {
+            PathBuf::from(path_str)
+        } else {
+            root.join(path_str)
+        };
+
         let mut imports = Vec::new();
         if let Ok(content) = fs::read_to_string(&full_path) {
             // Very simple regex-based discovery for demonstration
             // In a real implementation, we'd use tree-sitter or a proper parser
             let re_rust = regex::Regex::new(r"use\s+([^;]+);").unwrap();
             let re_ts = regex::Regex::new(r#"import.*from\s+['"]([^'"]+)['"]"#).unwrap();
-            
+
             for cap in re_rust.captures_iter(&content) {
                 imports.push(cap[1].to_string());
             }
@@ -1169,7 +1561,7 @@ impl AiTools {
                 imports.push(cap[1].to_string());
             }
         }
-        
+
         Ok(json!({
             "status": "success",
             "file": path_str,
@@ -1178,10 +1570,18 @@ impl AiTools {
     }
 
     fn terminal_terminate(&self, args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("Failed to lock app_handle"))?;
-        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
-        let term_id = args.get("term_id").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing term_id"))?;
-        
+        let h_lock = self
+            .app_handle
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock app_handle"))?;
+        let h = h_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("App handle not set"))?;
+        let term_id = args
+            .get("term_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing term_id"))?;
+
         let state = h.state::<crate::EditorState>();
         let mut processes = state.terminal_processes.lock().unwrap();
         if let Some(mut child) = processes.remove(term_id) {
@@ -1195,29 +1595,47 @@ impl AiTools {
     }
 
     fn terminal_get_status(&self, args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("Failed to lock app_handle"))?;
-        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
-        let term_id = args.get("term_id").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing term_id"))?;
-        
+        let h_lock = self
+            .app_handle
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock app_handle"))?;
+        let h = h_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("App handle not set"))?;
+        let term_id = args
+            .get("term_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing term_id"))?;
+
         let state = h.state::<crate::EditorState>();
         let mut processes = state.terminal_processes.lock().unwrap();
         if let Some(child) = processes.get_mut(term_id) {
             match child.try_wait() {
-                Ok(Some(status)) => Ok(json!({ "active": false, "success": status.success(), "status": if status.success() { "success" } else { "failed" } })),
+                Ok(Some(status)) => Ok(
+                    json!({ "active": false, "success": status.success(), "status": if status.success() { "success" } else { "failed" } }),
+                ),
                 Ok(None) => Ok(json!({ "active": true, "status": "running" })),
-                Err(e) => Err(anyhow!("Error checking process: {}", e))
+                Err(e) => Err(anyhow!("Error checking process: {}", e)),
             }
         } else {
-            Ok(json!({ "active": false, "info": "Process not found (likely already exited and cleaned up)." }))
+            Ok(
+                json!({ "active": false, "info": "Process not found (likely already exited and cleaned up)." }),
+            )
         }
     }
 
     fn search_files(&self, args: Value) -> Result<Value> {
-        let query = args.get("query").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing query"))?;
-        
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing query"))?;
+
         let mut results = Vec::new();
         use walkdir::WalkDir;
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
         for entry in WalkDir::new(&*root).into_iter().filter_map(|e| e.ok()) {
             if entry.file_type().is_file() {
                 let content = fs::read_to_string(entry.path());
@@ -1232,11 +1650,15 @@ impl AiTools {
                                 "match": line.trim()
                             }));
                         }
-                        if results.len() > 100 { break; }
+                        if results.len() > 100 {
+                            break;
+                        }
                     }
                 }
             }
-            if results.len() > 100 { break; }
+            if results.len() > 100 {
+                break;
+            }
         }
         Ok(Value::Array(results))
     }
@@ -1260,61 +1682,120 @@ impl AiTools {
     }
 
     fn browser_navigate(&self, args: Value) -> Result<Value> {
-        let url = args.get("url").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing url"))?;
+        let url = args
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing url"))?;
         let browser_lock = self.browser_state.browser.lock().unwrap();
-        let browser = browser_lock.as_ref().ok_or_else(|| anyhow!("Browser not launched"))?;
+        let browser = browser_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("Browser not launched"))?;
 
         let tab = browser.new_tab().map_err(|e| anyhow!(e.to_string()))?;
         tab.navigate_to(url).map_err(|e| anyhow!(e.to_string()))?;
-        tab.wait_until_navigated().map_err(|e| anyhow!(e.to_string()))?;
+        tab.wait_until_navigated()
+            .map_err(|e| anyhow!(e.to_string()))?;
 
         Ok(serde_json::json!({"status": "success", "message": format!("Navigated to {}", url)}))
     }
 
     fn browser_screenshot(&self, _args: Value) -> Result<Value> {
-        use base64::{Engine as _, engine::general_purpose};
+        use base64::{engine::general_purpose, Engine as _};
         let browser_lock = self.browser_state.browser.lock().unwrap();
-        let browser = browser_lock.as_ref().ok_or_else(|| anyhow!("Browser not launched"))?;
+        let browser = browser_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("Browser not launched"))?;
 
-        let tab = browser.get_tabs().lock().unwrap().first().ok_or_else(|| anyhow!("No tabs open"))?.clone();
-        let jpeg_data = tab.capture_screenshot(
-            headless_chrome::protocol::cdp::Page::CaptureScreenshotFormatOption::Jpeg,
-            None, None, true
-        ).map_err(|e| anyhow!(e.to_string()))?;
+        let tab = browser
+            .get_tabs()
+            .lock()
+            .unwrap()
+            .first()
+            .ok_or_else(|| anyhow!("No tabs open"))?
+            .clone();
+        let jpeg_data = tab
+            .capture_screenshot(
+                headless_chrome::protocol::cdp::Page::CaptureScreenshotFormatOption::Jpeg,
+                None,
+                None,
+                true,
+            )
+            .map_err(|e| anyhow!(e.to_string()))?;
 
-        Ok(serde_json::json!({"status": "success", "screenshot": general_purpose::STANDARD.encode(jpeg_data)}))
+        Ok(
+            serde_json::json!({"status": "success", "screenshot": general_purpose::STANDARD.encode(jpeg_data)}),
+        )
     }
 
     fn browser_click(&self, args: Value) -> Result<Value> {
-        let selector = args.get("selector").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing selector"))?;
+        let selector = args
+            .get("selector")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing selector"))?;
         let browser_lock = self.browser_state.browser.lock().unwrap();
-        let browser = browser_lock.as_ref().ok_or_else(|| anyhow!("Browser not launched"))?;
+        let browser = browser_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("Browser not launched"))?;
 
-        let tab = browser.get_tabs().lock().unwrap().first().ok_or_else(|| anyhow!("No tabs open"))?.clone();
-        let element = tab.wait_for_element(selector).map_err(|e| anyhow!(e.to_string()))?;
+        let tab = browser
+            .get_tabs()
+            .lock()
+            .unwrap()
+            .first()
+            .ok_or_else(|| anyhow!("No tabs open"))?
+            .clone();
+        let element = tab
+            .wait_for_element(selector)
+            .map_err(|e| anyhow!(e.to_string()))?;
         element.click().map_err(|e| anyhow!(e.to_string()))?;
 
         Ok(serde_json::json!({"status": "success", "message": format!("Clicked {}", selector)}))
     }
 
     fn browser_type(&self, args: Value) -> Result<Value> {
-        let selector = args.get("selector").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing selector"))?;
-        let text = args.get("text").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing text"))?;
+        let selector = args
+            .get("selector")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing selector"))?;
+        let text = args
+            .get("text")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing text"))?;
         let browser_lock = self.browser_state.browser.lock().unwrap();
-        let browser = browser_lock.as_ref().ok_or_else(|| anyhow!("Browser not launched"))?;
+        let browser = browser_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("Browser not launched"))?;
 
-        let tab = browser.get_tabs().lock().unwrap().first().ok_or_else(|| anyhow!("No tabs open"))?.clone();
-        let element = tab.wait_for_element(selector).map_err(|e| anyhow!(e.to_string()))?;
-        element.type_into(text).map_err(|e| anyhow!(e.to_string()))?;
+        let tab = browser
+            .get_tabs()
+            .lock()
+            .unwrap()
+            .first()
+            .ok_or_else(|| anyhow!("No tabs open"))?
+            .clone();
+        let element = tab
+            .wait_for_element(selector)
+            .map_err(|e| anyhow!(e.to_string()))?;
+        element
+            .type_into(text)
+            .map_err(|e| anyhow!(e.to_string()))?;
 
         Ok(serde_json::json!({"status": "success", "message": format!("Typed into {}", selector)}))
     }
 
     fn browser_read_dom(&self, _args: Value) -> Result<Value> {
         let browser_lock = self.browser_state.browser.lock().unwrap();
-        let browser = browser_lock.as_ref().ok_or_else(|| anyhow!("Browser not launched"))?;
+        let browser = browser_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("Browser not launched"))?;
 
-        let tab = browser.get_tabs().lock().unwrap().first().ok_or_else(|| anyhow!("No tabs open"))?.clone();
+        let tab = browser
+            .get_tabs()
+            .lock()
+            .unwrap()
+            .first()
+            .ok_or_else(|| anyhow!("No tabs open"))?
+            .clone();
         let content = tab.get_content().map_err(|e| anyhow!(e.to_string()))?;
 
         Ok(serde_json::json!({"status": "success", "dom": content}))
@@ -1326,68 +1807,138 @@ impl AiTools {
         Ok(serde_json::json!({"status": "success", "message": "Browser closed"}))
     }
 
+    fn get_command_help(&self, _args: Value) -> Result<Value> {
+        let commands = serde_json::json!([
+            {"name": "/commit", "description": "Generate a conventional commit message and commit changes."},
+            {"name": "/diff", "description": "Show the current working directory's git diff."},
+            {"name": "/doctor", "description": "Check system health (Git, Node, Rust, MCP)."},
+            {"name": "/tools", "description": "List all registered tools and their capabilities."},
+            {"name": "/resume", "description": "Restore the previous agent session from disk."},
+            {"name": "/reset", "description": "Clear the current conversation and task state."},
+            {"name": "/browser", "description": "Start a sub-agent to browse and summarize web content."},
+            {"name": "/search", "description": "Search for specific patterns or text across the project."},
+            {"name": "/terminal", "description": "Run a terminal command and return the output."},
+            {"name": "/explain", "description": "Explain a code item or file in detail."},
+            {"name": "/refactor", "description": "Suggest or perform a code refactor based on best practices."},
+            {"name": "/help", "description": "Show this command reference and usage guide."}
+        ]);
+        Ok(commands)
+    }
+
     fn find_api_keys(&self, _args: Value) -> Result<Value> {
         let mut results = Vec::new();
         let extensions = vec![
-            "xml", "json", "properties", "sql", "txt", "log", "tmp", "backup", "bak", "enc",
-            "yml", "yaml", "toml", "ini", "config", "conf", "cfg", "env", "envrc", "prod",
-            "secret", "private", "key"
+            "xml",
+            "json",
+            "properties",
+            "sql",
+            "txt",
+            "log",
+            "tmp",
+            "backup",
+            "bak",
+            "enc",
+            "yml",
+            "yaml",
+            "toml",
+            "ini",
+            "config",
+            "conf",
+            "cfg",
+            "env",
+            "envrc",
+            "prod",
+            "secret",
+            "private",
+            "key",
         ];
-        
+
         let openai_regex = regex::Regex::new(r"sk-[a-zA-Z0-9]{48}")?;
         let github_regex = regex::Regex::new(r"gh[pousr]_[a-zA-Z0-9]+")?;
         let google_regex = regex::Regex::new(r"AIza[0-9A-Za-z-_]{35}")?;
-        
-        let root = self.root_path.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|e| anyhow!("Lock error: {}", e))?;
         use walkdir::WalkDir;
         for entry in WalkDir::new(&*root).into_iter().filter_map(|e| e.ok()) {
             if entry.file_type().is_file() {
-                let ext = entry.path().extension().and_then(|s| s.to_str()).unwrap_or("");
+                let ext = entry
+                    .path()
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
                 if extensions.contains(&ext) || ext.is_empty() {
                     let content = fs::read_to_string(entry.path());
                     if let Ok(content) = content {
-                         for (i, line) in content.lines().enumerate() {
-                             let mut found = false;
-                             let mut provider = "";
-                             
-                             if openai_regex.is_match(line) && (line.to_lowercase().contains("openai") || line.to_lowercase().contains("gpt")) {
-                                 found = true;
-                                 provider = "OpenAI";
-                             } else if github_regex.is_match(line) && (line.to_lowercase().contains("github") || line.to_lowercase().contains("oauth")) {
-                                 found = true;
-                                 provider = "GitHub";
-                             } else if google_regex.is_match(line) && line.contains("Google") && line.contains("AIza") {
-                                 found = true;
-                                 provider = "Google";
-                             }
-                             
-                             if found {
-                                 results.push(serde_json::json!({
+                        for (i, line) in content.lines().enumerate() {
+                            let mut found = false;
+                            let mut provider = "";
+
+                            if openai_regex.is_match(line)
+                                && (line.to_lowercase().contains("openai")
+                                    || line.to_lowercase().contains("gpt"))
+                            {
+                                found = true;
+                                provider = "OpenAI";
+                            } else if github_regex.is_match(line)
+                                && (line.to_lowercase().contains("github")
+                                    || line.to_lowercase().contains("oauth"))
+                            {
+                                found = true;
+                                provider = "GitHub";
+                            } else if google_regex.is_match(line)
+                                && line.contains("Google")
+                                && line.contains("AIza")
+                            {
+                                found = true;
+                                provider = "Google";
+                            }
+
+                            if found {
+                                results.push(serde_json::json!({
                                      "provider": provider,
                                      "file": entry.path().strip_prefix(&*root)?.to_string_lossy().to_string(),
                                      "line": i + 1,
                                      "context": line.trim()
                                  }));
-                             }
-                             if results.len() > 100 { break; }
-                         }
+                            }
+                            if results.len() > 100 {
+                                break;
+                            }
+                        }
                     }
                 }
             }
-            if results.len() > 100 { break; }
+            if results.len() > 100 {
+                break;
+            }
         }
-        
+
         Ok(Value::Array(results))
     }
 
     fn grep(&self, args: Value) -> Result<Value> {
-        let query = args.get("query").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing query"))?;
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing query"))?;
         let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-        
-        let root = self.root_path.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|e| anyhow!("Lock error: {}", e))?;
         let output = if cfg!(target_os = "windows") {
-             std::process::Command::new("powershell")
-                .args(&["-Command", &format!("Select-String -Path '{}' -Pattern '{}' -Recursive", path, query)])
+            std::process::Command::new("powershell")
+                .args(&[
+                    "-Command",
+                    &format!(
+                        "Select-String -Path '{}' -Pattern '{}' -Recursive",
+                        path, query
+                    ),
+                ])
                 .current_dir(&*root)
                 .output()?
         } else {
@@ -1405,46 +1956,75 @@ impl AiTools {
     }
 
     fn terminal_send_data(&self, args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("Failed to lock app_handle"))?;
-        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
-        
-        let term_id_opt = args.get("term_id").and_then(|v| v.as_str());
-        let data = args.get("data").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing data"))?;
+        let h_lock = self
+            .app_handle
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock app_handle"))?;
+        let h = h_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("App handle not set"))?;
 
-        // 1. Check if we have ANY terminals. If not, MUST create one.
+        let term_id_opt = args.get("term_id").and_then(|v| v.as_str());
+        let data = args
+            .get("data")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing data"))?;
+
         let state = h.state::<crate::EditorState>();
-        let writers = state.terminal_writers.lock().unwrap();
-        
+        let mut writers = state.terminal_writers.lock().unwrap();
+
+        // 1. Create terminal if none exist
         if writers.is_empty() {
-            // Drop lock before emitting to avoid deadlock if emission triggers something that needs the lock
-            drop(writers); 
-            h.emit("terminal-create", json!({}))?;
-            // Give it a moment to initialize
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        } else {
             drop(writers);
+            h.emit("terminal-create", json!({}))?;
+            std::thread::sleep(std::time::Duration::from_millis(500)); // Wait for PTY initialization
+            writers = state.terminal_writers.lock().unwrap();
         }
 
-        // 2. Automatically toggle terminal open
-        h.emit("toggle-terminal", true)?;
-        
-        // 3. Send data
-        h.emit("terminal-input", json!({
-            "term_id": term_id_opt,
-            "data": data
-        }))?;
-        
-        Ok(json!({ "status": "success", "info": "Data sent to terminal. Use terminal_read_output to see results." }))
+        // 2. Select target terminal (provided ID or first available)
+        let target_id = term_id_opt
+            .map(|s| s.to_string())
+            .or_else(|| writers.keys().next().cloned());
+
+        if let Some(id) = target_id {
+            if let Some(writer) = writers.get_mut(&id) {
+                // Add auto-newline if missing for convenience
+                let payload = if data.ends_with('\n') {
+                    data.to_string()
+                } else {
+                    format!("{}\n", data)
+                };
+                writer.write_all(payload.as_bytes())?;
+                writer.flush()?;
+
+                Ok(json!({
+                    "status": "success",
+                    "term_id": id,
+                    "info": format!("Data sent to terminal '{}'.", id)
+                }))
+            } else {
+                Err(anyhow!("Terminal '{}' not found in writers", id))
+            }
+        } else {
+            Err(anyhow!(
+                "No active terminal session found and auto-creation failed."
+            ))
+        }
     }
 
     fn terminal_get_state(&self, _args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("Failed to lock app_handle"))?;
-        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
-        
+        let h_lock = self
+            .app_handle
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock app_handle"))?;
+        let h = h_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("App handle not set"))?;
+
         let state = h.state::<crate::EditorState>();
         let writers = state.terminal_writers.lock().unwrap();
         let ids: Vec<String> = writers.keys().cloned().collect();
-        
+
         Ok(json!({
             "active_terminals": ids,
             "count": ids.len(),
@@ -1453,21 +2033,28 @@ impl AiTools {
     }
 
     fn terminal_create(&self, args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("Failed to lock app_handle"))?;
-        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
-        
+        let h_lock = self
+            .app_handle
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock app_handle"))?;
+        let h = h_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("App handle not set"))?;
+
         let shell = args.get("shell").and_then(|v| v.as_str());
         h.emit("terminal-create", json!({ "shell": shell }))?;
-        
+
         Ok(json!({ "status": "success", "message": "Terminal creation requested." }))
     }
 
     fn get_system_info(&self, _args: Value) -> Result<Value> {
         let os = std::env::consts::OS;
         let arch = std::env::consts::ARCH;
-        let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "unknown".to_string());
+        let user = std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .unwrap_or_else(|_| "unknown".to_string());
         let current_dir = std::env::current_dir().unwrap_or_default();
-        
+
         Ok(json!({
             "os": os,
             "architecture": arch,
@@ -1478,21 +2065,53 @@ impl AiTools {
     }
 
     fn terminal_read_output(&self, args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("Failed to lock app_handle"))?;
-        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
-        let term_id = args.get("term_id").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing term_id"))?;
+        let h_lock = self
+            .app_handle
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock app_handle"))?;
+        let h = h_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("App handle not set"))?;
 
         let state = h.state::<crate::EditorState>();
-        let buffers = state.terminal_buffers.lock().map_err(|_| anyhow!("Failed to lock terminal_buffers"))?;
-        let history = buffers.get(term_id).ok_or_else(|| anyhow!("Terminal '{}' not found", term_id))?;
-        
-        Ok(json!({ "output": history.join("") }))
+        let term_buffers = state.terminal_buffers.lock().unwrap();
+
+        let term_id_opt = args.get("term_id").and_then(|v| v.as_str());
+
+        // Use specified ID or find first available with content
+        let target_id = term_id_opt.map(|s| s.to_string()).or_else(|| {
+            term_buffers
+                .iter()
+                .find(|(_, buf)| !buf.is_empty())
+                .map(|(id, _)| id.clone())
+        });
+
+        if let Some(id) = target_id {
+            if let Some(buffer) = term_buffers.get(&id) {
+                Ok(json!({
+                    "term_id": id,
+                    "output": buffer.join("")
+                }))
+            } else {
+                Err(anyhow!("Terminal '{}' not found in buffers", id))
+            }
+        } else {
+            Ok(json!({ "output": "", "info": "No active terminal buffers with content." }))
+        }
     }
 
     fn terminal_toggle(&self, args: Value) -> Result<Value> {
-        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("Failed to lock app_handle"))?;
-        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
-        let visible = args.get("visible").and_then(|v| v.as_bool()).ok_or_else(|| anyhow!("Missing visible"))?;
+        let h_lock = self
+            .app_handle
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock app_handle"))?;
+        let h = h_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("App handle not set"))?;
+        let visible = args
+            .get("visible")
+            .and_then(|v| v.as_bool())
+            .ok_or_else(|| anyhow!("Missing visible"))?;
 
         h.emit("toggle-terminal", visible)?;
         Ok(json!({ "status": "success" }))
@@ -1501,38 +2120,50 @@ impl AiTools {
     fn browser_capture_vision_context(&self, _args: Value) -> Result<Value> {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
-            crate::browser::capture_vision_context_internal(&self.browser_state).await
+            crate::browser::capture_vision_context_internal(&self.browser_state)
+                .await
                 .map_err(|e| anyhow!(e))
         })
     }
 
     pub fn editor_open_file(&self, args: Value) -> Result<Value> {
-        let path_str = args.get("path").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing path"))?;
+        let path_str = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing path"))?;
         let root = self.root_path.lock().map_err(|_| anyhow!("Lock error"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
-        
+        let full_path = if PathBuf::from(path_str).is_absolute() {
+            PathBuf::from(path_str)
+        } else {
+            root.join(path_str)
+        };
+
         let path_string = full_path.to_string_lossy().to_string();
-        
+
         if let Ok(h_lock) = self.app_handle.lock() {
             if let Some(h) = h_lock.as_ref() {
                 use tauri::Emitter;
                 let _ = h.emit("editor_open_file", json!({ "path": path_string }));
-                return Ok(json!({ "status": "success", "info": format!("Opened {} in editor", path_str) }));
+                return Ok(
+                    json!({ "status": "success", "info": format!("Opened {} in editor", path_str) }),
+                );
             }
         }
         Err(anyhow!("App handle not available"))
     }
 
-
     pub fn editor_get_active_file(&self, _args: Value) -> Result<Value> {
         let handle_lock = self.app_handle.lock().map_err(|_| anyhow!("Lock error"))?;
         if let Some(handle) = handle_lock.as_ref() {
             let state: tauri::State<crate::EditorState> = handle.state();
-            let active_path = state.active_path.lock().map_err(|_| anyhow!("Lock error"))?;
-            
+            let active_path = state
+                .active_path
+                .lock()
+                .map_err(|_| anyhow!("Lock error"))?;
+
             match active_path.as_ref() {
                 Some(path) => Ok(json!({ "status": "success", "path": path })),
-                None => Ok(json!({ "status": "not_found", "message": "No active file" }))
+                None => Ok(json!({ "status": "not_found", "message": "No active file" })),
             }
         } else {
             Err(anyhow!("App handle not available"))
@@ -1540,13 +2171,28 @@ impl AiTools {
     }
 
     fn replace_file_content(&self, args: Value) -> Result<Value> {
-        let path_str = args.get("path").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing path"))?;
-        let target = args.get("target").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing target"))?;
-        let replacement = args.get("replacement").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing replacement"))?;
+        let path_str = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let target = args
+            .get("target")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing target"))?;
+        let replacement = args
+            .get("replacement")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing replacement"))?;
 
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
-
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let full_path = if PathBuf::from(path_str).is_absolute() {
+            PathBuf::from(path_str)
+        } else {
+            root.join(path_str)
+        };
 
         let content = fs::read_to_string(&full_path)?;
         if !content.contains(target) {
@@ -1560,19 +2206,37 @@ impl AiTools {
     }
 
     fn multi_replace_file_content(&self, args: Value) -> Result<Value> {
-        let path_str = args.get("path").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing path"))?;
-        let replacements = args.get("replacements").and_then(|v| v.as_array()).ok_or_else(|| anyhow!("Missing replacements array"))?;
+        let path_str = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let replacements = args
+            .get("replacements")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow!("Missing replacements array"))?;
 
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
-
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let full_path = if PathBuf::from(path_str).is_absolute() {
+            PathBuf::from(path_str)
+        } else {
+            root.join(path_str)
+        };
 
         let mut content = fs::read_to_string(&full_path)?;
 
         for rep in replacements {
-            let target = rep.get("target").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing target in replacement"))?;
-            let replacement = rep.get("replacement").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing replacement in replacement"))?;
-            
+            let target = rep
+                .get("target")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("Missing target in replacement"))?;
+            let replacement = rep
+                .get("replacement")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("Missing replacement in replacement"))?;
+
             if !content.contains(target) {
                 return Err(anyhow!("Target string '{}' not found in file", target));
             }
@@ -1584,10 +2248,16 @@ impl AiTools {
     }
 
     fn find_by_name(&self, args: Value) -> Result<Value> {
-        let pattern = args.get("pattern").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing pattern"))?;
+        let pattern = args
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing pattern"))?;
         let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
         let search_path = root.join(path_str);
 
         if !search_path.starts_with(&*root) {
@@ -1602,20 +2272,33 @@ impl AiTools {
             if entry.file_type().is_file() {
                 let name = entry.file_name().to_string_lossy().to_lowercase();
                 if glob_pat.matches(&name) {
-                    results.push(entry.path().strip_prefix(&*root)?.to_string_lossy().to_string());
+                    results.push(
+                        entry
+                            .path()
+                            .strip_prefix(&*root)?
+                            .to_string_lossy()
+                            .to_string(),
+                    );
                 }
             }
-            if results.len() > 100 { break; }
+            if results.len() > 100 {
+                break;
+            }
         }
 
-        Ok(Value::Array(results.into_iter().map(Value::String).collect()))
+        Ok(Value::Array(
+            results.into_iter().map(Value::String).collect(),
+        ))
     }
 
     fn get_directory_structure(&self, args: Value) -> Result<Value> {
         let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
         let max_depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
 
-        let root = self.root_path.lock().map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
         let start_path = root.join(path_str);
 
         if !start_path.starts_with(&*root) {
@@ -1625,11 +2308,19 @@ impl AiTools {
         let mut structure = Vec::new();
         use walkdir::WalkDir;
 
-        for entry in WalkDir::new(start_path).max_depth(max_depth).into_iter().filter_map(|e| e.ok()) {
-            let rel_path = entry.path().strip_prefix(&*root)?.to_string_lossy().to_string();
+        for entry in WalkDir::new(start_path)
+            .max_depth(max_depth)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let rel_path = entry
+                .path()
+                .strip_prefix(&*root)?
+                .to_string_lossy()
+                .to_string();
             let depth = entry.depth();
             let is_dir = entry.file_type().is_dir();
-            
+
             structure.push(json!({
                 "path": rel_path,
                 "depth": depth,
@@ -1641,22 +2332,37 @@ impl AiTools {
     }
 
     pub fn analyze_file_symbols(&self, args: Value) -> Result<Value> {
-        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
-        let root = self.root_path.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
-        
+        let path_str = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|e| anyhow!("Lock error: {}", e))?;
+        let full_path = if PathBuf::from(path_str).is_absolute() {
+            PathBuf::from(path_str)
+        } else {
+            root.join(path_str)
+        };
+
         let content = fs::read_to_string(&full_path)?;
         let mut symbols = Vec::new();
-        
+
         let extension = full_path.extension().and_then(|s| s.to_str()).unwrap_or("");
-        
+
         match extension {
             "rs" => {
-                let fn_re = regex::Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
-                let struct_re = regex::Regex::new(r"(?m)^\s*(?:pub\s+)?struct\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
-                let enum_re = regex::Regex::new(r"(?m)^\s*(?:pub\s+)?enum\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
-                let trait_re = regex::Regex::new(r"(?m)^\s*(?:pub\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
-                let impl_re = regex::Regex::new(r"(?m)^\s*impl(?:\s+<.*>)?\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
+                let fn_re = regex::Regex::new(
+                    r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                )?;
+                let struct_re =
+                    regex::Regex::new(r"(?m)^\s*(?:pub\s+)?struct\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
+                let enum_re =
+                    regex::Regex::new(r"(?m)^\s*(?:pub\s+)?enum\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
+                let trait_re =
+                    regex::Regex::new(r"(?m)^\s*(?:pub\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
+                let impl_re =
+                    regex::Regex::new(r"(?m)^\s*impl(?:\s+<.*>)?\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
 
                 for cap in fn_re.captures_iter(&content) {
                     symbols.push(json!({"type": "function", "name": &cap[1]}));
@@ -1673,12 +2379,19 @@ impl AiTools {
                 for cap in impl_re.captures_iter(&content) {
                     symbols.push(json!({"type": "impl", "name": &cap[1]}));
                 }
-            },
+            }
             "ts" | "tsx" | "js" | "jsx" => {
-                let func_re = regex::Regex::new(r"(?m)^\s*(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
-                let class_re = regex::Regex::new(r"(?m)^\s*(?:export\s+)?class\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
-                let interface_re = regex::Regex::new(r"(?m)^\s*(?:export\s+)?interface\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
-                let const_func_re = regex::Regex::new(r"(?m)^\s*(?:export\s+)?const\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(?:\(.*\)|async)")?;
+                let func_re = regex::Regex::new(
+                    r"(?m)^\s*(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                )?;
+                let class_re =
+                    regex::Regex::new(r"(?m)^\s*(?:export\s+)?class\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
+                let interface_re = regex::Regex::new(
+                    r"(?m)^\s*(?:export\s+)?interface\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                )?;
+                let const_func_re = regex::Regex::new(
+                    r"(?m)^\s*(?:export\s+)?const\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(?:\(.*\)|async)",
+                )?;
 
                 for cap in func_re.captures_iter(&content) {
                     symbols.push(json!({"type": "function", "name": &cap[1]}));
@@ -1692,7 +2405,7 @@ impl AiTools {
                 for cap in const_func_re.captures_iter(&content) {
                     symbols.push(json!({"type": "component/function", "name": &cap[1]}));
                 }
-            },
+            }
             "py" => {
                 let def_re = regex::Regex::new(r"(?m)^\s*def\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
                 let class_re = regex::Regex::new(r"(?m)^\s*class\s+([a-zA-Z_][a-zA-Z0-9_]*)")?;
@@ -1703,9 +2416,8 @@ impl AiTools {
                 for cap in class_re.captures_iter(&content) {
                     symbols.push(json!({"type": "class", "name": &cap[1]}));
                 }
-            },
-            _ => {
             }
+            _ => {}
         }
 
         Ok(json!({
@@ -1717,21 +2429,37 @@ impl AiTools {
     }
 
     fn patch_file_content(&self, args: Value) -> Result<Value> {
-        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
-        let start_line = args["StartLine"].as_u64().ok_or_else(|| anyhow!("Missing StartLine"))? as usize;
-        let end_line = args["EndLine"].as_u64().ok_or_else(|| anyhow!("Missing EndLine"))? as usize;
-        let replacement = args["ReplacementContent"].as_str().ok_or_else(|| anyhow!("Missing ReplacementContent"))?;
+        let path_str = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let start_line = args["StartLine"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("Missing StartLine"))? as usize;
+        let end_line = args["EndLine"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("Missing EndLine"))? as usize;
+        let replacement = args["ReplacementContent"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing ReplacementContent"))?;
 
         let root = self.root_path.lock().map_err(|_| anyhow!("Lock error"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() { PathBuf::from(path_str) } else { root.join(path_str) };
+        let full_path = if PathBuf::from(path_str).is_absolute() {
+            PathBuf::from(path_str)
+        } else {
+            root.join(path_str)
+        };
 
         let content = fs::read_to_string(&full_path)?;
         let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        
+
         if start_line == 0 || start_line > lines.len() + 1 {
-            return Err(anyhow!("StartLine {} out of range (total lines: {})", start_line, lines.len()));
+            return Err(anyhow!(
+                "StartLine {} out of range (total lines: {})",
+                start_line,
+                lines.len()
+            ));
         }
-        
+
         let start_idx = start_line - 1;
         let end_idx = std::cmp::min(end_line, lines.len());
 
@@ -1747,7 +2475,7 @@ impl AiTools {
     fn read_url_content(&self, args: Value) -> Result<Value> {
         let url = args["url"].as_str().ok_or_else(|| anyhow!("Missing url"))?;
         let body = reqwest::blocking::get(url)?.text()?;
-        
+
         Ok(json!({
             "url": url,
             "content_length": body.len(),
@@ -1755,47 +2483,452 @@ impl AiTools {
         }))
     }
 
-    fn browser_subagent(&self, args: Value) -> Result<Value> {
-        let task = args["task"].as_str().ok_or_else(|| anyhow!("Missing task"))?;
-        
-        println!("[Subagent] Executing web research for: {}", task);
-        
-        // Step 1: Open Browser
-        let _ = self.browser_open(json!({}));
-        
-        // Step 2: Search
-        let _search_res = self.browser_search(json!({ "query": task }))?;
-        
-        // Step 3: Get Summary of results
-        let summary = self.browser_get_content_summary(json!({}))?;
-        
-        // Step 4: Extract first link and navigate
-        let mut detail = String::new();
-        if let Some(links) = summary["links"].as_array() {
-            if let Some(first) = links.first() {
-                if let Some(href) = first["href"].as_str() {
-                    let _ = self.browser_navigate(json!({ "url": href }));
-                    let detail_summary = self.browser_get_content_summary(json!({}))?;
-                    detail = detail_summary["text"].as_str().unwrap_or_default().chars().take(2000).collect();
-                }
+    pub fn browser_subagent(self: Arc<Self>, args: Value) -> Result<Value> {
+        let task = args["task"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing task"))?
+            .to_string();
+
+        let app_handle = self.app_handle.clone();
+        let tools = Arc::new(self.clone());
+        let task_id = format!(
+            "browser-{}",
+            uuid::Uuid::new_v4()
+                .to_string()
+                .chars()
+                .take(8)
+                .collect::<String>()
+        );
+
+        // Report initial start
+        if let Ok(h_lock) = app_handle.lock() {
+            if let Some(h) = h_lock.as_ref() {
+                let _ = h.emit(
+                    "subagent-progress",
+                    json!({
+                        "id": task_id,
+                        "title": format!("Web Research: {}", task),
+                        "progress": 5,
+                        "status": "running",
+                        "message": "Launching browser..."
+                    }),
+                );
             }
         }
-        
+
+        let t_owned = task.clone();
+        let tid_owned = task_id.clone();
+        let h_owned = app_handle.clone();
+        let tools_loop = tools.clone();
+
+        tokio::spawn(async move {
+            let h_loop = h_owned;
+            let tid_loop = tid_owned;
+            let t_loop = t_owned;
+            let sub_tools = tools_loop;
+
+            // Step 1: Open Browser
+            {
+                if let Ok(h_lock) = h_loop.lock() {
+                    if let Some(h_val) = &*h_lock {
+                        let _ = h_val.emit(
+                            "subagent-progress",
+                            json!({
+                                "id": tid_loop,
+                                "title": format!("Web Research: {}", t_loop),
+                                "progress": 15,
+                                "status": "running",
+                                "message": "Opening headless browser..."
+                            }),
+                        );
+                    }
+                }
+            }
+
+            if let Err(e) = sub_tools.browser_open(json!({})) {
+                {
+                    if let Ok(h_lock) = h_loop.lock() {
+                        if let Some(h_val) = &*h_lock {
+                            let _ = h_val.emit(
+                                "subagent-progress",
+                                json!({
+                                    "id": tid_loop,
+                                    "status": "failed",
+                                    "message": format!("Failed to open browser: {}", e)
+                                }),
+                            );
+                        }
+                    }
+                }
+                return;
+            }
+
+            // Step 2: Search
+            {
+                if let Ok(h_lock) = h_loop.lock() {
+                    if let Some(h_val) = &*h_lock {
+                        let _ = h_val.emit(
+                            "subagent-progress",
+                            json!({
+                                "id": tid_loop,
+                                "title": format!("Web Research: {}", t_loop),
+                                "progress": 30,
+                                "status": "running",
+                                "message": format!("Searching for '{}'...", t_loop)
+                            }),
+                        );
+                    }
+                }
+            }
+
+            match sub_tools.browser_search(json!({ "query": t_loop })) {
+                Ok(_) => {
+                    if let Ok(h_lock) = h_loop.lock() {
+                        if let Some(h_val) = &*h_lock {
+                            let _ = h_val.emit(
+                                "subagent-progress",
+                                json!({
+                                    "id": tid_loop,
+                                    "title": format!("Web Research: {}", t_loop),
+                                    "progress": 50,
+                                    "status": "running",
+                                    "message": "Extracting initial results..."
+                                }),
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    {
+                        if let Ok(h_lock) = h_loop.lock() {
+                            if let Some(h_val) = &*h_lock {
+                                let _ = h_val.emit(
+                                    "subagent-progress",
+                                    json!({
+                                        "id": tid_loop,
+                                        "status": "failed",
+                                        "message": format!("Search failed: {}", e)
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+
+            // Step 3: Get Summary
+            {
+                if let Ok(h_lock) = h_loop.lock() {
+                    if let Some(h_val) = &*h_lock {
+                        let _ = h_val.emit(
+                            "subagent-progress",
+                            json!({
+                                "id": tid_loop,
+                                "title": format!("Web Research: {}", t_loop),
+                                "progress": 60,
+                                "status": "running",
+                                "message": "Summarizing search results..."
+                            }),
+                        );
+                    }
+                }
+            }
+
+            let summary = match sub_tools.browser_get_content_summary(json!({})) {
+                Ok(s) => s,
+                Err(e) => {
+                    {
+                        if let Ok(h_lock) = h_loop.lock() {
+                            if let Some(h_val) = &*h_lock {
+                                let _ = h_val.emit(
+                                    "subagent-progress",
+                                    json!({
+                                        "id": tid_loop,
+                                        "status": "failed",
+                                        "message": format!("Summary failed: {}", e)
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                    return;
+                }
+            };
+
+            // Step 4: Deep Dive into first relevant link
+            let mut detail = String::new();
+            if let Some(links) = summary["links"].as_array() {
+                if let Some(first) = links.first() {
+                    if let Some(href) = first["href"].as_str() {
+                        {
+                            if let Ok(h_lock) = h_loop.lock() {
+                                if let Some(h_val) = &*h_lock {
+                                    let _ = h_val.emit("subagent-progress", json!({ "id": tid_loop, "title": format!("Web Research: {}", t_loop), "progress": 75, "status": "running", "message": format!("Navigating to source: {}...", href) }));
+                                }
+                            }
+                        }
+                        let _ = sub_tools.browser_navigate(json!({ "url": href }));
+
+                        {
+                            if let Ok(h_lock) = h_loop.lock() {
+                                if let Some(h_val) = &*h_lock {
+                                    let _ = h_val.emit("subagent-progress", json!({ "id": tid_loop, "title": format!("Web Research: {}", t_loop), "progress": 85, "status": "running", "message": "Analyzing source content..." }));
+                                }
+                            }
+                        }
+                        if let Ok(detail_summary) = sub_tools.browser_get_content_summary(json!({}))
+                        {
+                            detail = detail_summary["text"]
+                                .as_str()
+                                .unwrap_or_default()
+                                .chars()
+                                .take(2000)
+                                .collect();
+                        }
+                    }
+                }
+            }
+
+            // Final Report
+            {
+                if let Ok(h_lock) = h_loop.lock() {
+                    if let Some(h_val) = &*h_lock {
+                        let _ = h_val.emit("subagent-progress", json!({ "id": tid_loop, "title": format!("Web Research: {}", t_loop), "progress": 100, "status": "running", "message": "Research completed." }));
+                    }
+                };
+            }
+
+            let final_result = json!({
+                "task": t_loop,
+                "status": "Research loop completed autonomously.",
+                "summary": summary["text"].as_str().unwrap_or("No summary provided").chars().take(1000).collect::<String>(),
+                "detail": detail,
+                "verification_artifact": "research_report.md"
+            });
+
+            {
+                if let Ok(h_lock) = h_loop.lock() {
+                    if let Some(h_val) = &*h_lock {
+                        let _ = h_val.emit(
+                            "subagent-progress",
+                            json!({
+                                "id": tid_loop,
+                                "status": "completed",
+                                "progress": 100,
+                                "result": final_result
+                            }),
+                        );
+                    }
+                };
+            }
+        });
+
         Ok(json!({
-            "task": task,
-            "status": "Research loop completed autonomously.",
-            "summary": summary["text"].as_str().unwrap_or("No summary provided").chars().take(1000).collect::<String>(),
-            "detail": detail,
-            "verification_artifact": "research_report.md"
+            "status": "success",
+            "message": "Browser orchestrator started in background.",
+            "task_id": task_id
         }))
     }
 
-    fn perplexity_proxy(&self, args: Value) -> Result<Value> {
-        let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing query"))?;
-        
+    pub fn perplexity_proxy(self: Arc<Self>, args: Value) -> Result<Value> {
+        let query = args["query"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing query"))?;
+
         // Fallback: Use the browser search logic if Perplexity API is unavailable
         println!("[Perplexity] Fallback research for: {}", query);
-        self.browser_subagent(json!({ "task": query }))
+        self.clone().browser_subagent(json!({ "task": query }))
+    }
+
+    // Git Tools Implementation
+    fn git_status(&self, _args: Value) -> Result<Value> {
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let status = self
+            .git_manager
+            .get_status(&*root)
+            .map_err(|e| anyhow!(e))?;
+        Ok(json!(status))
+    }
+
+    fn git_add(&self, args: Value) -> Result<Value> {
+        let path = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        self.git_manager
+            .stage(&*root, path)
+            .map_err(|e| anyhow!(e))?;
+        Ok(json!({ "status": "success", "message": format!("Staged {}", path) }))
+    }
+
+    fn git_commit(&self, args: Value) -> Result<Value> {
+        let message = args["message"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing message"))?;
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        self.git_manager
+            .commit(&*root, message)
+            .map_err(|e| anyhow!(e))?;
+        Ok(json!({ "status": "success", "message": "Changes committed." }))
+    }
+
+    fn git_log(&self, args: Value) -> Result<Value> {
+        let _limit = args["limit"].as_u64().unwrap_or(10);
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+        let history = self
+            .git_manager
+            .get_history(&*root)
+            .map_err(|e| anyhow!(e))?;
+        Ok(json!(history))
+    }
+
+    fn git_diff(&self, args: Value) -> Result<Value> {
+        let path = args["path"].as_str().unwrap_or(".");
+        let staged = args["staged"].as_bool().unwrap_or(false);
+        let root = self
+            .root_path
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock root_path"))?;
+
+        let mut cmd = std::process::Command::new("git");
+        cmd.arg("diff");
+        if staged {
+            cmd.arg("--staged");
+        }
+        cmd.arg(path);
+        cmd.current_dir(&*root);
+
+        let output = cmd
+            .output()
+            .map_err(|e| anyhow!("Failed to execute git diff: {}", e))?;
+        let diff = String::from_utf8_lossy(&output.stdout).to_string();
+
+        Ok(json!({ "diff": diff }))
+    }
+
+    fn get_system_health(&self, _args: Value) -> Result<Value> {
+        let mut health = json!({
+            "git": { "status": "unknown" },
+            "node": { "status": "unknown" },
+            "rust": { "status": "unknown" },
+            "mcp": []
+        });
+
+        // 1. Check Git
+        let root = self.root_path.lock().unwrap();
+        let git_status = std::process::Command::new("git")
+            .arg("rev-parse")
+            .arg("--is-inside-work-tree")
+            .current_dir(&*root)
+            .output();
+        health["git"]["status"] = if git_status.is_ok() && git_status.unwrap().status.success() {
+            json!("ok")
+        } else {
+            json!("not_in_repo")
+        };
+
+        // 2. Check Node
+        let node_v = std::process::Command::new("node").arg("--version").output();
+        health["node"]["status"] = if node_v.is_ok() && node_v.unwrap().status.success() {
+            json!("ok")
+        } else {
+            json!("missing")
+        };
+
+        // 3. Check Rust
+        let cargo_v = std::process::Command::new("cargo")
+            .arg("--version")
+            .output();
+        health["rust"]["status"] = if cargo_v.is_ok() && cargo_v.unwrap().status.success() {
+            json!("ok")
+        } else {
+            json!("missing")
+        };
+
+        // 4. Check MCP (Async bridged to sync for tools compatibility)
+        let mcp_status =
+            tauri::async_runtime::block_on(async { self.mcp_registry.list_servers_status().await });
+        health["mcp"] = json!(mcp_status);
+
+        Ok(health)
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_validate_path_safe() {
+        let root = std::env::temp_dir().join(format!("test_root_{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+
+        let browser_state = Arc::new(crate::browser::BrowserState::new());
+        let git_manager = Arc::new(crate::git::GitManager::new());
+        let mcp_registry = Arc::new(crate::mcp_registry::McpRegistry::new(
+            root.join("mcp_config.json"),
+        ));
+        let ai_tools = AiTools::new(root.clone(), browser_state, git_manager, mcp_registry);
+
+        // Safe relative path
+        let res = ai_tools.validate_path(&root, "src/main.rs");
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), root.join("src/main.rs"));
+
+        // Safe dot path
+        let res = ai_tools.validate_path(&root, ".");
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_validate_path_traversal() {
+        let root = std::env::temp_dir().join(format!("test_root_{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+
+        let browser_state = Arc::new(crate::browser::BrowserState::new());
+        let git_manager = Arc::new(crate::git::GitManager::new());
+        let mcp_registry = Arc::new(crate::mcp_registry::McpRegistry::new(
+            root.join("mcp_config.json"),
+        ));
+        let ai_tools = AiTools::new(root.clone(), browser_state, git_manager, mcp_registry);
+
+        // Simple traversal
+        let res = ai_tools.validate_path(&root, "../secrets.txt");
+        assert!(res.is_err());
+
+        // Nested traversal
+        let res = ai_tools.validate_path(&root, "src/../../etc/passwd");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_validate_path_absolute_escape() {
+        let root = std::env::temp_dir().join(format!("test_root_{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+
+        let browser_state = Arc::new(crate::browser::BrowserState::new());
+        let git_manager = Arc::new(crate::git::GitManager::new());
+        let mcp_registry = Arc::new(crate::mcp_registry::McpRegistry::new(
+            root.join("mcp_config.json"),
+        ));
+        let ai_tools = AiTools::new(root.clone(), browser_state, git_manager, mcp_registry);
+
+        // Absolute path outside root
+        let res = ai_tools.validate_path(&root, "/etc/passwd");
+        assert!(res.is_err());
+    }
+}
