@@ -21,15 +21,18 @@ use hunter::ApiRadarHunter;
 mod ai_auth;
 
 pub mod ai_engine;
-use ai_engine::{AiRequest, Sentient};
+use ai_engine::{AiRequest, ChatMessage, Sentient};
 mod ai_tools;
+pub mod context_quantizer;
 pub mod domain;
 mod mcp_client;
 mod mcp_registry;
+pub mod memory_optimizer;
 mod memory_store;
 mod task_planner;
 // mod browser_bridge; // Redundant, functionality in browser.rs
 mod tool_invoker;
+mod visual_lab;
 
 mod lsp;
 use lsp::LspClient;
@@ -111,6 +114,7 @@ pub(crate) struct EditorState {
     browser_state: Arc<browser::BrowserState>,
     mcp_registry: Arc<mcp_registry::McpRegistry>,
     terminal_buffers: Mutex<HashMap<String, Vec<String>>>,
+    memory_optimizer: Arc<memory_optimizer::MemoryOptimizer>,
     advisor_model: Mutex<Option<String>>,
 }
 
@@ -153,8 +157,10 @@ impl EditorState {
         }
         let auth_state = Arc::new(ai_auth::AuthState::new());
         let browser_state = Arc::new(browser::BrowserState::new());
+        let memory_optimizer = Arc::new(memory_optimizer::MemoryOptimizer::new());
 
         let git_manager = Arc::new(crate::git::GitManager::new());
+        let perf_monitor = Arc::new(crate::performance::PerformanceMonitor::new());
         let sentient = Arc::new(Sentient::new(
             "".to_string(), // Initial empty API key
             root.clone(),
@@ -162,6 +168,8 @@ impl EditorState {
             browser_state.clone(),
             git_manager.clone(),
             config_dir.clone(),
+            memory_optimizer.clone(),
+            perf_monitor.clone(),
         ));
         println!("[DEBUG] Sentient initialized");
         sentient.set_app_handle(app.clone());
@@ -202,6 +210,7 @@ impl EditorState {
                 config_dir.join("mcp_config.json"),
             )),
             terminal_buffers: Mutex::new(HashMap::new()),
+            memory_optimizer: Arc::new(memory_optimizer::MemoryOptimizer::new()),
             advisor_model: Mutex::new(None),
         }
     }
@@ -498,6 +507,25 @@ fn get_running_extensions(state: State<'_, EditorState>) -> Vec<extension_host::
 }
 
 #[tauri::command]
+async fn compress_session_data(
+    state: State<'_, EditorState>,
+    key: String,
+    data: String,
+) -> Result<(), String> {
+    state
+        .memory_optimizer
+        .compress_and_store(&key, &data)
+        .await
+        .map_err(|e: anyhow::Error| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_memory_savings(state: State<'_, EditorState>) -> Result<(usize, usize), String> {
+    Ok(state.memory_optimizer.get_savings_report().await)
+}
+
+#[tauri::command]
 fn get_process_stats(state: State<'_, EditorState>) -> performance::ProcessStats {
     state
         .perf_monitor
@@ -505,6 +533,8 @@ fn get_process_stats(state: State<'_, EditorState>) -> performance::ProcessStats
         .unwrap_or(performance::ProcessStats {
             memory_mb: 0,
             cpu_usage: 0.0,
+            total_ram_gb: 0,
+            available_ram_gb: 0,
         })
 }
 
@@ -1023,6 +1053,12 @@ fn get_git_history(path: String) -> Result<Vec<git::GitCommitInfo>, String> {
 }
 
 #[tauri::command]
+fn git_diff(path: String, hash: String) -> Result<String, String> {
+    let manager = GitManager::new();
+    manager.get_commit_diff(path, &hash)
+}
+
+#[tauri::command]
 fn search_project(
     state: State<'_, EditorState>,
     query: String,
@@ -1503,6 +1539,15 @@ fn resize_terminal(
 }
 
 #[tauri::command]
+async fn get_system_health(state: State<'_, EditorState>) -> Result<Value, String> {
+    state
+        .ai_engine
+        .get_tools()
+        .get_system_health(json!({}))
+        .map_err(|e: anyhow::Error| e.to_string())
+}
+
+#[tauri::command]
 async fn ai_chat(state: State<'_, EditorState>, request: AiRequest) -> Result<String, String> {
     let content = state
         .ai_engine
@@ -1537,6 +1582,59 @@ async fn list_provider_models(
         .list_models(&provider)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_visual_graph(data: Value, format: String) -> Result<visual_lab::VisualGraph, String> {
+    match format.as_str() {
+        "json" => Ok(visual_lab::parse_json_to_graph(data)),
+        "sql" => {
+            let sql = data.as_str().unwrap_or("");
+            Ok(visual_lab::parse_sql_to_graph(sql))
+        }
+        "mongodb" => {
+            let content = data.as_str().unwrap_or("");
+            Ok(visual_lab::parse_mongodb_to_graph(content))
+        }
+        _ => Err(format!("Unsupported format: {}", format)),
+    }
+}
+
+#[tauri::command]
+async fn generate_visual_graph(
+    state: State<'_, EditorState>,
+    prompt: String,
+) -> Result<visual_lab::VisualGraph, String> {
+    // This will use the AI engine to generate a graph structure
+    // For now, we'll implement a mock that shows the potential
+    let ai_prompt = format!("Generate a visual diagram for: {}. Return ONLY a JSON object compatible with ReactFlow (nodes and edges).", prompt);
+    let response = state
+        .ai_engine
+        .autonomous_loop(AiRequest {
+            provider: "Anthropic".to_string(), // Default
+            model: "claude-3-5-sonnet-latest".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(ai_engine::MessageContent::Text(ai_prompt)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            }],
+            temperature: Some(0.3),
+            autonomous: true,
+            mode: Some("Fast".to_string()),
+            cyber_mode: None,
+            root_access: None,
+            ollama_url: None,
+            tools: None,
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Parse the AI response into a VisualGraph
+    let graph: visual_lab::VisualGraph =
+        serde_json::from_str(&response).map_err(|e| e.to_string())?;
+    Ok(graph)
 }
 
 // Duplicates removed
@@ -2185,6 +2283,50 @@ async fn set_ollama_url(state: State<'_, EditorState>, url: String) -> Result<()
 }
 
 #[tauri::command]
+async fn git_revert(state: State<'_, EditorState>, hash: String) -> Result<(), String> {
+    let root = state
+        .active_root
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("No active project")?;
+    GitManager::new().revert_commit(root, &hash)
+}
+
+#[tauri::command]
+async fn git_stash(state: State<'_, EditorState>) -> Result<(), String> {
+    let root = state
+        .active_root
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("No active project")?;
+    GitManager::new().stash_changes(root)
+}
+
+#[tauri::command]
+async fn git_stash_pop(state: State<'_, EditorState>) -> Result<(), String> {
+    let root = state
+        .active_root
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("No active project")?;
+    GitManager::new().pop_stash(root)
+}
+
+#[tauri::command]
+async fn git_get_unmerged(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
+    let root = state
+        .active_root
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("No active project")?;
+    GitManager::new().get_unmerged_files(root)
+}
+
+#[tauri::command]
 async fn git_clone(url: String, path: String) -> Result<(), String> {
     GitManager::new().clone(&url, path)
 }
@@ -2306,7 +2448,12 @@ pub fn run() {
             git_status,
             git_stage,
             git_unstage,
+            git_unstage,
             git_commit,
+            git_revert,
+            git_stash,
+            git_stash_pop,
+            git_get_unmerged,
             get_api_keys,
             save_api_keys,
             list_provider_models,
@@ -2341,6 +2488,7 @@ pub fn run() {
             remove_mcp_server,
             backend_ping,
             get_git_history,
+            git_diff,
             adb_install_and_run,
             set_ollama_url,
             check_ollama_status,
@@ -2403,7 +2551,12 @@ pub fn run() {
             grep_files,
             write_file_content,
             web_fetch,
-            ai_tool_result
+            ai_tool_result,
+            get_system_health,
+            get_visual_graph,
+            generate_visual_graph,
+            compress_session_data,
+            get_memory_savings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

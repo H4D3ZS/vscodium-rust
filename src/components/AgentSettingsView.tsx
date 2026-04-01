@@ -55,7 +55,7 @@ const AgentSettingsView: React.FC = () => {
                     )}
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 800, color: '#fff', letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    TERMINATOR AI Engine
+                    VSCODIUM-RUST AI Engine
                     <div style={{
                         padding: '2px 8px',
                         background: 'rgba(255,255,255,0.05)',

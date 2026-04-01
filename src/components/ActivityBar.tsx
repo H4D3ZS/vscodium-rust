@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { invoke } from '../tauri_bridge';
 import { applyTheme, type VscodeTheme } from '../theme_engine';
+import { Beaker } from 'lucide-react';
 
 const ActivityBar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
@@ -20,6 +21,7 @@ const ActivityBar: React.FC = () => {
         { id: 'debug-view', icon: 'debug-alt', title: 'Run and Debug' },
         { id: 'extensions-view', icon: 'extensions', title: 'Extensions' },
         { id: 'mobile-view', icon: 'device-mobile', title: 'Mobile Emulators (Android & iOS)' },
+        { id: 'visual-lab', icon: 'beaker', title: 'Visual Lab (JSON & Flow)' },
     ];
 
     const items = [
@@ -72,12 +74,26 @@ const ActivityBar: React.FC = () => {
                         className={`activity-item ${activeView === item.id ? 'active' : ''}`}
                         title={item.title}
                         onClick={() => {
+                            if (item.id === 'visual-lab') {
+                                const store = (window as any).useStore?.getState();
+                                if (store) {
+                                    const activeTab = store.tabs.find((t: any) => t.id === store.activeTabId);
+                                    if (activeTab && (activeTab.path.endsWith('.json') || activeTab.language === 'json')) {
+                                        store.setVisualLabData(activeTab.content);
+                                    }
+                                    store.toggleVisualLab(true);
+                                    store.setVisualLabMode('json');
+                                }
+                                return;
+                            }
                             setActiveView(item.id);
                             invoke("check_activation_event", { event: `onView:${item.id}` });
                         }}
                     >
                         <div className="activity-item-icon">
-                            {item.base64_icon ? (
+                            {item.id === 'visual-lab' ? (
+                                <Beaker size={24} style={{ opacity: activeView === item.id ? 1 : 0.6 }} />
+                            ) : item.base64_icon ? (
                                 <img src={item.base64_icon} style={{ width: '24px', height: '24px', opacity: activeView === item.id ? 1 : 0.6 }} />
                             ) : (
                                 <i className={`codicon codicon-${item.icon}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>

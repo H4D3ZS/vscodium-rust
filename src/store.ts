@@ -138,6 +138,8 @@ interface AppState {
     attachedContext: any[];
     pendingChanges: any[];
     agentRootAccess: boolean;
+    processStats: { memory_mb: number, cpu_usage: number, total_ram_gb: number, available_ram_gb: number } | null;
+    memorySavings: { original: number, compressed: number } | null;
 
     // Extension State
     installedExtensions: any[];
@@ -159,7 +161,17 @@ interface AppState {
     agentFiles: string[];
     agentSteps: any[];
 
+    // Visual Lab State
+    visualLabMode: 'none' | 'json' | 'flow' | 'erd';
+    visualLabData: any;
+    isVisualLabFullScreen: boolean;
+    isVisualLabOpen: boolean;
+
     // Actions
+    setVisualLabMode: (mode: 'none' | 'json' | 'flow' | 'erd') => void;
+    setVisualLabData: (data: any) => void;
+    setIsVisualLabFullScreen: (isFullScreen: boolean) => void;
+    toggleVisualLab: (open?: boolean) => void;
     toggleSidebar: () => void;
     setActiveSidebarView: (view: string) => void;
     toggleBottomPanel: () => void;
@@ -204,6 +216,9 @@ interface AppState {
     addMcpServer: (name: string, config: any) => Promise<void>;
     removeMcpServer: (name: string) => Promise<void>;
     listMcpServers: () => Promise<void>;
+    refreshProcessStats: () => Promise<void>;
+    compressSessionData: (key: string, data: string) => Promise<void>;
+    refreshMemorySavings: () => Promise<void>;
     addAgentMessage: (role: 'user' | 'assistant', content: string, context?: AttachedContext[] | boolean) => void;
     updateLastAgentMessage: (content: string) => void;
     updateLastAgentThought: (thought: string) => void;
@@ -343,6 +358,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     attachedContext: [],
     pendingChanges: [],
     agentRootAccess: true, // Internal AI operates with permanent root access (unshackled mode)
+    processStats: null,
+    memorySavings: null,
 
     // Terminal Initial State
     terminalGroups: [],
@@ -358,6 +375,12 @@ const storeImplementation: any = (set: any, get: any) => ({
     agentFiles: [],
     agentSteps: [],
 
+    // Visual Lab Initial State
+    visualLabMode: 'none',
+    visualLabData: null,
+    isVisualLabFullScreen: false,
+    isVisualLabOpen: false,
+
     // Initial Extension State
     installedExtensions: [],
     marketExtensions: [],
@@ -368,7 +391,11 @@ const storeImplementation: any = (set: any, get: any) => ({
     extensionDetails: {},
 
     // Actions
-    setProjectMemory: (content, files = []) => set(() => ({ projectMemory: content, memoryFiles: files })),
+    setVisualLabMode: (mode: any) => set({ visualLabMode: mode }),
+    setVisualLabData: (data: any) => set({ visualLabData: data }),
+    setIsVisualLabFullScreen: (isFullScreen: boolean) => set({ isVisualLabFullScreen: isFullScreen }),
+    toggleVisualLab: (open: any) => set((state: any) => ({ isVisualLabOpen: open !== undefined ? open : !state.isVisualLabOpen })),
+    setProjectMemory: (content: any, files = []) => set(() => ({ projectMemory: content, memoryFiles: files })),
     toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
     setActiveSidebarView: (view) => set(() => ({ activeSidebarView: view, isSidebarOpen: true })),
     toggleBottomPanel: () => set((state) => ({ isBottomPanelOpen: !state.isBottomPanelOpen })),
@@ -665,6 +692,30 @@ const storeImplementation: any = (set: any, get: any) => ({
             set({ mcpServers: servers });
         } catch (e) {
             console.error('List MCP Servers Error:', e);
+        }
+    },
+    refreshProcessStats: async () => {
+        try {
+            const stats = await invoke<any>('get_process_stats');
+            set({ processStats: stats });
+        } catch (e) {
+            console.error('Refresh Process Stats Error:', e);
+        }
+    },
+    compressSessionData: async (key: string, data: string) => {
+        try {
+            await invoke('compress_session_data', { key, data });
+            get().refreshMemorySavings();
+        } catch (e) {
+            console.error('Compress Session Data Error:', e);
+        }
+    },
+    refreshMemorySavings: async () => {
+        try {
+            const [original, compressed] = await invoke<[number, number]>('get_memory_savings');
+            set({ memorySavings: { original, compressed } });
+        } catch (e) {
+            console.error('Refresh Memory Savings Error:', e);
         }
     },
     addAgentMessage: (role, content, contextOrSubAgent) => set((state) => {

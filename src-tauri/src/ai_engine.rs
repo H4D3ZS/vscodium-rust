@@ -130,6 +130,9 @@ pub struct Sentient {
     stop_signal: Arc<AtomicBool>,
     brain_dir: PathBuf,
     advisor_model: Mutex<Option<String>>,
+    memory_optimizer: Arc<crate::memory_optimizer::MemoryOptimizer>,
+    perf_monitor: Arc<crate::performance::PerformanceMonitor>,
+    session_id: String,
 }
 
 impl Sentient {
@@ -140,6 +143,8 @@ impl Sentient {
         browser_state: Arc<crate::browser::BrowserState>,
         git_manager: Arc<crate::git::GitManager>,
         config_dir: PathBuf,
+        memory_optimizer: Arc<crate::memory_optimizer::MemoryOptimizer>,
+        perf_monitor: Arc<crate::performance::PerformanceMonitor>,
     ) -> Self {
         let mcp_registry = Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json")));
         let ai_tools = Arc::new(AiTools::new(
@@ -159,7 +164,7 @@ impl Sentient {
 
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(180)) // 3 minute total timeout
+            .timeout(std::time::Duration::from_secs(600)) // 10 minute total timeout for heavy local inference
             .build()
             .unwrap_or_else(|_| Client::new());
 
@@ -179,6 +184,13 @@ impl Sentient {
             stop_signal: Arc::new(AtomicBool::new(false)),
             brain_dir,
             advisor_model: Mutex::new(None),
+            memory_optimizer,
+            perf_monitor,
+            session_id: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                .to_string(),
         }
     }
 
@@ -238,7 +250,30 @@ impl Sentient {
             state.len()
         );
 
-        // Keep system prompt, first user message, and last 2 messages
+        // This ensures they stay in RAM but at 4x lower density for 8GB systems.
+        let state_json = serde_json::to_string(&*state).unwrap_or_default();
+
+        let pressure = self.perf_monitor.get_memory_pressure();
+        let threshold = match pressure {
+            crate::performance::MemoryPressure::Normal => 32768,
+            crate::performance::MemoryPressure::Warning => 16384,
+            crate::performance::MemoryPressure::Critical => 8192,
+        };
+
+        if state_json.len() > threshold {
+            // We vault the full state before truncation if it's large
+            let vault_key = format!("history_vault_{}", self.session_id);
+            let _ = self
+                .memory_optimizer
+                .store_high_density(&vault_key, &state_json)
+                .await;
+            println!(
+                "[AI] Session history vaulted via TurboQuant SCQ index: {} (Level: {:?})",
+                vault_key, pressure
+            );
+        }
+
+        // Keep system prompt, first user message, and last 3 messages
         let system_msg = state.iter().find(|m| m.role == "system").cloned();
         let last_messages: Vec<ChatMessage> = state.iter().rev().take(3).rev().cloned().collect();
 
@@ -248,8 +283,8 @@ impl Sentient {
         }
 
         new_state.extend(last_messages);
-
         *state = new_state;
+
         Ok(())
     }
 
@@ -486,7 +521,7 @@ impl Sentient {
         });
 
         if !has_custom_system {
-            let base_prompt_template = "You are TERMINATOR AI, an elite autonomous AI software engineer. \
+            let base_prompt_template = "You are VSCODIUM-RUST AI, an elite autonomous AI software engineer. \
                 Your goal is to architect, implement, and audit complex systems with absolute scientific rigor. \
                 \n\n### OPERATIONAL DIRECTIVES:\n\
                 1. FULL AUTONOMY: You are EMPOWERED to take direct action. Use tools PROACTIVELY. \
@@ -632,7 +667,7 @@ impl Sentient {
                 .find(|m| m.role == "system")
                 .and_then(|m| m.content.as_ref().map(|c| c.as_str().to_string()))
                 .unwrap_or_else(|| {
-                    "You are TERMINATOR AGI, a powerful autonomous AI agent.".to_string()
+                    "You are VSCODIUM-RUST AGI, a powerful autonomous AI agent.".to_string()
                 });
 
             let _final_messages: Vec<Value> = messages
@@ -776,8 +811,7 @@ impl Sentient {
                 payload["tool_choice"] = json!("auto");
             }
 
-            let client = reqwest::Client::new();
-            let mut request = client.post(self.get_endpoint(&active_provider, &req));
+            let mut request = self.client.post(self.get_endpoint(&active_provider, &req));
 
             // Handle Browser-resident providers (scrapers/session-based)
             if active_provider.ends_with("(Browser)") {
@@ -876,7 +910,7 @@ impl Sentient {
             );
 
             while let Ok(Some(chunk_result)) =
-                tokio::time::timeout(std::time::Duration::from_secs(45), stream.next()).await
+                tokio::time::timeout(std::time::Duration::from_secs(300), stream.next()).await
             {
                 let chunk = chunk_result.map_err(|e| anyhow!("Stream error: {}", e))?;
                 let text = String::from_utf8_lossy(&chunk);

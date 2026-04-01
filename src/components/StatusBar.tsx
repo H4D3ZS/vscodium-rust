@@ -11,26 +11,39 @@ const StatusBar: React.FC = () => {
     const ollamaStatus = useStore(state => state.ollamaStatus);
     const toggleRightSidebar = useStore(state => state.toggleRightSidebar);
 
-    const toggleTheme = () => {
-        const themes = ['vs', 'vs-dark', 'hc-black'];
-        const next = themes[(themes.indexOf(theme) + 1) % themes.length];
-        setTheme(next);
-    };
+    const processStats = useStore(state => state.processStats);
+    const memorySavings = useStore(state => state.memorySavings);
+    const refreshProcessStats = useStore(state => state.refreshProcessStats);
+    const refreshMemorySavings = useStore(state => state.refreshMemorySavings);
 
     const handleOptimize = async () => {
         try {
             await invoke('optimize_memory');
             console.log('App memory optimized');
+            refreshMemorySavings();
         } catch (e) {
             console.error('Failed to optimize memory:', e);
         }
     };
 
     React.useEffect(() => {
-        // Auto-optimize memory every 5 minutes
-        const timer = setInterval(handleOptimize, 5 * 60 * 1000);
-        return () => clearInterval(timer);
-    }, []);
+        // Initial fetch
+        refreshProcessStats();
+        refreshMemorySavings();
+
+        // Polling loop for Memory Guard and Stats
+        const statsTimer = setInterval(() => {
+            refreshProcessStats();
+
+            // Memory Guard: If available RAM is less than 1GB, trigger optimization
+            if (processStats && processStats.available_ram_gb > 0 && processStats.available_ram_gb < 1) {
+                console.warn('Memory Guard: Low memory detected, triggering optimization.');
+                handleOptimize();
+            }
+        }, 5000);
+
+        return () => clearInterval(statsTimer);
+    }, [processStats?.available_ram_gb]);
 
     return (
         <footer className="status-bar" style={{
@@ -115,6 +128,44 @@ const StatusBar: React.FC = () => {
                 <div className="status-item hoverable" style={{ cursor: 'pointer', height: '100%', display: 'flex', alignItems: 'center', padding: '0 8px' }}>Ln 1, Col 1</div>
                 <div className="status-item hoverable" style={{ cursor: 'pointer', height: '100%', display: 'flex', alignItems: 'center', padding: '0 8px' }}>Spaces: 4</div>
                 <div className="status-item hoverable" style={{ cursor: 'pointer', height: '100%', display: 'flex', alignItems: 'center', padding: '0 8px' }}>UTF-8</div>
+
+                {processStats && (
+                    <div
+                        className="status-item hoverable"
+                        title={`Total: ${processStats.total_ram_gb}GB | Available: ${processStats.available_ram_gb}GB`}
+                        style={{
+                            cursor: 'help',
+                            height: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '0 8px',
+                            color: processStats.available_ram_gb < 1 ? '#f87171' : 'inherit'
+                        }}
+                    >
+                        <i className="codicon codicon-pulse" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', marginRight: '4px' }} />
+                        {processStats.memory_mb.toFixed(0)}MB ({processStats.cpu_usage.toFixed(1)}%)
+                    </div>
+                )}
+
+                {memorySavings && memorySavings.original > 0 && (
+                    <div
+                        className="status-item hoverable"
+                        title={`LZ4 Compression: ${((1 - memorySavings.compressed / memorySavings.original) * 100).toFixed(1)}% savings`}
+                        style={{
+                            cursor: 'help',
+                            height: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '0 8px',
+                            background: 'rgba(74, 222, 128, 0.1)',
+                            color: '#4ade80'
+                        }}
+                    >
+                        <i className="codicon codicon-file-zip" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', marginRight: '4px' }} />
+                        {((memorySavings.original - memorySavings.compressed) / 1024).toFixed(1)}KB Saved
+                    </div>
+                )}
+
                 <div className="status-item hoverable" onClick={handleOptimize} style={{ cursor: 'pointer', height: '100%', display: 'flex', alignItems: 'center', padding: '0 8px' }}>
                     <i className="codicon codicon-dashboard" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', marginRight: '4px' }} />Optimize
                 </div>

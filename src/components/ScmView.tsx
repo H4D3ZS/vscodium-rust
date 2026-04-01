@@ -13,10 +13,12 @@ const ScmView: React.FC = () => {
     const [commitMessage, setCommitMessage] = useState('');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [activeTab, setActiveTab] = useState<'changes' | 'graph'>('changes');
+    const [conflicts, setConflicts] = useState<string[]>([]);
     const activeRoot = useStore(state => state.activeRoot);
 
     useEffect(() => {
         refreshStatus();
+        checkConflicts();
     }, [activeRoot]);
 
     const refreshStatus = async () => {
@@ -25,8 +27,40 @@ const ScmView: React.FC = () => {
         try {
             const result = await invoke<GitStatus[]>('git_status', { path: activeRoot });
             setStatuses(result);
+            await checkConflicts();
         } catch (e) {
             console.error('Git status failed', e);
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
+
+    const checkConflicts = async () => {
+        if (!activeRoot) return;
+        try {
+            const result = await invoke<string[]>('git_get_unmerged', { path: activeRoot });
+            setConflicts(result);
+        } catch (e) {
+            console.error('Conflict check failed', e);
+        }
+    };
+
+    const handleGitAction = async (action: string) => {
+        if (!activeRoot) return;
+        try {
+            setIsRefreshing(true);
+            if (action === 'stash') {
+                await invoke('git_stash', { path: activeRoot });
+            } else if (action === 'stash_pop') {
+                await invoke('git_stash_pop', { path: activeRoot });
+            } else {
+                // For Push/Pull/Fetch, we currently use terminal stubs or direct shell calls
+                // In a full implementation, these would be dedicated Tauri commands
+                console.log(`Executing global action: ${action}`);
+            }
+            refreshStatus();
+        } catch (e) {
+            alert(`${action} failed: ${e}`);
         } finally {
             setIsRefreshing(false);
         }
@@ -66,6 +100,81 @@ const ScmView: React.FC = () => {
 
     return (
         <div className="scm-view" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            {/* Global Actions Header */}
+            <div style={{
+                display: 'flex', gap: 4, padding: '8px 10px',
+                background: 'var(--vscode-sideBar-background)',
+                borderBottom: '1px solid var(--vscode-sideBar-border)',
+                flexWrap: 'wrap'
+            }}>
+                {[
+                    { id: 'pull', icon: 'cloud-download', label: 'Pull' },
+                    { id: 'push', icon: 'cloud-upload', label: 'Push' },
+                    { id: 'fetch', icon: 'sync', label: 'Fetch' },
+                    { id: 'stash', icon: 'archive', label: 'Stash' },
+                    { id: 'stash_pop', icon: 'unarchive', label: 'Pop' }
+                ].map(btn => (
+                    <button key={btn.id}
+                        onClick={() => handleGitAction(btn.id)}
+                        disabled={isRefreshing}
+                        title={btn.label}
+                        style={{
+                            background: 'rgba(255,255,255,0.05)', border: 'none', color: 'rgba(255,255,255,0.7)',
+                            padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 10,
+                            display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.15s'
+                        }}>
+                        <i className={`codicon codicon-${btn.icon}`} style={{ fontSize: 12 }}></i>
+                        {btn.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Conflict Alert (Agentic Bridge) */}
+            {conflicts.length > 0 && (
+                <div style={{
+                    margin: '10px', padding: '10px', borderRadius: 6,
+                    background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)',
+                    display: 'flex', flexDirection: 'column', gap: 8
+                }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <i className="codicon codicon-warning"></i> {conflicts.length} MERGE CONFLICTS
+                    </div>
+                    <button
+                        onClick={async () => {
+                            const agentModel = useStore.getState().agentModel;
+                            const agentMode = useStore.getState().agentMode;
+                            const addAgentMessage = useStore.getState().addAgentMessage;
+
+                            const provider = agentModel.includes(':') ? agentModel.split(':')[0] : 'anthropic';
+                            const model = agentModel.includes(':') ? agentModel.split(':')[1] : agentModel;
+
+                            addAgentMessage('user', `Help me resolve merge conflicts in: ${conflicts.join(', ')}`);
+
+                            await invoke('ai_chat', {
+                                request: {
+                                    provider,
+                                    model,
+                                    messages: [
+                                        {
+                                            role: 'user',
+                                            content: `I have merge conflicts in the following files: ${conflicts.join(', ')}. Please analyze them and suggest or apply a resolution strategy.`
+                                        }
+                                    ],
+                                    autonomous: true,
+                                    mode: agentMode
+                                }
+                            });
+                        }}
+                        style={{
+                            background: '#f59e0b', color: '#000', border: 'none',
+                            padding: '6px', borderRadius: 4, cursor: 'pointer',
+                            fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                        }}>
+                        <i className="codicon codicon-sparkle"></i> RESOLVE VIA AI
+                    </button>
+                </div>
+            )}
+
             {/* Commit input (always visible) */}
             <div style={{ padding: '10px 10px 0 10px', flexShrink: 0 }}>
                 <textarea
@@ -77,8 +186,8 @@ const ScmView: React.FC = () => {
                         background: 'var(--vscode-input-background)',
                         color: 'var(--vscode-input-foreground)',
                         border: '1px solid var(--vscode-input-border, var(--vscode-panel-border))',
-                        padding: '6px', fontSize: '12px', outline: 'none',
-                        resize: 'none', borderRadius: '2px'
+                        padding: '6px', fontSize: '11px', outline: 'none',
+                        resize: 'none', borderRadius: '4px'
                     }}
                 />
                 <button
@@ -87,16 +196,16 @@ const ScmView: React.FC = () => {
                     style={{
                         width: '100%', marginTop: '6px',
                         background: 'var(--vscode-button-background)',
-                        color: 'white', border: 'none', padding: '5px',
-                        cursor: 'pointer', borderRadius: '2px',
-                        fontSize: '12px', opacity: commitMessage ? 1 : 0.6
+                        color: 'white', border: 'none', padding: '6px',
+                        cursor: 'pointer', borderRadius: '4px',
+                        fontSize: '11px', fontWeight: 600, opacity: commitMessage ? 1 : 0.6
                     }}
                 >
-                    Commit
+                    Commit to Main
                 </button>
             </div>
 
-            {/* Tab bar */}
+            {/* Tab bar (Changes / Visual Graph) */}
             <div style={{
                 display: 'flex', margin: '10px 10px 0 10px',
                 borderBottom: '1px solid var(--vscode-sideBar-border, var(--vscode-panel-border))',
@@ -105,32 +214,28 @@ const ScmView: React.FC = () => {
                 <button
                     onClick={() => setActiveTab('changes')}
                     style={{
-                        flex: 1, padding: '6px 0', fontSize: '11px', fontWeight: 600,
+                        flex: 1, padding: '8px 0', fontSize: '11px', fontWeight: 600,
                         background: 'transparent', border: 'none', cursor: 'pointer',
                         color: activeTab === 'changes' ? 'var(--vscode-foreground)' : 'var(--vscode-foreground)',
                         opacity: activeTab === 'changes' ? 1 : 0.5,
                         borderBottom: activeTab === 'changes' ? '2px solid var(--vscode-focusBorder)' : '2px solid transparent',
-                        textTransform: 'uppercase', letterSpacing: '0.5px',
-                        transition: 'opacity 0.15s'
+                        transition: 'all 0.2s'
                     }}
                 >
-                    <i className="codicon codicon-file" style={{ marginRight: 4, fontSize: 12 }} />
-                    Changes {(staged.length + unstaged.length) > 0 ? `(${staged.length + unstaged.length})` : ''}
+                    CHANGES {(staged.length + unstaged.length) > 0 ? `(${staged.length + unstaged.length})` : ''}
                 </button>
                 <button
                     onClick={() => setActiveTab('graph')}
                     style={{
-                        flex: 1, padding: '6px 0', fontSize: '11px', fontWeight: 600,
+                        flex: 1, padding: '8px 0', fontSize: '11px', fontWeight: 600,
                         background: 'transparent', border: 'none', cursor: 'pointer',
                         color: activeTab === 'graph' ? 'var(--vscode-foreground)' : 'var(--vscode-foreground)',
                         opacity: activeTab === 'graph' ? 1 : 0.5,
                         borderBottom: activeTab === 'graph' ? '2px solid var(--vscode-focusBorder)' : '2px solid transparent',
-                        textTransform: 'uppercase', letterSpacing: '0.5px',
-                        transition: 'opacity 0.15s'
+                        transition: 'all 0.2s'
                     }}
                 >
-                    <i className="codicon codicon-git-merge" style={{ marginRight: 4, fontSize: 12 }} />
-                    Visual Graph
+                    VISUAL GRAPH
                 </button>
             </div>
 
@@ -140,33 +245,34 @@ const ScmView: React.FC = () => {
                     <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
                         {staged.length > 0 && (
                             <div className="scm-section">
-                                <div style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', opacity: 0.8 }}>STAGED CHANGES</div>
+                                <div style={{ fontSize: '10px', fontWeight: 'bold', marginBottom: '8px', opacity: 0.6, letterSpacing: '0.5px' }}>STAGED</div>
                                 {staged.map((s, i) => (
-                                    <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '4px 0', fontSize: '12px' }}>
+                                    <div key={i} className="scm-file-item" style={{ display: 'flex', alignItems: 'center', padding: '4px 6px', fontSize: '12px', borderRadius: 4, margin: '2px 0' }}>
+                                        <i className="codicon codicon-file" style={{ fontSize: 13, marginRight: 8, opacity: 0.4 }}></i>
                                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.path}</span>
-                                        <span style={{ color: '#4ec9b0', width: '15px', textAlign: 'center' }}>{s.status}</span>
-                                        <i className="codicon codicon-remove" onClick={() => handleUnstage(s.path)} style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.6 }} />
+                                        <span style={{ color: '#4ec9b0', width: '15px', textAlign: 'center', fontSize: 10, fontWeight: 700 }}>{s.status}</span>
+                                        <i className="codicon codicon-remove" onClick={() => handleUnstage(s.path)} style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.4 }} />
                                     </div>
                                 ))}
                             </div>
                         )}
                         <div className="scm-section" style={{ marginTop: '15px' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', opacity: 0.8 }}>CHANGES</div>
+                            <div style={{ fontSize: '10px', fontWeight: 'bold', marginBottom: '8px', opacity: 0.6, letterSpacing: '0.5px' }}>UNSTAGED</div>
                             {unstaged.length > 0 ? (
                                 unstaged.map((s, i) => (
-                                    <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '4px 0', fontSize: '12px' }}>
+                                    <div key={i} className="scm-file-item" style={{ display: 'flex', alignItems: 'center', padding: '4px 6px', fontSize: '12px', borderRadius: 4, margin: '2px 0' }}>
+                                        <i className="codicon codicon-file" style={{ fontSize: 13, marginRight: 8, opacity: 0.4 }}></i>
                                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.path}</span>
-                                        <span style={{ color: '#d16d9e', width: '15px', textAlign: 'center' }}>{s.status}</span>
-                                        <i className="codicon codicon-add" onClick={() => handleStage(s.path)} style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.6 }} />
+                                        <span style={{ color: '#d16d9e', width: '15px', textAlign: 'center', fontSize: 10, fontWeight: 700 }}>{s.status}</span>
+                                        <i className="codicon codicon-add" onClick={() => handleStage(s.path)} style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.4 }} />
                                     </div>
                                 ))
                             ) : (
-                                <div style={{ opacity: 0.5, fontSize: '11px' }}>No changes detected.</div>
+                                <div style={{ opacity: 0.5, fontSize: '11px', textAlign: 'center', padding: '20px 0' }}>No local changes.</div>
                             )}
                         </div>
                     </div>
                 ) : (
-                    /* ── Visual Graph Tab ── */
                     <GitGraph />
                 )}
             </div>

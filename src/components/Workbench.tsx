@@ -6,17 +6,26 @@ import BottomPanel from './BottomPanel';
 import RightSidebar from './RightSidebar';
 import Editor from './Editor';
 import SettingsPage from './SettingsPage';
+import VisualLab from './visual/VisualLab';
 import { useStore } from '../store';
 
-function detectLanguageIcon(filename: string): string {
+function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: string } {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-    const map: Record<string, string> = {
-        rs: 'rust', ts: 'typescript', tsx: 'react', js: 'javascript',
-        jsx: 'react', json: 'json', css: 'css', html: 'html',
-        md: 'markdown', toml: 'settings', yaml: 'symbol-method', yml: 'symbol-method',
-    };
-    return map[ext] ?? 'file';
+
+    // Core Unbreakable SVGs
+    const fileSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNhZGRmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTMgM0g2YTIgMiAwIDAgMC0yIDJ2MTRhMiAyIDAgMCAwIDIgMmgxMmEyIDIgMCAwIDAgMi0yVjlsLTYtNnoiPjwvcGF0aD48cG9seWxpbmUgcG9pbnRzPSIxMyAzIDEzIDkgMTkgOSI+PC9wb2x5bGluZT48L3N2Zz4=`;
+    const codeSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3OWI4ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cG9seWxpbmUgcG9pbnRzPSIxNiAxOCAyMiAxMiAxNiA2Ii8+PHBvbHlsaW5lIHBvaW50cz0iOCA2IDIgMTIgOCAxOCIvPjwvc3ZnPg==`;
+
+    const codeExts = ['rs', 'ts', 'tsx', 'js', 'jsx', 'c', 'cpp', 'py', 'go', 'java'];
+
+    if (codeExts.includes(ext)) {
+        return { type: 'img', value: codeSvg };
+    }
+
+    return { type: 'img', value: fileSvg };
 }
+
+
 
 const Workbench: React.FC = () => {
     const isSidebarOpen = useStore(state => state.isSidebarOpen);
@@ -102,14 +111,19 @@ const Workbench: React.FC = () => {
                                             onClick={() => setActiveTab(tab.id)}
                                             title={tab.path}
                                         >
-                                            <i className={`codicon codicon-${icon} tab-icon`} style={{
-                                                fontFamily: 'codicon',
-                                                fontStyle: 'normal',
-                                                fontSize: '14px',
-                                                marginRight: '6px',
-                                                color: isActive ? 'inherit' : 'var(--vscode-tab-activeForeground)',
-                                                opacity: isActive ? 1 : 0.6
-                                            }} />
+                                            {detectLanguageIcon(tab.filename).type === 'img' ? (
+                                                <img src={detectLanguageIcon(tab.filename).value} style={{ width: '14px', height: '14px', marginRight: '6px', opacity: isActive ? 1 : 0.6 }} />
+                                            ) : (
+                                                <i className={`${detectLanguageIcon(tab.filename).value} tab-icon`} style={{
+                                                    fontFamily: 'codicon',
+                                                    fontStyle: 'normal',
+                                                    fontSize: '14px',
+                                                    marginRight: '6px',
+                                                    color: isActive ? 'inherit' : 'var(--vscode-tab-activeForeground)',
+                                                    opacity: isActive ? 1 : 0.6
+                                                }} />
+                                            )}
+
                                             <span className="tab-label">{tab.filename}</span>
                                             <div className="tab-actions">
                                                 {tab.isModified ? (
@@ -130,10 +144,15 @@ const Workbench: React.FC = () => {
                             {/* Breadcrumbs */}
                             {hasOpenFile && (
                                 <div className="breadcrumbs" id="breadcrumbs">
-                                    <i className="codicon codicon-folder" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
+                                    <img src={`data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3OWI4ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMjIgMTlhMiAyIDAgMCAxLTIgMkg0YTIgMiAwIDAgMS0yLTJWN2EyIDIgMCAwIDEgMi0yaDVsMiAyaDlhMiAyIDAgMCAxIDIgMnYxMHoiPjwvcGF0aD48L3N2Zz4=`} style={{ width: '14px', height: '14px', marginRight: '4px', opacity: 0.7 }} />
                                     <span className="breadcrumb-item" style={{ cursor: 'pointer' }}>{(tabs.find(t => t.id === activeTabId)?.path.split('/').slice(-2, -1)[0]) ?? (activeRootName || 'vscodium-rust')}</span>
                                     <i className="codicon codicon-chevron-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', margin: '0 4px', opacity: 0.4 }} />
-                                    <i className={`codicon codicon-${detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '')}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
+                                    {detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').type === 'img' ? (
+                                        <img src={detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').value} style={{ width: '14px', height: '14px', marginRight: '4px', opacity: 0.6 }} />
+                                    ) : (
+                                        <i className={`${detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').value}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
+                                    )}
+
                                     <span className="breadcrumb-item active" style={{ color: 'var(--vscode-tab-activeForeground)', fontWeight: 400 }}>
                                         {tabs.find(t => t.id === activeTabId)?.filename}
                                     </span>
@@ -170,7 +189,7 @@ const Workbench: React.FC = () => {
                                                 <img src="/assets/rust-logo.png" alt="Rust Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
                                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                                                     <h1 style={{ fontSize: 'min(5vw, 42px)', fontWeight: 800, marginBottom: '2px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)', lineHeight: 1, margin: 0 }}>
-                                                        TERMINATOR <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>v0.2.0-ELITE</span>
+                                                        VSCODIUM-RUST <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>v0.2.0-ELITE</span>
                                                     </h1>
                                                     <p style={{ fontSize: '14px', opacity: 0.6, maxWidth: '600px', margin: '8px 0 0', lineHeight: '1.4' }}>
                                                         The ultimate high-performance, native IDE optimized for speed, autonomy, and the future of software construction.
@@ -197,7 +216,7 @@ const Workbench: React.FC = () => {
                                                 </div>
                                                 <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
                                                     <div style={{ color: 'var(--terminator-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-bot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Autonomy</strong></div>
-                                                    <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Integrated TERMINATOR agent with full filesystem access.</div>
+                                                    <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Integrated VSCODIUM-RUST agent with full filesystem access.</div>
                                                 </div>
                                             </div>
 
@@ -311,6 +330,7 @@ const Workbench: React.FC = () => {
                     <RightSidebar />
                 </div>
             </div>
+            <VisualLab />
         </div >
     );
 };

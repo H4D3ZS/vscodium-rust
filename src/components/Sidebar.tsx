@@ -63,25 +63,24 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
     const isActive = tabs.find(t => t.id === activeTabId)?.path === entry.path;
 
     const getIcon = (): { type: 'img' | 'icon'; value: string } => {
+        // FORCE SVG for Folders and Files to bypass ALL font issues
+        const folderSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3OWI4ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMjIgMTlhMiAyIDAgMCAxLTIgMkg0YTIgMiAwIDAgMS0yLTJWN2EyIDIgMCAwIDEgMi0yaDVsMiAyaDlhMiAyIDAgMCAxIDIgMnYxMHoiPjwvcGF0aD48L3N2Zz4=`;
+        const fileSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNhZGRmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTMgM0g2YTIgMiAwIDAgMC0yIDJ2MTRhMiAyIDAgMCAwIDIgMmgxMmEyIDIgMCAwIDAgMi0yVjlsLTYtNnoiPjwvcGF0aD48cG9seWxpbmUgcG9pbnRzPSIxMyAzIDEzIDkgMTkgOSI+PC9wb2x5bGluZT48L3N2Zz4=`;
+
+        if (entry.is_dir) {
+            return { type: 'img', value: folderSvg };
+        }
+
+        // Only use mapping for specific language icons, otherwise use our unbreakable file SVG
         if (iconThemeMapping) {
             const fileName = entry.name.toLowerCase();
             const ext = entry.name.split('.').pop()?.toLowerCase();
             let iconId = null;
 
-            if (entry.is_dir) {
-                if (isExpanded && iconThemeMapping.folderExpanded) {
-                    iconId = iconThemeMapping.folderExpanded;
-                } else if (iconThemeMapping.folder) {
-                    iconId = iconThemeMapping.folder;
-                }
-            } else {
-                if (iconThemeMapping.fileNames && iconThemeMapping.fileNames[fileName]) {
-                    iconId = iconThemeMapping.fileNames[fileName];
-                } else if (ext && iconThemeMapping.fileExtensions && iconThemeMapping.fileExtensions[ext]) {
-                    iconId = iconThemeMapping.fileExtensions[ext];
-                } else if (iconThemeMapping.file) {
-                    iconId = iconThemeMapping.file;
-                }
+            if (iconThemeMapping.fileNames && iconThemeMapping.fileNames[fileName]) {
+                iconId = iconThemeMapping.fileNames[fileName];
+            } else if (ext && iconThemeMapping.fileExtensions && iconThemeMapping.fileExtensions[ext]) {
+                iconId = iconThemeMapping.fileExtensions[ext];
             }
 
             if (iconId && iconThemeMapping.iconDefinitions && iconThemeMapping.iconDefinitions[iconId]) {
@@ -95,11 +94,7 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
             }
         }
 
-        if (entry.is_dir) {
-            return { type: 'icon', value: `codicon codicon-folder${isExpanded ? '-opened' : ''}` };
-        }
-
-        return { type: 'icon', value: 'codicon codicon-file' };
+        return { type: 'img', value: fileSvg };
     };
 
     const icon = getIcon();
@@ -231,24 +226,39 @@ const VirtualizedFileTree: React.FC<{ entries: FileEntry[]; iconThemeMapping: an
     );
 };
 
-const OpenEditorsItem: React.FC<{ tab: any; active: boolean; onClick: () => void; onClose: () => void }> = ({ tab, active, onClick, onClose }) => (
-    <div className={`pane-item${active ? ' active' : ''}`} onClick={onClick}>
-        <i className={`codicon codicon-${detectLanguageIcon(tab.filename)}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
-        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tab.filename}</span>
-        {tab.isModified && <div className="modified-dot"></div>}
-        <i className="codicon codicon-close close-icon" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} onClick={(e) => { e.stopPropagation(); onClose(); }}></i>
-    </div>
-);
+const OpenEditorsItem: React.FC<{ tab: any; active: boolean; onClick: () => void; onClose: () => void }> = ({ tab, active, onClick, onClose }) => {
+    const icon = detectLanguageIcon(tab.filename);
+    return (
+        <div className={`pane-item${active ? ' active' : ''}`} onClick={onClick}>
+            {icon.type === 'img' ? (
+                <img src={icon.value} style={{ width: '16px', height: '16px', marginRight: '6px', opacity: 0.8 }} />
+            ) : (
+                <i className={icon.value} style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: '6px' }}></i>
+            )}
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tab.filename}</span>
+            {tab.isModified && <div className="modified-dot"></div>}
+            <i className="codicon codicon-close close-icon" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} onClick={(e) => { e.stopPropagation(); onClose(); }}></i>
+        </div>
+    );
+};
 
-function detectLanguageIcon(filename: string): string {
+function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: string } {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-    const map: Record<string, string> = {
-        rs: 'rust', ts: 'typescript', tsx: 'react', js: 'javascript',
-        jsx: 'react', json: 'json', css: 'css', html: 'html',
-        md: 'markdown', toml: 'settings', yaml: 'symbol-method', yml: 'symbol-method',
-    };
-    return map[ext] ?? 'file';
+
+    // Core Unbreakable SVGs
+    const fileSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNhZGRmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTMgM0g2YTIgMiAwIDAgMC0yIDJ2MTRhMiAyIDAgMCAwIDIgMmgxMmEyIDIgMCAwIDAgMi0yVjlsLTYtNnoiPjwvcGF0aD48cG9seWxpbmUgcG9pbnRzPSIxMyAzIDEzIDkgMTkgOSI+PC9wb2x5bGluZT48L3N2Zz4=`;
+    const codeSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3OWI4ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cG9seWxpbmUgcG9pbnRzPSIxNiAxOCAyMiAxMiAxNiA2Ii8+PHBvbHlsaW5lIHBvaW50cz0iOCA2IDIgMTIgOCAxOCIvPjwvc3ZnPg==`;
+
+    const codeExts = ['rs', 'ts', 'tsx', 'js', 'jsx', 'c', 'cpp', 'py', 'go', 'java'];
+
+    if (codeExts.includes(ext)) {
+        return { type: 'img', value: codeSvg };
+    }
+
+    return { type: 'img', value: fileSvg };
 }
+
+
 
 const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultCollapsed?: boolean; actions?: React.ReactNode }> = ({ title, children, defaultCollapsed = false, actions }) => {
     const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);

@@ -64,7 +64,7 @@ export const TrustDialog: React.FC = () => {
                     fontSize: '14px',
                     lineHeight: '1.5'
                 }}>
-                    TERMINATOR is about to install <strong>{request.publisher}.{request.name}</strong> (v{request.version}).
+                    VSCODIUM-RUST is about to install <strong>{request.publisher}.{request.name}</strong> (v{request.version}).
                     Installing extensions from untrusted sources can potentially harm your system.
                 </div>
 

@@ -313,7 +313,7 @@ const RightSidebar: React.FC = () => {
                         color: '#ff4d4f'
                     }}></i>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.05em', opacity: 0.8 }}>TERMINATOR</span>
+                        <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.05em', opacity: 0.8 }}>VSCODIUM-RUST</span>
                         {sessionAge && <span style={{ fontSize: '9px', opacity: 0.4, fontWeight: 400 }}>Active: {sessionAge}</span>}
                     </div>
                 </div>

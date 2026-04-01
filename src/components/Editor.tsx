@@ -3,6 +3,7 @@ import MonacoEditor from '@monaco-editor/react';
 import type { OnMount, OnChange } from '@monaco-editor/react';
 import { useStore } from '../store';
 import DiffViewer from './DiffViewer';
+import { FileJson, Database } from 'lucide-react';
 
 const CTRL_S = 2048 | 49; // KeyMod.CtrlCmd | KeyCode.KeyS
 
@@ -12,7 +13,11 @@ const Editor: React.FC = () => {
     const updateTabContent = useStore(state => state.updateTabContent);
     const saveActiveFile = useStore(state => state.saveActiveFile);
     const theme = useStore(state => state.theme);
+    const setTheme = useStore(state => state.setTheme);
     const setActiveEditorPath = useStore(state => state.setActiveEditorPath);
+    const setVisualLabData = useStore(state => state.setVisualLabData);
+    const toggleVisualLab = useStore(state => state.toggleVisualLab);
+    const setVisualLabMode = useStore(state => state.setVisualLabMode);
 
     const activeTab = tabs.find(t => t.id === activeTabId) ?? null;
 
@@ -110,6 +115,48 @@ const Editor: React.FC = () => {
                     bracketPairColorization: { enabled: true },
                 }}
             />
+
+            {/* Visual Lab Quick Action */}
+            {(activeTab.language === 'json' || activeTab.path.endsWith('.json') || activeTab.path.endsWith('.sql') || activeTab.path.endsWith('.mongodb')) && (
+                <button
+                    onClick={() => {
+                        setVisualLabData(activeTab.content);
+                        const mode = activeTab.path.endsWith('.sql') ? 'erd' : 'json';
+                        setVisualLabMode(mode);
+                        toggleVisualLab(true);
+                    }}
+                    style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '40px',
+                        zIndex: 100,
+                        background: activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(168, 85, 247, 0.15)',
+                        border: `1px solid ${activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(168, 85, 247, 0.3)'}`,
+                        borderRadius: '6px',
+                        color: activeTab.path.endsWith('.sql') ? '#10b981' : '#c084fc',
+                        padding: '4px 10px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer',
+                        backdropFilter: 'blur(4px)',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.25)' : 'rgba(168, 85, 247, 0.25)';
+                        e.currentTarget.style.borderColor = activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.5)' : 'rgba(168, 85, 247, 0.5)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.background = activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(168, 85, 247, 0.15)';
+                        e.currentTarget.style.borderColor = activeTab.path.endsWith('.sql') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(168, 85, 247, 0.3)';
+                    }}
+                >
+                    {activeTab.path.endsWith('.sql') ? <Database size={12} /> : <FileJson size={12} />}
+                    {activeTab.path.endsWith('.sql') ? 'Visualize Schema' : 'Visualize Content'}
+                </button>
+            )}
         </div>
     );
 };

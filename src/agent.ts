@@ -1156,7 +1156,12 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             addAgentMessage('assistant', '🩺 Running high-fidelity environment diagnostics...');
             try {
                 const health = await handleToolCall('get_system_health', {});
-                const data = JSON.parse(health);
+                let data: any;
+                try {
+                    data = typeof health === 'string' ? JSON.parse(health) : health;
+                } catch (pe) {
+                    throw new Error(`Failed to parse diagnostic data: ${health.substring(0, 100)}...`);
+                }
 
                 const sections: string[] = ['### System Health Report\n'];
 

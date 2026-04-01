@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
+import yggdrasilImg from '../assets/yggdrasil.png';
+import cherryBlossomImg from '../assets/cherry_blossom.png';
 
 interface GitCommit {
     hash: string;
@@ -53,7 +55,7 @@ function timeAgo(d: string): string {
         const dt = new Date(d.replace(' ', 'T'));
         const diff = Date.now() - dt.getTime();
         if (isNaN(diff)) return '';
-        
+
         const s = Math.floor(diff / 1000);
         if (s < 60) return `${s}s ago`;
         const m = Math.floor(s / 60);
@@ -74,7 +76,7 @@ function runForceSimulation(
     width: number,
     height: number,
     iterations: number = 120,
-    style: 'force' | 'maltego' = 'force'
+    style: 'force' | 'maltego' | 'tree' = 'force'
 ) {
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     const REPULSION = style === 'maltego' ? 5000 : 3500;
@@ -150,16 +152,23 @@ const GitGraph: React.FC = () => {
     const [zoom, setZoom] = useState(1);
     const [isPanning, setIsPanning] = useState(false);
     const [panStart, setPanStart] = useState({ x: 0, y: 0 });
-    const [layout, setLayout] = useState<'force' | 'tree' | 'maltego'>('force');
+    const [layoutState, setLayoutState] = useState({ centerX: 0, centerY: 0, radius: 0 });
+    const [diffContent, setDiffContent] = useState<string | null>(null);
+    const [showDiff, setShowDiff] = useState(false);
+    // Remove manual layout state, use adaptive logic
     const svgRef = useRef<SVGSVGElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const activeRoot = useStore(state => state.activeRoot);
+    const agentModel = useStore(state => state.agentModel);
+    const agentMode = useStore(state => state.agentMode);
+    const addAgentMessage = useStore(state => state.addAgentMessage);
 
     const fetchHistory = useCallback(async () => {
         try {
             setLoading(true);
             const data = await invoke<GitCommit[]>('get_git_history', { path: activeRoot || "." });
-            setHistory(data.slice(0, 50));
+            // Support larger history for World Tree demonstration
+            setHistory(data?.slice(0, 500) || []);
         } catch (e) {
             console.error("Git history error:", e);
         } finally {
@@ -182,7 +191,7 @@ const GitGraph: React.FC = () => {
             return {
                 id: commit.hash,
                 commit,
-                x: w/2, y: h/2,
+                x: w / 2, y: h / 2,
                 vx: 0, vy: 0,
                 color: authorColor,
                 radius: commit.parents.length > 1 ? 18 : 14,
@@ -207,64 +216,71 @@ const GitGraph: React.FC = () => {
             }
         }
 
-        // Apply distinct layout algorithms
-        if (layout === 'tree') {
-            // Topological sort/Depth calculation for Tree
-            const depthMap = new Map<string, number>();
-            const calcDepth = (id: string, d: number) => {
-                if ((depthMap.get(id) || -1) >= d) return;
-                depthMap.set(id, d);
-                const children = edges.filter(e => e.target === id).map(e => e.source);
-                children.forEach(c => calcDepth(c, d + 1));
-            };
-            
-            // Assume first node is HEAD (0 depth)
-            if (nodes[0]) {
-                const visited = new Set<string>();
-                const stack: [string, number][] = [[nodes[0].id, 0]];
-                while(stack.length) {
-                    const [curr, d] = stack.pop()!;
-                    if (visited.has(curr)) continue;
-                    visited.add(curr);
-                    depthMap.set(curr, Math.max(depthMap.get(curr) || 0, d));
-                    edges.filter(e => e.source === curr).forEach(e => stack.push([e.target, d + 1]));
-                }
-            }
+        // ── Phase 27: Asset-Backed Yggdrasil & Cherry Blossom Engine ──
+        const isWorld = nodes.length > 50;
+        const cx = w / 2;
+        const cy = h / 2;
+        const r_base = Math.min(w, h) / 1.7; // Taller tree for immersive view
+        setLayoutState({ centerX: cx, centerY: cy, radius: r_base });
 
-            const nodesByDepth: { [d: number]: string[] } = {};
-            nodes.forEach(n => {
-                const d = depthMap.get(n.id) || 0;
-                if (!nodesByDepth[d]) nodesByDepth[d] = [];
-                nodesByDepth[d].push(n.id);
-            });
+        const childMap = new Map<string, string[]>();
+        edges.forEach(e => {
+            const children = childMap.get(e.target) || [];
+            children.push(e.source);
+            childMap.set(e.target, children);
+        });
 
-            nodes = nodes.map(n => {
-                const d = depthMap.get(n.id) || 0;
-                const siblings = nodesByDepth[d];
-                const idx = siblings.indexOf(n.id);
-                const x = (w / (siblings.length + 1)) * (idx + 1);
-                const y = 60 + d * 80;
-                return { ...n, x, y, pinned: true };
+        const positions = new Map<string, { x: number, y: number, color: string, r: number }>();
+        const assignPos = (id: string, startAngle: number, endAngle: number, depth: number) => {
+            const children = childMap.get(id) || [];
+            const midAngle = (startAngle + endAngle) / 2;
+
+            // Phase 31: Curvilinear "Poof" Canopy Silhouette
+            const maxExpectedDepth = 25;
+            const progress = Math.min(1, depth / maxExpectedDepth);
+
+            // Non-linear radius to form a rounded "Mushroom" canopy
+            const poofFactor = Math.sin(progress * Math.PI / 1.1); // Rounds at the top
+            const baseR = isWorld ? 110 : 80;
+            const r = (depth === 0) ? 0 : baseR + (depth * 45 * poofFactor);
+
+            const spreadFactor = 1.2 + (depth * 0.3 * (1 - progress)); // Widen early, taper late
+            const spiralOffset = Math.sin(depth * 1.9) * 0.4 * (1 - progress); // More stable at top
+            const finalAngle = midAngle + spiralOffset;
+
+            // Phase 31: Canopy-Bounded Jitter
+            const anatomicalJitter = Math.sin(depth * 1.6) * (depth * 12) * (1 - progress);
+            const x = cx + Math.cos(finalAngle - Math.PI / 2) * r + anatomicalJitter;
+            const y = (cy + (isWorld ? 460 : 430)) + Math.sin(finalAngle - Math.PI / 2) * r * 0.85; // Slightly flattened y
+
+            const color = isWorld ? (depth < 5 ? '#f472b6' : '#fbcfe8') : (depth < 5 ? '#db2777' : '#fbcfe8');
+            positions.set(id, { x, y, color, r: isWorld ? Math.max(8, 20 - depth) : Math.max(9, 22 - depth) });
+
+            if (children.length === 0) return;
+            const sector = (endAngle - startAngle) / children.length;
+            children.forEach((childId, idx) => {
+                // Wide sectoring for anatomical filling
+                const nextStart = finalAngle - (spreadFactor / 2) + (idx * spreadFactor / children.length);
+                const nextEnd = finalAngle - (spreadFactor / 2) + ((idx + 1) * spreadFactor / children.length);
+                assignPos(childId, nextStart, nextEnd, depth + 1);
             });
-        } else {
-            // Initial placement for force/maltego
-            nodes = nodes.map((n, i) => {
-                const angle = i * (layout === 'maltego' ? 0.3 : 0.6);
-                const r = 50 + i * (layout === 'maltego' ? 12 : 8);
-                return {
-                    ...n,
-                    x: w / 2 + r * Math.cos(angle),
-                    y: h / 2 + r * Math.sin(angle)
-                };
-            });
-            runForceSimulation(nodes, edges, w, h, 200, layout === 'maltego' ? 'maltego' : 'force');
-        }
+        };
+
+        const rootNode = nodes[nodes.length - 1];
+        if (rootNode) assignPos(rootNode.id, -Math.PI / 6, Math.PI / 6, 0); // Vertical trunk start
+
+        nodes = nodes.map(n => {
+            const pos = positions.get(n.id);
+            if (!pos) return { ...n, x: layoutState.centerX, y: layoutState.centerY, pinned: true, color: '#fbbf24', radius: 6 };
+            return { ...n, x: pos.x, y: pos.y, pinned: true, color: pos.color, radius: pos.r };
+        });
 
         setGraphNodes(nodes);
         setGraphEdges(edges);
+        setLoading(false);
         setPan({ x: 0, y: 0 });
-        setZoom(1);
-    }, [history, layout]);
+        setZoom(nodes.length > 200 ? 0.35 : 0.85); // Show entire tree canopy initially
+    }, [history]);
 
     // ── Drag handling ──
     const handleMouseDown = (e: React.MouseEvent, nodeId: string) => {
@@ -330,33 +346,17 @@ const GitGraph: React.FC = () => {
             display: 'flex', flexDirection: 'column', height: '100%',
             background: 'var(--vscode-editor-background)', position: 'relative', overflow: 'hidden'
         }}>
-            {/* ── Canvas toolbar ── */}
+            {/* Adaptive layout indicator */}
             <div style={{
                 position: 'absolute', top: 8, left: 8, zIndex: 10,
                 display: 'flex', gap: 6, background: 'rgba(0,0,0,0.5)',
-                padding: '4px 6px', borderRadius: 8, backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(255,255,255,0.1)'
+                border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.8)',
+                fontSize: 10, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase',
+                boxShadow: `0 0 15px ${graphNodes.length > 200 ? 'rgba(251, 191, 36, 0.2)' : 'rgba(244, 114, 182, 0.2)'}`
             }}>
-                <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: 4, padding: 2 }}>
-                    {[
-                        { id: 'force', icon: 'hubot', label: 'Force' },
-                        { id: 'tree', icon: 'list-tree', label: 'Tree' },
-                        { id: 'maltego', icon: 'organization', label: 'Maltego' }
-                    ].map(opt => (
-                        <button key={opt.id}
-                            onClick={() => setLayout(opt.id as any)}
-                            title={opt.label}
-                            style={{
-                                background: layout === opt.id ? 'rgba(59, 130, 246, 0.4)' : 'transparent',
-                                border: 'none', color: layout === opt.id ? '#fff' : 'rgba(255,255,255,0.5)',
-                                padding: '4px 8px', borderRadius: 3, cursor: 'pointer', fontSize: 11,
-                                display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.2s'
-                            }}>
-                            <i className={`codicon codicon-${opt.icon}`} style={{ fontSize: 12 }}></i>
-                            {opt.label}
-                        </button>
-                    ))}
-                </div>
+                <i className={`codicon codicon-${graphNodes.length > 200 ? 'hubot' : 'sparkle'}`}
+                    style={{ color: graphNodes.length > 200 ? '#fbbf24' : '#f472b6', marginRight: 4 }}></i>
+                {graphNodes.length > 200 ? 'Yggdrasil World Tree' : 'Cherry Blossom Binary Tree'}
             </div>
 
             <div style={{
@@ -390,54 +390,87 @@ const GitGraph: React.FC = () => {
                     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
                         <circle cx="20" cy="20" r="0.5" fill="var(--vscode-editorGroup-border, rgba(255,255,255,0.06))" />
                     </pattern>
-                    {/* Glow filter */}
-                    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur stdDeviation="4" result="blur" />
-                        <feMerge>
-                            <feMergeNode in="blur" />
-                            <feMergeNode in="SourceGraphic" />
-                        </feMerge>
+                    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="3" result="blur" />
+                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
                     </filter>
-                    {/* Arrow marker */}
-                    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                    <filter id="trunkShadow" x="-10%" y="-10%" width="120%" height="120%">
+                        <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#000" floodOpacity="0.5" />
+                    </filter>
+                    <linearGradient id="trunkGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#d97706" />
+                        <stop offset="100%" stopColor="#78350f" />
+                    </linearGradient>
+                    <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto">
                         <polygon points="0 0, 8 3, 0 6" fill="rgba(255,255,255,0.2)" />
                     </marker>
                 </defs>
-                <rect width="100%" height="100%" fill="url(#grid)" />
 
                 <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-                    {/* ── Edges ── */}
+                    {/* Phase 31: Ambient Falling Petals */}
+                    {Array.from({ length: 45 }).map((_, i) => (
+                        <path key={`petal-${i}`}
+                            d="M0,-8 C4,-12 10,-8 10,0 C10,8 4,12 0,8 C-4,12 -10,8 -10,0 C-10,-8 -4,-12 0,-8 Z"
+                            transform={`translate(${layoutState.centerX + (Math.sin(i * 123) * layoutState.radius * 2.2)}, ${layoutState.centerY + (Math.cos(i * 321) * layoutState.radius * 1.5)}) rotate(${i * 45}) scale(${0.3 + (i % 5) * 0.1})`}
+                            fill="#fbcfe8"
+                            opacity={0.15 + (i % 3) * 0.1}
+                            style={{ transition: 'all 2s ease-in-out' }}
+                        >
+                            <animateTransform attributeName="transform" type="translate" from="0,0" to="5,15" dur={`${3 + (i % 4)}s`} repeatCount="indefinite" additive="sum" />
+                        </path>
+                    ))}
+
+                    <image
+                        href={graphNodes.length > 50 ? yggdrasilImg : cherryBlossomImg}
+                        x={layoutState.centerX - layoutState.radius * 2}
+                        y={layoutState.centerY - layoutState.radius * 2}
+                        width={layoutState.radius * 4}
+                        height={layoutState.radius * 4}
+                        style={{ opacity: 0.25, pointerEvents: 'none', filter: 'brightness(1.3) contrast(1.2)' }}
+                    />
+
+                    {/* ── Edges (Structural Bark) ── */}
                     {graphEdges.map((edge, i) => {
                         const source = nodeMap.get(edge.source);
                         const target = nodeMap.get(edge.target);
                         if (!source || !target) return null;
 
-                        const dx = target.x - source.x;
-                        const dy = target.y - source.y;
-                        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-                        // Shorten line by node radius
-                        const sx = source.x + (dx / dist) * source.radius;
-                        const sy = source.y + (dy / dist) * source.radius;
-                        const tx = target.x - (dx / dist) * target.radius;
-                        const ty = target.y - (dy / dist) * target.radius;
+                        const sx = source.x;
+                        const sy = source.y;
+                        const tx = target.x;
+                        const ty = target.y;
 
                         const isHighlighted = selectedHash === edge.source || selectedHash === edge.target;
 
-                        // Curved edge
-                        const midX = (sx + tx) / 2 + (dy / dist) * 20;
-                        const midY = (sy + ty) / 2 - (dx / dist) * 20;
+                        // Phase 30: Deep Bark Texture logic
+                        const sourceIdx = graphNodes.indexOf(source!);
+                        const depthFactor = Math.max(0, 1 - (sourceIdx / 35));
+                        const woodenWidth = 1.3 + (depthFactor * 5); // Realistic tapering
+
+                        // High-Curvature Bio-mimetic Bezier
+                        const midX = (sx + tx) / 2 + (Math.sin(sourceIdx * 1.4) * 55 * (1 - depthFactor));
+                        const midY = (sy + ty) / 2 + (Math.cos(sourceIdx * 1.4) * 25);
+                        const d = `M${sx},${sy} Q${midX},${midY} ${tx},${ty}`;
 
                         return (
-                            <path key={i}
-                                d={`M${sx},${sy} Q${midX},${midY} ${tx},${ty}`}
-                                stroke={edge.color}
-                                strokeWidth={isHighlighted ? 2.5 : 1.5}
-                                opacity={isHighlighted ? 0.7 : 0.2}
-                                fill="none"
-                                markerEnd="url(#arrowhead)"
-                                style={{ transition: 'opacity 0.2s' }}
-                            />
+                            <g key={i}>
+                                {/* Bark shadow/glow */}
+                                <path
+                                    d={d}
+                                    stroke="rgba(0,0,0,0.4)"
+                                    strokeWidth={woodenWidth + 1}
+                                    fill="none"
+                                />
+                                <path
+                                    d={d}
+                                    stroke="#2b1810" // Deep Dark Brown bark
+                                    strokeWidth={isHighlighted ? woodenWidth + 2.5 : woodenWidth}
+                                    opacity={isHighlighted ? 1 : 0.7}
+                                    fill="none"
+                                    strokeLinecap="round"
+                                    style={{ transition: 'all 0.5s' }}
+                                />
+                            </g>
                         );
                     })}
 
@@ -457,25 +490,39 @@ const GitGraph: React.FC = () => {
                                 onMouseDown={(e) => handleMouseDown(e, node.id)}
                                 onMouseEnter={() => setHoveredHash(node.id)}
                                 onMouseLeave={() => setHoveredHash(null)}
-                                style={{ cursor: 'pointer' }}
+                                style={{ cursor: 'pointer', transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }}
                             >
                                 {/* Outer glow */}
-                                {active && (
-                                    <circle cx={node.x} cy={node.y} r={r + 8}
-                                        fill="none" stroke={node.color}
-                                        strokeWidth="2" opacity={isSelected ? 0.5 : 0.25}
-                                        filter="url(#glow)"
-                                    />
+                                {isSelected && (
+                                    <circle cx={node.x} cy={node.y} r={r + 10}
+                                        fill="none" stroke={node.color} strokeWidth="1" opacity="0.3">
+                                        <animate attributeName="r" from={r} to={r + 20} dur="1.5s" repeatCount="indefinite" />
+                                        <animate attributeName="opacity" from="0.5" to="0" dur="1.5s" repeatCount="indefinite" />
+                                    </circle>
                                 )}
 
-                                {/* Node body */}
-                                <circle cx={node.x} cy={node.y} r={r}
-                                    fill={isSelected ? node.color : 'var(--vscode-editor-background)'}
-                                    stroke={node.color}
-                                    strokeWidth={isSelected ? 3 : 2}
-                                    opacity={active || !selectedHash ? 1 : 0.4}
-                                    style={{ transition: 'opacity 0.2s, fill 0.15s' }}
-                                />
+                                {/* Phase 31: High-Density Blossom Cluster (5 Petals) */}
+                                <g transform={`translate(${node.x}, ${node.y}) scale(${r / 10 * (isSelected ? 1.7 : 1)})`}
+                                    style={{ transition: 'transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }}>
+                                    {/* Petal 1 (Core) */}
+                                    <path d="M0,-8 C4,-12 10,-8 10,0 C10,8 4,12 0,8 C-4,12 -10,8 -10,0 C-10,-8 -4,-12 0,-8 Z"
+                                        fill={isSelected ? '#fff' : node.color}
+                                        filter={active ? "url(#glow)" : ""}
+                                        opacity={active ? 1 : 0.9} />
+                                    {/* Petal 2-5 (Cluster) */}
+                                    <path d="M0,-8 C4,-12 10,-8 10,0 C10,8 4,12 0,8 C-4,12 -10,8 -10,0 C-10,-8 -4,-12 0,-8 Z"
+                                        transform="rotate(72) scale(0.8) translate(4, 2)"
+                                        fill={node.color} opacity="0.7" />
+                                    <path d="M0,-8 C4,-12 10,-8 10,0 C10,8 4,12 0,8 C-4,12 -10,8 -10,0 C-10,-8 -4,-12 0,-8 Z"
+                                        transform="rotate(144) scale(0.7) translate(-3, 5)"
+                                        fill="#fbcfe8" opacity="0.6" />
+                                    <path d="M0,-8 C4,-12 10,-8 10,0 C10,8 4,12 0,8 C-4,12 -10,8 -10,0 C-10,-8 -4,-12 0,-8 Z"
+                                        transform="rotate(216) scale(0.9) translate(-5, -2)"
+                                        fill="#f9a8d4" opacity="0.5" />
+                                    <path d="M0,-8 C4,-12 10,-8 10,0 C10,8 4,12 0,8 C-4,12 -10,8 -10,0 C-10,-8 -4,-12 0,-8 Z"
+                                        transform="rotate(288) scale(0.85) translate(2, -6)"
+                                        fill="#fff1f2" opacity="0.8" />
+                                </g>
 
                                 {/* Author initials */}
                                 <text x={node.x} y={node.y + 1}
@@ -602,6 +649,90 @@ const GitGraph: React.FC = () => {
                         {selectedNode.commit.message}
                     </div>
 
+                    {/* Actions Toolbar */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                        <button
+                            onClick={async () => {
+                                if (confirm("Revert this commit?")) {
+                                    try {
+                                        await invoke('git_revert', { hash: selectedNode.id });
+                                        fetchHistory();
+                                    } catch (e) {
+                                        alert(e);
+                                    }
+                                }
+                            }}
+                            className="scm-action-btn"
+                            style={{
+                                background: 'rgba(244, 63, 94, 0.2)', color: '#fb7185',
+                                border: '1px solid rgba(244, 63, 94, 0.4)',
+                                padding: '6px 12px', borderRadius: 4, cursor: 'pointer',
+                                fontSize: 11, display: 'flex', alignItems: 'center', gap: 6
+                            }}>
+                            <i className="codicon codicon-history"></i> Revert
+                        </button>
+                        <button
+                            onClick={async () => {
+                                try {
+                                    const commitMsg = selectedNode.commit.message;
+                                    const hash = selectedNode.id;
+                                    const provider = agentModel.includes(':') ? agentModel.split(':')[0] : 'anthropic';
+                                    const model = agentModel.includes(':') ? agentModel.split(':')[1] : agentModel;
+
+                                    addAgentMessage('user', `Please analyze this commit: ${hash} - ${commitMsg}`);
+
+                                    await invoke('ai_chat', {
+                                        request: {
+                                            provider,
+                                            model,
+                                            messages: [
+                                                {
+                                                    role: 'user',
+                                                    content: `Explain this commit in depth, analyzing the changes and suggesting potential improvements: \n\nHash: ${hash}\nMessage: ${commitMsg}\n\nPlease use your tools to fetch the diff if needed.`
+                                                }
+                                            ],
+                                            autonomous: true,
+                                            mode: agentMode
+                                        }
+                                    });
+                                } catch (e) {
+                                    alert(`AI Explain failed: ${e}`);
+                                }
+                            }}
+                            className="scm-action-btn"
+                            style={{
+                                background: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa',
+                                border: '1px solid rgba(59, 130, 246, 0.4)',
+                                padding: '6px 12px', borderRadius: 4, cursor: 'pointer',
+                                fontSize: 11, display: 'flex', alignItems: 'center', gap: 6
+                            }}>
+                            <i className="codicon codicon-sparkle"></i> AI Explain
+                        </button>
+                        <button
+                            title="Show full diff"
+                            onClick={async () => {
+                                try {
+                                    const diff = await invoke<string>('git_diff', {
+                                        path: activeRoot || '.',
+                                        hash: selectedNode.id
+                                    });
+                                    setDiffContent(diff);
+                                    setShowDiff(true);
+                                } catch (e) {
+                                    alert(`Failed to fetch diff: ${e}`);
+                                }
+                            }}
+                            className="scm-action-btn"
+                            style={{
+                                background: 'rgba(255, 255, 255, 0.05)', color: 'rgba(255,255,255,0.7)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                padding: '6px 12px', borderRadius: 4, cursor: 'pointer',
+                                fontSize: 11, display: 'flex', alignItems: 'center', gap: 6
+                            }}>
+                            <i className="codicon codicon-diff"></i> View Diff
+                        </button>
+                    </div>
+
                     {/* Parents */}
                     {selectedNode.commit.parents.length > 0 && (
                         <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', fontSize: 10, opacity: 0.4 }}>
@@ -617,6 +748,47 @@ const GitGraph: React.FC = () => {
                             ))}
                         </div>
                     )}
+                </div>
+            )}
+            {/* Diff Modal Overlay */}
+            {showDiff && diffContent !== null && (
+                <div style={{
+                    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)',
+                    zIndex: 100, display: 'flex', flexDirection: 'column',
+                    animation: 'fadeIn 0.2s ease-out'
+                }}>
+                    <style>{`@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
+                    <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '12px 16px', background: 'var(--vscode-sideBar-background)',
+                        borderBottom: '1px solid rgba(255,255,255,0.1)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <i className="codicon codicon-diff" style={{ color: '#60a5fa' }}></i>
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>Commit Diff: {selectedNode?.id.substring(0, 8)}</span>
+                        </div>
+                        <button
+                            onClick={() => setShowDiff(false)}
+                            style={{
+                                background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff',
+                                padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 11
+                            }}>Close</button>
+                    </div>
+                    <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+                        <pre style={{
+                            margin: 0, fontSize: 11, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                            lineHeight: 1.5, color: '#d1d5db', whiteSpace: 'pre-wrap'
+                        }}>
+                            {diffContent.split('\n').map((line, i) => {
+                                let color = '#d1d5db';
+                                if (line.startsWith('+')) color = '#4ade80';
+                                else if (line.startsWith('-')) color = '#f87171';
+                                else if (line.startsWith('@@')) color = '#818cf8';
+                                return <div key={i} style={{ color }}>{line}</div>;
+                            })}
+                        </pre>
+                    </div>
                 </div>
             )}
         </div>

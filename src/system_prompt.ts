@@ -140,7 +140,7 @@ export async function buildSystemPrompt(config: SystemPromptConfig): Promise<str
     const parts: string[] = [];
 
     // ── Core Identity ──
-    parts.push(`You are an AI coding agent embedded inside a VSCode-like IDE called Antigravity. You have full access to the filesystem, terminal, browser, git, and development tools through structured tool calls. You are an expert software engineer capable of completing any coding task.`);
+    parts.push(`You are an AI coding agent embedded inside a VSCode-like IDE called VSCODIUM-RUST. You have full access to the filesystem, terminal, browser, git, and development tools through structured tool calls. You are an expert software engineer capable of completing any coding task.`);
 
     // ── Environment Info ──
     parts.push(`\nEnvironment: ${getOSInfo()}`);

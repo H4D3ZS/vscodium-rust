@@ -1,5 +1,123 @@
+@font-face {
+  font-family: "codicon";
+  src: url("https://cdn.jsdelivr.net/npm/@vscode/codicons@0.0.36/dist/codicon.ttf") format("truetype");
+}
+
 .codicon {
   font-family: 'codicon' !important;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Explicit mappings for core icons */
+.codicon-folder:before {
+  content: "\ea83";
+}
+
+.codicon-folder-opened:before {
+  content: "\ea82";
+}
+
+.codicon-file:before {
+  content: "\ea7b";
+}
+
+.codicon-chevron-right:before {
+  content: "\eab6";
+}
+
+.codicon-chevron-down:before {
+  content: "\eab4";
+}
+
+/* Triple-Layer Defense: Default emojis if font fails to render */
+.codicon-folder:after,
+.codicon-folder-opened:after,
+.codicon-file:after {
+  font-family: sans-serif !important;
+  font-style: normal;
+  font-size: 14px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  /* Hide if font is present */
+}
+
+.codicon-folder:empty:before {
+  content: "📁";
+  font-family: sans-serif !important;
+}
+
+.codicon-folder-opened:empty:before {
+  content: "📂";
+  font-family: sans-serif !important;
+}
+
+.codicon-file:empty:before {
+  content: "📄";
+  font-family: sans-serif !important;
+}
+
+
+.codicon-search:before {
+  content: "\ea73";
+}
+
+.codicon-source-control:before {
+  content: "\ea68";
+}
+
+.codicon-debug:before {
+  content: "\ead0";
+}
+
+.codicon-extensions:before {
+  content: "\ea6f";
+}
+
+.codicon-settings-gear:before {
+  content: "\eab2";
+}
+
+.codicon-bell:before {
+  content: "\ea9a";
+}
+
+.codicon-error:before {
+  content: "\ea87";
+}
+
+.codicon-warning:before {
+  content: "\ea6c";
+}
+
+.codicon-info:before {
+  content: "\ea66";
+}
+
+.codicon-clear-all:before {
+  content: "\ead0";
+}
+
+.codicon-refresh:before {
+  content: "\eb37";
+}
+
+.codicon-new-file:before {
+  content: "\ea7f";
+}
+
+.codicon-new-folder:before {
+  content: "\ea80";
+}
+
+.codicon-close-all:before {
+  content: "\eab1";
+}
+
+.codicon-close:before {
+  content: "\ea76";
 }
 
 .sidebar {

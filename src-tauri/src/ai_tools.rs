@@ -1924,26 +1924,29 @@ impl AiTools {
             .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing query"))?;
-        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+        let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let root = self
             .root_path
             .lock()
             .map_err(|e| anyhow!("Lock error: {}", e))?;
+        let full_path = self.validate_path(&root, path_str)?;
+
         let output = if cfg!(target_os = "windows") {
             std::process::Command::new("powershell")
                 .args(&[
                     "-Command",
                     &format!(
                         "Select-String -Path '{}' -Pattern '{}' -Recursive",
-                        path, query
+                        full_path.to_string_lossy(),
+                        query
                     ),
                 ])
                 .current_dir(&*root)
                 .output()?
         } else {
             std::process::Command::new("grep")
-                .args(&["-r", "-n", query, path])
+                .args(&["-r", "-n", query, &full_path.to_string_lossy()])
                 .current_dir(&*root)
                 .output()?
         };
@@ -2132,11 +2135,7 @@ impl AiTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing path"))?;
         let root = self.root_path.lock().map_err(|_| anyhow!("Lock error"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() {
-            PathBuf::from(path_str)
-        } else {
-            root.join(path_str)
-        };
+        let full_path = self.validate_path(&root, path_str)?;
 
         let path_string = full_path.to_string_lossy().to_string();
 
@@ -2188,11 +2187,7 @@ impl AiTools {
             .root_path
             .lock()
             .map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() {
-            PathBuf::from(path_str)
-        } else {
-            root.join(path_str)
-        };
+        let full_path = self.validate_path(&root, path_str)?;
 
         let content = fs::read_to_string(&full_path)?;
         if !content.contains(target) {
@@ -2219,11 +2214,7 @@ impl AiTools {
             .root_path
             .lock()
             .map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() {
-            PathBuf::from(path_str)
-        } else {
-            root.join(path_str)
-        };
+        let full_path = self.validate_path(&root, path_str)?;
 
         let mut content = fs::read_to_string(&full_path)?;
 
@@ -2258,11 +2249,7 @@ impl AiTools {
             .root_path
             .lock()
             .map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let search_path = root.join(path_str);
-
-        if !search_path.starts_with(&*root) {
-            return Err(anyhow!("Access denied: path outside project root"));
-        }
+        let search_path = self.validate_path(&root, path_str)?;
 
         let mut results = Vec::new();
         use walkdir::WalkDir;
@@ -2299,11 +2286,7 @@ impl AiTools {
             .root_path
             .lock()
             .map_err(|_| anyhow!("Failed to lock root_path"))?;
-        let start_path = root.join(path_str);
-
-        if !start_path.starts_with(&*root) {
-            return Err(anyhow!("Access denied: path outside project root"));
-        }
+        let start_path = self.validate_path(&root, path_str)?;
 
         let mut structure = Vec::new();
         use walkdir::WalkDir;
@@ -2339,11 +2322,7 @@ impl AiTools {
             .root_path
             .lock()
             .map_err(|e| anyhow!("Lock error: {}", e))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() {
-            PathBuf::from(path_str)
-        } else {
-            root.join(path_str)
-        };
+        let full_path = self.validate_path(&root, path_str)?;
 
         let content = fs::read_to_string(&full_path)?;
         let mut symbols = Vec::new();
@@ -2443,11 +2422,7 @@ impl AiTools {
             .ok_or_else(|| anyhow!("Missing ReplacementContent"))?;
 
         let root = self.root_path.lock().map_err(|_| anyhow!("Lock error"))?;
-        let full_path = if PathBuf::from(path_str).is_absolute() {
-            PathBuf::from(path_str)
-        } else {
-            root.join(path_str)
-        };
+        let full_path = self.validate_path(&root, path_str)?;
 
         let content = fs::read_to_string(&full_path)?;
         let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
@@ -2819,41 +2794,51 @@ impl AiTools {
         Ok(json!({ "diff": diff }))
     }
 
-    fn get_system_health(&self, _args: Value) -> Result<Value> {
+    pub(crate) fn get_system_health(&self, _args: Value) -> Result<Value> {
         let mut health = json!({
             "git": { "status": "unknown" },
-            "node": { "status": "unknown" },
-            "rust": { "status": "unknown" },
-            "mcp": []
+            "tools": {
+                "node": "unknown",
+                "cargo": "unknown"
+            },
+            "mcp_servers": []
         });
 
         // 1. Check Git
         let root = self.root_path.lock().unwrap();
-        let git_status = std::process::Command::new("git")
+        let output = std::process::Command::new("git")
             .arg("rev-parse")
-            .arg("--is-inside-work-tree")
+            .arg("--abbrev-ref")
+            .arg("HEAD")
             .current_dir(&*root)
             .output();
-        health["git"]["status"] = if git_status.is_ok() && git_status.unwrap().status.success() {
-            json!("ok")
-        } else {
-            json!("not_in_repo")
-        };
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                health["git"]["is_repo"] = json!(true);
+                health["git"]["status"] = json!("ok");
+                health["git"]["current_branch"] =
+                    json!(String::from_utf8_lossy(&output.stdout).trim());
+            } else {
+                health["git"]["is_repo"] = json!(false);
+            }
+        }
 
         // 2. Check Node
         let node_v = std::process::Command::new("node").arg("--version").output();
-        health["node"]["status"] = if node_v.is_ok() && node_v.unwrap().status.success() {
-            json!("ok")
+        health["tools"]["node"] = if node_v.is_ok() && node_v.as_ref().unwrap().status.success() {
+            json!(String::from_utf8_lossy(&node_v.unwrap().stdout).trim())
         } else {
             json!("missing")
         };
 
-        // 3. Check Rust
+        // 3. Check Cargo
         let cargo_v = std::process::Command::new("cargo")
             .arg("--version")
             .output();
-        health["rust"]["status"] = if cargo_v.is_ok() && cargo_v.unwrap().status.success() {
-            json!("ok")
+        health["tools"]["cargo"] = if cargo_v.is_ok() && cargo_v.as_ref().unwrap().status.success()
+        {
+            json!(String::from_utf8_lossy(&cargo_v.unwrap().stdout).trim())
         } else {
             json!("missing")
         };
@@ -2861,7 +2846,7 @@ impl AiTools {
         // 4. Check MCP (Async bridged to sync for tools compatibility)
         let mcp_status =
             tauri::async_runtime::block_on(async { self.mcp_registry.list_servers_status().await });
-        health["mcp"] = json!(mcp_status);
+        health["mcp_servers"] = json!(mcp_status);
 
         Ok(health)
     }

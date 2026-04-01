@@ -28,10 +28,14 @@ VSCodium-Rust is designed for developers who demand **freedom from corporate fil
 - **JSON Schema Parity:** All IDE tools are exposed via standard formats, ensuring any tool-calling model (Llama 3, Mistral) can be fully agentic within your workspace.
 - **Pay Only for What You Use:** Bring your own API keys for hosted models (Anthropic, OpenAI, Gemini) and eliminate redundant subscriptions.
 
-### ⚡ 4. Native Performance & Precision
-- **Rust/Tauri Backbone:** Sheds the memory weight of Electron. Verified **< 100MB RAM usage** for core operations.
-- **Monaco Precision:** Powered by the Monaco engine for authentic syntax highlighting and LSP support.
-- **GPUI Primitives:** High-performance UI rendering for zero-latency interactions.
+### 📊 5. Visual Lab & Data Flow Builder
+A powerful, **Rust-backend-driven** visualization engine for complex data structures:
+- **Instant JSON/SQL Visualization:** Toggle a visual graph view for any JSON file or SQL schema directly from the editor.
+- **Cross-Format Support:** Intelligent parsers for JSON (hierarchical), SQL (ERDs), and MongoDB/BSON documents.
+- **AI Flow Builder:** Describe your desired architecture in natural language and have the built-in engine generate a complete interactive diagram.
+- **High Performance:** Optimized for 60fps interaction even with 100+ nodes using lightweight rendering and native layout calculations.
+
+![Visual Lab Flow](pics/flow_visualizer.png)
 
 ---
 
