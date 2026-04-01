@@ -1,0 +1,85 @@
+// Nexus Finance MongoDB Documents (NoSQL Test)
+
+// Users Collection
+db.users.insertMany([
+    {
+        "_id": ObjectId("6489a1b2c3d4e5f600000001"),
+        "id": "u_8829",
+        "profile": {
+            "first_name": "Alexander",
+            "last_name": "Hades",
+            "email": "hades@vscodium.io",
+            "tier": "Premium",
+            "preferences": {
+                "currency": "USD",
+                "notifications": {
+                    "email": true,
+                    "push": true,
+                    "sms": false
+                },
+                "theme": "Acheron Dark"
+            }
+        },
+        "security": {
+            "mfa_enabled": true,
+            "last_login": ISODate("2026-04-01T22:00:00Z"),
+            "trusted_devices": ["MBP-Air-2026", "iPhone-18-Pro"]
+        }
+    }
+]);
+
+// Accounts Collection
+db.accounts.insertMany([
+    {
+        "_id": ObjectId("6489a1b2c3d4e5f600000010"),
+        "account_id": "acc_001",
+        "user_id": "u_8829",
+        "type": "Checking",
+        "institution": "Global Bank Corp",
+        "balance": 15420.50,
+        "currency": "USD",
+        "status": "Active",
+        "features": ["Zelle", "Wire", "BillPay"]
+    },
+    {
+        "_id": ObjectId("6489a1b2c3d4e5f600000011"),
+        "account_id": "acc_002",
+        "user_id": "u_8829",
+        "type": "Savings",
+        "institution": "Global Bank Corp",
+        "balance": 45000.00,
+        "currency": "USD",
+        "interest_rate": 4.5,
+        "status": "Active"
+    }
+]);
+
+// Transactions Collection
+db.transactions.insertMany([
+    {
+        "_id": ObjectId("6489a1b2c3d4e5f600000020"),
+        "tx_id": "tx_99201",
+        "account_id": "acc_001",
+        "date": ISODate("2026-04-01T00:00:00Z"),
+        "amount": -85.50,
+        "merchant": "Whole Foods Market",
+        "category": "Groceries",
+        "tags": ["Essential", "Food"],
+        "verified": true,
+        "location": {
+            "city": "San Francisco",
+            "coords": [37.7749, -122.4194]
+        }
+    }
+]);
+
+// Dynamic Investment Portfolio
+db.investments.insertOne({
+    "user_id": "u_8829",
+    "total_value": 125800.00,
+    "holdings": [
+        {"symbol": "AAPL", "shares": 150, "avg_price": 175.50},
+        {"symbol": "BTC", "amount": 1.25, "avg_cost": 42500.00}
+    ],
+    "allocation": { "Stocks": 65, "Crypto": 25, "Cash": 10 }
+});

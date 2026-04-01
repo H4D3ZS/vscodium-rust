@@ -31,7 +31,8 @@ import {
     RefreshCw,
     Maximize2,
     Eraser,
-    Upload
+    Upload,
+    Columns
 } from 'lucide-react';
 import { useStore } from '../../store';
 
@@ -187,7 +188,7 @@ const DraggableNode = ({ type, label, color, onClick }: any) => {
 
 // --- Main Component ---
 
-const VisualLabInner: React.FC = () => {
+const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
     const isVisualLabOpen = useStore(state => state.isVisualLabOpen);
     const toggleVisualLab = useStore(state => state.toggleVisualLab);
     const visualLabMode = useStore(state => state.visualLabMode);
@@ -195,6 +196,8 @@ const VisualLabInner: React.FC = () => {
     const visualLabData = useStore(state => state.visualLabData);
     const isFullScreen = useStore(state => state.isVisualLabFullScreen);
     const setIsFullScreen = useStore(state => state.setIsVisualLabFullScreen);
+    const isSplitView = useStore(state => state.isVisualLabSplitView);
+    const setIsSplitView = useStore(state => state.setIsVisualLabSplitView);
 
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -294,10 +297,16 @@ const VisualLabInner: React.FC = () => {
     // Backend handles parsing now
     useEffect(() => {
         if (visualLabData && visualLabMode !== 'none') {
-            const format = visualLabMode === 'erd' ? 'sql' : 'json';
+            const store = (window as any).useStore?.getState();
+            const activeTab = store?.tabs.find((t: any) => t.id === store.activeTabId);
+
+            let format = visualLabMode === 'erd' ? 'sql' : 'json';
+            if (activeTab?.path?.endsWith('.mongodb')) {
+                format = 'mongodb';
+            }
 
             invoke('get_visual_graph', {
-                data: visualLabMode === 'erd' ? visualLabData : JSON.parse(visualLabData),
+                data: visualLabMode === 'erd' ? visualLabData : (format === 'mongodb' ? visualLabData : JSON.parse(visualLabData)),
                 format
             })
                 .then((graph: any) => {
@@ -326,19 +335,21 @@ const VisualLabInner: React.FC = () => {
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
             style={{
-                position: 'fixed',
-                top: isFullScreen ? '0' : '40px',
-                left: isFullScreen ? '0' : '60px',
-                right: isFullScreen ? '0' : '12px',
-                bottom: isFullScreen ? '0' : '12px',
+                position: isInline ? 'relative' : 'fixed',
+                top: isInline ? '0' : (isFullScreen ? '0' : '40px'),
+                left: isInline ? '0' : (isFullScreen ? '0' : '60px'),
+                right: isInline ? '0' : (isFullScreen ? '0' : '12px'),
+                bottom: isInline ? '0' : (isFullScreen ? '0' : '12px'),
                 zIndex: isFullScreen ? 99999 : 5000,
                 background: '#0f0f0f',
-                borderRadius: isFullScreen ? '0' : '12px',
+                borderRadius: (isFullScreen || isInline) ? '0' : '12px',
                 border: isFullScreen ? 'none' : '1px solid rgba(255, 255, 255, 0.05)',
                 display: 'flex',
                 flexDirection: 'column',
-                boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
-                overflow: 'hidden'
+                boxShadow: isInline ? 'none' : '0 20px 50px rgba(0,0,0,0.5)',
+                overflow: 'hidden',
+                width: isInline ? '100%' : 'auto',
+                height: isInline ? '100%' : 'auto'
             }}
         >
             {/* Header / Toolbar */}
@@ -429,6 +440,21 @@ const VisualLabInner: React.FC = () => {
                     >
                         <Maximize2 size={16} style={{ transform: isFullScreen ? 'rotate(180deg)' : 'none' }} />
                         <span style={{ fontSize: '12px' }}>{isFullScreen ? "Window" : "Full"}</span>
+                    </button>
+                    <button
+                        onClick={() => setIsSplitView(!isSplitView)}
+                        title={isSplitView ? "Exit Split View" : "Enter Split View"}
+                        style={{
+                            background: isSplitView ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                            border: 'none', color: isSplitView ? '#3b82f6' : 'rgba(255,255,255,0.4)',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                            padding: '4px 8px', borderRadius: '4px', transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = isSplitView ? 'rgba(59, 130, 246, 0.3)' : 'rgba(255,255,255,0.05)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = isSplitView ? 'rgba(59, 130, 246, 0.2)' : 'transparent'}
+                    >
+                        <Columns size={16} />
+                        <span style={{ fontSize: '12px' }}>{isSplitView ? "Merge" : "Split"}</span>
                     </button>
                     <button
                         onClick={() => {
@@ -772,9 +798,9 @@ const AiBuilderModal = ({ isOpen, onClose, onGenerate }: any) => {
     );
 };
 
-const VisualLab: React.FC = () => (
+const VisualLab: React.FC<{ isInline?: boolean }> = ({ isInline }) => (
     <ReactFlowProvider>
-        <VisualLabInner />
+        <VisualLabInner isInline={isInline} />
     </ReactFlowProvider>
 );
 

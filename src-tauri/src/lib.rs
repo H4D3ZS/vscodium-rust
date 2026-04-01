@@ -23,16 +23,20 @@ mod ai_auth;
 pub mod ai_engine;
 use ai_engine::{AiRequest, ChatMessage, Sentient};
 mod ai_tools;
+pub mod ane;
 pub mod context_quantizer;
 pub mod domain;
 mod mcp_client;
 mod mcp_registry;
 pub mod memory_optimizer;
 mod memory_store;
+use crate::memory_store::SemanticSlot;
 mod task_planner;
 // mod browser_bridge; // Redundant, functionality in browser.rs
+mod context_indexer;
 mod tool_invoker;
 mod visual_lab;
+use context_indexer::ContextIndexer;
 
 mod lsp;
 use lsp::LspClient;
@@ -173,6 +177,18 @@ impl EditorState {
         ));
         println!("[DEBUG] Sentient initialized");
         sentient.set_app_handle(app.clone());
+
+        // Initialize and start Omni-Context Indexer (Phase 44)
+        let context_indexer = Arc::new(ContextIndexer::new(
+            sentient.memory_store.clone(),
+            root.clone(),
+        ));
+        let ci_for_spawn = context_indexer.clone();
+        tauri::async_runtime::spawn(async move {
+            ci_for_spawn.start_background_indexing().await;
+        });
+
+        app.manage(context_indexer);
 
         let mut ext_dirs = vec![config_dir.join("extensions")];
         let builtin_ext_dir = root.join("vscode").join("extensions");
@@ -2283,6 +2299,59 @@ async fn set_ollama_url(state: State<'_, EditorState>, url: String) -> Result<()
 }
 
 #[tauri::command]
+async fn benchmark_ane(state: State<'_, EditorState>) -> Result<Value, String> {
+    let mut ane = state.ai_engine.ane_engine.lock().await;
+    if ane.is_none() {
+        // Initialize with a simple 110M Transformer block template
+        let mil = crate::ane::AneEngine::gen_dyn_matmul_mil(768, 768, 256);
+        let weights = vec![0u8; 768 * 768 * 2]; // Dummy weights for benchmark
+        let input_sizes = vec![1 * 768 * 1 * (256 + 768) * 2];
+        let output_sizes = vec![1 * 768 * 1 * 256 * 2];
+
+        let start_compile = std::time::Instant::now();
+        let engine = crate::ane::AneEngine::new(&mil, &weights, &input_sizes, &output_sizes)?;
+        let compile_ms = start_compile.elapsed().as_millis();
+
+        *ane = Some(engine);
+
+        // Run one evaluation
+        let input = vec![vec![0u8; input_sizes[0]]];
+        let start_eval = std::time::Instant::now();
+        ane.as_ref().unwrap().execute(&input, &output_sizes)?;
+        let eval_us = start_eval.elapsed().as_micros();
+
+        Ok(json!({
+            "status": "success",
+            "compile_ms": compile_ms,
+            "eval_us": eval_us,
+            "device": "Apple Neural Engine"
+        }))
+    } else {
+        // Already initialized, just benchmark eval
+        let input_sizes = vec![1 * 768 * 1 * (256 + 768) * 2];
+        let output_sizes = vec![1 * 768 * 1 * 256 * 2];
+        let input = vec![vec![0u8; input_sizes[0]]];
+
+        let start_eval = std::time::Instant::now();
+        ane.as_ref().unwrap().execute(&input, &output_sizes)?;
+        let eval_us = start_eval.elapsed().as_micros();
+
+        Ok(json!({
+            "status": "success",
+            "eval_us": eval_us,
+            "device": "Apple Neural Engine"
+        }))
+    }
+}
+
+#[tauri::command]
+async fn query_performance_history(state: State<'_, EditorState>) -> Result<Value, String> {
+    // This is a stub for real performance history; currently just returns live stats
+    let stats = state.perf_monitor.get_stats();
+    Ok(json!({ "history": [stats] }))
+}
+
+#[tauri::command]
 async fn git_revert(state: State<'_, EditorState>, hash: String) -> Result<(), String> {
     let root = state
         .active_root
@@ -2329,6 +2398,15 @@ async fn git_get_unmerged(state: State<'_, EditorState>) -> Result<Vec<String>, 
 #[tauri::command]
 async fn git_clone(url: String, path: String) -> Result<(), String> {
     GitManager::new().clone(&url, path)
+}
+
+#[tauri::command]
+async fn query_workspace_memory(
+    state: State<'_, EditorState>,
+    category: String,
+) -> Result<Vec<SemanticSlot>, String> {
+    let memory = state.ai_engine.memory_store.query_slots(&category).await;
+    Ok(memory)
 }
 
 pub fn run() {
@@ -2494,6 +2572,7 @@ pub fn run() {
             check_ollama_status,
             pull_ollama_model,
             stop_ai_agent,
+            resume_ai_agent,
             register_ida_pro,
             ai_execute_command,
             ai_modify_file,
@@ -2555,8 +2634,11 @@ pub fn run() {
             get_system_health,
             get_visual_graph,
             generate_visual_graph,
+            query_workspace_memory,
             compress_session_data,
-            get_memory_savings
+            get_memory_savings,
+            benchmark_ane,
+            query_performance_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

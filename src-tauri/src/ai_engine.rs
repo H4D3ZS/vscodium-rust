@@ -120,7 +120,7 @@ pub struct Sentient {
     mcp_registry: Arc<McpRegistry>,
     ai_tools: Arc<AiTools>,
     task_planner: Arc<TaskPlanner>,
-    memory_store: Arc<MemoryStore>,
+    pub memory_store: Arc<MemoryStore>,
     tool_invoker: Arc<ToolInvoker>,
     conversation_state: AsyncMutex<Vec<ChatMessage>>,
     app_handle: Mutex<Option<AppHandle>>,
@@ -133,6 +133,7 @@ pub struct Sentient {
     memory_optimizer: Arc<crate::memory_optimizer::MemoryOptimizer>,
     perf_monitor: Arc<crate::performance::PerformanceMonitor>,
     session_id: String,
+    pub ane_engine: Arc<tokio::sync::Mutex<Option<crate::ane::AneEngine>>>,
 }
 
 impl Sentient {
@@ -156,6 +157,11 @@ impl Sentient {
         let task_planner = Arc::new(TaskPlanner::new());
         let memory_store = Arc::new(MemoryStore::new());
         let tool_invoker = Arc::new(ToolInvoker::new(ai_tools.clone(), mcp_registry.clone()));
+        let ane_engine = Arc::new(tokio::sync::Mutex::new(None));
+        #[cfg(target_os = "macos")]
+        {
+            // Optional: Pre-initialize ANE bridge
+        }
 
         let brain_dir = config_dir.join("brain");
         if !brain_dir.exists() {
@@ -179,18 +185,15 @@ impl Sentient {
             conversation_state: AsyncMutex::new(Vec::new()),
             app_handle: Mutex::new(None),
             auth_state,
-            ollama_url: Mutex::new("http://127.0.0.1:11434".to_string()),
-            _browser_state: browser_state,
+            ollama_url: Mutex::new("http://localhost:11434".to_string()),
+            _browser_state: browser_state.clone(),
             stop_signal: Arc::new(AtomicBool::new(false)),
             brain_dir,
             advisor_model: Mutex::new(None),
             memory_optimizer,
             perf_monitor,
-            session_id: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                .to_string(),
+            session_id: uuid::Uuid::new_v4().to_string(),
+            ane_engine,
         }
     }
 

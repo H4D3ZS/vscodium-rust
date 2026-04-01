@@ -211,13 +211,36 @@ pub fn parse_sql_to_graph(sql: &str) -> VisualGraph {
 }
 
 pub fn parse_mongodb_to_graph(content: &str) -> VisualGraph {
-    // MongoDB documents are usually stored as JSON or BSON.
-    // We'll treat it as high-level collection/document visualization.
-    match serde_json::from_str::<Value>(content) {
+    let mut clean_content = content.trim().to_string();
+
+    // Try to extract data from db.collection.insertMany([...]) or insertOne({...})
+    let re_insert_many =
+        regex::Regex::new(r"(?i)db\.\w+\.insertMany\s*\(\s*(\[[\s\S]*?\])\s*\)").unwrap();
+    let re_insert_one =
+        regex::Regex::new(r"(?i)db\.\w+\.insertOne\s*\(\s*(\{[\s\S]*?\})\s*\)").unwrap();
+
+    if let Some(cap) = re_insert_many.captures(&clean_content) {
+        clean_content = cap[1].to_string();
+    } else if let Some(cap) = re_insert_one.captures(&clean_content) {
+        clean_content = cap[1].to_string();
+    }
+
+    // Strip MongoDB specific types like ObjectId("..."), ISODate("...")
+    let re_object_id = regex::Regex::new(r#"ObjectId\s*\(\s*"([^"]*)"\s*\)"#).unwrap();
+    let re_iso_date = regex::Regex::new(r#"ISODate\s*\(\s*"([^"]*)"\s*\)"#).unwrap();
+
+    clean_content = re_object_id
+        .replace_all(&clean_content, "\"$1\"")
+        .to_string();
+    clean_content = re_iso_date
+        .replace_all(&clean_content, "\"$1\"")
+        .to_string();
+
+    match serde_json::from_str::<Value>(&clean_content) {
         Ok(val) => parse_json_to_graph(val),
         Err(_) => {
-            // If it's multiple documents (line delimited), wrap them
-            let wrapped = format!("[{}]", content.replace("}\n{", "},{"));
+            // Last resort: handle line-delimited JSON or partially valid content
+            let wrapped = format!("[{}]", clean_content.replace("}\n{", "},{"));
             if let Ok(val) = serde_json::from_str::<Value>(&wrapped) {
                 parse_json_to_graph(val)
             } else {

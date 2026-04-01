@@ -62,6 +62,14 @@ export interface AttachedContext {
     path?: string;
 }
 
+export interface SemanticSlot {
+    id: string;
+    category: string;
+    content: string;
+    metadata?: any;
+    timestamp: number;
+}
+
 export interface FileEntry {
     name: string;
     path: string;
@@ -140,6 +148,7 @@ interface AppState {
     agentRootAccess: boolean;
     processStats: { memory_mb: number, cpu_usage: number, total_ram_gb: number, available_ram_gb: number } | null;
     memorySavings: { original: number, compressed: number } | null;
+    contextSlots: SemanticSlot[];
 
     // Extension State
     installedExtensions: any[];
@@ -166,11 +175,13 @@ interface AppState {
     visualLabData: any;
     isVisualLabFullScreen: boolean;
     isVisualLabOpen: boolean;
+    isVisualLabSplitView: boolean;
 
     // Actions
     setVisualLabMode: (mode: 'none' | 'json' | 'flow' | 'erd') => void;
     setVisualLabData: (data: any) => void;
     setIsVisualLabFullScreen: (isFullScreen: boolean) => void;
+    setIsVisualLabSplitView: (isSplit: boolean) => void;
     toggleVisualLab: (open?: boolean) => void;
     toggleSidebar: () => void;
     setActiveSidebarView: (view: string) => void;
@@ -281,6 +292,7 @@ interface AppState {
     fetchExtensionDetails: (id: string) => Promise<void>;
     installExtension: (publisher: string, name: string, version: string) => Promise<boolean>;
     uninstallExtension: (publisher: string, name: string) => Promise<boolean>;
+    fetchWorkspaceMemory: (category: string) => Promise<void>;
     getFlattenedFiles: () => FileEntry[];
 }
 
@@ -360,6 +372,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     agentRootAccess: true, // Internal AI operates with permanent root access (unshackled mode)
     processStats: null,
     memorySavings: null,
+    contextSlots: [],
 
     // Terminal Initial State
     terminalGroups: [],
@@ -380,6 +393,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     visualLabData: null,
     isVisualLabFullScreen: false,
     isVisualLabOpen: false,
+    isVisualLabSplitView: false,
 
     // Initial Extension State
     installedExtensions: [],
@@ -394,7 +408,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     setVisualLabMode: (mode: any) => set({ visualLabMode: mode }),
     setVisualLabData: (data: any) => set({ visualLabData: data }),
     setIsVisualLabFullScreen: (isFullScreen: boolean) => set({ isVisualLabFullScreen: isFullScreen }),
-    toggleVisualLab: (open: any) => set((state: any) => ({ isVisualLabOpen: open !== undefined ? open : !state.isVisualLabOpen })),
+    setIsVisualLabSplitView: (isSplit: boolean) => set({ isVisualLabSplitView: isSplit }),
+    toggleVisualLab: (open: any) => set((state: any) => ({ isVisualLabOpen: open !== undefined ? open : !state.isVisualLabOpen, isVisualLabSplitView: false })),
     setProjectMemory: (content: any, files = []) => set(() => ({ projectMemory: content, memoryFiles: files })),
     toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
     setActiveSidebarView: (view) => set(() => ({ activeSidebarView: view, isSidebarOpen: true })),
@@ -524,9 +539,13 @@ const storeImplementation: any = (set: any, get: any) => ({
     setActiveTab: (id: string) => set({ activeTabId: id }),
 
     updateTabContent: (id: string, content: string) => {
-        set((state) => ({
-            tabs: state.tabs.map(t => t.id === id ? { ...t, content, isModified: true } : t),
-        }));
+        set((state: any) => {
+            const isVisualizing = state.isVisualLabOpen && state.activeTabId === id;
+            return {
+                tabs: state.tabs.map((t: any) => t.id === id ? { ...t, content, isModified: true } : t),
+                visualLabData: isVisualizing ? content : state.visualLabData
+            };
+        });
     },
 
     saveActiveFile: async () => {
@@ -1310,6 +1329,15 @@ const storeImplementation: any = (set: any, get: any) => ({
             return res;
         };
         return flatten(get().fileTree);
+    },
+
+    fetchWorkspaceMemory: async (category: string) => {
+        try {
+            const slots = await invoke<SemanticSlot[]>('query_workspace_memory', { category });
+            set({ contextSlots: slots });
+        } catch (error) {
+            console.error('Fetch Workspace Memory Error:', error);
+        }
     }
 });
 

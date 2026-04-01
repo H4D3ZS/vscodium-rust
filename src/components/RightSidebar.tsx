@@ -6,6 +6,7 @@ import { invoke } from '../tauri_bridge';
 import AgentSettingsView from './AgentSettingsView';
 import MissionControl from './agent/MissionControl';
 import ResearchCenter from './agent/ResearchCenter';
+import ContextSidebar from './visual/ContextSidebar';
 
 const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultCollapsed?: boolean; actions?: React.ReactNode }> = ({ title, children, defaultCollapsed = false, actions }) => {
     const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
@@ -37,18 +38,94 @@ const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultC
     );
 };
 
-// Configure marked options
 marked.setOptions({
     gfm: true,
     breaks: true,
     silent: true
 });
 
+const AnePerformancePane: React.FC = () => {
+    const [benchResult, setBenchResult] = useState<any>(null);
+    const [isRunning, setIsRunning] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const runBenchmark = async () => {
+        setIsRunning(true);
+        setError(null);
+        try {
+            const result = await invoke('benchmark_ane');
+            setBenchResult(result);
+        } catch (e: any) {
+            setError(e.toString());
+        } finally {
+            setIsRunning(false);
+        }
+    };
+
+    return (
+        <SidebarPane title="Apple Neural Engine" defaultCollapsed={false}>
+            <div style={{ padding: '0 12px 10px', fontSize: '12px', color: 'var(--vscode-sideBar-foreground)' }}>
+                <div style={{ marginBottom: '12px', opacity: 0.8, lineHeight: '1.4' }}>
+                    Utilize the NPU for high-efficiency local AI inference (M1/M2/M3/M4).
+                </div>
+
+                {benchResult ? (
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '4px', marginBottom: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        <div style={{ fontWeight: 600, marginBottom: '8px', color: 'var(--vscode-charts-green)', display: 'flex', alignItems: 'center' }}>
+                            <i className="codicon codicon-check" style={{ marginRight: '6px' }}></i>
+                            ANE Active
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', opacity: 0.9 }}>
+                            <div>
+                                <div style={{ fontSize: '10px', opacity: 0.6 }}>Compile Time</div>
+                                <div>{benchResult.compile_ms || '-'} ms</div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '10px', opacity: 0.6 }}>Eval Latency</div>
+                                <div>{benchResult.eval_us} μs</div>
+                            </div>
+                            <div style={{ gridColumn: 'span 2' }}>
+                                <div style={{ fontSize: '10px', opacity: 0.6 }}>Est. Throughput</div>
+                                <div style={{ color: 'var(--vscode-charts-blue)' }}>~{(0.7 * 0.7 * 2 / (benchResult.eval_us / 1000000)).toFixed(2)} GFLOPS</div>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ padding: '10px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', marginBottom: '12px', border: '1px dashed rgba(255,255,255,0.1)' }}>
+                        <div style={{ opacity: 0.5, marginBottom: '10px' }}>No active ANE session</div>
+                        <button
+                            onClick={runBenchmark}
+                            disabled={isRunning}
+                            style={{
+                                background: 'var(--vscode-button-background)',
+                                color: 'var(--vscode-button-foreground)',
+                                border: 'none',
+                                padding: '4px 12px',
+                                borderRadius: '2px',
+                                cursor: isRunning ? 'wait' : 'pointer',
+                                fontSize: '11px'
+                            }}
+                        >
+                            {isRunning ? 'Initializing ANE...' : 'Initialize & Benchmark'}
+                        </button>
+                    </div>
+                )}
+
+                {error && (
+                    <div style={{ color: 'var(--vscode-errorForeground)', fontSize: '11px', marginTop: '8px', padding: '8px', background: 'rgba(255,0,0,0.1)', borderRadius: '4px' }}>
+                        {error}
+                    </div>
+                )}
+            </div>
+        </SidebarPane>
+    );
+};
+
 const RightSidebar: React.FC = () => {
     const isOpen = useStore(state => state.isRightSidebarOpen);
     const toggle = useStore(state => state.toggleRightSidebar);
     const aiStatus = useStore(state => state.aiStatus || 'idle');
-    const [view, setView] = useState<'chat' | 'history' | 'settings' | 'dashboard' | 'research'>('chat');
+    const [view, setView] = useState<'chat' | 'history' | 'settings' | 'dashboard' | 'research' | 'context'>('chat');
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mode = useStore(state => state.agentMode);
     const model = useStore(state => state.agentModel);
@@ -321,6 +398,7 @@ const RightSidebar: React.FC = () => {
                     <div onClick={() => setView('chat')} style={{ cursor: 'pointer', opacity: view === 'chat' ? 1 : 0.4 }} title="Chat"><i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setView('history')} style={{ cursor: 'pointer', opacity: view === 'history' ? 1 : 0.4 }} title="History"><i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setView('dashboard')} style={{ cursor: 'pointer', opacity: view === 'dashboard' ? 1 : 0.4 }} title="Dashboard"><i className="codicon codicon-dashboard" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
+                    <div onClick={() => setView('context')} style={{ cursor: 'pointer', opacity: view === 'context' ? 1 : 0.4 }} title="Workspace Context"><i className="codicon codicon-hubot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setView('settings')} style={{ cursor: 'pointer', opacity: view === 'settings' ? 1 : 0.4 }} title="Settings"><i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setIsHelpOpen(true)} style={{ cursor: 'pointer', opacity: 0.8, color: '#3b82f6' }} title="Command Help"><i className="codicon codicon-question" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={toggle} style={{ cursor: 'pointer', opacity: 0.5 }} title="Close"><i className="codicon codicon-close" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
@@ -459,6 +537,8 @@ const RightSidebar: React.FC = () => {
                     <MissionControl />
                 ) : view === 'research' ? (
                     <ResearchCenter />
+                ) : view === 'context' ? (
+                    <ContextSidebar />
                 ) : (
                     <AgentSettingsView />
                 )}

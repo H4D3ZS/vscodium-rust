@@ -43,6 +43,8 @@ const Workbench: React.FC = () => {
     const activeTabId = useStore(state => state.activeTabId);
     const closeTab = useStore(state => state.closeTab);
     const setActiveTab = useStore(state => state.setActiveTab);
+    const isVisualLabSplitView = useStore(state => state.isVisualLabSplitView);
+    const isVisualLabOpen = useStore(state => state.isVisualLabOpen);
 
     const resizingRef = useRef<'sidebar' | 'right-sidebar' | 'panel' | null>(null);
 
@@ -278,11 +280,27 @@ const Workbench: React.FC = () => {
                                     </div>
                                 ) : hasOpenFile ? (
                                     /* Monaco Editor or Settings Page */
-                                    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                                    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: (isVisualLabSplitView && isVisualLabOpen) ? 'row' : 'column' }}>
                                         {tabs.find(t => t.id === activeTabId)?.type === 'settings' ? (
                                             <SettingsPage />
                                         ) : (
-                                            <Editor />
+                                            <div style={{ display: 'flex', flex: 1, width: '100%', height: '100%', minWidth: 0 }}>
+                                                <div style={{
+                                                    flex: (isVisualLabSplitView && isVisualLabOpen) ? '0 0 50%' : 1,
+                                                    borderRight: (isVisualLabSplitView && isVisualLabOpen) ? '1px solid var(--vscode-panel-border)' : 'none',
+                                                    height: '100%',
+                                                    minWidth: 0,
+                                                    display: 'flex',
+                                                    flexDirection: 'column'
+                                                }}>
+                                                    <Editor />
+                                                </div>
+                                                {(isVisualLabSplitView && isVisualLabOpen) && (
+                                                    <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, background: '#090909' }}>
+                                                        <VisualLab isInline={true} />
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                 ) : (
@@ -330,7 +348,7 @@ const Workbench: React.FC = () => {
                     <RightSidebar />
                 </div>
             </div>
-            <VisualLab />
+            {!isVisualLabSplitView && <VisualLab />}
         </div >
     );
 };
