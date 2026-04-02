@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
+use crate::process_ext::CommandExtHidden;
 
 #[derive(Serialize, Debug)]
 pub struct GitFileStatus {
@@ -26,6 +27,7 @@ impl GitManager {
 
     pub fn get_status<P: AsRef<Path>>(&self, repo_path: P) -> Result<Vec<GitFileStatus>, String> {
         let output = Command::new("git")
+            .hidden()
             .arg("status")
             .arg("--porcelain")
             .current_dir(repo_path)
@@ -52,6 +54,7 @@ impl GitManager {
 
     pub fn stage<P: AsRef<Path>>(&self, repo_path: P, file_path: &str) -> Result<(), String> {
         let status = Command::new("git")
+            .hidden()
             .arg("add")
             .arg(file_path)
             .current_dir(repo_path)
@@ -66,6 +69,7 @@ impl GitManager {
 
     pub fn unstage<P: AsRef<Path>>(&self, repo_path: P, file_path: &str) -> Result<(), String> {
         let status = Command::new("git")
+            .hidden()
             .arg("reset")
             .arg("HEAD")
             .arg(file_path)
@@ -81,6 +85,7 @@ impl GitManager {
 
     pub fn commit<P: AsRef<Path>>(&self, repo_path: P, message: &str) -> Result<(), String> {
         let status = Command::new("git")
+            .hidden()
             .arg("commit")
             .arg("-m")
             .arg(message)
@@ -96,6 +101,7 @@ impl GitManager {
 
     pub fn get_history<P: AsRef<Path>>(&self, repo_path: P) -> Result<Vec<GitCommitInfo>, String> {
         let output = Command::new("git")
+            .hidden()
             .arg("log")
             .arg("--format=%H|%an|%ai|%s|%P")
             .arg("-n")
@@ -133,6 +139,7 @@ impl GitManager {
     }
     pub fn revert_commit<P: AsRef<Path>>(&self, repo_path: P, hash: &str) -> Result<(), String> {
         let status = Command::new("git")
+            .hidden()
             .arg("revert")
             .arg("--no-edit")
             .arg(hash)
@@ -148,6 +155,7 @@ impl GitManager {
 
     pub fn stash_changes<P: AsRef<Path>>(&self, repo_path: P) -> Result<(), String> {
         let status = Command::new("git")
+            .hidden()
             .arg("stash")
             .current_dir(repo_path)
             .status()
@@ -161,6 +169,7 @@ impl GitManager {
 
     pub fn pop_stash<P: AsRef<Path>>(&self, repo_path: P) -> Result<(), String> {
         let status = Command::new("git")
+            .hidden()
             .arg("stash")
             .arg("pop")
             .current_dir(repo_path)
@@ -175,6 +184,7 @@ impl GitManager {
 
     pub fn get_unmerged_files<P: AsRef<Path>>(&self, repo_path: P) -> Result<Vec<String>, String> {
         let output = Command::new("git")
+            .hidden()
             .arg("diff")
             .arg("--name-only")
             .arg("--diff-filter=U")
@@ -192,6 +202,7 @@ impl GitManager {
 
     pub fn clone<P: AsRef<Path>>(&self, url: &str, dest: P) -> Result<(), String> {
         let status = Command::new("git")
+            .hidden()
             .arg("clone")
             .arg(url)
             .arg(".")
@@ -211,6 +222,7 @@ impl GitManager {
         hash: &str,
     ) -> Result<String, String> {
         let output = Command::new("git")
+            .hidden()
             .arg("show")
             .arg("--format=")
             .arg(hash)

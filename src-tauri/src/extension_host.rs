@@ -91,7 +91,9 @@ impl ExtensionHostManager {
     }
 
     pub fn start(&mut self, app_handle: tauri::AppHandle) -> std::io::Result<()> {
+        use crate::process_ext::CommandExtHidden;
         let mut child = Command::new("node")
+            .hidden()
             .arg("ext-host/index.js")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

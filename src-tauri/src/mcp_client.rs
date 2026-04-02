@@ -60,7 +60,9 @@ impl McpClient {
             }
         }
 
+        use crate::process_ext::CommandExtHidden;
         let mut child = Command::new(final_command)
+            .hidden()
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

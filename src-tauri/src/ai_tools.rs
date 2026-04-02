@@ -3,6 +3,7 @@ use glob;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
+use crate::process_ext::CommandExtHidden;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
@@ -1292,11 +1293,13 @@ impl AiTools {
 
         let output = if cfg!(target_os = "windows") {
             std::process::Command::new("powershell")
+                .hidden()
                 .args(&["-Command", command])
                 .current_dir(&*root)
                 .output()?
         } else {
             std::process::Command::new("sh")
+                .hidden()
                 .args(&["-c", command])
                 .current_dir(&*root)
                 .output()?
@@ -1935,6 +1938,7 @@ impl AiTools {
 
         let output = if cfg!(target_os = "windows") {
             std::process::Command::new("powershell")
+                .hidden()
                 .args(&[
                     "-Command",
                     &format!(
@@ -1947,6 +1951,7 @@ impl AiTools {
                 .output()?
         } else {
             std::process::Command::new("grep")
+                .hidden()
                 .args(&["-r", "-n", query, &full_path.to_string_lossy()])
                 .current_dir(&*root)
                 .output()?

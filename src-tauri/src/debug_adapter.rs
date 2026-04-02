@@ -23,7 +23,9 @@ impl DebugManager {
     }
 
     pub fn start_session(&mut self, adapter_path: &str, app_handle: AppHandle) -> Result<(), String> {
+        use crate::process_ext::CommandExtHidden;
         let mut child = Command::new(adapter_path)
+            .hidden()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

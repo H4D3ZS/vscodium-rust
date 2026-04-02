@@ -18,7 +18,9 @@ impl LspClient {
     }
 
     pub fn start(&mut self, command: &str, app_handle: AppHandle) -> std::io::Result<()> {
+        use crate::process_ext::CommandExtHidden;
         let mut child = Command::new(command)
+            .hidden()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

@@ -24,6 +24,8 @@ pub mod ai_engine;
 use ai_engine::{AiRequest, ChatMessage, Sentient};
 mod ai_tools;
 pub mod ane;
+pub mod process_ext;
+use crate::process_ext::CommandExtHidden;
 pub mod context_quantizer;
 pub mod domain;
 mod mcp_client;
@@ -721,6 +723,7 @@ fn adb_list_devices(state: State<'_, EditorState>) -> Result<Vec<String>, String
     };
 
     let output = std::process::Command::new(&adb_cmd)
+        .hidden()
         .arg("devices")
         .output()
         .map_err(|e| format!("ADB error ({}): {}", adb_cmd, e))?;
@@ -790,6 +793,7 @@ fn adb_list_emulators(state: State<'_, EditorState>) -> Result<Vec<String>, Stri
     };
 
     let output = std::process::Command::new(emulator_cmd)
+        .hidden()
         .arg("-list-avds")
         .output()
         .map_err(|e| format!("Emulator error: {}", e))?;
@@ -812,6 +816,7 @@ fn spawn_emulator(state: State<'_, EditorState>, avd: String) -> Result<(), Stri
     };
 
     std::process::Command::new(emulator_cmd)
+        .hidden()
         .arg("-avd")
         .arg(avd)
         .spawn()
@@ -1056,6 +1061,7 @@ fn git_commit(path: String, message: String) -> Result<(), String> {
 #[tauri::command]
 fn get_git_branch() -> Result<String, String> {
     let output = Command::new("git")
+        .hidden()
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
         .map_err(|_| "Git not found".to_string())?;
@@ -1089,6 +1095,7 @@ fn search_project(
     // Use native grep for high performance on Unix-like systems (macOS/Linux)
     if cfg!(not(target_os = "windows")) {
         let output = std::process::Command::new("grep")
+            .hidden()
             .args(&["-r", "-n", "-i", "--exclude-dir=.git", &query, "."])
             .current_dir(&root)
             .output()
@@ -1222,6 +1229,7 @@ fn grep_files(
     // Try ripgrep first (fastest), then fall back to grep, then WalkDir
     let rg_result = {
         let mut cmd = std::process::Command::new("rg");
+        cmd.hidden();
         cmd.args(&["-n", "--no-heading", "--max-count=100", "--color=never"]);
         if let Some(ref inc) = include {
             cmd.args(&["-g", inc]);
@@ -1252,6 +1260,7 @@ fn grep_files(
     // Fallback: use grep
     let grep_result = {
         let mut cmd = std::process::Command::new("grep");
+        cmd.hidden();
         cmd.args(&[
             "-r",
             "-n",

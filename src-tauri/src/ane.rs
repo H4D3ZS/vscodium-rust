@@ -1,11 +1,14 @@
+#[cfg(target_os = "macos")]
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
+#[cfg(target_os = "macos")]
 #[repr(C)]
 pub struct ANEKernelHandle {
     _unused: [u8; 0],
 }
 
+#[cfg(target_os = "macos")]
 extern "C" {
     pub fn ane_bridge_init() -> c_int;
     pub fn ane_bridge_compile(
@@ -35,6 +38,7 @@ extern "C" {
 }
 
 // MIL Header for iOS 18 (latest ANE MIL format)
+#[cfg(target_os = "macos")]
 const MIL_HDR: &str = r#"program(1.3)
 [buildInfo = dict<string, string>({"coremlc-component-MIL", "3510.2.1"},
 {"coremlc-version", "3505.4.1"}, {"coremltools-component-milinternal", ""},
@@ -49,10 +53,15 @@ pub const HD: usize = 64;
 pub const SEQ: usize = 256;
 pub const NLAYERS: usize = 12;
 
+#[cfg(target_os = "macos")]
 pub struct AneEngine {
     handle: *mut ANEKernelHandle,
 }
 
+#[cfg(not(target_os = "macos"))]
+pub struct AneEngine {}
+
+#[cfg(target_os = "macos")]
 impl AneEngine {
     pub fn new(
         mil: &str,
@@ -150,6 +159,30 @@ impl AneEngine {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+impl AneEngine {
+    pub fn new(
+        _mil: &str,
+        _weights: &[u8],
+        _input_sizes: &[usize],
+        _output_sizes: &[usize],
+    ) -> Result<Self, String> {
+        Err("ANE support only available on macOS".to_string())
+    }
+
+    pub fn execute(
+        &self,
+        _inputs: &[Vec<u8>],
+        _output_sizes: &[usize],
+    ) -> Result<Vec<Vec<u8>>, String> {
+        Err("ANE support only available on macOS".to_string())
+    }
+
+    pub fn gen_dyn_matmul_mil(_ic: usize, _oc: usize, _seq: usize) -> String {
+        String::new()
+    }
+}
+
 /// Simple FP32 to FP16 converter (software-based for portability)
 pub fn f32_to_f16(f: f32) -> u16 {
     let bits = f.to_bits();
@@ -192,6 +225,7 @@ pub fn f16_to_f32(h: u16) -> f32 {
     f32::from_bits((sign << 16) | (f_expo << 23) | (mant << 13))
 }
 
+#[cfg(target_os = "macos")]
 impl Drop for AneEngine {
     fn drop(&mut self) {
         unsafe {
