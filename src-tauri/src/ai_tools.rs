@@ -642,12 +642,13 @@ impl AiTools {
             },
             ToolDefinition {
                 name: "git_diff".to_string(),
-                description: "View changes in the working directory or staged area.".to_string(),
+                description: "View changes in the working directory, staged area, or for a specific commit hash.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
                         "path": { "type": "string", "description": "Optional path to show diff for." },
-                        "staged": { "type": "boolean", "description": "Whether to show staged changes.", "default": false }
+                        "staged": { "type": "boolean", "description": "Whether to show staged changes.", "default": false },
+                        "hash": { "type": "string", "description": "Optional commit hash to show the diff for." }
                     }
                 }),
             },
@@ -2773,22 +2774,30 @@ impl AiTools {
     fn git_diff(&self, args: Value) -> Result<Value> {
         let path = args["path"].as_str().unwrap_or(".");
         let staged = args["staged"].as_bool().unwrap_or(false);
+        let hash = args["hash"].as_str();
+
         let root = self
             .root_path
             .lock()
             .map_err(|_| anyhow!("Failed to lock root_path"))?;
 
         let mut cmd = std::process::Command::new("git");
-        cmd.arg("diff");
-        if staged {
-            cmd.arg("--staged");
+        if let Some(h) = hash {
+            cmd.arg("show");
+            cmd.arg("--format=");
+            cmd.arg(h);
+        } else {
+            cmd.arg("diff");
+            if staged {
+                cmd.arg("--staged");
+            }
+            cmd.arg(path);
         }
-        cmd.arg(path);
         cmd.current_dir(&*root);
 
         let output = cmd
             .output()
-            .map_err(|e| anyhow!("Failed to execute git diff: {}", e))?;
+            .map_err(|e| anyhow!("Failed to execute git: {}", e))?;
         let diff = String::from_utf8_lossy(&output.stdout).to_string();
 
         Ok(json!({ "diff": diff }))

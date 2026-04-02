@@ -38,7 +38,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "ext-host/*"
+      "ext-host/*",
+      "libane_bridge.dylib"
     ]
   }
 }

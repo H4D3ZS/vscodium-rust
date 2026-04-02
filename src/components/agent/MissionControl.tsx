@@ -1,5 +1,6 @@
 import React from 'react';
 import { useStore, type AgentTask, type Artifact, type AgentStep } from '../../store';
+import AnePerformancePane from '../visual/AnePerformancePane';
 
 const ArtifactCard: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
     const isImage = artifact.type === 'screenshot';
@@ -48,6 +49,10 @@ const MissionControl: React.FC = () => {
 
     return (
         <div className="mission-control" style={{ padding: '0 12px', height: '100%', overflowY: 'auto' }}>
+            <div style={{ marginBottom: '20px' }}>
+                <AnePerformancePane />
+            </div>
+
             {activeTask ? (
                 <div className="active-task" style={{ marginBottom: '24px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>

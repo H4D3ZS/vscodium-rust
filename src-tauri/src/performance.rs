@@ -17,19 +17,51 @@ pub enum MemoryPressure {
     Critical, // > 90% used
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct InferenceStats {
+    pub device: String, // "ANE", "CPU", "GPU"
+    pub latency_ms: u64,
+    pub timestamp: u64,
+}
+
 pub struct PerformanceMonitor {
     sys: Mutex<System>,
     pid: Pid,
+    inference_history: Mutex<Vec<InferenceStats>>,
 }
 
 impl PerformanceMonitor {
     pub fn new() -> Self {
-        let sys = System::new(); // Don't refresh_all on main thread
+        let sys = System::new();
         let pid = Pid::from(std::process::id() as usize);
         Self {
             sys: Mutex::new(sys),
             pid,
+            inference_history: Mutex::new(Vec::new()),
         }
+    }
+
+    pub fn record_inference(&self, device: String, latency_ms: u64) {
+        let mut history = self.inference_history.lock().unwrap();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        history.push(InferenceStats {
+            device,
+            latency_ms,
+            timestamp,
+        });
+
+        // Keep last 100 entries
+        if history.len() > 100 {
+            history.remove(0);
+        }
+    }
+
+    pub fn get_inference_history(&self) -> Vec<InferenceStats> {
+        self.inference_history.lock().unwrap().clone()
     }
 
     pub fn get_stats(&self) -> Option<ProcessStats> {

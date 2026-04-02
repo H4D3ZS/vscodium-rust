@@ -149,6 +149,11 @@ interface AppState {
     processStats: { memory_mb: number, cpu_usage: number, total_ram_gb: number, available_ram_gb: number } | null;
     memorySavings: { original: number, compressed: number } | null;
     contextSlots: SemanticSlot[];
+    activeFileContext: {
+        symbols: string[];
+        related_files: string[];
+        relevant_lessons: SemanticSlot[];
+    } | null;
 
     // Extension State
     installedExtensions: any[];
@@ -293,6 +298,7 @@ interface AppState {
     installExtension: (publisher: string, name: string, version: string) => Promise<boolean>;
     uninstallExtension: (publisher: string, name: string) => Promise<boolean>;
     fetchWorkspaceMemory: (category: string) => Promise<void>;
+    fetchFileContext: (path: string) => Promise<void>;
     getFlattenedFiles: () => FileEntry[];
 }
 
@@ -373,6 +379,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     processStats: null,
     memorySavings: null,
     contextSlots: [],
+    activeFileContext: null,
 
     // Terminal Initial State
     terminalGroups: [],
@@ -1337,6 +1344,15 @@ const storeImplementation: any = (set: any, get: any) => ({
             set({ contextSlots: slots });
         } catch (error) {
             console.error('Fetch Workspace Memory Error:', error);
+        }
+    },
+
+    fetchFileContext: async (path: string) => {
+        try {
+            const context = await invoke<any>('get_file_context', { filePath: path });
+            set({ activeFileContext: context });
+        } catch (error) {
+            console.error('Fetch File Context Error:', error);
         }
     }
 });

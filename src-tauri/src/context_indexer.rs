@@ -45,23 +45,44 @@ impl ContextIndexer {
                         ext == "rs" || ext == "ts" || ext == "tsx" || ext == "json" || ext == "md"
                     }))
                     && !p.to_string_lossy().contains("node_modules")
+                    && !p.to_string_lossy().contains("target")
+                    && !p.to_string_lossy().contains(".git")
             })
         {
             let path = entry.path();
             let relative_path = path.strip_prefix(root)?.to_string_lossy().to_string();
             let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-            let category = if extension == "md" {
+            let mut category = if extension == "md" {
                 "fix_lessons"
             } else {
                 "file_map"
             };
 
-            // Basic file indexing (just presence and type for now)
+            let content = std::fs::read_to_string(path).unwrap_or_default();
+            let mut tags = Vec::new();
+
+            // Extract symbols if it's code
+            if extension == "rs" || extension == "ts" || extension == "tsx" {
+                let symbols = Self::extract_symbols(&content, extension);
+                for sym in symbols {
+                    tags.push(format!("symbol:{}", sym));
+                }
+            }
+
+            // If it's a markdown file, look for specific "Lesson" triggers
+            if extension == "md" {
+                if content.contains("# Learning") || content.contains("# Fix") {
+                    category = "fix_lessons";
+                    tags.push("discovery:lesson".to_string());
+                }
+            }
+
             ms.store_slot(SemanticSlot {
                 id: format!("{}:{}", category, relative_path),
                 category: category.to_string(),
                 content: relative_path.clone(),
+                tags,
                 metadata: Some(json!({
                     "extension": extension,
                     "size": entry.metadata()?.len()
@@ -71,10 +92,32 @@ impl ContextIndexer {
                     .as_secs(),
             })
             .await;
-
-            // In the future, we will use tree-sitter here to extract symbols
-            // and add relationships via ms.add_relationship()
         }
         Ok(())
+    }
+
+    fn extract_symbols(content: &str, ext: &str) -> Vec<String> {
+        let mut symbols = Vec::new();
+        if ext == "rs" {
+            // Simple regex for Rust functions: fn name(...)
+            let re = regex::Regex::new(r"fn\s+([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
+            for cap in re.captures_iter(content) {
+                symbols.push(cap[1].to_string());
+            }
+        } else if ext == "ts" || ext == "tsx" {
+            // Simple regex for TS functions: function name or const name = ...
+            let re_func = regex::Regex::new(r"function\s+([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
+            for cap in re_func.captures_iter(content) {
+                symbols.push(cap[1].to_string());
+            }
+            let re_const =
+                regex::Regex::new(r"const\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*[\(|\{]").unwrap();
+            for cap in re_const.captures_iter(content) {
+                symbols.push(cap[1].to_string());
+            }
+        }
+        symbols.sort();
+        symbols.dedup();
+        symbols
     }
 }

@@ -10,6 +10,7 @@ pub struct SemanticSlot {
     pub id: String,
     pub category: String, // e.g., "code", "lesson", "doc"
     pub content: String,
+    pub tags: Vec<String>,
     pub metadata: Option<Value>,
     pub timestamp: u64,
 }
@@ -65,6 +66,27 @@ impl MemoryStore {
             .filter(|s| s.category == category)
             .cloned()
             .collect()
+    }
+
+    pub async fn query_by_tag(&self, tag: &str) -> Vec<SemanticSlot> {
+        let lock = self.slots.read().await;
+        lock.iter()
+            .filter(|s| s.tags.contains(&tag.to_string()))
+            .cloned()
+            .collect()
+    }
+
+    pub async fn query_related_entities(&self, id: &str) -> Vec<String> {
+        let lock = self.entities.read().await;
+        let mut related = Vec::new();
+        for (tag, ids) in lock.iter() {
+            if ids.contains(&id.to_string()) {
+                related.extend(ids.clone());
+            }
+        }
+        related.retain(|x| x != id);
+        related.dedup();
+        related
     }
 
     pub async fn get_messages(&self) -> Vec<ChatMessage> {
