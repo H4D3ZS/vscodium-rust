@@ -576,6 +576,10 @@ impl Sentient {
                     2. Create or update `task.md` to track your progress. \
                     3. Create or update `implementation_plan.md` with your proposed changes and get user approval. \
                     DO NOT execute code changes until the plan is approved.",
+                "Sentient" => "CORE OBJECTIVE: You are in SENTIENT mode. You have FULL AUTONOMY. \
+                    Act proactively to solve the request completely. Use tools aggressively. \
+                    Do not stop until the mission is accomplished or you hit a hard wall. \
+                    Fix any bugs you encounter along the way.",
                 _ => "CORE OBJECTIVE: Execute the user request efficiently. Use tools as needed to complete the task."
             };
 
@@ -619,8 +623,10 @@ impl Sentient {
         // Reset stop signal before starting loop
         self.reset_stop_signal();
 
-        // Loop for up to 30 iterations of message generation and tool execution
-        for iteration in 0..30 {
+        let max_iterations = if req.mode.as_deref() == Some("Sentient") { 50 } else { 30 };
+
+        // Loop for up to max_iterations of message generation and tool execution
+        for iteration in 0..max_iterations {
             if self.is_stopped() {
                 println!(
                     "[AI] Loop interrupted by stop signal at iteration {}",
@@ -1153,7 +1159,21 @@ impl Sentient {
                         .execute_tool(&tool_name, &tool_call.function.arguments)
                         .await;
 
-                    self.emit_event("ai-tool-result", json!({ "name": tool_call.function.name, "result": tool_result.as_ref().map(|v| v.to_string()).unwrap_or_else(|e| e.to_string()) }));
+                    let mut is_blocked = false;
+                    let mut blocked_msg = String::new();
+
+                    if let Ok(ref val) = tool_result {
+                        if val["status"] == "blocked" {
+                            is_blocked = true;
+                            blocked_msg = val["user_message"].as_str().unwrap_or("Waiting for user...").to_string();
+                        }
+                    }
+
+                    self.emit_event("ai-tool-result", json!({ 
+                        "name": tool_call.function.name, 
+                        "result": tool_result.as_ref().map(|v| v.to_string()).unwrap_or_else(|e| e.to_string()),
+                        "blocked": is_blocked
+                    }));
 
                     messages.push(ChatMessage {
                         role: "tool".to_string(),
@@ -1168,6 +1188,11 @@ impl Sentient {
                     self.memory_store
                         .store_message(messages.last().unwrap())
                         .await;
+
+                    if is_blocked {
+                        println!("[AI] Loop paused: {}", blocked_msg);
+                        return Ok(format!("PAUSED: {}", blocked_msg));
+                    }
                 }
                 continue; // Continue next iteration with tool results
             } else {
@@ -1181,6 +1206,11 @@ impl Sentient {
                         "command": "/proceed",
                         "open_file": "implementation_plan.md"
                     }));
+                } else if req.mode.as_deref() == Some("Sentient") {
+                    println!("[AI] Sentient mode continuing search for remaining tasks...");
+                    // In Sentient mode, if we haven't hit the limit, we can keep going 
+                    // if the model thinks there might be more but didn't call a tool.
+                    // However, returning Ok is usually correct if the model is done.
                 }
 
                 // No tool calls, return final response

@@ -671,6 +671,56 @@ impl AiTools {
                     "properties": {}
                 }),
             },
+            ToolDefinition {
+                name: "task_boundary".to_string(),
+                description: "Signal the start or update of a task. Use this to report progress to the UI.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "TaskName": { "type": "string", "description": "Human readable name of the task" },
+                        "Mode": { "type": "string", "description": "PLANNING, EXECUTION, or VERIFICATION" },
+                        "TaskSummary": { "type": "string", "description": "Concise summary of accomplished work" },
+                        "TaskStatus": { "type": "string", "description": "What you are going to do next" },
+                        "PredictedTaskSize": { "type": "integer", "description": "Estimated steps remaining" }
+                    },
+                    "required": ["TaskName", "Mode", "TaskSummary", "TaskStatus", "PredictedTaskSize"]
+                }),
+            },
+            ToolDefinition {
+                name: "notify_user".to_string(),
+                description: "Communicate with the user. Can be used to ask questions or request reviews.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "Message": { "type": "string", "description": "The message to the user" },
+                        "BlockedOnUser": { "type": "boolean", "description": "Whether to pause and wait for user response", "default": false },
+                        "PathsToReview": { "type": "array", "items": { "type": "string" }, "description": "Optional file paths for review" }
+                    },
+                    "required": ["Message"]
+                }),
+            },
+            ToolDefinition {
+                name: "use_skill".to_string(),
+                description: "Load and activate a specific skill from the .agent/skills library.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "SkillName": { "type": "string", "description": "The name of the skill to use (e.g. 'rust-pro')" }
+                    },
+                    "required": ["SkillName"]
+                }),
+            },
+            ToolDefinition {
+                name: "search_skills".to_string(),
+                description: "Search for available skills in the .agent/skills library based on keywords.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "Query": { "type": "string", "description": "Keywords to search for (e.g. 'react', 'postgres')" }
+                    },
+                    "required": ["Query"]
+                }),
+            },
         ]
     }
 
@@ -734,6 +784,10 @@ impl AiTools {
             "code_search" => self.code_search(arguments),
             "dependency_graph" => self.dependency_graph(arguments),
             "get_system_info" | "get_system_health" => self.handle_system_tool(name, arguments),
+            "task_boundary" => self.handle_task_boundary(arguments),
+            "notify_user" => self.handle_notify_user(arguments),
+            "use_skill" => self.handle_use_skill(arguments),
+            "search_skills" => self.handle_search_skills(arguments),
 
             // Experimental / Stubs
             "code_generation" => {
@@ -2862,7 +2916,147 @@ impl AiTools {
             tauri::async_runtime::block_on(async { self.mcp_registry.list_servers_status().await });
         health["mcp_servers"] = json!(mcp_status);
 
-        Ok(health)
+    fn handle_task_boundary(&self, args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("App handle error"))?;
+        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
+
+        let task_name = args["TaskName"].as_str().unwrap_or("Task");
+        let mode = args["Mode"].as_str().unwrap_or("EXECUTION");
+        let summary = args["TaskSummary"].as_str().unwrap_or("");
+        let status = args["TaskStatus"].as_str().unwrap_or("");
+        let progress_inc = args["PredictedTaskSize"].as_i64().unwrap_or(10);
+        
+        // Map PredictedTaskSize to a rough progress percentage (inverted)
+        let progress = (100 - (progress_inc * 5).min(90)) as f64;
+
+        h.emit(
+            "update-agent-task",
+            json!({
+                "id": "current-mission",
+                "title": task_name,
+                "summary": summary,
+                "status": "running",
+                "progress": progress,
+                "mode": mode,
+                "task_status": status
+            }),
+        )?;
+
+        h.emit("add-agent-step", json!({ 
+            "name": format!("[{}] {}", mode, status), 
+            "status": "running" 
+        }))?;
+
+        Ok(json!({ "status": "success", "info": "Task boundary updated" }))
+    }
+
+    fn handle_notify_user(&self, args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("App handle error"))?;
+        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
+
+        let message = args["Message"].as_str().unwrap_or("");
+        let blocked = args["BlockedOnUser"].as_bool().unwrap_or(false);
+        let paths = args["PathsToReview"].as_array().cloned().unwrap_or_else(|| vec![]);
+
+        h.emit(
+            "notify-user",
+            json!({
+                "message": message,
+                "blocked": blocked,
+                "paths": paths
+            }),
+        )?;
+
+        if blocked {
+            Ok(json!({ 
+                "status": "blocked", 
+                "message": "Waiting for user input...",
+                "user_message": message 
+            }))
+        } else {
+            Ok(json!({ "status": "success" }))
+        }
+    }
+
+    fn handle_use_skill(&self, args: Value) -> Result<Value> {
+        let skill_name = args["SkillName"].as_str().ok_or_else(|| anyhow!("Missing SkillName"))?;
+        let root = self.root_path.lock().map_err(|_| anyhow!("Lock error"))?;
+        
+        // Search in .agent/skills/SkillName/SKILL.md or .agent/skills/SkillName.md
+        let skill_paths = [
+            root.join(".agent").join("skills").join(skill_name).join("SKILL.md"),
+            root.join(".agent").join("skills").join(format!("{}.md", skill_name)),
+            root.join(".agent").join("skills").join(skill_name).join(format!("{}.md", skill_name)),
+        ];
+
+        for path in &skill_paths {
+            if path.exists() {
+                let content = fs::read_to_string(path)?;
+                
+                // Emit UI event
+                if let Ok(h_lock) = self.app_handle.lock() {
+                    if let Some(h) = h_lock.as_ref() {
+                        let _ = h.emit("ai-artifact", json!({
+                            "type": "skill",
+                            "title": format!("Skill Activated: {}", skill_name),
+                            "content": content.chars().take(200).collect::<String>() + "..."
+                        }));
+                    }
+                }
+
+                return Ok(json!({ 
+                    "status": "success", 
+                    "skill": skill_name,
+                    "instructions": content,
+                    "info": "Skill activated. You MUST follow the instructions provided in the 'instructions' field for all subsequent steps."
+                }));
+            }
+        }
+
+        Err(anyhow!("Skill '{}' not found in .agent/skills/", skill_name))
+    }
+
+    fn handle_search_skills(&self, args: Value) -> Result<Value> {
+        let query = args["Query"].as_str().ok_or_else(|| anyhow!("Missing Query"))?.to_lowercase();
+        let root = self.root_path.lock().map_err(|_| anyhow!("Lock error"))?;
+        let skills_dir = root.join(".agent").join("skills");
+
+        if !skills_dir.exists() {
+            return Ok(json!({ "results": [], "info": "Skills directory not found." }));
+        }
+
+        let mut matches = Vec::new();
+        let max_results = 20;
+
+        // Use walkdir to search for skill names or directory names
+        use walkdir::WalkDir;
+        for entry in WalkDir::new(&skills_dir)
+            .max_depth(2)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.to_lowercase().contains(&query) && (entry.file_type().is_dir() || name.ends_with(".md")) {
+                let skill_name = if name.ends_with(".md") {
+                    name.trim_end_matches(".md").to_string()
+                } else {
+                    name
+                };
+                
+                if !matches.contains(&skill_name) {
+                    matches.push(skill_name);
+                }
+            }
+            
+            if matches.len() >= max_results {
+                break;
+            }
+        }
+
+        Ok(json!({ 
+            "results": matches, 
+            "info": format!("Found {} matching skills. Use 'use_skill' to activate one.", matches.len()) 
+        }))
     }
 }
 

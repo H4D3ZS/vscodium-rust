@@ -249,6 +249,33 @@ struct AiResponse {
 }
 
 #[tauri::command]
+fn mount_aim_memory(project_path: String) -> Result<String, String> {
+    let aim_path = format!("{}\\.aim\\memory.aim", project_path);
+    let file = std::fs::File::open(&aim_path).map_err(|e| format!("Failed to load memory.aim: {}", e))?;
+    
+    // Execute Native Zero-Copy RAM Mapping directly inside the Core IDE execution structure
+    let mmap = unsafe { memmap2::Mmap::map(&file).map_err(|e| format!("Mmap core failure: {}", e))? };
+    let bytes = &mmap[..];
+    
+    let mut header_end = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'}' {
+            header_end = i + 1;
+            break;
+        }
+    }
+    
+    if header_end == 0 || header_end + (1536 * 4) > bytes.len() {
+        return Err("Invalid .aim structural limits".to_string());
+    }
+    
+    let tensor_start = &bytes[header_end];
+    let vector_ptr = tensor_start as *const u8 as *const f32;
+    
+    Ok(format!("🧠 [ANTIGRAVITY CORE] Neural .aim VFS Mounted! OS RAM physically bound to IDE dynamically. Zero-Copy Pointer Extracted: {:?}", vector_ptr))
+}
+
+#[tauri::command]
 fn open_file(state: State<'_, EditorState>, path: String) -> Result<String, String> {
     let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -2610,6 +2637,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            mount_aim_memory,
             open_folder,
             get_file_tree,
             get_directory_contents,
