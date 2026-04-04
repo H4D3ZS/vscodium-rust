@@ -2915,6 +2915,8 @@ impl AiTools {
         let mcp_status =
             tauri::async_runtime::block_on(async { self.mcp_registry.list_servers_status().await });
         health["mcp_servers"] = json!(mcp_status);
+        Ok(health)
+    }
 
     fn handle_task_boundary(&self, args: Value) -> Result<Value> {
         let h_lock = self.app_handle.lock().map_err(|_| anyhow!("App handle error"))?;
