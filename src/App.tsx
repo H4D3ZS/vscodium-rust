@@ -3,7 +3,7 @@ import { invoke } from './tauri_bridge';
 import TitleBar from './components/TitleBar';
 import Workbench from './components/Workbench';
 import StatusBar from './components/StatusBar';
-import './public/codicons/codicon.css';
+import './styles.css';
 import './styles.css';
 import './panes.css';
 import { TrustDialog } from './components/TrustDialog';

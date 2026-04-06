@@ -188,7 +188,7 @@
   --terminator-error: #f48771;
 
   /* Layout Metrics (Pixel Perfect VS Code) */
-  --activity-bar-width: 40px;
+  --activity-bar-width: 48px;
   --sidebar-width: 240px;
   --title-bar-height: 35px;
   --tab-height: 35px;
@@ -1142,16 +1142,27 @@ body.os-linux .title-bar-right {
 }
 
 .theme-picker {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  max-height: 80vh;
   background: var(--vscode-menu-background, #252526);
   border: 1px solid var(--vscode-menu-border, #454545);
   border-radius: 6px;
-  width: 500px;
-  max-width: 90vw;
+  z-index: 10000;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   color: var(--vscode-menu-foreground, #cccccc);
+}
+
+.theme-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
 }
 
 .theme-item {
@@ -3261,4 +3272,109 @@ body {
   .premium-card {
     padding: 12px 16px;
   }
+}
+
+/* --- Google Antigravity Era Styles --- */
+
+.activity-bar-surfaces {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.agent-manager-surface {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.agent-threads-sidebar {
+  background: var(--vscode-sideBar-background);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.agent-threads-sidebar .activity-item {
+  transition: background 0.2s;
+}
+
+.agent-threads-sidebar .activity-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.agent-conversation-area {
+  box-shadow: inset 10px 0 20px rgba(0, 0, 0, 0.1);
+}
+
+.agent-inspector-sidebar {
+  box-shadow: inset -10px 0 20px rgba(0, 0, 0, 0.05);
+}
+
+.spinning {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.browser-navbar {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+.url-bar:focus-within {
+  border-color: var(--terminator-accent) !important;
+  box-shadow: 0 0 0 2px rgba(0, 198, 255, 0.2);
+}
+
+/* Glassmorphism for Artifacts */
+.artifact-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  transition: border-color 0.2s;
+}
+
+.artifact-card:hover {
+  border-color: var(--terminator-accent);
+}
+
+/* Agent Bubble Styles */
+.agent-bubble {
+  position: relative;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  max-width: 90%;
+  box-shadow: 2px 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.agent-bubble.assistant {
+  border-left: 4px solid var(--terminator-success);
+}
+
+.agent-bubble.user {
+  border-left: 4px solid var(--terminator-accent);
+  margin-left: auto;
 }

@@ -138,6 +138,7 @@ interface AppState {
     isCommandPaletteOpen: boolean;
     isContextMenuOpen: boolean;
     isDebugToolbarOpen: boolean;
+    isAgentBlocked: boolean;
     contextMenuPosition: { x: number, y: number };
     commandPaletteQuery: string;
     ollamaUrl: string;
@@ -146,6 +147,22 @@ interface AppState {
     attachedContext: any[];
     pendingChanges: any[];
     agentRootAccess: boolean;
+    chatSessions: any[];
+    brainTelemetry: any | null;
+
+    // Google Antigravity Expanded State
+    layoutMode: 'editor' | 'manager' | 'browser';
+    artifactReviewPolicy: 'always_proceed' | 'request_review';
+    terminalAutoExecution: 'always_proceed' | 'request_review';
+    agentThreads: Record<string, {
+        id: string;
+        name: string;
+        messages: any[];
+        isThinking: boolean;
+        tasks: any[];
+        artifacts: any[];
+    }>;
+    activeAgentThreadId: string;
     processStats: { memory_mb: number, cpu_usage: number, total_ram_gb: number, available_ram_gb: number } | null;
     memorySavings: { original: number, compressed: number } | null;
     contextSlots: SemanticSlot[];
@@ -154,6 +171,7 @@ interface AppState {
         related_files: string[];
         relevant_lessons: SemanticSlot[];
     } | null;
+    activeProjectSpec: any | null;
 
     // Extension State
     installedExtensions: any[];
@@ -174,21 +192,34 @@ interface AppState {
     agentTasks: any[];
     agentFiles: string[];
     agentSteps: any[];
+    currentPhase: 'ANALYZE' | 'PLAN' | 'EXECUTE' | 'VERIFY' | 'REPORT' | 'IDLE';
+    currentPhaseStatus: string;
 
     // Visual Lab State
-    visualLabMode: 'none' | 'json' | 'flow' | 'erd';
+    visualLabMode: 'none' | 'json' | 'flow' | 'erd' | 'summary';
     visualLabData: any;
     isVisualLabFullScreen: boolean;
     isVisualLabOpen: boolean;
     isVisualLabSplitView: boolean;
 
+    // Specs-to-Code State
+    isSpecsWizardOpen: boolean;
+    specsWizardStep: 'generator' | 'status' | 'project';
+    currentSpecProjectId: number | null;
+
     // Actions
-    setVisualLabMode: (mode: 'none' | 'json' | 'flow' | 'erd') => void;
+    setVisualLabMode: (mode: 'none' | 'json' | 'flow' | 'erd' | 'summary') => void;
     setVisualLabData: (data: any) => void;
     setIsVisualLabFullScreen: (isFullScreen: boolean) => void;
     setIsVisualLabSplitView: (isSplit: boolean) => void;
     toggleVisualLab: (open?: boolean) => void;
-    toggleSidebar: () => void;
+    setLayoutMode: (mode: 'editor' | 'manager' | 'browser') => void;
+    setArtifactReviewPolicy: (policy: 'always_proceed' | 'request_review') => void;
+    setTerminalAutoExecution: (policy: 'always_proceed' | 'request_review') => void;
+    createAgentThread: (name: string) => string;
+    setActiveAgentThread: (id: string) => void;
+    approveArtifact: (threadId: string, artifactId: string) => void;
+    rejectArtifact: (threadId: string, artifactId: string) => void;
     setActiveSidebarView: (view: string) => void;
     toggleBottomPanel: () => void;
     setActivePanelTab: (tab: string) => void;
@@ -247,8 +278,10 @@ interface AppState {
     resetThread: () => void;
     truncateAgentMessages: (index: number) => void;
     updateAgentTask: (task: Partial<AgentTask> & { id: string }) => void;
+    setAgentBlocked: (blocked: boolean) => void;
     setAgentMessages: (messages: any[]) => void;
     setAgentTasks: (tasks: any[]) => void;
+    setPhase: (phase: 'ANALYZE' | 'PLAN' | 'EXECUTE' | 'VERIFY' | 'REPORT' | 'IDLE', status: string) => void;
 
     // Diff Review Actions
     proposePendingChange: (change: Omit<PendingChange, 'id'>) => void;
@@ -257,7 +290,7 @@ interface AppState {
     acceptAllPendingChanges: () => Promise<void>;
     rejectAllPendingChanges: () => void;
     acceptHunk: (changeId: string, hunkId: string) => Promise<void>;
-    rejectHunk: (changeId: string, hunkId: string) => void;
+    rejectHunk: (changeId: string, hunkId: string) => Promise<void>;
     setCommandPaletteOpen: (open: boolean) => void;
     setContextMenuOpen: (open: boolean, x?: number, y?: number) => void;
     setDebugToolbarOpen: (open: boolean) => void;
@@ -296,10 +329,20 @@ interface AppState {
     setSelectedExtensionId: (id: string | null) => void;
     fetchExtensionDetails: (id: string) => Promise<void>;
     installExtension: (publisher: string, name: string, version: string) => Promise<boolean>;
-    uninstallExtension: (publisher: string, name: string) => Promise<boolean>;
+    uninstallExtension: (publisher: string, name: string, version?: string) => Promise<boolean>;
     fetchWorkspaceMemory: (category: string) => Promise<void>;
     fetchFileContext: (path: string) => Promise<void>;
+    fetchActiveProjectSpec: () => Promise<void>;
     getFlattenedFiles: () => FileEntry[];
+
+    setSpecsWizardOpen: (open: boolean) => void;
+    setSpecsWizardStep: (step: 'generator' | 'status' | 'project') => void;
+    setCurrentSpecProjectId: (id: number | null) => void;
+    refreshChatSessions: () => Promise<void>;
+    loadChatSession: (path: string) => Promise<void>;
+    archiveCurrentSession: () => Promise<void>;
+    createNewSession: () => Promise<void>;
+    refreshBrainTelemetry: () => Promise<void>;
 }
 
 export interface AgentTask {
@@ -307,11 +350,13 @@ export interface AgentTask {
     title: string;
     summary: string;
     message?: string; // Progress or details
-    status: 'running' | 'completed' | 'error' | 'pending' | 'failed';
+    status: 'running' | 'completed' | 'error' | 'pending' | 'failed' | 'blocked';
     progress: number;
     createdAt: number;
     updatedAt: number;
     artifacts: Artifact[];
+    mode?: string;
+    task_status?: string;
 }
 
 function detectLanguage(filename: string): string {
@@ -368,6 +413,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     isCommandPaletteOpen: false,
     isContextMenuOpen: false,
     isDebugToolbarOpen: false,
+    isAgentBlocked: false,
     contextMenuPosition: { x: 0, y: 0 },
     commandPaletteQuery: '',
     ollamaUrl: 'http://localhost:11434',
@@ -380,6 +426,9 @@ const storeImplementation: any = (set: any, get: any) => ({
     memorySavings: null,
     contextSlots: [],
     activeFileContext: null,
+    activeProjectSpec: null,
+    chatSessions: [],
+    brainTelemetry: null,
 
     // Terminal Initial State
     terminalGroups: [],
@@ -394,6 +443,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     agentTasks: [],
     agentFiles: [],
     agentSteps: [],
+    currentPhase: 'IDLE',
+    currentPhaseStatus: 'Waiting for task...',
 
     // Visual Lab Initial State
     visualLabMode: 'none',
@@ -402,14 +453,23 @@ const storeImplementation: any = (set: any, get: any) => ({
     isVisualLabOpen: false,
     isVisualLabSplitView: false,
 
+    // Initial Specs-to-Code State
+    isSpecsWizardOpen: false,
+    specsWizardStep: 'generator',
+    currentSpecProjectId: null,
+
     // Initial Extension State
     installedExtensions: [],
     marketExtensions: [],
     popularExtensions: [],
     isSearchingExtensions: false,
     extensionTrustRequest: null,
-    selectedExtensionId: null,
     extensionDetails: {},
+    layoutMode: 'editor',
+    artifactReviewPolicy: 'request_review',
+    terminalAutoExecution: 'request_review',
+    agentThreads: {},
+    activeAgentThreadId: '',
 
     // Actions
     setVisualLabMode: (mode: any) => set({ visualLabMode: mode }),
@@ -459,17 +519,82 @@ const storeImplementation: any = (set: any, get: any) => ({
             // Sync with backend
             invoke('set_active_root', { path }).then(() => {
                 get().refreshFileTree();
+                get().fetchActiveProjectSpec();
             }).catch(console.error);
         } else {
             localStorage.removeItem('activeRoot');
             localStorage.removeItem('activeRootName');
             invoke('set_active_root', { path: null }).catch(console.error);
-            set({ activeRoot: null, activeRootName: null, fileTree: [] });
+            set({ activeRoot: null, activeRootName: null, fileTree: [], activeProjectSpec: null });
         }
     },
     setActiveDevice: (activeDevice) => set({ activeDevice }),
     setEmulators: (emulators) => set({ emulators }),
     setExtensionContributions: (extensionContributions) => set({ extensionContributions }),
+    setLayoutMode: (mode) => set({ layoutMode: mode }),
+    setArtifactReviewPolicy: (policy) => set({ artifactReviewPolicy: policy }),
+    setTerminalAutoExecution: (policy) => set({ terminalAutoExecution: policy }),
+    setActiveAgentThreadId: (activeAgentThreadId) => set({ activeAgentThreadId }),
+    createAgentThread: (name: string) => {
+        const id = `agent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        set((state: any) => ({
+            agentThreads: {
+                ...state.agentThreads,
+                [id]: {
+                    id,
+                    name,
+                    messages: [],
+                    isThinking: false,
+                    tasks: [],
+                    artifacts: [],
+                }
+            },
+            activeAgentThreadId: id,
+            agentMessages: [], // Reset active view for the new thread
+        }));
+        return id;
+    },
+    setActiveAgentThread: (id: string) => {
+        set((state: any) => {
+            const thread = state.agentThreads[id];
+            if (!thread) return state;
+            return {
+                activeAgentThreadId: id,
+                agentMessages: thread.messages,
+                agentTasks: thread.tasks,
+            };
+        });
+    },
+    approveArtifact: (threadId: string, artifactId: string) => {
+        set((state: any) => {
+            const thread = state.agentThreads[threadId];
+            if (!thread) return state;
+            const updatedArtifacts = thread.artifacts.map((a: any) =>
+                a.id === artifactId ? { ...a, metadata: { ...a.metadata, reviewed: true, status: 'approved' } } : a
+            );
+            return {
+                agentThreads: {
+                    ...state.agentThreads,
+                    [threadId]: { ...thread, artifacts: updatedArtifacts }
+                }
+            };
+        });
+    },
+    rejectArtifact: (threadId: string, artifactId: string) => {
+        set((state: any) => {
+            const thread = state.agentThreads[threadId];
+            if (!thread) return state;
+            const updatedArtifacts = thread.artifacts.map((a: any) =>
+                a.id === artifactId ? { ...a, metadata: { ...a.metadata, reviewed: true, status: 'rejected' } } : a
+            );
+            return {
+                agentThreads: {
+                    ...state.agentThreads,
+                    [threadId]: { ...thread, artifacts: updatedArtifacts }
+                }
+            };
+        });
+    },
     setOllamaUrl: (url: string) => {
         set({ ollamaUrl: url });
         invoke('set_ollama_url', { url }).catch(console.error);
@@ -1196,6 +1321,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     setAgentTask: (agentTask) => set({ agentTask }),
     setAgentFiles: (agentFiles) => set({ agentFiles }),
     setAgentSteps: (agentSteps) => set({ agentSteps }),
+    setAgentBlocked: (isAgentBlocked) => set({ isAgentBlocked }),
 
     // Extension Actions Implementation
     setInstalledExtensions: (installedExtensions) => set({ installedExtensions }),
@@ -1316,9 +1442,9 @@ const storeImplementation: any = (set: any, get: any) => ({
         }
     },
 
-    uninstallExtension: async (publisher, name) => {
+    uninstallExtension: async (publisher, name, version) => {
         try {
-            await invoke("uninstall_extension", { publisher, name });
+            await invoke("uninstall_extension", { publisher, name, version });
             await get().refreshInstalledExtensions();
             return true;
         } catch (err) {
@@ -1354,7 +1480,62 @@ const storeImplementation: any = (set: any, get: any) => ({
         } catch (error) {
             console.error('Fetch File Context Error:', error);
         }
-    }
+    },
+
+    setSpecsWizardOpen: (open: boolean) => set({ isSpecsWizardOpen: open }),
+    setSpecsWizardStep: (step: 'generator' | 'status' | 'project') => set({ specsWizardStep: step }),
+    setCurrentSpecProjectId: (id: number | null) => set({ currentSpecProjectId: id }),
+    setPhase: (phase, status) => set({ currentPhase: phase, currentPhaseStatus: status }),
+
+    refreshChatSessions: async () => {
+        try {
+            const sessions = await invoke<any[]>('list_chat_sessions');
+            set({ chatSessions: sessions });
+        } catch (error) {
+            console.error('Refresh Chat Sessions Error:', error);
+        }
+    },
+
+    loadChatSession: async (path: string) => {
+        try {
+            await invoke('load_chat_session', { path });
+            // Retrieve messages from the newly loaded store
+            const messages = await invoke<any[]>('get_agent_messages'); // Assuming this exists or I need to add it
+            set({ agentMessages: messages });
+            // Refresh sessions list to show current
+            get().refreshChatSessions();
+        } catch (error) {
+            console.error('Load Chat Session Error:', error);
+        }
+    },
+
+    archiveCurrentSession: async () => {
+        try {
+            await invoke('archive_chat_session');
+            get().refreshChatSessions();
+        } catch (error) {
+            console.error('Archive Chat Session Error:', error);
+        }
+    },
+
+    createNewSession: async () => {
+        try {
+            await invoke('create_new_session');
+            get().clearAgentMessages();
+            get().refreshChatSessions();
+        } catch (error) {
+            console.error('Create New Session Error:', error);
+        }
+    },
+
+    refreshBrainTelemetry: async () => {
+        try {
+            const telemetry = await invoke<any>('get_brain_telemetry');
+            set({ brainTelemetry: telemetry });
+        } catch (error) {
+            console.error('Refresh Brain Telemetry Error:', error);
+        }
+    },
 });
 
 export const useStore = create<AppState>(storeImplementation);

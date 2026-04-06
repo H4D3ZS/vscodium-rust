@@ -15,9 +15,9 @@ import { invoke } from './tauri_bridge';
 
 export interface ToolParameter {
     type: string;
-    description: string;
+    description?: string;
     enum?: string[];
-    items?: { type: string };
+    items?: any;
     default?: any;
 }
 
@@ -1145,6 +1145,192 @@ export const SendMessageTool: ToolDef = {
     },
 };
 
+// ---------------------------------------------------------------------------
+// 24. TaskBoundaryTool — Signal task progress
+// ---------------------------------------------------------------------------
+export const TaskBoundaryTool: ToolDef = {
+    name: 'task_boundary',
+    description: `Signal the start or update of a task. Use this to report your progress to the user through the IDE's Progress Updates UI. VERY IMPORTANT: Use this tool to keep the user informed of exactly what you are doing in Sentient mode.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            TaskName: { type: 'string', description: 'Human readable name of the overarching task' },
+            Mode: { type: 'string', description: 'PLANNING, EXECUTION, or VERIFICATION' },
+            TaskSummary: { type: 'string', description: 'Concise summary of accomplished work' },
+            TaskStatus: { type: 'string', description: 'What you are going to do next' },
+            PredictedTaskSize: { type: 'number', description: 'Estimated steps remaining' }
+        },
+        required: ['TaskName', 'Mode', 'TaskSummary', 'TaskStatus', 'PredictedTaskSize'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            const store = (window as any).useStore?.getState();
+            if (store && store.updateAgentTask) {
+                const progress = Math.max(10, 100 - (input.PredictedTaskSize * 5));
+                store.updateAgentTask({
+                    id: 'current-mission',
+                    title: input.TaskName,
+                    summary: input.TaskSummary,
+                    status: 'running',
+                    progress: progress,
+                    mode: input.Mode,
+                    task_status: input.TaskStatus,
+                    updatedAt: Date.now()
+                });
+                store.addAgentStep(`[${input.Mode}] ${input.TaskStatus}`, 'running');
+            }
+            return ok({ status: 'Task boundary updated successfully in the UI.' });
+        } catch (e: any) {
+            return fail(`Task boundary failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 25. ReplaceFileContentTool — Precise multi-line edits
+// ---------------------------------------------------------------------------
+export const ReplaceFileContentTool: ToolDef = {
+    name: 'replace_file_content',
+    description: `Precisely edit a file by replacing a specific line range with new content. Preferred over file_edit for complex code modifications.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            path: { type: 'string', description: 'Absolute or relative path to the file' },
+            StartLine: { type: 'number', description: '1-indexed starting line' },
+            EndLine: { type: 'number', description: '1-indexed ending line' },
+            ReplacementContent: { type: 'string', description: 'The new content to drop in' },
+            Instruction: { type: 'string', description: 'Description of changes' }
+        },
+        required: ['path', 'StartLine', 'EndLine', 'ReplacementContent'],
+    },
+    execute: async (input, ctx) => {
+        try {
+            const fullPath = input.path;
+            const content = await invoke<string>('read_file', { path: fullPath });
+            if (content === null || content === undefined) return fail(`File not found: ${fullPath}`);
+
+            const lines = content.split('\\n');
+            const start = Math.max(0, input.StartLine - 1);
+            const end = Math.min(lines.length, input.EndLine);
+
+            lines.splice(start, end - start, ...input.ReplacementContent.split('\\n'));
+            const newContent = lines.join('\\n');
+
+            await invoke('write_file_content', {
+                path: fullPath,
+                content: newContent,
+            });
+
+            return ok({ filePath: fullPath, type: 'replaced_lines' });
+        } catch (e: any) {
+            return fail(`Replace failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 26. MultiReplaceFileContentTool — Multiple edits in one file
+// ---------------------------------------------------------------------------
+export const MultiReplaceFileContentTool: ToolDef = {
+    name: 'multi_replace_file_content',
+    description: `Perform multiple non-contiguous line-based replacements in a single file.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            path: { type: 'string', description: 'Path to the file' },
+            Replacements: {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    properties: {
+                        StartLine: { type: 'number' },
+                        EndLine: { type: 'number' },
+                        ReplacementContent: { type: 'string' }
+                    },
+                    required: ['StartLine', 'EndLine', 'ReplacementContent']
+                }
+            }
+        },
+        required: ['path', 'Replacements'],
+    },
+    execute: async (input, ctx) => {
+        try {
+            const fullPath = input.path;
+            const content = await invoke<string>('read_file', { path: fullPath });
+            if (content === null || content === undefined) return fail(`File not found: ${fullPath}`);
+
+            let lines = content.split('\\n');
+            // Sort replacements in reverse order by StartLine to avoid shifting indices
+            const sortedReplacements = [...input.Replacements].sort((a, b) => b.StartLine - a.StartLine);
+
+            for (const rep of sortedReplacements) {
+                const start = Math.max(0, rep.StartLine - 1);
+                const end = Math.min(lines.length, rep.EndLine);
+                lines.splice(start, end - start, ...rep.ReplacementContent.split('\\n'));
+            }
+
+            const newContent = lines.join('\\n');
+            await invoke('write_file_content', {
+                path: fullPath,
+                content: newContent,
+            });
+
+            return ok({ filePath: fullPath, type: 'multi_replaced', numEdits: input.Replacements.length });
+        } catch (e: any) {
+            return fail(`Multi-replace failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 27. SpecsToCodePipelineTool — Autonomous Project Assembly
+// ---------------------------------------------------------------------------
+export const SpecsToCodePipelineTool: ToolDef = {
+    name: 'specs_to_code_pipeline',
+    description: `Kick off a comprehensive, multi-phase background process to generate a full project or feature based on technical specifications. 
+    This tool performs: Analyzation -> Structure Architecture -> MVC Design -> Backend Implementation -> Frontend Stubbing.
+    Use this for large-scale generations instead of manual step-by-step prompting.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            projectName: { type: 'string', description: 'Descriptive name for the project folder' },
+            specs: { type: 'string', description: 'Complete technical specifications in Markdown format' },
+            provider: { type: 'string', description: 'Optional LLM provider (e.g., google, ollama:llama3)', default: 'google' }
+        },
+        required: ['projectName', 'specs'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            // 1. Create the project in the specs DB
+            const projectId = await invoke<number>("cmd_specs_create_project", {
+                name: input.projectName,
+                specs: input.specs,
+                provider: input.provider || 'google'
+            });
+
+            // 2. Open the specialized tracking UI
+            const store = (window as any).useStore?.getState();
+            if (store) {
+                store.setCurrentSpecProjectId(projectId);
+                store.setSpecsWizardStep('status');
+                store.setSpecsWizardOpen(true);
+            }
+
+            // 3. Trigger initial layout generation
+            invoke("cmd_specs_generate_layout", { project_id: projectId }).catch(console.error);
+
+            return ok({
+                status: 'Pipeline initialized successfully',
+                projectId,
+                message: 'Background workers are now assembling the project. The UI has been opened to track progress.'
+            });
+        } catch (e: any) {
+            return fail(`Pipeline start failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
 // =============================================================================
 // TOOL REGISTRY
 // =============================================================================
@@ -1155,6 +1341,8 @@ const ALL_TOOLS: ToolDef[] = [
     FileReadTool,
     FileWriteTool,
     FileEditTool,
+    ReplaceFileContentTool,
+    MultiReplaceFileContentTool,
     GlobTool,
     GrepTool,
     ListDirectoryTool,
@@ -1170,9 +1358,11 @@ const ALL_TOOLS: ToolDef[] = [
     BrowserCloseTool,
 
     // Task management
+    TaskBoundaryTool,
     TodoWriteTool,
     TaskCreateTool,
     TaskUpdateTool,
+    SpecsToCodePipelineTool,
 
     // Planning
     EnterPlanModeTool,

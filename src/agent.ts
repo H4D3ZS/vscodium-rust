@@ -145,14 +145,25 @@ function createPopover(element: HTMLElement, items: { label: string, value: stri
 export function openModeDropdown(element: HTMLElement, onSelect: (label: string) => void) {
     createPopover(element, [
         { label: "Planning", value: "Planning", icon: "beaker", desc: "Agent can plan before executing tasks. Use for deep research, complex tasks, or collaborative work" },
+        { label: "Develop from Specs", value: "Develop from Specs", icon: "sparkles", desc: "Trigger the autonomous Specs-to-Code pipeline for the current project" },
         { label: "Planning (Source Control)", value: "Planning (Source Control)", icon: "git-branch", desc: "Deep dive into git history and planning source control workflows" },
-        { label: "Fast", value: "Fast", icon: "zap", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" }
+        { label: "Fast", value: "Fast", icon: "zap", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" },
+        { label: "Sentient", value: "Sentient", icon: "beaker", desc: "Full autonomy mode. Agent will work proactively until the task is complete, like Antigravity." }
     ], (val) => {
-        const store = (window as any).useStore;
-        if (store) {
-            store.getState().setAgentMode(val);
+        if (val === "Develop from Specs") {
+            const state = useStore.getState();
+            const spec = state.activeProjectSpec;
+            if (spec) {
+                state.setCurrentSpecProjectId(spec.id);
+                state.setSpecsWizardStep('status');
+            } else {
+                state.setSpecsWizardStep('generator');
+            }
+            state.setSpecsWizardOpen(true);
+        } else {
+            useStore.getState().setAgentMode(val);
             if (val.includes("Source Control")) {
-                store.getState().setActiveSidebarView('planning-view');
+                useStore.getState().setActiveSidebarView('planning-view');
             }
         }
         onSelect(val);
@@ -206,6 +217,40 @@ export async function initAgent() {
         });
     });
 
+    // Listen for Neural VFS / AIM activation
+    await listen('aim-active', (event: any) => {
+        console.log('Neural VFS Active:', event.payload);
+        const { addAgentMessage } = useStore.getState();
+        const messagesContainer = document.getElementById("agent-messages");
+        if (messagesContainer) {
+            // Check if already shown recently to avoid duplicates
+            const lastMsg = messagesContainer.lastElementChild;
+            if (lastMsg && lastMsg.classList.contains("aim-active-box")) return;
+
+            const info = document.createElement("div");
+            info.className = "agent-message info-message-box aim-active-box";
+            info.style.background = "rgba(79, 70, 229, 0.1)";
+            info.style.border = "1px solid rgba(79, 70, 229, 0.2)";
+            info.style.color = "#818cf8";
+            info.style.padding = "8px 12px";
+            info.style.margin = "8px 0";
+            info.style.borderRadius = "8px";
+            info.style.fontSize = "11px";
+            info.style.fontWeight = "600";
+            info.style.letterSpacing = "0.5px";
+            info.style.display = "flex";
+            info.style.alignItems = "center";
+            info.style.gap = "8px";
+            info.style.animation = "fadeIn 0.5s ease";
+
+            const sizeKB = (event.payload.size / 1024).toFixed(1);
+            const mode = event.payload.mode || "Neural VFS";
+            info.innerHTML = `<i class="codicon codicon-circuit-board" style="font-size: 14px;"></i> ${mode.toUpperCase()} ACTIVE (${sizeKB} KB Project Matrix)`;
+            messagesContainer.appendChild(info);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    });
+
     // Listen for streaming AI content
     await listen('ai-content', (event: any) => {
         const { updateLastAgentMessage, setIsAgentThinking } = useStore.getState();
@@ -229,8 +274,43 @@ export async function initAgent() {
         else if (toolName.includes('file') || toolName.includes('glob')) type = 'filesystem';
         else if (toolName.startsWith('browser_')) type = 'browser';
         else if (toolName.includes('health') || toolName.includes('system')) type = 'system';
+        else if (toolName.includes('task') || toolName.includes('notify')) type = 'system';
 
         addAgentStep(toolName, type);
+    });
+
+    // Listen for structured task boundary updates
+    await listen<any>("update-agent-task", (event) => {
+        const { updateAgentTask } = useStore.getState();
+        updateAgentTask({
+            ...event.payload,
+            updatedAt: Date.now()
+        });
+    });
+
+    // Listen for granular agent steps
+    await listen<any>("add-agent-step", (event) => {
+        const { addAgentStep } = useStore.getState();
+        addAgentStep(event.payload.name, event.payload.type || 'other');
+    });
+
+    // Listen for user notifications and blocked states
+    await listen<any>("notify-user", (event) => {
+        const { setAgentBlocked, addAgentMessage } = useStore.getState();
+        const { message, blocked } = event.payload;
+
+        setAgentBlocked(blocked);
+        if (blocked) {
+            addAgentMessage('assistant', `⚠️ **Action Required**: ${message}`);
+        } else {
+            addAgentMessage('assistant', `ℹ️ ${message}`);
+        }
+    });
+
+    // Listen for artifacts (skills, files, terminal)
+    await listen<any>("ai-artifact", (event) => {
+        const { addAgentArtifact } = useStore.getState();
+        addAgentArtifact(event.payload);
     });
 
     // Listen for asynchronous sub-agent progress and results

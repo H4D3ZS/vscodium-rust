@@ -16,6 +16,7 @@ import ReactFlow, {
     type Node,
 } from 'reactflow';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import 'reactflow/dist/style.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -32,9 +33,12 @@ import {
     Maximize2,
     Eraser,
     Upload,
-    Columns
+    Columns,
+    Cpu,
+    Activity
 } from 'lucide-react';
 import { useStore } from '../../store';
+import NeuralSummaryView from './NeuralSummaryView';
 
 // --- Custom Nodes ---
 
@@ -128,10 +132,61 @@ const ErdNode = React.memo(({ data }: any) => (
 ));
 ErdNode.displayName = 'ErdNode';
 
+const NeuralNode = React.memo(({ data }: any) => {
+    const isSentinel = data.category === 'fix_lessons';
+    const glowColor = isSentinel ? '#f472b6' : '#6366f1';
+
+    return (
+        <motion.div
+            animate={{
+                boxShadow: [
+                    `0 0 10px ${glowColor}44`,
+                    `0 0 25px ${glowColor}88`,
+                    `0 0 10px ${glowColor}44`
+                ],
+                scale: [1, 1.05, 1]
+            }}
+            transition={{
+                duration: 3,
+                repeat: Infinity,
+                ease: "easeInOut"
+            }}
+            style={{
+                padding: '12px 18px',
+                borderRadius: '50px',
+                background: '#0a0a0a',
+                border: `2px solid ${glowColor}`,
+                color: '#fff',
+                minWidth: '120px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                position: 'relative'
+            }}
+        >
+            <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
+            <div style={{
+                width: '10px',
+                height: '10px',
+                borderRadius: '50%',
+                background: glowColor,
+                boxShadow: `0 0 10px ${glowColor}`
+            }} />
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700 }}>{data.label}</span>
+                <span style={{ fontSize: '9px', opacity: 0.5, textTransform: 'uppercase' }}>{data.category}</span>
+            </div>
+            <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
+        </motion.div>
+    );
+});
+NeuralNode.displayName = 'NeuralNode';
+
 const nodeTypes = {
     jsonNode: JsonNode,
     flowNode: FlowNode,
     erdNode: ErdNode,
+    neuralNode: NeuralNode,
     // Legacy support for older node types
     json: JsonNode,
     process: FlowNode,
@@ -294,8 +349,26 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
         reader.readAsText(file);
     }, []);
 
-    // Backend handles parsing now
+    const refreshNeuralGraph = useCallback(async () => {
+        if ((visualLabMode as any) === 'neural') {
+            try {
+                const graph = await invoke<any>('get_neural_omni_graph');
+                setNodes(graph.nodes);
+                setEdges(graph.edges);
+                setTimeout(() => fitView({ padding: 0.2, duration: 800 }), 100);
+            } catch (err) {
+                console.error("Neural Graph refresh failed", err);
+            }
+        }
+    }, [visualLabMode, setNodes, setEdges, fitView]);
+
+    // Handle initial load and mode changes
     useEffect(() => {
+        if ((visualLabMode as any) === 'neural') {
+            refreshNeuralGraph();
+            return;
+        }
+
         if (visualLabData && visualLabMode !== 'none') {
             const store = (window as any).useStore?.getState();
             const activeTab = store?.tabs.find((t: any) => t.id === store.activeTabId);
@@ -324,7 +397,19 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
                     }]);
                 });
         }
-    }, [visualLabData, visualLabMode, setNodes, setEdges, fitView]);
+    }, [visualLabData, visualLabMode, setNodes, setEdges, fitView, refreshNeuralGraph]);
+
+    // Listen for real-time memory updates from the AI Cortex
+    useEffect(() => {
+        let unlisten: any;
+        const setup = async () => {
+            unlisten = await listen<any>('memory-update', () => {
+                refreshNeuralGraph();
+            });
+        };
+        setup();
+        return () => { if (unlisten) unlisten(); };
+    }, [refreshNeuralGraph]);
 
     if (!isVisualLabOpen) return null;
 
@@ -392,6 +477,12 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
                         onClick={() => setVisualLabMode('erd')}
                         icon={<Database size={14} />}
                         label="ERD/Schema"
+                    />
+                    <ModeToggle
+                        active={(visualLabMode as any) === 'summary'}
+                        onClick={() => setVisualLabMode('summary' as any)}
+                        icon={<Activity size={14} />}
+                        label="Summary"
                     />
                 </div>
 
@@ -515,97 +606,73 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
                 </div>
             </div>
 
-            <div style={{ flex: 1, position: 'relative', display: 'flex' }}>
-                {visualLabMode !== 'json' && (
-                    <div style={{
-                        width: '280px', // Increased from 200px
-                        borderRight: '1px solid rgba(255,255,255,0.05)',
-                        padding: '24px',
-                        background: 'rgba(0,0,0,0.3)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '20px'
-                    }}>
-                        <div style={{ fontSize: '13px', fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Components</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            <DraggableNode type="input" label="Trigger / Input" color="#3b82f6" onClick={addNode} />
-                            <DraggableNode type="process" label="Action / Process" color="#8b5cf6" onClick={addNode} />
-                            <DraggableNode type="decision" label="Condition / If" color="#f59e0b" onClick={addNode} />
-                            <DraggableNode type="output" label="Goal / Output" color="#10b981" onClick={addNode} />
-                        </div>
-
-                        {visualLabMode === 'erd' && (
-                            <>
-                                <div style={{ fontSize: '13px', fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: '20px' }}>Database</div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                    <DraggableNode type="table" label="Table / Entity" color="#ec4899" onClick={addNode} />
-                                </div>
-                            </>
-                        )}
-                    </div>
-                )}
-
-                <div style={{ flex: 1, position: 'relative' }}>
-                    {nodes.length === 0 && (
-                        <div style={{
-                            position: 'absolute',
-                            inset: 0,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            zIndex: 10,
-                            color: 'rgba(255,255,255,0.2)',
-                            gap: '15px'
-                        }}>
-                            <FileJson size={48} strokeWidth={1} />
-                            <div style={{ textAlign: 'center' }}>
-                                <p style={{ margin: 0, fontSize: '16px', fontWeight: 500, color: 'rgba(255,255,255,0.4)' }}>No Data Detected</p>
-                                <p style={{ margin: '5px 0 0 0', fontSize: '12px' }}>Open a JSON file or use the AI Builder to start</p>
-                            </div>
-                        </div>
-                    )}
-                    <ReactFlow
-                        nodes={nodes}
-                        edges={edges}
-                        onNodesChange={onNodesChange}
-                        onEdgesChange={onEdgesChange}
-                        onConnect={onConnect}
-                        nodeTypes={nodeTypes}
-                        defaultEdgeOptions={{
-                            type: 'bezier',
-                            style: {
-                                strokeWidth: 1.5,
-                                stroke: '#3b82f6',
-                                strokeDasharray: '4 4',
-                                opacity: 0.5
-                            }
-                        }}
-                        fitView
-                        onDrop={onDrop}
-                        onDragOver={onDragOver}
-                        minZoom={0.05}
-                        maxZoom={4}
-                        onlyRenderVisibleElements={true}
-                        style={{ background: '#090909' }}
-                    >
-                        <Background color="#1a1a1a" gap={20} />
-                        <Controls />
-                        <Panel position="bottom-right">
+            {/* Main Content Area */}
+            <div style={{ flex: 1, position: 'relative', display: 'flex', overflow: 'hidden' }}>
+                {/* Mode-Specific Rendering */}
+                {['json', 'flow', 'erd'].includes(visualLabMode as string) ? (
+                    <>
+                        {/* Sidebar - only for graph modes */}
+                        {visualLabMode !== 'json' && (
                             <div style={{
-                                background: 'rgba(30,30,30,0.8)',
-                                backdropFilter: 'blur(10px)',
-                                padding: '10px 15px',
-                                borderRadius: '20px',
-                                border: '1px solid rgba(255,255,255,0.1)',
+                                width: '280px',
+                                borderRight: '1px solid rgba(255,255,255,0.05)',
+                                padding: '24px',
+                                background: 'rgba(0,0,0,0.3)',
                                 display: 'flex',
-                                gap: '15px'
+                                flexDirection: 'column',
+                                gap: '20px'
                             }}>
-                                <AiCommandButton onClick={() => setIsAiModalOpen(true)} />
+                                <div style={{ fontSize: '13px', fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Components</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <DraggableNode type="input" label="Trigger / Input" color="#3b82f6" onClick={addNode} />
+                                    <DraggableNode type="process" label="Action / Process" color="#8b5cf6" onClick={addNode} />
+                                    <DraggableNode type="decision" label="Condition / If" color="#f59e0b" onClick={addNode} />
+                                    <DraggableNode type="output" label="Goal / Output" color="#10b981" onClick={addNode} />
+                                </div>
+                                {visualLabMode === 'erd' && (
+                                    <>
+                                        <div style={{ fontSize: '13px', fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: '20px' }}>Database</div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            <DraggableNode type="table" label="Table / Entity" color="#ec4899" onClick={addNode} />
+                                        </div>
+                                    </>
+                                )}
                             </div>
-                        </Panel>
-                    </ReactFlow>
-                </div>
+                        )}
+
+                        {/* Graph Canvas */}
+                        <div style={{ flex: 1, position: 'relative' }}>
+                            {nodes.length === 0 && (
+                                <div style={{
+                                    position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                                    alignItems: 'center', justifyContent: 'center', zIndex: 10,
+                                    color: 'rgba(255,255,255,0.2)', gap: '15px'
+                                }}>
+                                    <FileJson size={48} strokeWidth={1} />
+                                    <p style={{ margin: 0, fontSize: '16px', fontWeight: 500, color: 'rgba(255,255,255,0.4)' }}>No Data Detected</p>
+                                </div>
+                            )}
+                            <ReactFlow
+                                nodes={nodes} edges={edges}
+                                onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
+                                nodeTypes={nodeTypes} fitView onDrop={onDrop} onDragOver={onDragOver}
+                                style={{ background: '#090909' }}
+                            >
+                                <Background color="#1a1a1a" gap={20} />
+                                <Controls />
+                                <Panel position="bottom-right">
+                                    <div style={{ background: 'rgba(30,30,30,0.8)', backdropFilter: 'blur(10px)', padding: '10px 15px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                        <AiCommandButton onClick={() => setIsAiModalOpen(true)} />
+                                    </div>
+                                </Panel>
+                            </ReactFlow>
+                        </div>
+                    </>
+                ) : visualLabMode === ('summary' as any) ? (
+                    <div style={{ flex: 1, background: '#090909', overflow: 'hidden' }}>
+                        <NeuralSummaryView />
+                    </div>
+                ) : null}
             </div>
 
             <AnimatePresence>
@@ -628,7 +695,7 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
                 color: 'rgba(255,255,255,0.3)',
                 justifyContent: 'space-between'
             }}>
-                <span>VISUAL_LAB_ACTIVE ({visualLabMode.toUpperCase()})</span>
+                <span>VISUAL_LAB_ACTIVE ({String(visualLabMode).toUpperCase()})</span>
                 <span>{nodes.length} Nodes | {edges.length} Connections</span>
             </div>
         </motion.div>

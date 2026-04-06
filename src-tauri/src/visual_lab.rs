@@ -252,3 +252,61 @@ pub fn parse_mongodb_to_graph(content: &str) -> VisualGraph {
         }
     }
 }
+
+pub fn generate_neural_omni_graph(slots: Vec<crate::memory_store::SemanticSlot>) -> VisualGraph {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    let mut tag_to_nodes: HashMap<String, Vec<String>> = HashMap::new();
+
+    for (idx, slot) in slots.iter().enumerate() {
+        let node_id = slot.id.clone();
+        
+        let angle = idx as f32 * 0.5;
+        let radius = 100.0 + (idx as f32 * 20.0);
+        let x = radius * angle.cos();
+        let y = radius * angle.sin();
+
+        let weight = if slot.category == "fix_lessons" { 1.0 } else { 0.5 };
+
+        nodes.push(VisualNode {
+            id: node_id.clone(),
+            node_type: "neuralNode".to_string(),
+            data: json!({
+                "label": slot.content.split('/').last().unwrap_or(&slot.content),
+                "category": slot.category,
+                "weight": weight,
+                "tags": slot.tags,
+                "lastUpdated": slot.timestamp
+            }),
+            position: NodePosition { x, y },
+        });
+
+        for tag in &slot.tags {
+            tag_to_nodes.entry(tag.clone()).or_default().push(node_id.clone());
+        }
+    }
+
+    for (tag, node_ids) in tag_to_nodes {
+        if node_ids.len() > 1 {
+            for i in 0..node_ids.len() {
+                for j in i + 1..node_ids.len() {
+                    edges.push(VisualEdge {
+                        id: format!("neural-{}-{}-{}", tag, node_ids[i], node_ids[j]),
+                        source: node_ids[i].clone(),
+                        target: node_ids[j].clone(),
+                        animated: true,
+                        marker_end: None,
+                        style: json!({
+                            "stroke": "#f472b6",
+                            "strokeWidth": 1,
+                            "opacity": 0.3,
+                            "label": tag
+                        }),
+                    });
+                }
+            }
+        }
+    }
+
+    VisualGraph { nodes, edges }
+}

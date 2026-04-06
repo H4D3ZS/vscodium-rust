@@ -9,6 +9,7 @@ import ScmView from './ScmView';
 import DebugView from './DebugView';
 import EmulatorPanel from './EmulatorPanel';
 import AgentSettingsView from './AgentSettingsView';
+import ProjectSpecsSidebar from './ProjectSpecsSidebar';
 
 interface FlattenedNode {
     entry: FileEntry;
@@ -385,7 +386,6 @@ const Sidebar: React.FC = () => {
         'debug-view': 'RUN AND DEBUG',
         'extensions-view': 'EXTENSIONS',
         'specs-view': 'SPECS',
-        'agent-view': 'AGENT SETTINGS',
         'mobile-view': 'MOBILE EMULATORS'
     };
 
@@ -439,6 +439,10 @@ const Sidebar: React.FC = () => {
                             </div>
                         </SidebarPane>
 
+                        <SidebarPane title="AI PROJECT SPECS" defaultCollapsed={false}>
+                            <ProjectSpecsSidebar />
+                        </SidebarPane>
+
                         <SidebarPane title="OUTLINE" defaultCollapsed={true}>
                             <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>
                                 No outline information found.
@@ -457,7 +461,6 @@ const Sidebar: React.FC = () => {
                 {activeView === 'scm-view' && <ScmView />}
                 {activeView === 'debug-view' && <DebugView />}
                 {activeView === 'extensions-view' && <ExtensionsView />}
-                {activeView === 'agent-view' && <AgentSettingsView />}
                 {activeView === 'mobile-view' && <EmulatorPanel />}
 
                 {/* Extension Contributed Views */}

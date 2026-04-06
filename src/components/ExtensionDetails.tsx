@@ -75,7 +75,7 @@ const ExtensionDetails: React.FC<ExtensionDetailsProps> = ({ extensionId, onBack
     const handleUninstall = async () => {
         setIsInstalling(true);
         try {
-            await uninstallExtension(publisher, details.name || details.extensionName);
+            await uninstallExtension(publisher, details.name || details.extensionName, version);
         } catch (err) {
             console.error("Uninstall failed:", err);
         } finally {

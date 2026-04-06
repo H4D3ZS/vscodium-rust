@@ -1,0 +1,80 @@
+﻿cargo : warning: field `worker_manager` is never read
+At line:1 char:1
++ cargo check 2> cargo_errors.txt
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (warning: field ...` is never read:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   --> src\lib.rs:133:9
+    |
+105 | pub(crate) struct EditorState {
+    |                   ----------- field in this struct
+...
+133 |     pub worker_manager: Arc<workers::WorkerManager>,
+    |         ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `get_inference_history` is never used
+    --> src\lib.rs:2577:10
+     |
+2577 | async fn get_inference_history(state: State<'_, EditorState>) -> Result<Value, String> {
+     |          ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `GetCurrentProcess` is never used
+  --> src\lib.rs:66:8
+   |
+66 |     fn GetCurrentProcess() -> isize;
+   |        ^^^^^^^^^^^^^^^^^
+
+warning: function `SetProcessWorkingSetSize` is never used
+  --> src\lib.rs:67:8
+   |
+67 |     fn SetProcessWorkingSetSize(
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: multiple methods are never used
+    --> src\ai_tools.rs:922:8
+     |
+  28 | impl AiTools {
+     | ------------ methods in this implementation
+...
+ 922 |     fn view_file_outline(&self, args: Value) -> Result<Value> {
+     |        ^^^^^^^^^^^^^^^^^
+...
+ 981 |     fn view_code_item(&self, args: Value) -> Result<Value> {
+     |        ^^^^^^^^^^^^^^
+...
+1018 |     fn manage_task(&self, args: Value) -> Result<Value> {
+     |        ^^^^^^^^^^^
+...
+1075 |     fn manage_memory(&self, args: Value) -> Result<Value> {
+     |        ^^^^^^^^^^^^^
+...
+1932 |     fn find_api_keys(&self, _args: Value) -> Result<Value> {
+     |        ^^^^^^^^^^^^^
+...
+2516 |     fn patch_file_content(&self, args: Value) -> Result<Value> {
+     |        ^^^^^^^^^^^^^^^^^^
+...
+2556 |     fn read_url_content(&self, args: Value) -> Result<Value> {
+     |        ^^^^^^^^^^^^^^^^
+
+warning: unused `Result` that must be used
+   --> src\workers.rs:162:9
+    |
+162 | ...   self.db.update_work_log(work.id, &format!("Phase 4: Developing Logic and Tests for {}...", 
+func.name)).map_err(|e| e.to_string());
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+162 |         let _ = self.db.update_work_log(work.id, &format!("Phase 4: Developing Logic and Tests for {}...", 
+func.name)).map_err(|e| e.to_string());
+    |         +++++++
+
+warning: `vscode-rust-app` (lib) generated 6 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.57s

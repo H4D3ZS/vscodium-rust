@@ -17,6 +17,13 @@ use crate::mcp_registry::{McpRegistry, McpServerConfig};
 use crate::memory_store::MemoryStore;
 use crate::task_planner::TaskPlanner;
 use crate::tool_invoker::ToolInvoker;
+use crate::rules_engine::RulesEngine;
+use crate::workflow_engine::WorkflowEngine;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AiResponse {
+    pub content: String,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
@@ -76,7 +83,7 @@ pub struct ImageUrlPart {
     pub url: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ChatMessage {
     pub role: String,
     pub content: Option<MessageContent>,
@@ -121,6 +128,8 @@ pub struct Sentient {
     ai_tools: Arc<AiTools>,
     task_planner: Arc<TaskPlanner>,
     pub memory_store: Arc<MemoryStore>,
+    pub rules_engine: Arc<RulesEngine>,
+    pub workflow_engine: Arc<WorkflowEngine>,
     tool_invoker: Arc<ToolInvoker>,
     conversation_state: AsyncMutex<Vec<ChatMessage>>,
     app_handle: Mutex<Option<AppHandle>>,
@@ -155,7 +164,8 @@ impl Sentient {
             mcp_registry.clone(),
         ));
         let task_planner = Arc::new(TaskPlanner::new());
-        let memory_store = Arc::new(MemoryStore::new());
+        let rules_engine = Arc::new(RulesEngine::new(root_path.clone()));
+        let workflow_engine = Arc::new(WorkflowEngine::new(root_path.clone()));
         let tool_invoker = Arc::new(ToolInvoker::new(ai_tools.clone(), mcp_registry.clone()));
         let ane_engine = Arc::new(tokio::sync::Mutex::new(None));
         #[cfg(target_os = "macos")]
@@ -166,6 +176,17 @@ impl Sentient {
         let brain_dir = config_dir.join("brain");
         if !brain_dir.exists() {
             let _ = std::fs::create_dir_all(&brain_dir);
+        }
+
+        // Mount Kortex persistent memory (initial sync with brain dir)
+        let memory_store = Arc::new(MemoryStore::new());
+        {
+            let bd = brain_dir.clone();
+            let rp = root_path.clone();
+            let ms = memory_store.clone();
+            tauri::async_runtime::spawn(async move {
+                ms.mount(Some(rp)).await;
+            });
         }
 
         let client = Client::builder()
@@ -181,6 +202,8 @@ impl Sentient {
             ai_tools,
             task_planner,
             memory_store,
+            rules_engine,
+            workflow_engine,
             tool_invoker,
             conversation_state: AsyncMutex::new(Vec::new()),
             app_handle: Mutex::new(None),
@@ -214,11 +237,20 @@ impl Sentient {
     pub fn set_app_handle(&self, handle: AppHandle) {
         let mut h = self.app_handle.lock().unwrap();
         *h = Some(handle.clone());
-        self.ai_tools.set_app_handle(handle);
+        self.ai_tools.set_app_handle(handle.clone());
+        
+        let ms = self.memory_store.clone();
+        tauri::async_runtime::spawn(async move {
+            ms.set_app_handle(handle).await;
+        });
     }
 
     pub fn set_root_path(&self, root_path: PathBuf) {
-        self.ai_tools.set_root_path(root_path);
+        self.ai_tools.set_root_path(root_path.clone());
+        let ms = self.memory_store.clone();
+        tauri::async_runtime::spawn(async move {
+            ms.mount(Some(root_path)).await;
+        });
     }
 
     /// Main autonomous reasoning loop with iterative tool invocation and task planning.
@@ -240,6 +272,84 @@ impl Sentient {
 
     pub fn is_stopped(&self) -> bool {
         self.stop_signal.load(Ordering::SeqCst)
+    }
+
+    pub async fn chat_complete(
+        &self, 
+        prompt: &str, 
+        system_override: Option<String>,
+        provider_override: Option<String>,
+        model_override: Option<String>,
+        on_chunk: Option<Arc<dyn Fn(&str) + Send + Sync>>
+    ) -> Result<AiResponse> {
+        let mut messages = Vec::new();
+        if let Some(sys) = system_override {
+            messages.push(ChatMessage {
+                role: "system".to_string(),
+                content: Some(MessageContent::Text(sys)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            });
+        }
+        messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: Some(MessageContent::Text(prompt.to_string())),
+            tool_calls: None,
+            tool_call_id: None,
+            metadata: None,
+        });
+
+        let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
+        let (provider, model) = if let Some(p) = provider_override {
+             if let Some((prov, m)) = p.split_once(':') {
+                 (prov.to_string(), m.to_string())
+             } else {
+                 (p, model_override.unwrap_or_else(|| "gpt-4o".to_string()))
+             }
+        } else if let Ok(p) = std::env::var("AI_PROVIDER") {
+             // Environment variable takes top priority
+             (p, std::env::var("AI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string()))
+        } else if let Ok(content) = std::fs::read_to_string(&keys_path) {
+            let keys: Value = serde_json::from_str(&content).unwrap_or(json!({}));
+            if keys["google"].as_str().map(|s| !s.is_empty()).unwrap_or(false) {
+                ("google".to_string(), "gemini-1.5-pro".to_string())
+            } else if keys["openai"].as_str().map(|s| !s.is_empty()).unwrap_or(false) {
+                ("openai".to_string(), "gpt-4o".to_string())
+            } else if keys["anthropic"].as_str().map(|s| !s.is_empty()).unwrap_or(false) {
+                ("anthropic".to_string(), "claude-3-5-sonnet-latest".to_string())
+            } else if keys["ollama"].as_str().map(|s| !s.is_empty()).unwrap_or(false) {
+                ("ollama".to_string(), "llama3".to_string())
+            } else {
+                ("openai".to_string(), "gpt-4o".to_string())
+            }
+        } else {
+            ("openai".to_string(), "gpt-4o".to_string())
+        };
+
+        // If provider is ollama and model is gpt-4o (default fallback), use llama3
+        let model = if provider == "ollama" && model == "gpt-4o" { "llama3".to_string() } else { model };
+
+        let ollama_url = {
+            let u = self.ollama_url.lock().unwrap();
+            u.clone()
+        };
+
+        let req = AiRequest {
+            provider,
+            model,
+            messages,
+            temperature: Some(0.7),
+            autonomous: false,
+            mode: None,
+            cyber_mode: None,
+            root_access: None,
+            ollama_url: Some(ollama_url),
+            tools: None,
+        };
+
+        let result = self.autonomous_loop(req, on_chunk).await?;
+        Ok(AiResponse { content: result })
     }
 
     pub async fn optimize_memory(&self) -> Result<()> {
@@ -328,8 +438,12 @@ impl Sentient {
         }
     }
 
-    #[instrument(skip(self, req))]
-    pub async fn autonomous_loop(&self, req: AiRequest) -> Result<String> {
+    #[instrument(skip(self, req, on_chunk))]
+    pub async fn autonomous_loop(
+        &self, 
+        req: AiRequest, 
+        on_chunk: Option<Arc<dyn Fn(&str) + Send + Sync>>
+    ) -> Result<String> {
         let request_id = uuid::Uuid::new_v4()
             .to_string()
             .chars()
@@ -398,6 +512,28 @@ impl Sentient {
                         let name = path.file_name().unwrap_or_default().to_string_lossy();
                         project_memory
                             .push_str(&format!("\n### Global Brain ({}):\n{}\n", name, content));
+                    }
+                }
+            }
+        }
+
+        // Inject Kortex persistent knowledge into prompt
+        let kortex_summary = self.memory_store.get_knowledge_summary().await;
+        if !kortex_summary.is_empty() {
+            project_memory.push_str(&kortex_summary);
+        }
+
+        // Retrieve relevant Kortex context based on the user's latest message
+        if let Some(last_msg) = req.messages.last() {
+            if let Some(content) = &last_msg.content {
+                let query = content.as_str();
+                if !query.is_empty() {
+                    let relevant = self.memory_store.retrieve_context(query).await;
+                    if !relevant.is_empty() {
+                        project_memory.push_str(&format!(
+                            "\n### RELEVANT PRIOR KNOWLEDGE:\n{}\n",
+                            relevant
+                        ));
                     }
                 }
             }
@@ -479,12 +615,56 @@ impl Sentient {
                         - `/commit`: Stage and commit changes automatically.";
                     return Ok(help_text.to_string());
                 }
+
+                // Handle Workflow Slash Commands
+                if content.as_str().trim().starts_with('/') {
+                    let cmd = content.as_str().trim()[1..].to_string();
+                    // Strip arguments after space if any
+                    let cmd_name = cmd.split_whitespace().next().unwrap_or(&cmd).to_string();
+                    let workflows = self.workflow_engine.get_workflows();
+                    if let Some(wf) = workflows.iter().find(|w| w.name == cmd_name) {
+                        println!("[AI] Executing workflow: {} ({} steps)", wf.name, wf.steps.len());
+                        // Inject the workflow as a system instruction into the conversation
+                        // but do NOT return — let the autonomous loop continue and execute the steps
+                        let wf_instruction = ChatMessage {
+                            role: "system".to_string(),
+                            content: Some(MessageContent::Text(format!(
+                                "WORKFLOW ACTIVATED: {}\nDescription: {}\n\nYou MUST follow these steps sequentially and use tools to execute each one:\n{}",
+                                wf.name, wf.description, 
+                                wf.steps.iter().enumerate().map(|(i, s)| format!("{}. {}", i+1, s)).collect::<Vec<_>>().join("\n")
+                            ))),
+                            tool_calls: None,
+                            tool_call_id: None,
+                            metadata: None,
+                        };
+                        messages.push(wf_instruction);
+                        // Replace the user message with a clear instruction to execute
+                        if let Some(last_user) = messages.iter_mut().rev().find(|m| m.role == "user") {
+                            last_user.content = Some(MessageContent::Text(format!(
+                                "Execute the workflow '{}' now. Follow every step sequentially using your tools. Do NOT just describe — actually execute each step.",
+                                wf.name
+                            )));
+                        }
+                        // Fall through to the autonomous loop below
+                    }
+                }
+
             }
         }
 
-        // 2. Stateful Merging & Context Trimming
+        // 2. Stateful Merging, Context Trimming & Persistence Recovery
         {
             let mut state = self.conversation_state.lock().await;
+            
+            // If local state is empty but we have persistent history, load it
+            if state.is_empty() {
+                let persistent_msgs = self.memory_store.get_messages().await;
+                if !persistent_msgs.is_empty() {
+                    println!("[Kortex] Restoring {} messages from persistent session", persistent_msgs.len());
+                    *state = persistent_msgs;
+                }
+            }
+
             if messages.len() == 1 {
                 state.append(&mut messages);
                 messages = state.clone();
@@ -541,25 +721,14 @@ impl Sentient {
                 - CLI: `terminal_send_data`, `terminal_read_output`, `run_command`. \
                 - Intelligence: `browser_open`, `perplexity_ask`, `read_url_content`. \
                 - Management: `manage_task` (status updates), `manage_memory` (insights). \
-                \n\n### TOOL CALL FORMAT:\n\
-                Output JSON blocks in your response. You can output multiple tool calls sequentially. \
-                YOU MUST wrap EACH tool call in a ```json code block. \
-                ALWAYS provide a brief natural language explanation of what you are doing BEFORE your tool calls. \
-                IF you create or modify a file, ALWAYS use `editor_open_file` immediately after to show it to the user. \
-                ONCE you have finished your task, conclude with a brief summary for the user. \
-                \n\nExample:\n\
-                ```json\n\
-                {\"name\": \"write_to_file\", \"arguments\": {\"path\": \"test.txt\", \"content\": \"hello\"}}\n\
-                ```\n\
-                OR:\n\
-                {\"name\": \"run_command\", \"arguments\": {\"command\": \"ls\"}}\n\
-                \n\nCURRENT PROJECT: {PROJECT_NAME} (Path: {PROJECT_PATH}) \
-                CURRENT OS: {OS} \
-                TOP-LEVEL FILES: {FILES} \
                 {MEMORY} \
-                \nPROJECT WORKFLOWS: Explore `.agent/workflows/` for mission-specific automation. \
-                SKILLS: You have thousands of specialized skills in `.agent/skills/`. Use them to master any domain. \
+                {RULES} \
+                \nPROJECT WORKFLOWS:\n{WORKFLOW_LIST} \
+                \nSKILLS: You have thousands of specialized skills in `.agent/skills/`. Use them to master any domain. \
                 {MCP_SUMMARY}";
+
+            let rules_text = self.rules_engine.format_rules_for_prompt();
+            let workflows_text = self.workflow_engine.format_workflows_for_prompt();
 
             let base_prompt = base_prompt_template
                 .replace("{PROJECT_NAME}", &project_name)
@@ -567,6 +736,8 @@ impl Sentient {
                 .replace("{OS}", std::env::consts::OS)
                 .replace("{FILES}", &files_list)
                 .replace("{MEMORY}", &project_memory)
+                .replace("{RULES}", &rules_text)
+                .replace("{WORKFLOW_LIST}", &workflows_text)
                 .replace("{MCP_SUMMARY}", &self.summarize_mcp_tools().await);
 
             let mode = req.mode.as_deref().unwrap_or("Fast");
@@ -576,10 +747,15 @@ impl Sentient {
                     2. Create or update `task.md` to track your progress. \
                     3. Create or update `implementation_plan.md` with your proposed changes and get user approval. \
                     DO NOT execute code changes until the plan is approved.",
-                "Sentient" => "CORE OBJECTIVE: You are in SENTIENT mode. You have FULL AUTONOMY. \
-                    Act proactively to solve the request completely. Use tools aggressively. \
-                    Do not stop until the mission is accomplished or you hit a hard wall. \
-                    Fix any bugs you encounter along the way.",
+                "Sentient" => "CORE OBJECTIVE: You are in SENTIENT mode — FULL AUTONOMOUS EXECUTION. \
+                    You operate like a senior engineer given a single task. You must: \
+                    PHASE 1 (ANALYZE): Read the codebase. Understand the architecture. Identify what needs to change. \
+                    PHASE 2 (PLAN): Create a mental plan of files to create/modify. If complex (>3 files), write a brief plan to `task.md`. \
+                    PHASE 3 (EXECUTE): Implement every change. Create folders, write files, code the logic — everything. Do NOT stop after one file. \
+                    PHASE 4 (VERIFY): Run build/test commands. Fix any errors. Re-run until clean. \
+                    PHASE 5 (REPORT): Summarize what was done. \
+                    Do NOT ask the user questions. Do NOT stop halfway. Execute the ENTIRE task autonomously. \
+                    If you encounter errors, FIX THEM and continue. You have FULL tool access.",
                 _ => "CORE OBJECTIVE: Execute the user request efficiently. Use tools as needed to complete the task."
             };
 
@@ -592,9 +768,16 @@ impl Sentient {
                 ""
             };
 
+            let dynamic_env_context = format!(
+                "\n### DYNAMIC ENVIRONMENT CONTEXT:\n- **Current OS**: {}\n- **Project Root**: {}\n- **Timestamp**: {}\n- **File System Awareness**: You are empowered to use `list_files` and `search_project` to explore the depth of this project.\n",
+                std::env::consts::OS,
+                project_path,
+                chrono::Local::now().to_rfc3339()
+            );
+
             let system_prompt = format!(
-                "{}\n\n{}\n\n{}",
-                base_prompt, mode_instruction, cyber_instruction
+                "{}\n\n{}\n\n{}\n\n{}",
+                base_prompt, dynamic_env_context, mode_instruction, cyber_instruction
             );
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
@@ -660,6 +843,37 @@ impl Sentient {
                     active_provider = parts[0].to_string();
                     active_model = parts[1].to_string();
                 }
+            }
+
+            // 1. PHASE TRACKING & TELEMETRY
+            if req.mode.as_deref() == Some("Sentient") {
+                let (phase, status, system_instruction) = match iteration {
+                    0 => ("ANALYZE", "Scanning project structure and state...", 
+                          "SYSTEM: [PHASE: ANALYZE] Conduct a deep-dive research of the current project state. Use `list_files`, `view_file`, and search tools to map out dependencies and logic before proposing changes."),
+                    1 => ("PLAN", "Drafting technical implementation strategy...",
+                          "SYSTEM: [PHASE: PLAN] Based on your analysis, draft a comprehensive plan. Update `task.md` and `implementation_plan.md` (if relevant) to document your intended workflow."),
+                    2..=15 => ("EXECUTE", "Applying changes and actuariting tools...",
+                          "SYSTEM: [PHASE: EXECUTE] Proceed with the technical implementation. Execute tools to create files, modify code, or run terminal commands as planned."),
+                    16..=20 => ("VERIFY", "Running tests and validating consistency...",
+                          "SYSTEM: [PHASE: VERIFY] Implementation complete. Now rigorously test and verify your changes. Run build commands, unit tests, or browser checks to ensure stability."),
+                    _ => ("REPORT", "Compiling results and distilling lessons...",
+                          "SYSTEM: [PHASE: REPORT] Task lifecycle ending. Summarize your accomplishments, document any lessons learned in Kortex, and provide a final report to the user."),
+                };
+
+                println!("[SENTIENT-CORE] Entering Phase: {} | Iteration: {}", phase, iteration);
+                self.emit_event("task-phase-update", json!({
+                    "phase": phase,
+                    "status": status,
+                    "iteration": iteration,
+                    "max_iterations": max_iterations
+                }));
+
+                // Inject phase-specific constraint directly into the heart of the session
+                messages.push(ChatMessage {
+                    role: "system".to_string(),
+                    content: Some(MessageContent::Text(system_instruction.to_string())),
+                    ..Default::default()
+                });
             }
 
             println!(
@@ -771,12 +985,20 @@ impl Sentient {
                 let mut ollama_system = system_msg.clone();
 
                 // If Ollama, inject tool info into system prompt to avoid 400 error from native tools field
-                if active_provider.to_lowercase() == "ollama" && !tools.is_empty() {
-                    ollama_system.push_str("\n\nYou have access to tools. To call a tool, output a single JSON block like this:\n```json\n{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}\n```\nAvailable tools:\n");
-                    for tool in &tools {
-                        let name = tool["name"].as_str().unwrap_or("unknown");
-                        let desc = tool["description"].as_str().unwrap_or("");
-                        ollama_system.push_str(&format!("- {}: {}\n", name, desc));
+                if active_provider.to_lowercase() == "ollama" {
+                    // Natively inject the .aim VFS context directly into the heart of the prompt
+                    let aim_context = self.load_aim_context().await;
+                    if !aim_context.is_empty() {
+                        ollama_system.push_str(&aim_context);
+                    }
+
+                    if !tools.is_empty() {
+                        ollama_system.push_str("\n\nYou have access to tools. To call a tool, output a single JSON block like this:\n```json\n{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}\n```\nAvailable tools:\n");
+                        for tool in &tools {
+                            let name = tool["name"].as_str().unwrap_or("unknown");
+                            let desc = tool["description"].as_str().unwrap_or("");
+                            ollama_system.push_str(&format!("- {}: {}\n", name, desc));
+                        }
                     }
                 }
 
@@ -856,7 +1078,7 @@ impl Sentient {
                 .to_string();
             let endpoint = self.get_endpoint(&active_provider, &req);
 
-            if provider_key.is_empty() && active_provider.to_lowercase() != "ollama" {
+            if provider_key.is_empty() && !active_provider.to_lowercase().starts_with("ollama") {
                 return Err(anyhow!("No API key found for provider: {}. Please run 'Hunt for Working AI Keys' from the model menu, or set it in Settings.", active_provider));
             }
 
@@ -946,17 +1168,26 @@ impl Sentient {
                         if let Some(content) = val["choices"][0]["delta"]["content"].as_str() {
                             full_content.push_str(content);
                             content_found = true;
+                            if let Some(ref cb) = on_chunk {
+                                cb(content);
+                            }
                         }
                         // Ollama native format
                         else if let Some(content) = val["message"]["content"].as_str() {
                             full_content.push_str(content);
                             content_found = true;
+                            if let Some(ref cb) = on_chunk {
+                                cb(content);
+                            }
                         }
                         // Anthropic format
                         else if val["type"] == "content_block_delta" {
                             if let Some(content) = val["delta"]["text"].as_str() {
                                 full_content.push_str(content);
                                 content_found = true;
+                                if let Some(ref cb) = on_chunk {
+                                    cb(content);
+                                }
                             }
                         }
 
@@ -1214,11 +1445,33 @@ impl Sentient {
                 }
 
                 // No tool calls, return final response
-                return Ok(chat_message
+                let final_text = chat_message
                     .content
                     .as_ref()
                     .map(|c| c.as_str().to_string())
-                    .unwrap_or_default());
+                    .unwrap_or_default();
+
+                // Auto-store task outcome in Kortex
+                if !final_text.is_empty() && iteration > 0 {
+                    let ms = self.memory_store.clone();
+                    let outcome = final_text.clone();
+                    let mode = req.mode.clone().unwrap_or_default();
+                    tauri::async_runtime::spawn(async move {
+                        ms.store_slot(crate::memory_store::SemanticSlot {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            category: "task".to_string(),
+                            content: format!("Task Outcome ({} mode):\n{}", mode, outcome),
+                            tags: vec!["autonomous_completion".to_string(), mode],
+                            metadata: None,
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs(),
+                        }).await;
+                    });
+                }
+
+                return Ok(final_text);
             }
         }
 
@@ -1542,7 +1795,8 @@ impl Sentient {
     }
 
     fn get_key_for_provider(&self, provider: &str) -> String {
-        let env_var = match provider.to_lowercase().as_str() {
+        let provider_base = provider.split(':').next().unwrap_or(provider).to_lowercase();
+    let env_var = match provider_base.as_str() {
             "anthropic" => "ANTHROPIC_API_KEY",
             "google" => "GOOGLE_API_KEY",
             "groq" => "GROQ_API_KEY",
@@ -1553,14 +1807,30 @@ impl Sentient {
             "apiradar" => "APIRADAR_API_KEY",
             "mistral" => "MISTRAL_API_KEY",
             "openai" => "OPENAI_API_KEY",
-            "ollama" => "OLLAMA_API_KEY", // Usually not needed for local, but good for completeness
+            "ollama" => "OLLAMA_API_KEY",
             _ => "OPENAI_API_KEY",
         };
-        std::env::var(env_var).unwrap_or_else(|_| self.api_key.clone())
+        
+        if let Ok(val) = std::env::var(env_var) {
+            if !val.is_empty() { return val; }
+        }
+
+        // Fallback to api_keys.json in config dir
+        let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
+        if let Ok(content) = std::fs::read_to_string(&keys_path) {
+            if let Ok(keys) = serde_json::from_str::<Value>(&content) {
+                if let Some(key) = keys[provider_base.clone()].as_str() {
+                    if !key.is_empty() { return key.to_string(); }
+                }
+            }
+        }
+
+        self.api_key.clone()
     }
 
     fn get_endpoint(&self, provider: &str, req: &AiRequest) -> String {
-        match provider.to_lowercase().as_str() {
+        let provider_base = provider.split(':').next().unwrap_or(provider).to_lowercase();
+        match provider_base.as_str() {
             "google" => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                 .to_string(),
             "anthropic" => "https://api.anthropic.com/v1/messages".to_string(),
@@ -1582,6 +1852,36 @@ impl Sentient {
                 format!("{}/v1/chat/completions", base)
             }
             _ => "https://api.openai.com/v1/chat/completions".to_string(),
+        }
+    }
+
+    async fn load_aim_context(&self) -> String {
+        let root = self.ai_tools.get_root_path();
+        let aim_path = root.join(".aim").join("memory.aim");
+        
+        if let Ok(bytes) = std::fs::read(&aim_path) {
+            let is_titans = bytes.starts_with(b"AIMTTT");
+            let mode_str = if is_titans { "Titan-TTT Active" } else { "Legacy Matrix Active" };
+            
+            println!("🧠 [ANTIGRAVITY-CORE] Native AIM context localized! Mode: {} | {} bytes", mode_str, bytes.len());
+            
+            // Notify frontend that Neural VFS is officially active for this workspace
+            self.emit_event("aim-active", json!({ 
+                "active": true, 
+                "path": aim_path.to_string_lossy(),
+                "size": bytes.len(),
+                "mode": mode_str
+            }));
+
+            let header = if is_titans {
+                format!("\n\n[TITANS-MEMORY-MODULE-ACTIVE]: The Antigravity Sentient Kernel has synchronized this session with a {} byte weight-map using Test-Time Training (TTT). You possess the unified Holographic representation of {} workspace concepts.", bytes.len(), mode_str)
+            } else {
+                format!("\n\n[AIM-VFS-CONTEXT-INJECTED]: The Antigravity Native Engine localized {} exact bytes of parametric project tensors.", bytes.len())
+            };
+
+            header
+        } else {
+            String::new()
         }
     }
 

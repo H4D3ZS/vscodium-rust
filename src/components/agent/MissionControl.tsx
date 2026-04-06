@@ -55,12 +55,44 @@ const MissionControl: React.FC = () => {
 
             {activeTask ? (
                 <div className="active-task" style={{ marginBottom: '24px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#00ff00', marginRight: '8px', boxShadow: '0 0 10px #00ff00' }}></div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+                        <div style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            background: activeTask.status === 'blocked' ? '#f1c40f' : '#00ff00',
+                            boxShadow: `0 0 10px ${activeTask.status === 'blocked' ? '#f1c40f' : '#00ff00'}`
+                        }}></div>
                         <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>{activeTask.title}</h3>
+                        {activeTask.mode && (
+                            <span style={{
+                                fontSize: '9px',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: 'rgba(0,122,255,0.2)',
+                                color: '#007aff',
+                                fontWeight: 700,
+                                textTransform: 'uppercase'
+                            }}>{activeTask.mode}</span>
+                        )}
                     </div>
 
-                    <p style={{ margin: '0 0 12px 0', fontSize: '12px', opacity: 0.7, lineHeight: '1.4' }}>{activeTask.summary}</p>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '12px', opacity: 0.7, lineHeight: '1.4' }}>{activeTask.summary}</p>
+
+                    {activeTask.task_status && (
+                        <div style={{
+                            fontSize: '11px',
+                            fontWeight: 500,
+                            color: activeTask.status === 'blocked' ? '#f1c40f' : '#3498db',
+                            marginBottom: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}>
+                            <i className={`codicon codicon-${activeTask.status === 'blocked' ? 'warning' : 'play'}`} style={{ fontSize: '12px' }}></i>
+                            {activeTask.task_status}
+                        </div>
+                    )}
 
                     <div className="progress-container" style={{ marginBottom: '16px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '4px', opacity: 0.6 }}>
@@ -72,7 +104,7 @@ const MissionControl: React.FC = () => {
                                 style={{
                                     height: '100%',
                                     width: `${activeTask.progress}%`,
-                                    background: 'linear-gradient(90deg, #007aff, #5856d6)',
+                                    background: activeTask.status === 'blocked' ? '#f1c40f' : 'linear-gradient(90deg, #007aff, #5856d6)',
                                     transition: 'width 0.5s ease'
                                 }}
                             />

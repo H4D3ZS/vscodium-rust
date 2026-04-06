@@ -7,6 +7,8 @@ import AgentSettingsView from './AgentSettingsView';
 import MissionControl from './agent/MissionControl';
 import ResearchCenter from './agent/ResearchCenter';
 import ContextSidebar from './visual/ContextSidebar';
+import SentientAvatar from './agent/SentientAvatar';
+import type { AvatarState } from './agent/SentientAvatar';
 
 const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultCollapsed?: boolean; actions?: React.ReactNode }> = ({ title, children, defaultCollapsed = false, actions }) => {
     const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
@@ -73,10 +75,26 @@ const RightSidebar: React.FC = () => {
     const fileTree = useStore(state => state.fileTree);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const agentTasks = useStore(state => state.agentTasks);
+    const chatSessions = useStore(state => state.chatSessions);
+    const refreshChatSessions = useStore(state => state.refreshChatSessions);
+    const loadChatSession = useStore(state => state.loadChatSession);
+    const archiveCurrentSession = useStore(state => state.archiveCurrentSession);
+    const createNewSession = useStore(state => state.createNewSession);
+
+    useEffect(() => {
+        if (view === 'history') {
+            refreshChatSessions();
+        }
+    }, [view, refreshChatSessions]);
     const [inputValue, setInputValue] = useState('');
     const [isMentionDropdownOpen, setIsMentionDropdownOpen] = useState(false);
     const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
     const [isHelpOpen, setIsHelpOpen] = useState(false);
+
+    // Phase 7: Chat Editing & Copying State
+    const [editingMsgIdx, setEditingMsgIdx] = useState<number | null>(null);
+    const [editValue, setEditValue] = useState('');
+    const [lastCopiedIdx, setLastCopiedIdx] = useState<number | null>(null);
 
     const allFiles = useMemo(() => {
         const flatten = (entries: FileEntry[]): FileEntry[] => {
@@ -124,12 +142,23 @@ const RightSidebar: React.FC = () => {
         }
     }, [messages]);
 
+    const avatarState: AvatarState = useMemo(() => {
+        if (aiStatus === 'dead') return 'error';
+        if (isAgentThinking) {
+            // If thinking but last message has content, it's likely "coding" (streaming)
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) return 'coding';
+            return 'thinking';
+        }
+        return 'idle';
+    }, [aiStatus, isAgentThinking, messages]);
+
     if (!isOpen) return null;
 
-    const onSend = async () => {
-        const val = inputValue.trim();
+    const onSend = async (overrideMsg?: string) => {
+        const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
         if (val && !isAgentThinking) {
-            setInputValue("");
+            if (overrideMsg === undefined) setInputValue("");
             setIsMentionDropdownOpen(false);
             if (inputRef.current) inputRef.current.style.height = 'auto';
 
@@ -149,6 +178,22 @@ const RightSidebar: React.FC = () => {
             } finally {
                 setIsAgentThinking(false);
             }
+        }
+    };
+
+    const handleCopy = (content: string, idx: number) => {
+        navigator.clipboard.writeText(content).then(() => {
+            setLastCopiedIdx(idx);
+            setTimeout(() => setLastCopiedIdx(null), 2000);
+        });
+    };
+
+    const handleEditSave = (idx: number) => {
+        const newVal = editValue.trim();
+        if (newVal) {
+            truncateAgentMessages(idx);
+            setEditingMsgIdx(null);
+            onSend(newVal);
         }
     };
 
@@ -307,16 +352,20 @@ const RightSidebar: React.FC = () => {
                 borderBottom: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))',
                 background: 'var(--vscode-sideBar-background)'
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <i className={`codicon codicon-shield${isAgentThinking ? ' codicon-modifier-spin' : ''}`} style={{
-                        fontFamily: 'codicon',
-                        fontStyle: 'normal',
-                        fontSize: '14px',
-                        color: '#ff4d4f'
-                    }}></i>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <SentientAvatar state={avatarState} size={28} />
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.05em', opacity: 0.8 }}>VSCODIUM-RUST</span>
-                        {sessionAge && <span style={{ fontSize: '9px', opacity: 0.4, fontWeight: 400 }}>Active: {sessionAge}</span>}
+                        <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', color: avatarState === 'error' ? '#ef4444' : 'inherit' }}>TERMINATOR AI</span>
+                        {sessionAge && <span style={{ fontSize: '9px', opacity: 0.4, fontWeight: 400 }}>{avatarState.toUpperCase()} • {sessionAge}</span>}
+                    </div>
+                    <div
+                        onClick={() => {
+                            createNewSession();
+                            setView('chat');
+                        }}
+                        style={{ cursor: 'pointer', opacity: 0.8, marginLeft: '8px', padding: '4px', background: 'rgba(59,130,246,0.1)', borderRadius: '4px', color: '#3b82f6' }}
+                        title="New Chat">
+                        <i className="codicon codicon-add" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', display: 'block' }}></i>
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -398,51 +447,85 @@ const RightSidebar: React.FC = () => {
                                     </div>
                                 ))}
                                 {messages.map((msg, idx) => (
-                                    <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.5 }}>
-                                            <i className={`codicon codicon-${msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'hubot' : 'sparkle') : 'account'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: msg.isSubAgentResponse ? '#3b82f6' : 'inherit' }}></i>
-                                            <span style={{ fontSize: '11px', fontWeight: 800, color: msg.isSubAgentResponse ? '#3b82f6' : 'inherit' }}>{msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'SUB-AGENT' : 'TERMINATOR') : 'YOU'}</span>
+                                    <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: 0.5 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className={`codicon codicon-${msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'hubot' : 'sparkle') : 'account'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: msg.isSubAgentResponse ? '#3b82f6' : 'inherit' }}></i>
+                                                <span style={{ fontSize: '11px', fontWeight: 800, color: msg.isSubAgentResponse ? '#3b82f6' : 'inherit' }}>{msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'SUB-AGENT' : 'TERMINATOR') : 'YOU'}</span>
+                                            </div>
+                                            <div className="message-actions" style={{ opacity: 0, transition: 'opacity 0.2s', display: 'flex', gap: '8px' }}>
+                                                {msg.role === 'user' && !isAgentThinking && (
+                                                    <i className="codicon codicon-edit" style={{ cursor: 'pointer', fontSize: '12px' }} title="Edit message"
+                                                        onClick={() => { setEditingMsgIdx(idx); setEditValue(msg.content); }}></i>
+                                                )}
+                                                {msg.role === 'assistant' && (
+                                                    <i className={`codicon codicon-${lastCopiedIdx === idx ? 'check' : 'copy'}`}
+                                                        style={{ cursor: 'pointer', fontSize: '12px', color: lastCopiedIdx === idx ? '#10b981' : 'inherit' }}
+                                                        title="Copy response"
+                                                        onClick={() => handleCopy(msg.content, idx)}></i>
+                                                )}
+                                            </div>
                                         </div>
                                         <div style={{
                                             background: msg.role === 'user' ? 'var(--vscode-list-hoverBackground, rgba(59, 130, 246, 0.05))' : (msg.isSubAgentResponse ? 'rgba(59, 130, 246, 0.03)' : 'rgba(255, 255, 255, 0.01)'),
                                             padding: '12px 16px', borderRadius: '14px', border: msg.isSubAgentResponse ? '1px solid rgba(59, 130, 246, 0.1)' : '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))'
                                         }}>
-                                            {msg.thoughts && (
-                                                <details style={{ marginBottom: '8px', opacity: 0.6 }}>
-                                                    <summary style={{ fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Thoughts process...</summary>
-                                                    <div style={{ fontSize: '11px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px' }}>{msg.thoughts}</div>
-                                                </details>
-                                            )}
-                                            {msg.steps && msg.steps.length > 0 && (
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
-                                                    {msg.steps.map((step: any, sIdx: number) => {
-                                                        const getIcon = (type?: string) => {
-                                                            switch (type) {
-                                                                case 'git': return 'git-branch';
-                                                                case 'terminal': return 'terminal';
-                                                                case 'filesystem': return 'file-code';
-                                                                case 'browser': return 'browser';
-                                                                case 'system': return 'server-process';
-                                                                default: return 'gear';
-                                                            }
-                                                        };
-                                                        const getStatusColor = (status: string) => {
-                                                            if (status === 'running') return '#3b82f6';
-                                                            if (status === 'success') return '#10b981';
-                                                            if (status === 'error') return '#ef4444';
-                                                            return '#666';
-                                                        };
-                                                        return (
-                                                            <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', opacity: 0.8 }}>
-                                                                <i className={`codicon codicon-${getIcon(step.type)}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px', color: getStatusColor(step.status) }}></i>
-                                                                <span style={{ fontFamily: 'var(--font-mono)', opacity: 0.7 }}>{step.name}</span>
-                                                                {step.status === 'running' && <i className="codicon codicon-sync codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px', opacity: 0.4 }}></i>}
-                                                            </div>
-                                                        );
-                                                    })}
+                                            {editingMsgIdx === idx ? (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                    <textarea
+                                                        value={editValue}
+                                                        onChange={(e) => setEditValue(e.target.value)}
+                                                        autoFocus
+                                                        style={{
+                                                            background: 'rgba(0,0,0,0.2)', border: '1px solid var(--vscode-focusBorder)', color: '#fff',
+                                                            padding: '8px', borderRadius: '6px', fontSize: '13px', resize: 'vertical', minHeight: '60px', outline: 'none'
+                                                        }}
+                                                    />
+                                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                                        <button onClick={() => setEditingMsgIdx(null)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
+                                                        <button onClick={() => handleEditSave(idx)} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: '4px 12px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Resend</button>
+                                                    </div>
                                                 </div>
+                                            ) : (
+                                                <>
+                                                    {msg.thoughts && (
+                                                        <details style={{ marginBottom: '8px', opacity: 0.6 }}>
+                                                            <summary style={{ fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Thoughts process...</summary>
+                                                            <div style={{ fontSize: '11px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px' }}>{msg.thoughts}</div>
+                                                        </details>
+                                                    )}
+                                                    {msg.steps && msg.steps.length > 0 && (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
+                                                            {msg.steps.map((step: any, sIdx: number) => {
+                                                                const getIcon = (type?: string) => {
+                                                                    switch (type) {
+                                                                        case 'git': return 'git-branch';
+                                                                        case 'terminal': return 'terminal';
+                                                                        case 'filesystem': return 'file-code';
+                                                                        case 'browser': return 'browser';
+                                                                        case 'system': return 'server-process';
+                                                                        default: return 'gear';
+                                                                    }
+                                                                };
+                                                                const getStatusColor = (status: string) => {
+                                                                    if (status === 'running') return '#3b82f6';
+                                                                    if (status === 'success') return '#10b981';
+                                                                    if (status === 'error') return '#ef4444';
+                                                                    return '#666';
+                                                                };
+                                                                return (
+                                                                    <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', opacity: 0.8 }}>
+                                                                        <i className={`codicon codicon-${getIcon(step.type)}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px', color: getStatusColor(step.status) }}></i>
+                                                                        <span style={{ fontFamily: 'var(--font-mono)', opacity: 0.7 }}>{step.name}</span>
+                                                                        {step.status === 'running' && <i className="codicon codicon-sync codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px', opacity: 0.4 }}></i>}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                    <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.6' }} dangerouslySetInnerHTML={{ __html: marked.parse(msg.content || "") as string }} />
+                                                </>
                                             )}
-                                            <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.6' }} dangerouslySetInnerHTML={{ __html: marked.parse(msg.content || "") as string }} />
                                         </div>
                                     </div>
                                 ))}
@@ -457,7 +540,40 @@ const RightSidebar: React.FC = () => {
                         )}
                     </div>
                 ) : view === 'history' ? (
-                    <div style={{ padding: '20px', opacity: 0.5, textAlign: 'center', fontSize: '12px' }}>No chat history found.</div>
+                    <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5 }}>Recent History</span>
+                        </div>
+                        {chatSessions.length === 0 ? (
+                            <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>
+                                No archived sessions found.
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {chatSessions.map((session: any) => (
+                                    <div
+                                        key={session.path}
+                                        onClick={() => { loadChatSession(session.path); setView('chat'); }}
+                                        style={{
+                                            padding: '12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)',
+                                            border: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer',
+                                            transition: 'background 0.2s'
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                            <span style={{ fontSize: '12px', fontWeight: 600 }}>{session.name.replace('session_', '').replace('.aim', '')}</span>
+                                            <span style={{ fontSize: '10px', opacity: 0.4 }}>{session.messages} msgs</span>
+                                        </div>
+                                        <div style={{ fontSize: '10px', opacity: 0.5 }}>
+                                            {new Date(session.updated_at * 1000).toLocaleString()}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 ) : view === 'dashboard' ? (
                     <MissionControl />
                 ) : view === 'research' ? (
@@ -494,7 +610,7 @@ const RightSidebar: React.FC = () => {
                                 <span onClick={onModeClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }} className="hoverable-bg">{mode}</span>
                                 <span onClick={onModelClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }} className="hoverable-bg">{(model.split('|')[1] || model).split(':')[0]}</span>
                             </div>
-                            <div onClick={onSend} style={{ width: '24px', height: '24px', borderRadius: '50%', background: inputValue.trim() ? '#fff' : 'rgba(255,255,255,0.1)', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                            <div onClick={() => onSend()} style={{ width: '24px', height: '24px', borderRadius: '50%', background: inputValue.trim() ? '#fff' : 'rgba(255,255,255,0.1)', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                                 <i className="codicon codicon-arrow-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
                             </div>
                         </div>

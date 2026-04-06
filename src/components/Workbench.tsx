@@ -7,7 +7,11 @@ import RightSidebar from './RightSidebar';
 import Editor from './Editor';
 import SettingsPage from './SettingsPage';
 import VisualLab from './visual/VisualLab';
+import SpecsToCodeWizard from './SpecsToCodeWizard';
 import { useStore } from '../store';
+import { Sparkles, Zap, Bot, Globe, Layout as LayoutIcon } from 'lucide-react';
+import AgentManager from './AgentManager/AgentManager';
+import BrowserSurface from './BrowserSurface';
 
 function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: string } {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
@@ -97,222 +101,241 @@ const Workbench: React.FC = () => {
             )}
 
             <div className="main-content" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0 }}>
-                <main className="editors-layout" id="editors-layout" style={{ display: 'flex', flex: 1, overflow: 'hidden', background: 'var(--vscode-editor-background)' }}>
-                    {/* Primary Editor Group */}
-                    <div className="editor-group active" id="group-1" style={{ display: 'flex', flex: 1, flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-                        <div className="editor-main" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', width: '100%', height: '100%' }}>
-                            {/* Tab strip */}
-                            <div className="tabs-row">
-                                {tabs.map(tab => {
-                                    const isActive = tab.id === activeTabId;
-                                    const icon = detectLanguageIcon(tab.filename);
-                                    return (
-                                        <div
-                                            key={tab.id}
-                                            className={`tab${isActive ? ' active' : ''}`}
-                                            onClick={() => setActiveTab(tab.id)}
-                                            title={tab.path}
-                                        >
-                                            {detectLanguageIcon(tab.filename).type === 'img' ? (
-                                                <img src={detectLanguageIcon(tab.filename).value} style={{ width: '14px', height: '14px', marginRight: '6px', opacity: isActive ? 1 : 0.6 }} />
-                                            ) : (
-                                                <i className={`${detectLanguageIcon(tab.filename).value} tab-icon`} style={{
-                                                    fontFamily: 'codicon',
-                                                    fontStyle: 'normal',
-                                                    fontSize: '14px',
-                                                    marginRight: '6px',
-                                                    color: isActive ? 'inherit' : 'var(--vscode-tab-activeForeground)',
-                                                    opacity: isActive ? 1 : 0.6
-                                                }} />
-                                            )}
-
-                                            <span className="tab-label">{tab.filename}</span>
-                                            <div className="tab-actions">
-                                                {tab.isModified ? (
-                                                    <span className="dirty-indicator" />
+                {useStore.getState().layoutMode === 'editor' ? (
+                    <main className="editors-layout" id="editors-layout" style={{ display: 'flex', flex: 1, overflow: 'hidden', background: 'var(--vscode-editor-background)' }}>
+                        {/* Primary Editor Group */}
+                        <div className="editor-group active" id="group-1" style={{ display: 'flex', flex: 1, flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+                            <div className="editor-main" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', width: '100%', height: '100%' }}>
+                                {/* Tab strip */}
+                                <div className="tabs-row">
+                                    {tabs.map(tab => {
+                                        const isActive = tab.id === activeTabId;
+                                        const icon = detectLanguageIcon(tab.filename);
+                                        return (
+                                            <div
+                                                key={tab.id}
+                                                className={`tab${isActive ? ' active' : ''}`}
+                                                onClick={() => setActiveTab(tab.id)}
+                                                title={tab.path}
+                                            >
+                                                {detectLanguageIcon(tab.filename).type === 'img' ? (
+                                                    <img src={detectLanguageIcon(tab.filename).value} style={{ width: '14px', height: '14px', marginRight: '6px', opacity: isActive ? 1 : 0.6 }} />
                                                 ) : (
-                                                    <i
-                                                        className="codicon codicon-close"
-                                                        style={{ fontFamily: 'codicon', fontStyle: 'normal' }}
-                                                        onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                                                    />
+                                                    <i className={`${detectLanguageIcon(tab.filename).value} tab-icon`} style={{
+                                                        fontFamily: 'codicon',
+                                                        fontStyle: 'normal',
+                                                        fontSize: '14px',
+                                                        marginRight: '6px',
+                                                        color: isActive ? 'inherit' : 'var(--vscode-tab-activeForeground)',
+                                                        opacity: isActive ? 1 : 0.6
+                                                    }} />
                                                 )}
+
+                                                <span className="tab-label">{tab.filename}</span>
+                                                <div className="tab-actions">
+                                                    {tab.isModified ? (
+                                                        <span className="dirty-indicator" />
+                                                    ) : (
+                                                        <i
+                                                            className="codicon codicon-close"
+                                                            style={{ fontFamily: 'codicon', fontStyle: 'normal' }}
+                                                            onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+                                                        />
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-
-                            {/* Breadcrumbs */}
-                            {hasOpenFile && (
-                                <div className="breadcrumbs" id="breadcrumbs">
-                                    <img src={`data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3OWI4ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMjIgMTlhMiAyIDAgMCAxLTIgMkg0YTIgMiAwIDAgMS0yLTJWN2EyIDIgMCAwIDEgMi0yaDVsMiAyaDlhMiAyIDAgMCAxIDIgMnYxMHoiPjwvcGF0aD48L3N2Zz4=`} style={{ width: '14px', height: '14px', marginRight: '4px', opacity: 0.7 }} />
-                                    <span className="breadcrumb-item" style={{ cursor: 'pointer' }}>{(tabs.find(t => t.id === activeTabId)?.path.split('/').slice(-2, -1)[0]) ?? (activeRootName || 'vscodium-rust')}</span>
-                                    <i className="codicon codicon-chevron-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', margin: '0 4px', opacity: 0.4 }} />
-                                    {detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').type === 'img' ? (
-                                        <img src={detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').value} style={{ width: '14px', height: '14px', marginRight: '4px', opacity: 0.6 }} />
-                                    ) : (
-                                        <i className={`${detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').value}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
-                                    )}
-
-                                    <span className="breadcrumb-item active" style={{ color: 'var(--vscode-tab-activeForeground)', fontWeight: 400 }}>
-                                        {tabs.find(t => t.id === activeTabId)?.filename}
-                                    </span>
+                                        );
+                                    })}
                                 </div>
-                            )}
 
-                            <div className="editor-wrapper" style={{ position: 'relative', width: '100%', height: '100%', flex: 1, overflow: 'hidden' }}>
-                                {(!activeRoot && tabs.length === 0) ? (
-                                    /* Welcome screen when no root is open and no tabs */
-                                    <div className="welcome-screen-container" style={{
-                                        position: 'absolute',
-                                        inset: 0,
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'flex-start',
-                                        justifyContent: 'flex-start',
-                                        zIndex: 1,
-                                        overflowY: 'auto',
-                                        background: 'var(--vscode-editor-background)'
-                                    }}>
-                                        <div className="welcome-view-content" style={{
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            flex: 1,
-                                            height: '100%',
-                                            alignItems: 'flex-start',
-                                            justifyContent: 'flex-start',
-                                            padding: '10px 48px 40px',
-                                            width: '100%',
-                                            textAlign: 'left',
-                                            marginTop: 0
-                                        }}>
-                                            <div className="hero-section-beside" style={{ maxWidth: '900px', marginBottom: '2vh', width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '24px' }}>
-                                                <img src="/assets/rust-logo.png" alt="Rust Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
-                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                                                    <h1 style={{ fontSize: 'min(5vw, 42px)', fontWeight: 800, marginBottom: '2px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)', lineHeight: 1, margin: 0 }}>
-                                                        VSCODIUM-RUST <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>v0.2.0-ELITE</span>
-                                                    </h1>
-                                                    <p style={{ fontSize: '14px', opacity: 0.6, maxWidth: '600px', margin: '8px 0 0', lineHeight: '1.4' }}>
-                                                        The ultimate high-performance, native IDE optimized for speed, autonomy, and the future of software construction.
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            <div className="pros-grid" style={{
-                                                display: 'grid',
-                                                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                                                gap: '12px',
-                                                textAlign: 'left',
-                                                marginBottom: '2vh',
-                                                width: '100%',
-                                                maxWidth: '900px'
-                                            }}>
-                                                <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                                                    <div style={{ color: 'var(--terminator-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-zap" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Performance</strong></div>
-                                                    <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Zero-cost abstractions and Rust efficiency.</div>
-                                                </div>
-                                                <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                                                    <div style={{ color: 'var(--terminator-success)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-shield" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Privacy</strong></div>
-                                                    <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Local-first processing, safe and secure.</div>
-                                                </div>
-                                                <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                                                    <div style={{ color: 'var(--terminator-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-bot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Autonomy</strong></div>
-                                                    <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Integrated VSCODIUM-RUST agent with full filesystem access.</div>
-                                                </div>
-                                            </div>
-
-                                            <div className="welcome-content-wrapper" style={{ width: '100%', maxWidth: '900px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', textAlign: 'left' }}>
-                                                <div className="welcome-main-section" style={{ textAlign: 'left' }}>
-                                                    <h3 className="section-title" style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', opacity: 0.5, marginBottom: '12px' }}>Get Started</h3>
-
-                                                    <div className="premium-cards-grid" style={{ display: 'grid', gap: '10px' }}>
-                                                        <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
-                                                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                                                            onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.newFile'); }}>
-                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
-                                                                <i className="codicon codicon-new-file" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
-                                                            </div>
-                                                            <div className="premium-card-content">
-                                                                <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>New File...</span>
-                                                                <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Create in workspace</span>
-                                                            </div>
-                                                        </a>
-
-                                                        <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
-                                                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                                                            onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.openFolder'); }}>
-                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
-                                                                <i className="codicon codicon-folder-opened" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
-                                                            </div>
-                                                            <div className="premium-card-content">
-                                                                <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>Open Folder...</span>
-                                                                <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Open from filesystem</span>
-                                                            </div>
-                                                        </a>
-
-                                                        <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
-                                                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                                                            onClick={(e) => { e.preventDefault(); (window as any).executeCommand('git.clone'); }}>
-                                                            <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
-                                                                <i className="codicon codicon-source-control" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
-                                                            </div>
-                                                            <div className="premium-card-content">
-                                                                <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>Clone Repository...</span>
-                                                                <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Sync with Git</span>
-                                                            </div>
-                                                        </a>
-                                                    </div>
-                                                </div>
-
-                                                <div className="welcome-recent-section" style={{ textAlign: 'left' }}>
-                                                    <h3 className="section-title" style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', opacity: 0.5, marginBottom: '12px' }}>Recent Workspaces</h3>
-                                                    <div className="recent-empty-state" style={{ padding: '20px 16px', borderRadius: '10px', background: 'var(--vscode-editor-background)', border: '1px dashed var(--vscode-panel-border)', fontSize: '11px', opacity: 0.4, textAlign: 'center' }}>
-                                                        <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '18px', display: 'block', marginBottom: '6px' }} />
-                                                        No recent folders found
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : hasOpenFile ? (
-                                    /* Monaco Editor or Settings Page */
-                                    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: (isVisualLabSplitView && isVisualLabOpen) ? 'row' : 'column' }}>
-                                        {tabs.find(t => t.id === activeTabId)?.type === 'settings' ? (
-                                            <SettingsPage />
+                                {/* Breadcrumbs */}
+                                {hasOpenFile && (
+                                    <div className="breadcrumbs" id="breadcrumbs">
+                                        <img src={`data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3OWI4ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMjIgMTlhMiAyIDAgMCAxLTIgMkg0YTIgMiAwIDAgMS0yLTJWN2EyIDIgMCAwIDEgMi0yaDVsMiAyaDlhMiAyIDAgMCAxIDIgMnYxMHoiPjwvcGF0aD48L3N2Zz4=`} style={{ width: '14px', height: '14px', marginRight: '4px', opacity: 0.7 }} />
+                                        <span className="breadcrumb-item" style={{ cursor: 'pointer' }}>{(tabs.find(t => t.id === activeTabId)?.path.split('/').slice(-2, -1)[0]) ?? (activeRootName || 'vscodium-rust')}</span>
+                                        <i className="codicon codicon-chevron-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', margin: '0 4px', opacity: 0.4 }} />
+                                        {detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').type === 'img' ? (
+                                            <img src={detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').value} style={{ width: '14px', height: '14px', marginRight: '4px', opacity: 0.6 }} />
                                         ) : (
-                                            <div style={{ display: 'flex', flex: 1, width: '100%', height: '100%', minWidth: 0 }}>
-                                                <div style={{
-                                                    flex: (isVisualLabSplitView && isVisualLabOpen) ? '0 0 50%' : 1,
-                                                    borderRight: (isVisualLabSplitView && isVisualLabOpen) ? '1px solid var(--vscode-panel-border)' : 'none',
-                                                    height: '100%',
-                                                    minWidth: 0,
-                                                    display: 'flex',
-                                                    flexDirection: 'column'
-                                                }}>
-                                                    <Editor />
-                                                </div>
-                                                {(isVisualLabSplitView && isVisualLabOpen) && (
-                                                    <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, background: '#090909' }}>
-                                                        <VisualLab isInline={true} />
-                                                    </div>
-                                                )}
-                                            </div>
+                                            <i className={`${detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').value}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
                                         )}
-                                    </div>
-                                ) : (
-                                    /* Fallback when a folder is open but no file is selected */
-                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.2 }}>
-                                        <i className="codicon codicon-symbol-method" style={{ fontFamily: 'codicon', fontSize: '64px' }} />
+
+                                        <span className="breadcrumb-item active" style={{ color: 'var(--vscode-tab-activeForeground)', fontWeight: 400 }}>
+                                            {tabs.find(t => t.id === activeTabId)?.filename}
+                                        </span>
                                     </div>
                                 )}
+
+                                <div className="editor-wrapper" style={{ position: 'relative', width: '100%', height: '100%', flex: 1, overflow: 'hidden' }}>
+                                    {(!activeRoot && tabs.length === 0) ? (
+                                        /* Welcome screen when no root is open and no tabs */
+                                        <div className="welcome-screen-container" style={{
+                                            position: 'absolute',
+                                            inset: 0,
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'flex-start',
+                                            justifyContent: 'flex-start',
+                                            zIndex: 1,
+                                            overflowY: 'auto',
+                                            background: 'var(--vscode-editor-background)'
+                                        }}>
+                                            <div className="welcome-view-content" style={{
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                flex: 1,
+                                                height: '100%',
+                                                alignItems: 'flex-start',
+                                                justifyContent: 'flex-start',
+                                                padding: '10px 48px 40px',
+                                                width: '100%',
+                                                textAlign: 'left',
+                                                marginTop: 0
+                                            }}>
+                                                <div className="hero-section-beside" style={{ maxWidth: '900px', marginBottom: '2vh', width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '24px' }}>
+                                                    <img src="/assets/rust-logo.png" alt="Rust Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
+                                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                                                        <h1 style={{ fontSize: 'min(5vw, 42px)', fontWeight: 800, marginBottom: '2px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)', lineHeight: 1, margin: 0 }}>
+                                                            VSCODIUM-RUST <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>v0.2.0-ELITE</span>
+                                                        </h1>
+                                                        <p style={{ fontSize: '14px', opacity: 0.6, maxWidth: '600px', margin: '8px 0 0', lineHeight: '1.4' }}>
+                                                            The ultimate high-performance, native IDE optimized for speed, autonomy, and the future of software construction.
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="pros-grid" style={{
+                                                    display: 'grid',
+                                                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                                    gap: '12px',
+                                                    textAlign: 'left',
+                                                    marginBottom: '2vh',
+                                                    width: '100%',
+                                                    maxWidth: '900px'
+                                                }}>
+                                                    <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
+                                                        <div style={{ color: 'var(--terminator-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-zap" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Performance</strong></div>
+                                                        <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Zero-cost abstractions and Rust efficiency.</div>
+                                                    </div>
+                                                    <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
+                                                        <div style={{ color: 'var(--terminator-success)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-shield" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Privacy</strong></div>
+                                                        <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Local-first processing, safe and secure.</div>
+                                                    </div>
+                                                    <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
+                                                        <div style={{ color: 'var(--terminator-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-bot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Autonomy</strong></div>
+                                                        <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Integrated VSCODIUM-RUST agent with full filesystem access.</div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="welcome-content-wrapper" style={{ width: '100%', maxWidth: '900px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', textAlign: 'left' }}>
+                                                    <div className="welcome-main-section" style={{ textAlign: 'left' }}>
+                                                        <h3 className="section-title" style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', opacity: 0.5, marginBottom: '12px' }}>Get Started</h3>
+
+                                                        <div className="premium-cards-grid" style={{ display: 'grid', gap: '10px' }}>
+                                                            <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
+                                                                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                                                                onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.newFile'); }}>
+                                                                <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
+                                                                    <i className="codicon codicon-new-file" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                                                </div>
+                                                                <div className="premium-card-content">
+                                                                    <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>New File...</span>
+                                                                    <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Create in workspace</span>
+                                                                </div>
+                                                            </a>
+
+                                                            <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
+                                                                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                                                                onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.openFolder'); }}>
+                                                                <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
+                                                                    <i className="codicon codicon-folder-opened" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                                                </div>
+                                                                <div className="premium-card-content">
+                                                                    <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>Open Folder...</span>
+                                                                    <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Open from filesystem</span>
+                                                                </div>
+                                                            </a>
+
+                                                            <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
+                                                                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                                                                onClick={(e) => { e.preventDefault(); (window as any).executeCommand('git.clone'); }}>
+                                                                <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
+                                                                    <i className="codicon codicon-source-control" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                                                </div>
+                                                                <div className="premium-card-content">
+                                                                    <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>Clone Repository...</span>
+                                                                    <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Sync with Git</span>
+                                                                </div>
+                                                            </a>
+
+                                                            <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'rgba(0, 198, 255, 0.05)', border: '1px solid var(--terminator-accent)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
+                                                                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0, 198, 255, 0.1)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(0, 198, 255, 0.05)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                                                                onClick={(e) => { e.preventDefault(); useStore.getState().setSpecsWizardOpen(true); }}>
+                                                                <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'var(--terminator-accent)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
+                                                                    <Sparkles size={16} />
+                                                                </div>
+                                                                <div className="premium-card-content">
+                                                                    <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>New AI Project...</span>
+                                                                    <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Specs-to-Code Pipeline</span>
+                                                                </div>
+                                                            </a>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="welcome-recent-section" style={{ textAlign: 'left' }}>
+                                                        <h3 className="section-title" style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', opacity: 0.5, marginBottom: '12px' }}>Recent Workspaces</h3>
+                                                        <div className="recent-empty-state" style={{ padding: '20px 16px', borderRadius: '10px', background: 'var(--vscode-editor-background)', border: '1px dashed var(--vscode-panel-border)', fontSize: '11px', opacity: 0.4, textAlign: 'center' }}>
+                                                            <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '18px', display: 'block', marginBottom: '6px' }} />
+                                                            No recent folders found
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : hasOpenFile ? (
+                                        /* Monaco Editor or Settings Page */
+                                        <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: (isVisualLabSplitView && isVisualLabOpen) ? 'row' : 'column' }}>
+                                            {tabs.find(t => t.id === activeTabId)?.type === 'settings' ? (
+                                                <SettingsPage />
+                                            ) : (
+                                                <div style={{ display: 'flex', flex: 1, width: '100%', height: '100%', minWidth: 0 }}>
+                                                    <div style={{
+                                                        flex: (isVisualLabSplitView && isVisualLabOpen) ? '0 0 50%' : 1,
+                                                        borderRight: (isVisualLabSplitView && isVisualLabOpen) ? '1px solid var(--vscode-panel-border)' : 'none',
+                                                        height: '100%',
+                                                        minWidth: 0,
+                                                        display: 'flex',
+                                                        flexDirection: 'column'
+                                                    }}>
+                                                        <Editor />
+                                                    </div>
+                                                    {(isVisualLabSplitView && isVisualLabOpen) && (
+                                                        <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, background: '#090909' }}>
+                                                            <VisualLab isInline={true} />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        /* Fallback when a folder is open but no file is selected */
+                                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.2 }}>
+                                            <i className="codicon codicon-symbol-method" style={{ fontFamily: 'codicon', fontSize: '64px' }} />
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </main>
+                    </main>
+                ) : useStore.getState().layoutMode === 'manager' ? (
+                    <AgentManager />
+                ) : (
+                    <BrowserSurface />
+                )}
                 {isBottomPanelOpen && (
                     <div
                         className="resizer-h"
@@ -349,6 +372,7 @@ const Workbench: React.FC = () => {
                 </div>
             </div>
             {!isVisualLabSplitView && <VisualLab />}
+            <SpecsToCodeWizard />
         </div >
     );
 };

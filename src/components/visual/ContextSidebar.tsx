@@ -1,24 +1,24 @@
 import React, { useEffect } from 'react';
 import { useStore } from '../../store';
 import { marked } from 'marked';
+import NeuralSummaryView from './NeuralSummaryView';
 
 const ContextSidebar: React.FC = () => {
     const activeFileContext = useStore(state => state.activeFileContext);
     const fetchFileContext = useStore(state => state.fetchFileContext);
     const activeTabId = useStore(state => state.activeTabId);
     const tabs = useStore(state => state.tabs);
+    const activeRoot = useStore(state => state.activeRoot);
+    const activeRootName = useStore(state => state.activeRootName);
 
     const activeTab = tabs.find(t => t.id === activeTabId);
 
     useEffect(() => {
         if (activeTab && activeTab.path) {
-            // Convert to relative path if possible, or just pass as is
-            // Backend handles search.
             fetchFileContext(activeTab.path);
         }
     }, [activeTab, fetchFileContext]);
 
-    // Format relative path for display
     const displayName = activeTab ? activeTab.filename : 'No active file';
 
     return (
@@ -45,23 +45,32 @@ const ContextSidebar: React.FC = () => {
                             {activeTab.path}
                         </div>
                     </div>
+                ) : activeRoot ? (
+                    <div style={{ padding: '12px', background: 'rgba(168, 85, 247, 0.05)', borderRadius: '8px', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+                        <div style={{ fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <i className="codicon codicon-briefcase" style={{ color: '#a855f7' }}></i>
+                            {activeRootName || 'Active Workspace'}
+                        </div>
+                        <div style={{ fontSize: '10px', opacity: 0.4, marginTop: '4px', wordBreak: 'break-all', fontFamily: 'var(--font-mono)' }}>
+                            {activeRoot}
+                        </div>
+                    </div>
                 ) : (
-                    <div style={{ fontSize: '12px', opacity: 0.3, fontStyle: 'italic' }}>Select a file to see context</div>
+                    <div style={{ fontSize: '12px', opacity: 0.3, fontStyle: 'italic' }}>Select a file or open a folder to see context</div>
                 )}
             </div>
 
-            {activeFileContext && (
+            {/* If we have a project loaded, always show the graph section, even if specific file context is missing */}
+            {(activeFileContext || activeRoot) && (
                 <>
-                    {/* SYMBOLS SECTION */}
-                    <div style={{ marginBottom: '24px' }}>
-                        <h3 style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.5, marginBottom: '8px', letterSpacing: '0.05em' }}>
-                            Detected Symbols ({activeFileContext.symbols.length})
-                        </h3>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                            {activeFileContext.symbols.length === 0 ? (
-                                <div style={{ fontSize: '11px', opacity: 0.3 }}>No symbols extracted</div>
-                            ) : (
-                                activeFileContext.symbols.map(sym => (
+                    {/* SYMBOLS SECTION - Only if file is active */}
+                    {activeFileContext && activeFileContext.symbols.length > 0 && (
+                        <div style={{ marginBottom: '24px' }}>
+                            <h3 style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.5, marginBottom: '8px', letterSpacing: '0.05em' }}>
+                                Detected Symbols ({activeFileContext.symbols.length})
+                            </h3>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {activeFileContext.symbols.map(sym => (
                                     <div key={sym} style={{
                                         padding: '4px 8px',
                                         background: 'rgba(255,255,255,0.03)',
@@ -73,47 +82,28 @@ const ContextSidebar: React.FC = () => {
                                     }}>
                                         {sym}
                                     </div>
-                                ))
-                            )}
+                                ))}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
-                    {/* RELATED FILES SECTION */}
                     <div style={{ marginBottom: '24px' }}>
-                        <h3 style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.5, marginBottom: '8px', letterSpacing: '0.05em' }}>
-                            Omni-Graph Relations
-                        </h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            {activeFileContext.related_files.length === 0 ? (
-                                <div style={{ fontSize: '11px', opacity: 0.3 }}>No direct relations indexed</div>
-                            ) : (
-                                activeFileContext.related_files.map(file => (
-                                    <div key={file} style={{
-                                        padding: '6px 10px',
-                                        background: 'rgba(255,255,255,0.02)',
-                                        borderRadius: '4px',
-                                        fontSize: '11px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        opacity: 0.8
-                                    }}>
-                                        <i className="codicon codicon-link" style={{ fontSize: '10px' }}></i>
-                                        {file}
-                                    </div>
-                                ))
-                            )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <h3 style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.5, margin: 0, letterSpacing: '0.05em' }}>
+                                Neural Context
+                            </h3>
+                        </div>
+                        <div style={{ minHeight: '200px', maxHeight: '400px', overflow: 'hidden', position: 'relative', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)' }}>
+                            <NeuralSummaryView />
                         </div>
                     </div>
 
-                    {/* LESSONS SECTION */}
-                    <div style={{ marginBottom: '16px' }}>
-                        <h3 style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.5, marginBottom: '12px', letterSpacing: '0.05em' }}>
-                            Historical Insights
-                        </h3>
-                        {activeFileContext.relevant_lessons.length === 0 ? (
-                            <div style={{ fontSize: '11px', opacity: 0.3 }}>No relevant memories found</div>
-                        ) : (
+                    {/* LESSONS SECTION - Only if we have them */}
+                    {activeFileContext && activeFileContext.relevant_lessons.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                            <h3 style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.5, marginBottom: '12px', letterSpacing: '0.05em' }}>
+                                Historical Insights
+                            </h3>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 {activeFileContext.relevant_lessons.map(lesson => (
                                     <div key={lesson.id} style={{
@@ -131,12 +121,12 @@ const ContextSidebar: React.FC = () => {
                                     </div>
                                 ))}
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </>
             )}
 
-            {!activeFileContext && (
+            {!activeFileContext && !activeRoot && (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.2 }}>
                     <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: '32px', marginBottom: '16px' }}></i>
                     <div style={{ fontSize: '12px' }}>Connecting to Omni-Graph...</div>
@@ -147,3 +137,4 @@ const ContextSidebar: React.FC = () => {
 };
 
 export default ContextSidebar;
+

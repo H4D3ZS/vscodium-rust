@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { invoke } from '../tauri_bridge';
 import { applyTheme, type VscodeTheme } from '../theme_engine';
-import { Beaker } from 'lucide-react';
+import { Beaker, Layout, Bot, Globe } from 'lucide-react';
 
 const ActivityBar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
@@ -14,7 +14,7 @@ const ActivityBar: React.FC = () => {
 
     const extensionItems = useStore(state => state.extensionContributions?.viewsContainers?.activitybar || []);
 
-    const coreItems = [
+    const items = [
         { id: 'explorer-view', icon: 'files', title: 'Explorer' },
         { id: 'search-view', icon: 'search', title: 'Search' },
         { id: 'scm-view', icon: 'source-control', title: 'Source Control' },
@@ -22,10 +22,6 @@ const ActivityBar: React.FC = () => {
         { id: 'extensions-view', icon: 'extensions', title: 'Extensions' },
         { id: 'mobile-view', icon: 'device-mobile', title: 'Mobile Emulators (Android & iOS)' },
         { id: 'visual-lab', icon: 'beaker', title: 'Visual Lab (JSON & Flow)' },
-    ];
-
-    const items = [
-        ...coreItems,
         ...extensionItems
             .filter((ext: any) => {
                 const id = String(ext.id || '').toLowerCase();
@@ -140,20 +136,22 @@ const ActivityBar: React.FC = () => {
                                 Scanning standard VS Code paths...
                             </div>
                         )}
-                        {installedThemes.map((theme, i) => (
-                            <div key={i} className="theme-item" onClick={() => handleThemeSelect(theme)}>
-                                <span className="theme-label">{theme.label}</span>
-                                <span className="theme-ext">{theme.extensionName}</span>
+                        <div className="theme-list">
+                            {installedThemes.map((theme, i) => (
+                                <div key={i} className="theme-item" onClick={() => handleThemeSelect(theme)}>
+                                    <span className="theme-label">{theme.label}</span>
+                                    <span className="theme-ext">{theme.extensionName}</span>
+                                </div>
+                            ))}
+                            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--vscode-panel-border)', opacity: 0.5, fontSize: '11px' }}>
+                                Predefined:
                             </div>
-                        ))}
-                        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--vscode-panel-border)', opacity: 0.5, fontSize: '11px' }}>
-                            Predefined:
-                        </div>
-                        <div className="theme-item" onClick={() => { setTheme('vs-dark'); setIsThemePickerOpen(false); }}>
-                            <span className="theme-label">Dark (Visual Studio)</span>
-                        </div>
-                        <div className="theme-item" onClick={() => { setTheme('vs'); setIsThemePickerOpen(false); }}>
-                            <span className="theme-label">Light (Visual Studio)</span>
+                            <div className="theme-item" onClick={() => { setTheme('vs-dark'); setIsThemePickerOpen(false); }}>
+                                <span className="theme-label">Dark (Visual Studio)</span>
+                            </div>
+                            <div className="theme-item" onClick={() => { setTheme('vs'); setIsThemePickerOpen(false); }}>
+                                <span className="theme-label">Light (Visual Studio)</span>
+                            </div>
                         </div>
                     </div>
                 </div>

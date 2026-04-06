@@ -61,7 +61,7 @@ use keybindings::KeybindingRegistry;
 mod debug_adapter;
 use debug_adapter::DebugManager;
 
-#[cfg(target_os = "windows")]
+#[allow(dead_code)]
 extern "system" {
     fn GetCurrentProcess() -> isize;
     fn SetProcessWorkingSetSize(
@@ -77,6 +77,13 @@ use activation::ActivationManager;
 mod marketplace;
 
 mod browser;
+
+pub mod specs_db;
+mod workers;
+mod ai_prompts;
+mod specs_commands;
+mod rules_engine;
+mod workflow_engine;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
@@ -122,6 +129,9 @@ pub(crate) struct EditorState {
     terminal_buffers: Mutex<HashMap<String, Vec<String>>>,
     memory_optimizer: Arc<memory_optimizer::MemoryOptimizer>,
     advisor_model: Mutex<Option<String>>,
+    pub specs_db: Arc<specs_db::SpecDb>,
+    #[allow(dead_code)]
+    pub worker_manager: Arc<workers::WorkerManager>,
 }
 
 impl EditorState {
@@ -198,6 +208,15 @@ impl EditorState {
             ext_dirs.push(builtin_ext_dir);
         }
 
+        let specs_db = Arc::new(specs_db::SpecDb::new(config_dir.join("specs.db")).expect("Failed to init specs DB"));
+        let worker_manager = Arc::new(workers::WorkerManager::new(specs_db.clone(), sentient.clone(), root.clone()));
+
+        // Start worker loop
+        let wm_clone = worker_manager.clone();
+        tauri::async_runtime::spawn(async move {
+            wm_clone.start_loop().await;
+        });
+
         Self {
             buffers: Mutex::new(HashMap::new()),
             active_path: Mutex::new(None),
@@ -228,8 +247,10 @@ impl EditorState {
                 config_dir.join("mcp_config.json"),
             )),
             terminal_buffers: Mutex::new(HashMap::new()),
-            memory_optimizer: Arc::new(memory_optimizer::MemoryOptimizer::new()),
+            memory_optimizer,
             advisor_model: Mutex::new(None),
+            specs_db,
+            worker_manager,
         }
     }
 }
@@ -241,6 +262,39 @@ pub struct FileEntry {
     pub is_dir: bool,
     pub is_expanded: Option<bool>,
     pub children: Option<Vec<FileEntry>>,
+}
+
+#[tauri::command]
+async fn list_chat_sessions(state: State<'_, EditorState>) -> Result<Value, String> {
+    Ok(json!(state.ai_engine.memory_store.list_sessions().await))
+}
+
+#[tauri::command]
+async fn load_chat_session(state: State<'_, EditorState>, path: String) -> Result<(), String> {
+    state.ai_engine.memory_store.load_from_path(PathBuf::from(path)).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn archive_chat_session(state: State<'_, EditorState>) -> Result<(), String> {
+    state.ai_engine.memory_store.archive_current_session().await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn create_new_session(state: State<'_, EditorState>) -> Result<(), String> {
+    state.ai_engine.memory_store.create_new_session().await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_agent_messages(state: State<'_, EditorState>) -> Result<Value, String> {
+    Ok(json!(state.ai_engine.memory_store.get_messages().await))
+}
+
+#[tauri::command]
+async fn get_brain_telemetry(state: State<'_, EditorState>) -> Result<Value, String> {
+    Ok(state.ai_engine.memory_store.get_brain_telemetry().await)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -528,6 +582,59 @@ async fn get_extension_details(id: String) -> Result<Value, String> {
     marketplace::get_extension_details(publisher, name)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn uninstall_extension(
+    state: State<'_, EditorState>,
+    publisher: String,
+    name: String,
+    version: Option<String>,
+) -> Result<(), String> {
+    let mut eh = state.ext_host.lock().unwrap();
+    let extensions_dir = eh.primary_extensions_dir();
+
+    let target_prefix = format!("{}.{}", publisher, name);
+    println!("Uninstalling extension: {}.{} (v:{:?})", publisher, name, version);
+
+    if let Ok(entries) = std::fs::read_dir(&extensions_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                let folder_name = path.file_name().unwrap_or_default().to_string_lossy();
+                let matches = if folder_name.starts_with(&target_prefix) {
+                    if let Some(ref v) = version {
+                        folder_name.contains(v)
+                    } else {
+                        true
+                    }
+                } else {
+                    false
+                };
+
+                if matches {
+                    println!("Found matching extension folder: {}", folder_name);
+                    // Try to delete. If it fails (file lock), try to rename it to hide it.
+                    if let Err(e) = std::fs::remove_dir_all(&path) {
+                        println!("Failed to delete extension dir {}: {}. Attempting rename fallback...", folder_name, e);
+                        let deprecated_path = path.with_extension(format!("deprecated-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()));
+                        if let Err(re) = std::fs::rename(&path, &deprecated_path) {
+                            println!("Rename fallback failed for {}: {}", folder_name, re);
+                            return Err(format!("Failed to uninstall extension: Folder is locked and cannot be removed or renamed. Please close any background processes or restart the IDE. Error: {}", e));
+                        } else {
+                            println!("Successfully renamed {} to {} to hide it.", folder_name, deprecated_path.display());
+                        }
+                    } else {
+                        println!("Successfully deleted extension folder: {}", folder_name);
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = eh.scan_extensions();
+    println!("Scan extensions complete. Total running/installed: {}", eh.extensions.len());
+    Ok(())
 }
 
 #[tauri::command]
@@ -1603,7 +1710,7 @@ async fn get_system_health(state: State<'_, EditorState>) -> Result<Value, Strin
 async fn ai_chat(state: State<'_, EditorState>, request: AiRequest) -> Result<String, String> {
     let content = state
         .ai_engine
-        .autonomous_loop(request)
+        .autonomous_loop(request, None)
         .await
         .map_err(|e| e.to_string())?;
     // Satisfy AiResponse usage warning
@@ -1611,6 +1718,71 @@ async fn ai_chat(state: State<'_, EditorState>, request: AiRequest) -> Result<St
         content: content.clone(),
     };
     Ok(content)
+}
+
+#[tauri::command]
+async fn ai_inline_complete(
+    state: State<'_, EditorState>,
+    prefix: String,
+    suffix: String,
+    language: String,
+    file_path: String,
+) -> Result<String, String> {
+    // Build a FIM (fill-in-the-middle) completion request
+    let fim_prompt = format!(
+        "Complete the following {} code. Return ONLY the completion text, no explanation, no markdown fencing, no extra whitespace.\n\n<prefix>\n{}\n</prefix>\n<suffix>\n{}\n</suffix>",
+        language, prefix, suffix
+    );
+
+    let messages = vec![
+        ai_engine::ChatMessage {
+            role: "system".to_string(),
+            content: Some(ai_engine::MessageContent::Text(
+                format!("You are an inline code completion engine for file '{}' (language: {}). Return ONLY the exact code that should be inserted at the cursor position. No explanation, no markdown, no comments. Just the raw code completion.", file_path, language)
+            )),
+            tool_calls: None,
+            tool_call_id: None,
+            metadata: None,
+        },
+        ai_engine::ChatMessage {
+            role: "user".to_string(),
+            content: Some(ai_engine::MessageContent::Text(fim_prompt)),
+            tool_calls: None,
+            tool_call_id: None,
+            metadata: None,
+        },
+    ];
+
+    let request = AiRequest {
+        provider: "apiradar".to_string(),
+        model: "gpt-4o-mini".to_string(), // Use a fast model for completions
+        messages,
+        temperature: Some(0.2), // Low temperature for precise completions
+        autonomous: false,
+        cyber_mode: None,
+        root_access: Some(false),
+        mode: Some("Completion".to_string()),
+        ollama_url: None,
+        tools: None,
+    };
+
+    // Use ai_engine's single-shot (non-autonomous) call
+    let result = state.ai_engine
+        .autonomous_loop(request, None)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Strip any markdown fences the model might add despite instructions
+    let cleaned = result
+        .trim()
+        .trim_start_matches("```")
+        .trim_start_matches(&language)
+        .trim_start_matches('\n')
+        .trim_end_matches("```")
+        .trim()
+        .to_string();
+
+    Ok(cleaned)
 }
 
 #[tauri::command]
@@ -1653,6 +1825,21 @@ async fn get_visual_graph(data: Value, format: String) -> Result<visual_lab::Vis
 }
 
 #[tauri::command]
+async fn get_neural_omni_graph(
+    state: tauri::State<'_, EditorState>,
+) -> Result<visual_lab::VisualGraph, String> {
+    let slots = state.ai_engine.memory_store.get_all_slots().await;
+    Ok(visual_lab::generate_neural_omni_graph(slots))
+}
+
+#[tauri::command]
+async fn get_all_memory_slots(
+    state: tauri::State<'_, EditorState>,
+) -> Result<Vec<crate::memory_store::SemanticSlot>, String> {
+    Ok(state.ai_engine.memory_store.get_all_slots().await)
+}
+
+#[tauri::command]
 async fn generate_visual_graph(
     state: State<'_, EditorState>,
     prompt: String,
@@ -1679,7 +1866,7 @@ async fn generate_visual_graph(
             root_access: None,
             ollama_url: None,
             tools: None,
-        })
+        }, None)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -2428,6 +2615,7 @@ async fn benchmark_ane(
 }
 
 #[tauri::command]
+#[allow(dead_code)]
 async fn get_inference_history(state: State<'_, EditorState>) -> Result<Value, String> {
     Ok(json!(state.perf_monitor.get_inference_history()))
 }
@@ -2664,6 +2852,7 @@ pub fn run() {
             save_api_keys,
             list_provider_models,
             ai_chat,
+            ai_inline_complete,
             spawn_terminal,
             write_to_terminal,
             resize_terminal,
@@ -2674,6 +2863,7 @@ pub fn run() {
             get_popular_extensions,
             get_installed_extensions,
             get_extension_details,
+            uninstall_extension,
             get_installed_themes,
             load_extension_theme,
             get_extension_contributions,
@@ -2758,6 +2948,18 @@ pub fn run() {
             grep_files,
             write_file_content,
             web_fetch,
+            specs_commands::cmd_specs_create_project,
+            specs_commands::cmd_specs_get_projects,
+            specs_commands::cmd_specs_generate_layout,
+            specs_commands::cmd_specs_get_project_tasks,
+            specs_commands::cmd_specs_get_project_files,
+            specs_commands::cmd_specs_get_extended_project_layout,
+            specs_commands::cmd_specs_retry_task,
+            specs_commands::cmd_specs_set_project_provider,
+            specs_commands::cmd_specs_get_project_by_name,
+            specs_commands::cmd_specs_delete_project,
+            specs_commands::cmd_specs_clear_history,
+            specs_commands::cmd_specs_delete_task,
             ai_tool_result,
             get_system_health,
             get_visual_graph,
@@ -2767,7 +2969,15 @@ pub fn run() {
             get_memory_savings,
             benchmark_ane,
             query_performance_history,
-            get_file_context
+            get_file_context,
+            get_neural_omni_graph,
+            get_all_memory_slots,
+            list_chat_sessions,
+            load_chat_session,
+            archive_chat_session,
+            create_new_session,
+            get_agent_messages,
+            get_brain_telemetry
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

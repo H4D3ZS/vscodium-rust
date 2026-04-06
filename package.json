@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@types/diff": "^7.0.2",
     "@types/react": "^19.2.14",
@@ -38,6 +40,7 @@
     "react-window": "^2.2.7",
     "reactflow": "^11.11.4",
     "remark-gfm": "^4.0.1",
+    "three": "^0.183.2",
     "zustand": "^5.0.11"
   }
 }

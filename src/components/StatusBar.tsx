@@ -40,7 +40,7 @@ const StatusBar: React.FC = () => {
                 console.warn('Memory Guard: Low memory detected, triggering optimization.');
                 handleOptimize();
             }
-        }, 5000);
+        }, 20000); // 20s interval for background stats
 
         return () => clearInterval(statsTimer);
     }, [processStats?.available_ram_gb]);
