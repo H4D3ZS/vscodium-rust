@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use daemon::gist::GistInjector;
 use daemon::neural_math::VECTOR_DIM;
 
+use tokio::sync::Mutex;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AttachmentInfo {
     pub path: String,
@@ -15,21 +17,58 @@ pub struct AttachmentInfo {
 
 pub struct AttachmentManager {
     pub gist_injector: GistInjector,
+    pub processing_lock: Mutex<()>,
 }
 
 impl AttachmentManager {
     pub fn new() -> Self {
         Self {
             gist_injector: GistInjector::new(),
+            processing_lock: Mutex::new(()),
         }
     }
 
     pub async fn process_file(&self, path: PathBuf, model: &str) -> Result<AttachmentInfo, String> {
+        let _lock = self.processing_lock.lock().await;
+        
         let name = path.file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
         
+        let is_image = path.extension()
+            .map(|ext| {
+                let ext_str = ext.to_string_lossy().to_lowercase();
+                ext_str == "png" || ext_str == "jpg" || ext_str == "jpeg" || ext_str == "webp"
+            })
+            .unwrap_or(false);
+
+        if is_image {
+             println!("[DEBUG] Visual Asset detected. Routing to Spatial Gist engine: {:?}", path);
+             let result = self.gist_injector.inject_visual_knowledge(&path).await;
+             
+             match result {
+                 Ok(_) => {
+                    let current_gist = self.gist_injector.get_gist_token().await;
+                    let gist_str = general_purpose::STANDARD.encode(serde_json::to_vec(&current_gist).unwrap_or_default());
+                    return Ok(AttachmentInfo {
+                        path: path.to_string_lossy().into_owned(),
+                        name,
+                        gist: Some(gist_str),
+                    });
+                 },
+                 Err(e) => {
+                    println!("[ERROR] Visual Gist injection failed: {}. section 315", e);
+                    // Fallback to raw path if encoding fails
+                    return Ok(AttachmentInfo {
+                        path: path.to_string_lossy().into_owned(),
+                        name,
+                        gist: None,
+                    });
+                 }
+             }
+        }
+
         let content = std::fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -134,34 +173,43 @@ pub async fn select_and_process_attachment(
     app: AppHandle,
     manager: tauri::State<'_, Arc<AttachmentManager>>,
     model: String,
-) -> Result<AttachmentInfo, String> {
-    println!("[DEBUG] select_and_process_attachment called with model: {}", model);
+) -> Result<Vec<AttachmentInfo>, String> {
+    println!("[DEBUG] select_and_process_attachment (multi) called with model: {}", model);
     let (tx, rx) = tokio::sync::oneshot::channel();
     
     app.dialog()
         .file()
-        .pick_file(move |path| {
-            println!("[DEBUG] pick_file callback triggered: {:?}", path);
-            let _ = tx.send(path);
+        .pick_files(move |paths| {
+            println!("[DEBUG] pick_files callback triggered with {:?} items", paths.as_ref().map(|p| p.len()));
+            let _ = tx.send(paths);
         });
 
-    let path = rx.await
+    let paths = rx.await
         .map_err(|e| {
             println!("[ERROR] oneshot recv error: {:?}", e);
             e.to_string()
         })?
         .ok_or_else(|| {
             println!("[DEBUG] Selection cancelled by user");
-            "No file selected".to_string()
+            "No files selected".to_string()
         })?;
 
-    println!("[DEBUG] Processing path: {:?} with model: {}", path, model);
-    // Convert FilePath to PathBuf - explicitly using the path string
-    let path_buf = PathBuf::from(path.to_string());
-    let info = manager.process_file(path_buf, &model).await?;
+    let mut results = Vec::new();
+    for path in paths {
+        println!("[DEBUG] Neuralizing: {:?} with model: {}", path, model);
+        let path_buf = PathBuf::from(path.to_string());
+        match manager.process_file(path_buf, &model).await {
+            Ok(info) => {
+                // Broadcast update for each file
+                let _ = app.emit("memory-gist-updated", &info);
+                results.push(info);
+            },
+            Err(e) => {
+                println!("[ERROR] Failed to process {:?}: {}", path, e);
+                // Continue to next file
+            }
+        }
+    }
     
-    // Broadcast update to anyone interested in memory state
-    let _ = app.emit("memory-gist-updated", &info);
-    
-    Ok(info)
+    Ok(results)
 }

@@ -171,9 +171,9 @@ export async function buildSystemPrompt(config: SystemPromptConfig): Promise<str
     // ── Kortex Neural Injection (Prefix Caching optimized) ──
     if (config.attachedContext && config.attachedContext.length > 0) {
         for (const ctx of config.attachedContext) {
-            if (ctx.type === 'file' && ctx.data) {
+            if (ctx.gist) {
                 // Prepend identifying Gist Token for the AI engine
-                parts.push(`[KORTEX_GIST_TOKEN: ${ctx.data}]`);
+                parts.push(`[KORTEX_GIST_TOKEN: ${ctx.gist}]`);
             }
         }
         parts.push(`\n## NEURAL ACCELERATION

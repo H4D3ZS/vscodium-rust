@@ -280,7 +280,7 @@ interface AppState {
     setIsAgentThinking: (isThinking: boolean) => void;
     setIsAgentPaused: (paused: boolean) => void;
     setAgentCurrentAction: (action: string | null) => void;
-    attachFile: (file: { id: string, path: string, name: string, gist?: string, type: 'file' | 'attachment' | 'mention' }) => void;
+    attachFile: (file: any | any[]) => void;
     removeFile: (path: string) => void;
     clearAttachedFiles: () => void;
     clearAgentMessages: () => void;
@@ -892,7 +892,16 @@ const storeImplementation: any = (set: any, get: any) => ({
             console.error('Refresh Memory Savings Error:', e);
         }
     },
-    attachFile: (file: any) => set((state: any) => ({ attachedFiles: [...state.attachedFiles, { ...file, type: file.type || 'file' }] })),
+    attachFile: (file: any | any[]) => set((state: any) => {
+        const files = Array.isArray(file) ? file : [file];
+        const newAttached = [...state.attachedFiles];
+        for (const f of files) {
+            if (!newAttached.find(existing => existing.path === f.path)) {
+                newAttached.push({ ...f, type: f.type || 'file' });
+            }
+        }
+        return { attachedFiles: newAttached };
+    }),
     removeFile: (path: string) => set((state: any) => ({ attachedFiles: state.attachedFiles.filter((f: any) => f.path !== path) })),
     clearAttachedFiles: () => set({ attachedFiles: [] }),
     addAgentMessage: (role: any, content: any, contextOrSubAgent: any) => set((state: any) => {

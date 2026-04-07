@@ -191,22 +191,23 @@ const RightSidebar: React.FC = () => {
                 console.log("[DEBUG] No dedicated embedder found. Using instant raw-text attachment flow.");
             }
 
-            let result: any;
+            let results: any[];
             try {
-                result = await invoke('select_and_process_attachment', { model: cleanInvokeModel });
+                results = await invoke('select_and_process_attachment', { model: cleanInvokeModel });
             } catch (invokeError: any) {
                 console.error('[ERROR] Attachment selection failed:', invokeError);
                 throw invokeError;
             }
 
-            if (result) {
-                attachFile({
-                    id: result.path || `neural-${Date.now()}`,
-                    type: 'file',
-                    name: result.name,
-                    path: result.path,
-                    gist: result.gist
-                });
+            if (results && Array.isArray(results)) {
+                const formatted = results.map(r => ({
+                    id: r.path || `neural-${Date.now()}-${Math.random()}`,
+                    type: 'file' as const,
+                    name: r.name,
+                    path: r.path,
+                    gist: r.gist
+                }));
+                attachFile(formatted);
             }
         } catch (error: any) {
             console.error('Failed to neuralize, attempting raw attachment:', error);
