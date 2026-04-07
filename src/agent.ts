@@ -170,6 +170,35 @@ export function openModeDropdown(element: HTMLElement, onSelect: (label: string)
     });
 }
 
+export async function stopAgent() {
+    try {
+        await invoke('stop_ai_agent');
+        useStore.getState().setIsAgentPaused(false); // Stop is termination, not pause
+        useStore.getState().setIsAgentThinking(false);
+        useStore.getState().setAgentCurrentAction(null);
+    } catch (error) {
+        console.error('Failed to stop agent:', error);
+    }
+}
+
+export async function pauseAgent() {
+    try {
+        await invoke('pause_ai_agent');
+        useStore.getState().setIsAgentPaused(true);
+    } catch (error) {
+        console.error('Failed to pause agent:', error);
+    }
+}
+
+export async function resumeAgent() {
+    try {
+        await invoke('resume_ai_agent');
+        useStore.getState().setIsAgentPaused(false);
+    } catch (error) {
+        console.error('Failed to resume agent:', error);
+    }
+}
+
 export async function initAgent() {
     console.log("Initializing Agent global listeners...");
     const { listen } = await import('@tauri-apps/api/event');
@@ -291,7 +320,7 @@ export async function initAgent() {
     // Listen for granular agent steps
     await listen<any>("add-agent-step", (event) => {
         const { addAgentStep } = useStore.getState();
-        addAgentStep(event.payload.name, event.payload.type || 'other');
+        addAgentStep(event.payload.name, event.payload.type || 'other', {});
     });
 
     // Listen for user notifications and blocked states
@@ -317,6 +346,19 @@ export async function initAgent() {
     await listen<any>("subagent-progress", (event) => {
         console.log(`[Agent] Sub-agent update:`, event.payload);
         SubAgentManager.handleProgress(event.payload);
+    });
+
+    // Real-time AI action tracking
+    await listen<string>('ai-action', (event: any) => {
+        useStore.getState().setAgentCurrentAction(event.payload);
+    });
+
+    await listen<string>('ai-stopped', (_event: any) => {
+        console.log("Agent stopped signal received.");
+        const state = useStore.getState();
+        state.setIsAgentPaused(true);
+        state.setAgentCurrentAction(null);
+        state.setIsAgentThinking(false);
     });
 
     // Auto-load session if active root exists
@@ -522,6 +564,10 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
         loadProjectMemory(state.activeRoot).catch(() => { });
     }
 
+    // Clear paused state if we are starting a new interaction
+    state.setIsAgentPaused(false);
+    state.setAgentCurrentAction(null);
+
     // Add user message
     state.addAgentMessage('user', prompt);
 
@@ -643,15 +689,22 @@ async function buildIdeContext(): Promise<string> {
     }
 
     // Append user-attached context items (Attachments, Mentions, Workflows)
-    const context = storeState.attachedContext || [];
+    const context = storeState.attachedFiles || [];
     if (context.length > 0) {
         parts.push(`\n## Attached Context`);
         for (const c of context) {
-            if (c.type === 'mention' || c.type === 'file') {
-                let content = c.data;
+            const anyTypedC = c as any;
+            if (anyTypedC.gist) {
+                // NEURAL PATH: Use compressed mathematical gist
+                parts.push(`### Neural Context (Zip): ${c.name}\n[Gist-1536] ${anyTypedC.gist}\n(This file was neuralized for zero-token comprehension)`);
+                continue;
+            }
+
+            if (c.type === 'mention' || c.type === 'file' || (c as any).type === 'attachment') {
+                let content = (c as any).data;
                 if (!content && activeRoot) {
                     try {
-                        const fullPath = c.path || (c.name.startsWith('/') ? c.name : `${activeRoot}/${c.name}`);
+                        const fullPath = (c as any).path || (c.name.startsWith('/') ? c.name : `${activeRoot}/${c.name}`);
                         const rawContent = await invoke<string>("read_file", { path: fullPath });
                         if (rawContent) {
                             const lines = rawContent.split('\n');
@@ -702,7 +755,7 @@ async function buildIdeContext(): Promise<string> {
     return parts.join('\n');
 }
 
-export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: string) => void): Promise<void> {
+export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: string) => void, context?: any[]): Promise<void> {
     const store = (window as any).useStore;
     if (!store) throw new Error("Store not found");
 
@@ -750,7 +803,7 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
         })),
         agentMode: storeState.agentMode || 'Execution',
         projectMemory: storeState.projectMemory || undefined,
-        attachedContext: storeState.attachedContext || [],
+        attachedContext: context || storeState.attachedFiles || [], // Prefer passed-in context
     };
     const systemContext = await buildSystemPrompt(promptConfig);
     const systemMessage = {
@@ -777,11 +830,12 @@ export async function sendAgentMessage(userPrompt: string, _onUpdate: (msg: stri
             let content: any = m.content || "";
 
             // Multi-modal support for image attachments
-            const attachmentContext = m.context?.filter((c: any) => c.type === 'attachment' && c.data);
+            const attachmentContext = m.context?.filter((c: any) => (c.type === 'attachment' || c.type === 'file') && (c.data || c.gist));
             if (attachmentContext && attachmentContext.length > 0) {
                 const parts: any[] = [{ type: 'text', text: content }];
                 attachmentContext.forEach((ac: any) => {
-                    if (ac.data.startsWith('data:image/')) {
+                    const payload = ac.gist || ac.data;
+                    if (payload && payload.startsWith('data:image/')) {
                         parts.push({
                             type: 'image_url',
                             image_url: { url: ac.data }
@@ -1255,6 +1309,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 sections.push(`**Node.js:** ${tools.node || '❌ Not found'}`);
                 sections.push(`**Rust/Cargo:** ${tools.cargo || '❌ Not found'}`);
 
+
                 // MCP
                 const mcp = data.mcp_servers || [];
                 if (mcp.length > 0) {
@@ -1609,18 +1664,62 @@ listen('ai-content', (event: { payload: { content: string } | any }) => {
     }
 });
 
-listen('ai-tool-call', (event: { payload: { name: string, args: string } | any }) => {
+function formatToolSummary(name: string, args: any, result: any): string {
+    try {
+        const data = typeof result === 'string' ? JSON.parse(result) : result;
+        const toolName = name.toLowerCase();
+
+        if (toolName.includes('list_files') || toolName.includes('list_directory') || toolName.includes('ls')) {
+            const count = Array.isArray(data) ? data.length : (data.filenames ? data.filenames.length : 0);
+            return `Listed ${count} items in ${args.path || args.directory_path || 'root'}`;
+        }
+        if (toolName.includes('view_file') || toolName.includes('file_read') || toolName.includes('cat')) {
+            return `Read ${args.file_path || args.path} (${data.numLines || 'all'} lines)`;
+        }
+        if (toolName.includes('run_command') || toolName.includes('bash') || toolName.includes('sh')) {
+            const cmd = args.command || '';
+            const shortCmd = cmd.length > 30 ? cmd.substring(0, 30) + '...' : cmd;
+            return `Executed: ${shortCmd}`;
+        }
+        if (toolName.includes('grep') || toolName.includes('search')) {
+            const count = Array.isArray(data) ? data.length : 0;
+            return `Found ${count} matches for "${args.pattern || args.query}"`;
+        }
+        if (toolName.includes('write_to_file') || toolName.includes('file_write')) {
+            return `Wrote ${args.file_path || args.path}`;
+        }
+        if (toolName.includes('file_edit') || toolName.includes('modify_file')) {
+            return `Edited ${args.file_path || args.path}`;
+        }
+        if (toolName.includes('git_status')) {
+            return `Checked git status`;
+        }
+    } catch (e) {
+        // Fallback to generic summary if parsing fails
+    }
+    return `Executed ${name}`;
+}
+
+listen('ai-tool-call', (event: { payload: { name: string, args: string | any } | any }) => {
     if (event.payload && event.payload.name) {
         const { addAgentStep, updateAgentStepStatus } = useStore.getState();
-        addAgentStep(event.payload.name);
+        const args = typeof event.payload.args === 'string' ? JSON.parse(event.payload.args) : event.payload.args;
+        addAgentStep(event.payload.name, 'other', args);
         updateAgentStepStatus(event.payload.name, 'running', 'Executing...');
     }
 });
 
-listen('ai-tool-result', (event: { payload: { name: string, result: string } | any }) => {
+listen('ai-tool-result', (event: { payload: { name: string, result: string, blocked?: boolean } | any }) => {
     if (event.payload && event.payload.name) {
-        const { updateAgentStepStatus } = useStore.getState();
-        updateAgentStepStatus(event.payload.name, 'success', event.payload.result);
+        const { updateAgentStepStatus, agentMessages } = useStore.getState();
+
+        // Find arguments from the last step with this name
+        const lastMsg = agentMessages[agentMessages.length - 1];
+        const step = lastMsg?.steps?.find((s: any) => s.name === event.payload.name && s.status === 'running');
+        const args = step?.args || {};
+
+        const summary = formatToolSummary(event.payload.name, args, event.payload.result);
+        updateAgentStepStatus(event.payload.name, event.payload.blocked ? 'running' : 'success', event.payload.result, summary);
     }
 });
 
@@ -1636,11 +1735,11 @@ listen('update-agent-task', (event: { payload: { id: string, title: string, summ
     }
 });
 
-listen('add-agent-step', (event: { payload: { name: string, status: string } | any }) => {
+listen('add-agent-step', (event: { payload: { name: string, status: string, type?: string } | any }) => {
     if (event.payload) {
-        useStore.getState().addAgentStep(event.payload.name);
+        useStore.getState().addAgentStep(event.payload.name, event.payload.type || 'other', {});
         if (event.payload.status) {
-            useStore.getState().updateAgentStepStatus(event.payload.name, event.payload.status === 'success' ? 'success' : 'running', '');
+            useStore.getState().updateAgentStepStatus(event.payload.name, event.payload.status === 'success' ? 'success' : 'running', '', '');
         }
     }
 });

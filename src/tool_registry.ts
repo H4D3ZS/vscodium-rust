@@ -127,7 +127,7 @@ export const BashTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const FileReadTool: ToolDef = {
     name: 'file_read',
-    description: `Read the contents of a file from the filesystem. Supports text files, showing content with line numbers. For large files, use offset and limit to read specific portions. The file_path must be an absolute path.`,
+    description: `NATIVE CORE TOOL: Read the contents of a file from the filesystem. This tool is ALWAYS available on all platforms (Windows/Linux/OSX). Supports text files, showing content with line numbers. For large files, use offset and limit to read specific portions. The file_path must be an absolute path.`,
     inputSchema: {
         type: 'object',
         properties: {
@@ -253,7 +253,7 @@ export const FileEditTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const GlobTool: ToolDef = {
     name: 'glob',
-    description: `Find files matching a glob pattern. Use this to discover files in the project by name pattern (e.g., "**/*.ts" for all TypeScript files). Results are relative paths. Limited to 100 results.`,
+    description: `NATIVE CORE TOOL: Find files matching a glob pattern using high-performance backend indexing. Use this to discover files in the project instantly (e.g., "**/*.ts"). This tool is ALWAYS available on Windows. Results are relative paths.`,
     inputSchema: {
         type: 'object',
         properties: {
@@ -307,7 +307,7 @@ export const GlobTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const GrepTool: ToolDef = {
     name: 'grep',
-    description: `Search for text patterns in files using regex. Returns matching lines with file paths and line numbers. Use this to find code patterns, function definitions, imports, or any text across the project. Supports regular expressions.`,
+    description: `NATIVE CORE TOOL: Search for text patterns in files using ultra-fast ripgrep patterns. Returns matching lines with file paths and line numbers. ALWAYS available and optimized for Windows. Supports regex.`,
     inputSchema: {
         type: 'object',
         properties: {

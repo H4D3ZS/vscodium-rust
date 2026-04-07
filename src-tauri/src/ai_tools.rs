@@ -23,6 +23,7 @@ pub struct AiTools {
     app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
     git_manager: Arc<crate::git::GitManager>,
     mcp_registry: Arc<crate::mcp_registry::McpRegistry>,
+    pub knowledge_distiller: Arc<crate::knowledge_distiller::KnowledgeDistiller>,
 }
 
 impl AiTools {
@@ -31,6 +32,7 @@ impl AiTools {
         browser_state: Arc<crate::browser::BrowserState>,
         git_manager: Arc<crate::git::GitManager>,
         mcp_registry: Arc<crate::mcp_registry::McpRegistry>,
+        knowledge_distiller: Arc<crate::knowledge_distiller::KnowledgeDistiller>,
     ) -> Self {
         Self {
             root_path: Arc::new(Mutex::new(root_path)),
@@ -38,6 +40,7 @@ impl AiTools {
             app_handle: Arc::new(Mutex::new(None)),
             git_manager,
             mcp_registry,
+            knowledge_distiller,
         }
     }
 
@@ -744,6 +747,29 @@ impl AiTools {
                     "required": ["Query"]
                 }),
             },
+            ToolDefinition {
+                name: "save_knowledge_brief".to_string(),
+                description: "Proactively save session findings or architectural decisions to the persistent brain (.kortex/knowledge). section 318".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "title": { "type": "string", "description": "Short mnemonic title for the finding" },
+                        "date": { "type": "string", "description": "Current date/time" },
+                        "findings": { "type": "string", "description": "Detailed explanation of the solution or architecture" },
+                        "affected_files": { "type": "array", "items": { "type": "string" }, "description": "Paths involved" }
+                    },
+                    "required": ["title", "date", "findings", "affected_files"]
+                }),
+            },
+            ToolDefinition {
+                name: "see_the_screen".to_string(),
+                description: "Proactively capture a screenshot of the IDE preview to visually verify UI changes or layout issues. section 318".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }),
+            },
         ]
     }
 
@@ -800,6 +826,10 @@ impl AiTools {
             "git_status" | "git_add" | "git_commit" | "git_diff" | "git_log" => {
                 self.handle_git_tool(name, arguments)
             }
+
+            "save_knowledge_brief" => self.handle_save_knowledge_brief(arguments),
+
+            "see_the_screen" => self.handle_see_the_screen(arguments),
 
             // System & Multimedia
             "generate_image" => self.generate_image(arguments),
@@ -2971,6 +3001,30 @@ impl AiTools {
         Ok(health)
     }
 
+    fn handle_save_knowledge_brief(&self, args: Value) -> Result<Value> {
+        let brief: crate::knowledge_distiller::KnowledgeBrief = serde_json::from_value(args)
+            .map_err(|e| anyhow!("Invalid knowledge brief format: section 318 {}", e))?;
+
+        let path = self.knowledge_distiller.save_finding(brief)
+            .map_err(|e| anyhow!("Failed to save knowledge: section 318 {}", e))?;
+
+        Ok(json!({
+            "status": "success",
+            "message": "Mission finding archived to persistent brain.",
+            "path": path
+        }))
+    }
+
+    fn handle_see_the_screen(&self, _args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().map_err(|_| anyhow!("App handle error"))?;
+        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
+
+        let result = crate::vision_bridge::capture_main_screenshot(h)
+            .map_err(|e| anyhow!("Visual capture failed: section 318 {}", e))?;
+
+        Ok(json!(result))
+    }
+
     fn handle_task_boundary(&self, args: Value) -> Result<Value> {
         let h_lock = self.app_handle.lock().map_err(|_| anyhow!("App handle error"))?;
         let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
@@ -3130,7 +3184,13 @@ mod tests {
         let mcp_registry = Arc::new(crate::mcp_registry::McpRegistry::new(
             root.join("mcp_config.json"),
         ));
-        let ai_tools = AiTools::new(root.clone(), browser_state, git_manager, mcp_registry);
+        let ai_tools = AiTools::new(
+            root.clone(),
+            browser_state,
+            git_manager,
+            mcp_registry,
+            Arc::new(crate::knowledge_distiller::KnowledgeDistiller::new(root.clone())),
+        );
 
         // Safe relative path
         let res = ai_tools.validate_path(&root, "src/main.rs");
@@ -3152,7 +3212,13 @@ mod tests {
         let mcp_registry = Arc::new(crate::mcp_registry::McpRegistry::new(
             root.join("mcp_config.json"),
         ));
-        let ai_tools = AiTools::new(root.clone(), browser_state, git_manager, mcp_registry);
+        let ai_tools = AiTools::new(
+            root.clone(),
+            browser_state,
+            git_manager,
+            mcp_registry,
+            Arc::new(crate::knowledge_distiller::KnowledgeDistiller::new(root.clone())),
+        );
 
         // Simple traversal
         let res = ai_tools.validate_path(&root, "../secrets.txt");
@@ -3173,7 +3239,13 @@ mod tests {
         let mcp_registry = Arc::new(crate::mcp_registry::McpRegistry::new(
             root.join("mcp_config.json"),
         ));
-        let ai_tools = AiTools::new(root.clone(), browser_state, git_manager, mcp_registry);
+        let ai_tools = AiTools::new(
+            root.clone(),
+            browser_state,
+            git_manager,
+            mcp_registry,
+            Arc::new(crate::knowledge_distiller::KnowledgeDistiller::new(root.clone())),
+        );
 
         // Absolute path outside root
         let res = ai_tools.validate_path(&root, "/etc/passwd");

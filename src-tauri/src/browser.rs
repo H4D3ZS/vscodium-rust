@@ -23,11 +23,25 @@ pub async fn browser_open(state: tauri::State<'_, BrowserState>) -> Result<Strin
         return Ok("Browser already open".to_string());
     }
 
-    let options = LaunchOptions::default_builder()
-        .headless(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let mut builder = LaunchOptions::default_builder();
+    builder.headless(true);
 
+    // Hardening for Windows: specifically search for common paths if default fails
+    if cfg!(target_os = "windows") {
+        let common_paths = [
+            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+        ];
+        for path in common_paths {
+            if std::path::Path::new(path).exists() {
+                builder.path(Some(path.into()));
+                break;
+            }
+        }
+    }
+
+    let options = builder.build().map_err(|e| e.to_string())?;
     let browser = Browser::new(options).map_err(|e| e.to_string())?;
     *browser_lock = Some(browser);
 
@@ -40,7 +54,13 @@ pub async fn browser_navigate(state: tauri::State<'_, BrowserState>, url: String
     let browser_lock = state.browser.lock().unwrap();
     let browser = browser_lock.as_ref().ok_or("Browser not launched")?;
 
-    let tab = browser.new_tab().map_err(|e| e.to_string())?;
+    // Optimization: Reuse the first available tab if it exists to avoid new process overhead
+    let tab = if let Some(existing_tab) = browser.get_tabs().lock().unwrap().first() {
+        existing_tab.clone()
+    } else {
+        browser.new_tab().map_err(|e| e.to_string())?
+    };
+
     tab.navigate_to(&url).map_err(|e| e.to_string())?;
     tab.wait_until_navigated().map_err(|e| e.to_string())?;
 

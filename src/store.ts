@@ -17,7 +17,9 @@ interface EditorTab {
 export interface AgentStep {
     name: string;
     status: 'running' | 'success' | 'error';
+    args?: any;
     result?: string;
+    summary?: string;
     type?: 'filesystem' | 'git' | 'terminal' | 'browser' | 'system' | 'other';
 }
 
@@ -135,6 +137,8 @@ interface AppState {
     ollamaStatus: 'idle' | 'checking' | 'running' | 'error';
     agentMessages: any[];
     isAgentThinking: boolean;
+    isAgentPaused: boolean;
+    agentCurrentAction: string | null;
     isCommandPaletteOpen: boolean;
     isContextMenuOpen: boolean;
     isDebugToolbarOpen: boolean;
@@ -144,11 +148,11 @@ interface AppState {
     ollamaUrl: string;
     isPullingModel: boolean;
     pullProgress: number;
-    attachedContext: any[];
     pendingChanges: any[];
     agentRootAccess: boolean;
     chatSessions: any[];
     brainTelemetry: any | null;
+    attachedFiles: { id: string, path: string, name: string, gist?: string, type: 'file' | 'attachment' | 'mention' }[];
 
     // Google Antigravity Expanded State
     layoutMode: 'editor' | 'manager' | 'browser';
@@ -269,11 +273,16 @@ interface AppState {
     addAgentMessage: (role: 'user' | 'assistant', content: string, context?: AttachedContext[] | boolean) => void;
     updateLastAgentMessage: (content: string) => void;
     updateLastAgentThought: (thought: string) => void;
-    updateAgentStepStatus: (name: string, status: 'running' | 'success' | 'error', result?: string) => void;
-    addAgentStep: (name: string, type?: AgentStep['type']) => void;
+    updateAgentStepStatus: (name: string, status: 'running' | 'success' | 'error', result?: string, summary?: string) => void;
+    addAgentStep: (name: string, type?: AgentStep['type'], args?: any) => void;
     addAgentFile: (path: string) => void;
     addAgentArtifact: (artifact: Omit<Artifact, 'id' | 'timestamp'>) => void;
     setIsAgentThinking: (isThinking: boolean) => void;
+    setIsAgentPaused: (paused: boolean) => void;
+    setAgentCurrentAction: (action: string | null) => void;
+    attachFile: (file: { id: string, path: string, name: string, gist?: string, type: 'file' | 'attachment' | 'mention' }) => void;
+    removeFile: (path: string) => void;
+    clearAttachedFiles: () => void;
     clearAgentMessages: () => void;
     resetThread: () => void;
     truncateAgentMessages: (index: number) => void;
@@ -410,6 +419,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     ollamaStatus: 'idle',
     agentMessages: [],
     isAgentThinking: false,
+    isAgentPaused: false,
+    agentCurrentAction: null,
     isCommandPaletteOpen: false,
     isContextMenuOpen: false,
     isDebugToolbarOpen: false,
@@ -419,9 +430,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     ollamaUrl: 'http://localhost:11434',
     isPullingModel: false,
     pullProgress: 0,
-    attachedContext: [],
     pendingChanges: [],
-    agentRootAccess: true, // Internal AI operates with permanent root access (unshackled mode)
+    agentRootAccess: true,
     processStats: null,
     memorySavings: null,
     contextSlots: [],
@@ -429,6 +439,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     activeProjectSpec: null,
     chatSessions: [],
     brainTelemetry: null,
+    attachedFiles: [],
 
     // Terminal Initial State
     terminalGroups: [],
@@ -553,6 +564,18 @@ const storeImplementation: any = (set: any, get: any) => ({
             agentMessages: [], // Reset active view for the new thread
         }));
         return id;
+    },
+    fetchActiveProjectSpec: async () => {
+        try {
+            const projects: any = await invoke('cmd_specs_get_projects');
+            const activeRoot = get().activeRoot;
+            if (activeRoot && projects) {
+                const activeSpec = projects.find((p: any) => p.root_path === activeRoot || p.path === activeRoot);
+                set({ activeProjectSpec: activeSpec || null });
+            }
+        } catch (error) {
+            console.error('Failed to fetch active project spec:', error);
+        }
     },
     setActiveAgentThread: (id: string) => {
         set((state: any) => {
@@ -869,7 +892,10 @@ const storeImplementation: any = (set: any, get: any) => ({
             console.error('Refresh Memory Savings Error:', e);
         }
     },
-    addAgentMessage: (role, content, contextOrSubAgent) => set((state) => {
+    attachFile: (file: any) => set((state: any) => ({ attachedFiles: [...state.attachedFiles, { ...file, type: file.type || 'file' }] })),
+    removeFile: (path: string) => set((state: any) => ({ attachedFiles: state.attachedFiles.filter((f: any) => f.path !== path) })),
+    clearAttachedFiles: () => set({ attachedFiles: [] }),
+    addAgentMessage: (role: any, content: any, contextOrSubAgent: any) => set((state: any) => {
         const isSubAgent = typeof contextOrSubAgent === 'boolean' ? contextOrSubAgent : false;
         const context = Array.isArray(contextOrSubAgent) ? contextOrSubAgent : [];
         const newMessage: any = {
@@ -956,7 +982,7 @@ const storeImplementation: any = (set: any, get: any) => ({
         }
         return { agentMessages: messages };
     }),
-    addAgentStep: (name, type) => set((state) => {
+    addAgentStep: (name, type, args) => set((state) => {
         const messages = [...state.agentMessages];
         if (messages.length === 0) return state;
         const last = messages[messages.length - 1];
@@ -964,12 +990,12 @@ const storeImplementation: any = (set: any, get: any) => ({
             const steps = last.steps || [];
             // Avoid duplicate steps if redelivered
             if (!steps.find(s => s.name === name)) {
-                last.steps = [...steps, { name, status: 'running', type }];
+                last.steps = [...steps, { name, status: 'running', type, args }];
             }
         }
         return { agentMessages: messages };
     }),
-    updateAgentStepStatus: (name, status, result?: string) => set((state) => {
+    updateAgentStepStatus: (name, status, result?: string, summary?: string) => set((state) => {
         const messages = [...state.agentMessages];
         if (messages.length === 0) return state;
         const last = messages[messages.length - 1];
@@ -978,12 +1004,15 @@ const storeImplementation: any = (set: any, get: any) => ({
             if (step) {
                 step.status = status;
                 if (result !== undefined) step.result = result;
+                if (summary !== undefined) step.summary = summary;
             }
         }
         return { agentMessages: messages };
     }),
     setActiveEditorPath: (activeEditorPath) => set({ activeEditorPath }),
     setIsAgentThinking: (isAgentThinking) => set({ isAgentThinking }),
+    setIsAgentPaused: (isAgentPaused) => set({ isAgentPaused }),
+    setAgentCurrentAction: (agentCurrentAction) => set({ agentCurrentAction }),
     addAgentFile: (path: string) => {
         set((state) => {
             const last = state.agentMessages[state.agentMessages.length - 1];
@@ -1069,15 +1098,6 @@ const storeImplementation: any = (set: any, get: any) => ({
     setContextMenuOpen: (isContextMenuOpen, x = 0, y = 0) => set({ isContextMenuOpen, contextMenuPosition: { x, y } }),
     setDebugToolbarOpen: (isDebugToolbarOpen) => set({ isDebugToolbarOpen }),
     setCommandPaletteQuery: (commandPaletteQuery) => set({ commandPaletteQuery }),
-    addAttachedContext: (item) => set((state) => {
-        const id = item.id || `${item.type}-${item.name}-${Date.now()}`;
-        if (state.attachedContext.find(c => c.id === id)) return state;
-        return { attachedContext: [...state.attachedContext, { ...item, id }] };
-    }),
-    removeAttachedContext: (index) => set((state) => ({
-        attachedContext: state.attachedContext.filter((_, i) => i !== index)
-    })),
-    clearAttachedContext: () => set({ attachedContext: [] }),
     toggleDirectory: async (path: string) => {
         const state = get();
         const node = findNodeRecursive(state.fileTree, path);

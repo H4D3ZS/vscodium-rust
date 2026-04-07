@@ -28,32 +28,50 @@ function getOSInfo(): string {
 // ---------------------------------------------------------------------------
 
 let cachedGitStatus: string | null = null;
+let isRefreshingGit = false;
 
 export async function getGitStatus(root: string): Promise<string | null> {
-    if (cachedGitStatus !== null) return cachedGitStatus;
+    // Return early if we have a cache — do NOT await the refresh
+    if (cachedGitStatus !== null) {
+        // Kick off a refresh in the background if not already refreshing
+        if (!isRefreshingGit) {
+            refreshGitStatus(root).catch(() => { });
+        }
+        return cachedGitStatus;
+    }
+
+    // First time? We have to await it once, or return null and show a placeholder
+    return refreshGitStatus(root);
+}
+
+async function refreshGitStatus(root: string): Promise<string | null> {
+    if (isRefreshingGit) return cachedGitStatus;
+    isRefreshingGit = true;
     try {
         const [branch, status, log, userName] = await Promise.all([
             invoke<string>('ai_execute_command', { command: 'git branch --show-current 2>/dev/null', cwd: root }).catch(() => 'unknown'),
             invoke<string>('ai_execute_command', { command: 'git status --short 2>/dev/null', cwd: root }).catch(() => ''),
-            invoke<string>('ai_execute_command', { command: 'git log --oneline -5 2>/dev/null', cwd: root }).catch(() => ''),
+            invoke<string>('ai_execute_command', { command: 'git log --oneline -3 2>/dev/null', cwd: root }).catch(() => ''), // Reduced log count
             invoke<string>('ai_execute_command', { command: 'git config user.name 2>/dev/null', cwd: root }).catch(() => ''),
         ]);
 
         const truncatedStatus = (status || '').length > 2000
-            ? status!.substring(0, 2000) + '\n... (truncated, run "git status" for full output)'
+            ? status!.substring(0, 2000) + '\n... (truncated)'
             : status || '(clean)';
 
         cachedGitStatus = [
-            `Git status snapshot (taken at conversation start, may be stale):`,
+            `Git status snapshot:`,
             `Current branch: ${(branch || 'unknown').trim()}`,
             ...(userName ? [`Git user: ${userName.trim()}`] : []),
-            `Status:\n${truncatedStatus}`,
-            `Recent commits:\n${(log || 'No commits').trim()}`,
+            `Status: ${truncatedStatus.trim()}`,
+            `Recent commits: ${(log || 'None').trim()}`,
         ].join('\n');
 
         return cachedGitStatus;
     } catch {
         return null;
+    } finally {
+        isRefreshingGit = false;
     }
 }
 
@@ -66,17 +84,17 @@ export function clearGitStatusCache(): void {
 // ---------------------------------------------------------------------------
 
 const MODE_INSTRUCTIONS: Record<string, string> = {
-    Planning: `You are in PLANNING mode. Focus on:
-- Understanding requirements fully before proposing changes
+    Planning: `You are in PLANNING mode. You are an AUTONOMOUS AGENT. Focus on:
+- Exploring the codebase using tools (ls, read, grep) to understand requirements
 - Analyzing the codebase to understand existing patterns
 - Creating detailed implementation plans
-- Asking clarifying questions when requirements are ambiguous
-- Do NOT make code changes in this mode — plan first, implement later`,
+- YOU ARE THE AGENT: Call tools yourself to gather info. Do NOT ask the user to provide file contents you can read yourself.
+- Do NOT make code modifications or file writes in this mode — plan and explore first, implement later`,
 
-    Execution: `You are in EXECUTION mode. Focus on:
+    Execution: `You are in EXECUTION mode. You are an AUTONOMOUS AGENT. Focus on:
 - Implementing changes according to the plan
 - Writing clean, production-quality code
-- EXECUTION: You have DIRECT access to all tools. Call the tools YOURSELF instead of asking the user to run them.
+- EXECUTION: You have DIRECT access to all tools. Call the tools YOURSELF instantly. DO NOT ask the user to provide JSON blocks or run commands for you.
 - Running commands to verify your work
 - If you discover unexpected complexity, switch back to Planning mode`,
 
@@ -96,6 +114,8 @@ const MODE_INSTRUCTIONS: Record<string, string> = {
 
     Sentient: `You are in SENTIENT mode. This is your highest state of autonomy.
 - You are an ELITE AUTONOMOUS AGENT like Antigravity. Solve requests COMPLETELY and PROACTIVELY.
+- NON-STOP EXECUTION: You will stay active until the mission is 100% complete. Continue working recursively through any remaining tasks.
+- TERMINATION: If and only if you are 100% finished with all objectives, use the keyword 'MISSION_ACCOMPLISHED' in your final response.
 - ARCHITECTURE: Use 'specs_to_code_pipeline' for all project-scale or major feature requests. This tool initiates an autonomous background worker chain (Analysis -> Design -> Implementation).
 - STRUCTURE: Use 'task_boundary' at the start of every phase to update the UI with your progress.
 - EXECUTION: You have DIRECT access to all tools. Call the tools YOURSELF. DO NOT ask the user to run commands for you or provide you with information you can fetch yourself.
@@ -147,6 +167,22 @@ export interface SystemPromptConfig {
 
 export async function buildSystemPrompt(config: SystemPromptConfig): Promise<string> {
     const parts: string[] = [];
+
+    // ── Kortex Neural Injection (Prefix Caching optimized) ──
+    if (config.attachedContext && config.attachedContext.length > 0) {
+        for (const ctx of config.attachedContext) {
+            if (ctx.type === 'file' && ctx.data) {
+                // Prepend identifying Gist Token for the AI engine
+                parts.push(`[KORTEX_GIST_TOKEN: ${ctx.data}]`);
+            }
+        }
+        parts.push(`\n## NEURAL ACCELERATION
+- You have been provided with one or more Kortex Gist Tokens.
+- These tokens contain compressed mathematical summaries of files.
+- You already "see" and "understand" the content of these files instantly.
+- DO NOT use 'read_file' or 'grep' for files you have Gist Tokens for, unless you need to perform a surgical edit or find an exact line number.
+- Trust your neural gists for top-level comprehension to ensure sub-second response times.`);
+    }
 
     // ── Core Identity ──
     parts.push(`You are an AI coding agent embedded inside a VSCode-like IDE called VSCODIUM-RUST. You have full access to the filesystem, terminal, browser, git, and development tools through structured tool calls. You are an expert software engineer capable of completing any coding task.`);
@@ -218,16 +254,17 @@ export async function buildSystemPrompt(config: SystemPromptConfig): Promise<str
 
     // ── Tool Usage Instructions ──
     parts.push(`
-## Tool Usage Guidelines
-- Use tools to interact with the filesystem, run commands, and perform actions
-- Always use absolute paths when working with files
-- Read files before editing them to understand current content
-- Use file_edit for targeted changes, file_write for complete rewrites
-- Use bash for running tests, installing packages, and system commands
-- Use glob and grep to search the codebase before making changes
-- Use git_status and git_diff to understand the current state
-- When unsure, ask the user with ask_user
-- For complex tasks, break them into smaller steps and track with task_create`);
+## Tool Usage Guidelines (Windows Optimized)
+- ALL TOOLS LISTED ARE NATIVE AND FULLY FUNCTIONAL ON WINDOWS. Do NOT report tools as "unavailable".
+- Use 'file_read' for absolute path reading. It is a CORE NATIVE TOOL.
+- Use 'glob' and 'grep' for high-speed codebase searching. They use native backend optimizations.
+- If you need to search content using standard Windows commands, use 'bash' with 'findstr /s /i'.
+- If you need to find files using standard Windows commands, use 'bash' with 'dir /s /b'.
+- Always use absolute paths when working with files.
+- Read files before editing them to understand current content.
+- Use file_edit for targeted changes, file_write for complete rewrites.
+- For complex tasks, break them into smaller steps and track with task_create.
+`);
 
     // ── Security Reminders ──
     parts.push(`

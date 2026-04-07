@@ -48,6 +48,7 @@ headless_chrome = "1.0.12"
 base64 = "0.21"
 glob = "0.3"
 regex = "1.12.3"
+ignore = "0.4"
 uuid = { version = "1", features = ["v4", "serde"] }
 futures = "0.3.32"
 async-trait = "0.1.89"
@@ -57,6 +58,8 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tracing-chrome = "0.7.2"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = "0.4"
+libaim = { path = "../kortex/libaim" }
+daemon = { path = "../kortex/daemon" }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

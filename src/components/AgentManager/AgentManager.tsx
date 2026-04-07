@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../../store';
-import { Bot, FileText, CheckCircle, Clock, Plus, Zap, Shield, Check, X, Info, Send, Activity, Search, Code, GlassWater, Milestone } from 'lucide-react';
+import { Bot, FileText, CheckCircle, Clock, Plus, Zap, Shield, Check, X, Info, Send, Activity, Search, Code, GlassWater, Milestone, ChevronDown, ChevronUp, Terminal, Eye, GitBranch, Globe, Paperclip } from 'lucide-react';
 import type { Artifact } from '../../store';
-import { sendAgentMessage } from '../../agent';
+import { sendAgentMessage, stopAgent } from '../../agent';
 import { listen } from '@tauri-apps/api/event';
 
 const TaskRoadmap: React.FC = () => {
@@ -66,6 +66,97 @@ const TaskRoadmap: React.FC = () => {
     );
 };
 
+const ToolStepItem: React.FC<{ step: any }> = ({ step }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const hasDetails = step.args || step.result;
+
+    const getIcon = () => {
+        const name = (step.name || '').toLowerCase();
+        if (name.includes('bash') || name.includes('run_command') || name.includes('sh')) return <Terminal size={14} />;
+        if (name.includes('view') || name.includes('read')) return <Eye size={14} />;
+        if (name.includes('git')) return <GitBranch size={14} />;
+        if (name.includes('search') || name.includes('grep')) return <Search size={14} />;
+        if (name.includes('browser') || name.includes('web')) return <Globe size={14} />;
+        return <Activity size={14} />;
+    };
+
+    const getStatusColor = () => {
+        if (step.status === 'success') return '#22c55e';
+        if (step.status === 'error') return '#ef4444';
+        return 'var(--terminator-accent)';
+    };
+
+    return (
+        <div className={`tool-step-item ${step.status}`} style={{
+            margin: '4px 0',
+            background: 'rgba(255,255,255,0.03)',
+            border: `1px solid ${isExpanded ? 'rgba(255,255,255,0.1)' : 'transparent'}`,
+            borderRadius: '6px',
+            overflow: 'hidden',
+            transition: 'all 0.2s ease',
+            fontSize: '12px'
+        }}>
+            <div 
+                onClick={() => hasDetails && setIsExpanded(!isExpanded)}
+                style={{
+                    padding: '6px 10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: hasDetails ? 'pointer' : 'default',
+                    background: isExpanded ? 'rgba(255,255,255,0.05)' : 'transparent',
+                    userSelect: 'none'
+                }}
+            >
+                <div style={{ color: getStatusColor(), display: 'flex', alignItems: 'center' }}>
+                    {getIcon()}
+                </div>
+                <div style={{ flex: 1, fontWeight: 500, color: 'var(--vscode-foreground)', opacity: 0.9 }}>
+                    {step.summary || `Executing ${step.name}...`}
+                </div>
+                {step.status === 'running' && (
+                    <div className="animate-spin" style={{ width: '12px', height: '12px', border: '2px solid var(--terminator-accent)', borderTopColor: 'transparent', borderRadius: '50%' }} />
+                )}
+                {hasDetails && (
+                    <div style={{ opacity: 0.5 }}>
+                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </div>
+                )}
+            </div>
+
+            {isExpanded && (
+                <div style={{ padding: '0 10px 10px 10px', borderTop: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.1)' }}>
+                    {step.args && (
+                        <div style={{ marginTop: '8px' }}>
+                            <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', opacity: 0.4, marginBottom: '4px' }}>Arguments</div>
+                            <pre style={{ margin: 0, padding: '6px', fontSize: '11px', background: 'rgba(0,0,0,0.2)', borderRadius: '4px', overflowX: 'auto', color: '#6fb3fa' }}>
+                                {JSON.stringify(step.args, null, 2)}
+                            </pre>
+                        </div>
+                    )}
+                    {step.result && (
+                        <div style={{ marginTop: '8px' }}>
+                            <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', opacity: 0.4, marginBottom: '4px' }}>Result</div>
+                            <pre style={{ 
+                                margin: 0, 
+                                padding: '6px', 
+                                fontSize: '11px', 
+                                background: 'rgba(0,0,0,0.2)', 
+                                borderRadius: '4px', 
+                                overflowX: 'auto', 
+                                maxHeight: '200px',
+                                color: (step.status === 'error' ? '#f87171' : '#9ce19c')
+                            }}>
+                                {typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2)}
+                            </pre>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const ArtifactCard: React.FC<{ artifact: Artifact; onApprove: () => void; onReject: () => void }> = ({ artifact, onApprove, onReject }) => {
     return (
         <div className="artifact-card" style={{ marginBottom: '16px' }}>
@@ -105,6 +196,8 @@ const AgentManager: React.FC = () => {
     const createThread = useStore(state => state.createAgentThread);
     const agentMessages = useStore(state => state.agentMessages);
     const isThinking = useStore(state => state.isAgentThinking);
+    const isPaused = useStore(state => state.isAgentPaused);
+    const currentAction = useStore(state => state.agentCurrentAction);
 
     const [inputValue, setInputValue] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -112,6 +205,43 @@ const AgentManager: React.FC = () => {
 
     const threads = Object.values(agentThreads);
     const activeThread = agentThreads[activeId];
+    const attachedFiles = useStore(state => state.attachedFiles);
+    const attachFile = useStore(state => state.attachFile);
+    const removeFile = useStore(state => state.removeFile);
+    const clearAttachedFiles = useStore(state => state.clearAttachedFiles);
+
+    const renderContent = (content: string, steps: any[]) => {
+        if (!content) return null;
+        
+        // Regex to match tool call JSON blocks
+        // We match blocks starting with { and having "name" and "arguments" or "function"
+        const jsonBlockRegex = /\{[\s\S]*?"name"[\s\S]*?("arguments"|"function"|"args")[\s\S]*?\}/g;
+        
+        let cleanedContent = content;
+        const matches = content.match(jsonBlockRegex);
+        
+        if (matches) {
+            for (const match of matches) {
+                try {
+                    const parsed = JSON.parse(match);
+                    const name = parsed.name || (parsed.function && parsed.function.name);
+                    
+                    // If this JSON block corresponds to one of the steps, we can hide it 
+                    if (name && steps?.find(s => s.name === name)) {
+                        cleanedContent = cleanedContent.replace(match, '').trim();
+                    }
+                } catch (e) {
+                    // Not valid JSON or doesn't match our criteria, keep it
+                }
+            }
+        }
+        
+        if (!cleanedContent && content) {
+            return null;
+        }
+
+        return cleanedContent;
+    };
 
     const setPhase = useStore(state => state.setPhase);
 
@@ -132,15 +262,27 @@ const AgentManager: React.FC = () => {
         return () => { if (unlisten) unlisten(); };
     }, [setPhase]);
 
+    const handleAttachFile = async () => {
+        try {
+            const { invoke } = await import('@tauri-apps/api/core');
+            const result: any = await invoke('select_and_process_attachment');
+            attachFile(result);
+        } catch (error) {
+            console.error('Failed to attach file:', error);
+        }
+    };
+
     const handleSend = async () => {
         const prompt = inputValue.trim();
         if (!prompt || isThinking) return;
 
         setInputValue('');
+        clearAttachedFiles();
 
         // If no active thread, create one
         if (!activeId || !activeThread) {
-            createThread(prompt.slice(0, 40) + (prompt.length > 40 ? '...' : ''));
+            const threadName = prompt.slice(0, 40) + (prompt.length > 40 ? '...' : '');
+            createThread(threadName);
         }
 
         // Add user message to the global store
@@ -246,22 +388,15 @@ const AgentManager: React.FC = () => {
                                     <Clock size={12} className="spinning" style={{ marginLeft: '8px' }} />
                                 )}
                             </div>
-                            {m.content && (
+                            {renderContent(m.content, m.steps) && (
                                 <div className={`agent-bubble ${m.role}`} style={{ lineHeight: 1.6, whiteSpace: 'pre-wrap', fontSize: '13px' }}>
-                                    {m.content}
+                                    {renderContent(m.content, m.steps)}
                                 </div>
                             )}
                             {m.steps && m.steps.length > 0 && (
-                                <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     {m.steps.map((step: any, si: number) => (
-                                        <span key={si} style={{
-                                            fontSize: '10px', padding: '2px 6px', borderRadius: '3px',
-                                            background: step.status === 'success' ? 'rgba(34,197,94,0.15)' : step.status === 'error' ? 'rgba(248,113,113,0.15)' : 'rgba(255,255,255,0.05)',
-                                            color: step.status === 'success' ? '#22c55e' : step.status === 'error' ? '#f87171' : 'inherit',
-                                            border: `1px solid ${step.status === 'success' ? 'rgba(34,197,94,0.3)' : step.status === 'error' ? 'rgba(248,113,113,0.3)' : 'rgba(255,255,255,0.1)'}`
-                                        }}>
-                                            {step.name}
-                                        </span>
+                                        <ToolStepItem key={si} step={step} />
                                     ))}
                                 </div>
                             )}
@@ -269,6 +404,34 @@ const AgentManager: React.FC = () => {
                     ))}
                     <div ref={messagesEndRef} />
                 </div>
+
+                {/* Attached Files Chips */}
+                {attachedFiles.length > 0 && (
+                    <div style={{ padding: '8px 24px', display: 'flex', gap: '8px', flexWrap: 'wrap', background: 'rgba(var(--terminator-accent-rgb), 0.05)', borderTop: '1px solid var(--vscode-panel-border)' }}>
+                        {attachedFiles.map(file => (
+                            <div key={file.path} style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '4px 8px',
+                                background: 'var(--vscode-badge-background)',
+                                color: 'var(--vscode-badge-foreground)',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                border: '1px solid rgba(var(--terminator-accent-rgb), 0.2)'
+                            }}>
+                                <FileText size={12} />
+                                <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                                <button
+                                    onClick={() => removeFile(file.path)}
+                                    style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', opacity: 0.6 }}
+                                >
+                                    <X size={12} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 {/* Input Area */}
                 <div style={{ padding: '16px 24px', borderTop: '1px solid var(--vscode-panel-border)', background: 'var(--vscode-editor-background)' }}>
@@ -278,8 +441,8 @@ const AgentManager: React.FC = () => {
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            placeholder={isThinking ? "Agent is executing..." : "Describe what you want to build, or use /help for commands..."}
-                            disabled={isThinking}
+                            placeholder={isThinking ? `Agent: ${currentAction || 'Thinking...'}` : isPaused ? "Agent paused. Add instructions or type 'continue'..." : "Describe what you want to build, or use /help for commands..."}
+                            disabled={isThinking && !isPaused}
                             rows={1}
                             style={{
                                 flex: 1,
@@ -297,6 +460,27 @@ const AgentManager: React.FC = () => {
                                 opacity: isThinking ? 0.5 : 1,
                             }}
                         />
+                        <button
+                            onClick={handleAttachFile}
+                            disabled={isThinking}
+                            title="Attach File (Kortex Neural Gist)"
+                            style={{
+                                background: 'var(--vscode-button-secondaryBackground)',
+                                border: 'none',
+                                borderRadius: '8px',
+                                color: 'white',
+                                width: '40px',
+                                height: '40px',
+                                cursor: isThinking ? 'default' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s',
+                                opacity: isThinking ? 0.5 : 1
+                            }}
+                        >
+                            <Paperclip size={18} />
+                        </button>
                         <button
                             onClick={handleSend}
                             disabled={isThinking || !inputValue.trim()}
@@ -316,6 +500,27 @@ const AgentManager: React.FC = () => {
                         >
                             <Send size={16} />
                         </button>
+                        {isThinking && (
+                            <button
+                                onClick={stopAgent}
+                                style={{
+                                    background: 'var(--vscode-errorForeground, #f48771)',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: 'white',
+                                    width: '40px',
+                                    height: '40px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s',
+                                }}
+                                title="Stop/Pause Agent"
+                            >
+                                <X size={20} />
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

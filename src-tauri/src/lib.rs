@@ -38,6 +38,13 @@ mod task_planner;
 mod context_indexer;
 mod tool_invoker;
 mod visual_lab;
+mod attachment_manager;
+use attachment_manager::{AttachmentManager, select_and_process_attachment};
+mod knowledge_distiller;
+use knowledge_distiller::KnowledgeDistiller;
+mod vision_bridge;
+mod workflow_engine;
+use mcp_registry::McpRegistry;
 use context_indexer::ContextIndexer;
 
 mod lsp;
@@ -83,7 +90,6 @@ mod workers;
 mod ai_prompts;
 mod specs_commands;
 mod rules_engine;
-mod workflow_engine;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
@@ -132,6 +138,9 @@ pub(crate) struct EditorState {
     pub specs_db: Arc<specs_db::SpecDb>,
     #[allow(dead_code)]
     pub worker_manager: Arc<workers::WorkerManager>,
+    pub attachment_manager: Arc<AttachmentManager>,
+    #[allow(dead_code)]
+    pub knowledge_distiller: Arc<KnowledgeDistiller>,
 }
 
 impl EditorState {
@@ -177,6 +186,9 @@ impl EditorState {
 
         let git_manager = Arc::new(crate::git::GitManager::new());
         let perf_monitor = Arc::new(crate::performance::PerformanceMonitor::new());
+        let attachment_manager = Arc::new(AttachmentManager::new());
+        let knowledge_distiller = Arc::new(KnowledgeDistiller::new(&root));
+        
         let sentient = Arc::new(Sentient::new(
             "".to_string(), // Initial empty API key
             root.clone(),
@@ -186,6 +198,8 @@ impl EditorState {
             config_dir.clone(),
             memory_optimizer.clone(),
             perf_monitor.clone(),
+            attachment_manager.clone(),
+            knowledge_distiller.clone(),
         ));
         println!("[DEBUG] Sentient initialized");
         sentient.set_app_handle(app.clone());
@@ -243,14 +257,14 @@ impl EditorState {
             android_sdk_path: Mutex::new(None),
             auth_state,
             browser_state,
-            mcp_registry: Arc::new(mcp_registry::McpRegistry::new(
-                config_dir.join("mcp_config.json"),
-            )),
+            mcp_registry: Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json"))),
             terminal_buffers: Mutex::new(HashMap::new()),
             memory_optimizer,
             advisor_model: Mutex::new(None),
             specs_db,
             worker_manager,
+            attachment_manager,
+            knowledge_distiller,
         }
     }
 }
@@ -1309,31 +1323,25 @@ fn glob_files(
     let root = if let Some(p) = path {
         PathBuf::from(p)
     } else {
-        state
-            .active_root
-            .lock()
-            .unwrap()
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("."))
+        state.active_root.lock().unwrap().clone().unwrap_or_else(|| PathBuf::from("."))
     };
 
-    let full_pattern = if pattern.starts_with('/') || pattern.starts_with('.') {
-        pattern.clone()
+    // Correctly normalize the pattern for Windows
+    let clean_pattern = pattern.replace("\\", "/");
+    let full_pattern = if std::path::Path::new(&pattern).is_absolute() {
+        clean_pattern
     } else {
-        format!("{}/{}", root.to_string_lossy(), pattern)
+        root.join(pattern).to_string_lossy().to_string().replace("\\", "/")
     };
 
     let mut results = Vec::new();
-    for entry in glob::glob(&full_pattern).map_err(|e| format!("Invalid glob pattern: {}", e))? {
-        match entry {
-            Ok(path) => {
+    if let Ok(entries) = glob::glob(&full_pattern) {
+        for entry in entries {
+            if let Ok(path) = entry {
                 let rel = path.strip_prefix(&root).unwrap_or(&path);
                 results.push(rel.to_string_lossy().to_string());
+                if results.len() >= 100 { break; }
             }
-            Err(e) => eprintln!("Glob error: {}", e),
-        }
-        if results.len() >= 100 {
-            break;
         }
     }
     Ok(results)
@@ -1350,80 +1358,70 @@ fn grep_files(
     let root = if let Some(p) = path {
         PathBuf::from(p)
     } else {
-        state
-            .active_root
-            .lock()
-            .unwrap()
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("."))
+        state.active_root.lock().unwrap().clone().unwrap_or_else(|| PathBuf::from("."))
     };
 
     let mut results = Vec::new();
 
-    // Try ripgrep first (fastest), then fall back to grep, then WalkDir
-    let rg_result = {
-        let mut cmd = std::process::Command::new("rg");
-        cmd.hidden();
-        cmd.args(&["-n", "--no-heading", "--max-count=100", "--color=never"]);
-        if let Some(ref inc) = include {
-            cmd.args(&["-g", inc]);
-        }
-        cmd.arg(&pattern).current_dir(&root);
-        cmd.output()
-    };
+    // 1. Try ripgrep (Optimized for speed)
+    let rg_result = std::process::Command::new("rg")
+        .hidden()
+        .args(&["-n", "--no-heading", "--max-count=100", "--color=never"])
+        .args(include.as_ref().map(|i| vec!["-g", i]).unwrap_or_default())
+        .arg(&pattern)
+        .current_dir(&root)
+        .output();
 
     if let Ok(output) = rg_result {
         if output.status.success() || !output.stdout.is_empty() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines().take(100) {
-                let parts: Vec<&str> = line.splitn(3, ':').collect();
-                if parts.len() == 3 {
-                    if let Ok(line_num) = parts[1].parse::<usize>() {
-                        results.push(SearchResult {
-                            path: root.join(parts[0]).to_string_lossy().to_string(),
-                            line: line_num,
-                            content: parts[2].trim().to_string(),
-                        });
-                    }
-                }
-            }
-            return Ok(results);
+             let stdout = String::from_utf8_lossy(&output.stdout);
+             for line in stdout.lines().take(100) {
+                 let parts: Vec<&str> = line.splitn(3, ':').collect();
+                 if parts.len() == 3 {
+                     if let Ok(ln) = parts[1].parse::<usize>() {
+                         results.push(SearchResult {
+                             path: parts[0].to_string(),
+                             line: ln,
+                             content: parts[2].trim().to_string(),
+                         });
+                     }
+                 }
+             }
+             if !results.is_empty() { return Ok(results); }
         }
     }
 
-    // Fallback: use grep
-    let grep_result = {
-        let mut cmd = std::process::Command::new("grep");
-        cmd.hidden();
-        cmd.args(&[
-            "-r",
-            "-n",
-            "-i",
-            "--exclude-dir=.git",
-            "--exclude-dir=node_modules",
-            "--exclude-dir=target",
-        ]);
-        if let Some(ref inc) = include {
-            cmd.args(&["--include", inc]);
-        }
-        cmd.arg(&pattern).current_dir(&root);
-        cmd.output()
-    };
+    // 2. Fallback: Pure-Rust Resident Search (WalkDir + Regex)
+    println!("[DEBUG] Ripgrep unavailable. Activating internal search engine for: {}", pattern);
+    let re = regex::RegexBuilder::new(&pattern)
+        .case_insensitive(true)
+        .build()
+        .map_err(|e| format!("Invalid regex pattern: {}", e))?;
 
-    if let Ok(output) = grep_result {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines().take(100) {
-            let parts: Vec<&str> = line.splitn(3, ':').collect();
-            if parts.len() == 3 {
-                if let Ok(line_num) = parts[1].parse::<usize>() {
-                    results.push(SearchResult {
-                        path: root.join(parts[0]).to_string_lossy().to_string(),
-                        line: line_num,
-                        content: parts[2].trim().to_string(),
-                    });
+    let walker = ignore::WalkBuilder::new(&root)
+        .standard_filters(true)
+        .max_depth(Some(10))
+        .build();
+
+    for entry in walker.flatten() {
+        let is_file = entry.file_type().map(|t| t.is_file()).unwrap_or(false);
+        if is_file {
+            let path = entry.path();
+            if let Ok(content) = std::fs::read_to_string(path) {
+                if content.len() > 1_000_000 { continue; } // Skip huge binaries
+                for (i, line) in content.lines().enumerate() {
+                    if re.is_match(line) {
+                        results.push(SearchResult {
+                            path: path.to_string_lossy().to_string(),
+                            line: i + 1,
+                            content: line.trim().to_string(),
+                        });
+                        if results.len() >= 100 { break; }
+                    }
                 }
             }
         }
+        if results.len() >= 100 { break; }
     }
 
     Ok(results)
@@ -1983,8 +1981,47 @@ fn register_ida_pro() -> Result<(), String> {
     Ok(())
 }
 #[tauri::command]
-fn ai_execute_command(_command: String) -> Result<String, String> {
-    Ok("Executed".to_string())
+async fn ai_execute_command(command: String, cwd: Option<String>, _timeout: Option<u64>) -> Result<String, String> {
+    println!("[DEBUG] ai_execute_command: {}", command);
+    
+    let working_dir = cwd.map(PathBuf::from).unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    
+    let mut cmd = if cfg!(target_os = "windows") {
+        let mut c = std::process::Command::new("cmd");
+        c.args(&["/C", &command]);
+        c
+    } else {
+        let mut c = std::process::Command::new("sh");
+        c.args(&["-c", &command]);
+        c
+    };
+
+    cmd.current_dir(working_dir);
+    
+    // Use tokio for async execution if we want to handle timeouts easily, 
+    // but we'll stick to a simple synchronous wait with a timeout thread for now
+    // to match the existing non-tokio command structure in lib.rs if it's simpler.
+    // Actually, let's use standard output capture.
+    
+    let output = cmd.output().map_err(|e| format!("Failed to spawn command: {}", e))?;
+    
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    
+    if output.status.success() {
+        if stdout.is_empty() && !stderr.is_empty() {
+             Ok(format!("Command succeeded (stderr only):\n{}", stderr))
+        } else if stdout.is_empty() {
+             Ok("Command succeeded (no output)".to_string())
+        } else {
+             Ok(stdout)
+        }
+    } else {
+        Err(format!("Command failed (exit {}):\nSTDOUT: {}\nSTDERR: {}", 
+            output.status.code().unwrap_or(-1),
+            stdout,
+            stderr))
+    }
 }
 #[tauri::command]
 fn propose_file_change(
@@ -2351,8 +2388,14 @@ async fn optimize_memory(state: State<'_, EditorState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn pause_ai_agent(state: State<'_, EditorState>) -> Result<(), String> {
+    state.ai_engine.pause();
+    Ok(())
+}
+
+#[tauri::command]
 fn resume_ai_agent(state: State<'_, EditorState>) -> Result<(), String> {
-    state.ai_engine.reset_stop_signal();
+    state.ai_engine.resume();
     Ok(())
 }
 #[tauri::command]
@@ -2815,6 +2858,7 @@ pub fn run() {
 
             app.manage(state.browser_state.clone());
             let mcp_registry = state.mcp_registry.clone();
+            app.manage(state.attachment_manager.clone());
             app.manage(state);
 
             // Initialize MCP servers in background
@@ -2890,6 +2934,7 @@ pub fn run() {
             check_ollama_status,
             pull_ollama_model,
             stop_ai_agent,
+            pause_ai_agent,
             resume_ai_agent,
             register_ida_pro,
             ai_execute_command,
@@ -2977,7 +3022,9 @@ pub fn run() {
             archive_chat_session,
             create_new_session,
             get_agent_messages,
-            get_brain_telemetry
+            get_brain_telemetry,
+            select_and_process_attachment,
+            vision_bridge::capture_preview_screenshot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

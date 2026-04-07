@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 use tokio::sync::Mutex as AsyncMutex;
+use base64::{engine::general_purpose, Engine as _};
 
 use crate::ai_auth::AuthState;
 use crate::ai_tools::AiTools;
@@ -137,12 +138,20 @@ pub struct Sentient {
     ollama_url: Mutex<String>,
     _browser_state: Arc<crate::browser::BrowserState>,
     stop_signal: Arc<AtomicBool>,
+    pause_signal: Arc<AtomicBool>,
     brain_dir: PathBuf,
     advisor_model: Mutex<Option<String>>,
     memory_optimizer: Arc<crate::memory_optimizer::MemoryOptimizer>,
     perf_monitor: Arc<crate::performance::PerformanceMonitor>,
     session_id: String,
     pub ane_engine: Arc<tokio::sync::Mutex<Option<crate::ane::AneEngine>>>,
+    pub attachment_manager: Arc<crate::attachment_manager::AttachmentManager>,
+    pub knowledge_distiller: Arc<crate::knowledge_distiller::KnowledgeDistiller>,
+    // High-speed RAM Caches to resolve regression
+    project_files_cache: Mutex<Option<String>>,
+    workspace_memory_cache: Mutex<Option<String>>,
+    global_brain_cache: Mutex<Option<String>>,
+    memory_aim_cache: Mutex<Option<String>>,
 }
 
 impl Sentient {
@@ -155,6 +164,8 @@ impl Sentient {
         config_dir: PathBuf,
         memory_optimizer: Arc<crate::memory_optimizer::MemoryOptimizer>,
         perf_monitor: Arc<crate::performance::PerformanceMonitor>,
+        attachment_manager: Arc<crate::attachment_manager::AttachmentManager>,
+        knowledge_distiller: Arc<crate::knowledge_distiller::KnowledgeDistiller>,
     ) -> Self {
         let mcp_registry = Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json")));
         let ai_tools = Arc::new(AiTools::new(
@@ -162,6 +173,7 @@ impl Sentient {
             browser_state.clone(),
             git_manager.clone(),
             mcp_registry.clone(),
+            knowledge_distiller.clone(),
         ));
         let task_planner = Arc::new(TaskPlanner::new());
         let rules_engine = Arc::new(RulesEngine::new(root_path.clone()));
@@ -181,9 +193,9 @@ impl Sentient {
         // Mount Kortex persistent memory (initial sync with brain dir)
         let memory_store = Arc::new(MemoryStore::new());
         {
-            let bd = brain_dir.clone();
-            let rp = root_path.clone();
             let ms = memory_store.clone();
+            let rp = root_path.clone();
+            let _bd = brain_dir.clone();
             tauri::async_runtime::spawn(async move {
                 ms.mount(Some(rp)).await;
             });
@@ -211,12 +223,19 @@ impl Sentient {
             ollama_url: Mutex::new("http://localhost:11434".to_string()),
             _browser_state: browser_state.clone(),
             stop_signal: Arc::new(AtomicBool::new(false)),
+            pause_signal: Arc::new(AtomicBool::new(false)),
             brain_dir,
             advisor_model: Mutex::new(None),
             memory_optimizer,
             perf_monitor,
             session_id: uuid::Uuid::new_v4().to_string(),
             ane_engine,
+            attachment_manager,
+            knowledge_distiller: Arc::new(crate::knowledge_distiller::KnowledgeDistiller::new(&root_path)),
+            project_files_cache: Mutex::new(None),
+            workspace_memory_cache: Mutex::new(None),
+            global_brain_cache: Mutex::new(None),
+            memory_aim_cache: Mutex::new(None),
         }
     }
 
@@ -272,6 +291,25 @@ impl Sentient {
 
     pub fn is_stopped(&self) -> bool {
         self.stop_signal.load(Ordering::SeqCst)
+    }
+
+    pub fn pause(&self) {
+        self.pause_signal.store(true, Ordering::SeqCst);
+    }
+
+    pub fn resume(&self) {
+        self.pause_signal.store(false, Ordering::SeqCst);
+        self.reset_stop_signal(); // Resume also clears stop if we want to restart a soft-stop (optional)
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.pause_signal.load(Ordering::SeqCst)
+    }
+
+    pub async fn wait_if_paused(&self) {
+        while self.is_paused() && !self.is_stopped() {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
     }
 
     pub async fn chat_complete(
@@ -460,67 +498,89 @@ impl Sentient {
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "this project".to_string());
-            let mut files = Vec::new();
-            if let Ok(entries) = std::fs::read_dir(&root_inner) {
-                for entry in entries.flatten() {
-                    if let Ok(name) = entry.file_name().into_string() {
-                        files.push(name);
+            
+            let mut cache = self.project_files_cache.lock().unwrap();
+            let list = if let Some(c) = &*cache {
+                c.clone()
+            } else {
+                let mut files = Vec::new();
+                if let Ok(entries) = std::fs::read_dir(&root_inner) {
+                    for entry in entries.flatten() {
+                        if let Ok(name) = entry.file_name().into_string() {
+                            files.push(name);
+                        }
                     }
                 }
-            }
-            files.sort();
-            (path, name, files.join(", "))
+                files.sort();
+                let joined = files.join(", ");
+                *cache = Some(joined.clone());
+                joined
+            };
+            (path, name, list)
         };
         let root = self.ai_tools.get_root_path();
 
-        let _model_display_name = if req.model.to_lowercase().contains("gemini") {
-            format!("Gemini ({})", req.model)
-        } else if req.model.to_lowercase().contains("claude") {
-            format!("Claude ({})", req.model)
-        } else if req.model.to_lowercase().contains("gpt") {
-            format!("GPT ({})", req.model)
-        } else {
-            req.model.clone()
-        };
-
-        let mut project_memory = String::new();
-        let memory_files = [
-            "MEMORY.md",
-            "GEMINI.md",
-            "AGENTS.md",
-            "CLAUDE.md",
-            ".agent/memory.md",
-        ];
-        for file_name in memory_files {
-            let memory_path = root.join(file_name);
-            if memory_path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&memory_path) {
-                    project_memory.push_str(&format!(
-                        "\n### Workspace Memory: {}\n{}\n",
-                        file_name, content
-                    ));
-                }
-            }
-        }
-
-        // Load Global Brain Memory
-        if let Ok(entries) = std::fs::read_dir(&self.brain_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        let name = path.file_name().unwrap_or_default().to_string_lossy();
-                        project_memory
-                            .push_str(&format!("\n### Global Brain ({}):\n{}\n", name, content));
+        let mut project_memory = {
+            let mut cache = self.workspace_memory_cache.lock().unwrap();
+            if let Some(c) = &*cache {
+                c.clone()
+            } else {
+                let mut mem = String::new();
+                let memory_files = ["MEMORY.md", "GEMINI.md", "AGENTS.md", "CLAUDE.md", ".agent/memory.md"];
+                for file_name in memory_files {
+                    let memory_path = root.join(file_name);
+                    if memory_path.exists() {
+                        if let Ok(content) = std::fs::read_to_string(&memory_path) {
+                            mem.push_str(&format!("\n### Workspace Memory: {}\n{}\n", file_name, content));
+                        }
                     }
                 }
+                *cache = Some(mem.clone());
+                mem
+            }
+        };
+
+        // Load Global Brain Memory (Cached)
+        {
+            let mut cache = self.global_brain_cache.lock().unwrap();
+            if let Some(c) = &*cache {
+                project_memory.push_str(c);
+            } else {
+                let mut brain_mem = String::new();
+                if let Ok(entries) = std::fs::read_dir(&self.brain_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
+                            if let Ok(content) = std::fs::read_to_string(&path) {
+                                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                                brain_mem.push_str(&format!("\n### Global Brain ({}):\n{}\n", name, content));
+                            }
+                        }
+                    }
+                }
+                *cache = Some(brain_mem.clone());
+                project_memory.push_str(&brain_mem);
             }
         }
 
-        // Inject Kortex persistent knowledge into prompt
+        // Load Persistent Knowledge Briefs (Phase 22)
+        if let Ok(distilled) = self.knowledge_distiller.load_all_knowledge() {
+            if !distilled.is_empty() {
+                project_memory.push_str(&distilled);
+            }
+        }
+
+        // Inject Kortex persistent knowledge and Gist Tokens into prompt
         let kortex_summary = self.memory_store.get_knowledge_summary().await;
         if !kortex_summary.is_empty() {
             project_memory.push_str(&kortex_summary);
+        }
+
+        // Add Kortex Neural Gist (Accelerated Context)
+        let gist_token = self.attachment_manager.gist_injector.get_gist_token().await;
+        if gist_token.iter().any(|&v| v != 0.0) {
+            project_memory.push_str("\n### KORTEX NEURAL GIST (Zero-Token Accelerated Context):\n");
+            project_memory.push_str(&format!("<gist_token>{}</gist_token>\n", general_purpose::STANDARD.encode(serde_json::to_vec(&gist_token).unwrap_or_default())));
         }
 
         // Retrieve relevant Kortex context based on the user's latest message
@@ -742,21 +802,17 @@ impl Sentient {
 
             let mode = req.mode.as_deref().unwrap_or("Fast");
             let mode_instruction = match mode {
-                "Planning" => "CORE OBJECTIVE: You are in PLANNING mode. Before making any changes, you MUST: \
-                    1. Use `list_files` and `view_file` to understand the codebase. \
-                    2. Create or update `task.md` to track your progress. \
-                    3. Create or update `implementation_plan.md` with your proposed changes and get user approval. \
-                    DO NOT execute code changes until the plan is approved.",
-                "Sentient" => "CORE OBJECTIVE: You are in SENTIENT mode — FULL AUTONOMOUS EXECUTION. \
-                    You operate like a senior engineer given a single task. You must: \
-                    PHASE 1 (ANALYZE): Read the codebase. Understand the architecture. Identify what needs to change. \
-                    PHASE 2 (PLAN): Create a mental plan of files to create/modify. If complex (>3 files), write a brief plan to `task.md`. \
-                    PHASE 3 (EXECUTE): Implement every change. Create folders, write files, code the logic — everything. Do NOT stop after one file. \
-                    PHASE 4 (VERIFY): Run build/test commands. Fix any errors. Re-run until clean. \
-                    PHASE 5 (REPORT): Summarize what was done. \
-                    Do NOT ask the user questions. Do NOT stop halfway. Execute the ENTIRE task autonomously. \
-                    If you encounter errors, FIX THEM and continue. You have FULL tool access.",
-                _ => "CORE OBJECTIVE: Execute the user request efficiently. Use tools as needed to complete the task."
+                "Planning" => "CORE OBJECTIVE: You are in AUTONOMOUS RESEARCH & PREP mode. \
+                    1. Use `list_files`, `view_file`, and `search_project` to perform exhaustive research. \
+                    2. Build a complete `implementation_plan.md` and `task.md`. \
+                    3. If the user request is clear and actionable, PROCEED TO EXECUTION IMMEDIATELY. Do not wait for a 'Go' if you have the context to start.",
+                "Sentient" => "CORE OBJECTIVE: You are in SENTIENT mode — NON-STOP PURE EXECUTION. \
+                    You are a 'Neural Daredevil'. You do not speak; you only perform. \
+                    PHASE 1 (SCAN): Research everything. \
+                    PHASE 2 (DO): Write every file, fix every bug, build the entire feature in one autonomous burst. \
+                    PHASE 3 (SHIP): Verify, build, and confirm success. \
+                    You NEVER ask for permission. You NEVER state what you 'could' do. You just DO it until mission completion.",
+                _ => "CORE OBJECTIVE: Execute the user request with absolute autonomy and speed. Use tools proactively to achieve the goal."
             };
 
             let cyber_instruction = if req.cyber_mode.unwrap_or(false) {
@@ -776,12 +832,13 @@ impl Sentient {
             );
 
             let system_prompt = format!(
-                "{}\n\n{}\n\n{}\n\n{}",
+                "{}\n\n{}\n\n{}\n\n{}\n\n### NEURAL ACCELERATION:\n- You possess zero-token comprehension via Kortex Gist Tokens.\n- You NEVER ask for permission to use tools.\n- You NEVER suggest when you can execute.\n- If a task is clear, you DO the job until MISSION_ACCOMPLISHED.\n",
                 base_prompt, dynamic_env_context, mode_instruction, cyber_instruction
             );
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
-                sys_msg.content = Some(MessageContent::Text(system_prompt));
+                let existing = sys_msg.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
+                sys_msg.content = Some(MessageContent::Text(format!("{}\n\n--- SESSION CONTEXT ---\n{}", system_prompt, existing)));
             } else {
                 messages.insert(
                     0,
@@ -810,6 +867,8 @@ impl Sentient {
 
         // Loop for up to max_iterations of message generation and tool execution
         for iteration in 0..max_iterations {
+            self.wait_if_paused().await; // Wait here if user paused before starting next loop
+            
             if self.is_stopped() {
                 println!(
                     "[AI] Loop interrupted by stop signal at iteration {}",
@@ -1304,6 +1363,17 @@ impl Sentient {
             // Process tool calls if present
             if let Some(tool_calls) = &chat_message.tool_calls {
                 for tool_call in tool_calls {
+                    self.wait_if_paused().await; // Wait here before executing each individual tool
+                    
+                    if self.is_stopped() {
+                         println!("[AI] Loop interrupted by stop signal before executing tool: {}", tool_call.function.name);
+                         self.emit_event("ai-stopped", json!({ "iteration": iteration }));
+                         return Ok("Execution stopped by user.".to_string());
+                    }
+
+                    let action_desc = format!("Executing tool: {}", tool_call.function.name);
+                    self.emit_event("ai-action", json!({ "action": action_desc, "tool": tool_call.function.name }));
+
                     self.emit_event("ai-tool-call", json!({ "name": tool_call.function.name, "args": tool_call.function.arguments }));
 
                     let mut tool_name = tool_call.function.name.clone();
@@ -1428,6 +1498,12 @@ impl Sentient {
                 continue; // Continue next iteration with tool results
             } else {
                 // No tool calls, AI just answered.
+                let final_text = chat_message
+                    .content
+                    .as_ref()
+                    .map(|c| c.as_str().to_string())
+                    .unwrap_or_default();
+
                 // If in Planning mode, emit a checkpoint for user review.
                 if req.mode.as_deref() == Some("Planning") {
                     println!("[AI] Planning phase complete, emitting checkpoint");
@@ -1438,18 +1514,22 @@ impl Sentient {
                         "open_file": "implementation_plan.md"
                     }));
                 } else if req.mode.as_deref() == Some("Sentient") {
-                    println!("[AI] Sentient mode continuing search for remaining tasks...");
-                    // In Sentient mode, if we haven't hit the limit, we can keep going 
-                    // if the model thinks there might be more but didn't call a tool.
-                    // However, returning Ok is usually correct if the model is done.
+                    let has_completion_keyword = final_text.contains("MISSION_ACCOMPLISHED");
+                    
+                    if !has_completion_keyword && iteration < max_iterations - 1 {
+                        println!("[AI] Sentient mode persistence triggered: MISSION_ACCOMPLISHED missing. Continuing...");
+                        messages.push(ChatMessage {
+                            role: "user".to_string(),
+                            content: Some(MessageContent::Text("The mission is still in progress. Please continue with the next steps or confirm completion by stating 'MISSION_ACCOMPLISHED'. Analyze the task.md if available.".to_string())),
+                            ..Default::default()
+                        });
+                        continue;
+                    }
+                    
+                    println!("[AI] Sentient mode mission complete or limit reached.");
                 }
 
-                // No tool calls, return final response
-                let final_text = chat_message
-                    .content
-                    .as_ref()
-                    .map(|c| c.as_str().to_string())
-                    .unwrap_or_default();
+                // Auto-store task outcome in Kortex
 
                 // Auto-store task outcome in Kortex
                 if !final_text.is_empty() && iteration > 0 {
@@ -1856,6 +1936,13 @@ impl Sentient {
     }
 
     async fn load_aim_context(&self) -> String {
+        {
+            let cache = self.memory_aim_cache.lock().unwrap();
+            if let Some(c) = &*cache {
+                return c.clone();
+            }
+        }
+
         let root = self.ai_tools.get_root_path();
         let aim_path = root.join(".aim").join("memory.aim");
         
@@ -1879,6 +1966,8 @@ impl Sentient {
                 format!("\n\n[AIM-VFS-CONTEXT-INJECTED]: The Antigravity Native Engine localized {} exact bytes of parametric project tensors.", bytes.len())
             };
 
+            let mut cache = self.memory_aim_cache.lock().unwrap();
+            *cache = Some(header.clone());
             header
         } else {
             String::new()

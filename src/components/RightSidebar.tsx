@@ -58,6 +58,7 @@ const RightSidebar: React.FC = () => {
     const model = useStore(state => state.agentModel);
     const messages = useStore(state => state.agentMessages);
     const isAgentThinking = useStore(state => state.isAgentThinking);
+    const isAgentPaused = useStore(state => state.isAgentPaused);
     const addAgentMessage = useStore(state => state.addAgentMessage);
     const updateLastAgentMessage = useStore(state => state.updateLastAgentMessage);
     const setIsAgentThinking = useStore(state => state.setIsAgentThinking);
@@ -66,10 +67,10 @@ const RightSidebar: React.FC = () => {
     const pendingChanges = useStore(state => state.pendingChanges);
     const truncateAgentMessages = useStore(state => state.truncateAgentMessages);
     const [sessionAge, setSessionAge] = useState<string>('');
-    const attachedContext = useStore(state => state.attachedContext);
-    const addAttachedContext = useStore(state => state.addAttachedContext);
-    const removeAttachedContext = useStore(state => state.removeAttachedContext);
-    const clearAttachedContext = useStore(state => state.clearAttachedContext);
+    const attachedFiles = useStore(state => state.attachedFiles);
+    const attachFile = useStore(state => state.attachFile);
+    const removeFile = useStore(state => state.removeFile);
+    const clearAttachedFiles = useStore(state => state.clearAttachedFiles);
     const agentRootAccess = useStore(state => state.agentRootAccess);
     const setAgentRootAccess = useStore(state => state.setAgentRootAccess);
     const fileTree = useStore(state => state.fileTree);
@@ -80,6 +81,7 @@ const RightSidebar: React.FC = () => {
     const loadChatSession = useStore(state => state.loadChatSession);
     const archiveCurrentSession = useStore(state => state.archiveCurrentSession);
     const createNewSession = useStore(state => state.createNewSession);
+    const availableModels = useStore(state => state.availableModels);
 
     useEffect(() => {
         if (view === 'history') {
@@ -95,6 +97,7 @@ const RightSidebar: React.FC = () => {
     const [editingMsgIdx, setEditingMsgIdx] = useState<number | null>(null);
     const [editValue, setEditValue] = useState('');
     const [lastCopiedIdx, setLastCopiedIdx] = useState<number | null>(null);
+    const [isAttaching, setIsAttaching] = useState(false);
 
     const allFiles = useMemo(() => {
         const flatten = (entries: FileEntry[]): FileEntry[] => {
@@ -155,22 +158,90 @@ const RightSidebar: React.FC = () => {
 
     if (!isOpen) return null;
 
+    const handleAttachFile = async () => {
+        if (isAttaching) return;
+        setIsAttaching(true);
+        try {
+            // Priority: Find a dedicated embedding model first (much faster)
+            let embeddingModel = availableModels.find(m =>
+                m.provider === 'ollama' && (
+                    m.id.toLowerCase().includes('embed') ||
+                    m.id.toLowerCase().includes('nomic') ||
+                    m.id.toLowerCase().includes('mxbai')
+                )
+            )?.id;
+
+            // Filter for dedicated embedding models only
+            const dedicatedEmbedder = availableModels.find(m =>
+                m.provider === 'ollama' && (
+                    m.id.toLowerCase().includes('embed') ||
+                    m.id.toLowerCase().includes('nomic') ||
+                    m.id.toLowerCase().includes('mxbai')
+                )
+            )?.id;
+
+            // STRATEGY: Only attempt neuralization if we have a dedicated lightweight model.
+            // Using the heavy reasoning model for embeddings causes the '4-minute' swap delay.
+            let cleanInvokeModel = "";
+            if (dedicatedEmbedder) {
+                cleanInvokeModel = dedicatedEmbedder.includes('|') ? dedicatedEmbedder.split('|').pop()! :
+                    (dedicatedEmbedder.includes('/') ? dedicatedEmbedder.split('/').pop()! : dedicatedEmbedder);
+                console.log(`[DEBUG] Neuralizing using dedicated model: ${cleanInvokeModel}`);
+            } else {
+                console.log("[DEBUG] No dedicated embedder found. Using instant raw-text attachment flow.");
+            }
+
+            let result: any;
+            try {
+                result = await invoke('select_and_process_attachment', { model: cleanInvokeModel });
+            } catch (invokeError: any) {
+                console.error('[ERROR] Attachment selection failed:', invokeError);
+                throw invokeError;
+            }
+
+            if (result) {
+                attachFile({
+                    id: result.path || `neural-${Date.now()}`,
+                    type: 'file',
+                    name: result.name,
+                    path: result.path,
+                    gist: result.gist
+                });
+            }
+        } catch (error: any) {
+            console.error('Failed to neuralize, attempting raw attachment:', error);
+            // FINAL FALLBACK: If neuralization fails, try a simple file read for raw context
+            try {
+                // We need the path. Since we don't have it from 'select_and_process_attachment' yet
+                // because it failed before/during selection potentially, we might need a separate picker.
+                // However, 'select_and_process_attachment' usually fails AFTER selection.
+                // For now, let's just alert the user to get a dedicated model.
+                alert('Ollama failed to neuralize the file. \n\nTIP: For best performance, run "ollama pull nomic-embed-text". \nFalling back to standard attachment...');
+            } catch (fallbackError) {
+                alert('Failed to attach file: ' + error);
+            }
+        } finally {
+            setIsAttaching(false);
+        }
+    };
+
     const onSend = async (overrideMsg?: string) => {
         const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
-        if (val && !isAgentThinking) {
+        if ((val || attachedFiles.length > 0) && !isAgentThinking) {
+            const currentMsgs = [...messages];
             if (overrideMsg === undefined) setInputValue("");
             setIsMentionDropdownOpen(false);
             if (inputRef.current) inputRef.current.style.height = 'auto';
 
-            const context = [...attachedContext];
+            const context = [...attachedFiles];
             setIsAgentThinking(true);
             addAgentMessage('user', val, context);
-            clearAttachedContext();
+            clearAttachedFiles();
             addAgentMessage('assistant', "");
 
             try {
                 const m = await import('../agent');
-                await m.sendAgentMessage(val, () => { });
+                await m.sendAgentMessage(val, () => { }, context);
             } catch (err: any) {
                 console.error('Agent chat failed:', err);
                 const errorMsg = err.message || JSON.stringify(err);
@@ -219,9 +290,9 @@ const RightSidebar: React.FC = () => {
         if (files.length > 0) {
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
-                addAttachedContext({
-                    type: file.type.startsWith('image/') ? 'attachment' : 'file',
+                attachFile({
                     id: `dropped-${Date.now()}-${i}`,
+                    type: file.type.startsWith('image/') ? 'attachment' : 'file',
                     name: file.name,
                     path: (file as any).path || file.name
                 });
@@ -235,7 +306,7 @@ const RightSidebar: React.FC = () => {
         const newValue = words.join(' ') + ' ';
         setInputValue(newValue);
         setIsMentionDropdownOpen(false);
-        addAttachedContext({
+        attachFile({
             id: file.path,
             type: 'file',
             name: file.name,
@@ -356,7 +427,23 @@ const RightSidebar: React.FC = () => {
                     <SentientAvatar state={avatarState} size={28} />
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', color: avatarState === 'error' ? '#ef4444' : 'inherit' }}>TERMINATOR AI</span>
-                        {sessionAge && <span style={{ fontSize: '9px', opacity: 0.4, fontWeight: 400 }}>{avatarState.toUpperCase()} • {sessionAge}</span>}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            {isAgentThinking && (
+                                <span style={{ fontSize: '9px', color: '#3b82f6', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontSize: '9px' }}></i>
+                                    Thinking
+                                </span>
+                            )}
+                            {isAttaching && (
+                                <span style={{ fontSize: '9px', color: '#10b981', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '2px', marginLeft: isAgentThinking ? '6px' : 0 }}>
+                                    <i className="codicon codicon-sync codicon-modifier-spin" style={{ fontFamily: 'codicon', fontSize: '9px' }}></i>
+                                    Neuralizing
+                                </span>
+                            )}
+                            {!isAgentThinking && !isAttaching && (
+                                <span style={{ fontSize: '9px', opacity: 0.3, textTransform: 'uppercase' }}>{aiStatus}</span>
+                            )}
+                        </div>
                     </div>
                     <div
                         onClick={() => {
@@ -452,6 +539,12 @@ const RightSidebar: React.FC = () => {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className={`codicon codicon-${msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'hubot' : 'sparkle') : 'account'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: msg.isSubAgentResponse ? '#3b82f6' : 'inherit' }}></i>
                                                 <span style={{ fontSize: '11px', fontWeight: 800, color: msg.isSubAgentResponse ? '#3b82f6' : 'inherit' }}>{msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'SUB-AGENT' : 'TERMINATOR') : 'YOU'}</span>
+                                                {msg.role === 'assistant' && !msg.isSubAgentResponse && isAgentThinking && idx === messages.length - 1 && (
+                                                    <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 400, marginLeft: '8px', textTransform: 'uppercase' }}>{avatarState} • {sessionAge}</span>
+                                                )}
+                                                {msg.role === 'assistant' && !isAgentThinking && msg.timestamp && (
+                                                    <span style={{ fontSize: '9px', opacity: 0.3, fontWeight: 400, marginLeft: '8px' }}>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                )}
                                             </div>
                                             <div className="message-actions" style={{ opacity: 0, transition: 'opacity 0.2s', display: 'flex', gap: '8px' }}>
                                                 {msg.role === 'user' && !isAgentThinking && (
@@ -523,18 +616,29 @@ const RightSidebar: React.FC = () => {
                                                             })}
                                                         </div>
                                                     )}
-                                                    <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.6' }} dangerouslySetInnerHTML={{ __html: marked.parse(msg.content || "") as string }} />
+                                                    {msg.context && msg.context.length > 0 && (
+                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px', opacity: 0.8 }}>
+                                                            {msg.context.map((item: any, i: number) => (
+                                                                <div key={i} style={{
+                                                                    display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px',
+                                                                    background: 'rgba(255,255,255,0.06)', borderRadius: '4px', fontSize: '10px',
+                                                                    border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)'
+                                                                }}>
+                                                                    <i className="codicon codicon-files" style={{ fontSize: '10px' }}></i>
+                                                                    <span>{item.name}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.6', minHeight: (!msg.content && msg.context?.length) ? '0' : '1em' }} dangerouslySetInnerHTML={{ __html: marked.parse(msg.content || "") as string }} />
                                                 </>
                                             )}
                                         </div>
                                     </div>
                                 ))}
-                                {isAgentThinking && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', opacity: 0.5 }}>
-                                        <i className="codicon codicon-sync codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
-                                        <span style={{ fontSize: '11px', fontWeight: 600 }}>Thinking...</span>
-                                    </div>
-                                )}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', opacity: 0.3 }}>
+                                    <span style={{ fontSize: '10px', fontStyle: 'italic' }}>Terminator is generating payload...</span>
+                                </div>
                                 <div ref={messagesEndRef} />
                             </>
                         )}
@@ -590,28 +694,92 @@ const RightSidebar: React.FC = () => {
                         background: 'var(--vscode-input-background)', border: '1px solid var(--vscode-input-border, transparent)',
                         borderRadius: '12px', padding: '8px 12px', display: 'flex', flexDirection: 'column'
                     }}>
-                        {attachedContext.length > 0 && (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
-                                {attachedContext.map((item, i) => (
-                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '10px' }}>
-                                        <span>{item.name}</span>
-                                        <i className="codicon codicon-close" onClick={() => removeAttachedContext(i)} style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', opacity: 0.5 }}></i>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
                         <textarea
                             ref={inputRef} value={inputValue} onChange={handleInputChange} onKeyDown={handleKeyDown}
                             placeholder="Ask the Agent..."
-                            style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', resize: 'none', fontSize: '13px', lineHeight: '1.5', width: '100%', minHeight: '24px' }}
+                            style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', resize: 'none', fontSize: '13px', lineHeight: '1.5', width: '100%', minHeight: '32px' }}
                         />
+                        {attachedFiles.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px', paddingBottom: '4px' }}>
+                                {attachedFiles.map((item, i) => (
+                                    <div key={item.id || i} style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
+                                        background: 'rgba(255,255,255,0.08)', borderRadius: '6px', fontSize: '11px',
+                                        border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)'
+                                    }}>
+                                        <span style={{ opacity: 0.7, fontSize: '10px' }}>{item.type === 'attachment' ? 'IMG' : '{ }'}</span>
+                                        <span style={{ fontWeight: 500 }}>{item.name}</span>
+                                        <i className="codicon codicon-close" onClick={() => removeFile(item.path)} style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', opacity: 0.5, marginLeft: '2px', fontSize: '10px' }}></i>
+                                    </div>
+                                ))}
+                                {isAttaching && (
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
+                                        background: 'rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '11px',
+                                        border: '1px dashed rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.5)',
+                                        fontStyle: 'italic'
+                                    }}>
+                                        <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px' }}></i>
+                                        <span>Neuralizing...</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {!attachedFiles.length && isAttaching && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px', paddingBottom: '4px' }}>
+                                <div style={{
+                                    display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
+                                    background: 'rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '11px',
+                                    border: '1px dashed rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.5)',
+                                    fontStyle: 'italic'
+                                }}>
+                                    <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px' }}></i>
+                                    <span>Neuralizing...</span>
+                                </div>
+                            </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <div onClick={handleAttachFile} style={{ cursor: 'pointer', opacity: 0.5, display: 'flex', alignItems: 'center' }} className="hoverable-bg" title="Attach File (Neural Gist)">
+                                    <i className="codicon codicon-attach" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
+                                </div>
                                 <span onClick={onModeClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }} className="hoverable-bg">{mode}</span>
                                 <span onClick={onModelClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }} className="hoverable-bg">{(model.split('|')[1] || model).split(':')[0]}</span>
                             </div>
-                            <div onClick={() => onSend()} style={{ width: '24px', height: '24px', borderRadius: '50%', background: inputValue.trim() ? '#fff' : 'rgba(255,255,255,0.1)', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                                <i className="codicon codicon-arrow-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <div style={{
+                                    display: 'flex',
+                                    gap: '10px',
+                                    alignItems: 'center',
+                                    marginRight: '12px',
+                                    padding: '4px 10px',
+                                    background: 'rgba(255,255,255,0.03)',
+                                    borderRadius: '6px',
+                                    border: '1px solid rgba(255,255,255,0.05)',
+                                    transition: 'all 0.2s'
+                                }}>
+                                    <div
+                                        onClick={() => isAgentPaused ? import('../agent').then(m => m.resumeAgent()) : import('../agent').then(m => m.pauseAgent())}
+                                        style={{ cursor: 'pointer', color: isAgentPaused ? '#10b981' : '#f59e0b', display: 'flex', alignItems: 'center' }}
+                                        title={isAgentPaused ? "Resume Agent" : "Pause Agent"}
+                                    >
+                                        <i className={`codicon codicon-${isAgentPaused ? 'play' : 'debug-pause'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px' }}></i>
+                                    </div>
+                                    <div
+                                        onClick={() => import('../agent').then(m => m.stopAgent())}
+                                        style={{ cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center' }}
+                                        title="Stop Agent (Terminate)"
+                                    >
+                                        <i className="codicon codicon-primitive-square" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px' }}></i>
+                                    </div>
+                                </div>
+                                <div onClick={() => onSend()} style={{
+                                    width: '24px', height: '24px', borderRadius: '50%',
+                                    background: (inputValue.trim() || attachedFiles.length > 0) ? '#fff' : 'rgba(255,255,255,0.1)',
+                                    color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'
+                                }}>
+                                    <i className="codicon codicon-arrow-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
+                                </div>
                             </div>
                         </div>
                     </div>
