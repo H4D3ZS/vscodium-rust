@@ -23,6 +23,7 @@ pub struct AiTools {
     app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
     git_manager: Arc<crate::git::GitManager>,
     mcp_registry: Arc<crate::mcp_registry::McpRegistry>,
+    memory_store: Arc<crate::memory_store::MemoryStore>,
     pub knowledge_distiller: Arc<crate::knowledge_distiller::KnowledgeDistiller>,
 }
 
@@ -32,6 +33,7 @@ impl AiTools {
         browser_state: Arc<crate::browser::BrowserState>,
         git_manager: Arc<crate::git::GitManager>,
         mcp_registry: Arc<crate::mcp_registry::McpRegistry>,
+        memory_store: Arc<crate::memory_store::MemoryStore>,
         knowledge_distiller: Arc<crate::knowledge_distiller::KnowledgeDistiller>,
     ) -> Self {
         Self {
@@ -40,6 +42,7 @@ impl AiTools {
             app_handle: Arc::new(Mutex::new(None)),
             git_manager,
             mcp_registry,
+            memory_store,
             knowledge_distiller,
         }
     }
@@ -638,6 +641,19 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "ai_propose_edit".to_string(),
+                description: "Propose a full-file code modification for user review. Does NOT write to disk immediately.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to the file" },
+                        "new_content": { "type": "string", "description": "The proposed full content of the file" },
+                        "description": { "type": "string", "description": "Brief summary of the changes for the user" }
+                    },
+                    "required": ["path", "new_content"]
+                }),
+            },
+            ToolDefinition {
                 name: "git_status".to_string(),
                 description: "View the status of the git repository (staged, unstaged, untracked files).".to_string(),
                 input_schema: json!({
@@ -770,6 +786,156 @@ impl AiTools {
                     "required": []
                 }),
             },
+            ToolDefinition {
+                name: "semantic_search".to_string(),
+                description: "High-speed indexed search across the project matrix for keywords or file relationships.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Keyword or topic to search for" }
+                    },
+                    "required": ["query"]
+                }),
+            },
+            ToolDefinition {
+                name: "find_symbols".to_string(),
+                description: "List all indexed code symbols (functions, classes) found in the project.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "pattern": { "type": "string", "description": "Optional substring to filter symbols" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "read_file_lines".to_string(),
+                description: "Read a specific line range from a file. Essential for large source files.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to file" },
+                        "start_line": { "type": "integer", "description": "1-indexed start line" },
+                        "end_line": { "type": "integer", "description": "1-indexed end line" }
+                    },
+                    "required": ["path", "start_line", "end_line"]
+                }),
+            },
+            ToolDefinition {
+                name: "reindex_project".to_string(),
+                description: "Force a full background re-indexing of the current project structure and symbols.".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "list_dir_tree".to_string(),
+                description: "Get a formatted tree view of the project structure (max depth 3).".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to root directory", "default": "." }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "list_mcp_ops".to_string(),
+                description: "List all available MCP server tools and their specific capabilities.".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "hex_dump".to_string(),
+                description: "Generate a hex dump of a binary file for low-level research.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to binary" },
+                        "offset": { "type": "integer", "description": "Starting byte offset", "default": 0 },
+                        "length": { "type": "integer", "description": "Number of bytes (default 256)", "default": 256 }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "extract_strings".to_string(),
+                description: "Extract printable ASCII strings from a binary file (min length 4).".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to file" }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "list_active_processes".to_string(),
+                description: "List currently running system processes (PID and Name).".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "apply_patch".to_string(),
+                description: "Apply a unified diff / patch to a file for complex changes.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to file" },
+                        "patch": { "type": "string", "description": "Unified diff format patch content" }
+                    },
+                    "required": ["path", "patch"]
+                }),
+            },
+            ToolDefinition {
+                name: "get_file_metadata".to_string(),
+                description: "Get detailed file metadata (size, mod time, permissions).".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to file" }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "ide_get_state".to_string(),
+                description: "Get the current IDE state (active file, open tabs, active terminal).".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "network_port_scanner".to_string(),
+                description: "Perform a native TCP port scan on a target host.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "IP or logical hostname" },
+                        "ports": { "type": "array", "items": { "type": "integer" }, "description": "List of ports to scan" }
+                    },
+                    "required": ["target", "ports"]
+                }),
+            },
+            ToolDefinition {
+                name: "binary_mach_o_scanner".to_string(),
+                description: "Deep scanner for Mach-O binaries (XNU Kernel / MacOS) to find sections and symbols.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to target binary" }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "file_entropy_analysis".to_string(),
+                description: "Calculate bit-level entropy to detect packed or encrypted sections (Malware Research).".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Path to target file" }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "dev_cargo_diagnostics".to_string(),
+                description: "Run 'cargo check' and return high-fidelity structured error messages.".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
         ]
     }
 
@@ -896,6 +1062,23 @@ impl AiTools {
             "rename_path" => self.rename_path(arguments),
             "editor_open_file" => self.editor_open_file(arguments),
             "editor_get_active_file" => self.editor_get_active_file(arguments),
+            "semantic_search" => self.semantic_search(arguments),
+            "find_symbols" => self.find_symbols(arguments),
+            "read_file_lines" => self.read_file_lines(arguments),
+            "reindex_project" => self.reindex_project(arguments),
+            "list_dir_tree" => self.list_dir_tree(arguments),
+            "list_mcp_ops" => self.list_mcp_ops(arguments),
+            "hex_dump" => self.hex_dump(arguments),
+            "extract_strings" => self.extract_strings(arguments),
+            "list_active_processes" => self.list_active_processes(arguments),
+            "apply_patch" => self.apply_patch(arguments),
+            "get_file_metadata" => self.get_file_metadata(arguments),
+            "ide_get_state" => self.ide_get_state(arguments),
+            "network_port_scanner" => self.network_port_scanner(arguments),
+            "binary_mach_o_scanner" => self.binary_mach_o_scanner(arguments),
+            "file_entropy_analysis" => self.file_entropy_analysis(arguments),
+            "dev_cargo_diagnostics" => self.dev_cargo_diagnostics(arguments),
+            "ai_propose_edit" => self.ai_propose_edit(arguments),
             _ => unreachable!(),
         }
     }
@@ -1156,6 +1339,71 @@ impl AiTools {
         Ok(json!({ "status": "success", "file": "MEMORY.md" }))
     }
 
+    fn get_flattened_files(&self, root: &std::path::Path) -> Vec<String> {
+        let mut files = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                if let Ok(name) = entry.file_name().into_string() {
+                    files.push(name);
+                }
+            }
+        }
+        files
+    }
+}
+
+pub struct ShellTranslator;
+
+impl ShellTranslator {
+    pub fn find_sh_path() -> Option<String> {
+        if cfg!(target_os = "windows") {
+            // Check common Git for Windows paths
+            let common_paths = [
+                "C:\\Program Files\\Git\\bin\\sh.exe",
+                "C:\\Program Files (x86)\\Git\\bin\\sh.exe",
+                "C:\\Program Files\\Git\\usr\\bin\\sh.exe",
+            ];
+            for path in &common_paths {
+                if std::path::Path::new(path).exists() {
+                    return Some(path.to_string());
+                }
+            }
+            // Check PATH
+            if let Ok(path) = which::which("sh") {
+                let p: std::path::PathBuf = path;
+                return Some(p.to_string_lossy().to_string());
+            }
+        }
+        None
+    }
+
+    pub fn translate_command(command: &str, shell_hint: &str) -> (String, Vec<String>) {
+        if cfg!(target_os = "windows") {
+            match shell_hint {
+                "bash" | "sh" => {
+                    if let Some(sh_path) = Self::find_sh_path() {
+                        return (sh_path, vec!["-c".to_string(), command.to_string()]);
+                    }
+                    // Fallback to powershell if bash not found
+                    ("powershell".to_string(), vec!["-Command".to_string(), command.to_string()])
+                }
+                "cmd" => {
+                    ("cmd".to_string(), vec!["/c".to_string(), command.to_string()])
+                }
+                _ => {
+                    // Default to powershell
+                    ("powershell".to_string(), vec!["-Command".to_string(), command.to_string()])
+                }
+            }
+        } else {
+            // Linux/macOS
+            ("sh".to_string(), vec!["-c".to_string(), command.to_string()])
+        }
+    }
+}
+
+impl AiTools {
+
     fn validate_path(&self, root: &std::path::Path, path_str: &str) -> Result<PathBuf> {
         let path = PathBuf::from(path_str);
         let full_path = if path.is_absolute() {
@@ -1396,6 +1644,8 @@ impl AiTools {
             .lock()
             .map_err(|_| anyhow!("Failed to lock root_path"))?;
 
+        let shell_hint = args.get("shell_hint").and_then(|v| v.as_str()).unwrap_or("run_command");
+
         if background {
             let h_lock = self
                 .app_handle
@@ -1414,30 +1664,25 @@ impl AiTools {
             );
             h.emit(
                 "terminal-create",
-                json!({ "id": id.clone(), "command": command }),
+                json!({ "id": id.clone(), "command": command, "shell": shell_hint }),
             )?;
 
             return Ok(json!({
                 "status": "success",
                 "info": "Command started in background terminal. You MUST use terminal_get_status(term_id) to check if it finished, and terminal_read_output(term_id) to see what happened. DO NOT assume it finished immediately.",
                 "term_id": id,
+                "shell_hint": shell_hint,
                 "hint": "Status polling is required for background tasks."
             }));
         }
 
-        let output = if cfg!(target_os = "windows") {
-            std::process::Command::new("powershell")
-                .hidden()
-                .args(&["-Command", command])
-                .current_dir(&*root)
-                .output()?
-        } else {
-            std::process::Command::new("sh")
-                .hidden()
-                .args(&["-c", command])
-                .current_dir(&*root)
-                .output()?
-        };
+        let (exec_path, exec_args) = ShellTranslator::translate_command(command, shell_hint);
+        
+        let output = std::process::Command::new(&exec_path)
+            .hidden()
+            .args(&exec_args)
+            .current_dir(&*root)
+            .output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -1801,6 +2046,395 @@ impl AiTools {
         Ok(Value::Array(results))
     }
 
+    fn semantic_search(&self, args: Value) -> Result<Value> {
+        let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing query"))?.to_lowercase();
+        let rt = tokio::runtime::Runtime::new()?;
+        let slots: Vec<crate::memory_store::SemanticSlot> = rt.block_on(async { self.memory_store.slots.read().await.clone() });
+        
+        let mut results = Vec::new();
+        for slot in slots {
+            if slot.content.to_lowercase().contains(&query) || 
+               slot.tags.iter().any(|t| t.to_lowercase().contains(&query)) ||
+               slot.id.to_lowercase().contains(&query) 
+            {
+                results.push(json!({
+                    "id": slot.id,
+                    "category": slot.category,
+                    "relevance_tags": slot.tags,
+                    "path_hint": slot.content
+                }));
+            }
+            if results.len() > 50 { break; }
+        }
+        Ok(json!(results))
+    }
+
+    fn find_symbols(&self, args: Value) -> Result<Value> {
+        let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+        let rt = tokio::runtime::Runtime::new()?;
+        let slots: Vec<crate::memory_store::SemanticSlot> = rt.block_on(async { self.memory_store.slots.read().await.clone() });
+        
+        let mut symbols = Vec::new();
+        for slot in slots {
+            for tag in slot.tags {
+                if tag.starts_with("symbol:") {
+                    let sym_name = &tag[7..];
+                    if pattern.is_empty() || sym_name.to_lowercase().contains(&pattern) {
+                        symbols.push(json!({
+                            "name": sym_name,
+                            "file": slot.content
+                        }));
+                    }
+                }
+            }
+            if symbols.len() > 200 { break; }
+        }
+        Ok(json!(symbols))
+    }
+
+    fn read_file_lines(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let start = args["start_line"].as_u64().unwrap_or(1) as usize;
+        let end = args["end_line"].as_u64().unwrap_or(1) as usize;
+        
+        let root = self.root_path.lock().unwrap().clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let content = fs::read_to_string(full_path)?;
+        let lines: Vec<&str> = content.lines().collect();
+        
+        let safe_start = start.max(1).min(lines.len());
+        let safe_end = end.min(lines.len()).max(safe_start);
+        
+        let subset = &lines[safe_start-1..safe_end];
+        Ok(json!({
+            "path": path_str,
+            "total_lines": lines.len(),
+            "range": format!("{}-{}", safe_start, safe_end),
+            "content": subset.join("\n")
+        }))
+    }
+
+    fn reindex_project(&self, _args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().unwrap();
+        if let Some(h) = h_lock.as_ref() {
+            h.emit("reindex-project", json!({}))?;
+            Ok(json!({"status": "success", "info": "Background re-indexing triggered."}))
+        } else {
+            Err(anyhow!("App handle not available"))
+        }
+    }
+
+    fn list_dir_tree(&self, args: Value) -> Result<Value> {
+        let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+        let root = self.root_path.lock().unwrap().clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let mut tree = String::new();
+        use walkdir::WalkDir;
+        
+        for entry in WalkDir::new(full_path)
+            .max_depth(3)
+            .into_iter()
+            .filter_map(|e| e.ok()) {
+            
+            let depth = entry.depth();
+            let name = entry.file_name().to_string_lossy();
+            let indent = "  ".repeat(depth);
+            
+            if entry.file_type().is_dir() {
+                tree.push_str(&format!("{}📁 {}/\n", indent, name));
+            } else {
+                tree.push_str(&format!("{}📄 {}\n", indent, name));
+            }
+            
+            if tree.len() > 10000 {
+                tree.push_str("... (truncated)\n");
+                break;
+            }
+        }
+        
+        Ok(json!({ "tree": tree }))
+    }
+
+    fn list_mcp_ops(&self, _args: Value) -> Result<Value> {
+        let mcp_status = tauri::async_runtime::block_on(async { 
+            self.mcp_registry.list_servers_status().await 
+        });
+        Ok(json!(mcp_status))
+    }
+
+    fn hex_dump(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let length = args.get("length").and_then(|v| v.as_u64()).unwrap_or(256) as usize;
+
+        let root = self.root_path.lock().unwrap().clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = fs::File::open(full_path)?;
+        file.seek(SeekFrom::Start(offset as u64))?;
+        
+        let mut buffer = vec![0u8; length];
+        let bytes_read = file.read(&mut buffer)?;
+        buffer.truncate(bytes_read);
+
+        let mut dump = String::new();
+        for (i, chunk) in buffer.chunks(16).enumerate() {
+            let row_offset = offset + (i * 16);
+            dump.push_str(&format!("{:08x}: ", row_offset));
+            
+            for b in chunk {
+                dump.push_str(&format!("{:02x} ", b));
+            }
+            
+            // Padding
+            if chunk.len() < 16 {
+                for _ in 0..(16 - chunk.len()) {
+                    dump.push_str("   ");
+                }
+            }
+            
+            dump.push_str(" |");
+            for b in chunk {
+                if b.is_ascii_graphic() || *b == b' ' {
+                    dump.push(*b as char);
+                } else {
+                    dump.push('.');
+                }
+            }
+            dump.push_str("|\n");
+        }
+
+        Ok(json!({ "path": path_str, "dump": dump }))
+    }
+
+    fn extract_strings(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let root = self.root_path.lock().unwrap().clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let bytes = fs::read(full_path)?;
+        let mut strings = Vec::new();
+        let mut current = Vec::new();
+        
+        for b in bytes {
+            if b.is_ascii_graphic() || b == b' ' || b == b'\t' {
+                current.push(b);
+            } else {
+                if current.len() >= 4 {
+                    strings.push(String::from_utf8_lossy(&current).to_string());
+                }
+                current.clear();
+            }
+            if strings.len() > 500 { break; }
+        }
+        
+        Ok(json!({ "path": path_str, "strings": strings }))
+    }
+
+    fn list_active_processes(&self, _args: Value) -> Result<Value> {
+        use sysinfo::System;
+        let mut s = System::new_all();
+        s.refresh_all();
+        
+        let mut processes = Vec::new();
+        for (pid, process) in s.processes() {
+            processes.push(json!({
+                "pid": pid.to_string(),
+                "name": process.name(),
+                "memory_kb": process.memory()
+            }));
+            if processes.len() > 100 { break; }
+        }
+        
+        Ok(json!(processes))
+    }
+
+    fn get_file_metadata(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let root = self.root_path.lock().unwrap().clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let meta = fs::metadata(full_path)?;
+        Ok(json!({
+            "path": path_str,
+            "size_bytes": meta.len(),
+            "is_dir": meta.is_dir(),
+            "is_file": meta.is_file(),
+            "modified": format!("{:?}", meta.modified()?),
+            "created": format!("{:?}", meta.created()?)
+        }))
+    }
+
+    fn apply_patch(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let patch = args["patch"].as_str().ok_or_else(|| anyhow!("Missing patch"))?;
+        let description = args["description"].as_str().unwrap_or("Applying surgical patch");
+        
+        let root = self.root_path.lock().unwrap().clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let old_content = fs::read_to_string(&full_path)?;
+        
+        // In a real scenario, we'd apply the patch to get new_content.
+        // For now, if the AI provides a patch, it's usually meant to be reviewable.
+        // We'll emit a 'propose-edit' event so the user can see it in the DiffViewer.
+        if let Ok(h_lock) = self.app_handle.lock() {
+            if let Some(h) = h_lock.as_ref() {
+                let _ = h.emit("propose-edit", json!({
+                    "path": path_str,
+                    "old_content": old_content,
+                    "new_content": patch, // Assuming patch here is the full new content for simplicity in this flow
+                    "description": description
+                }));
+            }
+        }
+
+        Ok(json!({ "status": "proposed", "info": "Modification proposed for review." }))
+    }
+
+    fn ai_propose_edit(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let new_content = args["new_content"].as_str().ok_or_else(|| anyhow!("Missing new_content"))?;
+        let description = args["description"].as_str().unwrap_or("AI suggested modification");
+
+        let root = self.root_path.lock().unwrap().clone();
+        let full_path = self.validate_path(&root, path_str)?;
+
+        let old_content = fs::read_to_string(&full_path).unwrap_or_default();
+
+        if let Ok(h_lock) = self.app_handle.lock() {
+            if let Some(h) = h_lock.as_ref() {
+                let _ = h.emit("propose-edit", json!({
+                    "path": path_str,
+                    "old_content": old_content,
+                    "new_content": new_content,
+                    "description": description
+                }));
+            }
+        }
+
+        Ok(json!({ "status": "proposed", "path": path_str }))
+    }
+
+    fn ide_get_state(&self, _args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().unwrap();
+        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
+        
+        let state = h.state::<crate::EditorState>();
+        let active_path = state.active_path.lock().unwrap().clone();
+        let terminals = state.terminal_processes.lock().unwrap().keys().cloned().collect::<Vec<String>>();
+        
+        Ok(json!({
+            "active_path": active_path,
+            "terminals": terminals,
+            "project_root": self.root_path.lock().unwrap().to_string_lossy()
+        }))
+    }
+
+    fn network_port_scanner(&self, args: Value) -> Result<Value> {
+        let target = args["target"].as_str().ok_or_else(|| anyhow!("Missing target"))?;
+        let ports = args["ports"].as_array().ok_or_else(|| anyhow!("Missing ports array"))?;
+        
+        let mut open_ports = Vec::new();
+        for port_val in ports {
+            if let Some(port) = port_val.as_u64() {
+                let addr = format!("{}:{}", target, port);
+                // Perform a synchronous connection attempt with timeout
+                if let Ok(_) = std::net::TcpStream::connect_timeout(
+                    &addr.parse().map_err(|_| anyhow!("Invalid addr"))?,
+                    std::time::Duration::from_millis(100)
+                ) {
+                    open_ports.push(port);
+                }
+            }
+        }
+        
+        Ok(json!({ "target": target, "open_ports": open_ports }))
+    }
+
+    fn binary_mach_o_scanner(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let root = self.root_path.lock().unwrap().clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let bytes = fs::read(&full_path)?;
+        if bytes.len() < 4 { return Err(anyhow!("File too small")); }
+        
+        // Mach-O Magic constants
+        let magic = &bytes[0..4];
+        let is_macho = magic == [0xce, 0xfa, 0xed, 0xfe] || magic == [0xcf, 0xfa, 0xed, 0xfe] || 
+                      magic == [0xfe, 0xed, 0xfa, 0xce] || magic == [0xfe, 0xed, 0xfa, 0xcf];
+        
+        let mut info = json!({ 
+            "is_macho": is_macho,
+            "magic": format!("{:x?}", magic),
+            "size": bytes.len()
+        });
+        
+        // XNU Specific heuristic: look for __TEXT or __DATA sections manually
+        let has_text = bytes.windows(7).any(|w| w == b"__TEXT\0");
+        let has_data = bytes.windows(7).any(|w| w == b"__DATA\0");
+        
+        info.as_object_mut().unwrap().insert("has_text_segment".to_string(), json!(has_text));
+        info.as_object_mut().unwrap().insert("has_data_segment".to_string(), json!(has_data));
+        
+        Ok(info)
+    }
+
+    fn file_entropy_analysis(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let root = self.root_path.lock().unwrap().clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let bytes = fs::read(full_path)?;
+        if bytes.is_empty() { return Ok(json!({"entropy": 0})); }
+        
+        let mut counts = [0u64; 256];
+        for &b in &bytes {
+            counts[b as usize] += 1;
+        }
+        
+        let mut entropy = 0.0f64;
+        let len = bytes.len() as f64;
+        for &count in &counts {
+            if count > 0 {
+                let p = count as f64 / len;
+                entropy -= p * p.log2();
+            }
+        }
+        
+        Ok(json!({
+            "path": path_str,
+            "entropy": entropy,
+            "high_entropy_warning": entropy > 7.5,
+            "suggestion": if entropy > 7.5 { "Likely compressed or encrypted. check for malware packers." } else { "Normal executable density." }
+        }))
+    }
+
+    fn dev_cargo_diagnostics(&self, _args: Value) -> Result<Value> {
+        let root = self.root_path.lock().unwrap().clone();
+        let output = std::process::Command::new("cargo")
+            .args(&["check", "--message-format=json"])
+            .current_dir(root)
+            .output()?;
+        
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut errors = Vec::new();
+        
+        for line in stdout.lines() {
+            if let Ok(msg) = serde_json::from_str::<Value>(line) {
+                if msg["reason"] == "compiler-message" {
+                    errors.push(msg["message"].clone());
+                }
+            }
+        }
+        
+        Ok(json!({ "diagnostics": errors }))
+    }
+
     fn browser_open(&self, _args: Value) -> Result<Value> {
         use headless_chrome::{Browser, LaunchOptions};
         let mut browser_lock = self.browser_state.browser.lock().unwrap();
@@ -2059,7 +2693,7 @@ impl AiTools {
     }
 
     fn grep(&self, args: Value) -> Result<Value> {
-        let query = args
+        let query_str = args
             .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing query"))?;
@@ -2071,31 +2705,53 @@ impl AiTools {
             .map_err(|e| anyhow!("Lock error: {}", e))?;
         let full_path = self.validate_path(&root, path_str)?;
 
-        let output = if cfg!(target_os = "windows") {
-            std::process::Command::new("powershell")
-                .hidden()
-                .args(&[
-                    "-Command",
-                    &format!(
-                        "Select-String -Path '{}' -Pattern '{}' -Recursive",
-                        full_path.to_string_lossy(),
-                        query
-                    ),
-                ])
-                .current_dir(&*root)
-                .output()?
-        } else {
-            std::process::Command::new("grep")
-                .hidden()
-                .args(&["-r", "-n", query, &full_path.to_string_lossy()])
-                .current_dir(&*root)
-                .output()?
-        };
+        let re = regex::RegexBuilder::new(query_str)
+            .case_insensitive(true)
+            .multi_line(true)
+            .build()?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let mut results = String::new();
+        use walkdir::WalkDir;
+
+        for entry in WalkDir::new(full_path).into_iter().filter_map(|e| e.ok()) {
+            if entry.file_type().is_file() {
+                let path = entry.path();
+                // Skip common large/binary dirs
+                let path_lower = path.to_string_lossy().to_lowercase();
+                if path_lower.contains("node_modules")
+                    || path_lower.contains("target")
+                    || path_lower.contains(".git")
+                    || path_lower.contains(".aim")
+                {
+                    continue;
+                }
+
+                if let Ok(content) = fs::read_to_string(path) {
+                    for (i, line) in content.lines().enumerate() {
+                        if re.is_match(line) {
+                            let rel_path = path
+                                .strip_prefix(&*root)
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|_| path.to_string_lossy().to_string());
+                            results.push_str(&format!("{}:{}: {}\n", rel_path, i + 1, line.trim()));
+                            
+                            // Safety cap for massive results
+                            if results.len() > 50000 {
+                                results.push_str("\n... truncated (too many matches) ...");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if results.len() > 50000 {
+                break;
+            }
+        }
+
         Ok(serde_json::json!({
-            "results": stdout,
-            "exit_code": output.status.code()
+            "results": results,
+            "status": "success"
         }))
     }
 

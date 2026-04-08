@@ -103,7 +103,7 @@ const AgentSettingsView: React.FC = () => {
                             value={ollamaUrl}
                             onChange={(e) => setOllamaUrl(e.target.value)}
                             style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
-                            placeholder="http://localhost:11434"
+                            placeholder="http://localhost:1536"
                         />
                     </div>
 

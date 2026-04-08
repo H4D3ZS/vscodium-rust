@@ -23,7 +23,7 @@ impl ContextIndexer {
         let root = self.root_path.clone();
 
         tauri::async_runtime::spawn(async move {
-            println!("[CONTEXT] Starting background indexing for: {:?}", root);
+            println!("[CONTEXT] Starting background indexing loop for: {:?}", root);
             loop {
                 if let Err(e) = Self::run_index_cycle(&ms, &root).await {
                     eprintln!("[CONTEXT] Indexing error: {:?}", e);
@@ -34,7 +34,16 @@ impl ContextIndexer {
         });
     }
 
+    pub async fn trigger_index_cycle(&self) -> anyhow::Result<()> {
+        Self::run_index_cycle(&self.memory_store, &self.root_path).await
+    }
+
     async fn run_index_cycle(ms: &MemoryStore, root: &Path) -> anyhow::Result<()> {
+        if !root.join(".aim").exists() {
+            println!("[CONTEXT] Project is dormant (No .aim detected). Skipping index cycle.");
+            return Ok(());
+        }
+
         for entry in WalkDir::new(root)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -92,6 +101,9 @@ impl ContextIndexer {
                     .as_secs(),
             })
             .await;
+
+            // Throttle to prevent I/O saturation on large projects
+            sleep(Duration::from_millis(5)).await;
         }
         Ok(())
     }

@@ -62,6 +62,7 @@ export interface AttachedContext {
     name: string;
     data?: string;
     path?: string;
+    thumbnail?: string;
 }
 
 export interface SemanticSlot {
@@ -152,7 +153,7 @@ interface AppState {
     agentRootAccess: boolean;
     chatSessions: any[];
     brainTelemetry: any | null;
-    attachedFiles: { id: string, path: string, name: string, gist?: string, type: 'file' | 'attachment' | 'mention' }[];
+    attachedFiles: { id: string, path: string, name: string, gist?: string, thumbnail?: string, type: 'file' | 'attachment' | 'mention' }[];
 
     // Google Antigravity Expanded State
     layoutMode: 'editor' | 'manager' | 'browser';
@@ -781,7 +782,10 @@ const storeImplementation: any = (set: any, get: any) => ({
                     }
                     const models = await invoke<string[]>('list_provider_models', { provider: p });
                     allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
-                    if (p.toLowerCase() === 'ollama' && models.length > 0) set({ ollamaStatus: 'running' });
+
+                    if (p.toLowerCase() === 'ollama') {
+                        if (models.length > 0) set({ ollamaStatus: 'running' });
+                    }
                 } catch (e: any) {
                     // Suppress common error when a provider key is simply missing
                     if (e && typeof e === 'string' && e.includes('API key not found')) {
@@ -792,6 +796,10 @@ const storeImplementation: any = (set: any, get: any) => ({
                     if (p.toLowerCase() === 'ollama') set({ ollamaStatus: 'error' });
                 }
             }
+
+            // Manifest Antigravity as a completely separate, first-class provider
+            // This ensures ZERO interference with the native Ollama model list
+            allModels.push({ id: 'antigravity-sentient', provider: 'antigravity' });
 
             set((state) => {
                 let currentModels = [...state.availableModels];

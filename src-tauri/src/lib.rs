@@ -249,7 +249,7 @@ impl EditorState {
             activation_manager: Arc::new(Mutex::new(ActivationManager::new())),
             perf_monitor: Arc::new(PerformanceMonitor::new()),
             ai_engine: sentient,
-            ollama_url: Mutex::new("http://127.0.0.1:11434".to_string()),
+            ollama_url: Mutex::new("http://127.0.0.1:1536".to_string()),
             config_dir: config_dir.clone(),
             active_root: Mutex::new(None),
             current_model: Mutex::new("gpt-4o".to_string()),
@@ -317,30 +317,26 @@ struct AiResponse {
 }
 
 #[tauri::command]
-fn mount_aim_memory(project_path: String) -> Result<String, String> {
-    let aim_path = format!("{}\\.aim\\memory.aim", project_path);
-    let file = std::fs::File::open(&aim_path).map_err(|e| format!("Failed to load memory.aim: {}", e))?;
+async fn mount_neural_project(
+    state: State<'_, EditorState>,
+    indexer: State<'_, Arc<ContextIndexer>>,
+) -> Result<String, String> {
+    let root = state.ai_engine.get_tools().get_root_path();
+    let aim_dir = root.join(".aim");
     
-    // Execute Native Zero-Copy RAM Mapping directly inside the Core IDE execution structure
-    let mmap = unsafe { memmap2::Mmap::map(&file).map_err(|e| format!("Mmap core failure: {}", e))? };
-    let bytes = &mmap[..];
+    println!("[CONTEXT] Manually neuralizing project at: {:?}", root);
     
-    let mut header_end = 0;
-    for (i, &b) in bytes.iter().enumerate() {
-        if b == b'}' {
-            header_end = i + 1;
-            break;
-        }
+    if !aim_dir.exists() {
+        std::fs::create_dir_all(&aim_dir).map_err(|e| format!("Failed to create .aim dir: {}", e))?;
     }
     
-    if header_end == 0 || header_end + (1536 * 4) > bytes.len() {
-        return Err("Invalid .aim structural limits".to_string());
-    }
+    // Remount to ensure memory.aim creation and loading
+    state.ai_engine.memory_store.mount(Some(root.clone())).await;
     
-    let tensor_start = &bytes[header_end];
-    let vector_ptr = tensor_start as *const u8 as *const f32;
+    // Trigger immediate indexing
+    let _ = indexer.trigger_index_cycle().await;
     
-    Ok(format!("🧠 [ANTIGRAVITY CORE] Neural .aim VFS Mounted! OS RAM physically bound to IDE dynamically. Zero-Copy Pointer Extracted: {:?}", vector_ptr))
+    Ok("Project Neuralization Started! .aim detected and indexing triggered.".to_string())
 }
 
 #[tauri::command]
@@ -1784,14 +1780,52 @@ async fn ai_inline_complete(
 }
 
 #[tauri::command]
-fn stop_ai_agent(state: State<'_, EditorState>) -> Result<(), String> {
+async fn unload_ollama_model(state: State<'_, EditorState>, name: String) -> Result<(), String> {
+    state.attachment_manager.unload_model(&name).await
+}
+
+#[tauri::command]
+async fn stop_ai_agent(state: State<'_, EditorState>) -> Result<(), String> {
     state.ai_engine.stop();
+    
+    // Unload the current model from Ollama if it's an Ollama model
+    let model = {
+        let m = state.current_model.lock().unwrap();
+        m.clone()
+    };
+    
+    println!("[DEBUG] stop_ai_agent: stopping reasoning and unloading model: {}", model);
+    
+    // Check if it's an Ollama model (either explicitly stated or a standard local model name)
+    if model.to_lowercase().contains("ollama") || (!model.contains("|") && !model.is_empty()) {
+        // Extract model name from format "Ollama|model-name" or "model-name"
+        let model_name = model.split('|').last().unwrap_or(&model);
+        let _ = state.attachment_manager.unload_model(model_name).await;
+    }
+    
     Ok(())
 }
 
 #[tauri::command]
 fn backend_ping() -> String {
     "System Pulse: ACTIVE".to_string()
+}
+
+#[tauri::command]
+async fn get_ollama_ps(state: State<'_, EditorState>) -> Result<Value, String> {
+    let ollama_url = {
+        let u = state.ollama_url.lock().unwrap();
+        u.clone()
+    };
+    
+    let client = reqwest::Client::new();
+    let res = client.get(format!("{}/api/ps", ollama_url))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+        
+    let json: Value = res.json().await.map_err(|e| e.to_string())?;
+    Ok(json)
 }
 
 #[tauri::command]
@@ -1977,8 +2011,19 @@ fn load_extension_theme(path: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn register_ida_pro() -> Result<(), String> {
-    Ok(())
+async fn register_ida_pro(state: State<'_, EditorState>) -> Result<(), String> {
+    let name = "ida-pro".to_string();
+    let config = crate::mcp_registry::McpServerConfig::Stdio {
+        command: "npx".to_string(),
+        args: vec!["-y".to_string(), "@modelcontextprotocol/server-ida".to_string()],
+        env: std::collections::HashMap::new(),
+    };
+
+    state
+        .mcp_registry
+        .add_server(name, config)
+        .await
+        .map_err(|e| e.to_string())
 }
 #[tauri::command]
 async fn ai_execute_command(command: String, cwd: Option<String>, _timeout: Option<u64>) -> Result<String, String> {
@@ -2593,17 +2638,39 @@ async fn benchmark_ane(
 
     if mode == "GPU" {
         let start_eval = std::time::Instant::now();
-        // Simulate massive parallel throughput (approx 2ms)
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        
+        // High-Speed Compute Path Check using Candle
+        use candle_core::{Device, Tensor, DType};
+        
+        // Try obtaining the strongest available device (CUDA/Metal/Cpu)
+        let device = if let Ok(d) = Device::new_cuda(0) { d } 
+                    else if let Ok(d) = Device::new_metal(0) { d } 
+                    else { Device::Cpu };
+        
+        // Run a lightweight matrix multiplication to measure kernel latency
+        let res = (|| -> candle_core::Result<Tensor> {
+            let a = Tensor::ones((512, 512), DType::F32, &device)?;
+            let b = Tensor::ones((512, 512), DType::F32, &device)?;
+            a.matmul(&b)
+        })();
+
         let eval_us = start_eval.elapsed().as_micros();
+        
+        // Record the physical metric
         state
             .perf_monitor
             .record_inference("GPU".to_string(), (eval_us / 1000) as u64);
 
+        let device_name = match device {
+            Device::Cuda(_) => "H4RDW4RE GPU (NVIDIA CUDA)",
+            Device::Metal(_) => "H4RDW4RE GPU (Apple Metal)",
+            Device::Cpu => "PC GPU (Compute Path/CPU Fallback)",
+        };
+
         return Ok(json!({
-            "status": "success",
+            "status": if res.is_ok() { "success" } else { "warning" },
             "eval_us": eval_us,
-            "device": "H4RDW4RE GPU (Async)"
+            "device": device_name
         }));
     }
 
@@ -2869,7 +2936,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            mount_aim_memory,
             open_folder,
             get_file_tree,
             get_directory_contents,
@@ -2893,6 +2959,7 @@ pub fn run() {
             git_stash_pop,
             git_get_unmerged,
             get_api_keys,
+            get_ollama_ps,
             save_api_keys,
             list_provider_models,
             ai_chat,
@@ -3024,7 +3091,10 @@ pub fn run() {
             get_agent_messages,
             get_brain_telemetry,
             select_and_process_attachment,
+            unload_ollama_model,
             vision_bridge::capture_preview_screenshot,
+            get_ollama_ps,
+            mount_neural_project,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

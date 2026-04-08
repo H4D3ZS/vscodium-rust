@@ -7016,6 +7016,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.21.7",
+ "candle-core",
  "chrono",
  "criterion",
  "daemon",
@@ -7024,6 +7025,7 @@ dependencies = [
  "half",
  "headless_chrome",
  "ignore",
+ "image",
  "libaim",
  "lsp-types",
  "lz4_flex",
@@ -7058,6 +7060,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
+ "which",
  "zip 0.6.6",
 ]
 

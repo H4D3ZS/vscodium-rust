@@ -167,24 +167,6 @@ impl Sentient {
         attachment_manager: Arc<crate::attachment_manager::AttachmentManager>,
         knowledge_distiller: Arc<crate::knowledge_distiller::KnowledgeDistiller>,
     ) -> Self {
-        let mcp_registry = Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json")));
-        let ai_tools = Arc::new(AiTools::new(
-            root_path.clone(),
-            browser_state.clone(),
-            git_manager.clone(),
-            mcp_registry.clone(),
-            knowledge_distiller.clone(),
-        ));
-        let task_planner = Arc::new(TaskPlanner::new());
-        let rules_engine = Arc::new(RulesEngine::new(root_path.clone()));
-        let workflow_engine = Arc::new(WorkflowEngine::new(root_path.clone()));
-        let tool_invoker = Arc::new(ToolInvoker::new(ai_tools.clone(), mcp_registry.clone()));
-        let ane_engine = Arc::new(tokio::sync::Mutex::new(None));
-        #[cfg(target_os = "macos")]
-        {
-            // Optional: Pre-initialize ANE bridge
-        }
-
         let brain_dir = config_dir.join("brain");
         if !brain_dir.exists() {
             let _ = std::fs::create_dir_all(&brain_dir);
@@ -195,11 +177,26 @@ impl Sentient {
         {
             let ms = memory_store.clone();
             let rp = root_path.clone();
-            let _bd = brain_dir.clone();
             tauri::async_runtime::spawn(async move {
                 ms.mount(Some(rp)).await;
             });
         }
+
+        let mcp_registry = Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json")));
+        let ai_tools = Arc::new(AiTools::new(
+            root_path.clone(),
+            browser_state.clone(),
+            git_manager.clone(),
+            mcp_registry.clone(),
+            memory_store.clone(),
+            knowledge_distiller.clone(),
+        ));
+        
+        let task_planner = Arc::new(TaskPlanner::new());
+        let rules_engine = Arc::new(RulesEngine::new(root_path.clone()));
+        let workflow_engine = Arc::new(WorkflowEngine::new(root_path.clone()));
+        let tool_invoker = Arc::new(ToolInvoker::new(ai_tools.clone(), mcp_registry.clone()));
+        let ane_engine = Arc::new(tokio::sync::Mutex::new(None));
 
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
@@ -1044,7 +1041,7 @@ impl Sentient {
                 let mut ollama_system = system_msg.clone();
 
                 // If Ollama, inject tool info into system prompt to avoid 400 error from native tools field
-                if active_provider.to_lowercase() == "ollama" {
+                if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
                     // Natively inject the .aim VFS context directly into the heart of the prompt
                     let aim_context = self.load_aim_context().await;
                     if !aim_context.is_empty() {
@@ -1137,7 +1134,9 @@ impl Sentient {
                 .to_string();
             let endpoint = self.get_endpoint(&active_provider, &req);
 
-            if provider_key.is_empty() && !active_provider.to_lowercase().starts_with("ollama") {
+            if provider_key.is_empty() 
+                && !active_provider.to_lowercase().starts_with("ollama") 
+                && active_provider.to_lowercase() != "antigravity" {
                 return Err(anyhow!("No API key found for provider: {}. Please run 'Hunt for Working AI Keys' from the model menu, or set it in Settings.", active_provider));
             }
 
@@ -1377,13 +1376,66 @@ impl Sentient {
                     self.emit_event("ai-tool-call", json!({ "name": tool_call.function.name, "args": tool_call.function.arguments }));
 
                     let mut tool_name = tool_call.function.name.clone();
-                    // EXTENSIVE TOOL ALIASES for "Do Anything" capability
+                    // EXTENSIVE TOOL ALIASES for "Do Anything" capability & Windows/Linux Parity
                     if tool_name == "write_file"
                         || tool_name == "create_file"
                         || tool_name == "save_file"
                         || tool_name == "write"
                     {
                         tool_name = "write_to_file".to_string();
+                    }
+                    if tool_name == "view_file"
+                        || tool_name == "read_file"
+                        || tool_name == "file_read"
+                        || tool_name == "cat"
+                        || tool_name == "read"
+                    {
+                        tool_name = "view_file".to_string();
+                    }
+                    if tool_name == "ls" || tool_name == "dir" || tool_name == "list_dir" {
+                        tool_name = "list_files".to_string();
+                    }
+                    if tool_name == "find" || tool_name == "glob" || tool_name == "find_files" {
+                        tool_name = "find_by_name".to_string();
+                    }
+                    if tool_name == "search" || tool_name == "find_in_files" {
+                        tool_name = "search_files".to_string();
+                    }
+                    if tool_name == "semantic_search" || tool_name == "search_index" || tool_name == "find_context" {
+                        tool_name = "semantic_search".to_string();
+                    }
+                    if tool_name == "find_symbols" || tool_name == "lookup_symbols" || tool_name == "symbols" {
+                        tool_name = "find_symbols".to_string();
+                    }
+                    if tool_name == "read_file_lines" || tool_name == "read_range" || tool_name == "file_lines" || tool_name == "head" || tool_name == "tail" {
+                        tool_name = "read_file_lines".to_string();
+                    }
+                    if tool_name == "extract_strings" || tool_name == "strings" || tool_name == "get_strings" {
+                        tool_name = "extract_strings".to_string();
+                    }
+                    if tool_name == "hex_dump" || tool_name == "hexdump" || tool_name == "hex" {
+                        tool_name = "hex_dump".to_string();
+                    }
+                    if tool_name == "list_active_processes" || tool_name == "ps" || tool_name == "processes" || tool_name == "top" {
+                        tool_name = "list_active_processes".to_string();
+                    }
+                    if tool_name == "apply_patch" || tool_name == "patch" || tool_name == "apply_diff" {
+                        tool_name = "apply_patch".to_string();
+                    }
+                    if tool_name == "ide_get_state" || tool_name == "get_ide_state" || tool_name == "state" || tool_name == "editor_state" {
+                        tool_name = "ide_get_state".to_string();
+                    }
+                    if tool_name == "network_port_scanner" || tool_name == "scan_ports" || tool_name == "nmap" || tool_name == "port_scan" {
+                        tool_name = "network_port_scanner".to_string();
+                    }
+                    if tool_name == "binary_mach_o_scanner" || tool_name == "macho_scan" || tool_name == "kernel_scan" {
+                        tool_name = "binary_mach_o_scanner".to_string();
+                    }
+                    if tool_name == "file_entropy_analysis" || tool_name == "entropy" || tool_name == "packer_check" {
+                        tool_name = "file_entropy_analysis".to_string();
+                    }
+                    if tool_name == "dev_cargo_diagnostics" || tool_name == "check" || tool_name == "cargo_check" || tool_name == "diagnostics" {
+                        tool_name = "dev_cargo_diagnostics".to_string();
                     }
                     if tool_name == "sh"
                         || tool_name == "bash"
@@ -1455,9 +1507,15 @@ impl Sentient {
                         );
                     }
 
+                    let mut tool_args_json: Value = serde_json::from_str(&tool_call.function.arguments).unwrap_or(json!({}));
+                    
+                    if tool_name == "run_command" {
+                         tool_args_json["shell_hint"] = json!(tool_call.function.name);
+                    }
+
                     let tool_result = self
                         .tool_invoker
-                        .execute_tool(&tool_name, &tool_call.function.arguments)
+                        .execute_tool(&tool_name, &tool_args_json.to_string())
                         .await;
 
                     let mut is_blocked = false;
@@ -1597,34 +1655,49 @@ impl Sentient {
             return Ok(models);
         }
 
-        if provider_key.is_empty() && provider.to_lowercase() != "ollama" {
+        if provider_key.is_empty() 
+            && provider.to_lowercase() != "ollama" 
+            && provider.to_lowercase() != "antigravity" {
             return Err(anyhow!("API key not found for provider: {}", provider));
         }
 
-        let endpoint = if provider.to_lowercase() == "ollama" {
+        if provider.to_lowercase() == "ollama" {
             let base = self.ollama_url.lock().unwrap().clone();
             let base = base.trim_end_matches('/');
-            format!("{}/api/tags", base)
-        } else {
-            match provider.to_lowercase().as_str() {
-                "google" => "https://generativelanguage.googleapis.com/v1beta/models",
-                "openai" => "https://api.openai.com/v1/models",
-                "anthropic" => "https://api.anthropic.com/v1/models",
-                "groq" => "https://api.groq.com/openai/v1/models",
-                "openrouter" => "https://openrouter.ai/api/v1/models",
-                "mistral" => "https://api.mistral.ai/v1/models",
-                "xai" => "https://api.x.ai/models",
-                "cerebras" => "https://api.cerebras.ai/v1/models",
-                "apiradar" => "https://apiradar.live/api/v1/models",
-                _ => {
-                    return Err(anyhow!(
-                        "Model listing not supported for provider: {}",
-                        provider
-                    ))
+            let endpoint = format!("{}/api/tags", base);
+            let resp = self.client.get(endpoint).send().await?;
+            let json: Value = resp.json().await?;
+            
+            let mut model_names = Vec::new();
+            if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
+                for m in models {
+                    if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
+                        model_names.push(name.to_string());
+                    }
                 }
             }
-            .to_string()
-        };
+            
+            return Ok(model_names);
+        }
+
+        let endpoint = match provider.to_lowercase().as_str() {
+            "google" => "https://generativelanguage.googleapis.com/v1beta/models",
+            "openai" => "https://api.openai.com/v1/models",
+            "anthropic" => "https://api.anthropic.com/v1/models",
+            "groq" => "https://api.groq.com/openai/v1/models",
+            "openrouter" => "https://openrouter.ai/api/v1/models",
+            "mistral" => "https://api.mistral.ai/v1/models",
+            "xai" => "https://api.x.ai/models",
+            "cerebras" => "https://api.cerebras.ai/v1/models",
+            "apiradar" => "https://apiradar.live/api/v1/models",
+            _ => {
+                return Err(anyhow!(
+                    "Model listing not supported for provider: {}",
+                    provider
+                ))
+            }
+        }
+        .to_string();
 
         let mut request = self.client.get(endpoint);
 
@@ -1923,6 +1996,7 @@ impl Sentient {
             "alibaba" => {
                 "https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions".to_string()
             }
+            "antigravity" => "http://127.0.0.1:1536/v1/chat/completions".to_string(),
             "ollama" => {
                 let base = req
                     .ollama_url
@@ -1966,9 +2040,37 @@ impl Sentient {
                 format!("\n\n[AIM-VFS-CONTEXT-INJECTED]: The Antigravity Native Engine localized {} exact bytes of parametric project tensors.", bytes.len())
             };
 
+            // Aggressively build a high-fidelity project map to supplement the binary context
+            let mut project_map = format!("{}\n### PROJECT MAP (High-Fidelity Virtual File System):\n", header);
+            let root = self.ai_tools.get_root_path();
+            
+            // Limit to 50 files for the prompt to avoid overwhelming the window while still being smart
+            let mut entries_count = 0;
+            if let Ok(entries) = std::fs::read_dir(&root) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let name = path.file_name().unwrap_or_default().to_string_lossy();
+                        if !name.starts_with('.') {
+                            if let Ok(metadata) = path.metadata() {
+                                project_map.push_str(&format!("- {} ({} bytes)\n", name, metadata.len()));
+                                entries_count += 1;
+                            }
+                        }
+                    } else if path.is_dir() {
+                        let name = path.file_name().unwrap_or_default().to_string_lossy();
+                        if !name.starts_with('.') {
+                            project_map.push_str(&format!("- {}/ [Directory]\n", name));
+                            entries_count += 1;
+                        }
+                    }
+                    if entries_count >= 50 { break; }
+                }
+            }
+
             let mut cache = self.memory_aim_cache.lock().unwrap();
-            *cache = Some(header.clone());
-            header
+            *cache = Some(project_map.clone());
+            project_map
         } else {
             String::new()
         }

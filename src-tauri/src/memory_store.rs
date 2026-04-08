@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -25,17 +26,20 @@ struct KortexSnapshot {
 
 pub struct MemoryStore {
     messages: Arc<RwLock<Vec<ChatMessage>>>,
-    slots: Arc<RwLock<Vec<SemanticSlot>>>,
+    pub slots: Arc<RwLock<Vec<SemanticSlot>>>,
     entities: Arc<RwLock<HashMap<String, Vec<String>>>>,
     aim_path: Arc<RwLock<Option<PathBuf>>>,
     binary_body: Arc<RwLock<Vec<u8>>>, // Cache the binary suffix of the .aim file
     binary_header_raw: Arc<RwLock<Value>>, // Cache the non-kortex parts of the header
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
+    is_dirty: Arc<AtomicBool>,
 }
 
 impl MemoryStore {
     pub fn new() -> Self {
-        Self {
+        let is_dirty = Arc::new(AtomicBool::new(false));
+        
+        let store = Self {
             messages: Arc::new(RwLock::new(Vec::new())),
             slots: Arc::new(RwLock::new(Vec::new())),
             entities: Arc::new(RwLock::new(HashMap::new())),
@@ -43,7 +47,73 @@ impl MemoryStore {
             binary_body: Arc::new(RwLock::new(Vec::new())),
             binary_header_raw: Arc::new(RwLock::new(json!({}))),
             app_handle: Arc::new(RwLock::new(None)),
+            is_dirty: is_dirty.clone(),
+        };
+
+        // Spawn background persistence task (Phase 24: Emergency Performance)
+        let messages = store.messages.clone();
+        let slots = store.slots.clone();
+        let entities = store.entities.clone();
+        let aim_path = store.aim_path.clone();
+        let binary_body = store.binary_body.clone();
+        let header_raw = store.binary_header_raw.clone();
+        let app_handle = store.app_handle.clone();
+        let dirty = is_dirty.clone();
+        
+        // Singleton background flusher: ensures only one task ever handles disk I/O per process
+        static FLUSHER_ACTIVE: AtomicBool = AtomicBool::new(false);
+        if !FLUSHER_ACTIVE.swap(true, Ordering::SeqCst) {
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    // Optimized Flush Interval: 10 seconds for performance balance
+                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                    
+                    if dirty.load(Ordering::SeqCst) {
+                        // Silent persistence to protect logs; only error if I/O fails
+                        let path_lock = aim_path.read().await;
+                        if let Some(path) = path_lock.as_ref() {
+                            let mut header = header_raw.read().await.clone();
+                            let snapshot = KortexSnapshot {
+                                slots: slots.read().await.clone(),
+                                entities: entities.read().await.clone(),
+                                session_messages: messages.read().await.clone(),
+                            };
+                            header["kortex"] = json!(snapshot);
+                            header["updated_at"] = json!(std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs());
+
+                            if let Ok(header_json) = serde_json::to_string(&header) {
+                                let mut final_bytes = header_json.into_bytes();
+                                let body = binary_body.read().await;
+                                final_bytes.extend_from_slice(&body);
+                                
+                                // Perform atomic-like write to the same .aim file (zero disk growth, one file)
+                                if let Err(e) = tokio::fs::write(path, final_bytes).await {
+                                    eprintln!("[Kortex-AIM] Critical Persistence Error: {}", e);
+                                } else {
+                                    dirty.store(false, Ordering::SeqCst);
+                                    
+                                    // Telemetry only: no log spam
+                                    let app_lock = app_handle.read().await;
+                                    if let Some(handle) = app_lock.as_ref() {
+                                        use tauri::Emitter;
+                                        let _ = handle.emit("memory-update", json!({
+                                            "slots": snapshot.slots.len(),
+                                            "entities": snapshot.entities.len(),
+                                            "messages": snapshot.session_messages.len()
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         }
+
+        store
     }
 
     pub async fn set_app_handle(&self, handle: tauri::AppHandle) {
@@ -196,21 +266,21 @@ impl MemoryStore {
         lock.clear();
         lock.extend_from_slice(messages);
         drop(lock);
-        self.persist().await;
+        self.is_dirty.store(true, Ordering::SeqCst);
     }
 
     pub async fn store_message(&self, message: &ChatMessage) {
         let mut lock = self.messages.write().await;
         lock.push(message.clone());
         drop(lock);
-        self.persist().await;
+        self.is_dirty.store(true, Ordering::SeqCst);
     }
 
     pub async fn clear(&self) {
         let mut msg_lock = self.messages.write().await;
         msg_lock.clear();
         drop(msg_lock);
-        self.persist().await;
+        self.is_dirty.store(true, Ordering::SeqCst);
     }
 
     pub async fn store_slot(&self, slot: SemanticSlot) {
@@ -218,7 +288,7 @@ impl MemoryStore {
         lock.retain(|s| s.id != slot.id);
         lock.push(slot);
         drop(lock);
-        self.persist().await;
+        self.is_dirty.store(true, Ordering::SeqCst);
     }
 
     pub async fn add_relationship(&self, tag: &str, id: &str) {
@@ -227,7 +297,7 @@ impl MemoryStore {
             .or_default()
             .push(id.to_string());
         drop(lock);
-        self.persist().await;
+        self.is_dirty.store(true, Ordering::SeqCst);
     }
 
     pub async fn query_slots(&self, category: &str) -> Vec<SemanticSlot> {

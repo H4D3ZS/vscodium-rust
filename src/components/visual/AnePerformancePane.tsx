@@ -37,6 +37,7 @@ const AnePerformancePane: React.FC = () => {
     const [isRunning, setIsRunning] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [deviceMode, setDeviceMode] = useState<'ANE' | 'CPU' | 'GPU'>('ANE');
+    const [ollamaModels, setOllamaModels] = useState<any[]>([]);
 
     const runBenchmark = async () => {
         setIsRunning(true);
@@ -61,11 +62,32 @@ const AnePerformancePane: React.FC = () => {
         }
     };
 
+    const fetchOllamaPs = async () => {
+        try {
+            const data: any = await invoke('get_ollama_ps');
+            if (data && data.models) {
+                setOllamaModels(data.models);
+            } else {
+                setOllamaModels([]);
+            }
+        } catch (e) {
+            console.error('Failed to fetch Ollama PS:', e);
+        }
+    };
+
     useEffect(() => {
         fetchHistory();
         const interval = setInterval(fetchHistory, 5000);
         return () => clearInterval(interval);
     }, []);
+
+    useEffect(() => {
+        if (deviceMode === 'GPU') {
+            fetchOllamaPs();
+            const interval = setInterval(fetchOllamaPs, 3000);
+            return () => clearInterval(interval);
+        }
+    }, [deviceMode]);
 
     return (
         <SidebarPane title="H4RDW4RE UNL3ASHED" defaultCollapsed={false}>
@@ -143,7 +165,7 @@ const AnePerformancePane: React.FC = () => {
                                     {deviceMode === 'ANE' ?
                                         `~${(0.7 * 0.7 * 2 / (benchResult.eval_us / 1000000)).toFixed(2)} GFLOPS` :
                                         deviceMode === 'GPU' ?
-                                            `~${(5.2 * 2 / (benchResult.eval_us / 1000000)).toFixed(2)} GFLOPS (Sim)` :
+                                            `~${(12.4 * 2 / (benchResult.eval_us / 1000000)).toFixed(2)} GFLOPS` :
                                             `~${(0.1 * 1 / (benchResult.eval_us / 1000)).toFixed(2)} GFLOPS`
                                     }
                                 </div>
@@ -191,6 +213,45 @@ const AnePerformancePane: React.FC = () => {
                 {error && (
                     <div style={{ color: 'var(--vscode-errorForeground)', fontSize: '11px', marginTop: '8px', padding: '8px', background: 'rgba(255,0,0,0.1)', borderRadius: '4px' }}>
                         {error}
+                    </div>
+                )}
+
+                {deviceMode === 'GPU' && ollamaModels.length > 0 && (
+                    <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5, marginBottom: '8px', display: 'flex', alignItems: 'center' }}>
+                            <i className="codicon codicon-layers" style={{ marginRight: '6px' }}></i>
+                            Active Ollama Models
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {ollamaModels.map((model, i) => {
+                                const vramGB = (model.size_vram / (1024 * 1024 * 1024)).toFixed(1);
+                                const totalGB = (model.size / (1024 * 1024 * 1024)).toFixed(1);
+                                const gpuPct = model.size > 0 ? Math.round((model.size_vram / model.size) * 100) : 0;
+
+                                return (
+                                    <div key={i} style={{ background: 'rgba(255,255,255,0.03)', padding: '8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                            <span style={{ fontWeight: 600, color: 'var(--vscode-charts-blue)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '8px' }}>
+                                                {model.name}
+                                            </span>
+                                            <span style={{ fontSize: '9px', opacity: 0.6 }}>{totalGB} GB</span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px' }}>
+                                            <div style={{ flex: 1, height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden' }}>
+                                                <div style={{ height: '100%', width: `${gpuPct}%`, background: gpuPct > 90 ? 'var(--vscode-charts-red)' : 'var(--vscode-charts-green)', transition: 'width 0.3s ease' }}></div>
+                                            </div>
+                                            <span style={{ minWidth: '40px', textAlign: 'right', color: gpuPct > 0 ? 'var(--vscode-charts-green)' : 'inherit' }}>
+                                                {gpuPct}% GPU
+                                            </span>
+                                        </div>
+                                        <div style={{ marginTop: '4px', fontSize: '9px', opacity: 0.5, display: 'flex', justifyContent: 'space-between' }}>
+                                            <span>VRAM: {vramGB} GB</span>
+                                            {model.expires_at && <span>Live</span>}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 )}
             </div>

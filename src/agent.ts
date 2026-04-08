@@ -342,6 +342,20 @@ export async function initAgent() {
         addAgentArtifact(event.payload);
     });
 
+    // Listen for proposed code edits
+    await listen<any>("propose-edit", (event) => {
+        console.log("[Agent] Proposed edit received:", event.payload);
+        const { proposePendingChange } = useStore.getState();
+        const { path, old_content, new_content, description } = event.payload;
+
+        proposePendingChange({
+            path,
+            oldContent: old_content,
+            newContent: new_content,
+            description: description || "AI suggested modification"
+        });
+    });
+
     // Listen for asynchronous sub-agent progress and results
     await listen<any>("subagent-progress", (event) => {
         console.log(`[Agent] Sub-agent update:`, event.payload);
@@ -392,7 +406,7 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
 
     // Add local Ollama manual check if no models found (fallback)
     if (!items.find(i => i.value.startsWith("Ollama"))) {
-        items.push({ label: "🛠️ Check Ollama (Local)", value: "action|check_ollama", desc: "Scan for local models on http://localhost:11434" });
+        items.push({ label: "🛠️ Check Ollama (Local)", value: "action|check_ollama", desc: "Scan for local models on http://localhost:1536" });
     }
 
     // Always offer Hunting/Settings if list is low or empty

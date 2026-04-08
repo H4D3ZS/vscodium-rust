@@ -205,7 +205,9 @@ const RightSidebar: React.FC = () => {
                     type: 'file' as const,
                     name: r.name,
                     path: r.path,
-                    gist: r.gist
+                    gist: r.gist,
+                    thumbnail: r.thumbnail,
+                    data: r.data
                 }));
                 attachFile(formatted);
             }
@@ -625,7 +627,11 @@ const RightSidebar: React.FC = () => {
                                                                     background: 'rgba(255,255,255,0.06)', borderRadius: '4px', fontSize: '10px',
                                                                     border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)'
                                                                 }}>
-                                                                    <i className="codicon codicon-files" style={{ fontSize: '10px' }}></i>
+                                                                    {item.thumbnail ? (
+                                                                        <img src={item.thumbnail} style={{ width: '14px', height: '14px', borderRadius: '2px', objectFit: 'cover' }} alt="" />
+                                                                    ) : (
+                                                                        <i className="codicon codicon-files" style={{ fontSize: '10px' }}></i>
+                                                                    )}
                                                                     <span>{item.name}</span>
                                                                 </div>
                                                             ))}
@@ -708,7 +714,11 @@ const RightSidebar: React.FC = () => {
                                         background: 'rgba(255,255,255,0.08)', borderRadius: '6px', fontSize: '11px',
                                         border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)'
                                     }}>
-                                        <span style={{ opacity: 0.7, fontSize: '10px' }}>{item.type === 'attachment' ? 'IMG' : '{ }'}</span>
+                                        {item.thumbnail ? (
+                                            <img src={item.thumbnail} style={{ width: '16px', height: '16px', borderRadius: '3px', objectFit: 'cover' }} alt="" />
+                                        ) : (
+                                            <span style={{ opacity: 0.7, fontSize: '10px' }}>{item.type === 'attachment' ? 'IMG' : '{ }'}</span>
+                                        )}
                                         <span style={{ fontWeight: 500 }}>{item.name}</span>
                                         <i className="codicon codicon-close" onClick={() => removeFile(item.path)} style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', opacity: 0.5, marginLeft: '2px', fontSize: '10px' }}></i>
                                     </div>

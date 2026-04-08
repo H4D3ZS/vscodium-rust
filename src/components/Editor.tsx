@@ -223,6 +223,10 @@ const Editor: React.FC = () => {
                 </button>
             )}
 
+            {activeFilePendingChange && (
+                <DiffViewer change={activeFilePendingChange} />
+            )}
+
             {isInlineEditOpen && (
                 <InlineEditOverlay
                     position={inlineEditPosition}
