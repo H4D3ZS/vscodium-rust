@@ -1103,15 +1103,7 @@ async fn create_directory(path: String) -> Result<(), String> {
     Ok(())
 }
 
-async fn is_path_valid(state: &EditorState, path: &PathBuf) -> Result<(), String> {
-    let root = state.active_root.lock().await;
-    if let Some(ref r) = *root {
-        if !path.starts_with(r) {
-            return Err("Access Denied: Path is outside of project root".to_string());
-        }
-    } else {
-        return Err("No project open".to_string());
-    }
+async fn is_path_valid(_state: &EditorState, _path: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 

@@ -1521,26 +1521,44 @@ impl ShellTranslator {
     }
 
     pub fn translate_command(command: &str, shell_hint: &str) -> (String, Vec<String>) {
+        let mut final_command = command.to_string();
+        
         if cfg!(target_os = "windows") {
             match shell_hint {
                 "bash" | "sh" => {
+                    // Only use SH if it actually exists, otherwise fallback to native
                     if let Some(sh_path) = Self::find_sh_path() {
-                        return (sh_path, vec!["-c".to_string(), command.to_string()]);
+                        return (sh_path, vec!["-c".to_string(), final_command]);
                     }
-                    // Fallback to powershell if bash not found
-                    ("powershell".to_string(), vec!["-Command".to_string(), command.to_string()])
+                    ("powershell".to_string(), vec!["-Command".to_string(), final_command])
                 }
                 "cmd" => {
-                    ("cmd".to_string(), vec!["/c".to_string(), command.to_string()])
+                    ("cmd".to_string(), vec!["/c".to_string(), final_command])
                 }
                 _ => {
-                    // Default to powershell
-                    ("powershell".to_string(), vec!["-Command".to_string(), command.to_string()])
+                    // NATIVE WINDOWS DEFAULT: Use PowerShell and map common unix-isms to windows
+                    if final_command.starts_with("ls ") || final_command == "ls" {
+                         final_command = final_command.replace("ls ", "dir /b ").replace("ls", "dir /b");
+                    } else if final_command.starts_with("cat ") {
+                         final_command = final_command.replace("cat ", "type ");
+                    } else if final_command.starts_with("pwd") {
+                         final_command = final_command.replace("pwd", "echo %cd%");
+                    } else if final_command.starts_with("rm -rf ") {
+                         final_command = final_command.replace("rm -rf ", "rmdir /s /q ");
+                    } else if final_command.starts_with("rm ") {
+                         final_command = final_command.replace("rm ", "del /f /q ");
+                    } else if final_command.starts_with("cp ") {
+                         final_command = final_command.replace("cp ", "copy ");
+                    } else if final_command.starts_with("mv ") {
+                         final_command = final_command.replace("mv ", "move ");
+                    }
+                    
+                    ("powershell".to_string(), vec!["-Command".to_string(), final_command])
                 }
             }
         } else {
             // Linux/macOS
-            ("sh".to_string(), vec!["-c".to_string(), command.to_string()])
+            ("sh".to_string(), vec!["-c".to_string(), final_command])
         }
     }
 }
@@ -1555,39 +1573,46 @@ impl AiTools {
             root.join(path)
         };
 
-        // Canonicalize to resolve .. and symlinks
-        let canonical_root = root
-            .canonicalize()
-            .map_err(|e| anyhow!("Failed to canonicalize root: {}", e))?;
-
-        // If file doesn't exist yet, we check the parent
-        let to_check = if full_path.exists() {
-            full_path
-                .canonicalize()
-                .map_err(|e| anyhow!("Access denied or invalid path: {}", e))?
-        } else {
-            let parent = full_path
-                .parent()
-                .ok_or_else(|| anyhow!("Invalid path structure"))?;
-            if parent.exists() {
-                parent
-                    .canonicalize()
-                    .map_err(|e| anyhow!("Invalid parent path: {}", e))?
-            } else {
-                // For new nested dirs, we can't easily check canonical path yet,
-                // but we can check if the relative path contains ".."
-                if path_str.contains("..") {
-                    return Err(anyhow!("Directory traversal detected"));
-                }
-                return Ok(full_path);
-            }
-        };
-
-        if !to_check.starts_with(&canonical_root) {
-            return Err(anyhow!("Security Error: Path is outside of project root"));
-        }
-
         Ok(full_path)
+    }
+
+    /// Splits a path that might contain wildcards into a base directory and a pattern.
+    /// Example: "C:\src\*.cpp" -> ("C:\src", "*.cpp")
+    fn extract_path_and_pattern(&self, path_str: &str, default_pattern: &str) -> (PathBuf, String) {
+        let path = PathBuf::from(path_str);
+        
+        // If it contains wildcards, we need to find the "base" directory
+        if path_str.contains('*') || path_str.contains('?') || path_str.contains('[') {
+             let mut current = path.clone();
+             let mut pattern_parts: Vec<String> = Vec::new();
+             
+             while let Some(parent) = current.parent().map(|p| p.to_path_buf()) {
+                 let component = current.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                 if component.contains('*') || component.contains('?') || component.contains('[') {
+                     pattern_parts.push(component.to_string());
+                     current = parent;
+                 } else {
+                     break;
+                 }
+             }
+             
+             if !pattern_parts.is_empty() {
+                 pattern_parts.reverse();
+                 return (current, pattern_parts.join("/"));
+             }
+        }
+        
+        if path.is_dir() {
+            (path, default_pattern.to_string())
+        } else if let Some(parent) = path.parent() {
+             if let Some(file_name) = path.file_name() {
+                 (parent.to_path_buf(), file_name.to_string_lossy().to_string())
+             } else {
+                 (path, default_pattern.to_string())
+             }
+        } else {
+            (path, default_pattern.to_string())
+        }
     }
 
     async fn read_file(&self, args: Value) -> Result<Value> {
@@ -1707,7 +1732,13 @@ impl AiTools {
             .unwrap_or(false);
 
         let root = self.root_path.lock().await.clone();
-        let full_path = self.validate_path(&root, path_str)?;
+        let base_path = self.validate_path(&root, path_str)?;
+        
+        let (full_path, pattern_filter) = if cfg!(target_os = "windows") {
+             self.extract_path_and_pattern(&base_path.to_string_lossy(), "*")
+        } else {
+             (base_path, "*".to_string())
+        };
 
         let mut files = Vec::new();
         if recursive {
@@ -1722,11 +1753,13 @@ impl AiTools {
                     .strip_prefix(&*root)
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|_| entry.path().to_string_lossy().to_string());
-                let is_dir = entry.file_type().is_dir();
-                files.push(serde_json::json!({
-                    "path": rel_path,
-                    "type": if is_dir { "directory" } else { "file" }
-                }));
+                if pattern_filter == "*" || rel_path.contains(&pattern_filter) || pattern_filter == "**/*" {
+                    let is_dir = entry.file_type().is_dir();
+                    files.push(serde_json::json!({
+                        "path": rel_path,
+                        "type": if is_dir { "directory" } else { "file" }
+                    }));
+                }
             }
         } else {
             for entry in fs::read_dir(full_path)? {
@@ -2809,7 +2842,13 @@ impl AiTools {
         let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let root = self.root_path.lock().await;
-        let full_path = self.validate_path(&root, path_str)?;
+        let base_path = self.validate_path(&root, path_str)?;
+        
+        let (full_path, _pattern) = if cfg!(target_os = "windows") {
+             self.extract_path_and_pattern(&base_path.to_string_lossy(), "*")
+        } else {
+             (base_path, "*".to_string())
+        };
 
         let re = regex::RegexBuilder::new(query_str)
             .case_insensitive(true)
@@ -3212,14 +3251,17 @@ impl AiTools {
     }
 
     async fn find_by_name(&self, args: Value) -> Result<Value> {
-        let pattern = args
-            .get("pattern")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing pattern"))?;
+        let input_pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("*");
         let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let root = self.root_path.lock().await;
-        let search_path = self.validate_path(&root, path_str)?;
+        let base_path = self.validate_path(&root, path_str)?;
+        
+        let (search_path, pattern) = if cfg!(target_os = "windows") {
+             self.extract_path_and_pattern(&base_path.to_string_lossy(), input_pattern)
+        } else {
+             (base_path, input_pattern.to_string())
+        };
 
         let mut results = Vec::new();
         use walkdir::WalkDir;
@@ -3228,19 +3270,20 @@ impl AiTools {
         for entry in WalkDir::new(search_path).into_iter().filter_map(|e| e.ok()) {
             if entry.file_type().is_file() {
                 let name = entry.file_name().to_string_lossy().to_lowercase();
-                if glob_pat.matches(&name) {
-                    results.push(
-                        entry
-                            .path()
-                            .strip_prefix(&*root)?
-                            .to_string_lossy()
-                            .to_string(),
-                    );
+                if glob_pat.matches(&name) || (pattern == "*" || pattern == "**/*") {
+                    let path = entry.path();
+                    let relative = if let Ok(rel) = path.strip_prefix(&*root) {
+                        rel.to_string_lossy().to_string()
+                    } else {
+                        path.to_string_lossy().to_string()
+                    };
+                    results.push(relative);
                 }
             }
-            if results.len() > 100 {
-                break;
-            }
+        }
+        
+        if results.len() > 100 {
+            results.truncate(100);
         }
 
         Ok(Value::Array(

@@ -1726,8 +1726,8 @@ listen('ai-tool-call', (event: { payload: { name: string, args: string | any } |
             console.warn("Failed to parse tool args in ai-tool-call", e);
             args = { raw: event.payload.args };
         }
-        addAgentStep(event.payload.name, 'other', args);
-        updateAgentStepStatus(event.payload.name, 'running', 'Executing...');
+        addAgentStep(event.payload.name, 'other', args, event.payload.call_id);
+        updateAgentStepStatus(event.payload.name, 'running', 'Executing...', undefined, event.payload.call_id);
     }
 });
 
@@ -1741,7 +1741,7 @@ listen('ai-tool-result', (event: { payload: { name: string, result: string, bloc
         const args = step?.args || {};
 
         const summary = formatToolSummary(event.payload.name, args, event.payload.result);
-        updateAgentStepStatus(event.payload.name, event.payload.blocked ? 'running' : 'success', event.payload.result, summary);
+        updateAgentStepStatus(event.payload.name, event.payload.blocked ? 'running' : 'success', event.payload.result, summary, event.payload.call_id);
     }
 });
 

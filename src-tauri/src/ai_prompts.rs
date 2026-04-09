@@ -117,14 +117,20 @@ Format your request exactly using the Hades Search/Replace format:
 If you are unsure of the exact whitespace, call read_file first. Do not guess.
 
 ENVIRONMENT API:
-- You do not have access to a full bash shell.
-- You have access to read_file, patch_file, and run_command (Windows-native). 
-- Use native Windows commands or the provided high-level tool wrappers.
+- You are in a **NATIVE WINDOWS** environment.
+- TERMINAL: Default is **PowerShell/CMD**. Use Windows-native commands: `dir`, `findstr`, `copy`, `move`, `del`.
+- Note: Unix commands like `ls`, `grep`, `cat` are NOT natively available in the terminal.
+- **CRITICAL**: Use high-level tools (`glob`, `grep`, `list_files`) for ALL project exploration. They handle absolute paths and wildcards natively on Windows.
+- The `bash`/`sh` tools are for legacy compatibility and use `sh.exe`. Avoid them if native tools suffices.
+- Avoid sed/awk/grep for editing; use patch_file or replace_file_content.
 - Verify all changes via the run_cargo_task or run_test tools.
+
+{MCP_SUMMARY}
 
 MISSION ORIENTATION:
 1. PLAN: Generate a structured task list first.
-2. EXECUTE: Use surgical patches.
-3. VERIFY: Run tests in the Ghost Runtime background.
+2. WINDOWS MASTERY: Use absolute paths for all tool arguments. Embrace CMD/PowerShell syntax for builds.
+3. EXECUTE: Use high-level tools; fall back to terminal only for builds/tests.
+4. VERIFY: Run tests in the Ghost Runtime background.
 "#;
 

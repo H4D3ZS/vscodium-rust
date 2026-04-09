@@ -22,6 +22,7 @@ export interface AgentStep {
     result?: string;
     summary?: string;
     type?: 'filesystem' | 'git' | 'terminal' | 'browser' | 'system' | 'other';
+    callId?: string;
 }
 
 export interface PendingChange {
@@ -280,8 +281,8 @@ interface AppState {
     addAgentMessage: (role: 'user' | 'assistant', content: string, context?: AttachedContext[] | boolean) => void;
     updateLastAgentMessage: (content: string) => void;
     updateLastAgentThought: (thought: string) => void;
-    updateAgentStepStatus: (name: string, status: 'running' | 'success' | 'error', result?: string, summary?: string) => void;
-    addAgentStep: (name: string, type?: AgentStep['type'], args?: any) => void;
+    updateAgentStepStatus: (name: string, status: 'running' | 'success' | 'error', result?: string, summary?: string, callId?: string) => void;
+    addAgentStep: (name: string, type?: AgentStep['type'], args?: any, callId?: string) => void;
     addAgentFile: (path: string) => void;
     addAgentArtifact: (artifact: Omit<Artifact, 'id' | 'timestamp'>) => void;
     setIsAgentThinking: (isThinking: boolean) => void;
@@ -1014,25 +1015,27 @@ const storeImplementation: any = (set: any, get: any) => ({
         }
         return { agentMessages: messages };
     }),
-    addAgentStep: (name, type, args) => set((state) => {
+    addAgentStep: (name, type, args, callId) => set((state) => {
         const messages = [...state.agentMessages];
         if (messages.length === 0) return state;
         const last = messages[messages.length - 1];
         if (last && last.role === 'assistant') {
             const steps = last.steps || [];
-            // Avoid duplicate steps if redelivered
-            if (!steps.find(s => s.name === name)) {
-                last.steps = [...steps, { name, status: 'running', type, args }];
+            // Avoid duplicate steps if redelivered, check callId if present
+            if (!steps.find(s => (callId && s.callId === callId) || (!callId && s.name === name && s.status === 'running'))) {
+                last.steps = [...steps, { name, status: 'running', type, args, callId }];
             }
         }
         return { agentMessages: messages };
     }),
-    updateAgentStepStatus: (name, status, result?: string, summary?: string) => set((state) => {
+    updateAgentStepStatus: (name, status, result, summary, callId) => set((state) => {
         const messages = [...state.agentMessages];
         if (messages.length === 0) return state;
         const last = messages[messages.length - 1];
         if (last && last.role === 'assistant' && last.steps) {
-            const step = last.steps.find(s => s.name === name);
+            // Priority 1: Match by callId
+            // Priority 2: Match by name if still running
+            const step = last.steps.find(s => (callId && s.callId === callId) || (!callId && s.name === name && s.status === 'running'));
             if (step) {
                 step.status = status;
                 if (result !== undefined) step.result = result;

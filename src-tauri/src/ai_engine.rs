@@ -279,7 +279,12 @@ impl Sentient {
     }
 
     pub fn set_root_path(&self, root_path: PathBuf) {
-        self.ai_tools.set_root_path(root_path.clone());
+        let tools = self.ai_tools.clone();
+        let rp = root_path.clone();
+        tauri::async_runtime::spawn(async move {
+            tools.set_root_path(rp).await;
+        });
+
         let ms = self.memory_store.clone();
         tauri::async_runtime::spawn(async move {
             ms.mount(Some(root_path)).await;
@@ -796,12 +801,6 @@ impl Sentient {
                 8. RECURSIVE LEARNING: Record insights in `MEMORY.md` via `manage_memory` to improve your own performance. \
                 \n\nRemember: You are a high-performance engineer. Speak less, code more, and EXECUTE with absolute confidence. \
                 7. SHARED STANDARDS: Respect API Standards, Security Armor, and UI/UX Pro Max modules in `.agent/.shared`. \
-                \n\n### TOOLS & GUIDANCE:\n\
-                - Navigation: `list_files`, `view_file_outline`, `view_code_item`. \
-                - CRUD: `write_to_file`, `replace_file_content`, `patch_file_content`, `create_directory`. \
-                - CLI: `terminal_send_data`, `terminal_read_output`, `run_command`. \
-                - Intelligence: `browser_open`, `perplexity_ask`, `read_url_content`. \
-                - Management: `manage_task` (status updates), `manage_memory` (insights). \
                 {MEMORY} \
                 {RULES} \
                 \nPROJECT WORKFLOWS:\n{WORKFLOW_LIST} \
@@ -811,7 +810,10 @@ impl Sentient {
             let rules_text = self.rules_engine.format_rules_for_prompt();
             let workflows_text = self.workflow_engine.format_workflows_for_prompt();
 
-            let base_prompt = crate::ai_prompts::MASTER_SYSTEM_PROMPT.to_string();
+            let base_prompt = crate::ai_prompts::MASTER_SYSTEM_PROMPT.to_string()
+                .replace("{BUILTIN_TOOLS}", &self.summarize_builtin_tools().await)
+                .replace("{MCP_SUMMARY}", &self.summarize_mcp_tools().await);
+
             let base_template = base_prompt_template
                 .replace("{PROJECT_NAME}", &project_name)
                 .replace("{PROJECT_PATH}", &project_path)
@@ -819,8 +821,7 @@ impl Sentient {
                 .replace("{FILES}", &files_list)
                 .replace("{MEMORY}", &project_memory)
                 .replace("{RULES}", &rules_text)
-                .replace("{WORKFLOW_LIST}", &workflows_text)
-                .replace("{MCP_SUMMARY}", &self.summarize_mcp_tools().await);
+                .replace("{WORKFLOW_LIST}", &workflows_text);
 
             let mode = req.mode.as_deref().unwrap_or("Fast");
             let mode_instruction = match mode {
@@ -1436,7 +1437,11 @@ impl Sentient {
 
                     println!("[AI TOOL EXECUTION] Tool: {}, Args: {}", tool_call.function.name, tool_call.function.arguments);
 
-                    self.emit_event("ai-tool-call", json!({ "name": tool_call.function.name, "args": tool_call.function.arguments }));
+                    self.emit_event("ai-tool-call", json!({ 
+                        "name": tool_call.function.name, 
+                        "args": tool_call.function.arguments,
+                        "call_id": tool_call.id
+                    }));
 
                     let mut tool_name = tool_call.function.name.clone();
                     // EXTENSIVE TOOL ALIASES for "Do Anything" capability & Windows/Linux Parity
@@ -1576,8 +1581,12 @@ impl Sentient {
                          tool_args_json["shell_hint"] = json!(tool_call.function.name);
                     }
 
-                    let tool_result = self
-                        .tool_invoker
+                    // 3. SCHEMA REPAIR (Windows Only): Fix intuitive hallucinations
+                    if cfg!(target_os = "windows") {
+                        self.repair_tool_arguments(&tool_name, &mut tool_args_json);
+                    }
+
+                    let tool_result = self.tool_invoker
                         .execute_tool(&tool_name, &tool_args_json.to_string())
                         .await;
 
@@ -1594,7 +1603,8 @@ impl Sentient {
                     self.emit_event("ai-tool-result", json!({ 
                         "name": tool_call.function.name, 
                         "result": tool_result.as_ref().map(|v| v.to_string()).unwrap_or_else(|e| e.to_string()),
-                        "blocked": is_blocked
+                        "blocked": is_blocked,
+                        "call_id": tool_call.id
                     }));
 
                     messages.push(ChatMessage {
@@ -2150,47 +2160,105 @@ impl Sentient {
     fn try_parse_markdown_tool_calls(&self, content: &str) -> Vec<ToolCall> {
         let mut tools = Vec::new();
 
-        // 1. First try finding JSON blocks: ```json ... ```
+        // 1. First try finding code blocks: ``` ... ``` (could be ```json or just ```)
         let mut found_any_block = false;
+        // 1. Aggressive Markdown code block parsing
         let mut search_pos = 0;
-        while let Some(start) = content[search_pos..].find("```json") {
+        while let Some(start) = content[search_pos..].find("```") {
             let actual_start = search_pos + start;
-            let rest = &content[actual_start + 7..];
+            let after_backticks = actual_start + 3;
+            
+            let possible_json_start = if let Some(newline_pos) = content[after_backticks..].find('\n') {
+                let identifier = content[after_backticks..after_backticks + newline_pos].trim();
+                // Strip common identifiers if they exist or if the content starts with { right after identifying text
+                if identifier == "json" || identifier == "rust" || identifier == "javascript" || identifier == "typescript" {
+                    after_backticks + newline_pos + 1
+                } else {
+                    // Check if content on same line starts with {
+                    if identifier.starts_with('{') {
+                        after_backticks
+                    } else {
+                         after_backticks + newline_pos + 1
+                    }
+                }
+            } else {
+                after_backticks
+            };
+
+            let rest = if possible_json_start < content.len() { &content[possible_json_start..] } else { "" };
+            
             if let Some(end) = rest.find("```") {
                 let json_block = rest[..end].trim();
-                search_pos = actual_start + 7 + end + 3;
+                search_pos = possible_json_start + end + 3;
                 found_any_block = true;
-
                 self.parse_json_to_tools(json_block, &mut tools);
             } else {
+                // Unclosed block - try parsing rest of content
+                let json_block = rest.trim();
+                self.parse_json_to_tools(json_block, &mut tools);
+                search_pos = content.len();
                 break;
             }
         }
+    
+        // 2. DEEP FALLBACK: If nothing found, or to catch stray JSON outside blocks,
+        // use a recursive bracket matcher to find any legitimate { "name": ... } objects.
+        if tools.is_empty() {
+             self.extract_json_objects_robustly(content, &mut tools);
+        }
 
-        // 2. If no code blocks found, or if there's trailing content, try parsing THE WHOLE CONTENT as JSON
-        // This handles cases where models output raw multi-line JSON without blocks.
-        if !found_any_block || tools.is_empty() {
-            let trimmed = content.trim();
-            if let Some(start_idx) = trimmed.find('{') {
-                // Try parsing from the first { to the end
-                let json_candidate = &trimmed[start_idx..];
-                if let Ok(val) = serde_json::from_str::<Value>(json_candidate) {
-                    self.parse_single_json_item_to_tools(val, &mut tools);
-                } else {
-                    // Failover: try line by line still, just in case
-                    for line in trimmed.lines() {
-                        let line = line.trim();
-                        if let Some(s_idx) = line.find('{') {
-                            if let Ok(val) = serde_json::from_str::<Value>(&line[s_idx..]) {
-                                self.parse_single_json_item_to_tools(val, &mut tools);
-                            }
+        tools
+    }
+
+    /// Recursively find potential JSON objects in text that look like tool calls.
+    fn extract_json_objects_robustly(&self, content: &str, tools: &mut Vec<ToolCall>) {
+        let mut pos = 0;
+        while let Some(start_idx) = content[pos..].find('{') {
+            let actual_start = pos + start_idx;
+            let mut depth = 0;
+            let mut end_idx = None;
+            let mut in_string = false;
+            let mut escaped = false;
+
+            for (i, c) in content[actual_start..].char_indices() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if c == '\\' {
+                    escaped = true;
+                    continue;
+                }
+                if c == '"' {
+                    in_string = !in_string;
+                    continue;
+                }
+                if !in_string {
+                    if c == '{' {
+                        depth += 1;
+                    } else if c == '}' {
+                        depth -= 1;
+                        if depth == 0 {
+                            end_idx = Some(actual_start + i + 1);
+                            break;
                         }
                     }
                 }
             }
-        }
 
-        tools
+            if let Some(end) = end_idx {
+                let candidate = &content[actual_start..end];
+                if let Ok(val) = serde_json::from_str::<Value>(candidate) {
+                    let old_len = tools.len();
+                    self.parse_single_json_item_to_tools(val, tools);
+                    if tools.len() > old_len {
+                         // Successfully found a tool, advance past it
+                         pos = end;
+                         continue;
+                    }
+                }
+            }
+        }
     }
 
     fn parse_json_to_tools(&self, json_block: &str, tools: &mut Vec<ToolCall>) {
@@ -2248,6 +2316,20 @@ impl Sentient {
         }
     }
 
+    pub async fn summarize_builtin_tools(&self) -> String {
+        let mut summary = String::new();
+        let tools = self.ai_tools.list_tools();
+        for tool in tools {
+            summary.push_str(&format!(
+                "- `{}`: {}\n  JSON Schema: {}\n",
+                tool.name,
+                tool.description,
+                serde_json::to_string(&tool.input_schema).unwrap_or_else(|_| "{}".to_string())
+            ));
+        }
+        summary
+    }
+
     pub async fn summarize_mcp_tools(&self) -> String {
         let mut summary = String::new();
         if let Ok(mcp_tools) = self.mcp_registry.list_tools().await {
@@ -2296,6 +2378,36 @@ impl Sentient {
     pub async fn reason(self: Arc<Self>, prompt: &str) -> anyhow::Result<String> {
         let resp = self.clone().chat_complete(prompt, None, None, None, None).await?;
         Ok(resp.content)
+    }
+    /// Attempts to fix common tool argument hallucinations from small models.
+    fn repair_tool_arguments(&self, tool_name: &str, args: &mut Value) {
+        if let Some(obj) = args.as_object_mut() {
+             // Case 1: Model uses the pattern/query as a KEY instead of a value
+             // e.g. {"**/*.cpp": "TODO"} for grep/glob
+             if obj.len() == 1 {
+                 let key = obj.keys().next().unwrap().clone();
+                 // If the key looks like a path or pattern (contains . / *), it's likely a hallucination
+                 if key.contains('.') || key.contains('*') || key.contains('/') || key.contains('\\') {
+                      let value = obj.get(&key).unwrap().clone();
+                      match tool_name {
+                          "grep" | "search_files" | "search_project" => {
+                              obj.clear();
+                              obj.insert("query".to_string(), value);
+                              obj.insert("path".to_string(), json!(key));
+                          },
+                          "find_by_name" | "glob" | "list_files" => {
+                              obj.clear();
+                              obj.insert("pattern".to_string(), json!(key));
+                          },
+                          "view_file" | "read_file" | "file_read" => {
+                              obj.clear();
+                              obj.insert("path".to_string(), json!(key));
+                          },
+                          _ => {}
+                      }
+                 }
+             }
+        }
     }
 }
 
