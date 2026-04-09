@@ -79,29 +79,33 @@ warning: unused import: `std::sync::Mutex`
 2 | use std::sync::Mutex;
   |     ^^^^^^^^^^^^^^^^
 
-error[E0596]: cannot borrow data in an `Arc` as mutable
-  --> src\kairos.rs:63:21
-   |
-63 |             let _ = self.indexer.reindex_if_needed(root);
-   |                     ^^^^^^^^^^^^ cannot borrow as mutable
-   |
-   = help: trait `DerefMut` is required to modify through a dereference, but it is not implemented for `Arc<ContextIndexer>`
+error[E0728]: `await` is only allowed inside `async` functions and blocks
+   --> src\patch_engine.rs:126:49
+    |
+126 |         let handle_opt = self.app_handle.lock().await;
+    |                                                 ^^^^^ only allowed inside `async` functions and blocks
 
-error[E0599]: no method named `unwrap` found for opaque type `impl futures::Future<Output = tokio::sync::MutexGuard<'_, std::option::Option<AppHandle>>>` in the current scope
-   --> src\patch_engine.rs:126:51
-    |
-126 |         if let Some(app) = self.app_handle.lock().unwrap().as_ref() {
-    |                                                   ^^^^^^ method not found in `impl futures::Future<Output = tokio::sync::MutexGuard<'_, std::option::Option<AppHandle>>>`
-    |
-help: consider `await`ing on the `Future` and calling the method on its `Output`
-    |
-126 |         if let Some(app) = self.app_handle.lock().await.unwrap().as_ref() {
-    |                                                   ++++++
+error[E0382]: borrow of moved value: `endpoint`
+    --> src\ai_engine.rs:1192:35
+     |
+1163 |             let endpoint = self.get_endpoint(&active_provider, &req);
+     |                 -------- move occurs because `endpoint` has type `std::string::String`, which does not implement the `Copy` trait
+...
+1166 |             let mut request = self.client.post(endpoint);
+     |                                                -------- value moved here
+...
+1192 |             let mut request_url = endpoint.clone();
+     |                                   ^^^^^^^^ value borrowed here after move
+     |
+help: consider borrowing `endpoint`
+     |
+1166 |             let mut request = self.client.post(&endpoint);
+     |                                                +
 
 error[E0282]: type annotations needed
-   --> src\patch_engine.rs:128:21
+   --> src\patch_engine.rs:129:21
     |
-128 |             let _ = app.emit("shadow-file-updated", json!({
+129 |             let _ = app.emit("shadow-file-updated", &json!({
     |                     ^^^ cannot infer type
 
 error: future cannot be sent between threads safely
@@ -127,33 +131,7 @@ note: required by a bound in `tauri::async_runtime::spawn`
  270 |   F: Future + Send + 'static,
      |               ^^^^ required by this bound in `spawn`
 
-error: future cannot be sent between threads safely
-    --> src\ai_tools.rs:1882:13
-     |
-1882 | /             tauri::async_runtime::spawn(async move {
-1883 | |                 let _ = handle.emit(
-1884 | |                     "subagent-progress",
-1885 | |                     json!({
-...    |
-1919 | |             });
-     | |______________^ future created by async block is not `Send`
-     |
-     = note: cannot satisfy `impl futures::Future<Output = Result<serde_json::Value, anyhow::Error>>: std::marker::Send`
-note: future is not `Send` as it awaits another future which is not `Send`
-    --> src\ai_tools.rs:1087:33
-     |
-1087 |             "spawn_subagent" => self.spawn_subagent(arguments).await,
-     |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ await occurs here on type `impl futures::Future<Output = Result<serde_json::Value, anyhow::Error>>`, which is not `Send`
-note: required by a bound in `tauri::async_runtime::spawn`
-    --> C:\Users\HADES\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-2.10.3\src\async_runtime.rs:270:15
-     |
- 268 | pub fn spawn<F>(task: F) -> JoinHandle<F::Output>
-     |        ----- required by a bound in this function
- 269 | where
- 270 |   F: Future + Send + 'static,
-     |               ^^^^ required by this bound in `spawn`
-
-Some errors have detailed explanations: E0282, E0596, E0599.
+Some errors have detailed explanations: E0282, E0382, E0728.
 For more information about an error, try `rustc --explain E0282`.
 warning: `vscode-rust-app` (lib) generated 13 warnings
-error: could not compile `vscode-rust-app` (lib) due to 5 previous errors; 13 warnings emitted
+error: could not compile `vscode-rust-app` (lib) due to 4 previous errors; 13 warnings emitted

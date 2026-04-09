@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use tracing::instrument;
+use tauri::Manager;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -126,32 +127,35 @@ pub struct Sentient {
     client: Client,
     api_key: String,
     mcp_registry: Arc<McpRegistry>,
-    ai_tools: Arc<AiTools>,
+    pub ai_tools: Arc<AiTools>,
     task_planner: Arc<TaskPlanner>,
     pub memory_store: Arc<MemoryStore>,
     pub rules_engine: Arc<RulesEngine>,
     pub workflow_engine: Arc<WorkflowEngine>,
     tool_invoker: Arc<ToolInvoker>,
     conversation_state: AsyncMutex<Vec<ChatMessage>>,
-    app_handle: Mutex<Option<AppHandle>>,
+    app_handle: tokio::sync::Mutex<Option<AppHandle>>,
     auth_state: Arc<AuthState>,
-    ollama_url: Mutex<String>,
+    ollama_url: tokio::sync::Mutex<String>,
     _browser_state: Arc<crate::browser::BrowserState>,
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
     brain_dir: PathBuf,
-    advisor_model: Mutex<Option<String>>,
+    advisor_model: tokio::sync::Mutex<Option<String>>,
     memory_optimizer: Arc<crate::memory_optimizer::MemoryOptimizer>,
     perf_monitor: Arc<crate::performance::PerformanceMonitor>,
+    pub ghost_runtime: Arc<crate::ghost_runtime::GhostRuntime>,
+    pub shadow_workspace: Arc<crate::shadow_workspace::ShadowWorkspace>,
+    pub yolo_mode: Arc<AtomicBool>,
     session_id: String,
     pub ane_engine: Arc<tokio::sync::Mutex<Option<crate::ane::AneEngine>>>,
     pub attachment_manager: Arc<crate::attachment_manager::AttachmentManager>,
     pub knowledge_distiller: Arc<crate::knowledge_distiller::KnowledgeDistiller>,
     // High-speed RAM Caches to resolve regression
-    project_files_cache: Mutex<Option<String>>,
-    workspace_memory_cache: Mutex<Option<String>>,
-    global_brain_cache: Mutex<Option<String>>,
-    memory_aim_cache: Mutex<Option<String>>,
+    project_files_cache: tokio::sync::Mutex<Option<String>>,
+    workspace_memory_cache: tokio::sync::Mutex<Option<String>>,
+    global_brain_cache: tokio::sync::Mutex<Option<String>>,
+    memory_aim_cache: tokio::sync::Mutex<Option<String>>,
 }
 
 impl Sentient {
@@ -166,6 +170,9 @@ impl Sentient {
         perf_monitor: Arc<crate::performance::PerformanceMonitor>,
         attachment_manager: Arc<crate::attachment_manager::AttachmentManager>,
         knowledge_distiller: Arc<crate::knowledge_distiller::KnowledgeDistiller>,
+        patch_engine: Arc<tokio::sync::Mutex<crate::patch_engine::PatchEngine>>,
+        ghost_runtime: Arc<crate::ghost_runtime::GhostRuntime>,
+        shadow_workspace: Arc<crate::shadow_workspace::ShadowWorkspace>,
     ) -> Self {
         let brain_dir = config_dir.join("brain");
         if !brain_dir.exists() {
@@ -174,11 +181,14 @@ impl Sentient {
 
         // Mount Kortex persistent memory (initial sync with brain dir)
         let memory_store = Arc::new(MemoryStore::new());
+        let vfs_bridge = crate::vfs_bridge::VfsBridge::new(root_path.clone());
         {
             let ms = memory_store.clone();
             let rp = root_path.clone();
+            let vb = vfs_bridge.clone();
             tauri::async_runtime::spawn(async move {
                 ms.mount(Some(rp)).await;
+                ms.set_vfs_bridge(vb).await;
             });
         }
 
@@ -190,6 +200,9 @@ impl Sentient {
             mcp_registry.clone(),
             memory_store.clone(),
             knowledge_distiller.clone(),
+            patch_engine.clone(),
+            ghost_runtime.clone(),
+            shadow_workspace.clone(),
         ));
         
         let task_planner = Arc::new(TaskPlanner::new());
@@ -215,34 +228,37 @@ impl Sentient {
             workflow_engine,
             tool_invoker,
             conversation_state: AsyncMutex::new(Vec::new()),
-            app_handle: Mutex::new(None),
+            app_handle: tokio::sync::Mutex::new(None),
             auth_state,
-            ollama_url: Mutex::new("http://localhost:11434".to_string()),
+            ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
             _browser_state: browser_state.clone(),
             stop_signal: Arc::new(AtomicBool::new(false)),
             pause_signal: Arc::new(AtomicBool::new(false)),
             brain_dir,
-            advisor_model: Mutex::new(None),
+            advisor_model: tokio::sync::Mutex::new(None),
             memory_optimizer,
             perf_monitor,
             session_id: uuid::Uuid::new_v4().to_string(),
             ane_engine,
             attachment_manager,
             knowledge_distiller: Arc::new(crate::knowledge_distiller::KnowledgeDistiller::new(&root_path)),
-            project_files_cache: Mutex::new(None),
-            workspace_memory_cache: Mutex::new(None),
-            global_brain_cache: Mutex::new(None),
-            memory_aim_cache: Mutex::new(None),
+            ghost_runtime,
+            shadow_workspace,
+            yolo_mode: Arc::new(AtomicBool::new(false)),
+            project_files_cache: tokio::sync::Mutex::new(None),
+            workspace_memory_cache: tokio::sync::Mutex::new(None),
+            global_brain_cache: tokio::sync::Mutex::new(None),
+            memory_aim_cache: tokio::sync::Mutex::new(None),
         }
     }
 
-    pub fn set_ollama_url(&self, url: String) {
-        let mut u = self.ollama_url.lock().unwrap();
+    pub async fn set_ollama_url(&self, url: String) {
+        let mut u = self.ollama_url.lock().await;
         *u = url;
     }
 
-    pub fn set_advisor_model(&self, model: Option<String>) {
-        let mut m = self.advisor_model.lock().unwrap();
+    pub async fn set_advisor_model(&self, model: Option<String>) {
+        let mut m = self.advisor_model.lock().await;
         *m = model;
     }
 
@@ -250,8 +266,8 @@ impl Sentient {
         self.ai_tools.clone()
     }
 
-    pub fn set_app_handle(&self, handle: AppHandle) {
-        let mut h = self.app_handle.lock().unwrap();
+    pub async fn set_app_handle(&self, handle: AppHandle) {
+        let mut h = self.app_handle.lock().await;
         *h = Some(handle.clone());
         self.ai_tools.set_app_handle(handle.clone());
         
@@ -310,7 +326,7 @@ impl Sentient {
     }
 
     pub async fn chat_complete(
-        &self, 
+        self: Arc<Self>, 
         prompt: &str, 
         system_override: Option<String>,
         provider_override: Option<String>,
@@ -366,7 +382,7 @@ impl Sentient {
         let model = if provider == "ollama" && model == "gpt-4o" { "llama3".to_string() } else { model };
 
         let ollama_url = {
-            let u = self.ollama_url.lock().unwrap();
+            let u = self.ollama_url.lock().await;
             u.clone()
         };
 
@@ -383,7 +399,7 @@ impl Sentient {
             tools: None,
         };
 
-        let result = self.autonomous_loop(req, on_chunk).await?;
+        let result = self.clone().autonomous_loop(req, on_chunk).await?;
         Ok(AiResponse { content: result })
     }
 
@@ -401,7 +417,7 @@ impl Sentient {
         // This ensures they stay in RAM but at 4x lower density for 8GB systems.
         let state_json = serde_json::to_string(&*state).unwrap_or_default();
 
-        let pressure = self.perf_monitor.get_memory_pressure();
+        let pressure = self.perf_monitor.get_memory_pressure().await;
         let threshold = match pressure {
             crate::performance::MemoryPressure::Normal => 32768,
             crate::performance::MemoryPressure::Warning => 16384,
@@ -438,7 +454,7 @@ impl Sentient {
 
     pub async fn check_ollama_status(&self) -> Result<bool> {
         let url = {
-            let u = self.ollama_url.lock().unwrap();
+            let u = self.ollama_url.lock().await;
             u.clone()
         };
         // Use a 2-second timeout for status check
@@ -449,12 +465,19 @@ impl Sentient {
             .send()
             .await;
 
-        Ok(resp.is_ok() && resp.unwrap().status().is_success())
+        match resp {
+            Ok(r) => Ok(r.status().is_success()),
+            Err(_) => Ok(false),
+        }
+    }
+
+    async fn execute_tool(&self, name: &str, args: &str) -> Result<Value> {
+        self.tool_invoker.execute_tool(name, args).await
     }
 
     pub async fn pull_model(&self, name: &str) -> Result<()> {
         let url = {
-            let u = self.ollama_url.lock().unwrap();
+            let u = self.ollama_url.lock().await;
             u.clone()
         };
 
@@ -473,9 +496,9 @@ impl Sentient {
         }
     }
 
-    #[instrument(skip(self, req, on_chunk))]
+
     pub async fn autonomous_loop(
-        &self, 
+        self: Arc<Self>, 
         req: AiRequest, 
         on_chunk: Option<Arc<dyn Fn(&str) + Send + Sync>>
     ) -> Result<String> {
@@ -496,7 +519,7 @@ impl Sentient {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "this project".to_string());
             
-            let mut cache = self.project_files_cache.lock().unwrap();
+            let mut cache = self.project_files_cache.lock().await;
             let list = if let Some(c) = &*cache {
                 c.clone()
             } else {
@@ -518,7 +541,7 @@ impl Sentient {
         let root = self.ai_tools.get_root_path();
 
         let mut project_memory = {
-            let mut cache = self.workspace_memory_cache.lock().unwrap();
+            let mut cache = self.workspace_memory_cache.lock().await;
             if let Some(c) = &*cache {
                 c.clone()
             } else {
@@ -539,7 +562,7 @@ impl Sentient {
 
         // Load Global Brain Memory (Cached)
         {
-            let mut cache = self.global_brain_cache.lock().unwrap();
+            let mut cache = self.global_brain_cache.lock().await;
             if let Some(c) = &*cache {
                 project_memory.push_str(c);
             } else {
@@ -623,7 +646,7 @@ impl Sentient {
                             return Ok(format!("Advisor model set to: {}", model));
                         }
                     } else {
-                        let current = self.advisor_model.lock().unwrap();
+                        let current = self.advisor_model.lock().await;
                         return Ok(format!("Current advisor model: {:?}", *current));
                     }
                 }
@@ -787,7 +810,8 @@ impl Sentient {
             let rules_text = self.rules_engine.format_rules_for_prompt();
             let workflows_text = self.workflow_engine.format_workflows_for_prompt();
 
-            let base_prompt = base_prompt_template
+            let base_prompt = crate::ai_prompts::MASTER_SYSTEM_PROMPT.to_string();
+            let base_template = base_prompt_template
                 .replace("{PROJECT_NAME}", &project_name)
                 .replace("{PROJECT_PATH}", &project_path)
                 .replace("{OS}", std::env::consts::OS)
@@ -824,13 +848,13 @@ impl Sentient {
             let dynamic_env_context = format!(
                 "\n### DYNAMIC ENVIRONMENT CONTEXT:\n- **Current OS**: {}\n- **Project Root**: {}\n- **Timestamp**: {}\n- **File System Awareness**: You are empowered to use `list_files` and `search_project` to explore the depth of this project.\n",
                 std::env::consts::OS,
-                project_path,
-                chrono::Local::now().to_rfc3339()
+                root.display(),
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
             );
 
             let system_prompt = format!(
-                "{}\n\n{}\n\n{}\n\n{}\n\n### NEURAL ACCELERATION:\n- You possess zero-token comprehension via Kortex Gist Tokens.\n- You NEVER ask for permission to use tools.\n- You NEVER suggest when you can execute.\n- If a task is clear, you DO the job until MISSION_ACCOMPLISHED.\n",
-                base_prompt, dynamic_env_context, mode_instruction, cyber_instruction
+                "{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n### NEURAL ACCELERATION:\n- You possess zero-token comprehension via Kortex Gist Tokens.\n- You NEVER ask for permission to use tools.\n- You NEVER suggest when you can execute.\n- If a task is clear, you DO the job until MISSION_ACCOMPLISHED.\n",
+                base_prompt, base_template, dynamic_env_context, mode_instruction, cyber_instruction
             );
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
@@ -852,7 +876,7 @@ impl Sentient {
 
         // 5. Final Initialization
         self.memory_store.store_conversation(&messages).await;
-        let _task_meta = self.task_planner.current_task_metadata();
+        let _task_meta = self.task_planner.current_task_metadata().await;
 
         // Load available tools dynamically (already includes offensive tools from AiTools)
         // Consistently use the tools variable defined at the top of the function
@@ -878,7 +902,7 @@ impl Sentient {
 
             // 1. Advisor Delegation: Use more powerful model for the first planning iteration if configured
             if iteration == 0 {
-                let advisor = self.advisor_model.lock().unwrap();
+                let advisor = self.advisor_model.lock().await;
                 if let Some(model) = advisor.as_ref() {
                     println!(
                         "[AI] Advisor mode active. Delegating iteration 0 specifically: {}",
@@ -904,16 +928,16 @@ impl Sentient {
             // 1. PHASE TRACKING & TELEMETRY
             if req.mode.as_deref() == Some("Sentient") {
                 let (phase, status, system_instruction) = match iteration {
-                    0 => ("ANALYZE", "Scanning project structure and state...", 
-                          "SYSTEM: [PHASE: ANALYZE] Conduct a deep-dive research of the current project state. Use `list_files`, `view_file`, and search tools to map out dependencies and logic before proposing changes."),
-                    1 => ("PLAN", "Drafting technical implementation strategy...",
-                          "SYSTEM: [PHASE: PLAN] Based on your analysis, draft a comprehensive plan. Update `task.md` and `implementation_plan.md` (if relevant) to document your intended workflow."),
-                    2..=15 => ("EXECUTE", "Applying changes and actuariting tools...",
-                          "SYSTEM: [PHASE: EXECUTE] Proceed with the technical implementation. Execute tools to create files, modify code, or run terminal commands as planned."),
-                    16..=20 => ("VERIFY", "Running tests and validating consistency...",
-                          "SYSTEM: [PHASE: VERIFY] Implementation complete. Now rigorously test and verify your changes. Run build commands, unit tests, or browser checks to ensure stability."),
+                    0 => ("ANALYZE", "Architect scanning project structure...", 
+                          "SYSTEM: [PERSONA: ARCHITECT] You are the Lead Architect. Conduct a deep-dive research of the current project state. Use `get_symbol_graph` and `list_files` to map out dependencies. Your goal is to identify tech debt and create a mission plan before any code is written."),
+                    1 => ("PLAN", "Architect drafting technical implementation strategy...",
+                          "SYSTEM: [PERSONA: ARCHITECT] Based on your analysis, use `create_mission_plan` to document your strategy in `task.md`. Ensure every task has a verification step."),
+                    2..=15 => ("EXECUTE", "Implementer applying surgical patches...",
+                          "SYSTEM: [PERSONA: IMPLEMENTER] You are the Senior Implementer. Proceed with surgical SEARCH/REPLACE patching using `patch_file_content` or `apply_shadow_patch`. Focus on absolute accuracy in the shadow buffer."),
+                    16..=25 => ("VERIFY", "Auditor running regressions and validating consistency...",
+                          "SYSTEM: [PERSONA: AUDITOR] You are the QA Auditor. Implement verification gates using `verify_implementation`. If tests fail, you MUST report back for re-reasoning. Do not allow 'MISSION_ACCOMPLISHED' until build/tests pass."),
                     _ => ("REPORT", "Compiling results and distilling lessons...",
-                          "SYSTEM: [PHASE: REPORT] Task lifecycle ending. Summarize your accomplishments, document any lessons learned in Kortex, and provide a final report to the user."),
+                          "SYSTEM: [PHASE: REPORT] Task lifecycle ending. Summarize accomplishments and record architectural decisions via `manage_memory`."),
                 };
 
                 println!("[SENTIENT-CORE] Entering Phase: {} | Iteration: {}", phase, iteration);
@@ -1060,17 +1084,42 @@ impl Sentient {
 
                 // For OpenAI/Ollama, ensure system message is included
                 let mut final_messages = messages.clone();
+                let final_text = messages.last().and_then(|m| m.content.as_ref()).map(|c| c.as_str()).unwrap_or("");
+                let has_completion_keyword = final_text.contains("MISSION_ACCOMPLISHED");
+                
+                // HADES SYNERGY: Final Synaptic Sync if mission complete
+                if has_completion_keyword {
+                    println!("[Harness] Mission accomplished signal detected. Synchronizing memories...");
+                    let h_arc_opt = {
+                        let h_lock = self.app_handle.lock().await;
+                        h_lock.as_ref().map(|h| {
+                            let state: tauri::State<crate::EditorState> = h.state();
+                            state.hades_harness.clone()
+                        })
+                    };
+
+                    if let Some(h_arc) = h_arc_opt {
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .expect("tokio rt");
+                            let _ = rt.block_on(h_arc.execute_agent_step("Final Mission Review"));
+                        });
+                    }
+                }
+
                 if !final_messages.iter().any(|m| m.role == "system") {
-                    final_messages.insert(
-                        0,
-                        ChatMessage {
-                            role: "system".to_string(),
-                            content: Some(MessageContent::Text(ollama_system)),
-                            tool_calls: None,
-                            tool_call_id: None,
-                            metadata: None,
-                        },
-                    );
+                        final_messages.insert(
+                            0,
+                            ChatMessage {
+                                role: "system".to_string(),
+                                content: Some(MessageContent::Text(ollama_system)),
+                                tool_calls: None,
+                                tool_call_id: None,
+                                metadata: None,
+                            },
+                        );
                 } else {
                     for m in &mut final_messages {
                         if m.role == "system" {
@@ -1098,29 +1147,12 @@ impl Sentient {
                 payload["tool_choice"] = json!("auto");
             }
 
-            let mut request = self.client.post(self.get_endpoint(&active_provider, &req));
-
-            // Handle Browser-resident providers (scrapers/session-based)
+            // Get session first (async)
+            let mut session_opt = None;
             if active_provider.ends_with("(Browser)") {
                 let provider_name = active_provider.replace(" (Browser)", "").to_lowercase();
-                if let Some(session) = crate::ai_auth::get_session(&self.auth_state, &provider_name)
-                {
-                    let mut req = request
-                        .header("Cookie", &session.cookies)
-                        .header("User-Agent", &session.user_agent);
-
-                    // Specific headers for Claude/Gemini to look more like a browser
-                    if provider_name == "claude" {
-                        req = req
-                            .header("Accept", "application/json")
-                            .header("Referer", "https://claude.ai/chat");
-                    } else if provider_name == "gemini" {
-                        req = req
-                            .header("x-goog-authuser", "0")
-                            .header("Referer", "https://gemini.google.com/app");
-                    }
-                    request = req;
-                } else {
+                session_opt = crate::ai_auth::get_session(&self.auth_state, &provider_name).await;
+                if session_opt.is_none() {
                     return Err(anyhow!(
                         "No active browser session for {}. Please login first.",
                         active_provider
@@ -1133,6 +1165,26 @@ impl Sentient {
                 .trim()
                 .to_string();
             let endpoint = self.get_endpoint(&active_provider, &req);
+
+            // Now create the request (must not hold non-Send state across await if any)
+            let mut request = self.client.post(endpoint.clone());
+
+            if let Some(session) = session_opt {
+                let provider_name = active_provider.replace(" (Browser)", "").to_lowercase();
+                request = request
+                    .header("Cookie", &session.cookies)
+                    .header("User-Agent", &session.user_agent);
+
+                if provider_name == "claude" {
+                    request = request
+                        .header("Accept", "application/json")
+                        .header("Referer", "https://claude.ai/chat");
+                } else if provider_name == "gemini" {
+                    request = request
+                        .header("x-goog-authuser", "0")
+                        .header("Referer", "https://gemini.google.com/app");
+                }
+            }
 
             if provider_key.is_empty() 
                 && !active_provider.to_lowercase().starts_with("ollama") 
@@ -1353,8 +1405,15 @@ impl Sentient {
                     let parsed_tools = self.try_parse_markdown_tool_calls(content_str);
                     if !parsed_tools.is_empty() {
                         let last_msg = messages.last_mut().unwrap();
-                        last_msg.tool_calls = Some(parsed_tools);
-                        chat_message = last_msg.clone();
+                        last_msg.tool_calls = Some(parsed_tools.clone());
+                        chat_message.tool_calls = Some(parsed_tools);
+                    }
+
+                    // Phase 4: Detect and Set Task Plan
+                    if let Some(steps) = self.try_parse_task_plan(content_str) {
+                        println!("[AI] Detected new task plan with {} steps", steps.len());
+                        self.task_planner.set_plan(steps).await;
+                        self.emit_event("ai-task-plan-updated", self.task_planner.current_task_metadata().await);
                     }
                 }
             }
@@ -1552,6 +1611,11 @@ impl Sentient {
                         println!("[AI] Loop paused: {}", blocked_msg);
                         return Ok(format!("PAUSED: {}", blocked_msg));
                     }
+
+                    // HADES SYNERGY: Automatic Synaptic Update
+                    if tool_name == "apply_shadow_patch" || tool_name == "write_to_file" {
+                        let _ = self.memory_store.store_event("file_modified", json!({"tool": tool_name})).await;
+                    }
                 }
                 continue; // Continue next iteration with tool results
             } else {
@@ -1662,7 +1726,7 @@ impl Sentient {
         }
 
         if provider.to_lowercase() == "ollama" {
-            let base = self.ollama_url.lock().unwrap().clone();
+            let base = self.ollama_url.lock().await.clone();
             let base = base.trim_end_matches('/');
             let endpoint = format!("{}/api/tags", base);
             let resp = self.client.get(endpoint).send().await?;
@@ -2011,7 +2075,7 @@ impl Sentient {
 
     async fn load_aim_context(&self) -> String {
         {
-            let cache = self.memory_aim_cache.lock().unwrap();
+            let cache = self.memory_aim_cache.lock().await;
             if let Some(c) = &*cache {
                 return c.clone();
             }
@@ -2068,7 +2132,7 @@ impl Sentient {
                 }
             }
 
-            let mut cache = self.memory_aim_cache.lock().unwrap();
+            let mut cache = self.memory_aim_cache.lock().await;
             *cache = Some(project_map.clone());
             project_map
         } else {
@@ -2196,10 +2260,33 @@ impl Sentient {
         summary
     }
 
-    fn emit_event(&self, event: &str, payload: Value) {
+    async fn emit_event(&self, event: &str, payload: Value) {
         use tauri::Emitter;
-        if let Some(handle) = self.app_handle.lock().unwrap().as_ref() {
+        if let Some(handle) = self.app_handle.lock().await.as_ref() {
             let _ = handle.emit(event, payload);
         }
     }
+
+    fn try_parse_task_plan(&self, content: &str) -> Option<Vec<crate::task_planner::TaskStep>> {
+        if let Some(start) = content.find("```task-plan") {
+            let rest = &content[start + 12..];
+            if let Some(end) = rest.find("```") {
+                let json_str = rest[..end].trim();
+                if let Ok(steps) = serde_json::from_str::<Vec<crate::task_planner::TaskStep>>(json_str) {
+                    return Some(steps);
+                }
+            }
+        }
+        None
+    }
+
+    pub async fn reason(self: Arc<Self>, prompt: &str) -> anyhow::Result<String> {
+        let resp = self.clone().chat_complete(prompt, None, None, None, None).await?;
+        Ok(resp.content)
+    }
+}
+
+fn _assert_sentient_sync() {
+    fn is_sync<T: Sync>() {}
+    is_sync::<Sentient>();
 }

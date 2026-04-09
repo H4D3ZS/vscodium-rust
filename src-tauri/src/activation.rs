@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use crate::extension_host::ExtensionHostManager;
 
 pub struct ActivationManager {
@@ -13,7 +14,7 @@ impl ActivationManager {
         }
     }
 
-    pub fn check_activation_requests(
+    pub async fn check_activation_requests(
         &mut self,
         event: &str,
         ext_host: Arc<Mutex<ExtensionHostManager>>,
@@ -23,7 +24,7 @@ impl ActivationManager {
         // For now, we'll do a simple scan.
         
         let extensions_to_activate = {
-            let host = ext_host.lock().unwrap();
+            let host = ext_host.lock().await;
             let mut to_activate = Vec::new();
             
             for ext in &host.extensions {
@@ -42,7 +43,7 @@ impl ActivationManager {
             to_activate
         };
 
-        let mut host = ext_host.lock().unwrap();
+        let mut host = ext_host.lock().await;
         for id in extensions_to_activate {
             if let Err(e) = host.send_message(format!(
                 r#"{{"type": "activateExtension", "id": "{}"}}"#,

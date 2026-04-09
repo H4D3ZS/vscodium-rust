@@ -25,9 +25,9 @@ pub struct InferenceStats {
 }
 
 pub struct PerformanceMonitor {
-    sys: Mutex<System>,
+    sys: tokio::sync::Mutex<System>,
     pid: Pid,
-    inference_history: Mutex<Vec<InferenceStats>>,
+    inference_history: tokio::sync::Mutex<Vec<InferenceStats>>,
 }
 
 impl PerformanceMonitor {
@@ -35,14 +35,14 @@ impl PerformanceMonitor {
         let sys = System::new();
         let pid = Pid::from(std::process::id() as usize);
         Self {
-            sys: Mutex::new(sys),
+            sys: tokio::sync::Mutex::new(sys),
             pid,
-            inference_history: Mutex::new(Vec::new()),
+            inference_history: tokio::sync::Mutex::new(Vec::new()),
         }
     }
 
-    pub fn record_inference(&self, device: String, latency_ms: u64) {
-        let mut history = self.inference_history.lock().unwrap();
+    pub async fn record_inference(&self, device: String, latency_ms: u64) {
+        let mut history = self.inference_history.lock().await;
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -60,12 +60,12 @@ impl PerformanceMonitor {
         }
     }
 
-    pub fn get_inference_history(&self) -> Vec<InferenceStats> {
-        self.inference_history.lock().unwrap().clone()
+    pub async fn get_inference_history(&self) -> Vec<InferenceStats> {
+        self.inference_history.lock().await.clone()
     }
 
-    pub fn get_stats(&self) -> Option<ProcessStats> {
-        let mut sys = self.sys.lock().unwrap();
+    pub async fn get_stats(&self) -> Option<ProcessStats> {
+        let mut sys = self.sys.lock().await;
         sys.refresh_process(self.pid);
         sys.refresh_memory(); // Add system memory refresh
 
@@ -88,8 +88,8 @@ impl PerformanceMonitor {
         }
     }
 
-    pub fn get_memory_pressure(&self) -> MemoryPressure {
-        let mut sys = self.sys.lock().unwrap();
+    pub async fn get_memory_pressure(&self) -> MemoryPressure {
+        let mut sys = self.sys.lock().await;
         sys.refresh_memory();
 
         let total = sys.total_memory();
@@ -114,10 +114,10 @@ impl PerformanceMonitor {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_performance_stats() {
+    #[tokio::test]
+    async fn test_performance_stats() {
         let monitor = PerformanceMonitor::new();
-        let stats = monitor.get_stats();
+        let stats = monitor.get_stats().await;
 
         assert!(stats.is_some());
         let s = stats.unwrap();

@@ -267,7 +267,7 @@ impl WorkerManager {
             }
         }) as Arc<dyn Fn(&str) + Send + Sync>);
 
-        let response = self.ai.chat_complete(
+        let response = self.ai.clone().chat_complete(
             prompt, 
             None, 
             provider, 

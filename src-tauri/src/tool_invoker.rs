@@ -21,7 +21,7 @@ impl ToolInvoker {
 
         let arguments: Value = serde_json::from_str(args)?;
 
-        if let Ok(result) = self.ai_tools.call_tool(name, arguments.clone()) {
+        if let Ok(result) = self.ai_tools.call_tool(name, arguments.clone()).await {
             return Ok(result);
         }
 

@@ -78,7 +78,7 @@ impl McpRegistry {
                 // Note: env is supported by Child but McpClient::spawn doesn't take it yet.
                 // For now we assume env is handled by npx or outer shell if needed,
                 // but we should eventually update McpClient::spawn.
-                McpClient::spawn(&command, args_refs)?
+                McpClient::spawn(&command, args_refs).await?
             }
             McpServerConfig::Http { server_url, .. } => McpClient::connect_http(server_url)?,
         };

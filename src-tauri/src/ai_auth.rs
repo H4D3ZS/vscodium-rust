@@ -12,13 +12,13 @@ pub struct AiSession {
 }
 
 pub struct AuthState {
-    pub sessions: Mutex<HashMap<String, AiSession>>,
+    pub sessions: tokio::sync::Mutex<HashMap<String, AiSession>>,
 }
 
 impl AuthState {
     pub fn new() -> Self {
         Self {
-            sessions: Mutex::new(HashMap::new()),
+            sessions: tokio::sync::Mutex::new(HashMap::new()),
         }
     }
 }
@@ -51,13 +51,13 @@ pub async fn open_login_window(app: AppHandle, provider: String) -> Result<(), S
     Ok(())
 }
 
-pub fn save_session(state: &AuthState, session: AiSession) {
-    let mut sessions = state.sessions.lock().unwrap();
+pub async fn save_session(state: &AuthState, session: AiSession) {
+    let mut sessions = state.sessions.lock().await;
     sessions.insert(session.provider.clone(), session);
 }
 
-pub fn get_session(state: &AuthState, provider: &str) -> Option<AiSession> {
-    let sessions = state.sessions.lock().unwrap();
+pub async fn get_session(state: &AuthState, provider: &str) -> Option<AiSession> {
+    let sessions = state.sessions.lock().await;
     sessions.get(provider).cloned()
 }
 

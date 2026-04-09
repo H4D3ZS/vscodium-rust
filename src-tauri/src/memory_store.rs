@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
+use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SemanticSlot {
@@ -18,21 +19,40 @@ pub struct SemanticSlot {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SymbolDefinition {
+    pub name: String,
+    pub path: String,
+    pub kind: String, // e.g., "function", "struct", "trait"
+    pub line_range: (usize, usize),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SymbolGraph {
+    pub definitions: Vec<SymbolDefinition>,
+    pub relations: Vec<(String, String, String)>, // (subject_id, predicate, object_id)
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct KortexSnapshot {
     slots: Vec<SemanticSlot>,
     entities: HashMap<String, Vec<String>>,
     session_messages: Vec<ChatMessage>,
+    #[serde(default)]
+    symbol_graph: SymbolGraph,
 }
 
 pub struct MemoryStore {
     messages: Arc<RwLock<Vec<ChatMessage>>>,
     pub slots: Arc<RwLock<Vec<SemanticSlot>>>,
     entities: Arc<RwLock<HashMap<String, Vec<String>>>>,
+    symbol_graph: Arc<RwLock<SymbolGraph>>,
     aim_path: Arc<RwLock<Option<PathBuf>>>,
     binary_body: Arc<RwLock<Vec<u8>>>, // Cache the binary suffix of the .aim file
     binary_header_raw: Arc<RwLock<Value>>, // Cache the non-kortex parts of the header
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
     is_dirty: Arc<AtomicBool>,
+    vfs_bridge: Arc<RwLock<Option<crate::vfs_bridge::VfsBridge>>>,
+    events: Arc<tokio::sync::Mutex<Vec<Value>>>,
 }
 
 impl MemoryStore {
@@ -43,11 +63,14 @@ impl MemoryStore {
             messages: Arc::new(RwLock::new(Vec::new())),
             slots: Arc::new(RwLock::new(Vec::new())),
             entities: Arc::new(RwLock::new(HashMap::new())),
+            symbol_graph: Arc::new(RwLock::new(SymbolGraph::default())),
             aim_path: Arc::new(RwLock::new(None)),
             binary_body: Arc::new(RwLock::new(Vec::new())),
             binary_header_raw: Arc::new(RwLock::new(json!({}))),
             app_handle: Arc::new(RwLock::new(None)),
             is_dirty: is_dirty.clone(),
+            vfs_bridge: Arc::new(RwLock::new(None)),
+            events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         };
 
         // Spawn background persistence task (Phase 24: Emergency Performance)
@@ -58,6 +81,7 @@ impl MemoryStore {
         let binary_body = store.binary_body.clone();
         let header_raw = store.binary_header_raw.clone();
         let app_handle = store.app_handle.clone();
+        let symbol_graph = store.symbol_graph.clone();
         let dirty = is_dirty.clone();
         
         // Singleton background flusher: ensures only one task ever handles disk I/O per process
@@ -77,6 +101,7 @@ impl MemoryStore {
                                 slots: slots.read().await.clone(),
                                 entities: entities.read().await.clone(),
                                 session_messages: messages.read().await.clone(),
+                                symbol_graph: symbol_graph.read().await.clone(),
                             };
                             header["kortex"] = json!(snapshot);
                             header["updated_at"] = json!(std::time::SystemTime::now()
@@ -234,6 +259,7 @@ impl MemoryStore {
                 slots: self.slots.read().await.clone(),
                 entities: self.entities.read().await.clone(),
                 session_messages: self.messages.read().await.clone(),
+                symbol_graph: self.symbol_graph.read().await.clone(),
             };
             
             header["kortex"] = json!(snapshot);
@@ -300,6 +326,14 @@ impl MemoryStore {
         self.is_dirty.store(true, Ordering::SeqCst);
     }
 
+    pub async fn store_symbol(&self, symbol: SymbolDefinition) {
+        let mut lock = self.symbol_graph.write().await;
+        lock.definitions.retain(|d| !(d.name == symbol.name && d.path == symbol.path));
+        lock.definitions.push(symbol);
+        drop(lock);
+        self.is_dirty.store(true, Ordering::SeqCst);
+    }
+
     pub async fn query_slots(&self, category: &str) -> Vec<SemanticSlot> {
         let lock = self.slots.read().await;
         lock.iter()
@@ -329,17 +363,22 @@ impl MemoryStore {
         related
     }
 
+    pub async fn set_vfs_bridge(&self, bridge: crate::vfs_bridge::VfsBridge) {
+        let mut lock = self.vfs_bridge.write().await;
+        *lock = Some(bridge);
+    }
+
     pub async fn retrieve_context(&self, query: &str) -> String {
         let slots = self.slots.read().await;
         let query_lower = query.to_lowercase();
         let keywords: Vec<&str> = query_lower.split_whitespace().collect();
 
-        let mut relevant: Vec<(&SemanticSlot, usize)> = slots
+        let mut relevant: Vec<(&SemanticSlot, f32)> = slots
             .iter()
             .map(|s| {
                 let content_lower = s.content.to_lowercase();
                 let tags_lower: Vec<String> = s.tags.iter().map(|t| t.to_lowercase()).collect();
-                let score: usize = keywords
+                let matching_keywords = keywords
                     .iter()
                     .filter(|kw| {
                         content_lower.contains(*kw)
@@ -347,16 +386,46 @@ impl MemoryStore {
                             || s.category.to_lowercase().contains(*kw)
                     })
                     .count();
-                (s, score)
+                
+                // Confidence score based on keyword density vs total keywords
+                let confidence = if keywords.is_empty() { 0.0 } else { matching_keywords as f32 / keywords.len() as f32 };
+                (s, confidence)
             })
-            .filter(|(_, score)| *score > 0)
+            .filter(|(_, confidence)| *confidence > 0.0)
             .collect();
 
-        relevant.sort_by(|a, b| b.1.cmp(&a.1));
+        relevant.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         let top: Vec<_> = relevant.iter().take(5).collect();
 
+        // Check for Page-Fault (Confidence < 0.95)
+        let mut final_context = String::new();
+        let vfs_lock = self.vfs_bridge.read().await;
+
+        for (slot, confidence) in top {
+            let mut content = slot.content.clone();
+            
+            if *confidence < 0.95 {
+                // Page-Fault trigger
+                if let (Some(bridge), Some(metadata)) = (vfs_lock.as_ref(), &slot.metadata) {
+                    if let Some(path_str) = metadata.get("path").and_then(|v| v.as_str()) {
+                        println!("[PAGE-FAULT] Low confidence ({:.2}) for {}. Fetching L2 verbatim source...", confidence, path_str);
+                        if let Ok(raw_source) = bridge.fetch_raw(std::path::Path::new(path_str)) {
+                            content = format!("(L2 VERBATIM SOURCE RESOLVED VIA PAGE-FAULT)\n{}", raw_source);
+                        }
+                    }
+                }
+            }
+
+            final_context.push_str(&format!(
+                "\n[{}] {}: {}\n",
+                slot.category,
+                slot.tags.join(", "),
+                &content[..content.len().min(800)] // Increased limit for richer L2 context
+            ));
+        }
+
         // Emit telemetry for real-time visualization of context retrieval
-        let active_ids: Vec<String> = top.iter().map(|(s, _)| s.id.clone()).collect();
+        let active_ids: Vec<String> = relevant.iter().take(5).map(|(s, _)| s.id.clone()).collect();
         if !active_ids.is_empty() {
             self.emit_event("context-active", json!({
                 "ids": active_ids,
@@ -364,16 +433,7 @@ impl MemoryStore {
             })).await;
         }
 
-        let mut output = String::new();
-        for (slot, _score) in top {
-            output.push_str(&format!(
-                "\n[{}] {}: {}\n",
-                slot.category,
-                slot.tags.join(", "),
-                &slot.content[..slot.content.len().min(300)]
-            ));
-        }
-        output
+        final_context
     }
 
     pub async fn get_messages(&self) -> Vec<ChatMessage> {
@@ -490,6 +550,7 @@ impl MemoryStore {
                     slots: self.slots.read().await.clone(),
                     entities: self.entities.read().await.clone(),
                     session_messages: self.messages.read().await.clone(),
+                    symbol_graph: self.symbol_graph.read().await.clone(),
                 };
                 header["kortex"] = json!(snapshot);
                 header["updated_at"] = json!(timestamp);
@@ -537,6 +598,16 @@ impl MemoryStore {
             "entities": 0,
             "messages": 0
         })).await;
+    }
+
+    pub async fn store_event(&self, event_type: &str, data: Value) -> anyhow::Result<()> {
+        let mut events = self.events.lock().await;
+        events.push(json!({
+            "type": event_type,
+            "data": data,
+            "timestamp": chrono::Utc::now().timestamp()
+        }));
+        Ok(())
     }
 }
 
