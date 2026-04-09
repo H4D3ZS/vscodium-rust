@@ -12,6 +12,11 @@ import { useStore } from '../store';
 import { Sparkles, Zap, Bot, Globe, Layout as LayoutIcon } from 'lucide-react';
 import AgentManager from './AgentManager/AgentManager';
 import BrowserSurface from './BrowserSurface';
+import DiffViewer from './DiffViewer';
+import { PlanningPanel } from './PlanningPanel';
+import { GhostRuntimePanel } from './GhostRuntimePanel';
+import { ThoughtProcess } from './ThoughtProcess';
+import AgentDiffView from './agent/AgentDiffView';
 
 function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: string } {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
@@ -373,6 +378,19 @@ const Workbench: React.FC = () => {
             </div>
             {!isVisualLabSplitView && <VisualLab />}
             <SpecsToCodeWizard />
+            {useStore(state => state.pendingChanges).length > 0 && <DiffViewer />}
+            <AgentDiffView />
+            <ThoughtProcess />
+            {useStore(state => state.taskPlannerState)?.state !== 'Inactive' && (
+                <div className="fixed top-12 right-8 w-80 bottom-24 flex flex-col gap-4 pointer-events-none">
+                    <div className="flex-1 pointer-events-auto shadow-2xl rounded-2xl overflow-hidden">
+                        <PlanningPanel />
+                    </div>
+                    <div className="h-64 pointer-events-auto shadow-2xl rounded-2xl overflow-hidden">
+                        <GhostRuntimePanel />
+                    </div>
+                </div>
+            )}
         </div >
     );
 };

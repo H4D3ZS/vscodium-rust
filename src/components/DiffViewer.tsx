@@ -1,43 +1,53 @@
 import { useStore } from '../store';
 import type { PendingChange } from '../store';
+import { Sparkles, Check, X } from 'lucide-react';
 
-interface DiffViewerProps {
-    change: PendingChange;
-}
-
-const DiffViewer: React.FC<DiffViewerProps> = ({ change }) => {
+const DiffViewer: React.FC = () => {
+    const pendingChanges = useStore(state => state.pendingChanges);
     const acceptPendingChange = useStore(state => state.acceptPendingChange);
     const rejectPendingChange = useStore(state => state.rejectPendingChange);
+
+    if (pendingChanges.length === 0) return null;
+
+    const change = pendingChanges[0];
 
     return (
         <div className="diff-viewer-overlay">
             <div className="diff-viewer-header">
                 <div className="diff-info">
-                    <i className="codicon codicon-diff-modified" />
+                    <Sparkles className="spark-icon" size={14} />
                     <span className="file-path">{change.path}</span>
                     <span className="diff-desc">{change.description}</span>
                 </div>
                 <div className="diff-actions">
                     <button className="btn-reject" onClick={() => rejectPendingChange(change.id)}>
-                        <i className="codicon codicon-close" /> Reject
+                        <X size={14} /> Reject
                     </button>
                     <button className="btn-accept" onClick={() => acceptPendingChange(change.id)}>
-                        <i className="codicon codicon-check" /> Accept
+                        <Check size={14} /> Accept Changes
                     </button>
                 </div>
             </div>
-            
+            <div className="diff-content">
+                <pre className="diff-pre">
+                    {change.proposedContent}
+                </pre>
+            </div>
+
             <style>{`
                 .diff-viewer-overlay {
                     position: absolute;
                     top: 0;
                     left: 0;
                     right: 0;
-                    z-index: 100;
+                    z-index: 1000;
                     background: var(--vscode-editor-background, #1e1e1e);
                     border-bottom: 1px solid var(--vscode-panel-border, #454545);
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                    animation: slideDown 0.2s ease-out;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+                    animation: slideDown 0.25s cubic-bezier(0, 0, 0.2, 1);
+                    max-height: 40vh;
+                    display: flex;
+                    flex-direction: column;
                 }
 
                 @keyframes slideDown {
@@ -49,15 +59,20 @@ const DiffViewer: React.FC<DiffViewerProps> = ({ change }) => {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    padding: 8px 16px;
+                    padding: 10px 20px;
                     background: var(--vscode-editorWidget-background, #252526);
+                    border-bottom: 1px solid var(--vscode-panel-border, #454545);
                 }
 
                 .diff-info {
                     display: flex;
                     align-items: center;
-                    gap: 10px;
-                    font-size: 12px;
+                    gap: 12px;
+                    font-size: 13px;
+                }
+
+                .spark-icon {
+                    color: var(--terminator-accent, #00c6ff);
                 }
 
                 .file-path {
@@ -67,28 +82,45 @@ const DiffViewer: React.FC<DiffViewerProps> = ({ change }) => {
 
                 .diff-desc {
                     color: var(--vscode-descriptionForeground, #888);
-                    font-style: italic;
+                    opacity: 0.8;
                 }
 
                 .diff-actions {
                     display: flex;
-                    gap: 8px;
+                    gap: 10px;
+                }
+
+                .diff-content {
+                    flex: 1;
+                    overflow: auto;
+                    padding: 12px 20px;
+                    background: var(--vscode-editor-background);
+                }
+
+                .diff-pre {
+                    margin: 0;
+                    font-family: var(--vscode-editor-font-family, 'Cascadia Code', monospace);
+                    font-size: 12px;
+                    color: var(--vscode-editor-foreground);
+                    white-space: pre-wrap;
                 }
 
                 button {
                     display: flex;
                     align-items: center;
-                    gap: 4px;
-                    padding: 4px 10px;
+                    gap: 6px;
+                    padding: 6px 14px;
                     border-radius: 4px;
                     border: none;
                     font-size: 12px;
+                    font-weight: 600;
                     cursor: pointer;
-                    transition: filter 0.1s;
+                    transition: all 0.2s;
                 }
 
                 button:hover {
-                    filter: brightness(1.2);
+                    filter: brightness(1.1);
+                    transform: translateY(-1px);
                 }
 
                 .btn-accept {
@@ -100,10 +132,6 @@ const DiffViewer: React.FC<DiffViewerProps> = ({ change }) => {
                     background: transparent;
                     color: var(--vscode-errorForeground, #f48771);
                     border: 1px solid var(--vscode-errorForeground, #f48771);
-                }
-
-                .codicon {
-                    font-size: 14px;
                 }
             `}</style>
         </div>

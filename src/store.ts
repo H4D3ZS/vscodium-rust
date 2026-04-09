@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { computeDiffBlocks, patchContentSelective } from './services/DiffService';
 import { terminalManager, getVSCodeTheme } from './terminal';
 import { initTheme } from './theme_engine';
@@ -154,6 +155,11 @@ interface AppState {
     chatSessions: any[];
     brainTelemetry: any | null;
     attachedFiles: { id: string, path: string, name: string, gist?: string, thumbnail?: string, type: 'file' | 'attachment' | 'mention' }[];
+
+    // Phase 8: Agentic State
+    taskPlannerState: any | null;
+    ghostRuntimeResults: any[];
+    currentThought: { logic: string, action: string, confidence?: number } | null;
 
     // Google Antigravity Expanded State
     layoutMode: 'editor' | 'manager' | 'browser';
@@ -441,6 +447,9 @@ const storeImplementation: any = (set: any, get: any) => ({
     chatSessions: [],
     brainTelemetry: null,
     attachedFiles: [],
+    taskPlannerState: null,
+    ghostRuntimeResults: [],
+    currentThought: null,
 
     // Terminal Initial State
     terminalGroups: [],
@@ -1168,12 +1177,13 @@ const storeImplementation: any = (set: any, get: any) => ({
         if (!change) return;
 
         try {
-            await invoke('write_file', { path: change.path, content: change.newContent });
+            await invoke('accept_sentient_patch', { path: change.path });
 
             // Update open tabs if necessary
             const tab = get().tabs.find(t => t.path === change.path);
             if (tab) {
-                get().updateTabContent(tab.id, change.newContent);
+                const updatedContent = await invoke<string>('read_file', { path: change.path });
+                get().updateTabContent(tab.id, updatedContent);
             }
 
             set((state) => ({
@@ -1182,14 +1192,23 @@ const storeImplementation: any = (set: any, get: any) => ({
 
             await get().refreshFileTree();
         } catch (error) {
-            console.error('Failed to accept pending change:', error);
+            console.error('Failed to accept sentient patch:', error);
         }
     },
 
-    rejectPendingChange: (id) => {
-        set((state) => ({
-            pendingChanges: state.pendingChanges.filter(c => c.id !== id)
-        }));
+    rejectPendingChange: async (id) => {
+        const { pendingChanges } = get();
+        const change = pendingChanges.find(c => c.id === id);
+        if (!change) return;
+
+        try {
+            await invoke('reject_sentient_patch', { path: change.path });
+            set((state) => ({
+                pendingChanges: state.pendingChanges.filter(c => c.id !== id)
+            }));
+        } catch (error) {
+            console.error('Failed to reject sentient patch:', error);
+        }
     },
 
     acceptAllPendingChanges: async () => {
@@ -1600,6 +1619,36 @@ function injectChildrenRecursive(nodes: FileEntry[], path: string, children: Fil
     });
 }
 
+// Initialize listeners
 if (typeof window !== 'undefined') {
+    listen('sentient://patch_staged', (event: any) => {
+        console.log('Patch staged event received:', event);
+        const { path, diff, originalContent } = event.payload;
+        const state = useStore.getState() as any;
+
+        // Find existing pending change for this path
+        const existingIndex = state.pendingChanges.findIndex((c: any) => c.path === path);
+
+        if (existingIndex !== -1) {
+            // Update existing change
+            const updatedChanges = [...state.pendingChanges];
+            updatedChanges[existingIndex] = {
+                ...updatedChanges[existingIndex],
+                proposedContent: diff,
+                newContent: diff,
+                originalContent
+            };
+            useStore.setState({ pendingChanges: updatedChanges });
+        } else {
+            // Add new pending change
+            state.proposePendingChange({
+                path,
+                originalContent,
+                proposedContent: diff,
+                description: 'Sentient AI Surgical Patch'
+            });
+        }
+    });
+
     (window as any).useStore = useStore;
 }
