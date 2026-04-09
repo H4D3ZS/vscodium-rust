@@ -1674,6 +1674,7 @@ listen('ai-thinking', (event: { payload: { thought: string } | any }) => {
 
 listen('ai-content', (event: { payload: { content: string } | any }) => {
     if (event.payload && event.payload.content) {
+        console.log("AI_CONTENT RECEIVED:", event.payload.content.substring(0, 50) + "...");
         useStore.getState().updateLastAgentMessage(event.payload.content);
     }
 });
@@ -1716,8 +1717,15 @@ function formatToolSummary(name: string, args: any, result: any): string {
 
 listen('ai-tool-call', (event: { payload: { name: string, args: string | any } | any }) => {
     if (event.payload && event.payload.name) {
+        console.log("AI_TOOL_CALL RECEIVED:", event.payload.name);
         const { addAgentStep, updateAgentStepStatus } = useStore.getState();
-        const args = typeof event.payload.args === 'string' ? JSON.parse(event.payload.args) : event.payload.args;
+        let args = {};
+        try {
+            args = typeof event.payload.args === 'string' ? JSON.parse(event.payload.args) : event.payload.args;
+        } catch (e) {
+            console.warn("Failed to parse tool args in ai-tool-call", e);
+            args = { raw: event.payload.args };
+        }
         addAgentStep(event.payload.name, 'other', args);
         updateAgentStepStatus(event.payload.name, 'running', 'Executing...');
     }

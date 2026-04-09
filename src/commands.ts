@@ -143,10 +143,20 @@ export function openCommandPalette() {
     store.setCommandPaletteQuery('');
 }
 
+function isTypingInInput(): boolean {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return true;
+    if ((el as HTMLElement).isContentEditable) return true;
+    return false;
+}
+
 function handleGlobalKeydown(e: KeyboardEvent) {
     const isMac = navigator.platform.toLowerCase().includes('mac');
     const cmd = isMac ? e.metaKey : e.ctrlKey;
 
+    // Always allow command palette (Ctrl+Shift+P) even when typing
     if (cmd && e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         openCommandPalette();
@@ -158,6 +168,9 @@ function handleGlobalKeydown(e: KeyboardEvent) {
         openCommandPalette();
         return;
     }
+
+    // Skip ALL other shortcuts when user is typing in an input/textarea
+    if (isTypingInInput()) return;
 
     if (cmd && !e.shiftKey && e.key.toLowerCase() === 'b') {
         e.preventDefault();

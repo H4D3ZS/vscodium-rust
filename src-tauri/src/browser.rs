@@ -1,5 +1,4 @@
 use headless_chrome::{Browser, LaunchOptions};
-use std::sync::Mutex;
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::{Value, json};
 

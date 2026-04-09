@@ -4,7 +4,7 @@ use ropey::Rope;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatchBlock {
@@ -28,8 +28,8 @@ impl PatchEngine {
         }
     }
 
-    pub async fn set_app_handle(&self, handle: tauri::AppHandle) {
-        let mut h = self.app_handle.lock().await;
+    pub fn set_app_handle(&self, handle: tauri::AppHandle) {
+        let mut h = self.app_handle.blocking_lock();
         *h = Some(handle);
     }
 

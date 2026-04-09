@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::fs;
 use crate::process_ext::CommandExtHidden;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
@@ -56,8 +56,8 @@ impl AiTools {
         }
     }
 
-    pub async fn set_app_handle(&self, handle: tauri::AppHandle) {
-        let mut h = self.app_handle.lock().await;
+    pub fn set_app_handle(&self, handle: tauri::AppHandle) {
+        let mut h = self.app_handle.blocking_lock();
         *h = Some(handle);
     }
 
@@ -67,7 +67,21 @@ impl AiTools {
     }
 
     pub fn get_root_path(&self) -> PathBuf {
-        self.root_path.blocking_lock().clone()
+        // Use try_lock() instead of blocking_lock() — blocking_lock() PANICS
+        // when called from within a tokio async runtime (which is always the case
+        // since autonomous_loop is async). try_lock() is safe in all contexts.
+        self.root_path
+            .try_lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_else(|_| {
+                // Lock briefly contended — fall back to cwd. This is safe and
+                // won't crash the process.
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+            })
+    }
+
+    pub async fn get_root_path_async(&self) -> PathBuf {
+        self.root_path.lock().await.clone()
     }
 
     pub fn list_tools(&self) -> Vec<ToolDefinition> {

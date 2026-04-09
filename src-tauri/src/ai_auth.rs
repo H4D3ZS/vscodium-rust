@@ -1,6 +1,5 @@
 use tauri::{AppHandle, Manager, WebviewWindowBuilder, WebviewUrl};
 use serde::{Serialize, Deserialize};
-use std::sync::Mutex;
 use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

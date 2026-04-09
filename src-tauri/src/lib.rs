@@ -6,9 +6,9 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::Manager;
 use tauri::State;
 use tauri::{Emitter, Listener};
@@ -173,7 +173,24 @@ impl EditorState {
 
 impl EditorState {
     fn new(app: &tauri::AppHandle) -> Self {
-        println!("[DEBUG] Initializing EditorState...");
+        // DIAGNOSTIC: Capture panics to a log file before process exits
+        std::panic::set_hook(Box::new(|info| {
+            let msg = format!(
+                "[CRASH] PANIC: {}\nLocation: {:?}\nTime: {:?}\n",
+                info,
+                info.location(),
+                std::time::SystemTime::now()
+            );
+            eprintln!("{}", msg);
+            let _ = std::fs::write("crash.log", &msg);
+            // Also try to append to a persistent log
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("vscodium_crash.log")
+                .and_then(|mut f| { use std::io::Write; writeln!(f, "{}", msg) });
+        }));
+        println!("[DEBUG] Panic hook installed. Initializing EditorState...");
         let config_dir = app
             .path()
             .app_config_dir()
@@ -1776,17 +1793,43 @@ async fn get_system_health(state: State<'_, EditorState>) -> Result<Value, Strin
 
 #[tauri::command]
 async fn ai_chat(state: State<'_, EditorState>, request: AiRequest) -> Result<String, String> {
-    let content = state
+    // DIAGNOSTIC: Log to file before any async work so we know if we get here
+    let log_entry = format!(
+        "[ai_chat] START: provider={}, model={}, msg_count={}\n",
+        request.provider, request.model, request.messages.len()
+    );
+    eprintln!("{}", log_entry.trim());
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("ai_chat.log")
+        .and_then(|mut f| { use std::io::Write; f.write_all(log_entry.as_bytes()) });
+
+    let result = state
         .ai_engine
         .clone()
         .autonomous_loop(request, None)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let err_log = format!("[ai_chat] ERROR: {}\n", e);
+            eprintln!("{}", err_log.trim());
+            let _ = std::fs::OpenOptions::new()
+                .create(true).append(true)
+                .open("ai_chat.log")
+                .and_then(|mut f| { use std::io::Write; f.write_all(err_log.as_bytes()) });
+            e.to_string()
+        })?;
+
+    let done_log = format!("[ai_chat] DONE: response_len={}\n", result.len());
+    eprintln!("{}", done_log.trim());
+    let _ = std::fs::OpenOptions::new()
+        .create(true).append(true)
+        .open("ai_chat.log")
+        .and_then(|mut f| { use std::io::Write; f.write_all(done_log.as_bytes()) });
+
     // Satisfy AiResponse usage warning
-    let _response = AiResponse {
-        content: content.clone(),
-    };
-    Ok(content)
+    let _response = AiResponse { content: result.clone() };
+    Ok(result)
 }
 
 #[tauri::command]

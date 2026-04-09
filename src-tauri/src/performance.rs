@@ -1,5 +1,4 @@
 use serde::Serialize;
-use std::sync::Mutex;
 use sysinfo::{Pid, System};
 
 #[derive(Serialize, Clone)]

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::AppHandle;
 use tokio::sync::Mutex as AsyncMutex;
 use base64::{engine::general_purpose, Engine as _};
@@ -134,7 +134,7 @@ pub struct Sentient {
     pub workflow_engine: Arc<WorkflowEngine>,
     tool_invoker: Arc<ToolInvoker>,
     conversation_state: AsyncMutex<Vec<ChatMessage>>,
-    app_handle: tokio::sync::Mutex<Option<AppHandle>>,
+    app_handle: std::sync::RwLock<Option<AppHandle>>,
     auth_state: Arc<AuthState>,
     ollama_url: tokio::sync::Mutex<String>,
     _browser_state: Arc<crate::browser::BrowserState>,
@@ -228,7 +228,7 @@ impl Sentient {
             workflow_engine,
             tool_invoker,
             conversation_state: AsyncMutex::new(Vec::new()),
-            app_handle: tokio::sync::Mutex::new(None),
+            app_handle: std::sync::RwLock::new(None),
             auth_state,
             ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
             _browser_state: browser_state.clone(),
@@ -266,9 +266,10 @@ impl Sentient {
         self.ai_tools.clone()
     }
 
-    pub async fn set_app_handle(&self, handle: AppHandle) {
-        let mut h = self.app_handle.lock().await;
-        *h = Some(handle.clone());
+    pub fn set_app_handle(&self, handle: AppHandle) {
+        if let Ok(mut h) = self.app_handle.write() {
+            *h = Some(handle.clone());
+        }
         self.ai_tools.set_app_handle(handle.clone());
         
         let ms = self.memory_store.clone();
@@ -1079,6 +1080,7 @@ impl Sentient {
                             let desc = tool["description"].as_str().unwrap_or("");
                             ollama_system.push_str(&format!("- {}: {}\n", name, desc));
                         }
+                        ollama_system.push_str("\nCRITICAL INSTRUCTION: When you have the requested information and NO LONGER need tools, just output the final answer as plain text without any JSON code blocks. Do NOT call tools if you already have the answer.");
                     }
                 }
 
@@ -1091,7 +1093,7 @@ impl Sentient {
                 if has_completion_keyword {
                     println!("[Harness] Mission accomplished signal detected. Synchronizing memories...");
                     let h_arc_opt = {
-                        let h_lock = self.app_handle.lock().await;
+                        let h_lock = self.app_handle.read().unwrap();
                         h_lock.as_ref().map(|h| {
                             let state: tauri::State<crate::EditorState> = h.state();
                             state.hades_harness.clone()
@@ -1432,6 +1434,8 @@ impl Sentient {
                     let action_desc = format!("Executing tool: {}", tool_call.function.name);
                     self.emit_event("ai-action", json!({ "action": action_desc, "tool": tool_call.function.name }));
 
+                    println!("[AI TOOL EXECUTION] Tool: {}, Args: {}", tool_call.function.name, tool_call.function.arguments);
+
                     self.emit_event("ai-tool-call", json!({ "name": tool_call.function.name, "args": tool_call.function.arguments }));
 
                     let mut tool_name = tool_call.function.name.clone();
@@ -1673,9 +1677,12 @@ impl Sentient {
                     });
                 }
 
+                // If we reach here and there are no tool calls, and we aren't explicitly continuing
+                // in Sentient mode, we are done with the autonomous loop. We must break so
+                // the final payload gets serialized and returned to the UI.
                 return Ok(final_text);
             }
-        }
+        } // end of iteration loop
 
         Err(anyhow!("Exceeded maximum autonomous iterations"))
     }
@@ -2260,10 +2267,16 @@ impl Sentient {
         summary
     }
 
-    async fn emit_event(&self, event: &str, payload: Value) {
+    fn emit_event(&self, event: &str, payload: Value) {
         use tauri::Emitter;
-        if let Some(handle) = self.app_handle.lock().await.as_ref() {
-            let _ = handle.emit(event, payload);
+        if let Ok(guard) = self.app_handle.read() {
+            if let Some(handle) = guard.as_ref() {
+                let _ = handle.emit(event, payload);
+            } else {
+                println!("[WARN] emit_event: app_handle is None for event '{}'", event);
+            }
+        } else {
+            println!("[WARN] emit_event: COULD NOT ACQUIRE READ LOCK for event '{}'", event);
         }
     }
 

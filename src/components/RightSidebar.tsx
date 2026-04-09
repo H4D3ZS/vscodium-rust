@@ -230,8 +230,9 @@ const RightSidebar: React.FC = () => {
 
     const onSend = async (overrideMsg?: string) => {
         const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
+        console.log('[DIAG] onSend called, val:', val, 'isRightSidebarOpen:', useStore.getState().isRightSidebarOpen);
         if ((val || attachedFiles.length > 0) && !isAgentThinking) {
-            const currentMsgs = [...messages];
+            console.log('[DIAG] onSend: sending message, sidebar state before:', useStore.getState().isRightSidebarOpen);
             if (overrideMsg === undefined) setInputValue("");
             setIsMentionDropdownOpen(false);
             if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -241,6 +242,7 @@ const RightSidebar: React.FC = () => {
             addAgentMessage('user', val, context);
             clearAttachedFiles();
             addAgentMessage('assistant', "");
+            console.log('[DIAG] onSend: messages added, sidebar state after store updates:', useStore.getState().isRightSidebarOpen);
 
             try {
                 const m = await import('../agent');
@@ -251,6 +253,7 @@ const RightSidebar: React.FC = () => {
                 updateLastAgentMessage(`Error: ${errorMsg}`);
             } finally {
                 setIsAgentThinking(false);
+                console.log('[DIAG] onSend: done. sidebar state:', useStore.getState().isRightSidebarOpen);
             }
         }
     };
@@ -318,6 +321,10 @@ const RightSidebar: React.FC = () => {
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        // CRITICAL: stop ALL keyboard events from bubbling to the global handler
+        // to prevent sidebar toggles, Ctrl+W closing tabs, etc. while typing
+        e.stopPropagation();
+
         if (isMentionDropdownOpen && filteredSuggestions.length > 0) {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -329,6 +336,7 @@ const RightSidebar: React.FC = () => {
                 e.preventDefault();
                 handleMentionSelect(filteredSuggestions[selectedMentionIndex]);
             } else if (e.key === 'Escape') {
+                e.preventDefault();
                 setIsMentionDropdownOpen(false);
             }
         } else if (e.key === 'Enter' && !e.shiftKey) {

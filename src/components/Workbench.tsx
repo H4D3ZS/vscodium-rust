@@ -93,7 +93,7 @@ const Workbench: React.FC = () => {
     const activeRootName = useStore(state => state.activeRootName);
 
     return (
-        <div id="workbench" style={{ display: 'flex', flex: 1, height: '100%', minHeight: 0, overflow: 'hidden' }}>
+        <div id="workbench" style={{ display: 'flex', flex: 1, height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
             <ActivityBar />
             {isSidebarOpen && <div style={{ width: sidebarWidth, flexShrink: 0, display: 'flex' }}><Sidebar /></div>}
 
@@ -381,16 +381,31 @@ const Workbench: React.FC = () => {
             {useStore(state => state.pendingChanges).length > 0 && <DiffViewer />}
             <AgentDiffView />
             <ThoughtProcess />
-            {useStore(state => state.taskPlannerState)?.state !== 'Inactive' && (
-                <div className="fixed top-12 right-8 w-80 bottom-24 flex flex-col gap-4 pointer-events-none">
-                    <div className="flex-1 pointer-events-auto shadow-2xl rounded-2xl overflow-hidden">
-                        <PlanningPanel />
+            {useStore(state => {
+                const s = state.taskPlannerState?.state;
+                return s === 'Planning' || s === 'Running' || s === 'Reviewing';
+            }) && (
+                    <div style={{
+                        position: 'absolute',
+                        top: '48px',
+                        right: '16px',
+                        bottom: '96px',
+                        width: '320px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '16px',
+                        pointerEvents: 'none',
+                        zIndex: 50,
+                        overflow: 'hidden',
+                    }}>
+                        <div style={{ flex: 1, pointerEvents: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.5)', borderRadius: '16px', overflow: 'hidden' }}>
+                            <PlanningPanel />
+                        </div>
+                        <div style={{ height: '256px', pointerEvents: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.5)', borderRadius: '16px', overflow: 'hidden' }}>
+                            <GhostRuntimePanel />
+                        </div>
                     </div>
-                    <div className="h-64 pointer-events-auto shadow-2xl rounded-2xl overflow-hidden">
-                        <GhostRuntimePanel />
-                    </div>
-                </div>
-            )}
+                )}
         </div >
     );
 };

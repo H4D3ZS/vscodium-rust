@@ -503,7 +503,13 @@ const storeImplementation: any = (set: any, get: any) => ({
     setActiveSidebarView: (view) => set(() => ({ activeSidebarView: view, isSidebarOpen: true })),
     toggleBottomPanel: () => set((state) => ({ isBottomPanelOpen: !state.isBottomPanelOpen })),
     setActivePanelTab: (tab) => set(() => ({ activePanelTab: tab, isBottomPanelOpen: true })),
-    toggleRightSidebar: () => set((state) => ({ isRightSidebarOpen: !state.isRightSidebarOpen })),
+    toggleRightSidebar: () => {
+        console.trace('[DIAG] toggleRightSidebar called — full call stack above');
+        set((state) => {
+            console.log('[DIAG] isRightSidebarOpen:', state.isRightSidebarOpen, '→', !state.isRightSidebarOpen);
+            return { isRightSidebarOpen: !state.isRightSidebarOpen };
+        });
+    },
     setTheme: (theme) => {
         set({ theme });
         localStorage.setItem('active-monaco-theme', theme);
@@ -989,7 +995,7 @@ const storeImplementation: any = (set: any, get: any) => ({
 
             if (delta.includes('<think>') || last.thoughts !== undefined) {
                 // If we are currently thinking or starting to think
-                const combined = (last.thoughts ? `<think>${last.thoughts}</think>` : '') + (last.content || '') + delta;
+                const combined = (last.thoughts ? `<think>${last.thoughts}</think>` : '') + delta;
                 const thinkMatch = combined.match(/<think>([\s\S]*?)<\/think>/);
                 if (thinkMatch) {
                     newThoughts = thinkMatch[1].trim();
@@ -1001,7 +1007,7 @@ const storeImplementation: any = (set: any, get: any) => ({
                     newContent = combined;
                 }
             } else {
-                newContent = (last.content || '') + delta;
+                newContent = delta; // <--- The critical fix: delta is the FULL payload from the backend
             }
 
             messages[lastIndex] = { ...last, content: newContent, thoughts: newThoughts };

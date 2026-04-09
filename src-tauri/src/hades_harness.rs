@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use crate::memory_layer::MemoryLayer;
 use crate::patch_engine::PatchEngine;
 use crate::ghost_runtime::GhostRuntime;

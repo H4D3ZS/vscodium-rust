@@ -4,7 +4,6 @@ import TitleBar from './components/TitleBar';
 import Workbench from './components/Workbench';
 import StatusBar from './components/StatusBar';
 import './styles.css';
-import './styles.css';
 import './panes.css';
 import { TrustDialog } from './components/TrustDialog';
 import { initSearch } from './search';
@@ -19,6 +18,7 @@ import { initDebugUI } from './debug_ui';
 import { initTerminal } from './terminal';
 import { initAgent } from './agent';
 import { initTheme } from './theme_engine';
+import CommandPalette from './components/CommandPalette';
 
 const ContextMenu: React.FC = () => {
     const isOpen = useStore(state => state.isContextMenuOpen);
@@ -49,9 +49,6 @@ const ContextMenu: React.FC = () => {
 };
 
 const App: React.FC = () => {
-    const isCommandPaletteOpen = useStore(state => state.isCommandPaletteOpen);
-    const commandPaletteQuery = useStore(state => state.commandPaletteQuery);
-    const setCommandPaletteQuery = useStore(state => state.setCommandPaletteQuery);
     const isDebugToolbarOpen = useStore(state => state.isDebugToolbarOpen);
 
     useEffect(() => {
@@ -95,25 +92,19 @@ const App: React.FC = () => {
                 window.location.reload();
             });
         });
+
+        // DIAGNOSTIC: trace every isRightSidebarOpen change to find the auto-close culprit
+        const unsubDiag = useStore.subscribe((state, prev) => {
+            if (state.isRightSidebarOpen !== prev.isRightSidebarOpen) {
+                console.trace(`[DIAG] isRightSidebarOpen changed: ${prev.isRightSidebarOpen} → ${state.isRightSidebarOpen}`);
+            }
+        });
+        return () => unsubDiag();
     }, []);
 
     return (
         <div id="vscodium-app-root" style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {isCommandPaletteOpen && (
-                <div id="command-palette" className="command-palette">
-                    <div className="command-input-container">
-                        <input
-                            type="text"
-                            id="command-input"
-                            placeholder="Type a command or search..."
-                            autoFocus
-                            value={commandPaletteQuery}
-                            onChange={(e) => setCommandPaletteQuery(e.target.value)}
-                        />
-                    </div>
-                    <div id="command-list" className="command-list"></div>
-                </div>
-            )}
+            <CommandPalette />
 
             <div className="body-backdrop"></div>
             <TitleBar />
