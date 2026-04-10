@@ -156,6 +156,8 @@ interface AppState {
     chatSessions: any[];
     brainTelemetry: any | null;
     attachedFiles: { id: string, path: string, name: string, gist?: string, thumbnail?: string, type: 'file' | 'attachment' | 'mention' }[];
+    kairosSuggestions: any[];
+    kairosStatus: 'idle' | 'indexing' | 'dreaming';
 
     // Phase 8: Agentic State
     taskPlannerState: any | null;
@@ -280,6 +282,7 @@ interface AppState {
     refreshMemorySavings: () => Promise<void>;
     addAgentMessage: (role: 'user' | 'assistant', content: string, context?: AttachedContext[] | boolean) => void;
     updateLastAgentMessage: (content: string) => void;
+    appendLastAgentMessage: (delta: string) => void;
     updateLastAgentThought: (thought: string) => void;
     updateAgentStepStatus: (name: string, status: 'running' | 'success' | 'error', result?: string, summary?: string, callId?: string) => void;
     addAgentStep: (name: string, type?: AgentStep['type'], args?: any, callId?: string) => void;
@@ -360,6 +363,7 @@ interface AppState {
     archiveCurrentSession: () => Promise<void>;
     createNewSession: () => Promise<void>;
     refreshBrainTelemetry: () => Promise<void>;
+    addKairosSuggestion: (suggestion: any) => void;
 }
 
 export interface AgentTask {
@@ -397,6 +401,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     activePanelTab: 'TERMINAL',
     isRightSidebarOpen: false,
     theme: localStorage.getItem('active-monaco-theme') || 'vs-dark',
+    kairosSuggestions: [],
+    kairosStatus: 'idle',
     sidebarWidth: parseInt(localStorage.getItem('sidebarWidth') || '260'),
     rightSidebarWidth: parseInt(localStorage.getItem('rightSidebarWidth') || '300'),
     bottomPanelHeight: parseInt(localStorage.getItem('bottomPanelHeight') || '240'),
@@ -979,41 +985,56 @@ const storeImplementation: any = (set: any, get: any) => ({
         }
         return { agentMessages: messages };
     }),
-    appendLastAgentMessage: (delta: string) => set((state) => {
+    appendLastAgentMessage: (delta: string) => set((state: any) => {
         const messages = [...state.agentMessages];
         const lastIndex = messages.length - 1;
         const last = messages[lastIndex];
         if (last && last.role === 'assistant') {
-            const fullRaw = (last.content || '') + delta; // This is naive but works if we don't have tags yet
+            const currentContent = last.content || '';
+            const currentThoughts = last.thoughts || '';
+            const currentRaw = last.raw_buffer || (currentContent + currentThoughts);
 
-            // Smart append: if we are in a thinking block, append to thoughts
-            // If we are out, append to content.
-            // For simplicity, we re-parse the full string for tags if it's small, 
-            // or we track state. Let's do a simple check.
-
-            let newContent = last.content;
-            let newThoughts = last.thoughts;
-
-            if (delta.includes('<think>') || last.thoughts !== undefined) {
-                // If we are currently thinking or starting to think
-                const combined = (last.thoughts ? `<think>${last.thoughts}</think>` : '') + delta;
-                const thinkMatch = combined.match(/<think>([\s\S]*?)<\/think>/);
-                if (thinkMatch) {
-                    newThoughts = thinkMatch[1].trim();
-                    newContent = combined.replace(/<think>[\s\S]*?<\/think>/, '').trim();
-                } else if (combined.includes('<think>')) {
-                    newThoughts = combined.split('<think>')[1] || '';
-                    newContent = combined.split('<think>')[0] || '';
-                } else {
-                    newContent = combined;
+            // Robust Overlap Merger:
+            // Find the longest suffix of currentRaw that is a prefix of delta.
+            let overlapLength = 0;
+            const maxCheck = Math.min(currentRaw.length, delta.length);
+            for (let i = 1; i <= maxCheck; i++) {
+                if (currentRaw.slice(-i) === delta.slice(0, i)) {
+                    overlapLength = i;
                 }
-            } else {
-                newContent = delta; // <--- The critical fix: delta is the FULL payload from the backend
             }
 
-            messages[lastIndex] = { ...last, content: newContent, thoughts: newThoughts };
+            const cleanDelta = delta.slice(overlapLength);
+            if (cleanDelta.length === 0) return state;
+
+            const fullRaw = currentRaw + cleanDelta;
+            let newContent = currentContent;
+            let newThoughts = currentThoughts;
+
+            // Handle Deep Thinking blocks if present
+            if (fullRaw.includes('<think>')) {
+                const thinkMatch = fullRaw.match(/<think>([\s\S]*?)<\/think>/);
+                if (thinkMatch) {
+                    newThoughts = thinkMatch[1].trim();
+                    newContent = fullRaw.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+                } else {
+                    const parts = fullRaw.split('<think>');
+                    newContent = parts[0] || '';
+                    newThoughts = parts[1] || '';
+                }
+            } else {
+                newContent += cleanDelta;
+            }
+
+            messages[lastIndex] = {
+                ...last,
+                content: newContent,
+                thoughts: newThoughts,
+                raw_buffer: fullRaw
+            };
+            return { agentMessages: messages };
         }
-        return { agentMessages: messages };
+        return state;
     }),
     addAgentStep: (name, type, args, callId) => set((state) => {
         const messages = [...state.agentMessages];
@@ -1601,6 +1622,12 @@ const storeImplementation: any = (set: any, get: any) => ({
             console.error('Refresh Brain Telemetry Error:', error);
         }
     },
+
+    addKairosSuggestion: (suggestion: any) => {
+        set((state: any) => ({
+            kairosSuggestions: [suggestion, ...state.kairosSuggestions].slice(0, 50)
+        }));
+    },
 });
 
 export const useStore = create<AppState>(storeImplementation);
@@ -1657,6 +1684,12 @@ if (typeof window !== 'undefined') {
                 description: 'Sentient AI Surgical Patch'
             });
         }
+    });
+
+    listen('kairos://suggestion', (event: any) => {
+        console.log('[KAIROS] Suggestion received:', event.payload);
+        const state = useStore.getState() as any;
+        state.addKairosSuggestion(event.payload);
     });
 
     (window as any).useStore = useStore;

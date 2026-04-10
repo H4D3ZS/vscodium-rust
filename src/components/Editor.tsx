@@ -11,7 +11,7 @@ import { sendAgentMessage } from '../agent';
 const CTRL_S = 2048 | 49; // KeyMod.CtrlCmd | KeyCode.KeyS
 const CTRL_I = 2048 | 40; // KeyMod.CtrlCmd | KeyCode.KeyI
 
-const Editor: React.FC = () => {
+const Editor: React.FC = React.memo(() => {
     const activeTabId = useStore(state => state.activeTabId);
     const tabs = useStore(state => state.tabs);
     const updateTabContent = useStore(state => state.updateTabContent);
@@ -224,7 +224,7 @@ const Editor: React.FC = () => {
             )}
 
             {activeFilePendingChange && (
-                <DiffViewer change={activeFilePendingChange} />
+                <DiffViewer />
             )}
 
             {isInlineEditOpen && (
@@ -274,6 +274,6 @@ const Editor: React.FC = () => {
             )}
         </div>
     );
-};
+});
 
 export default Editor;

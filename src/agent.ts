@@ -280,15 +280,24 @@ export async function initAgent() {
         }
     });
 
-    // Listen for streaming AI content
+    // Listen for streaming AI content (full updates)
     await listen('ai-content', (event: any) => {
         const { updateLastAgentMessage, setIsAgentThinking } = useStore.getState();
         setIsAgentThinking(false);
-        // Payload from Rust is { content: string }
         const content = typeof event.payload === 'object' && event.payload.content
             ? event.payload.content
             : (typeof event.payload === 'string' ? event.payload : '');
         updateLastAgentMessage(content);
+    });
+
+    // Listen for streaming AI content (delta updates - performance optimized)
+    await listen('ai-content-delta', (event: any) => {
+        const { appendLastAgentMessage, setIsAgentThinking } = useStore.getState();
+        // Don't set Thinking to false on EVERY chunk to avoid re-renders
+        const delta = typeof event.payload === 'object' && event.payload.delta
+            ? event.payload.delta
+            : (typeof event.payload === 'string' ? event.payload : '');
+        if (delta) appendLastAgentMessage(delta);
     });
 
     // Listen for tool calls from the backend
@@ -848,16 +857,38 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
             if (attachmentContext && attachmentContext.length > 0) {
                 const parts: any[] = [{ type: 'text', text: content }];
                 attachmentContext.forEach((ac: any) => {
-                    const payload = ac.gist || ac.data;
-                    if (payload && payload.startsWith('data:image/')) {
+                    const isImageUrl = ac.data && (ac.data.startsWith('data:image/') || ac.data.startsWith('http'));
+                    const hasGist = !!ac.gist;
+                    const hasTextData = ac.data && !isImageUrl;
+
+                    if (hasGist) {
+                        parts[0].text = `### [Neural Context: ${ac.name}]\n[Gist-1536] ${ac.gist}\n\n${parts[0].text}`;
+                    }
+
+                    // IMPORTANT: If we have a visual summary (text data) even with a gist, we MUST include it
+                    // so the reasoning model knows what was in the image.
+                    if (hasTextData) {
+                        if (ac.data.startsWith('data:text/')) {
+                            try {
+                                const textContent = atob(ac.data.split(',')[1]);
+                                parts[0].text = `### [File Attachment: ${ac.name}]\n\`\`\`\n${textContent}\n\`\`\`\n\n${parts[0].text}`;
+                            } catch (e) {
+                                parts[0].text = `### [File Attachment: ${ac.name}]\n(Error decoding text content)\n\n${parts[0].text}`;
+                            }
+                        } else {
+                            // This is likely the Visual Summary from the vision model pre-pass
+                            parts[0].text = `### [Visual Understanding: ${ac.name}]\n${ac.data}\n\n${parts[0].text}`;
+                        }
+                    }
+
+                    if (isImageUrl) {
                         parts.push({
                             type: 'image_url',
                             image_url: { url: ac.data }
                         });
-                    } else if (ac.data && ac.data.startsWith('data:text/')) {
-                        const textContent = atob(ac.data.split(',')[1]);
-                        parts[0].text = `[Attached file: ${ac.name}]\n\`\`\`\n${textContent}\n\`\`\`\n\n${parts[0].text}`;
-                    } else {
+                    }
+
+                    if (!hasGist && !hasTextData && !isImageUrl) {
                         parts[0].text = `[Attached file: ${ac.name}]\n${parts[0].text}`;
                     }
                 });

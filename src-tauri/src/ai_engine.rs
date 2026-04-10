@@ -950,12 +950,17 @@ impl Sentient {
                     "max_iterations": max_iterations
                 }));
 
-                // Inject phase-specific constraint directly into the heart of the session
-                messages.push(ChatMessage {
-                    role: "system".to_string(),
-                    content: Some(MessageContent::Text(system_instruction.to_string())),
-                    ..Default::default()
-                });
+                // Update or Insert phase-specific constraint
+                let phase_msg_content = Some(MessageContent::Text(format!("### [PHASE: {}] {}\nINSTRUCTION: {}", phase, status, system_instruction)));
+                if let Some(existing_phase) = messages.iter_mut().find(|m| m.role == "system" && m.content.as_ref().map(|c| c.as_str().contains("[PHASE:")).unwrap_or(false)) {
+                    existing_phase.content = phase_msg_content;
+                } else {
+                    messages.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: phase_msg_content,
+                        ..Default::default()
+                    });
+                }
             }
 
             println!(
@@ -1071,17 +1076,18 @@ impl Sentient {
                     // Natively inject the .aim VFS context directly into the heart of the prompt
                     let aim_context = self.load_aim_context().await;
                     if !aim_context.is_empty() {
-                        ollama_system.push_str(&aim_context);
+                        let aim_header = format!("\n\n### [KORTEX-AIM] NATIVE CONTEXT INJECTED:\n{}\n\n", aim_context);
+                        ollama_system.push_str(&aim_header);
                     }
 
                     if !tools.is_empty() {
-                        ollama_system.push_str("\n\nYou have access to tools. To call a tool, output a single JSON block like this:\n```json\n{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}\n```\nAvailable tools:\n");
+                        ollama_system.push_str("\n\n### TOOL REQUISITION PROTOCOL:\nYou have access to the following tools. To call a tool, you MUST output a single JSON block inside a ```json code block. Do NOT include any other text or reasoning inside the code block.\nExample:\n```json\n{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}\n```\n\nCRITICAL: Do NOT mention the tool names in your conversational text. Do NOT explain why you are using a tool. Just output the JSON block and wait for result.\n\nAvailable tools:\n");
                         for tool in &tools {
                             let name = tool["name"].as_str().unwrap_or("unknown");
                             let desc = tool["description"].as_str().unwrap_or("");
                             ollama_system.push_str(&format!("- {}: {}\n", name, desc));
                         }
-                        ollama_system.push_str("\nCRITICAL INSTRUCTION: When you have the requested information and NO LONGER need tools, just output the final answer as plain text without any JSON code blocks. Do NOT call tools if you already have the answer.");
+                        ollama_system.push_str("\nCRITICAL INSTRUCTION: When you have the final answer and NO LONGER need tools, output only your final response. Do NOT call tools if you already have the answer.");
                     }
                 }
 
@@ -1275,12 +1281,12 @@ impl Sentient {
                     };
 
                     if let Ok(val) = serde_json::from_str::<Value>(json_str) {
-                        let mut content_found = false;
+                        let mut delta_to_emit = None;
 
                         // OpenAI/Ollama v1 format
                         if let Some(content) = val["choices"][0]["delta"]["content"].as_str() {
                             full_content.push_str(content);
-                            content_found = true;
+                            delta_to_emit = Some(content.to_string());
                             if let Some(ref cb) = on_chunk {
                                 cb(content);
                             }
@@ -1288,7 +1294,7 @@ impl Sentient {
                         // Ollama native format
                         else if let Some(content) = val["message"]["content"].as_str() {
                             full_content.push_str(content);
-                            content_found = true;
+                            delta_to_emit = Some(content.to_string());
                             if let Some(ref cb) = on_chunk {
                                 cb(content);
                             }
@@ -1297,7 +1303,7 @@ impl Sentient {
                         else if val["type"] == "content_block_delta" {
                             if let Some(content) = val["delta"]["text"].as_str() {
                                 full_content.push_str(content);
-                                content_found = true;
+                                delta_to_emit = Some(content.to_string());
                                 if let Some(ref cb) = on_chunk {
                                     cb(content);
                                 }
@@ -1351,11 +1357,9 @@ impl Sentient {
                             }
                         }
 
-                        if content_found {
-                            // Always emit the full content for transparency
-                            let final_content = full_content.trim();
-                            if !final_content.is_empty() {
-                                self.emit_event("ai-content", json!({ "content": final_content }));
+                        if let Some(delta) = delta_to_emit {
+                            if !delta.is_empty() {
+                                self.emit_event("ai-content-delta", json!({ "delta": delta }));
                             }
                         }
 
@@ -1380,6 +1384,9 @@ impl Sentient {
                 "AI Stream finished. Total content length: {}",
                 full_content.len()
             );
+
+            // Emit final full content for integrity and to stop thinking state
+            self.emit_event("ai-content", json!({ "content": full_content.trim() }));
 
             let mut chat_message = ChatMessage {
                 role: "assistant".to_string(),
@@ -2160,8 +2167,6 @@ impl Sentient {
     fn try_parse_markdown_tool_calls(&self, content: &str) -> Vec<ToolCall> {
         let mut tools = Vec::new();
 
-        // 1. First try finding code blocks: ``` ... ``` (could be ```json or just ```)
-        let mut found_any_block = false;
         // 1. Aggressive Markdown code block parsing
         let mut search_pos = 0;
         while let Some(start) = content[search_pos..].find("```") {
@@ -2190,7 +2195,6 @@ impl Sentient {
             if let Some(end) = rest.find("```") {
                 let json_block = rest[..end].trim();
                 search_pos = possible_json_start + end + 3;
-                found_any_block = true;
                 self.parse_json_to_tools(json_block, &mut tools);
             } else {
                 // Unclosed block - try parsing rest of content
@@ -2288,12 +2292,18 @@ impl Sentient {
         for item in items {
             let name = item
                 .get("name")
+                .or_else(|| item.get("tool"))
+                .or_else(|| item.get("call"))
+                .or_else(|| item.get("method"))
                 .or_else(|| item.get("function").and_then(|f| f.get("name")))
                 .and_then(|v| v.as_str());
 
             let arguments = item
                 .get("arguments")
                 .or_else(|| item.get("args"))
+                .or_else(|| item.get("params"))
+                .or_else(|| item.get("parameters"))
+                .or_else(|| item.get("inputs"))
                 .or_else(|| item.get("function").and_then(|f| f.get("arguments")));
 
             if let Some(name) = name {
