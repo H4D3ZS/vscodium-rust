@@ -123,15 +123,20 @@ impl ContextIndexer {
                 let category = if extension == "md" { "fix_lessons" } else { "file_map" };
                 let mut tags = Vec::new();
 
+                // 2.1 Calculate Pythagorean Embedding (Geometric Logic)
+                let embedder = hades_harness::PythagoreanEmbedder::new(1536);
+                let geometry = embedder.embed_path(Path::new(&relative_path));
+
                 if extension == "rs" || extension == "ts" || extension == "tsx" {
-                    // Note: This needs to be synchronous for Rayon, or use block_on
                     let symbols = Self::extract_symbols_sync(&content, extension, &relative_path);
                     for sym in symbols {
                         tags.push(format!("symbol:{}", sym.name));
-                        // Blocking call to memory store (assuming it has a sync version or we use block_on)
                         futures::executor::block_on(ms.store_symbol(sym));
                     }
                 }
+
+                // 2.2 Security Analysis (Distillation)
+                let security_meta = crate::security_distiller::SecurityDistiller::get_security_metadata(&content);
 
                 futures::executor::block_on(ms.store_slot(crate::memory_store::SemanticSlot {
                     id: format!("{}:{}", category, relative_path),
@@ -140,7 +145,9 @@ impl ContextIndexer {
                     tags,
                     metadata: Some(serde_json::json!({
                         "extension": extension,
-                        "size": content.len()
+                        "size": content.len(),
+                        "geometry_map": geometry.get(0..10).map(|s| s.to_vec()),
+                        "security": security_meta
                     })),
                     timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
                 }));

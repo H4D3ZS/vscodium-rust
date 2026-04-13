@@ -1,0 +1,9 @@
+@echo off
+echo Killing stuck Python processes...
+taskkill /F /IM python.exe /T 2>nul
+echo Killing stuck PowerShell processes...
+taskkill /F /IM powershell.exe /T 2>nul
+echo Killing stuck Console processes...
+taskkill /F /IM conhost.exe /T 2>nul
+echo Done.
+pause

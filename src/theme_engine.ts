@@ -146,9 +146,9 @@ export async function applyTheme(themePath: string) {
         } else {
             // Clear assets if switching to a non-Doki theme
             const root = document.documentElement;
-            root.style.setProperty('--terminator-sticker', 'none');
-            root.style.setProperty('--terminator-wallpaper', 'none');
-            document.body.classList.remove('has-terminator-wallpaper');
+            root.style.setProperty('--airi-sticker', 'none');
+            root.style.setProperty('--airi-wallpaper', 'none');
+            document.body.classList.remove('has-airi-wallpaper');
         }
 
         // Persist theme choice
@@ -207,14 +207,14 @@ async function applyDokiAssets(themeName: string) {
 
     const root = document.documentElement;
     if (assets) {
-        root.style.setProperty('--terminator-sticker', `url('${STICKER_BASE}${assets.sticker}')`);
-        root.style.setProperty('--terminator-wallpaper', `url('${WALLPAPER_BASE}${assets.wallpaper}')`);
-        document.body.classList.add('has-terminator-wallpaper');
+        root.style.setProperty('--airi-sticker', `url('${STICKER_BASE}${assets.sticker}')`);
+        root.style.setProperty('--airi-wallpaper', `url('${WALLPAPER_BASE}${assets.wallpaper}')`);
+        document.body.classList.add('has-airi-wallpaper');
     } else {
         // Fallback or Clear
-        root.style.setProperty('--terminator-sticker', 'none');
-        root.style.setProperty('--terminator-wallpaper', 'none');
-        document.body.classList.remove('has-terminator-wallpaper');
+        root.style.setProperty('--airi-sticker', 'none');
+        root.style.setProperty('--airi-wallpaper', 'none');
+        document.body.classList.remove('has-airi-wallpaper');
     }
 }
 

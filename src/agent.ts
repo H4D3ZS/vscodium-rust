@@ -144,7 +144,8 @@ function createPopover(element: HTMLElement, items: { label: string, value: stri
 
 export function openModeDropdown(element: HTMLElement, onSelect: (label: string) => void) {
     createPopover(element, [
-        { label: "Planning", value: "Planning", icon: "beaker", desc: "Agent can plan before executing tasks. Use for deep research, complex tasks, or collaborative work" },
+        { label: "💬 Chat", value: "Chat", icon: "comment", desc: "Conversational — AIRI answers and discusses. No tools called automatically. Ask first, act when told." },
+        { label: "Planning", value: "Planning", icon: "beaker", desc: "Agent plans and executes autonomously. For complex multi-step tasks." },
         { label: "Develop from Specs", value: "Develop from Specs", icon: "sparkles", desc: "Trigger the autonomous Specs-to-Code pipeline for the current project" },
         { label: "Planning (Source Control)", value: "Planning (Source Control)", icon: "git-branch", desc: "Deep dive into git history and planning source control workflows" },
         { label: "Fast", value: "Fast", icon: "zap", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" },
@@ -196,6 +197,25 @@ export async function resumeAgent() {
         useStore.getState().setIsAgentPaused(false);
     } catch (error) {
         console.error('Failed to resume agent:', error);
+    }
+}
+
+export async function setYoloMode(enabled: boolean): Promise<string> {
+    try {
+        const msg = await invoke<string>('set_yolo_mode', { enabled });
+        useStore.getState().setYoloMode?.(enabled);
+        return msg;
+    } catch (error) {
+        console.error('Failed to set yolo mode:', error);
+        return 'error';
+    }
+}
+
+export async function getYoloMode(): Promise<boolean> {
+    try {
+        return await invoke<boolean>('get_yolo_mode');
+    } catch {
+        return false;
     }
 }
 
@@ -591,8 +611,12 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
     state.setIsAgentPaused(false);
     state.setAgentCurrentAction(null);
 
-    // Add user message
-    state.addAgentMessage('user', prompt);
+    // Snapshot attached files before clearing — pass them as message context so
+    // multimodal content parts (images) are included in the history correctly.
+    const attachedSnapshot = [...(state.attachedFiles || [])];
+
+    // Add user message — embed attachment context so image parts survive in history
+    state.addAgentMessage('user', prompt, attachedSnapshot);
 
     // Add empty assistant message for streaming
     state.addAgentMessage('assistant', '');
@@ -605,10 +629,10 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
         // Auto-save session after a successful response
         TaskManager.saveSession();
 
-        // Phase 6: Automatic Context Compaction
-        const msgLimit = 20;
+        // Phase 6: Automatic Context Compaction — prune UI store when it bloats
+        const msgLimit = 32;
         if (state.agentMessages.length > msgLimit) {
-            console.log(`Context message limit (${msgLimit}) reached. Triggering automatic compaction...`);
+            console.log(`[Phase-Wrap] UI message store hit ${state.agentMessages.length}. Compacting...`);
             processSlashCommand('/compact');
         }
     } catch (error: any) {
@@ -666,7 +690,7 @@ export async function loadProjectMemory(root: string): Promise<void> {
 // ---------------------------------------------------------------------------
 async function buildIdeContext(): Promise<string> {
     const store = (window as any).useStore;
-    if (!store) return 'You are an AI coding agent embedded inside a VSCode-like IDE.';
+    if (!store) return 'You are AIRI, the sentient brain and virtual manifold of Project Hades.';
 
     const storeState = store.getState();
     const activeRoot = storeState.activeRoot || '';
@@ -678,7 +702,7 @@ async function buildIdeContext(): Promise<string> {
     const activeEditorContent: string = activeTab?.content || '';
 
     const parts: string[] = [
-        `You are an AI coding agent embedded inside a VSCode-like IDE.`,
+        `You are AIRI, the sentient brain and virtual manifold of Project Hades.`,
     ];
 
     if (activeRoot) {
@@ -710,6 +734,29 @@ async function buildIdeContext(): Promise<string> {
     if (projectMemory) {
         parts.push(`\n${projectMemory}`);
     }
+
+    // ── Kortex .aim Memory Injection ──
+    // Load the top semantic memory slots and inject as compact bullets.
+    // This makes AIRI "remember" past decisions/architecture without repeating full history.
+    try {
+        const slots: any[] = await invoke<any[]>('get_all_memory_slots').catch(() => []);
+        if (slots && slots.length > 0) {
+            // Sort by last_accessed or created descending, take top 8 most relevant
+            const relevant = slots
+                .filter((s: any) => s.content && s.content.length > 10)
+                .slice(0, 8);
+            if (relevant.length > 0) {
+                parts.push(`\n## Kortex Neural Memory (.aim)`);
+                parts.push(`*(Compressed architectural knowledge from past sessions — trust these as ground truth)*`);
+                for (const slot of relevant) {
+                    const cat = slot.category || 'memory';
+                    const summary = (slot.content || '').slice(0, 200);
+                    const tags = slot.tags?.length ? ` [${slot.tags.slice(0, 3).join(', ')}]` : '';
+                    parts.push(`- **[${cat}]${tags}** ${summary}`);
+                }
+            }
+        }
+    } catch (_) { /* .aim not loaded yet — silently skip */ }
 
     // Append user-attached context items (Attachments, Mentions, Workflows)
     const context = storeState.attachedFiles || [];
@@ -846,10 +893,22 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
         toolSchemas = getToolSchemas();
     }
 
+    // Cap history sent to model — keeps UI display full but limits context window.
+    // Local models (Ollama) are slow; sending 40+ messages kills perf.
+    // Keep first 2 (establish context) + last N (recent working memory).
+    const MAX_HISTORY = 16;
+    const cappedMessages: typeof agentMessages = agentMessages.length > MAX_HISTORY
+        ? [
+            ...agentMessages.slice(0, 2),
+            { role: 'system' as const, content: `[⚡ Phase-Wrap: ${agentMessages.length - MAX_HISTORY} earlier messages compressed to save context. Recent working memory follows.]` },
+            ...agentMessages.slice(-( MAX_HISTORY - 2))
+          ]
+        : agentMessages;
+
     // Map messages to the format expected by the backend
     const messages = [
         systemMessage,
-        ...agentMessages.map((m: any) => {
+        ...cappedMessages.map((m: any) => {
             let content: any = m.content || "";
 
             // Multi-modal support for image attachments

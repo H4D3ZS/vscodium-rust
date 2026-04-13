@@ -78,12 +78,25 @@ const App: React.FC = () => {
         else document.body.classList.add('is-web');
         // ----------------------------------------
 
-        const { refreshAvailableModels, setActiveRoot, activeRoot } = useStore.getState();
+        const { refreshAvailableModels, setActiveRoot, activeRoot, refreshFileTree } = useStore.getState();
         refreshAvailableModels();
 
-        // Sync active root with backend on startup
+        // Restore the active project root on startup.
+        // Priority: 1) localStorage (user's last session), 2) backend's cwd (first launch).
         if (activeRoot) {
-            setActiveRoot(activeRoot);
+            // We have a saved root — tell the backend and load the file tree
+            invoke('set_active_root', { path: activeRoot })
+                .then(() => refreshFileTree())
+                .catch(console.error);
+        } else {
+            // No saved root — ask backend what it was initialized with (cwd)
+            invoke<string | null>('get_active_root')
+                .then((backendRoot) => {
+                    if (backendRoot) {
+                        setActiveRoot(backendRoot);
+                    }
+                })
+                .catch(console.error);
         }
 
         // Listen for reload-window from backend

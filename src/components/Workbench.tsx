@@ -17,6 +17,8 @@ import { PlanningPanel } from './PlanningPanel';
 import { GhostRuntimePanel } from './GhostRuntimePanel';
 import { ThoughtProcess } from './ThoughtProcess';
 import AgentDiffView from './agent/AgentDiffView';
+import { AiriPanel } from './AiriPanel';
+import { AiriOverlay } from './AiriOverlay';
 
 function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: string } {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
@@ -201,7 +203,7 @@ const Workbench: React.FC = () => {
                                                     <img src="/assets/rust-logo.png" alt="Rust Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
                                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                                                         <h1 style={{ fontSize: 'min(5vw, 42px)', fontWeight: 800, marginBottom: '2px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)', lineHeight: 1, margin: 0 }}>
-                                                            VSCODIUM-RUST <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>v0.2.0-ELITE</span>
+                                                            PROJECT HADES <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>AIRI-CORE v0.2.0</span>
                                                         </h1>
                                                         <p style={{ fontSize: '14px', opacity: 0.6, maxWidth: '600px', margin: '8px 0 0', lineHeight: '1.4' }}>
                                                             The ultimate high-performance, native IDE optimized for speed, autonomy, and the future of software construction.
@@ -228,7 +230,7 @@ const Workbench: React.FC = () => {
                                                     </div>
                                                     <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
                                                         <div style={{ color: 'var(--terminator-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-bot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Autonomy</strong></div>
-                                                        <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Integrated VSCODIUM-RUST agent with full filesystem access.</div>
+                                                        <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Integrated AIRI sentient core with full filesystem access.</div>
                                                     </div>
                                                 </div>
 
@@ -376,7 +378,9 @@ const Workbench: React.FC = () => {
                     <RightSidebar />
                 </div>
             </div>
+
             {!isVisualLabSplitView && <VisualLab />}
+            <AiriOverlay />
             <SpecsToCodeWizard />
             {useStore(state => state.pendingChanges).length > 0 && <DiffViewer />}
             <AgentDiffView />

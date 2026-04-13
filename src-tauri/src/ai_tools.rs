@@ -2,12 +2,15 @@ use anyhow::{anyhow, Result};
 use glob;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use urlencoding;
 use std::fs;
 use crate::process_ext::CommandExtHidden;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
+use crate::security_distiller::SecurityDistiller;
+use crate::binary_analyzer::BinaryAnalyzer;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -56,8 +59,8 @@ impl AiTools {
         }
     }
 
-    pub fn set_app_handle(&self, handle: tauri::AppHandle) {
-        let mut h = self.app_handle.blocking_lock();
+    pub async fn set_app_handle(&self, handle: tauri::AppHandle) {
+        let mut h = self.app_handle.lock().await;
         *h = Some(handle);
     }
 
@@ -112,12 +115,13 @@ impl AiTools {
             },
             ToolDefinition {
                 name: "search_replace_edit".to_string(),
-                description: "Surgically edit a file using SEARCH/REPLACE blocks. Format: <<<< SEARCH [existing code] ==== [new code] >>>>".to_string(),
+                description: "Surgically edit a file. Stages in shadow buffer unless direct_apply=true. Format:\n<<<< SEARCH\n<exact existing code>\n====\n<new code>\n>>>>".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
                         "path": { "type": "string", "description": "Relative path to the file" },
-                        "content": { "type": "string", "description": "The search/replace content" }
+                        "content": { "type": "string", "description": "SEARCH/REPLACE block(s)" },
+                        "direct_apply": { "type": "boolean", "description": "If true, skip shadow buffer and write immediately to disk", "default": false }
                     },
                     "required": ["path", "content"]
                 }),
@@ -1051,15 +1055,78 @@ impl AiTools {
             },
             ToolDefinition {
                 name: "dev_cargo_diagnostics".to_string(),
-                description: "Run 'cargo check' and return high-fidelity structured error messages.".to_string(),
+                description: "Run 'cargo check' and return high-fidelity structured error messages. Call this after editing any Rust file to verify correctness before moving on.".to_string(),
                 input_schema: json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "search_codebase".to_string(),
+                description: "Search the entire codebase for a query: returns matching file paths, line numbers, snippet previews, AND any matching symbols (functions/structs/classes). Faster than grep for symbol-level queries.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Text or symbol name to search for" },
+                        "file_types": { "type": "string", "description": "Optional comma-separated extensions to limit search, e.g. 'rs,ts,tsx'" },
+                        "max_results": { "type": "integer", "description": "Max results to return (default 30)" }
+                    },
+                    "required": ["query"]
+                }),
+            },
+            ToolDefinition {
+                name: "web_search".to_string(),
+                description: "Search the web for information. Returns instant answers, summaries, and related links. Use for: API documentation, error messages, library usage, current events, technical questions.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Search query (e.g. 'rust tokio spawn timeout example')" },
+                        "num_results": { "type": "integer", "description": "Max results to return (1-10, default 5)" }
+                    },
+                    "required": ["query"]
+                }),
+            },
+            ToolDefinition {
+                name: "security_scan".to_string(),
+                description: "Run a deep static analysis (semgrep) on a file or directory to find security vulnerabilities.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to scan" }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "audit_dependencies".to_string(),
+                description: "Scan the project dependencies for known vulnerabilities (cargo audit).".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "disassemble".to_string(),
+                description: "Disassemble a binary file using radare2 or objdump. Essential for reverse engineering.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to binary" }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "get_binary_info".to_string(),
+                description: "Get metadata about a binary file (architecture, type) using system 'file' command.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to binary" }
+                    },
+                    "required": ["path"]
+                }),
             },
         ]
     }
 
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
         match name {
-            // Filesystem Operations
+            // Filesystem Operations — all tools handled by handle_fs_tool
             "view_file"
             | "write_to_file"
             | "remove_item"
@@ -1073,7 +1140,34 @@ impl AiTools {
             | "create_directory"
             | "rename_path"
             | "editor_open_file"
-            | "editor_get_active_file" => self.handle_fs_tool(name, arguments).await,
+            | "editor_get_active_file"
+            // Surgical editing — THE coding tools
+            | "search_replace_edit"
+            | "patch_file_content"
+            | "ai_propose_edit"
+            | "preview_shadow_diff"
+            | "apply_shadow_patch"
+            | "ghost_test"
+            // Extended FS
+            | "semantic_search"
+            | "find_symbols"
+            | "read_file_lines"
+            | "reindex_project"
+            | "list_dir_tree"
+            | "list_mcp_ops"
+            | "hex_dump"
+            | "extract_strings"
+            | "list_active_processes"
+            | "apply_patch"
+            | "get_file_metadata"
+            | "ide_get_state"
+            | "network_port_scanner"
+            | "binary_mach_o_scanner"
+            | "file_entropy_analysis"
+            | "dev_cargo_diagnostics"
+            | "search_codebase"
+            | "get_lsp_diagnostics"
+            | "web_search" => self.handle_fs_tool(name, arguments).await,
 
             // Terminal Operations
             "run_command"
@@ -1145,6 +1239,12 @@ impl AiTools {
             "create_mission_plan" => self.create_mission_plan(arguments).await,
             "revert_checkpoint" => self.revert_checkpoint(arguments).await,
 
+            // Cyber-Security & Research Tools
+            "security_scan"
+            | "audit_dependencies"
+            | "disassemble"
+            | "get_binary_info" => self.handle_research_tool(name, arguments).await,
+
             _ => Err(anyhow!("Unknown tool: {}", name)),
         }
     }
@@ -1202,8 +1302,12 @@ impl AiTools {
             "binary_mach_o_scanner" => self.binary_mach_o_scanner(arguments).await,
             "file_entropy_analysis" => self.file_entropy_analysis(arguments).await,
             "dev_cargo_diagnostics" => self.dev_cargo_diagnostics(arguments).await,
+            "search_codebase" => self.search_codebase(arguments).await,
+            "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
+            "web_search" => self.web_search_tool(arguments).await,
             "ai_propose_edit" => self.ai_propose_edit(arguments).await,
             "search_replace_edit" => self.search_replace_edit(arguments).await,
+            "patch_file_content" => self.patch_file_content(arguments).await,
             "preview_shadow_diff" => self.preview_shadow_diff(arguments).await,
             "apply_shadow_patch" => self.apply_shadow_patch(arguments).await,
             "ghost_test" => self.ghost_test(arguments).await,
@@ -2558,21 +2662,229 @@ impl AiTools {
         let root = self.root_path.lock().await.clone();
         let output = std::process::Command::new("cargo")
             .args(&["check", "--message-format=json"])
-            .current_dir(root)
+            .current_dir(&root)
             .output()?;
-        
+
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut errors = Vec::new();
-        
+        let mut errors: Vec<Value> = Vec::new();
+        let mut warnings: Vec<Value> = Vec::new();
+
         for line in stdout.lines() {
             if let Ok(msg) = serde_json::from_str::<Value>(line) {
                 if msg["reason"] == "compiler-message" {
-                    errors.push(msg["message"].clone());
+                    let level = msg["message"]["level"].as_str().unwrap_or("error");
+                    let rendered = msg["message"]["rendered"].as_str().unwrap_or("").to_string();
+                    let entry = json!({
+                        "level": level,
+                        "message": msg["message"]["message"],
+                        "rendered": rendered,
+                        "spans": msg["message"]["spans"]
+                    });
+                    if level == "error" { errors.push(entry); } else { warnings.push(entry); }
                 }
             }
         }
-        
-        Ok(json!({ "diagnostics": errors }))
+
+        let success = errors.is_empty();
+        Ok(json!({
+            "success": success,
+            "error_count": errors.len(),
+            "warning_count": warnings.len(),
+            "errors": errors,
+            "warnings": warnings,
+            "summary": if success {
+                format!("✅ cargo check passed ({} warnings)", warnings.len())
+            } else {
+                format!("❌ {} error(s), {} warning(s). Fix errors before proceeding.", errors.len(), warnings.len())
+            }
+        }))
+    }
+
+    async fn search_codebase(&self, args: Value) -> Result<Value> {
+        let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing query"))?.to_string();
+        let q_lower = query.to_lowercase();
+        let max_results = args["max_results"].as_u64().unwrap_or(30) as usize;
+        let file_types: Option<Vec<String>> = args["file_types"]
+            .as_str()
+            .map(|s| s.split(',').map(|e| e.trim().to_string()).collect());
+
+        let root = self.root_path.lock().await.clone();
+        let mut text_matches: Vec<Value> = Vec::new();
+
+        // 1. Text grep across files
+        let ignore = &["node_modules", "target", ".git", "dist", ".next"];
+        for entry in walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
+            let path_str = path.to_string_lossy();
+
+            if ignore.iter().any(|ig| path_str.contains(ig)) { continue; }
+
+            if let Some(ref types) = file_types {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if !types.iter().any(|t| t == ext) { continue; }
+            }
+
+            if let Ok(content) = std::fs::read_to_string(path) {
+                for (i, line) in content.lines().enumerate() {
+                    if line.to_lowercase().contains(&q_lower) {
+                        let rel = path.strip_prefix(&root)
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|_| path_str.to_string());
+                        text_matches.push(json!({
+                            "file": rel,
+                            "line": i + 1,
+                            "preview": line.trim()
+                        }));
+                        if text_matches.len() >= max_results { break; }
+                    }
+                }
+            }
+            if text_matches.len() >= max_results { break; }
+        }
+
+        // 2. Symbol lookup from memory store
+        let slots = self.memory_store.slots.read().await.clone();
+        let sym_defs = self.memory_store.query_symbols(&q_lower, 20).await;
+        let mut symbol_matches: Vec<Value> = sym_defs.iter()
+            .map(|s| json!({
+                "symbol": s.name,
+                "kind": s.kind,
+                "file": s.path,
+                "line_start": s.line_range.0
+            }))
+            .collect();
+
+        // Also check slot tags for symbol hits not yet in graph
+        for slot in &slots {
+            for tag in &slot.tags {
+                if tag.starts_with("symbol:") && tag[7..].to_lowercase().contains(&q_lower) {
+                    if !symbol_matches.iter().any(|m| m["file"] == slot.content) {
+                        symbol_matches.push(json!({ "symbol": &tag[7..], "file": slot.content }));
+                    }
+                }
+            }
+            if symbol_matches.len() >= 20 { break; }
+        }
+
+        Ok(json!({
+            "query": query,
+            "text_matches": text_matches,
+            "symbol_matches": symbol_matches,
+            "total_text": text_matches.len(),
+            "total_symbols": symbol_matches.len()
+        }))
+    }
+
+    async fn get_lsp_diagnostics(&self, args: Value) -> Result<Value> {
+        let path_filter = args["path"].as_str().map(|s| s.to_string());
+
+        // Try to get diagnostics from the app handle (stored in LSP client state)
+        let h_lock = self.app_handle.lock().await;
+        if let Some(handle) = h_lock.as_ref() {
+            let state: tauri::State<crate::EditorState> = handle.state();
+            let diags = state.lsp_diagnostics.read().await.clone();
+            drop(h_lock);
+
+            let filtered: Vec<Value> = diags.iter()
+                .filter(|(uri, _)| {
+                    if let Some(ref p) = path_filter {
+                        uri.contains(p.as_str())
+                    } else {
+                        true
+                    }
+                })
+                .map(|(uri, items)| json!({ "file": uri, "diagnostics": items }))
+                .collect();
+
+            let total_errors: usize = filtered.iter()
+                .map(|f| {
+                    f["diagnostics"].as_array()
+                        .map(|arr| arr.iter().filter(|d| d["severity"].as_u64().unwrap_or(2) == 1).count())
+                        .unwrap_or(0)
+                })
+                .sum();
+
+            Ok(json!({
+                "files": filtered,
+                "total_errors": total_errors,
+                "summary": if total_errors == 0 {
+                    "No LSP errors detected.".to_string()
+                } else {
+                    format!("{} LSP error(s) found across {} file(s).", total_errors, filtered.len())
+                }
+            }))
+        } else {
+            drop(h_lock);
+            Ok(json!({ "files": [], "total_errors": 0, "summary": "LSP not running or no diagnostics yet." }))
+        }
+    }
+
+    async fn web_search_tool(&self, args: Value) -> Result<Value> {
+        let query = args["query"].as_str().unwrap_or("").to_string();
+        if query.is_empty() {
+            return Ok(json!({ "error": "query is required" }));
+        }
+        let num = args["num_results"].as_u64().unwrap_or(5) as usize;
+        let encoded = urlencoding::encode(&query);
+        let url = format!(
+            "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1", encoded
+        );
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(12))
+            .user_agent("Mozilla/5.0 vscodium-rust/1.0")
+            .build()
+            .map_err(|e| anyhow!(e.to_string()))?;
+
+        let body: Value = client.get(&url).send().await
+            .map_err(|e| anyhow!(e.to_string()))?
+            .json().await
+            .map_err(|e| anyhow!(e.to_string()))?;
+
+        let mut results: Vec<Value> = vec![];
+
+        if let Some(t) = body["Abstract"].as_str() {
+            if !t.is_empty() {
+                results.push(json!({
+                    "title": body["Heading"].as_str().unwrap_or(""),
+                    "url": body["AbstractURL"].as_str().unwrap_or(""),
+                    "snippet": t,
+                    "source": body["AbstractSource"].as_str().unwrap_or("DDG"),
+                }));
+            }
+        }
+        if let Some(a) = body["Answer"].as_str() {
+            if !a.is_empty() {
+                results.push(json!({ "title": "Instant Answer", "url": "", "snippet": a, "source": "DDG" }));
+            }
+        }
+        if let Some(topics) = body["RelatedTopics"].as_array() {
+            for t in topics.iter().take(num.saturating_sub(results.len())) {
+                if let Some(text) = t["Text"].as_str() {
+                    if !text.is_empty() {
+                        results.push(json!({
+                            "title": text.chars().take(80).collect::<String>(),
+                            "url": t["FirstURL"].as_str().unwrap_or(""),
+                            "snippet": text,
+                            "source": "DDG",
+                        }));
+                    }
+                }
+            }
+        }
+        if results.is_empty() {
+            results.push(json!({
+                "title": format!("Search: {}", query),
+                "url": format!("https://duckduckgo.com/?q={}", encoded),
+                "snippet": "No instant results. Visit URL for full search.",
+                "source": "fallback",
+            }));
+        }
+        let n = results.len().min(num);
+        Ok(json!({ "query": query, "results": &results[..n], "count": n }))
     }
 
     async fn browser_open(&self, _args: Value) -> Result<Value> {
@@ -3125,21 +3437,58 @@ impl AiTools {
     async fn search_replace_edit(&self, args: Value) -> Result<Value> {
         let path_str = args.get("path").and_then(|v| v.as_str()).ok_or(anyhow!("Missing path"))?;
         let content = args.get("content").and_then(|v| v.as_str()).ok_or(anyhow!("Missing content"))?;
+        // direct_apply: true skips the shadow buffer and writes straight to disk (for autonomous/small model mode)
+        let direct_apply = args.get("direct_apply").and_then(|v| v.as_bool()).unwrap_or(false);
 
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
+
+        // Create file if it doesn't exist yet
+        if !full_path.exists() {
+            if let Some(parent) = full_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&full_path, "")?;
+        }
+
         let original_content = fs::read_to_string(&full_path)?;
 
         let patches = crate::patch_engine::PatchEngine::parse_search_replace(content);
         if patches.is_empty() {
+            // Fallback: if no SEARCH/REPLACE block found but content looks like code, treat as full write
+            if !content.trim().is_empty() && !content.contains("<<<") {
+                return Err(anyhow!(
+                    "No SEARCH/REPLACE blocks found. Format: '<<<< SEARCH\\n<old code>\\n====\\n<new code>\\n>>>>'. For a full file write, use write_to_file instead."
+                ));
+            }
             return Err(anyhow!("No valid SEARCH/REPLACE blocks found in content"));
         }
 
         let mut engine = self.patch_engine.lock().await;
-        let _new_content = engine.apply_patches(&full_path, &original_content, &patches).await?;
+        let new_content = engine.apply_patches(&full_path, &original_content, &patches).await?;
+
+        if direct_apply {
+            // Write directly to disk, bypass shadow review
+            fs::write(&full_path, &new_content)?;
+            let h_lock = self.app_handle.lock().await;
+            if let Some(h) = h_lock.as_ref() {
+                let _ = h.emit("ai-artifact", json!({
+                    "type": "file",
+                    "path": path_str,
+                    "title": format!("Patched: {}", path_str),
+                    "content": "Search/replace applied directly."
+                }));
+            }
+            return Ok(json!({
+                "status": "success",
+                "path": path_str,
+                "message": "Surgical edit applied to filesystem.",
+                "patches_applied": patches.len()
+            }));
+        }
 
         let diff = engine.get_diff(&full_path, &original_content)?;
-        
+
         // Notify frontend about the staged patch
         {
             let h_lock = self.app_handle.lock().await;
@@ -3155,7 +3504,8 @@ impl AiTools {
         Ok(json!({
             "status": "staged",
             "path": path_str,
-            "message": "Surgical edit staged in shadow buffer. Run 'apply_shadow_patch' to commit or 'preview_shadow_diff' to review.",
+            "patches_applied": patches.len(),
+            "message": "Surgical edit staged. Call apply_shadow_patch to commit.",
             "diff": diff
         }))
     }
@@ -3414,7 +3764,6 @@ impl AiTools {
         }))
     }
 
-    #[allow(dead_code)]
     pub async fn patch_file_content(&self, args: Value) -> Result<Value> {
         let path_str = args["path"]
             .as_str()
@@ -4065,6 +4414,33 @@ impl AiTools {
             "path": path_str,
             "message": "File restored from last known-good shadow checkpoint."
         }))
+    }
+
+    pub async fn handle_research_tool(&self, name: &str, args: Value) -> Result<Value> {
+        let root = self.root_path.lock().await.clone();
+        
+        match name {
+            "security_scan" => {
+                let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+                let full_path = self.validate_path(&root, path_str)?;
+                SecurityDistiller::run_semgrep(&full_path).map_err(|e: String| anyhow!(e))
+            },
+            "audit_dependencies" => {
+                SecurityDistiller::run_cargo_audit(&root).map_err(|e: String| anyhow!(e))
+            },
+            "disassemble" => {
+                let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+                let full_path = self.validate_path(&root, path_str)?;
+                let result = BinaryAnalyzer::disassemble(&full_path).map_err(|e| anyhow!(e))?;
+                Ok(json!({ "disassembly": result }))
+            },
+            "get_binary_info" => {
+                let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+                let full_path = self.validate_path(&root, path_str)?;
+                BinaryAnalyzer::get_info(&full_path).map_err(|e| anyhow!(e))
+            },
+            _ => Err(anyhow!("Unknown research tool: {}", name))
+        }
     }
 
 }

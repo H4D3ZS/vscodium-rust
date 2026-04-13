@@ -71,6 +71,10 @@ notify = "6.1"
 streaming-iterator = "0.1"
 rayon = "1.10"
 sha2 = "0.10"
+tempfile = "3"
+hades-harness = { path = "../kortex/harness" }
+tokio-tungstenite = "0.20"
+futures-util = "0.3"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

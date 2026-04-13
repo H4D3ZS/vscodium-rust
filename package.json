@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:full": "npx concurrently \"npm run tauri dev\" \"cd airi && npx pnpm dev:web --host\"",
     "build": "node --stack-size=10000 node_modules/typescript/bin/tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

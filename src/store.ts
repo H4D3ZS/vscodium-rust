@@ -141,6 +141,8 @@ interface AppState {
     agentMessages: any[];
     isAgentThinking: boolean;
     isAgentPaused: boolean;
+    isYoloMode: boolean;
+    agentUiMode: 'chat' | 'airi';
     agentCurrentAction: string | null;
     isCommandPaletteOpen: boolean;
     isContextMenuOpen: boolean;
@@ -152,6 +154,8 @@ interface AppState {
     isPullingModel: boolean;
     pullProgress: number;
     pendingChanges: any[];
+    autoAcceptChanges: boolean;
+    checkpoint: Record<string, string> | null; // path → original content snapshot
     agentRootAccess: boolean;
     chatSessions: any[];
     brainTelemetry: any | null;
@@ -216,6 +220,8 @@ interface AppState {
     isVisualLabOpen: boolean;
     isVisualLabSplitView: boolean;
 
+    isAiriOpen: boolean;
+
     // Specs-to-Code State
     isSpecsWizardOpen: boolean;
     specsWizardStep: 'generator' | 'status' | 'project';
@@ -227,6 +233,7 @@ interface AppState {
     setIsVisualLabFullScreen: (isFullScreen: boolean) => void;
     setIsVisualLabSplitView: (isSplit: boolean) => void;
     toggleVisualLab: (open?: boolean) => void;
+    toggleAiri: (open?: boolean) => void;
     setLayoutMode: (mode: 'editor' | 'manager' | 'browser') => void;
     setArtifactReviewPolicy: (policy: 'always_proceed' | 'request_review') => void;
     setTerminalAutoExecution: (policy: 'always_proceed' | 'request_review') => void;
@@ -290,6 +297,8 @@ interface AppState {
     addAgentArtifact: (artifact: Omit<Artifact, 'id' | 'timestamp'>) => void;
     setIsAgentThinking: (isThinking: boolean) => void;
     setIsAgentPaused: (paused: boolean) => void;
+    setYoloMode: (enabled: boolean) => void;
+    setAgentUiMode: (mode: 'chat' | 'airi') => void;
     setAgentCurrentAction: (action: string | null) => void;
     attachFile: (file: any | any[]) => void;
     removeFile: (path: string) => void;
@@ -309,6 +318,9 @@ interface AppState {
     rejectPendingChange: (id: string) => void;
     acceptAllPendingChanges: () => Promise<void>;
     rejectAllPendingChanges: () => void;
+    setAutoAcceptChanges: (v: boolean) => void;
+    snapshotCheckpoint: (paths: string[]) => Promise<void>;
+    revertToCheckpoint: () => Promise<void>;
     acceptHunk: (changeId: string, hunkId: string) => Promise<void>;
     rejectHunk: (changeId: string, hunkId: string) => Promise<void>;
     setCommandPaletteOpen: (open: boolean) => void;
@@ -414,12 +426,12 @@ const storeImplementation: any = (set: any, get: any) => ({
     aiStatus: 'alive',
     tokenUsage: 0,
     iconThemeMapping: null,
-    agentMode: 'Planning',
+    agentMode: 'Chat',
     agentModel: 'Google|gemini-1.5-pro', // Match internal value format
     trustedPublishers: JSON.parse(localStorage.getItem('trustedPublishers') || '[]'),
-    activeRoot: null,
+    activeRoot: localStorage.getItem('activeRoot') || null,
     activeEditorPath: '',
-    activeRootName: null,
+    activeRootName: localStorage.getItem('activeRootName') || null,
     activeDevice: null,
     emulators: [],
     availableModels: [],
@@ -434,6 +446,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     agentMessages: [],
     isAgentThinking: false,
     isAgentPaused: false,
+    isYoloMode: false,
+    agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'chat',
     agentCurrentAction: null,
     isCommandPaletteOpen: false,
     isContextMenuOpen: false,
@@ -481,6 +495,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     isVisualLabOpen: false,
     isVisualLabSplitView: false,
 
+    isAiriOpen: true, // Default to true for the sentient oracle experience
+
     // Initial Specs-to-Code State
     isSpecsWizardOpen: false,
     specsWizardStep: 'generator',
@@ -496,6 +512,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     layoutMode: 'editor',
     artifactReviewPolicy: 'request_review',
     terminalAutoExecution: 'request_review',
+    autoAcceptChanges: false,
+    checkpoint: null,
     agentThreads: {},
     activeAgentThreadId: '',
 
@@ -505,6 +523,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     setIsVisualLabFullScreen: (isFullScreen: boolean) => set({ isVisualLabFullScreen: isFullScreen }),
     setIsVisualLabSplitView: (isSplit: boolean) => set({ isVisualLabSplitView: isSplit }),
     toggleVisualLab: (open: any) => set((state: any) => ({ isVisualLabOpen: open !== undefined ? open : !state.isVisualLabOpen, isVisualLabSplitView: false })),
+    toggleAiri: (open: any) => set((state: any) => ({ isAiriOpen: open !== undefined ? open : !state.isAiriOpen })),
     setProjectMemory: (content: any, files = []) => set(() => ({ projectMemory: content, memoryFiles: files })),
     toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
     setActiveSidebarView: (view) => set(() => ({ activeSidebarView: view, isSidebarOpen: true })),
@@ -549,6 +568,9 @@ const storeImplementation: any = (set: any, get: any) => ({
     setActiveRoot: (path) => {
         if (path) {
             const name = path.replace(/\\/g, '/').split('/').pop() || path;
+            // Persist to localStorage so we can restore on next launch
+            localStorage.setItem('activeRoot', path);
+            localStorage.setItem('activeRootName', name);
             set({ activeRoot: path, activeRootName: name });
             // Sync with backend
             invoke('set_active_root', { path }).then(() => {
@@ -1068,6 +1090,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     setActiveEditorPath: (activeEditorPath) => set({ activeEditorPath }),
     setIsAgentThinking: (isAgentThinking) => set({ isAgentThinking }),
     setIsAgentPaused: (isAgentPaused) => set({ isAgentPaused }),
+    setYoloMode: (isYoloMode) => set({ isYoloMode }),
+    setAgentUiMode: (agentUiMode) => { localStorage.setItem('agentUiMode', agentUiMode); set({ agentUiMode }); },
     setAgentCurrentAction: (agentCurrentAction) => set({ agentCurrentAction }),
     addAgentFile: (path: string) => {
         set((state) => {
@@ -1183,23 +1207,58 @@ const storeImplementation: any = (set: any, get: any) => ({
         }
     },
 
+    setAutoAcceptChanges: (v) => set({ autoAcceptChanges: v }),
+
+    snapshotCheckpoint: async (paths) => {
+        const snap: Record<string, string> = {};
+        for (const p of paths) {
+            try {
+                const content = await invoke<string>('read_file', { path: p });
+                snap[p] = content;
+            } catch (_) { /* file may not exist yet */ }
+        }
+        set({ checkpoint: Object.keys(snap).length > 0 ? snap : null });
+    },
+
+    revertToCheckpoint: async () => {
+        const { checkpoint } = get();
+        if (!checkpoint) return;
+        for (const [path, content] of Object.entries(checkpoint)) {
+            try {
+                await invoke('write_file', { path, content });
+                const tab = get().tabs.find((t: any) => t.path === path);
+                if (tab) get().updateTabContent(tab.id, content);
+            } catch (e) {
+                console.error('Checkpoint revert failed for', path, e);
+            }
+        }
+        set({ checkpoint: null, pendingChanges: [] });
+        await get().refreshFileTree();
+    },
+
     // Diff Review Implementation
     proposePendingChange: (change) => {
         const id = Math.random().toString(36).substring(7);
-        set((state) => ({
-            pendingChanges: [...state.pendingChanges, {
-                id,
-                path: change.path,
-                originalContent: (change as any).oldContent || '',
-                proposedContent: (change as any).newContent || '',
-                newContent: (change as any).newContent || '',
-                description: change.description,
-                additions: change.additions,
-                deletions: change.deletions,
-                acceptedHunkIds: [],
-                rejectedHunkIds: [],
-            }]
-        }));
+        const newChange = {
+            id,
+            path: change.path,
+            originalContent: (change as any).oldContent || '',
+            proposedContent: (change as any).newContent || '',
+            newContent: (change as any).newContent || '',
+            description: change.description,
+            additions: change.additions,
+            deletions: change.deletions,
+            acceptedHunkIds: [],
+            rejectedHunkIds: [],
+        };
+        // Auto-accept mode: skip the review queue, apply immediately
+        if (get().autoAcceptChanges) {
+            set((state) => ({ pendingChanges: [...state.pendingChanges, newChange] }));
+            // Fire-and-forget accept — errors logged but not surfaced
+            get().acceptPendingChange(id).catch(console.error);
+        } else {
+            set((state) => ({ pendingChanges: [...state.pendingChanges, newChange] }));
+        }
     },
 
     acceptPendingChange: async (id) => {

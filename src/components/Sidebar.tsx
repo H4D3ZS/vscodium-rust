@@ -212,15 +212,15 @@ const VirtualizedFileTree: React.FC<{ entries: FileEntry[]; iconThemeMapping: an
 
     return (
         <ErrorBoundary>
-            <div ref={containerRef} style={{ height: '100%', width: '100%', minHeight: '200px', flex: 1, overflow: 'hidden' }}>
+            <div ref={containerRef} style={{ flex: 1, width: '100%', overflow: 'hidden', minHeight: 0 }}>
                 <List
                     className="file-explorer-list"
                     rowCount={flattenedNodes.length}
                     rowHeight={22}
                     rowComponent={Row as any}
                     rowProps={{}}
-                    overscanCount={5}
-                    style={{ height: containerHeight || 600, width: '100%' }}
+                    overscanCount={10}
+                    style={{ height: containerHeight > 0 ? containerHeight : 400, width: '100%' }}
                 />
             </div>
         </ErrorBoundary>
@@ -261,16 +261,32 @@ function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: st
 
 
 
-const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultCollapsed?: boolean; actions?: React.ReactNode }> = ({ title, children, defaultCollapsed = false, actions }) => {
+const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultCollapsed?: boolean; actions?: React.ReactNode; flexGrow?: number }> = ({ title, children, defaultCollapsed = false, actions, flexGrow = 1 }) => {
     const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
     return (
-        <div className={`sidebar-pane${isCollapsed ? ' collapsed' : ''}`} style={{ flex: isCollapsed ? 0 : 1 }}>
+        <div
+            className={`sidebar-pane${isCollapsed ? ' collapsed' : ''}`}
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                flex: isCollapsed ? '0 0 auto' : `${flexGrow} ${flexGrow} 0`,
+                minHeight: isCollapsed ? 0 : undefined,
+                overflow: 'hidden',
+            }}
+        >
             <div className={`pane-header${isCollapsed ? ' collapsed' : ''}`} onClick={() => setIsCollapsed(!isCollapsed)}>
-                <i className="codicon codicon-chevron-down" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                <i
+                    className="codicon codicon-chevron-down"
+                    style={{ fontFamily: 'codicon', fontStyle: 'normal', transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }}
+                ></i>
                 <span style={{ flex: 1 }}>{title}</span>
                 {actions && <div className="pane-actions" onClick={e => e.stopPropagation()}>{actions}</div>}
             </div>
-            {!isCollapsed && <div className="pane-content" style={{ flex: 1, overflow: 'hidden' }}>{children}</div>}
+            {!isCollapsed && (
+                <div className="pane-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+                    {children}
+                </div>
+            )}
         </div>
     );
 };
@@ -284,7 +300,12 @@ const Sidebar: React.FC = () => {
         try {
             const folder = await invoke<string | null>('open_folder');
             if (folder) {
+                // setActiveRoot calls set_active_root + refreshFileTree internally.
+                // Call refreshFileTree once explicitly after so the tree is loaded
+                // immediately without waiting for the async chain inside setActiveRoot.
                 setActiveRoot(folder);
+                // Small yield so the state update lands before the refresh
+                await new Promise(r => setTimeout(r, 50));
                 await refreshFileTree();
             }
         } catch (error) {
@@ -405,31 +426,30 @@ const Sidebar: React.FC = () => {
 
             <div className="sidebar-content-wrapper" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {activeView === 'explorer-view' && (
-                    <div className="sidebar-content" style={{ display: 'flex', flexDirection: 'column', overflowY: 'hidden', flex: 1 }}>
+                    <div className="sidebar-content" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1, minHeight: 0 }}>
 
+                        {/* FILE TREE — takes all available space */}
                         <SidebarPane
                             title={activeRootName || 'NO FOLDER OPENED'}
                             defaultCollapsed={false}
+                            flexGrow={4}
                             actions={activeRoot ? (
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', paddingRight: '8px' }}>
-                                    <i className="codicon codicon-new-file" onClick={() => (window as any).executeCommand('explorer.newFile')} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New File"></i>
-                                    <i className="codicon codicon-new-folder" onClick={() => (window as any).executeCommand('explorer.newFolder')} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New Folder"></i>
-                                    <i className="codicon codicon-close-all" onClick={() => (window as any).executeCommand('workbench.action.closeFolder')} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Close Folder"></i>
-                                    <i className="codicon codicon-refresh" onClick={refreshFileTree} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Refresh"></i>
+                                    <i className="codicon codicon-new-file" onClick={(e) => { e.stopPropagation(); (window as any).executeCommand('explorer.newFile'); }} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New File"></i>
+                                    <i className="codicon codicon-new-folder" onClick={(e) => { e.stopPropagation(); (window as any).executeCommand('explorer.newFolder'); }} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New Folder"></i>
+                                    <i className="codicon codicon-close-all" onClick={(e) => { e.stopPropagation(); (window as any).executeCommand('workbench.action.closeFolder'); }} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Close Folder"></i>
+                                    <i className="codicon codicon-refresh" onClick={(e) => { e.stopPropagation(); refreshFileTree(); }} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Refresh"></i>
                                 </div>
                             ) : null}
                         >
-                            <div style={{ flex: 1, minHeight: '300px' }}>
+                            {/* This div fills the pane-content flex container */}
+                            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 }}>
                                 {activeRoot ? (
-                                    <div className="file-tree" style={{ height: '100%' }}>
-                                        {fileTree.length > 0 ? (
-                                            <React.Suspense fallback={<div style={{ padding: '20px', opacity: 0.5 }}>Loading...</div>}>
-                                                <VirtualizedFileTree entries={fileTree} iconThemeMapping={iconThemeMapping} />
-                                            </React.Suspense>
-                                        ) : (
-                                            <div style={{ padding: '10px 20px', fontSize: '12px', opacity: 0.5 }}>Empty Directory</div>
-                                        )}
-                                    </div>
+                                    fileTree.length > 0 ? (
+                                        <VirtualizedFileTree entries={fileTree} iconThemeMapping={iconThemeMapping} />
+                                    ) : (
+                                        <div style={{ padding: '10px 20px', fontSize: '12px', opacity: 0.5 }}>Empty Directory</div>
+                                    )
                                 ) : (
                                     <div style={{ padding: '20px', textAlign: 'center' }}>
                                         <p style={{ fontSize: '12px', opacity: 0.7, marginBottom: '12px' }}>You have not yet opened a folder.</p>
@@ -439,17 +459,17 @@ const Sidebar: React.FC = () => {
                             </div>
                         </SidebarPane>
 
-                        <SidebarPane title="AI PROJECT SPECS" defaultCollapsed={false}>
+                        <SidebarPane title="AI PROJECT SPECS" defaultCollapsed={true} flexGrow={1}>
                             <ProjectSpecsSidebar />
                         </SidebarPane>
 
-                        <SidebarPane title="OUTLINE" defaultCollapsed={true}>
+                        <SidebarPane title="OUTLINE" defaultCollapsed={true} flexGrow={1}>
                             <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>
                                 No outline information found.
                             </div>
                         </SidebarPane>
 
-                        <SidebarPane title="TIMELINE" defaultCollapsed={true}>
+                        <SidebarPane title="TIMELINE" defaultCollapsed={true} flexGrow={1}>
                             <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>
                                 The timeline view is not yet available.
                             </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
 import { getThemes, applyTheme } from '../theme_engine';
 import type { VscodeTheme } from '../theme_engine';
@@ -20,6 +21,12 @@ const AgentSettingsView: React.FC = () => {
     const pullOllamaModel = useStore(state => state.pullOllamaModel);
     const [pullInput, setPullInput] = useState('');
 
+    // API Key state
+    const [apiKeys, setApiKeys] = useState({ anthropic: '', google: '', openai: '', groq: '', openrouter: '' });
+    const [savingKeys, setSavingKeys] = useState(false);
+    const [keyStatus, setKeyStatus] = useState<Record<string, string>>({});
+    const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+
     const [newMcpName, setNewMcpName] = useState('');
     const [newMcpType, setNewMcpType] = useState<'command' | 'http'>('command');
     const [newMcpCommand, setNewMcpCommand] = useState('');
@@ -29,7 +36,44 @@ const AgentSettingsView: React.FC = () => {
 
     useEffect(() => {
         listMcpServers().catch(console.error);
+        // Load existing saved keys (masked)
+        invoke<Record<string, string>>('get_api_keys').then(keys => {
+            setApiKeys(prev => ({
+                anthropic: keys.anthropic ? '••••••••' + (keys.anthropic.slice(-4)) : '',
+                google: keys.google ? '••••••••' + (keys.google.slice(-4)) : '',
+                openai: keys.openai ? '••••••••' + (keys.openai.slice(-4)) : '',
+                groq: (keys as any).groq ? '••••••••' + ((keys as any).groq.slice(-4)) : '',
+                openrouter: (keys as any).openrouter ? '••••••••' + ((keys as any).openrouter.slice(-4)) : '',
+            }));
+        }).catch(console.error);
     }, []);
+
+    const handleSaveKeys = async () => {
+        setSavingKeys(true);
+        setKeyStatus({});
+        try {
+            // Only send non-masked (newly entered) keys
+            const keysToSave: Record<string, string> = {};
+            if (apiKeys.anthropic && !apiKeys.anthropic.startsWith('•')) keysToSave.anthropic = apiKeys.anthropic;
+            if (apiKeys.google && !apiKeys.google.startsWith('•')) keysToSave.google = apiKeys.google;
+            if (apiKeys.openai && !apiKeys.openai.startsWith('•')) keysToSave.openai = apiKeys.openai;
+            if ((apiKeys as any).groq && !(apiKeys as any).groq.startsWith('•')) keysToSave.groq = (apiKeys as any).groq;
+            if ((apiKeys as any).openrouter && !(apiKeys as any).openrouter.startsWith('•')) keysToSave.openrouter = (apiKeys as any).openrouter;
+
+            const results = await invoke<Record<string, string>>('save_api_keys', { keys: keysToSave });
+            setKeyStatus(results);
+            // Refresh models after saving
+            for (const provider of Object.keys(results)) {
+                if (!results[provider].startsWith('Dead')) {
+                    refreshModels(provider).catch(() => {});
+                }
+            }
+        } catch (err) {
+            setKeyStatus({ error: String(err) });
+        } finally {
+            setSavingKeys(false);
+        }
+    };
 
     return (
         <div className="agent-settings-view" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '20px', height: '100%', overflowY: 'auto' }}>
@@ -55,7 +99,7 @@ const AgentSettingsView: React.FC = () => {
                     )}
                 </div>
                 <div style={{ fontSize: '18px', fontWeight: 800, color: '#fff', letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    VSCODIUM-RUST AI Engine
+                    AIRI Neural Engine
                     <div style={{
                         padding: '2px 8px',
                         background: 'rgba(255,255,255,0.05)',
@@ -88,6 +132,76 @@ const AgentSettingsView: React.FC = () => {
                             </option>
                         ))}
                     </select>
+                </div>
+            </section>
+
+            {/* ── Cloud API Keys ── */}
+            <section>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
+                    Cloud API Keys
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {([
+                        { key: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-...' },
+                        { key: 'google', label: 'Google (Gemini)', placeholder: 'AIza...' },
+                        { key: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
+                        { key: 'groq', label: 'Groq', placeholder: 'gsk_...' },
+                        { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
+                    ] as { key: string; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
+                        <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <label style={{ fontSize: '11px', opacity: 0.8 }}>{label}</label>
+                                {keyStatus[key] && (
+                                    <span style={{
+                                        fontSize: '10px', fontWeight: 600,
+                                        color: keyStatus[key].startsWith('Dead') ? '#f87171' : '#4ade80'
+                                    }}>
+                                        {keyStatus[key].startsWith('Dead') ? 'Invalid' : 'Valid'}
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                                <input
+                                    type={showKeys[key] ? 'text' : 'password'}
+                                    value={(apiKeys as any)[key]}
+                                    onChange={e => setApiKeys(prev => ({ ...prev, [key]: e.target.value }))}
+                                    placeholder={placeholder}
+                                    style={{
+                                        flex: 1,
+                                        background: 'var(--vscode-input-background)',
+                                        color: 'var(--vscode-input-foreground)',
+                                        border: `1px solid ${keyStatus[key]?.startsWith('Dead') ? '#f87171' : keyStatus[key] ? '#4ade80' : 'var(--vscode-input-border)'}`,
+                                        padding: '4px 8px', fontSize: '11px', borderRadius: '2px', fontFamily: 'monospace'
+                                    }}
+                                />
+                                <button
+                                    onClick={() => setShowKeys(prev => ({ ...prev, [key]: !prev[key] }))}
+                                    style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '4px 6px', fontSize: '11px', cursor: 'pointer', borderRadius: '2px' }}
+                                    title={showKeys[key] ? 'Hide' : 'Show'}
+                                >
+                                    <i className={`codicon codicon-${showKeys[key] ? 'eye-closed' : 'eye'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                    <button
+                        onClick={handleSaveKeys}
+                        disabled={savingKeys}
+                        style={{
+                            marginTop: '6px',
+                            background: savingKeys ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)',
+                            color: 'var(--vscode-button-foreground)',
+                            border: 'none', padding: '6px 12px', fontSize: '12px',
+                            cursor: savingKeys ? 'wait' : 'pointer', borderRadius: '4px',
+                            fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center'
+                        }}
+                    >
+                        <i className="codicon codicon-save" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                        {savingKeys ? 'Validating & Saving...' : 'Save & Validate Keys'}
+                    </button>
+                    {keyStatus.error && (
+                        <div style={{ fontSize: '11px', color: '#f87171', padding: '4px' }}>{keyStatus.error}</div>
+                    )}
                 </div>
             </section>
 

@@ -28,8 +28,8 @@ impl PatchEngine {
         }
     }
 
-    pub fn set_app_handle(&self, handle: tauri::AppHandle) {
-        let mut h = self.app_handle.blocking_lock();
+    pub async fn set_app_handle(&self, handle: tauri::AppHandle) {
+        let mut h = self.app_handle.lock().await;
         *h = Some(handle);
     }
 

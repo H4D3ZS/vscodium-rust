@@ -28,7 +28,7 @@ const McpManager: React.FC = () => {
             <div className="settings-section">
                 <div className="settings-section-title">MCP Servers</div>
                 <div className="settings-item-description" style={{ marginBottom: '16px' }}>
-                    Connect VSCodium-Rust to external tools and data sources using the Model Context Protocol.
+                    Connect Project Hades to external tools and data sources using the Model Context Protocol.
                 </div>
 
                 <div className="mcp-list" style={{ marginBottom: '24px' }}>
@@ -38,12 +38,12 @@ const McpManager: React.FC = () => {
                         </div>
                     ) : (
                         mcpServers.map((server, i) => (
-                            <div key={i} className="mcp-server-item" style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '12px', 
-                                padding: '8px 12px', 
-                                background: 'rgba(255,255,255,0.05)', 
+                            <div key={i} className="mcp-server-item" style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                padding: '8px 12px',
+                                background: 'rgba(255,255,255,0.05)',
                                 border: '1px solid rgba(255,255,255,0.1)',
                                 borderRadius: '4px',
                                 marginBottom: '8px'
@@ -61,35 +61,35 @@ const McpManager: React.FC = () => {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         <div className="settings-item-control" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             <label style={{ fontSize: '11px', opacity: 0.7 }}>Server Name</label>
-                            <input 
-                                type="text" 
-                                placeholder="e.g. Memory Server" 
+                            <input
+                                type="text"
+                                placeholder="e.g. Memory Server"
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
                             />
                         </div>
                         <div className="settings-item-control" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             <label style={{ fontSize: '11px', opacity: 0.7 }}>Command</label>
-                            <input 
-                                type="text" 
-                                placeholder="e.g. node" 
+                            <input
+                                type="text"
+                                placeholder="e.g. node"
                                 value={command}
                                 onChange={(e) => setCommand(e.target.value)}
                             />
                         </div>
                         <div className="settings-item-control" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             <label style={{ fontSize: '11px', opacity: 0.7 }}>Arguments (comma separated)</label>
-                            <input 
-                                type="text" 
-                                placeholder="e.g. ./server.js, --db, ./data.db" 
+                            <input
+                                type="text"
+                                placeholder="e.g. ./server.js, --db, ./data.db"
                                 value={args}
                                 onChange={(e) => setArgs(e.target.value)}
                             />
                         </div>
-                        <button 
-                            onClick={handleAdd} 
+                        <button
+                            onClick={handleAdd}
                             disabled={isAdding || !name || !command}
-                            style={{ 
+                            style={{
                                 marginTop: '8px',
                                 padding: '6px 12px',
                                 background: '#007acc',

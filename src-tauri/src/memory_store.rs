@@ -1,4 +1,4 @@
-use crate::ai_engine::ChatMessage;
+        use crate::ai_engine::ChatMessage;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -333,6 +333,17 @@ impl MemoryStore {
         self.is_dirty.store(true, Ordering::SeqCst);
     }
 
+    /// Search symbol definitions by name substring (case-insensitive). Returns up to `limit` results.
+    pub async fn query_symbols(&self, query: &str, limit: usize) -> Vec<SymbolDefinition> {
+        let q = query.to_lowercase();
+        let lock = self.symbol_graph.read().await;
+        lock.definitions.iter()
+            .filter(|s| s.name.to_lowercase().contains(&q))
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
     pub async fn query_slots(&self, category: &str) -> Vec<SemanticSlot> {
         let lock = self.slots.read().await;
         lock.iter()
@@ -465,6 +476,85 @@ impl MemoryStore {
             }
         }
         summary
+    }
+
+    /// Compact brain gist — fits in ~100 tokens. Used as the "1 Gist Token" context injection.
+    /// Replaces verbose knowledge_summary for small models and Phase-Wrap context resets.
+    pub async fn build_compact_gist(&self) -> String {
+        let slots = self.slots.read().await;
+        if slots.is_empty() {
+            return String::new();
+        }
+
+        let total = slots.len();
+        // Prioritize: phase_wrap > decision > code > task — last 3 of each
+        let mut lines: Vec<String> = Vec::new();
+
+        let priority_cats = ["phase_wrap", "decision", "code", "fix", "task"];
+        for cat in &priority_cats {
+            let cat_slots: Vec<&SemanticSlot> = slots.iter()
+                .filter(|s| s.category == *cat)
+                .rev()
+                .take(2)
+                .collect();
+            for s in cat_slots {
+                let snippet = s.content.chars().take(80).collect::<String>().replace('\n', " ");
+                lines.push(format!("[{}] {}", cat, snippet));
+            }
+        }
+        // Fill remaining budget with any other recent slots
+        for s in slots.iter().rev().take(4) {
+            if !priority_cats.contains(&s.category.as_str()) {
+                let snippet = s.content.chars().take(60).collect::<String>().replace('\n', " ");
+                lines.push(format!("[{}] {}", s.category, snippet));
+            }
+        }
+
+        if lines.is_empty() {
+            return String::new();
+        }
+        format!("[KORTEX:{} slots]\n{}", total, lines.join("\n"))
+    }
+
+    /// Store a Phase-Wrap outcome — called automatically after every context compression cycle.
+    pub async fn store_phase_outcome(&self, iteration: u32, summary: String, files_written: Vec<String>) {
+        let tags = {
+            let mut t = vec![format!("iter_{}", iteration)];
+            for f in &files_written {
+                t.push(f.split('/').last().unwrap_or(f).to_string());
+            }
+            t
+        };
+        self.store_slot(SemanticSlot {
+            id: uuid::Uuid::new_v4().to_string(),
+            category: "phase_wrap".to_string(),
+            content: summary,
+            tags,
+            metadata: Some(serde_json::json!({ "files": files_written, "iteration": iteration })),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }).await;
+    }
+
+    /// Auto-save a code knowledge brief after a successful file write/patch.
+    pub async fn auto_learn_from_write(&self, file_path: &str, operation: &str) {
+        let brief = format!("{} modified via {} — pattern recorded", file_path, operation);
+        self.store_slot(SemanticSlot {
+            id: uuid::Uuid::new_v4().to_string(),
+            category: "code".to_string(),
+            content: brief,
+            tags: vec![
+                operation.to_string(),
+                file_path.split('/').last().unwrap_or(file_path).to_string(),
+            ],
+            metadata: None,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }).await;
     }
 
     pub async fn get_brain_telemetry(&self) -> Value {

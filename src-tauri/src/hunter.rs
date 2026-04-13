@@ -55,7 +55,7 @@ impl ApiRadarHunter {
         Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(10))
-                .user_agent("VSCodium-Rust-Hunter/1.0")
+                .user_agent("AIRI-Hunter/1.0")
                 .build()
                 .unwrap_or_default(),
             branches: vec!["main", "master", "dev", "prod", "develop", "staging", "v1"],

@@ -65,6 +65,7 @@ function registerCoreCommands() {
                 const result = await invoke<string | null>('open_folder');
                 if (result) {
                     store.setActiveRoot(result);
+                    await new Promise(r => setTimeout(r, 50));
                     await store.refreshFileTree();
                 }
             },
