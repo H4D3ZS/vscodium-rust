@@ -446,7 +446,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     tokenUsage: 0,
     iconThemeMapping: null,
     agentMode: 'Chat',
-    agentModel: 'Google|gemini-1.5-pro', // Match internal value format
+    agentModel: 'Ollama|llama3', // Default to Ollama (auto-detects local models)
     trustedPublishers: JSON.parse(localStorage.getItem('trustedPublishers') || '[]'),
     activeRoot: localStorage.getItem('activeRoot') || null,
     activeEditorPath: '',
@@ -877,6 +877,10 @@ const storeImplementation: any = (set: any, get: any) => ({
         try {
             const keys: any = await invoke('get_api_keys');
             const providers: string[] = [];
+            
+            // ALWAYS try Ollama first (default to local models)
+            providers.push('Ollama');
+            
             if (keys.google) providers.push('Google');
             if (keys.anthropic) providers.push('Anthropic');
             if (keys.openai) providers.push('OpenAI');
@@ -886,11 +890,6 @@ const storeImplementation: any = (set: any, get: any) => ({
             if (keys.xai) providers.push('xAI');
             if (keys.alibaba) providers.push('Alibaba');
             providers.push('ApiRadar'); // Always include for aggregated view
-
-            // Always try Ollama if requested or by default
-            if (targetProvider === 'ollama' || !targetProvider) {
-                providers.push('Ollama');
-            }
 
             let allModels: { id: string, provider: string }[] = [];
 
@@ -909,7 +908,13 @@ const storeImplementation: any = (set: any, get: any) => ({
                     allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
 
                     if (p.toLowerCase() === 'ollama') {
-                        if (models.length > 0) set({ ollamaStatus: 'running' });
+                        if (models.length > 0) {
+                            set({ ollamaStatus: 'running' });
+                            // Auto-select first Ollama model if none selected
+                            if (models.length > 0 && get().agentModel?.includes('Ollama')) {
+                                set({ agentModel: `Ollama|${models[0]}` });
+                            }
+                        }
                     }
                 } catch (e: any) {
                     // Suppress common error when a provider key is simply missing
