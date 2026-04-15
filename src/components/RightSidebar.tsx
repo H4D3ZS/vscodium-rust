@@ -1139,30 +1139,6 @@ const RightSidebar: React.FC = () => {
                                 >
                                     <i className="codicon codicon-unmute" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: '#fff' }}></i>
                                 </div>
-                                {ttsEnabled && (
-                                    <select 
-                                        value={ttsPreset}
-                                        onChange={(e) => setTtsPreset(e.target.value as any)}
-                                        style={{
-                                            background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.3)',
-                                            borderRadius: '4px', color: '#fff', fontSize: '10px', padding: '2px 4px',
-                                            cursor: 'pointer', outline: 'none'
-                                        }}
-                                    >
-                                        <option value="airi">AIRI (Female)</option>
-                                        <option value="sage">Sage (Female)</option>
-                                        <option value="nova">Nova (Female)</option>
-                                        <option value="kawaii">Kawaii (Female)</option>
-                                        <option value="hana">Hana (Female)</option>
-                                        <option value="yuki">Yuki (Female)</option>
-                                        <option value="sora">Sora (Female)</option>
-                                        <option value="aria">Aria (Female)</option>
-                                        <option value="yamato">Yamato (Male)</option>
-                                        <option value="ren">Ren (Male)</option>
-                                        <option value="haru">Haru (Male)</option>
-                                        <option value="zero">Zero (Male)</option>
-                                    </select>
-                                )}
                             </div>
                             <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '6px' }}>
                                 <span onClick={onModeClick} style={{ fontSize: '9px', opacity: 0.35, cursor: 'pointer' }}>{mode}</span>
