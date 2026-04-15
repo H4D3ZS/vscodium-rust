@@ -138,7 +138,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     const [isAiriLoading, setAiriLoading] = useState(true);
     const [isHibernating, setIsHibernating] = useState(false);
     const [lastActivityTime, setLastActivityTime] = useState(Date.now());
-    const [isTtsEnabled, setTtsEnabled] = useState(false); // Disabled - RightSidebar handles voice
+    const [isTtsEnabled, setTtsEnabled] = useState(true); // ENABLED by default - AIRI should speak!
     const [isListening, setIsListening] = useState(false);
 
     const IDLE_TIMEOUT = 60000; // 1 minute
