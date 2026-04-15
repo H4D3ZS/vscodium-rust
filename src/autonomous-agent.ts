@@ -648,7 +648,7 @@ describe('${fileName}', () => {
     store.addAgentMessage('assistant', message);
 
     // Speak it
-    import('../voice').then(({ speak }) => {
+    import('./voice').then(({ speak }) => {
       speak(`I'm going to work on ${task.description}`, 'airi')
         .catch(err => console.error('[AutonomousAgent] Voice error:', err));
     });
@@ -665,7 +665,7 @@ describe('${fileName}', () => {
     store.addAgentMessage('assistant', message);
 
     // Speak it
-    import('../voice').then(({ speak }) => {
+    import('./voice').then(({ speak }) => {
       speak(`I've completed ${task.description}`, 'airi')
         .catch(err => console.error('[AutonomousAgent] Voice error:', err));
     });
