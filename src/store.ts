@@ -144,6 +144,8 @@ interface AppState {
     isYoloMode: boolean;
     agentUiMode: 'chat' | 'airi';
     avatarCharacter: string; // Selected AI avatar character
+    avatarCustomConfig?: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }; // Custom 2D avatar URLs
+    avatar3dConfig?: { modelUrl?: string; modelId?: string; customModels?: Array<{ id: string; name: string; url: string }> }; // 3D VRM avatar config
     agentCurrentAction: string | null;
     isCommandPaletteOpen: boolean;
     isContextMenuOpen: boolean;
@@ -466,6 +468,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     isYoloMode: false,
     agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'chat',
     avatarCharacter: localStorage.getItem('avatarCharacter') || 'airi',
+    avatarCustomConfig: JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}'),
+    avatar3dConfig: JSON.parse(localStorage.getItem('avatar3dConfig') || '{}'),
     agentCurrentAction: null,
     isCommandPaletteOpen: false,
     isContextMenuOpen: false,
@@ -1179,6 +1183,18 @@ const storeImplementation: any = (set: any, get: any) => ({
     setYoloMode: (isYoloMode) => set({ isYoloMode }),
     setAgentUiMode: (agentUiMode) => { localStorage.setItem('agentUiMode', agentUiMode); set({ agentUiMode }); },
     setAvatarCharacter: (avatarCharacter) => { localStorage.setItem('avatarCharacter', avatarCharacter); set({ avatarCharacter }); },
+    setAvatarCustomConfig: (config: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }) => {
+        const existing = JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}');
+        const updated = { ...existing, ...config };
+        localStorage.setItem('avatarCustomConfig', JSON.stringify(updated));
+        set({ avatarCustomConfig: updated });
+    },
+    setAvatar3dConfig: (config: { modelUrl?: string; modelId?: string; customModels?: Array<{ id: string; name: string; url: string }> }) => {
+        const existing = JSON.parse(localStorage.getItem('avatar3dConfig') || '{}');
+        const updated = { ...existing, ...config };
+        localStorage.setItem('avatar3dConfig', JSON.stringify(updated));
+        set({ avatar3dConfig: updated });
+    },
     setAgentCurrentAction: (agentCurrentAction) => set({ agentCurrentAction }),
     addAgentFile: (path: string) => {
         set((state) => {

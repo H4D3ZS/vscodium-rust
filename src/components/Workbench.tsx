@@ -19,6 +19,7 @@ import { ThoughtProcess } from './ThoughtProcess';
 import AgentDiffView from './agent/AgentDiffView';
 import { AiriPanel } from './AiriPanel';
 import { AiriOverlay } from './AiriOverlay';
+import OllamaProgressBar from './OllamaProgressBar';
 
 function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: string } {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
@@ -503,6 +504,9 @@ const Workbench: React.FC = () => {
                         </div>
                     </div>
                 )}
+                
+                {/* Ollama Progress Bar */}
+                <OllamaProgressBar />
         </div >
     );
 };

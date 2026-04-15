@@ -38,6 +38,9 @@ let _ttsPreset: VoicePreset = 'airi';
 async function ttsSpeak(iframeRef: React.RefObject<HTMLIFrameElement | null>, text: string) {
     if (!text.trim()) return;
 
+    // TTS disabled in AiriPanel - only handle VRM lip sync
+    // Voice output handled by RightSidebar
+    
     // Strip markdown for cleaner speech synthesis
     const clean = text
         .replace(/```[\s\S]*?```/g, ' code block. ')
@@ -50,20 +53,7 @@ async function ttsSpeak(iframeRef: React.RefObject<HTMLIFrameElement | null>, te
 
     if (!clean) return;
 
-    await ensureTtsInit();
-
-    // Use ElevenLabs/OpenAI TTS from voice.ts
-    const sentences = splitSentences(clean);
-    _ttsSpeaking = true;
-
-    // Speak sentences sequentially
-    for (const sentence of sentences) {
-        await speak(sentence, _ttsPreset, undefined, () => {});
-    }
-
-    _ttsSpeaking = false;
-
-    // Send to iframe for VRM lip sync animation
+    // Send to iframe for VRM lip sync animation ONLY (no audio)
     iframeRef.current?.contentWindow?.postMessage({
         type: 'airi-speak',
         payload: { text: clean }
@@ -144,13 +134,18 @@ function useTypewriter(text: string, speed = 18): string {
 
 export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, yOffset, transparent, character = 'airi' }) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const avatar3dConfig = useStore(state => state.avatar3dConfig);
     const [isAiriLoading, setAiriLoading] = useState(true);
     const [isHibernating, setIsHibernating] = useState(false);
     const [lastActivityTime, setLastActivityTime] = useState(Date.now());
-    const [isTtsEnabled, setTtsEnabled] = useState(true);
+    const [isTtsEnabled, setTtsEnabled] = useState(false); // Disabled - RightSidebar handles voice
     const [isListening, setIsListening] = useState(false);
-    
+
     const IDLE_TIMEOUT = 60000; // 1 minute
+
+    // Use 3D model from config if available
+    const selectedCharacter = avatar3dConfig?.modelId || character;
+    const selectedModelUrl = avatar3dConfig?.modelUrl;
 
     // Wake up AIRI from hibernation
     const wakeUp = useCallback(() => {
@@ -367,9 +362,10 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
         const scaleParam = scale ? `&scale=${scale}` : "";
         const yOffsetParam = yOffset ? `&yOffset=${encodeURIComponent(yOffset)}` : "";
         const transparentParam = transparent ? `&transparent=true` : "";
-        const charParam = character ? `&char=${character}` : "";
-        return `${base}${scaleParam}${yOffsetParam}${transparentParam}${charParam}`;
-    }, [scale, yOffset, transparent, character]);
+        const charParam = selectedCharacter ? `&char=${selectedCharacter}` : "";
+        const modelUrlParam = selectedModelUrl ? `&modelUrl=${encodeURIComponent(selectedModelUrl)}` : "";
+        return `${base}${scaleParam}${yOffsetParam}${transparentParam}${charParam}${modelUrlParam}`;
+    }, [scale, yOffset, transparent, selectedCharacter, selectedModelUrl]);
 
     return (
         <div

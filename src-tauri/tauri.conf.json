@@ -16,10 +16,9 @@
         "label": "main",
         "title": "vscode-rust-app",
         "url": "index.html",
-        "width": 1024,
-        "height": 768,
-        "hiddenTitle": true,
-        "titleBarStyle": "Overlay",
+        "width": 1280,
+        "height": 800,
+        "decorations": false,
         "additionalBrowserArgs": "--process-per-site --renderer-process-limit=1 --disable-features=SharedArrayBuffer --disable-gpu-shader-disk-cache"
       }
     ],

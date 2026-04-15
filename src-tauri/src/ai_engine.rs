@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use tracing::instrument;
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -1908,6 +1908,11 @@ impl Sentient {
             let mut anthropic_tool_builders: std::collections::HashMap<usize, (String, String, String)> = std::collections::HashMap::new(); // index -> (id, name, partial_json)
             let mut stream = response.bytes_stream();
             let mut line_buffer = String::new();
+            
+            // Progress tracking for Ollama
+            let start_time = std::time::Instant::now();
+            let mut tokens_count = 0;
+            let mut last_progress_emit = std::time::Instant::now();
 
             println!(
                 "[{}] AI Stream started for provider: {}",
@@ -1942,16 +1947,64 @@ impl Sentient {
                         if let Some(content) = val["choices"][0]["delta"]["content"].as_str() {
                             full_content.push_str(content);
                             delta_to_emit = Some(content.to_string());
+                            tokens_count += content.chars().count() / 4; // Approximate token count
+                            
                             if let Some(ref cb) = on_chunk {
                                 cb(content);
+                            }
+                            
+                            // Emit progress every 500ms for Ollama
+                            if active_provider == "ollama" && last_progress_emit.elapsed().as_millis() >= 500 {
+                                let elapsed = start_time.elapsed().as_secs();
+                                let tokens_per_sec = if elapsed > 0 { tokens_count as f64 / elapsed as f64 } else { 1.0 };
+                                let estimated_total_tokens = tokens_count * 3; // Rough estimate: we're ~30% through
+                                let remaining_secs = ((estimated_total_tokens - tokens_count) as f64 / tokens_per_sec).max(0.0);
+                                
+                                let progress_pct = ((tokens_count as f64 / estimated_total_tokens as f64) * 100.0).min(99.0) as u32;
+                                
+                                if let Some(handle) = self.app_handle.read().unwrap().as_ref() {
+                                    let _ = handle.emit("ollama-progress", serde_json::json!({
+                                        "progress": progress_pct,
+                                        "tokens_per_sec": tokens_per_sec.round(),
+                                        "elapsed_secs": elapsed,
+                                        "remaining_secs": remaining_secs.round(),
+                                        "status": "generating"
+                                    }));
+                                }
+                                
+                                last_progress_emit = std::time::Instant::now();
                             }
                         }
                         // Ollama native format
                         else if let Some(content) = val["message"]["content"].as_str() {
                             full_content.push_str(content);
                             delta_to_emit = Some(content.to_string());
+                            tokens_count += content.chars().count() / 4;
+                            
                             if let Some(ref cb) = on_chunk {
                                 cb(content);
+                            }
+                            
+                            // Emit progress every 500ms for Ollama (native format)
+                            if active_provider == "ollama" && last_progress_emit.elapsed().as_millis() >= 500 {
+                                let elapsed = start_time.elapsed().as_secs();
+                                let tokens_per_sec = if elapsed > 0 { tokens_count as f64 / elapsed as f64 } else { 1.0 };
+                                let estimated_total_tokens = tokens_count * 3;
+                                let remaining_secs = ((estimated_total_tokens - tokens_count) as f64 / tokens_per_sec).max(0.0);
+                                
+                                let progress_pct = ((tokens_count as f64 / estimated_total_tokens as f64) * 100.0).min(99.0) as u32;
+                                
+                                if let Some(handle) = self.app_handle.read().unwrap().as_ref() {
+                                    let _ = handle.emit("ollama-progress", serde_json::json!({
+                                        "progress": progress_pct,
+                                        "tokens_per_sec": tokens_per_sec.round(),
+                                        "elapsed_secs": elapsed,
+                                        "remaining_secs": remaining_secs.round(),
+                                        "status": "generating"
+                                    }));
+                                }
+                                
+                                last_progress_emit = std::time::Instant::now();
                             }
                         }
                         // Anthropic format
@@ -2078,6 +2131,23 @@ impl Sentient {
                 "AI Stream finished. Total content length: {}",
                 full_content.len()
             );
+            
+            // Emit completion event with final stats for Ollama
+            if active_provider == "ollama" {
+                let total_elapsed = start_time.elapsed().as_secs();
+                let final_tokens_per_sec = if total_elapsed > 0 { tokens_count as f64 / total_elapsed as f64 } else { 0.0 };
+                
+                if let Some(handle) = self.app_handle.read().unwrap().as_ref() {
+                    let _ = handle.emit("ollama-progress", serde_json::json!({
+                        "progress": 100,
+                        "tokens_per_sec": final_tokens_per_sec.round(),
+                        "elapsed_secs": total_elapsed,
+                        "remaining_secs": 0,
+                        "status": "complete",
+                        "total_tokens": tokens_count
+                    }));
+                }
+            }
 
             // Emit final full content for integrity and to stop thinking state
             self.emit_event("ai-content", json!({ "content": full_content.trim() }));

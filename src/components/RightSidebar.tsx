@@ -345,14 +345,19 @@ const RightSidebar: React.FC = () => {
                         if (lastSentenceEnd > 20) { // Only speak if sentence is long enough
                             const textToSpeak = textToConsider.substring(0, lastSentenceEnd + 1).trim();
                             
-                            if (textToSpeak.length > 20 && ttsEnabled) {
-                                console.log('[TTS] 🎤 Streaming speech:', textToSpeak.substring(0, 50) + '...');
+                            if (textToSpeak.length > 20) {
+                                console.log('[TTS] 🎤 REAL-TIME SPEECH:', textToSpeak.substring(0, 50) + '...');
+                                console.log('[TTS] Settings:', { ttsEnabled, bufferLength: buffer.length, lastSpokenIndex });
                                 
                                 // Stop any current speech before starting new one
                                 stop();
                                 
                                 isSpeaking = true;
                                 speak(textToSpeak, ttsPreset, () => {
+                                    console.log('[TTS] ✅ Speech complete');
+                                    isSpeaking = false;
+                                }).catch(err => {
+                                    console.error('[TTS] ❌ Speech error:', err);
                                     isSpeaking = false;
                                 });
                                 

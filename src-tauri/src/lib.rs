@@ -999,6 +999,7 @@ pub struct ApiKeys {
     pub alibaba: Option<String>,
     pub apiradar: Option<String>,
     pub elevenlabs_api_key: Option<String>,
+    pub elevenlabs_voice_id: Option<String>, // Selected ElevenLabs voice ID
 }
 
 #[tauri::command]
@@ -1031,6 +1032,7 @@ async fn save_api_keys(
     if incoming.alibaba.is_some() { merged.alibaba = incoming.alibaba; }
     if incoming.apiradar.is_some() { merged.apiradar = incoming.apiradar; }
     if incoming.elevenlabs_api_key.is_some() { merged.elevenlabs_api_key = incoming.elevenlabs_api_key; }
+    if incoming.elevenlabs_voice_id.is_some() { merged.elevenlabs_voice_id = incoming.elevenlabs_voice_id; }
 
     let mut results = HashMap::new();
     let hunter = ApiRadarHunter::new();
