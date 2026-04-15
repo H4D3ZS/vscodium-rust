@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useStore, type FileEntry } from '../store';
 import { invoke } from '@tauri-apps/api/core';
 import { List } from 'react-window';
@@ -10,6 +10,8 @@ import DebugView from './DebugView';
 import EmulatorPanel from './EmulatorPanel';
 import AgentSettingsView from './AgentSettingsView';
 import ProjectSpecsSidebar from './ProjectSpecsSidebar';
+import CheckpointsPanel from './CheckpointsPanel';
+import VectorSearchPanel from './VectorSearchPanel';
 
 interface FlattenedNode {
     entry: FileEntry;
@@ -279,7 +281,7 @@ const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultC
                     className="codicon codicon-chevron-down"
                     style={{ fontFamily: 'codicon', fontStyle: 'normal', transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }}
                 ></i>
-                <span style={{ flex: 1 }}>{title}</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
                 {actions && <div className="pane-actions" onClick={e => e.stopPropagation()}>{actions}</div>}
             </div>
             {!isCollapsed && (
@@ -287,6 +289,84 @@ const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultC
                     {children}
                 </div>
             )}
+        </div>
+    );
+};
+
+// ── Symbol Outline Pane ──────────────────────────────────────────────────────
+const SYMBOL_KIND_ICONS: Record<number, string> = {
+    1: 'codicon-symbol-file', 2: 'codicon-symbol-namespace', 3: 'codicon-symbol-namespace',
+    4: 'codicon-symbol-namespace', 5: 'codicon-symbol-class', 6: 'codicon-symbol-method',
+    7: 'codicon-symbol-property', 8: 'codicon-symbol-field', 9: 'codicon-symbol-enum-member',
+    10: 'codicon-symbol-interface', 11: 'codicon-symbol-function', 12: 'codicon-symbol-variable',
+    13: 'codicon-symbol-constant', 14: 'codicon-symbol-string', 15: 'codicon-symbol-numeric',
+    16: 'codicon-symbol-boolean', 17: 'codicon-symbol-array', 18: 'codicon-symbol-object',
+    19: 'codicon-symbol-key', 20: 'codicon-symbol-null', 21: 'codicon-symbol-enum',
+    22: 'codicon-symbol-struct', 23: 'codicon-symbol-event', 24: 'codicon-symbol-operator',
+    25: 'codicon-symbol-type-parameter',
+};
+
+const SymbolItem: React.FC<{ sym: any; depth: number }> = ({ sym, depth }) => {
+    const [open, setOpen] = useState(true);
+    const icon = SYMBOL_KIND_ICONS[sym.kind] || 'codicon-symbol-misc';
+    const line = (sym.selectionRange?.start?.line ?? sym.range?.start?.line ?? 0) + 1;
+    const activeEditorPath = useStore(state => state.activeEditorPath);
+    return (
+        <div>
+            <div
+                style={{ display: 'flex', alignItems: 'center', padding: `2px 8px 2px ${8 + depth * 12}px`, cursor: 'pointer', fontSize: '12px' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                onClick={() => {
+                    window.dispatchEvent(new CustomEvent('editor:jump-to-line', {
+                        detail: { path: activeEditorPath, line, column: 1 }
+                    }));
+                    if (sym.children?.length) setOpen(o => !o);
+                }}
+            >
+                {sym.children?.length > 0 && (
+                    <i className={`codicon codicon-chevron-${open ? 'down' : 'right'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px', marginRight: '2px', opacity: 0.6 }} />
+                )}
+                {!sym.children?.length && <span style={{ width: '14px', display: 'inline-block' }} />}
+                <i className={`codicon ${icon}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px', marginRight: '6px', opacity: 0.8 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sym.name}</span>
+                <span style={{ marginLeft: '6px', opacity: 0.35, fontSize: '10px' }}>{line}</span>
+            </div>
+            {open && sym.children?.map((child: any, i: number) => (
+                <SymbolItem key={i} sym={child} depth={depth + 1} />
+            ))}
+        </div>
+    );
+};
+
+const SymbolOutlinePane: React.FC = () => {
+    const activeEditorPath = useStore(state => state.activeEditorPath);
+    const [symbols, setSymbols] = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+    const fetchRef = useRef<string>('');
+
+    useEffect(() => {
+        if (!activeEditorPath) { setSymbols([]); return; }
+        const normalized = activeEditorPath.replace(/\\/g, '/');
+        const uri = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`;
+        if (fetchRef.current === uri) return;
+        fetchRef.current = uri;
+        setLoading(true);
+        invoke<any>('lsp_document_symbols', { uri })
+            .then(res => {
+                if (fetchRef.current !== uri) return;
+                setSymbols(Array.isArray(res) ? res : []);
+            })
+            .catch(() => setSymbols([]))
+            .finally(() => setLoading(false));
+    }, [activeEditorPath]);
+
+    if (loading) return <div style={{ padding: '8px 12px', fontSize: '11px', opacity: 0.5 }}>Loading symbols…</div>;
+    if (!activeEditorPath) return <div style={{ padding: '12px', fontSize: '11px', opacity: 0.4, textAlign: 'center' }}>Open a file to see its symbols.</div>;
+    if (symbols.length === 0) return <div style={{ padding: '12px', fontSize: '11px', opacity: 0.4, textAlign: 'center' }}>No symbols found.</div>;
+    return (
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+            {symbols.map((sym, i) => <SymbolItem key={i} sym={sym} depth={0} />)}
         </div>
     );
 };
@@ -463,10 +543,8 @@ const Sidebar: React.FC = () => {
                             <ProjectSpecsSidebar />
                         </SidebarPane>
 
-                        <SidebarPane title="OUTLINE" defaultCollapsed={true} flexGrow={1}>
-                            <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>
-                                No outline information found.
-                            </div>
+                        <SidebarPane title="OUTLINE" defaultCollapsed={false} flexGrow={2}>
+                            <SymbolOutlinePane />
                         </SidebarPane>
 
                         <SidebarPane title="TIMELINE" defaultCollapsed={true} flexGrow={1}>
@@ -482,6 +560,8 @@ const Sidebar: React.FC = () => {
                 {activeView === 'debug-view' && <DebugView />}
                 {activeView === 'extensions-view' && <ExtensionsView />}
                 {activeView === 'mobile-view' && <EmulatorPanel />}
+                {activeView === 'checkpoints-view' && <CheckpointsPanel />}
+                {activeView === 'vector-search-view' && <VectorSearchPanel />}
 
                 {/* Extension Contributed Views */}
                 {extensionContainer && (

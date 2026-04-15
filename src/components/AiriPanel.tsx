@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useStore } from '../store';
+import { speak, stop, isSpeaking, initTTS, getProvider, type VoicePreset } from '../voice';
 
 interface AiriPanelProps {
     className?: string;
@@ -8,53 +9,75 @@ interface AiriPanelProps {
     scale?: number;
     yOffset?: string;
     transparent?: boolean;
+    character?: string; // Selected avatar character ID
 }
 
-// ── TTS Engine ───────────────────────────────────────────────────────────────
-let ttsQueue: string[] = [];
-let ttsSpeaking = false;
+// ── TTS Engine — ElevenLabs / OpenAI / Browser (via voice.ts) ───────────────
 
-function ttsSpeak(text: string, rate = 1.0, pitch = 1.1, volume = 0.85) {
-    if (!window.speechSynthesis || !text.trim()) return;
-    // Strip markdown / code blocks for natural speech
+let _isInitialized = false;
+
+async function ensureTtsInit() {
+    if (!_isInitialized) {
+        await initTTS();
+        _isInitialized = true;
+    }
+}
+
+// Split text into natural sentences for smooth streaming speech
+function splitSentences(text: string): string[] {
+    return text
+        .replace(/([.!?])\s+/g, '$1\n')
+        .split('\n')
+        .map(s => s.trim())
+        .filter(s => s.length > 3);
+}
+
+let _ttsSpeaking = false;
+let _ttsPreset: VoicePreset = 'airi';
+
+async function ttsSpeak(iframeRef: React.RefObject<HTMLIFrameElement | null>, text: string) {
+    if (!text.trim()) return;
+
+    // Strip markdown for cleaner speech synthesis
     const clean = text
-        .replace(/```[\s\S]*?```/g, ' code block ')
+        .replace(/```[\s\S]*?```/g, ' code block. ')
         .replace(/`[^`]+`/g, '')
-        .replace(/[*_#>[\]]/g, '')
-        .replace(/https?:\/\/\S+/g, ' link ')
+        .replace(/#{1,6}\s/g, '')
+        .replace(/[*_>[\]]/g, '')
+        .replace(/https?:\/\/\S+/g, 'link')
         .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 300); // Keep it short
+        .trim();
 
     if (!clean) return;
-    ttsQueue.push(clean);
-    if (!ttsSpeaking) drainTtsQueue(rate, pitch, volume);
+
+    await ensureTtsInit();
+
+    // Use ElevenLabs/OpenAI TTS from voice.ts
+    const sentences = splitSentences(clean);
+    _ttsSpeaking = true;
+
+    // Speak sentences sequentially
+    for (const sentence of sentences) {
+        await speak(sentence, _ttsPreset, undefined, () => {});
+    }
+
+    _ttsSpeaking = false;
+
+    // Send to iframe for VRM lip sync animation
+    iframeRef.current?.contentWindow?.postMessage({
+        type: 'airi-speak',
+        payload: { text: clean }
+    }, '*');
 }
 
-function drainTtsQueue(rate: number, pitch: number, volume: number) {
-    if (ttsQueue.length === 0) { ttsSpeaking = false; return; }
-    ttsSpeaking = true;
-    const utt = new SpeechSynthesisUtterance(ttsQueue.shift()!);
-    utt.rate = rate;
-    utt.pitch = pitch;
-    utt.volume = volume;
+function ttsStop(iframeRef: React.RefObject<HTMLIFrameElement | null>) {
+    stop();
+    _ttsSpeaking = false;
 
-    // Try to pick a female voice
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v =>
-        /female|zira|hazel|samantha|victoria|karen|moira|fiona|tessa|aria|jenny|sonia/i.test(v.name)
-    );
-    if (preferred) utt.voice = preferred;
-
-    utt.onend = () => drainTtsQueue(rate, pitch, volume);
-    utt.onerror = () => drainTtsQueue(rate, pitch, volume);
-    window.speechSynthesis.speak(utt);
-}
-
-function ttsStop() {
-    window.speechSynthesis?.cancel();
-    ttsQueue = [];
-    ttsSpeaking = false;
+    // Stop iframe TTS
+    iframeRef.current?.contentWindow?.postMessage({
+        type: 'airi-speak-stop'
+    }, '*');
 }
 
 // ── ANSI color strip ─────────────────────────────────────────────────────────
@@ -76,16 +99,16 @@ type AiriActivity =
     | 'error';
 
 const ACTIVITY_META: Record<AiriActivity, { color: string; glow: string; label: string; emoji: string }> = {
-    idle:       { color: '#818cf8', glow: 'rgba(129,140,248,0.3)', label: 'Idle',      emoji: '✦' },
-    thinking:   { color: '#c084fc', glow: 'rgba(192,132,252,0.4)', label: 'Thinking',  emoji: '◎' },
-    coding:     { color: '#34d399', glow: 'rgba(52,211,153,0.4)',  label: 'Coding',    emoji: '⌨' },
-    reading:    { color: '#60a5fa', glow: 'rgba(96,165,250,0.35)', label: 'Reading',   emoji: '👁' },
-    executing:  { color: '#f59e0b', glow: 'rgba(245,158,11,0.4)',  label: 'Executing', emoji: '⚡' },
-    browsing:   { color: '#38bdf8', glow: 'rgba(56,189,248,0.35)', label: 'Browsing',  emoji: '🌐' },
-    committing: { color: '#a3e635', glow: 'rgba(163,230,53,0.35)', label: 'Committing',emoji: '📦' },
-    patching:   { color: '#fb923c', glow: 'rgba(251,146,60,0.35)', label: 'Patching',  emoji: '🔧' },
-    success:    { color: '#10b981', glow: 'rgba(16,185,129,0.4)',  label: 'Done',      emoji: '✓' },
-    error:      { color: '#ef4444', glow: 'rgba(239,68,68,0.4)',   label: 'Error',     emoji: '✗' },
+    idle: { color: '#818cf8', glow: 'rgba(129,140,248,0.3)', label: 'Idle', emoji: '✦' },
+    thinking: { color: '#c084fc', glow: 'rgba(192,132,252,0.4)', label: 'Thinking', emoji: '◎' },
+    coding: { color: '#34d399', glow: 'rgba(52,211,153,0.4)', label: 'Coding', emoji: '⌨' },
+    reading: { color: '#60a5fa', glow: 'rgba(96,165,250,0.35)', label: 'Reading', emoji: '👁' },
+    executing: { color: '#f59e0b', glow: 'rgba(245,158,11,0.4)', label: 'Executing', emoji: '⚡' },
+    browsing: { color: '#38bdf8', glow: 'rgba(56,189,248,0.35)', label: 'Browsing', emoji: '🌐' },
+    committing: { color: '#a3e635', glow: 'rgba(163,230,53,0.35)', label: 'Committing', emoji: '📦' },
+    patching: { color: '#fb923c', glow: 'rgba(251,146,60,0.35)', label: 'Patching', emoji: '🔧' },
+    success: { color: '#10b981', glow: 'rgba(16,185,129,0.4)', label: 'Done', emoji: '✓' },
+    error: { color: '#ef4444', glow: 'rgba(239,68,68,0.4)', label: 'Error', emoji: '✗' },
 };
 
 const TOOL_TO_ACTIVITY: Record<string, AiriActivity> = {
@@ -119,31 +142,79 @@ function useTypewriter(text: string, speed = 18): string {
     return displayed;
 }
 
-export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, yOffset, transparent }) => {
+export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, yOffset, transparent, character = 'airi' }) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [isAiriLoading, setAiriLoading] = useState(true);
-    const [isTtsEnabled, setTtsEnabled] = useState(false);
+    const [isHibernating, setIsHibernating] = useState(false);
+    const [lastActivityTime, setLastActivityTime] = useState(Date.now());
+    const [isTtsEnabled, setTtsEnabled] = useState(true);
+    const [isListening, setIsListening] = useState(false);
+    
+    const IDLE_TIMEOUT = 60000; // 1 minute
+
+    // Wake up AIRI from hibernation
+    const wakeUp = useCallback(() => {
+        setLastActivityTime(Date.now());
+        if (isHibernating) {
+            console.log('[PERF] Waking AIRI Core from hibernation');
+            setIsHibernating(false);
+            setAiriLoading(true);
+        }
+    }, [isHibernating]);
 
     // ── Live agent state from store ──────────────────────────────────────────
     const isAgentThinking = useStore(s => s.isAgentThinking);
-    const agentMessages   = useStore(s => s.agentMessages);
-    const aiStatus        = useStore(s => s.aiStatus);
+    const agentMessages = useStore(s => s.agentMessages);
+
+    // Track activity and manage hibernation
+    useEffect(() => {
+        if (isAgentThinking) {
+            wakeUp();
+            return;
+        }
+
+        const iv = setInterval(() => {
+            if (Date.now() - lastActivityTime > IDLE_TIMEOUT && !isAgentThinking && !isHibernating) {
+                console.log('[PERF] Hibernating AIRI Core to save RAM (1.3GB cleanup)');
+                setIsHibernating(true);
+            }
+        }, 10000); // Check every 10s
+
+        return () => clearInterval(iv);
+    }, [isAgentThinking, lastActivityTime, isHibernating, wakeUp]);
+
+    const uiStatus = useStore(s => s.aiStatus);
 
     // ── Live tool-call tracking ──────────────────────────────────────────────
-    const [currentTool,    setCurrentTool]    = useState<string | null>(null);
-    const [currentFile,    setCurrentFile]    = useState<string | null>(null);
+    const [currentTool, setCurrentTool] = useState<string | null>(null);
+    const [currentFile, setCurrentFile] = useState<string | null>(null);
     const [currentCommand, setCurrentCommand] = useState<string | null>(null);
-    const [activity,       setActivity]       = useState<AiriActivity>('idle');
-    const [thoughtText,    setThoughtText]    = useState('');
+    const [activity, setActivity] = useState<AiriActivity>('idle');
+    const [thoughtText, setThoughtText] = useState('');
+    const lastSpokenIndexRef = useRef(0);
+    const prevThinkingRef = useRef(false);
     const [completedCount, setCompletedCount] = useState(0);
-    const [errorText,      setErrorText]      = useState<string | null>(null);
-
-    const typedThought = useTypewriter(thoughtText, 14);
+    const [errorText, setErrorText] = useState<string | null>(null);
 
     // ── Derive activity from agent state ─────────────────────────────────────
     useEffect(() => {
+        // Signal thinking state change to bridge
+        if (isAgentThinking !== prevThinkingRef.current) {
+            iframeRef.current?.contentWindow?.postMessage({
+                type: 'airi-thinking-state',
+                payload: { active: isAgentThinking }
+            }, '*');
+
+            if (isAgentThinking) {
+                lastSpokenIndexRef.current = 0;
+                setThoughtText(''); // Clear previous turn's text
+                ttsStop(iframeRef);  // Kill any lingering speech
+            }
+            prevThinkingRef.current = isAgentThinking;
+        }
+
         if (!isAgentThinking) {
-            if (aiStatus === 'dead') {
+            if (uiStatus === 'dead') {
                 setActivity('error');
             } else if (completedCount > 0) {
                 setActivity('success');
@@ -160,23 +231,28 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                 setActivity('thinking');
             }
         }
-    }, [isAgentThinking, aiStatus]);
+    }, [isAgentThinking, uiStatus]);
 
-    // ── Capture latest AI response text for thought bubble ───────────────────
     useEffect(() => {
         const last = agentMessages[agentMessages.length - 1];
         if (last?.role === 'assistant' && typeof last.content === 'string') {
-            const clean = last.content
+            const fullContent = last.content;
+
+            // UI Thought Bubble (Typewriter)
+            const cleanUI = fullContent
                 .replace(/```[\s\S]*?```/g, '')
                 .replace(/[*_#>[\]]/g, '')
                 .replace(/\s+/g, ' ')
                 .trim();
-            if (clean.length > 5) {
-                const snippet = clean.slice(-180);
-                setThoughtText(snippet);
-                if (isTtsEnabled && snippet.length > 20) {
-                    ttsSpeak(snippet);
-                }
+            if (cleanUI.length > 5) {
+                setThoughtText(cleanUI.slice(-500));
+            }
+
+            // High-quality Voice (Incremental)
+            if (isTtsEnabled && fullContent.length > lastSpokenIndexRef.current) {
+                const newPart = fullContent.slice(lastSpokenIndexRef.current);
+                ttsSpeak(iframeRef, newPart);
+                lastSpokenIndexRef.current = fullContent.length;
             }
         }
     }, [agentMessages, isTtsEnabled]);
@@ -184,20 +260,26 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     // ── Listen for tool events ────────────────────────────────────────────────
     useEffect(() => {
         const subs: (() => void)[] = [];
-        import('@tauri-apps/api/event').then(({ listen: listenEv }) => {
-            listenEv<any>('ai-tool-call', (e) => {
-                const name  = e.payload?.name  || '';
-                const args  = e.payload?.args  || {};
-                const act   = TOOL_TO_ACTIVITY[name] || 'thinking';
+        let isValid = true;
+
+        async function setupSubscriptions() {
+            const { listen: listenEv } = await import('@tauri-apps/api/event');
+            if (!isValid) return;
+
+            const u1 = await listenEv<any>('ai-tool-call', (e) => {
+                const name = e.payload?.name || '';
+                const args = e.payload?.args || {};
+                const act = TOOL_TO_ACTIVITY[name] || 'thinking';
                 setActivity(act);
                 setCurrentTool(name);
                 setErrorText(null);
+                wakeUp(); // Interaction wake
 
                 // Extract meaningful context from args
                 const file = args.path || args.file_path || args.uri || args.target_file || null;
-                const cmd  = args.command || args.cmd || null;
+                const cmd = args.command || args.cmd || null;
                 if (file) setCurrentFile(stripAnsi(typeof file === 'string' ? file.split(/[\\/]/).slice(-2).join('/') : ''));
-                if (cmd)  setCurrentCommand(stripAnsi(typeof cmd  === 'string' ? cmd.slice(0, 60) : ''));
+                if (cmd) setCurrentCommand(stripAnsi(typeof cmd === 'string' ? cmd.slice(0, 60) : ''));
 
                 // Inject a live status into thought
                 const label = ACTIVITY_META[act]?.label || name;
@@ -209,29 +291,58 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                 iframeRef.current?.contentWindow?.postMessage({
                     type: 'airi-activity', payload: { activity: act, tool: name, file, cmd }
                 }, '*');
-            }).then(u => subs.push(u));
+            });
+            subs.push(u1);
 
-            listenEv<any>('ai-tool-result', (e) => {
+            const u2 = await listenEv<any>('ai-tool-result', (e) => {
                 const name = e.payload?.name || '';
-                const act  = TOOL_TO_ACTIVITY[name] || 'thinking';
+                const act = TOOL_TO_ACTIVITY[name] || 'thinking';
                 if (act !== 'thinking') {
                     setCompletedCount(c => c + 1);
                 }
                 setActivity(isAgentThinking ? 'thinking' : 'success');
-            }).then(u => subs.push(u));
+                wakeUp(); // Interaction wake
+            });
+            subs.push(u2);
 
-            listenEv('hades-sync', (event) => {
+            const u3 = await listenEv('hades-sync', (event) => {
                 iframeRef.current?.contentWindow?.postMessage(
                     { type: 'hades-sync', payload: event.payload }, '*'
                 );
-            }).then(u => subs.push(u));
-        });
-        return () => subs.forEach(u => u());
-    }, [isAgentThinking]);
+            });
+            subs.push(u3);
+        }
+
+        setupSubscriptions();
+
+        // ── Inbound from Vue (Transcription/Input) ──────────────────────
+        const handleMessage = (e: MessageEvent) => {
+            if (e.data?.type === 'airi-transcription') {
+                const { text, isFinal } = e.data.payload || {};
+                if (text && isFinal) {
+                    // Trigger mission start from spoken word
+                    // Note: We'd ideally want to invoke onSend from RightSidebar context
+                    // For now, emit a custom event that RightSidebar can catch or use window export
+                    window.dispatchEvent(new CustomEvent('airi-voice-mission', { detail: { text } }));
+                }
+            }
+            if (e.data?.type === 'airi-hearing-state') {
+                setIsListening(!!e.data.payload?.enabled);
+            }
+        };
+        window.addEventListener('message', handleMessage);
+
+        return () => {
+            isValid = false;
+            subs.forEach(u => u());
+            window.removeEventListener('message', handleMessage);
+        };
+    }, [isAgentThinking, uiStatus, wakeUp]);
 
     // ── Mouse look-at ────────────────────────────────────────────────────────
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
+            wakeUp();
             if (!iframeRef.current?.contentWindow) return;
             const rect = iframeRef.current.getBoundingClientRect();
             iframeRef.current.contentWindow.postMessage({
@@ -245,7 +356,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
 
     // ── TTS stop when agent stops ─────────────────────────────────────────────
     useEffect(() => {
-        if (!isAgentThinking) ttsStop();
+        if (!isAgentThinking) ttsStop(iframeRef);
     }, [isAgentThinking]);
 
     const meta = ACTIVITY_META[activity];
@@ -253,11 +364,12 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
 
     const url = useMemo(() => {
         const base = "http://localhost:5174/?headless=true";
-        const scaleParam       = scale       ? `&scale=${scale}` : "";
-        const yOffsetParam     = yOffset     ? `&yOffset=${encodeURIComponent(yOffset)}` : "";
+        const scaleParam = scale ? `&scale=${scale}` : "";
+        const yOffsetParam = yOffset ? `&yOffset=${encodeURIComponent(yOffset)}` : "";
         const transparentParam = transparent ? `&transparent=true` : "";
-        return `${base}${scaleParam}${yOffsetParam}${transparentParam}`;
-    }, [scale, yOffset, transparent]);
+        const charParam = character ? `&char=${character}` : "";
+        return `${base}${scaleParam}${yOffsetParam}${transparentParam}${charParam}`;
+    }, [scale, yOffset, transparent, character]);
 
     return (
         <div
@@ -265,21 +377,43 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
             style={{ width: '100%', height: '100%', position: 'relative', background: 'transparent', border: 'none', ...style }}
         >
             {/* ── VRM Manifold Iframe ────────────────────────────────────── */}
-            {isAiriLoading && (
-                <div style={{
-                    position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: meta.color, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.5
-                }}>
-                    {isSmall ? '...' : 'Syncing Manifold...'}
+            {isHibernating ? (
+                <div
+                    onClick={wakeUp}
+                    style={{
+                        position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                        alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                        background: 'rgba(0,0,0,0.2)', backdropFilter: 'blur(10px)',
+                        borderRadius: '12px', border: '1px dashed rgba(255,255,255,0.1)'
+                    }}
+                >
+                    <div style={{ fontSize: '32px', marginBottom: '8px', opacity: 0.6 }}>💤</div>
+                    <div style={{ color: meta.color, fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                        Eco Mode Active
+                    </div>
+                    <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '9px', marginTop: '4px' }}>
+                        Click to wake AIRI
+                    </div>
                 </div>
+            ) : (
+                <>
+                    {isAiriLoading && (
+                        <div style={{
+                            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            color: meta.color, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.5
+                        }}>
+                            {isSmall ? '...' : 'Syncing Manifold...'}
+                        </div>
+                    )}
+                    <iframe
+                        ref={iframeRef}
+                        src={url}
+                        allowtransparency={true}
+                        style={{ width: '100%', height: '100%', border: 'none', opacity: isAiriLoading ? 0 : 1, background: 'transparent' }}
+                        onLoad={() => setAiriLoading(false)}
+                    />
+                </>
             )}
-            <iframe
-                ref={iframeRef}
-                src={url}
-                allowTransparency={true}
-                style={{ width: '100%', height: '100%', border: 'none', opacity: isAiriLoading ? 0 : 1, background: 'transparent' }}
-                onLoad={() => setAiriLoading(false)}
-            />
 
             {/* ── Activity Glow Ring (behind avatar) ─────────────────────── */}
             {!isSmall && (
@@ -339,7 +473,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
             )}
 
             {/* ── Thought Bubble ──────────────────────────────────────────── */}
-            {!isSmall && isAgentThinking && typedThought && (
+            {!isSmall && isAgentThinking && thoughtText && (
                 <div style={{
                     position: 'absolute', bottom: '48%', left: '50%', transform: 'translateX(-50%)',
                     maxWidth: '88%', pointerEvents: 'none',
@@ -350,13 +484,17 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         borderRadius: '14px 14px 14px 4px',
                         padding: '8px 12px',
                         boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
+                        minWidth: '140px',
+                        minHeight: '48px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                     }}>
                         <div style={{
                             fontSize: '11px', color: '#0d0921', lineHeight: 1.5,
-                            maxWidth: '200px', wordBreak: 'break-word',
+                            maxWidth: '200px', minHeight: '32px', wordBreak: 'break-word',
                         }}>
-                            {typedThought}
-                            <span style={{ animation: 'blinkCursor 0.8s step-end infinite', marginLeft: '1px' }}>|</span>
+                            {thoughtText}
                         </div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px', marginTop: '4px', paddingLeft: '12px' }}>
@@ -370,33 +508,70 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
             {!isSmall && (
                 <div style={{
                     position: 'absolute', bottom: '8px', left: '50%', transform: 'translateX(-50%)',
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                    background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)',
-                    border: `1px solid ${meta.color}44`,
-                    borderRadius: '20px', padding: '3px 10px',
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    background: 'rgba(13, 9, 33, 0.85)', backdropFilter: 'blur(12px)',
+                    border: `1px solid ${meta.color}66`,
+                    borderRadius: '24px', padding: '5px 14px',
                     pointerEvents: 'auto',
+                    boxShadow: `0 4px 12px rgba(0,0,0,0.4), 0 0 10px ${meta.glow}`,
+                    transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
                 }}>
+                    {activity !== 'idle' && (
+                        <div style={{
+                            width: '12px', height: '12px', borderRadius: '50%',
+                            border: `2px solid ${meta.color}33`,
+                            borderTopColor: meta.color,
+                            animation: 'airiSpinner 0.8s linear infinite',
+                            flexShrink: 0
+                        }} />
+                    )}
                     <span style={{
-                        width: '6px', height: '6px', borderRadius: '50%', background: meta.color,
-                        display: 'inline-block', flexShrink: 0,
-                        animation: (activity === 'thinking' || activity === 'coding' || activity === 'executing')
-                            ? 'hubPulse 1s infinite' : 'none'
-                    }} />
-                    <span style={{ fontSize: '9px', fontWeight: 700, color: meta.color, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+                        fontSize: '10px', fontWeight: 800, color: '#fff',
+                        textTransform: 'uppercase', letterSpacing: '0.1em',
+                        whiteSpace: 'nowrap', textShadow: `0 0 8px ${meta.color}`
+                    }}>
                         {meta.label}
                     </span>
 
+                    <div style={{ width: '1px', height: '10px', background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
+
                     {/* TTS toggle */}
                     <div
-                        onClick={() => { setTtsEnabled(v => !v); if (isTtsEnabled) ttsStop(); }}
+                        onClick={() => {
+                            const newState = !isTtsEnabled;
+                            setTtsEnabled(newState);
+                            if (!newState) ttsStop(iframeRef);
+                        }}
                         style={{
                             marginLeft: '4px', cursor: 'pointer', fontSize: '10px',
                             opacity: isTtsEnabled ? 1 : 0.35,
                             color: isTtsEnabled ? '#c084fc' : 'rgba(255,255,255,0.5)',
+                            display: 'flex', alignItems: 'center'
                         }}
                         title={isTtsEnabled ? 'Mute AIRI voice' : 'Enable AIRI voice'}
                     >
                         {isTtsEnabled ? '🔊' : '🔇'}
+                    </div>
+
+                    {/* Microphone toggle */}
+                    <div
+                        onClick={() => {
+                            const newState = !isListening;
+                            setIsListening(newState);
+                            iframeRef.current?.contentWindow?.postMessage({
+                                type: 'airi-listen',
+                                payload: { enabled: newState }
+                            }, '*');
+                        }}
+                        style={{
+                            marginLeft: '8px', cursor: 'pointer', fontSize: '10px',
+                            opacity: isListening ? 1 : 0.35,
+                            color: isListening ? '#f97316' : 'rgba(255,255,255,0.5)',
+                            display: 'flex', alignItems: 'center'
+                        }}
+                        title={isListening ? 'Stop listening' : 'Start interactive voice mission'}
+                    >
+                        {isListening ? '🎙️' : '🎤'}
                     </div>
 
                     {/* Error badge */}
@@ -410,6 +585,10 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
 
             {/* ── CSS animations ──────────────────────────────────────────── */}
             <style>{`
+                @keyframes airiSpinner {
+                    from { transform: rotate(0deg); }
+                    to   { transform: rotate(360deg); }
+                }
                 @keyframes airiGlowPulse {
                     0%, 100% { opacity: 0.6; transform: translateX(-50%) scale(1); }
                     50%       { opacity: 1;   transform: translateX(-50%) scale(1.12); }

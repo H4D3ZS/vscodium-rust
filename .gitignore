@@ -32,6 +32,12 @@ claude-code-fork/
 *.sw?
 apikeys.txt
 
+# API Keys — NEVER commit
+api_keys.json
+**/api_keys.json
+.kortex/
+**/.kortex/
+
 # Rust
 src-tauri/target/
 src-tauri/zed/

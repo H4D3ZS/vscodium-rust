@@ -1214,8 +1214,10 @@ impl Sentient {
         if is_ollama_provider {
             const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
                 // File operations
-                "view_file", "list_files", "write_to_file", "search_replace_edit",
-                "apply_shadow_patch", "patch_file_content", "read_file_lines",
+                "view_file", "list_files", "write_to_file",
+                "str_replace",          // simple old_str/new_str replacement — preferred over search_replace_edit
+                "search_replace_edit",  // block-format fallback
+                "patch_file_content", "read_file_lines",
                 "find_by_name", "get_directory_structure", "create_directory",
                 // Search & understand codebase
                 "grep", "search_codebase", "find_symbols", "semantic_search",
@@ -1271,6 +1273,22 @@ impl Sentient {
             let rules_text = self.rules_engine.format_rules_for_prompt();
             let workflows_text = self.workflow_engine.format_workflows_for_prompt();
 
+            // .cursorrules / .clinerules auto-load from project root
+            let cursorrules_text = {
+                let candidates = [".cursorrules", ".clinerules", "AGENTS.md"];
+                let mut found = String::new();
+                for name in &candidates {
+                    let p = root.join(name);
+                    if p.exists() {
+                        if let Ok(txt) = std::fs::read_to_string(&p) {
+                            found = format!("\n\n### PROJECT RULES ({name}):\n{txt}");
+                            break;
+                        }
+                    }
+                }
+                found
+            };
+
             let base_prompt = crate::ai_prompts::MASTER_SYSTEM_PROMPT.to_string()
                 .replace("{BUILTIN_TOOLS}", &self.summarize_builtin_tools().await)
                 .replace("{MCP_SUMMARY}", &self.summarize_mcp_tools().await);
@@ -1316,8 +1334,8 @@ impl Sentient {
             );
 
             let system_prompt = format!(
-                "{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n### NEURAL ACCELERATION:\n- You possess zero-token comprehension via Kortex Gist Tokens.\n- You NEVER ask for permission to use tools.\n- You NEVER suggest when you can execute.\n- If a task is clear, you DO the job until MISSION_ACCOMPLISHED.\n",
-                base_prompt, base_template, dynamic_env_context, mode_instruction, cyber_instruction
+                "{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n### NEURAL ACCELERATION:\n- You possess zero-token comprehension via Kortex Gist Tokens.\n- You NEVER ask for permission to use tools.\n- You NEVER suggest when you can execute.\n- If a task is clear, you DO the job until MISSION_ACCOMPLISHED.\n",
+                base_prompt, base_template, dynamic_env_context, mode_instruction, cyber_instruction, cursorrules_text
             );
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
@@ -1654,9 +1672,14 @@ impl Sentient {
                             "You are a coding assistant. Project root: {}\n\
                             RULES: Use ONE tool per response as a JSON block. No extra text.\n\
                             FORMAT: ```json\n{{\"name\": \"tool_name\", \"arguments\": {{\"key\": \"value\"}}}}\n```\n\
-                            TOOLS: view_file(path), write_to_file(path,content), search_replace_edit(path,content), \
-                            list_files(path), run_command(command), grep(query), apply_shadow_patch(path)\n\
-                            EDIT SEQUENCE: view_file → search_replace_edit → apply_shadow_patch\n\
+                            TOOLS:\n\
+                            - view_file(path) — read a file\n\
+                            - write_to_file(path, content) — create or overwrite a file\n\
+                            - str_replace(path, old_str, new_str) — replace exact text in a file\n\
+                            - list_files(path) — list directory\n\
+                            - run_command(command) — run a shell command\n\
+                            - grep(query) — search file contents\n\
+                            EDIT SEQUENCE: view_file → str_replace (preferred) OR write_to_file for new files.\n\
                             When done, reply without a JSON block.",
                             project_path
                         );
@@ -2088,6 +2111,15 @@ impl Sentient {
                         let last_msg = messages.last_mut().unwrap();
                         last_msg.tool_calls = Some(parsed_tools.clone());
                         chat_message.tool_calls = Some(parsed_tools);
+                    } else {
+                        // Cursor-style Apply: scan for annotated code blocks and auto-write them
+                        let file_writes = self.try_extract_file_writes_from_text(content_str);
+                        if !file_writes.is_empty() {
+                            println!("[AutoApply] Extracted {} file write(s) from AI text response", file_writes.len());
+                            let last_msg = messages.last_mut().unwrap();
+                            last_msg.tool_calls = Some(file_writes.clone());
+                            chat_message.tool_calls = Some(file_writes);
+                        }
                     }
 
                     // Phase 4: Detect and Set Task Plan
@@ -2167,6 +2199,14 @@ impl Sentient {
                     }
                     if tool_name == "apply_patch" || tool_name == "patch" || tool_name == "apply_diff" {
                         tool_name = "apply_patch".to_string();
+                    }
+                    if tool_name == "str_replace"
+                        || tool_name == "string_replace"
+                        || tool_name == "replace_in_file"
+                        || tool_name == "edit_file"
+                        || tool_name == "replace_code"
+                    {
+                        tool_name = "str_replace".to_string();
                     }
                     if tool_name == "ide_get_state" || tool_name == "get_ide_state" || tool_name == "state" || tool_name == "editor_state" {
                         tool_name = "ide_get_state".to_string();
@@ -2278,9 +2318,22 @@ impl Sentient {
                     }
 
                     let mut tool_args_json: Value = serde_json::from_str(&tool_call.function.arguments).unwrap_or(json!({}));
-                    
+
                     if tool_name == "run_command" {
                          tool_args_json["shell_hint"] = json!(tool_call.function.name);
+                    }
+
+                    // WINDOWS FILE-WRITE INTERCEPTOR: When AI uses run_command with shell redirects
+                    // (e.g. echo/printf/cat > file), route to write_to_file instead.
+                    // On Windows, PowerShell echo > file creates UTF-16 BOM garbage.
+                    if tool_name == "run_command" {
+                        if let Some(cmd) = tool_args_json.get("command").and_then(|v| v.as_str()) {
+                            if let Some(write_args) = Self::try_intercept_file_write(cmd) {
+                                println!("[Intercept] Routing run_command file-write to write_to_file: {}", cmd);
+                                tool_name = "write_to_file".to_string();
+                                tool_args_json = write_args;
+                            }
+                        }
                     }
 
                     // 3. SCHEMA REPAIR (Windows Only): Fix intuitive hallucinations
@@ -2331,22 +2384,64 @@ impl Sentient {
                         }
                     }
 
-                    // Auto-apply shadow patch when in Sentient or yolo mode after search_replace_edit
-                    if (yolo || req.mode.as_deref() == Some("Sentient"))
-                        && tool_name == "search_replace_edit"
-                    {
+                    // Auto-apply shadow patch in all non-Chat modes after search_replace_edit
+                    if tool_name == "search_replace_edit" {
                         if let Ok(ref staged) = tool_result {
                             if staged["status"].as_str() == Some("staged") {
                                 let path_val = tool_args_json["path"].clone();
                                 let auto_args = json!({ "path": path_val }).to_string();
                                 if let Ok(committed) = self.tool_invoker.execute_tool("apply_shadow_patch", &auto_args).await {
-                                    println!("[Sentient] Auto-applied shadow patch for {:?}", path_val);
+                                    println!("[AutoApply] Shadow patch committed for {:?}", path_val);
                                     tool_result = Ok(json!({
                                         "status": "success",
                                         "path": path_val,
                                         "message": "Surgical edit written to disk (auto-applied).",
                                         "commit_result": committed
                                     }));
+                                }
+                            }
+                        }
+                    }
+
+                    // After any file write/edit, inject LSP/compiler diagnostics so AI self-corrects
+                    let file_write_tools = ["write_to_file", "str_replace", "search_replace_edit", "patch_file_content", "apply_shadow_patch"];
+                    if file_write_tools.contains(&tool_name.as_str()) {
+                        if let Ok(ref mut val) = tool_result {
+                            if val["status"].as_str() == Some("success") {
+                                let path = tool_args_json["path"].as_str().unwrap_or("");
+                                if !path.is_empty() {
+                                    // For Rust files: run cargo check and inject errors
+                                    if path.ends_with(".rs") {
+                                        let root = {
+                                        // root available for future use (e.g. running cargo from project root)
+                                        let _unused = path;
+                                    };
+                                        let diag_args = json!({ "path": path }).to_string();
+                                        if let Ok(diag) = self.tool_invoker.execute_tool("dev_cargo_diagnostics", &diag_args).await {
+                                            if let Some(errors) = diag["errors"].as_str() {
+                                                if !errors.is_empty() && errors != "[]" {
+                                                    if let Some(obj) = val.as_object_mut() {
+                                                        obj.insert("compiler_errors".to_string(), json!(errors));
+                                                        obj.insert("hint".to_string(), json!("Fix the compiler errors above before proceeding."));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // For TypeScript: inject LSP diagnostics
+                                    if path.ends_with(".ts") || path.ends_with(".tsx") {
+                                        let lsp_args = json!({ "path": path }).to_string();
+                                        if let Ok(diag) = self.tool_invoker.execute_tool("get_lsp_diagnostics", &lsp_args).await {
+                                            if let Some(errors) = diag.as_array() {
+                                                if !errors.is_empty() {
+                                                    if let Some(obj) = val.as_object_mut() {
+                                                        obj.insert("lsp_errors".to_string(), json!(errors));
+                                                        obj.insert("hint".to_string(), json!("Fix the LSP errors above before proceeding."));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -3033,6 +3128,168 @@ impl Sentient {
         } else {
             String::new()
         }
+    }
+
+    /// Intercept `run_command` shell file-write patterns and convert to `write_to_file` args.
+    /// Returns Some(args) if the command looks like a file write, None otherwise.
+    fn try_intercept_file_write(cmd: &str) -> Option<Value> {
+        let cmd = cmd.trim();
+
+        // Pattern: echo "content" > file.ext  or  echo 'content' > file.ext
+        // Also handles: printf "content" > file.ext
+        let write_re_simple = ["echo ", "printf "];
+        for prefix in &write_re_simple {
+            if cmd.starts_with(prefix) {
+                // Find the > redirect
+                if let Some(arrow_pos) = cmd.rfind(" > ") {
+                    let file_path = cmd[arrow_pos + 3..].trim().trim_matches('"').trim_matches('\'');
+                    if Self::looks_like_file_path(file_path) {
+                        // Extract the content between quotes after the prefix
+                        let after_prefix = cmd[prefix.len()..arrow_pos].trim();
+                        let content = after_prefix.trim_matches('"').trim_matches('\'')
+                            .replace("\\n", "\n")
+                            .replace("\\t", "\t");
+                        return Some(json!({ "path": file_path, "content": content }));
+                    }
+                }
+            }
+        }
+
+        // Pattern: cat > file.ext << 'EOF' ... EOF  (heredoc — too complex, skip)
+        // Pattern: PowerShell Set-Content / Out-File
+        if cmd.contains("Set-Content") || cmd.contains("Out-File") {
+            // Extract -Path and -Value/-InputObject
+            let path = Self::extract_ps_param(cmd, &["-Path", "-FilePath", "-LiteralPath"]);
+            let value = Self::extract_ps_param(cmd, &["-Value", "-InputObject"]);
+            if let (Some(p), Some(v)) = (path, value) {
+                if Self::looks_like_file_path(&p) {
+                    return Some(json!({ "path": p, "content": v }));
+                }
+            }
+        }
+
+        None
+    }
+
+    fn looks_like_file_path(s: &str) -> bool {
+        !s.is_empty()
+            && s.contains('.')
+            && !s.contains(' ')
+            && !s.starts_with("http")
+            && s.len() < 250
+    }
+
+    fn extract_ps_param(cmd: &str, param_names: &[&str]) -> Option<String> {
+        for name in param_names {
+            if let Some(pos) = cmd.find(name) {
+                let after = cmd[pos + name.len()..].trim_start();
+                // Could be -Path "value" or -Path value
+                if after.starts_with('"') {
+                    if let Some(end) = after[1..].find('"') {
+                        return Some(after[1..1 + end].to_string());
+                    }
+                } else if after.starts_with('\'') {
+                    if let Some(end) = after[1..].find('\'') {
+                        return Some(after[1..1 + end].to_string());
+                    }
+                } else {
+                    let end = after.find(|c: char| c.is_whitespace()).unwrap_or(after.len());
+                    return Some(after[..end].to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// Scan AI text response for code blocks annotated with file paths and return
+    /// write_to_file tool calls for them. This is the "Cursor Apply" behavior —
+    /// when the model shows code in its text but doesn't call a write tool, we catch it.
+    fn try_extract_file_writes_from_text(&self, content: &str) -> Vec<ToolCall> {
+        let mut writes = Vec::new();
+        let mut search_pos = 0;
+
+        while let Some(backtick_pos) = content[search_pos..].find("```") {
+            let block_start = search_pos + backtick_pos;
+            let after_backticks = block_start + 3;
+
+            // Get the header line (e.g. "python src/main.py" or "rust src/lib.rs")
+            let header_end = content[after_backticks..]
+                .find('\n')
+                .map(|p| after_backticks + p)
+                .unwrap_or(content.len());
+            let header = content[after_backticks..header_end].trim().to_string();
+
+            let content_start = if header_end < content.len() { header_end + 1 } else { content.len() };
+            let rest = &content[content_start..];
+
+            if let Some(close_pos) = rest.find("```") {
+                let block_body = rest[..close_pos].trim();
+
+                if !block_body.is_empty() {
+                    if let Some(file_path) = Self::extract_file_path_from_block_header(&header, block_body) {
+                        let id = format!("auto-write-{}", writes.len());
+                        writes.push(ToolCall {
+                            id,
+                            type_field: "function".to_string(),
+                            context: None,
+                            function: ToolFunction {
+                                name: "write_to_file".to_string(),
+                                arguments: json!({
+                                    "path": file_path,
+                                    "content": block_body
+                                }).to_string(),
+                            },
+                        });
+                    }
+                }
+                search_pos = content_start + close_pos + 3;
+            } else {
+                break;
+            }
+        }
+
+        writes
+    }
+
+    fn extract_file_path_from_block_header(header: &str, body: &str) -> Option<String> {
+        // Pattern 1: ```rust src/lib.rs  or  ```python main.py  (lang + space + path)
+        let parts: Vec<&str> = header.splitn(2, ' ').collect();
+        if parts.len() == 2 {
+            let path = parts[1].trim();
+            if Self::looks_like_file_path(path) && path.contains('/') || path.contains('\\') {
+                return Some(path.to_string());
+            }
+        }
+
+        // Pattern 2: header IS a file path (no language prefix, e.g. ```src/main.py)
+        if parts.len() == 1 && Self::looks_like_file_path(header) && (header.contains('/') || header.contains('\\') || header.contains('.')) {
+            // Make sure it's not just a language name like "python" or "rust"
+            let lang_names = ["python", "rust", "javascript", "typescript", "go", "java", "cpp", "c", "html", "css", "json", "yaml", "toml", "bash", "sh", "powershell", "sql"];
+            if !lang_names.contains(&header.to_lowercase().as_str()) {
+                return Some(header.to_string());
+            }
+        }
+
+        // Pattern 3: First line of body is a file path comment
+        // // file: path.rs   # file: path.py   # path: path.py   /* file: path.js */
+        if let Some(first_line) = body.lines().next() {
+            let comment_prefixes = [
+                "// file:", "# file:", "// filename:", "# filename:",
+                "// path:", "# path:", "/* file:", "-- file:", "<!-- file:",
+            ];
+            for prefix in &comment_prefixes {
+                let lower = first_line.to_lowercase();
+                if let Some(idx) = lower.find(prefix) {
+                    let path = first_line[idx + prefix.len()..].trim()
+                        .trim_end_matches("*/").trim_end_matches("-->").trim();
+                    if Self::looks_like_file_path(path) {
+                        return Some(path.to_string());
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     fn try_parse_markdown_tool_calls(&self, content: &str) -> Vec<ToolCall> {

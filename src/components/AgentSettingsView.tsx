@@ -3,6 +3,7 @@ import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
 import { getThemes, applyTheme } from '../theme_engine';
 import type { VscodeTheme } from '../theme_engine';
+import ElevenLabsVoicePicker from './ElevenLabsVoicePicker';
 
 const AgentSettingsView: React.FC = () => {
     const ollamaUrl = useStore(state => state.ollamaUrl);
@@ -19,10 +20,24 @@ const AgentSettingsView: React.FC = () => {
     const listMcpServers = useStore(state => state.listMcpServers);
     const isPullingModel = useStore(state => state.isPullingModel);
     const pullOllamaModel = useStore(state => state.pullOllamaModel);
+    const avatarCharacter = useStore(state => state.avatarCharacter);
+    const setAvatarCharacter = useStore(state => state.setAvatarCharacter);
     const [pullInput, setPullInput] = useState('');
 
+    // AI Avatar Characters
+    const avatarCharacters = [
+        { id: 'airi', name: 'AIRI', desc: 'Primary avatar - energetic anime AI', color: '#c084fc' },
+        { id: 'sage', name: 'Sage', desc: 'Mature assistant - calm & wise', color: '#60a5fa' },
+        { id: 'nova', name: 'Nova', desc: 'Young & energetic - futuristic', color: '#f472b6' },
+        { id: 'kawaii', name: 'Kawaii', desc: 'Cute & friendly - adorable', color: '#f472b6' },
+        { id: 'sentinel', name: 'Sentinel', desc: 'Security-focused - protective', color: '#22c55e' },
+        { id: 'oracle', name: 'Oracle', desc: 'Knowledge-focused - all-knowing', color: '#eab308' },
+        { id: 'phantom', name: 'Phantom', desc: 'Stealthy - mysterious & quiet', color: '#a855f7' },
+        { id: 'titan', name: 'Titan', desc: 'Powerful - strong & reliable', color: '#ef4444' },
+    ];
+
     // API Key state
-    const [apiKeys, setApiKeys] = useState({ anthropic: '', google: '', openai: '', groq: '', openrouter: '' });
+    const [apiKeys, setApiKeys] = useState({ anthropic: '', google: '', openai: '', groq: '', openrouter: '', elevenlabs: '' });
     const [savingKeys, setSavingKeys] = useState(false);
     const [keyStatus, setKeyStatus] = useState<Record<string, string>>({});
     const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
@@ -44,6 +59,7 @@ const AgentSettingsView: React.FC = () => {
                 openai: keys.openai ? '••••••••' + (keys.openai.slice(-4)) : '',
                 groq: (keys as any).groq ? '••••••••' + ((keys as any).groq.slice(-4)) : '',
                 openrouter: (keys as any).openrouter ? '••••••••' + ((keys as any).openrouter.slice(-4)) : '',
+                elevenlabs: (keys as any).elevenlabs_api_key ? '••••••••' + ((keys as any).elevenlabs_api_key.slice(-4)) : '',
             }));
         }).catch(console.error);
     }, []);
@@ -59,6 +75,7 @@ const AgentSettingsView: React.FC = () => {
             if (apiKeys.openai && !apiKeys.openai.startsWith('•')) keysToSave.openai = apiKeys.openai;
             if ((apiKeys as any).groq && !(apiKeys as any).groq.startsWith('•')) keysToSave.groq = (apiKeys as any).groq;
             if ((apiKeys as any).openrouter && !(apiKeys as any).openrouter.startsWith('•')) keysToSave.openrouter = (apiKeys as any).openrouter;
+            if ((apiKeys as any).elevenlabs && !(apiKeys as any).elevenlabs.startsWith('•')) keysToSave.elevenlabs_api_key = (apiKeys as any).elevenlabs;
 
             const results = await invoke<Record<string, string>>('save_api_keys', { keys: keysToSave });
             setKeyStatus(results);
@@ -115,6 +132,63 @@ const AgentSettingsView: React.FC = () => {
                 <div style={{ fontSize: '11px', opacity: 0.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Core Configuration</div>
             </div>
 
+            {/* ── AI Character Selection ── */}
+            <section>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
+                    AI Character
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                    {avatarCharacters.map((char) => (
+                        <div
+                            key={char.id}
+                            onClick={() => setAvatarCharacter(char.id)}
+                            style={{
+                                padding: '10px 8px',
+                                background: avatarCharacter === char.id ? `${char.color}20` : 'rgba(255,255,255,0.02)',
+                                border: `1px solid ${avatarCharacter === char.id ? char.color : 'rgba(255,255,255,0.08)'}`,
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                textAlign: 'center',
+                                transition: 'all 0.2s',
+                                opacity: avatarCharacter === char.id ? 1 : 0.7,
+                            }}
+                        >
+                            <div style={{
+                                width: '32px', height: '32px',
+                                background: `linear-gradient(135deg, ${char.color} 0%, ${char.color}80 100%)`,
+                                borderRadius: '50%',
+                                margin: '0 auto 6px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '14px', fontWeight: 800, color: '#fff',
+                            }}>
+                                {char.name[0]}
+                            </div>
+                            <div style={{ fontSize: '10px', fontWeight: 600, color: '#fff' }}>{char.name}</div>
+                            <div style={{ fontSize: '8px', opacity: 0.5, marginTop: '2px' }}>{char.desc}</div>
+                        </div>
+                    ))}
+                </div>
+                <div style={{ marginTop: '12px' }}>
+                    <input
+                        type="text"
+                        placeholder="Or add custom character ID..."
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.currentTarget.value) {
+                                setAvatarCharacter(e.currentTarget.value);
+                                e.currentTarget.value = '';
+                            }
+                        }}
+                        style={{
+                            width: '100%',
+                            background: 'var(--vscode-input-background)',
+                            color: 'var(--vscode-input-foreground)',
+                            border: '1px solid var(--vscode-input-border)',
+                            padding: '6px 10px', fontSize: '11px', borderRadius: '4px'
+                        }}
+                    />
+                </div>
+            </section>
+
             <section>
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
                     Model Configuration
@@ -147,6 +221,7 @@ const AgentSettingsView: React.FC = () => {
                         { key: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
                         { key: 'groq', label: 'Groq', placeholder: 'gsk_...' },
                         { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
+                        { key: 'elevenlabs', label: 'ElevenLabs (TTS)', placeholder: 'sk_...' },
                     ] as { key: string; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
                         <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -277,6 +352,91 @@ const AgentSettingsView: React.FC = () => {
                                 <div style={{ height: '100%', width: '100%', background: '#3b82f6', animation: 'progressIndeterminate 1.5s infinite linear' }}></div>
                             </div>
                         )}
+                    </div>
+                </div>
+            </section>
+
+            {/* ── Voice / TTS Settings ── */}
+            <section>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
+                    Voice & TTS (AIRI Speech)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '12px', background: 'rgba(192,132,252,0.05)', borderRadius: '6px', border: '1px solid rgba(192,132,252,0.15)' }}>
+                    <div style={{ fontSize: '11px', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <i className="codicon codicon-mic" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                        Enable anime-style voice synthesis for AIRI responses
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <label style={{ fontSize: '11px', opacity: 0.8 }}>ElevenLabs API Key</label>
+                            {keyStatus['elevenlabs'] && (
+                                <span style={{ fontSize: '10px', fontWeight: 600, color: keyStatus['elevenlabs'].startsWith('Dead') ? '#f87171' : '#4ade80' }}>
+                                    {keyStatus['elevenlabs'].startsWith('Dead') ? 'Invalid' : 'Valid'}
+                                </span>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                            <input
+                                type={showKeys['elevenlabs'] ? 'text' : 'password'}
+                                value={apiKeys.elevenlabs}
+                                onChange={e => setApiKeys(prev => ({ ...prev, elevenlabs: e.target.value }))}
+                                placeholder="sk_... (from elevenlabs.io)"
+                                style={{
+                                    flex: 1,
+                                    background: 'var(--vscode-input-background)',
+                                    color: 'var(--vscode-input-foreground)',
+                                    border: `1px solid ${keyStatus['elevenlabs']?.startsWith('Dead') ? '#f87171' : keyStatus['elevenlabs'] ? '#4ade80' : 'var(--vscode-input-border)'}`,
+                                    padding: '6px 10px', fontSize: '12px', borderRadius: '4px', fontFamily: 'monospace'
+                                }}
+                            />
+                            <button
+                                onClick={() => setShowKeys(prev => ({ ...prev, elevenlabs: !prev.elevenlabs }))}
+                                style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '6px 8px', fontSize: '11px', cursor: 'pointer', borderRadius: '4px' }}
+                                title={showKeys['elevenlabs'] ? 'Hide' : 'Show'}
+                            >
+                                <i className={`codicon codicon-${showKeys['elevenlabs'] ? 'eye-closed' : 'eye'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ElevenLabs Voice Picker */}
+                    <ElevenLabsVoicePicker
+                        apiKey={apiKeys.elevenlabs}
+                        onVoiceSelect={(voiceId) => {
+                            // Import voice module dynamically to set selected voice
+                            import('../voice').then(({ setSelectedVoice }) => {
+                                setSelectedVoice(voiceId);
+                                console.log('[Settings] ElevenLabs voice set:', voiceId);
+                            });
+                        }}
+                    />
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <label style={{ fontSize: '11px', opacity: 0.8 }}>OpenAI API Key (for TTS)</label>
+                            {keyStatus['openai'] && (
+                                <span style={{ fontSize: '10px', fontWeight: 600, color: keyStatus['openai'].startsWith('Dead') ? '#f87171' : '#4ade80' }}>
+                                    {keyStatus['openai'].startsWith('Dead') ? 'Invalid' : 'Valid'}
+                                </span>
+                            )}
+                        </div>
+                        <input
+                            type={showKeys['openai_tts'] ? 'text' : 'password'}
+                            value={apiKeys.openai}
+                            onChange={e => setApiKeys(prev => ({ ...prev, openai: e.target.value }))}
+                            placeholder="sk-... (also used for GPT-4o TTS)"
+                            style={{
+                                width: '100%',
+                                background: 'var(--vscode-input-background)',
+                                color: 'var(--vscode-input-foreground)',
+                                border: `1px solid var(--vscode-input-border)`,
+                                padding: '6px 10px', fontSize: '12px', borderRadius: '4px', fontFamily: 'monospace'
+                            }}
+                        />
+                    </div>
+
+                    <div style={{ fontSize: '10px', opacity: 0.5, paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                        Voice presets: AIRI (energetic), Sage (calm), Nova (young), Kawaii (cute)
                     </div>
                 </div>
             </section>

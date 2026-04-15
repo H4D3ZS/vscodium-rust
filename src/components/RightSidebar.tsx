@@ -10,6 +10,7 @@ import ContextSidebar from './visual/ContextSidebar';
 import { AiriPanel } from './AiriPanel';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
+import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';
 
 /**
  * Strips raw tool-call JSON/XML from AI content so the user sees only
@@ -128,6 +129,7 @@ const RightSidebar: React.FC = () => {
     const setYoloMode = useStore(state => state.setYoloMode);
     const agentUiMode = useStore(state => state.agentUiMode);
     const setAgentUiMode = useStore(state => state.setAgentUiMode);
+    const avatarCharacter = useStore(state => state.avatarCharacter);
     const addAgentMessage = useStore(state => state.addAgentMessage);
     const updateLastAgentMessage = useStore(state => state.updateLastAgentMessage);
     const setIsAgentThinking = useStore(state => state.setIsAgentThinking);
@@ -175,11 +177,23 @@ const RightSidebar: React.FC = () => {
     // AIRI full mode — last spoken response and speech state
     const [airiSpeech, setAiriSpeech] = useState<string>('');
     const [airiSpeaking, setAiriSpeaking] = useState(false);
+    const [ttsEnabled, setTtsEnabled] = useState(false);
+    const [ttsPreset, setTtsPreset] = useState<'airi' | 'sage' | 'nova' | 'kawaii' | 'yamato' | 'hana' | 'ren' | 'yuki' | 'haru' | 'sora' | 'zero' | 'aria'>('airi');
+
+    // Initialize TTS on mount
+    useEffect(() => {
+        initVoiceSystem().then(ready => {
+            if (ready) {
+                console.log('[TTS] AIRI Voice System initialized');
+            }
+        });
+    }, []);
 
     // Kortex .aim memory panel state
     const [kortexSlots, setKortexSlots] = useState<any[]>([]);
     const [kortexLoading, setKortexLoading] = useState(false);
     const [liveToolCalls, setLiveToolCalls] = useState<Array<{ id: string; tool: string; label: string; status: 'running' | 'done' | 'error'; detail?: string }>>([]);
+    const [isCloudExpanded, setIsCloudExpanded] = useState(false);
 
     const refreshKortex = useCallback(async () => {
         setKortexLoading(true);
@@ -202,16 +216,23 @@ const RightSidebar: React.FC = () => {
         const subs: (() => void)[] = [];
         import('@tauri-apps/api/event').then(({ listen }) => {
             const TOOL_ICONS: Record<string, string> = {
-                write_to_file: '📝', search_replace_edit: '✂️', apply_shadow_patch: '💾',
+                write_to_file: '📝', search_replace_edit: '✂️', str_replace: '✂️',
+                apply_shadow_patch: '💾', patch_file_content: '✏️',
                 view_file: '👁️', run_command: '⚡', verify_implementation: '🔬',
                 ghost_test: '👻', list_files: '📁', grep: '🔍', git_commit: '📦',
+                dev_cargo_diagnostics: '🦀', web_search: '🌐', git_diff: '📊',
+                semantic_search: '🧠', find_symbols: '🔎', create_directory: '📁',
             };
             const TOOL_LABELS: Record<string, string> = {
                 write_to_file: 'Writing file', search_replace_edit: 'Patching code',
-                apply_shadow_patch: 'Committing edit', view_file: 'Reading file',
+                str_replace: 'Editing code', apply_shadow_patch: 'Committing edit',
+                patch_file_content: 'Replacing lines', view_file: 'Reading file',
                 run_command: 'Running command', verify_implementation: 'Verifying',
                 ghost_test: 'Running tests', list_files: 'Scanning directory',
-                grep: 'Searching', git_commit: 'Committing',
+                grep: 'Searching code', git_commit: 'Committing',
+                dev_cargo_diagnostics: 'Checking Rust', web_search: 'Web search',
+                git_diff: 'Reading diff', semantic_search: 'Semantic search',
+                find_symbols: 'Finding symbols', create_directory: 'Creating dir',
             };
             listen<any>('ai-tool-call', (e) => {
                 const name = e.payload?.name || 'unknown';
@@ -242,28 +263,35 @@ const RightSidebar: React.FC = () => {
         }
     }, [isAgentThinking]);
 
-    // Capture streaming AI content — used for thought bubble (both modes) and speech overlay (AIRI mode)
+    // Capture streaming AI content — token-by-token rendering (Cursor-style)
     useEffect(() => {
         let buffer = '';
         const unsub: (() => void)[] = [];
         import('@tauri-apps/api/event').then(({ listen }) => {
-            listen<any>('ai-stream', (e) => {
-                const chunk: string = e.payload?.chunk || e.payload?.content || '';
-                if (chunk) {
-                    buffer += chunk;
+            // Primary: token-by-token delta from backend streaming
+            listen<any>('ai-content-delta', (e) => {
+                const delta: string = e.payload?.delta || '';
+                if (delta) {
+                    buffer += delta;
+                    updateLastAgentMessage(buffer);
                     if (agentUiMode === 'airi') setAiriSpeech(buffer);
                 }
             }).then(u => unsub.push(u));
+            // Fallback: full content once streaming completes
             listen<any>('ai-content', (e) => {
                 const content: string = e.payload?.content || '';
                 if (content) {
                     buffer = content;
+                    updateLastAgentMessage(content);
                     if (agentUiMode === 'airi') { setAiriSpeech(content); setAiriSpeaking(false); }
                 }
             }).then(u => unsub.push(u));
         });
-        return () => { unsub.forEach(u => u()); };
-    }, [agentUiMode]);
+
+        return () => {
+            unsub.forEach(u => u());
+        };
+    }, [agentUiMode, updateLastAgentMessage]);
 
     useEffect(() => {
         if (agentUiMode === 'airi') {
@@ -301,11 +329,23 @@ const RightSidebar: React.FC = () => {
         return flatten(fileTree);
     }, [fileTree]);
 
+    // Special context sources (Cursor-style @codebase, @web, @git)
+    const SPECIAL_MENTIONS = [
+        { path: '__codebase__', name: '@codebase', is_dir: false, _special: true, _icon: 'codicon-repo', _desc: 'Auto-find relevant files' },
+        { path: '__web__',      name: '@web',      is_dir: false, _special: true, _icon: 'codicon-globe', _desc: 'Search the web' },
+        { path: '__git__',      name: '@git',      is_dir: false, _special: true, _icon: 'codicon-git-branch', _desc: 'Git diff & status' },
+        { path: '__docs__',     name: '@docs',     is_dir: false, _special: true, _icon: 'codicon-book', _desc: 'Documentation context' },
+    ];
+
     const filteredSuggestions = useMemo(() => {
         const lastWord = inputValue.split(/\s+/).pop() || '';
         if (!lastWord.startsWith('@')) return [];
         const query = lastWord.slice(1).toLowerCase();
-        return allFiles.filter(f => f.name.toLowerCase().includes(query)).slice(0, 10);
+        const specials = (query === '' || SPECIAL_MENTIONS.some(s => s.name.slice(1).startsWith(query)))
+            ? SPECIAL_MENTIONS.filter(s => s.name.slice(1).startsWith(query) || query === '')
+            : [];
+        const files = allFiles.filter(f => f.name.toLowerCase().includes(query)).slice(0, 8);
+        return [...specials, ...files] as any[];
     }, [inputValue, allFiles]);
 
     useEffect(() => {
@@ -355,21 +395,12 @@ const RightSidebar: React.FC = () => {
         return currentActivity;
     }, [aiStatus, currentActivity]);
 
-    if (!isOpen) return null;
+
 
     const handleAttachFile = async () => {
         if (isAttaching) return;
         setIsAttaching(true);
         try {
-            // Priority: Find a dedicated embedding model first (much faster)
-            let embeddingModel = availableModels.find(m =>
-                m.provider === 'ollama' && (
-                    m.id.toLowerCase().includes('embed') ||
-                    m.id.toLowerCase().includes('nomic') ||
-                    m.id.toLowerCase().includes('mxbai')
-                )
-            )?.id;
-
             // Filter for dedicated embedding models only
             const dedicatedEmbedder = availableModels.find(m =>
                 m.provider === 'ollama' && (
@@ -379,15 +410,10 @@ const RightSidebar: React.FC = () => {
                 )
             )?.id;
 
-            // STRATEGY: Only attempt neuralization if we have a dedicated lightweight model.
-            // Using the heavy reasoning model for embeddings causes the '4-minute' swap delay.
             let cleanInvokeModel = "";
             if (dedicatedEmbedder) {
                 cleanInvokeModel = dedicatedEmbedder.includes('|') ? dedicatedEmbedder.split('|').pop()! :
                     (dedicatedEmbedder.includes('/') ? dedicatedEmbedder.split('/').pop()! : dedicatedEmbedder);
-                console.log(`[DEBUG] Neuralizing using dedicated model: ${cleanInvokeModel}`);
-            } else {
-                console.log("[DEBUG] No dedicated embedder found. Using instant raw-text attachment flow.");
             }
 
             let results: any[];
@@ -412,16 +438,7 @@ const RightSidebar: React.FC = () => {
             }
         } catch (error: any) {
             console.error('Failed to neuralize, attempting raw attachment:', error);
-            // FINAL FALLBACK: If neuralization fails, try a simple file read for raw context
-            try {
-                // We need the path. Since we don't have it from 'select_and_process_attachment' yet
-                // because it failed before/during selection potentially, we might need a separate picker.
-                // However, 'select_and_process_attachment' usually fails AFTER selection.
-                // For now, let's just alert the user to get a dedicated model.
-                alert('Ollama failed to neuralize the file. \n\nTIP: For best performance, run "ollama pull nomic-embed-text". \nFalling back to standard attachment...');
-            } catch (fallbackError) {
-                alert('Failed to attach file: ' + error);
-            }
+            alert('Ollama failed to neuralize the file. Falling back to standard attachment...');
         } finally {
             setIsAttaching(false);
         }
@@ -430,7 +447,47 @@ const RightSidebar: React.FC = () => {
     const onSend = async (overrideMsg?: string) => {
         const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
         console.log('[DIAG] onSend called, val:', val, 'isRightSidebarOpen:', useStore.getState().isRightSidebarOpen);
-        if ((val || attachedFiles.length > 0) && !isAgentThinking) {
+        
+        // ── Process Slash Commands ──────────────────────────────────────────
+        let processedVal = val;
+        const firstWord = val.split(/\s+/)[0] || '';
+        const activeTab = useStore.getState().tabs.find((t: any) => t.id === useStore.getState().activeTabId);
+        
+        if (firstWord.startsWith('/')) {
+            const cmd = firstWord.toLowerCase();
+            const restOfMessage = val.slice(firstWord.length).trim();
+            
+            switch (cmd) {
+                case '/generate':
+                    processedVal = `Generate ${restOfMessage || 'code that does the following'} in ${activeTab?.language || 'typescript'}. Use file_write or apply_from_chat to save the result.`;
+                    break;
+                case '/explain':
+                    processedVal = `Explain this code in plain English:\n\`\`\`\n${restOfMessage || '// Explain the selected code'}\n\`\`\``;
+                    break;
+                case '/refactor':
+                    processedVal = `Refactor this code to improve readability and performance:\n\`\`\`\n${restOfMessage || '// Refactor the selected code'}\n\`\`\``;
+                    break;
+                case '/debug':
+                    processedVal = `Debug this code and provide fixes:\n\`\`\`\n${restOfMessage || '// Debug the selected code'}\n\`\`\``;
+                    break;
+                case '/document':
+                    processedVal = `Generate documentation for this code:\n\`\`\`\n${restOfMessage || '// Document the selected code'}\n\`\`\``;
+                    break;
+                case '/test':
+                    processedVal = `Generate unit tests for:\n\`\`\`\n${restOfMessage || '// Generate tests for the selected code'}\n\`\`\``;
+                    break;
+                case '/commit':
+                    processedVal = `Generate a git commit message for the current changes. First run git diff to see what changed.`;
+                    break;
+                case '/fix':
+                    processedVal = `Fix the following linting errors or issues:\n${restOfMessage || '// Fix all linting issues in the file'}`;
+                    break;
+                default:
+                    processedVal = val;
+            }
+        }
+        
+        if ((processedVal || attachedFiles.length > 0) && !isAgentThinking) {
             console.log('[DIAG] onSend: sending message, sidebar state before:', useStore.getState().isRightSidebarOpen);
             if (overrideMsg === undefined) setInputValue("");
             setIsMentionDropdownOpen(false);
@@ -455,9 +512,33 @@ const RightSidebar: React.FC = () => {
             } finally {
                 setIsAgentThinking(false);
                 console.log('[DIAG] onSend: done. sidebar state:', useStore.getState().isRightSidebarOpen);
+                
+                // ── Speak AI response with TTS ───────────────────────────────────
+                if (ttsEnabled) {
+                    const messages = useStore.getState().agentMessages;
+                    const lastMsg = messages[messages.length - 1];
+                    if (lastMsg?.role === 'assistant' && lastMsg.content) {
+                        const textToSpeak = lastMsg.content.slice(0, 500); // Limit length
+                        speak(textToSpeak, ttsPreset, () => setAiriSpeaking(false), () => setAiriSpeaking(true));
+                        setAiriSpeaking(true);
+                    }
+                }
             }
         }
     };
+
+    // ── Voice interaction handler ──
+    useEffect(() => {
+        const handleVoiceMission = (e: any) => {
+            const text = e.detail?.text;
+            if (text) {
+                console.log('[VOICE] Triggering mission:', text);
+                onSend(text);
+            }
+        };
+        window.addEventListener('airi-voice-mission', handleVoiceMission);
+        return () => window.removeEventListener('airi-voice-mission', handleVoiceMission);
+    }, [onSend]);
 
     const handleCopy = (content: string, idx: number) => {
         navigator.clipboard.writeText(content).then(() => {
@@ -558,18 +639,29 @@ const RightSidebar: React.FC = () => {
         }
     };
 
-    const handleMentionSelect = (file: FileEntry) => {
+    const handleMentionSelect = (file: any) => {
         const words = inputValue.split(/\s+/);
-        words[words.length - 1] = `@${file.name}`;
+        // For special mentions, insert the full name; for files, insert @filename
+        words[words.length - 1] = (file as any)._special ? file.name : `@${file.name}`;
         const newValue = words.join(' ') + ' ';
         setInputValue(newValue);
         setIsMentionDropdownOpen(false);
-        attachFile({
-            id: file.path,
-            type: 'file',
-            name: file.name,
-            path: file.path
-        });
+        if ((file as any)._special) {
+            // Special context source — resolved at send time in agent.ts
+            attachFile({
+                id: file.path,
+                type: 'special' as any,
+                name: file.name,
+                path: file.path,
+            });
+        } else {
+            attachFile({
+                id: file.path,
+                type: 'file',
+                name: file.name,
+                path: file.path,
+            });
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -609,7 +701,32 @@ const RightSidebar: React.FC = () => {
         const lastWord = val.split(/\s+/).pop() || '';
         setIsMentionDropdownOpen(lastWord.startsWith('@'));
         setSelectedMentionIndex(0);
+
+        // ── Slash Commands Detection ────────────────────────────────────────
+        const firstWord = val.split(/\s+/)[0] || '';
+        if (firstWord.startsWith('/') && val.indexOf(' ') === -1) {
+            const slashCommands = [
+                { cmd: '/generate', label: 'Generate code', desc: 'Generate new code from description' },
+                { cmd: '/explain', label: 'Explain code', desc: 'Explain selected or surrounding code' },
+                { cmd: '/refactor', label: 'Refactor code', desc: 'Refactor selected code' },
+                { cmd: '/debug', label: 'Debug code', desc: 'Find and fix bugs in code' },
+                { cmd: '/document', label: 'Document code', desc: 'Generate documentation' },
+                { cmd: '/test', label: 'Generate tests', desc: 'Create unit tests' },
+                { cmd: '/commit', label: 'Git commit', desc: 'Generate commit message' },
+                { cmd: '/fix', label: 'Fix errors', desc: 'Fix linting errors' },
+            ];
+            const matches = slashCommands.filter(c => c.cmd.startsWith(firstWord.toLowerCase()));
+            if (matches.length > 0) {
+                setSelectedMentionIndex(0);
+                setFilteredSuggestions(matches);
+                setIsMentionDropdownOpen(true);
+            }
+        } else if (!firstWord.startsWith('/')) {
+            setIsMentionDropdownOpen(false);
+        }
     };
+
+    if (!isOpen) return null;
 
     return (
         <aside
@@ -689,6 +806,7 @@ const RightSidebar: React.FC = () => {
                     50%      { transform: translateX(-50%) translateY(-7px); }
                 }
                 /* Anime-style cloud thought bubble for AIRI 3D mode */
+                }
                 .airi-thought-cloud-3d {
                     background: rgba(232, 245, 255, 0.94);
                     border: 1.5px solid rgba(180, 215, 255, 0.65);
@@ -700,6 +818,17 @@ const RightSidebar: React.FC = () => {
                     box-shadow: 0 4px 20px rgba(0,0,0,0.25),
                                 inset 0 1px 0 rgba(255,255,255,0.9);
                     animation: thoughtFloat 2.8s ease-in-out infinite;
+                    cursor: pointer;
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                .airi-thought-cloud-3d:hover {
+                    background: rgba(240, 250, 255, 0.98);
+                    transform: scale(1.02);
+                }
+                .airi-thought-cloud-3d.expanded {
+                    max-width: 280px;
+                    border-radius: 12px;
+                    padding: 14px;
                 }
                 .airi-thought-cloud-3d::before {
                     content: '';
@@ -835,46 +964,77 @@ const RightSidebar: React.FC = () => {
 
                         {/* Full-height 3D avatar */}
                         <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-                            <AiriPanel style={{ width: '100%', height: '100%' }} transparent={true} />
+                            <AiriPanel style={{ width: '100%', height: '100%' }} transparent={true} character={avatarCharacter} />
 
                             {/* ── Anime Thought Bubble — what AIRI is currently thinking ── */}
                             {isAgentThinking && (
                                 <div style={{
                                     position: 'absolute',
-                                    top: '16%',
+                                    top: '12%',
                                     left: '50%',
                                     transform: 'translateX(-50%)',
-                                    zIndex: 10,
-                                    pointerEvents: 'none',
+                                    zIndex: 50,
+                                    pointerEvents: 'auto',
                                     display: 'flex',
                                     flexDirection: 'column',
                                     alignItems: 'center',
                                     animation: 'thoughtCloudIn 0.35s ease-out',
                                 }}>
                                     {/* Cloud body */}
-                                    <div className="airi-thought-cloud-3d">
-                                        <span style={{
-                                            display: 'block',
-                                            fontSize: '11px',
-                                            color: '#080516',
-                                            lineHeight: 1.5,
-                                            textAlign: 'center',
-                                            maxWidth: '190px',
-                                            wordBreak: 'break-word',
-                                        }}>
-                                            {(() => {
-                                                const raw = cleanAiContent(airiSpeech).slice(-100);
-                                                if (raw) return raw;
-                                                if (liveToolCalls[0]) return liveToolCalls[0].label;
-                                                return '...';
-                                            })()}
-                                        </span>
+                                    <div
+                                        className={`airi-thought-cloud-3d ${isCloudExpanded ? 'expanded' : ''}`}
+                                        onClick={() => setIsCloudExpanded(!isCloudExpanded)}
+                                    >
+                                        {!isCloudExpanded ? (
+                                            <span style={{
+                                                display: 'block',
+                                                fontSize: '11px',
+                                                color: '#080516',
+                                                lineHeight: 1.5,
+                                                textAlign: 'center',
+                                                maxWidth: '190px',
+                                                wordBreak: 'break-word',
+                                            }}>
+                                                {(() => {
+                                                    const raw = cleanAiContent(airiSpeech);
+                                                    if (raw) return raw;
+                                                    if (liveToolCalls[0]) return liveToolCalls[0].label;
+                                                    return 'Thinking...';
+                                                })()}
+                                            </span>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '220px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.05)', paddingBottom: '4px', marginBottom: '4px' }}>
+                                                    <span style={{ fontSize: '10px', fontWeight: 800, color: '#080516', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Process Stack</span>
+                                                    <i className="codicon codicon-close" style={{ fontSize: '10px', color: '#080516', opacity: 0.4 }} />
+                                                </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                    {liveToolCalls.length === 0 ? (
+                                                        <div style={{ fontSize: '11px', color: '#080516', opacity: 0.5, fontStyle: 'italic' }}>Analyzing mission parameters...</div>
+                                                    ) : (
+                                                        liveToolCalls.map(tc => (
+                                                            <div key={tc.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                <span style={{
+                                                                    width: '6px', height: '6px', borderRadius: '50%',
+                                                                    background: tc.status === 'running' ? '#3b82f6' : (tc.status === 'done' ? '#10b981' : '#ef4444'),
+                                                                    animation: tc.status === 'running' ? 'hubPulse 1s infinite' : 'none'
+                                                                }} />
+                                                                <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                                                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#080516' }}>{tc.label}</span>
+                                                                    {tc.detail && <span style={{ fontSize: '9px', color: '#080516', opacity: 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tc.detail}</span>}
+                                                                </div>
+                                                            </div>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                     {/* Trail dots from cloud down toward avatar head */}
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', marginTop: '6px' }}>
-                                        <div style={{ width: '9px', height: '9px', borderRadius: '50%', background: 'rgba(210,235,255,0.82)' }} />
-                                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'rgba(210,235,255,0.65)' }} />
-                                        <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: 'rgba(210,235,255,0.48)' }} />
+                                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'rgba(180, 215, 255, 0.8)', border: '1px solid rgba(255,255,255,0.4)' }} />
+                                        <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'rgba(180, 215, 255, 0.6)' }} />
+                                        <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: 'rgba(180, 215, 255, 0.4)' }} />
                                     </div>
                                 </div>
                             )}
@@ -919,14 +1079,8 @@ const RightSidebar: React.FC = () => {
                                         <div
                                             className="markdown-content"
                                             style={{ fontSize: '12.5px', lineHeight: '1.55', color: 'rgba(255,255,255,0.88)' }}
-                                            dangerouslySetInnerHTML={{ __html: marked.parse(cleaned.slice(-1000) || '') as string }}
+                                            dangerouslySetInnerHTML={{ __html: marked.parse(cleaned || '') as string }}
                                         />
-                                    </div>
-                                );
-                                if (isAgentThinking) return (
-                                    <div style={{ fontSize: '10px', opacity: 0.3, textAlign: 'center', padding: '6px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                        <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'rgba(168,85,247,0.5)', display: 'inline-block', animation: 'hubPulse 1.2s infinite' }} />
-                                        thinking...
                                     </div>
                                 );
                                 return <div style={{ fontSize: '10px', opacity: 0.2, textAlign: 'center', padding: '6px 0' }}>Awaiting mission</div>;
@@ -942,7 +1096,7 @@ const RightSidebar: React.FC = () => {
                                 <textarea
                                     ref={inputRef} value={inputValue} onChange={handleInputChange} onKeyDown={handleKeyDown} onPaste={handlePaste}
                                     className="agent-mission-input"
-                                    placeholder={isAgentThinking ? 'Processing...' : 'Speak to AIRI...'}
+                                    placeholder="Speak to AIRI..."
                                     disabled={isAgentThinking}
                                     rows={1}
                                     style={{
@@ -959,6 +1113,51 @@ const RightSidebar: React.FC = () => {
                                 }}>
                                     <i className="codicon codicon-arrow-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: '#000' }}></i>
                                 </div>
+                                {/* ── TTS Voice Controls ────────────────────────────────────────── */}
+                                <div 
+                                    onClick={() => {
+                                        if (!ttsEnabled) {
+                                            initVoiceSystem().then(ready => {
+                                                if (ready) setTtsEnabled(true);
+                                            });
+                                        } else {
+                                            setTtsEnabled(!ttsEnabled);
+                                        }
+                                    }}
+                                    style={{
+                                        width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
+                                        background: ttsEnabled ? '#10b981' : 'rgba(168,85,247,0.2)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                                        transition: 'background 0.2s'
+                                    }}
+                                    title={ttsEnabled ? 'AIRI Voice ON' : 'AIRI Voice OFF'}
+                                >
+                                    <i className="codicon codicon-unmute" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: '#fff' }}></i>
+                                </div>
+                                {ttsEnabled && (
+                                    <select 
+                                        value={ttsPreset}
+                                        onChange={(e) => setTtsPreset(e.target.value as any)}
+                                        style={{
+                                            background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.3)',
+                                            borderRadius: '4px', color: '#fff', fontSize: '10px', padding: '2px 4px',
+                                            cursor: 'pointer', outline: 'none'
+                                        }}
+                                    >
+                                        <option value="airi">AIRI (Female)</option>
+                                        <option value="sage">Sage (Female)</option>
+                                        <option value="nova">Nova (Female)</option>
+                                        <option value="kawaii">Kawaii (Female)</option>
+                                        <option value="hana">Hana (Female)</option>
+                                        <option value="yuki">Yuki (Female)</option>
+                                        <option value="sora">Sora (Female)</option>
+                                        <option value="aria">Aria (Female)</option>
+                                        <option value="yamato">Yamato (Male)</option>
+                                        <option value="ren">Ren (Male)</option>
+                                        <option value="haru">Haru (Male)</option>
+                                        <option value="zero">Zero (Male)</option>
+                                    </select>
+                                )}
                             </div>
                             <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '6px' }}>
                                 <span onClick={onModeClick} style={{ fontSize: '9px', opacity: 0.35, cursor: 'pointer' }}>{mode}</span>
@@ -974,413 +1173,439 @@ const RightSidebar: React.FC = () => {
                     </div>
                 ) : (
 
-                /* ── CHAT / MISSION HUB MODE ── */
-                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                {view === 'chat' ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                    /* ── CHAT / MISSION HUB MODE ── */
+                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                        {view === 'chat' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
-                        {/* AIRI Sentient Header — shrinks when mission is active */}
-                        <div style={{
-                            position: 'sticky', top: 0, zIndex: 10,
-                            background: 'linear-gradient(180deg, var(--vscode-sideBar-background) 60%, transparent)',
-                            display: 'flex', flexDirection: 'column', alignItems: 'center',
-                            transition: 'all 0.3s ease-in-out',
-                            height: messages.length === 0 ? '320px' : '100px',
-                            minHeight: messages.length === 0 ? '320px' : '100px',
-                            paddingTop: messages.length === 0 ? '24px' : '8px',
-                            overflow: 'hidden', pointerEvents: 'none'
-                        }}>
-                            <div style={{
-                                width: messages.length === 0 ? '240px' : '80px',
-                                height: messages.length === 0 ? '240px' : '80px',
-                                transition: 'all 0.3s ease-in-out'
-                            }}>
-                                <AiriPanel style={{ width: '100%', height: '100%' }} scale={0.8} yOffset={"-25%"} transparent={true} />
-                            </div>
-                            {messages.length === 0 && (
-                                <div style={{ marginTop: '16px', textAlign: 'center', pointerEvents: 'auto' }}>
-                                    <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em' }}>AIRI SENTIENT CORE</div>
-                                    <div style={{ fontSize: '11px', opacity: 0.4 }}>
-                                        {isYoloMode ? '⚡ YOLO — Full autonomy' : 'Ready for your mission'}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Quick Mission Workflows — shown only on fresh session */}
-                        {messages.length === 0 && (
-                            <div style={{ padding: '0 12px 12px' }}>
-                                <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.35, marginBottom: '8px' }}>Quick Missions</div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                                    {[
-                                        { icon: '🔍', label: 'Audit Codebase', mission: 'Audit the entire codebase for bugs, dead code, and architectural issues. List findings.' },
-                                        { icon: '🛠️', label: 'Fix All Errors', mission: 'Find all compiler errors and runtime issues in this project. Fix them one by one.' },
-                                        { icon: '📦', label: 'Git Commit', mission: 'Stage all modified files and create a meaningful commit message based on the changes.' },
-                                        { icon: '🚀', label: 'Build & Verify', mission: 'Run cargo build, fix any errors, then verify the implementation is correct.' },
-                                        { icon: '📝', label: 'Write Tests', mission: 'Write comprehensive unit tests for the most critical functions in this project.' },
-                                        { icon: '🧹', label: 'Refactor', mission: 'Identify and refactor the most complex functions for clarity and performance.' },
-                                    ].map(({ icon, label, mission }) => (
-                                        <button
-                                            key={label}
-                                            onClick={() => !isAgentThinking && onSend(mission)}
-                                            disabled={isAgentThinking}
-                                            style={{
-                                                background: 'rgba(255,255,255,0.03)',
-                                                border: '1px solid rgba(255,255,255,0.07)',
-                                                borderRadius: '8px', padding: '8px 10px',
-                                                cursor: isAgentThinking ? 'not-allowed' : 'pointer',
-                                                color: 'rgba(255,255,255,0.75)', fontSize: '11px',
-                                                textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px',
-                                                transition: 'all 0.15s',
-                                                opacity: isAgentThinking ? 0.4 : 1,
-                                            }}
-                                            onMouseEnter={(e) => { if (!isAgentThinking) { e.currentTarget.style.background = 'rgba(59,130,246,0.08)'; e.currentTarget.style.borderColor = 'rgba(59,130,246,0.3)'; }}}
-                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; }}
-                                        >
-                                            <span style={{ fontSize: '14px' }}>{icon}</span>
-                                            <span style={{ fontWeight: 600 }}>{label}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Live Tool-Call Feed — shows while agent is active */}
-                        {(isAgentThinking || liveToolCalls.length > 0) && (() => {
-                            // Deduplicate consecutive same-tool calls → show label + count badge
-                            const deduped: { id: string; label: string; tool: string; status: 'running' | 'done' | 'error'; count: number }[] = [];
-                            for (const tc of liveToolCalls.slice(0, 12)) {
-                                const last = deduped[deduped.length - 1];
-                                if (last && last.tool === tc.tool) {
-                                    last.count++;
-                                    if (tc.status === 'running') last.status = 'running';
-                                } else {
-                                    deduped.push({ ...tc, count: 1 });
-                                }
-                            }
-                            return (
-                            <div style={{
-                                margin: '0 12px 8px',
-                                background: 'rgba(15,15,25,0.8)',
-                                border: `1px solid ${isAgentThinking ? 'rgba(249,115,22,0.25)' : 'rgba(16,185,129,0.2)'}`,
-                                borderRadius: '10px', padding: '8px 12px',
-                                transition: 'border-color 0.5s'
-                            }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                                    <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: isAgentThinking ? 'rgba(249,115,22,0.7)' : 'rgba(16,185,129,0.6)' }}>
-                                        {isAgentThinking ? (isYoloMode ? '⚡ YOLO Executing' : '● Live Actions') : '✓ Completed'}
-                                    </div>
-                                    <div
-                                        onClick={() => setLiveToolCalls([])}
-                                        style={{ cursor: 'pointer', fontSize: '11px', opacity: 0.35, padding: '0 2px', lineHeight: 1 }}
-                                        title="Clear feed"
-                                    >✕</div>
-                                </div>
-                                {deduped.length === 0 && isAgentThinking && (
-                                    <div style={{ fontSize: '11px', opacity: 0.4, fontStyle: 'italic' }}>Thinking...</div>
-                                )}
-                                {deduped.slice(0, 6).map(tc => (
-                                    <div key={tc.id} style={{
-                                        display: 'flex', alignItems: 'center', gap: '6px',
-                                        fontSize: '11px', padding: '2px 0',
-                                        color: tc.status === 'done' ? 'rgba(255,255,255,0.25)' : tc.status === 'error' ? '#ef4444' : 'rgba(255,255,255,0.8)',
+                                {/* AIRI Sentient Header — shrinks when mission is active */}
+                                <div style={{
+                                    position: 'sticky', top: 0, zIndex: 10,
+                                    background: 'linear-gradient(180deg, var(--vscode-sideBar-background) 60%, transparent)',
+                                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                    transition: 'all 0.3s ease-in-out',
+                                    height: messages.length === 0 ? '320px' : '100px',
+                                    minHeight: messages.length === 0 ? '320px' : '100px',
+                                    paddingTop: messages.length === 0 ? '24px' : '8px',
+                                    overflow: 'hidden', pointerEvents: 'none'
+                                }}>
+                                    <div style={{
+                                        width: messages.length === 0 ? '240px' : '80px',
+                                        height: messages.length === 0 ? '240px' : '80px',
+                                        transition: 'all 0.3s ease-in-out'
                                     }}>
-                                        {tc.status === 'running' && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#f97316', display: 'inline-block', animation: 'hubPulse 1s infinite', flexShrink: 0 }} />}
-                                        {tc.status === 'done' && <span style={{ color: '#10b981', fontSize: '10px', flexShrink: 0 }}>✓</span>}
-                                        {tc.status === 'error' && <span style={{ fontSize: '10px', flexShrink: 0 }}>✗</span>}
-                                        <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tc.label}</span>
-                                        {tc.count > 1 && (
-                                            <span style={{
-                                                fontSize: '9px', fontWeight: 700, padding: '0 5px', borderRadius: '10px',
-                                                background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.4)',
-                                                flexShrink: 0
-                                            }}>×{tc.count}</span>
-                                        )}
+                                        <AiriPanel style={{ width: '100%', height: '100%' }} scale={0.8} yOffset={"-25%"} transparent={true} character={avatarCharacter} />
                                     </div>
-                                ))}
-                            </div>
-                            );
-                        })()}
-
-                        {/* Agent task progress bars */}
-                        {agentTasks.filter((t: any) => t.status === 'running' && t.id.includes('-')).map((task: any) => (
-                            <div key={task.id} style={{
-                                margin: '0 12px 8px',
-                                background: 'rgba(59,130,246,0.05)',
-                                border: '1px solid rgba(59,130,246,0.2)',
-                                padding: '10px 12px', borderRadius: '8px',
-                            }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px', color: '#3b82f6' }}></i>
-                                        <span style={{ fontSize: '11px', fontWeight: 600 }}>{task.title}</span>
-                                    </div>
-                                    <span style={{ fontSize: '10px', opacity: 0.5 }}>{task.progress}%</span>
-                                </div>
-                                <div style={{ background: 'rgba(0,0,0,0.3)', height: '3px', borderRadius: '2px', overflow: 'hidden' }}>
-                                    <div style={{ background: '#3b82f6', width: `${task.progress}%`, height: '100%', transition: 'width 0.3s ease' }} />
-                                </div>
-                                {task.message && <div style={{ fontSize: '10px', marginTop: '4px', opacity: 0.5 }}>{task.message}</div>}
-                            </div>
-                        ))}
-
-                        {/* Mission log — agent messages */}
-                        <div style={{ display: 'flex', flexDirection: 'column', padding: '8px 12px', gap: '12px', flex: 1 }}>
-                            {messages.length > 0 && (
-                                <>
-                                    {messages.map((msg, idx) => (
-                                        <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'relative' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: 0.5 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    <span style={{ fontSize: '10px' }}>{msg.role === 'assistant' ? (msg.isSubAgentResponse ? '🤖' : '✦') : '▸'}</span>
-                                                    <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: msg.isSubAgentResponse ? '#3b82f6' : msg.role === 'assistant' ? 'rgba(255,255,255,0.6)' : '#3b82f6' }}>
-                                                        {msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'AIRI-MODULE' : 'AIRI') : 'MISSION'}
-                                                    </span>
-                                                    {msg.role === 'assistant' && isAgentThinking && idx === messages.length - 1 && (
-                                                        <span style={{ fontSize: '9px', opacity: 0.4, textTransform: 'uppercase' }}>{avatarState}</span>
-                                                    )}
-                                                    {msg.role === 'assistant' && !isAgentThinking && msg.timestamp && (
-                                                        <span style={{ fontSize: '9px', opacity: 0.25 }}>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                    )}
-                                                </div>
-                                                <div className="message-actions" style={{ opacity: 0, transition: 'opacity 0.2s', display: 'flex', gap: '8px' }}>
-                                                    {msg.role === 'user' && !isAgentThinking && (
-                                                        <i className="codicon codicon-edit" style={{ cursor: 'pointer', fontSize: '11px' }} title="Edit"
-                                                            onClick={() => { setEditingMsgIdx(idx); setEditValue(msg.content); }}></i>
-                                                    )}
-                                                    {msg.role === 'assistant' && (
-                                                        <i className={`codicon codicon-${lastCopiedIdx === idx ? 'check' : 'copy'}`}
-                                                            style={{ cursor: 'pointer', fontSize: '11px', color: lastCopiedIdx === idx ? '#10b981' : 'inherit' }}
-                                                            onClick={() => handleCopy(msg.content, idx)}></i>
-                                                    )}
-                                                </div>
+                                    {messages.length === 0 && (
+                                        <div style={{ marginTop: '16px', textAlign: 'center', pointerEvents: 'auto' }}>
+                                            <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em' }}>AIRI SENTIENT CORE</div>
+                                            <div style={{ fontSize: '11px', opacity: 0.4 }}>
+                                                {isYoloMode ? '⚡ YOLO — Full autonomy' : 'Ready for your mission'}
                                             </div>
-                                            <div style={{
-                                                background: msg.role === 'user'
-                                                    ? 'rgba(59,130,246,0.06)'
-                                                    : (msg.isSubAgentResponse ? 'rgba(59,130,246,0.03)' : 'rgba(255,255,255,0.01)'),
-                                                padding: '10px 14px', borderRadius: '10px',
-                                                border: msg.role === 'user'
-                                                    ? '1px solid rgba(59,130,246,0.15)'
-                                                    : '1px solid rgba(255,255,255,0.04)'
-                                            }}>
-                                                {editingMsgIdx === idx ? (
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                        <textarea
-                                                            value={editValue}
-                                                            onChange={(e) => setEditValue(e.target.value)}
-                                                            autoFocus
-                                                            style={{
-                                                                background: 'rgba(0,0,0,0.2)', border: '1px solid var(--vscode-focusBorder)', color: '#fff',
-                                                                padding: '8px', borderRadius: '6px', fontSize: '13px', resize: 'vertical', minHeight: '60px', outline: 'none'
-                                                            }}
-                                                        />
-                                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                                            <button onClick={() => setEditingMsgIdx(null)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
-                                                            <button onClick={() => handleEditSave(idx)} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: '4px 12px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Resend</button>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <>
-                                                        {msg.thoughts && (
-                                                            <details style={{ marginBottom: '8px', opacity: 0.6 }}>
-                                                                <summary style={{ fontSize: '10px', cursor: 'pointer', fontWeight: 600 }}>Cognitive trace...</summary>
-                                                                <div style={{ fontSize: '10px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>{msg.thoughts}</div>
-                                                            </details>
-                                                        )}
-                                                        {msg.steps && msg.steps.length > 0 && (
-                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
-                                                                {msg.steps.map((step: any, sIdx: number) => {
-                                                                    const statusColor = step.status === 'running' ? '#3b82f6' : step.status === 'success' ? '#10b981' : step.status === 'error' ? '#ef4444' : '#555';
-                                                                    return (
-                                                                        <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', opacity: 0.7 }}>
-                                                                            <span style={{ color: statusColor, fontSize: '8px' }}>●</span>
-                                                                            <span style={{ fontFamily: 'var(--font-mono)' }}>{step.name}</span>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        )}
-                                                        {msg.context && msg.context.length > 0 && (
-                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px', opacity: 0.8 }}>
-                                                                {msg.context.map((item: any, i: number) => (
-                                                                    <div key={i} style={{
-                                                                        display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px',
-                                                                        background: 'rgba(255,255,255,0.06)', borderRadius: '4px', fontSize: '10px',
-                                                                        border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)'
-                                                                    }}>
-                                                                        {item.thumbnail ? (
-                                                                            <img src={item.thumbnail} style={{ width: '14px', height: '14px', borderRadius: '2px', objectFit: 'cover' }} alt="" />
-                                                                        ) : (
-                                                                            <i className="codicon codicon-files" style={{ fontSize: '10px' }}></i>
-                                                                        )}
-                                                                        <span>{item.name}</span>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                        {(() => {
-                                                            const cleaned = cleanAiContent(msg.content || '');
-                                                            if (!cleaned && msg.role === 'assistant') {
-                                                                // Content is still being built (tool calls in progress)
-                                                                return (
-                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', opacity: 0.4 }}>
-                                                                        <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#3b82f6', display: 'inline-block', animation: 'hubPulse 1s infinite' }} />
-                                                                        <span style={{ fontSize: '11px', fontStyle: 'italic' }}>
-                                                                            {isAgentThinking ? 'Working...' : 'Processing response...'}
-                                                                        </span>
-                                                                    </div>
-                                                                );
-                                                            }
-                                                            return <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.6' }} dangerouslySetInnerHTML={{ __html: marked.parse(cleaned) as string }} />;
-                                                        })()}
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {isAgentThinking && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', opacity: 0.3 }}>
-                                            <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#3b82f6', display: 'inline-block', animation: 'hubPulse 1s infinite' }} />
-                                            <span style={{ fontSize: '10px', fontStyle: 'italic', fontFamily: 'var(--font-mono)' }}>processing...</span>
                                         </div>
                                     )}
-                                    <div ref={messagesEndRef} />
-                                </>
-                            )}
-                        </div>
-                    </div>
-                ) : view === 'kortex' ? (
-                    /* Kortex .aim Brain Panel */
-                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                        <div style={{ padding: '16px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '16px' }}>🧠</span>
-                                <div>
-                                    <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Kortex Brain</div>
-                                    <div style={{ fontSize: '10px', opacity: 0.4 }}>{kortexSlots.length} knowledge slots</div>
                                 </div>
-                            </div>
-                            <button
-                                onClick={refreshKortex}
-                                disabled={kortexLoading}
-                                style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#a855f7', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', cursor: kortexLoading ? 'not-allowed' : 'pointer', fontWeight: 600 }}
-                            >
-                                {kortexLoading ? '...' : 'Refresh'}
-                            </button>
-                        </div>
 
-                        {/* Category breakdown */}
-                        {kortexSlots.length > 0 && (() => {
-                            const cats: Record<string, number> = {};
-                            kortexSlots.forEach(s => { cats[s.category] = (cats[s.category] || 0) + 1; });
-                            return (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', padding: '0 16px 12px' }}>
-                                    {Object.entries(cats).map(([cat, count]) => (
-                                        <span key={cat} style={{
-                                            fontSize: '9px', padding: '2px 7px', borderRadius: '10px',
-                                            background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.25)',
-                                            color: '#c084fc', fontWeight: 600
-                                        }}>{cat} ({count})</span>
-                                    ))}
-                                </div>
-                            );
-                        })()}
-
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            {kortexLoading ? (
-                                <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>
-                                    <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '20px', display: 'block', marginBottom: '8px' }}></i>
-                                    Loading neural weights...
-                                </div>
-                            ) : kortexSlots.length === 0 ? (
-                                <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>
-                                    <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px' }}>🧠</span>
-                                    No knowledge stored yet.<br />
-                                    <span style={{ fontSize: '10px', opacity: 0.6 }}>Run a mission to populate the brain.</span>
-                                </div>
-                            ) : (
-                                kortexSlots.map((slot, i) => (
-                                    <div key={slot.id || i} style={{
-                                        background: 'rgba(168,85,247,0.04)',
-                                        border: '1px solid rgba(168,85,247,0.12)',
-                                        borderRadius: '8px', padding: '8px 12px',
-                                    }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                                            <span style={{
-                                                fontSize: '8px', padding: '1px 5px', borderRadius: '8px',
-                                                background: 'rgba(168,85,247,0.15)', color: '#c084fc', fontWeight: 700, textTransform: 'uppercase'
-                                            }}>{slot.category}</span>
-                                            <span style={{ fontSize: '9px', opacity: 0.3, marginLeft: 'auto' }}>
-                                                {new Date(slot.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </span>
+                                {/* Quick Mission Workflows — shown only on fresh session */}
+                                {messages.length === 0 && (
+                                    <div style={{ padding: '0 12px 12px' }}>
+                                        <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.35, marginBottom: '8px' }}>Quick Missions</div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                                            {[
+                                                { icon: '🔍', label: 'Audit Codebase', mission: 'Audit the entire codebase for bugs, dead code, and architectural issues. List findings.' },
+                                                { icon: '🛠️', label: 'Fix All Errors', mission: 'Find all compiler errors and runtime issues in this project. Fix them one by one.' },
+                                                { icon: '📦', label: 'Git Commit', mission: 'Stage all modified files and create a meaningful commit message based on the changes.' },
+                                                { icon: '🚀', label: 'Build & Verify', mission: 'Run cargo build, fix any errors, then verify the implementation is correct.' },
+                                                { icon: '📝', label: 'Write Tests', mission: 'Write comprehensive unit tests for the most critical functions in this project.' },
+                                                { icon: '🧹', label: 'Refactor', mission: 'Identify and refactor the most complex functions for clarity and performance.' },
+                                            ].map(({ icon, label, mission }) => (
+                                                <button
+                                                    key={label}
+                                                    onClick={() => !isAgentThinking && onSend(mission)}
+                                                    disabled={isAgentThinking}
+                                                    style={{
+                                                        background: 'rgba(255,255,255,0.03)',
+                                                        border: '1px solid rgba(255,255,255,0.07)',
+                                                        borderRadius: '8px', padding: '8px 10px',
+                                                        cursor: isAgentThinking ? 'not-allowed' : 'pointer',
+                                                        color: 'rgba(255,255,255,0.75)', fontSize: '11px',
+                                                        textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px',
+                                                        transition: 'all 0.15s',
+                                                        opacity: isAgentThinking ? 0.4 : 1,
+                                                    }}
+                                                    onMouseEnter={(e) => { if (!isAgentThinking) { e.currentTarget.style.background = 'rgba(59,130,246,0.08)'; e.currentTarget.style.borderColor = 'rgba(59,130,246,0.3)'; } }}
+                                                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; }}
+                                                >
+                                                    <span style={{ fontSize: '14px' }}>{icon}</span>
+                                                    <span style={{ fontWeight: 600 }}>{label}</span>
+                                                </button>
+                                            ))}
                                         </div>
-                                        <div style={{ fontSize: '11px', opacity: 0.8, lineHeight: 1.4, fontFamily: 'var(--font-mono)' }}>
-                                            {slot.content.slice(0, 140)}{slot.content.length > 140 ? '…' : ''}
-                                        </div>
-                                        {slot.tags && slot.tags.length > 0 && (
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '6px' }}>
-                                                {slot.tags.map((tag: string, ti: number) => (
-                                                    <span key={ti} style={{ fontSize: '9px', opacity: 0.4, padding: '1px 4px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>#{tag}</span>
-                                                ))}
-                                            </div>
-                                        )}
                                     </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                ) : view === 'history' ? (
-                    <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                            <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5 }}>Recent History</span>
-                        </div>
-                        {chatSessions.length === 0 ? (
-                            <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>
-                                No archived sessions found.
-                            </div>
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {chatSessions.map((session: any) => (
-                                    <div
-                                        key={session.path}
-                                        onClick={() => { loadChatSession(session.path); setView('chat'); }}
-                                        style={{
-                                            padding: '12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)',
-                                            border: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer',
-                                            transition: 'background 0.2s'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                                        onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                                    >
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                            <span style={{ fontSize: '12px', fontWeight: 600 }}>{session.name.replace('session_', '').replace('.aim', '')}</span>
-                                            <span style={{ fontSize: '10px', opacity: 0.4 }}>{session.messages} msgs</span>
+                                )}
+
+                                {/* Live Tool-Call Feed — shows while agent is active */}
+                                {(isAgentThinking || liveToolCalls.length > 0) && (() => {
+                                    // Deduplicate consecutive same-tool calls → show label + count badge
+                                    const deduped: { id: string; label: string; tool: string; status: 'running' | 'done' | 'error'; count: number }[] = [];
+                                    for (const tc of liveToolCalls.slice(0, 12)) {
+                                        const last = deduped[deduped.length - 1];
+                                        if (last && last.tool === tc.tool) {
+                                            last.count++;
+                                            if (tc.status === 'running') last.status = 'running';
+                                        } else {
+                                            deduped.push({ ...tc, count: 1 });
+                                        }
+                                    }
+                                    return (
+                                        <div style={{
+                                            margin: '0 12px 8px',
+                                            background: 'rgba(15,15,25,0.8)',
+                                            border: `1px solid ${isAgentThinking ? 'rgba(249,115,22,0.25)' : 'rgba(16,185,129,0.2)'}`,
+                                            borderRadius: '10px', padding: '8px 12px',
+                                            transition: 'border-color 0.5s'
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                                <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: isAgentThinking ? 'rgba(249,115,22,0.7)' : 'rgba(16,185,129,0.6)' }}>
+                                                    {isAgentThinking ? (isYoloMode ? '⚡ YOLO Executing' : '● Live Actions') : '✓ Completed'}
+                                                </div>
+                                                <div
+                                                    onClick={() => setLiveToolCalls([])}
+                                                    style={{ cursor: 'pointer', fontSize: '11px', opacity: 0.35, padding: '0 2px', lineHeight: 1 }}
+                                                    title="Clear feed"
+                                                >✕</div>
+                                            </div>
+                                            {deduped.length === 0 && isAgentThinking && (
+                                                <div style={{ fontSize: '11px', opacity: 0.4, fontStyle: 'italic' }}>Thinking...</div>
+                                            )}
+                                            {deduped.slice(0, 6).map(tc => (
+                                                <div key={tc.id} style={{
+                                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                                    fontSize: '11px', padding: '2px 0',
+                                                    color: tc.status === 'done' ? 'rgba(255,255,255,0.25)' : tc.status === 'error' ? '#ef4444' : 'rgba(255,255,255,0.8)',
+                                                }}>
+                                                    {tc.status === 'running' && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#f97316', display: 'inline-block', animation: 'hubPulse 1s infinite', flexShrink: 0 }} />}
+                                                    {tc.status === 'done' && <span style={{ color: '#10b981', fontSize: '10px', flexShrink: 0 }}>✓</span>}
+                                                    {tc.status === 'error' && <span style={{ fontSize: '10px', flexShrink: 0 }}>✗</span>}
+                                                    <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tc.label}</span>
+                                                    {tc.count > 1 && (
+                                                        <span style={{
+                                                            fontSize: '9px', fontWeight: 700, padding: '0 5px', borderRadius: '10px',
+                                                            background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.4)',
+                                                            flexShrink: 0
+                                                        }}>×{tc.count}</span>
+                                                    )}
+                                                </div>
+                                            ))}
                                         </div>
-                                        <div style={{ fontSize: '10px', opacity: 0.5 }}>
-                                            {new Date(session.updated_at * 1000).toLocaleString()}
+                                    );
+                                })()}
+
+                                {/* Agent task progress bars */}
+                                {agentTasks.filter((t: any) => t.status === 'running' && t.id.includes('-')).map((task: any) => (
+                                    <div key={task.id} style={{
+                                        margin: '0 12px 8px',
+                                        background: 'rgba(59,130,246,0.05)',
+                                        border: '1px solid rgba(59,130,246,0.2)',
+                                        padding: '10px 12px', borderRadius: '8px',
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px', color: '#3b82f6' }}></i>
+                                                <span style={{ fontSize: '11px', fontWeight: 600 }}>{task.title}</span>
+                                            </div>
+                                            <span style={{ fontSize: '10px', opacity: 0.5 }}>{task.progress}%</span>
                                         </div>
+                                        <div style={{ background: 'rgba(0,0,0,0.3)', height: '3px', borderRadius: '2px', overflow: 'hidden' }}>
+                                            <div style={{ background: '#3b82f6', width: `${task.progress}%`, height: '100%', transition: 'width 0.3s ease' }} />
+                                        </div>
+                                        {task.message && <div style={{ fontSize: '10px', marginTop: '4px', opacity: 0.5 }}>{task.message}</div>}
                                     </div>
                                 ))}
+
+                                {/* Mission log — agent messages */}
+                                <div style={{ display: 'flex', flexDirection: 'column', padding: '8px 12px', gap: '12px', flex: 1 }}>
+                                    {messages.length > 0 && (
+                                        <>
+                                            {messages.filter(m => (
+                                                m.role !== 'system' &&
+                                                m.role !== 'tool' &&
+                                                !(typeof m.content === 'string' && (m.content.trim().startsWith('{') || m.content.trim().startsWith('[')))
+                                            )).map((msg, idx) => (
+                                                <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'relative' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: 0.5 }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            <span style={{ fontSize: '10px' }}>{msg.role === 'assistant' ? (msg.isSubAgentResponse ? '🤖' : '✦') : '▸'}</span>
+                                                            <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: msg.isSubAgentResponse ? '#3b82f6' : msg.role === 'assistant' ? 'rgba(255,255,255,0.6)' : '#3b82f6' }}>
+                                                                {msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'AIRI-MODULE' : 'AIRI') : 'MISSION'}
+                                                            </span>
+                                                            {msg.role === 'assistant' && !isAgentThinking && msg.timestamp && (
+                                                                <span style={{ fontSize: '9px', opacity: 0.25 }}>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="message-actions" style={{ opacity: 0, transition: 'opacity 0.2s', display: 'flex', gap: '8px' }}>
+                                                            {msg.role === 'user' && !isAgentThinking && (
+                                                                <i className="codicon codicon-edit" style={{ cursor: 'pointer', fontSize: '11px' }} title="Edit"
+                                                                    onClick={() => { setEditingMsgIdx(idx); setEditValue(msg.content); }}></i>
+                                                            )}
+                                                            {msg.role === 'assistant' && (
+                                                                <>
+                                                                    {/* ── Accept/Reject Buttons for AI Code ────────────────────────── */}
+                                                                    {msg.content && msg.content.includes('```') && (
+                                                                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                                                                            <button 
+                                                                                onClick={async () => {
+                                                                                    const codeMatch = msg.content.match(/```[\s\S]*?```/g);
+                                                                                    if (codeMatch) {
+                                                                                        const code = codeMatch[0].replace(/```\w*\n?/g, '').trim();
+                                                                                        const { invoke } = await import('../tauri_bridge');
+                                                                                        const activeTab = useStore.getState().tabs.find((t: any) => t.id === useStore.getState().activeTabId);
+                                                                                        if (activeTab?.path) {
+                                                                                            await invoke('write_file_content', { path: activeTab.path, content: code });
+                                                                                            alert('Code applied to file!');
+                                                                                        }
+                                                                                    }
+                                                                                }}
+                                                                                style={{ 
+                                                                                    background: '#10b981', border: 'none', color: '#fff', 
+                                                                                    padding: '4px 12px', borderRadius: '4px', fontSize: '11px', 
+                                                                                    cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px'
+                                                                                }}
+                                                                            >
+                                                                                <i className="codicon codicon-check" style={{ fontSize: '10px' }}></i> Accept
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => { }}
+                                                                                style={{ 
+                                                                                    background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', 
+                                                                                    padding: '4px 12px', borderRadius: '4px', fontSize: '11px', 
+                                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
+                                                                                }}
+                                                                            >
+                                                                                <i className="codicon codicon-close" style={{ fontSize: '10px' }}></i> Dismiss
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                    <i className={`codicon codicon-${lastCopiedIdx === idx ? 'check' : 'copy'}`}
+                                                                        style={{ cursor: 'pointer', fontSize: '11px', color: lastCopiedIdx === idx ? '#10b981' : 'inherit' }}
+                                                                        onClick={() => handleCopy(msg.content, idx)}></i>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{
+                                                        background: msg.role === 'user'
+                                                            ? 'rgba(59,130,246,0.06)'
+                                                            : (msg.isSubAgentResponse ? 'rgba(59,130,246,0.03)' : 'rgba(255,255,255,0.01)'),
+                                                        padding: '10px 14px', borderRadius: '10px',
+                                                        border: msg.role === 'user'
+                                                            ? '1px solid rgba(59,130,246,0.15)'
+                                                            : '1px solid rgba(255,255,255,0.04)'
+                                                    }}>
+                                                        {editingMsgIdx === idx ? (
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                                <textarea
+                                                                    value={editValue}
+                                                                    onChange={(e) => setEditValue(e.target.value)}
+                                                                    autoFocus
+                                                                    style={{
+                                                                        background: 'rgba(0,0,0,0.2)', border: '1px solid var(--vscode-focusBorder)', color: '#fff',
+                                                                        padding: '8px', borderRadius: '6px', fontSize: '13px', resize: 'vertical', minHeight: '60px', outline: 'none'
+                                                                    }}
+                                                                />
+                                                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                                                    <button onClick={() => setEditingMsgIdx(null)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
+                                                                    <button onClick={() => handleEditSave(idx)} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: '4px 12px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Resend</button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                {msg.thoughts && (
+                                                                    <details style={{ marginBottom: '8px', opacity: 0.6 }}>
+                                                                        <summary style={{ fontSize: '10px', cursor: 'pointer', fontWeight: 600 }}>Cognitive trace...</summary>
+                                                                        <div style={{ fontSize: '10px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>{msg.thoughts}</div>
+                                                                    </details>
+                                                                )}
+                                                                {msg.steps && msg.steps.length > 0 && (
+                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
+                                                                        {msg.steps.map((step: any, sIdx: number) => {
+                                                                            const statusColor = step.status === 'running' ? '#3b82f6' : step.status === 'success' ? '#10b981' : step.status === 'error' ? '#ef4444' : '#555';
+                                                                            return (
+                                                                                <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', opacity: 0.7 }}>
+                                                                                    <span style={{ color: statusColor, fontSize: '8px' }}>●</span>
+                                                                                    <span style={{ fontFamily: 'var(--font-mono)' }}>{step.name}</span>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                                {msg.context && msg.context.length > 0 && (
+                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px', opacity: 0.8 }}>
+                                                                        {msg.context.map((item: any, i: number) => (
+                                                                            <div key={i} style={{
+                                                                                display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px',
+                                                                                background: 'rgba(255,255,255,0.06)', borderRadius: '4px', fontSize: '10px',
+                                                                                border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)'
+                                                                            }}>
+                                                                                {item.thumbnail ? (
+                                                                                    <img src={item.thumbnail} style={{ width: '14px', height: '14px', borderRadius: '2px', objectFit: 'cover' }} alt="" />
+                                                                                ) : (
+                                                                                    <i className="codicon codicon-files" style={{ fontSize: '10px' }}></i>
+                                                                                )}
+                                                                                <span>{item.name}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                                {(() => {
+                                                                    const cleaned = cleanAiContent(msg.content || '');
+                                                                    if (!cleaned && msg.role === 'assistant') {
+                                                                        return null;
+                                                                    }
+                                                                    return <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.6' }} dangerouslySetInnerHTML={{ __html: marked.parse(cleaned) as string }} />;
+                                                                })()}
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {/* Processing indicator handled by AiriPanel character overlay */}
+                                            <div ref={messagesEndRef} />
+                                        </>
+                                    )}
+                                </div>
                             </div>
+                        ) : view === 'kortex' ? (
+                            /* Kortex .aim Brain Panel */
+                            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                                <div style={{ padding: '16px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontSize: '16px' }}>🧠</span>
+                                        <div>
+                                            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Kortex Brain</div>
+                                            <div style={{ fontSize: '10px', opacity: 0.4 }}>{kortexSlots.length} knowledge slots</div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={refreshKortex}
+                                        disabled={kortexLoading}
+                                        style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#a855f7', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', cursor: kortexLoading ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+                                    >
+                                        {kortexLoading ? '...' : 'Refresh'}
+                                    </button>
+                                </div>
+
+                                {/* Category breakdown */}
+                                {kortexSlots.length > 0 && (() => {
+                                    const cats: Record<string, number> = {};
+                                    kortexSlots.forEach(s => { cats[s.category] = (cats[s.category] || 0) + 1; });
+                                    return (
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', padding: '0 16px 12px' }}>
+                                            {Object.entries(cats).map(([cat, count]) => (
+                                                <span key={cat} style={{
+                                                    fontSize: '9px', padding: '2px 7px', borderRadius: '10px',
+                                                    background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.25)',
+                                                    color: '#c084fc', fontWeight: 600
+                                                }}>{cat} ({count})</span>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
+
+                                <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {kortexLoading ? (
+                                        <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>
+                                            <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '20px', display: 'block', marginBottom: '8px' }}></i>
+                                            Loading neural weights...
+                                        </div>
+                                    ) : kortexSlots.length === 0 ? (
+                                        <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>
+                                            <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px' }}>🧠</span>
+                                            No knowledge stored yet.<br />
+                                            <span style={{ fontSize: '10px', opacity: 0.6 }}>Run a mission to populate the brain.</span>
+                                        </div>
+                                    ) : (
+                                        kortexSlots.map((slot, i) => (
+                                            <div key={slot.id || i} style={{
+                                                background: 'rgba(168,85,247,0.04)',
+                                                border: '1px solid rgba(168,85,247,0.12)',
+                                                borderRadius: '8px', padding: '8px 12px',
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                                                    <span style={{
+                                                        fontSize: '8px', padding: '1px 5px', borderRadius: '8px',
+                                                        background: 'rgba(168,85,247,0.15)', color: '#c084fc', fontWeight: 700, textTransform: 'uppercase'
+                                                    }}>{slot.category}</span>
+                                                    <span style={{ fontSize: '9px', opacity: 0.3, marginLeft: 'auto' }}>
+                                                        {new Date(slot.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: '11px', opacity: 0.8, lineHeight: 1.4, fontFamily: 'var(--font-mono)' }}>
+                                                    {slot.content.slice(0, 140)}{slot.content.length > 140 ? '…' : ''}
+                                                </div>
+                                                {slot.tags && slot.tags.length > 0 && (
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '6px' }}>
+                                                        {slot.tags.map((tag: string, ti: number) => (
+                                                            <span key={ti} style={{ fontSize: '9px', opacity: 0.4, padding: '1px 4px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>#{tag}</span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        ) : view === 'history' ? (
+                            <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5 }}>Recent History</span>
+                                </div>
+                                {chatSessions.length === 0 ? (
+                                    <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>
+                                        No archived sessions found.
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {chatSessions.map((session: any) => (
+                                            <div
+                                                key={session.path}
+                                                onClick={() => { loadChatSession(session.path); setView('chat'); }}
+                                                style={{
+                                                    padding: '12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)',
+                                                    border: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer',
+                                                    transition: 'background 0.2s'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                            >
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                                    <span style={{ fontSize: '12px', fontWeight: 600 }}>{session.name.replace('session_', '').replace('.aim', '')}</span>
+                                                    <span style={{ fontSize: '10px', opacity: 0.4 }}>{session.messages} msgs</span>
+                                                </div>
+                                                <div style={{ fontSize: '10px', opacity: 0.5 }}>
+                                                    {new Date(session.updated_at * 1000).toLocaleString()}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ) : view === 'dashboard' ? (
+                            <MissionControl />
+                        ) : view === 'research' ? (
+                            <ResearchCenter />
+                        ) : view === 'context' ? (
+                            <ContextSidebar />
+                        ) : (
+                            <AgentSettingsView />
                         )}
                     </div>
-                ) : view === 'dashboard' ? (
-                    <MissionControl />
-                ) : view === 'research' ? (
-                    <ResearchCenter />
-                ) : view === 'context' ? (
-                    <ContextSidebar />
-                ) : (
-                    <AgentSettingsView />
-                )}
-                </div>
                 )}
             </div>
             {
                 view === 'chat' && agentUiMode === 'chat' && (
                     <div style={{ padding: '16px', borderTop: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1))', position: 'relative' }}>
-                        {/* @file mention dropdown */}
+                        {/* @mention dropdown — files + special context sources */}
                         {isMentionDropdownOpen && filteredSuggestions.length > 0 && (
                             <div style={{
                                 position: 'absolute', bottom: '100%', left: '16px', right: '16px',
@@ -1391,26 +1616,34 @@ const RightSidebar: React.FC = () => {
                                 zIndex: 100, marginBottom: '4px',
                             }}>
                                 <div style={{ padding: '4px 10px 2px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(168,85,247,0.8)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                                    @ Files — type to filter
+                                    @ Context — type to filter
                                 </div>
-                                {filteredSuggestions.map((file, i) => (
+                                {filteredSuggestions.map((file: any, i) => (
                                     <div
                                         key={file.path}
                                         onMouseDown={() => handleMentionSelect(file)}
                                         style={{
-                                            padding: '6px 12px', cursor: 'pointer', fontSize: '12px',
-                                            background: i === selectedMentionIndex ? 'rgba(168,85,247,0.15)' : 'transparent',
-                                            color: i === selectedMentionIndex ? '#c084fc' : 'rgba(255,255,255,0.75)',
+                                            padding: file._special ? '7px 12px' : '6px 12px', cursor: 'pointer', fontSize: '12px',
+                                            background: i === selectedMentionIndex ? 'rgba(168,85,247,0.15)' : (file._special ? 'rgba(168,85,247,0.04)' : 'transparent'),
+                                            color: i === selectedMentionIndex ? '#c084fc' : (file._special ? '#a78bfa' : 'rgba(255,255,255,0.75)'),
                                             display: 'flex', alignItems: 'center', gap: '8px',
-                                            borderLeft: i === selectedMentionIndex ? '2px solid #c084fc' : '2px solid transparent',
+                                            borderLeft: i === selectedMentionIndex ? '2px solid #c084fc' : (file._special ? '2px solid rgba(168,85,247,0.3)' : '2px solid transparent'),
                                             transition: 'all 0.1s',
+                                            borderBottom: file._special ? '1px solid rgba(255,255,255,0.04)' : 'none',
                                         }}
                                     >
-                                        <i className="codicon codicon-file" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px', opacity: 0.6 }} />
-                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-                                        <span style={{ fontSize: '9px', opacity: 0.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px' }}>
-                                            {file.path.split(/[\\/]/).slice(-3, -1).join('/')}
+                                        <i className={`codicon ${file._icon || 'codicon-file'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', opacity: file._special ? 0.9 : 0.6 }} />
+                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: file._special ? 600 : 400 }}>
+                                            {file.name}
                                         </span>
+                                        {file._desc && (
+                                            <span style={{ fontSize: '9px', opacity: 0.5, whiteSpace: 'nowrap' }}>{file._desc}</span>
+                                        )}
+                                        {!file._special && (
+                                            <span style={{ fontSize: '9px', opacity: 0.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px' }}>
+                                                {file.path.split(/[\\/]/).slice(-3, -1).join('/')}
+                                            </span>
+                                        )}
                                     </div>
                                 ))}
                             </div>

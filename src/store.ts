@@ -143,6 +143,7 @@ interface AppState {
     isAgentPaused: boolean;
     isYoloMode: boolean;
     agentUiMode: 'chat' | 'airi';
+    avatarCharacter: string; // Selected AI avatar character
     agentCurrentAction: string | null;
     isCommandPaletteOpen: boolean;
     isContextMenuOpen: boolean;
@@ -222,10 +223,26 @@ interface AppState {
 
     isAiriOpen: boolean;
 
+    // Tab History (Alt+←/→)
+    tabHistory: string[];
+    tabHistoryIndex: number;
+    navigateBack: () => void;
+    navigateForward: () => void;
+
+    // Split Editor
+    splitEditorTabId: string | null;
+    isSplitEditorOpen: boolean;
+    setSplitEditorTab: (tabId: string | null) => void;
+    toggleSplitEditor: () => void;
+
     // Specs-to-Code State
     isSpecsWizardOpen: boolean;
     specsWizardStep: 'generator' | 'status' | 'project';
     currentSpecProjectId: number | null;
+
+    // LSP Diagnostics (for Problems panel)
+    diagnosticsMap: Record<string, { severity: number; message: string; startLine: number; startCol: number; endLine: number; endCol: number; source: string; code: string }[]>;
+    setDiagnosticsForUri: (uri: string, diags: any[]) => void;
 
     // Actions
     setVisualLabMode: (mode: 'none' | 'json' | 'flow' | 'erd' | 'summary') => void;
@@ -448,6 +465,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     isAgentPaused: false,
     isYoloMode: false,
     agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'chat',
+    avatarCharacter: localStorage.getItem('avatarCharacter') || 'airi',
     agentCurrentAction: null,
     isCommandPaletteOpen: false,
     isContextMenuOpen: false,
@@ -497,10 +515,37 @@ const storeImplementation: any = (set: any, get: any) => ({
 
     isAiriOpen: true, // Default to true for the sentient oracle experience
 
+    // Tab History
+    tabHistory: [],
+    tabHistoryIndex: -1,
+
+    // Split Editor
+    splitEditorTabId: null,
+    isSplitEditorOpen: false,
+
     // Initial Specs-to-Code State
     isSpecsWizardOpen: false,
     specsWizardStep: 'generator',
     currentSpecProjectId: null,
+
+    // LSP Diagnostics
+    diagnosticsMap: {},
+    setDiagnosticsForUri: (uri: string, diags: any[]) => set(state => {
+        const severityMap: Record<number, number> = { 1: 8, 2: 4, 3: 2, 4: 1 };
+        const mapped = diags.map((d: any) => ({
+            severity: severityMap[d.severity ?? 1] ?? 8,
+            message: d.message ?? '',
+            startLine: (d.range?.start?.line ?? 0) + 1,
+            startCol: (d.range?.start?.character ?? 0) + 1,
+            endLine: (d.range?.end?.line ?? 0) + 1,
+            endCol: (d.range?.end?.character ?? 0) + 1,
+            source: d.source ?? 'lsp',
+            code: d.code?.toString() ?? '',
+        }));
+        // Use path as key (strip file:// prefix)
+        const key = uri.replace(/^file:\/\/\//, '').replace(/^file:\/\//, '').replace(/\//g, '\\');
+        return { diagnosticsMap: { ...state.diagnosticsMap, [key]: mapped } };
+    }),
 
     // Initial Extension State
     installedExtensions: [],
@@ -711,7 +756,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     openFile: async (path: string) => {
         const existingTab = get().tabs.find(t => t.path === path);
         if (existingTab) {
-            set({ activeTabId: existingTab.id });
+            get().setActiveTab(existingTab.id);
             return;
         }
         try {
@@ -719,7 +764,11 @@ const storeImplementation: any = (set: any, get: any) => ({
             const filename = path.replace(/\\/g, '/').split('/').pop() ?? path;
             const id = `tab-${Date.now()}-${Math.random()}`;
             const tab: EditorTab = { id, filename, path, content, isModified: false, language: detectLanguage(filename) };
-            set((state) => ({ tabs: [...state.tabs, tab], activeTabId: id }));
+            set((state) => {
+                const history = state.tabHistory.slice(0, state.tabHistoryIndex + 1);
+                history.push(id);
+                return { tabs: [...state.tabs, tab], activeTabId: id, tabHistory: history, tabHistoryIndex: history.length - 1 };
+            });
         } catch (error) {
             console.error('Open File Error:', error);
         }
@@ -736,7 +785,35 @@ const storeImplementation: any = (set: any, get: any) => ({
         });
     },
 
-    setActiveTab: (id: string) => set({ activeTabId: id }),
+    setActiveTab: (id: string) => set((state) => {
+        if (state.activeTabId === id) return {};
+        const history = state.tabHistory.slice(0, state.tabHistoryIndex + 1);
+        history.push(id);
+        return { activeTabId: id, tabHistory: history, tabHistoryIndex: history.length - 1 };
+    }),
+
+    navigateBack: () => set((state) => {
+        if (state.tabHistoryIndex <= 0) return {};
+        const newIndex = state.tabHistoryIndex - 1;
+        const tabId = state.tabHistory[newIndex];
+        if (!state.tabs.find((t: any) => t.id === tabId)) return {};
+        return { activeTabId: tabId, tabHistoryIndex: newIndex };
+    }),
+
+    navigateForward: () => set((state) => {
+        if (state.tabHistoryIndex >= state.tabHistory.length - 1) return {};
+        const newIndex = state.tabHistoryIndex + 1;
+        const tabId = state.tabHistory[newIndex];
+        if (!state.tabs.find((t: any) => t.id === tabId)) return {};
+        return { activeTabId: tabId, tabHistoryIndex: newIndex };
+    }),
+
+    setSplitEditorTab: (tabId: string | null) => set({ splitEditorTabId: tabId, isSplitEditorOpen: tabId !== null }),
+    toggleSplitEditor: () => set((state: any) => {
+        if (state.isSplitEditorOpen) return { isSplitEditorOpen: false, splitEditorTabId: null };
+        // default: clone active tab in split
+        return { isSplitEditorOpen: true, splitEditorTabId: state.activeTabId };
+    }),
 
     updateTabContent: (id: string, content: string) => {
         set((state: any) => {
@@ -959,14 +1036,23 @@ const storeImplementation: any = (set: any, get: any) => ({
     addAgentMessage: (role: any, content: any, contextOrSubAgent: any) => set((state: any) => {
         const isSubAgent = typeof contextOrSubAgent === 'boolean' ? contextOrSubAgent : false;
         const context = Array.isArray(contextOrSubAgent) ? contextOrSubAgent : [];
+        const timestamp = Date.now();
         const newMessage: any = {
             role,
             content,
             context,
-            timestamp: Date.now(),
+            timestamp,
             isSubAgentResponse: isSubAgent,
             steps: role === 'assistant' ? [] : undefined
         };
+
+        // Phase 25: Sync to Backend Persistence
+        invoke('store_message', {
+            role,
+            content: typeof content === 'string' ? content : JSON.stringify(content),
+            timestamp
+        }).catch((err: any) => console.error("[Persistence] Sync failed:", err));
+
         return { agentMessages: [...state.agentMessages, newMessage] };
     }),
     updateLastAgentMessage: (content: any) => set((state) => {
@@ -1092,6 +1178,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     setIsAgentPaused: (isAgentPaused) => set({ isAgentPaused }),
     setYoloMode: (isYoloMode) => set({ isYoloMode }),
     setAgentUiMode: (agentUiMode) => { localStorage.setItem('agentUiMode', agentUiMode); set({ agentUiMode }); },
+    setAvatarCharacter: (avatarCharacter) => { localStorage.setItem('avatarCharacter', avatarCharacter); set({ avatarCharacter }); },
     setAgentCurrentAction: (agentCurrentAction) => set({ agentCurrentAction }),
     addAgentFile: (path: string) => {
         set((state) => {
@@ -1135,6 +1222,25 @@ const storeImplementation: any = (set: any, get: any) => ({
         });
     },
     setAgentMessages: (agentMessages) => set({ agentMessages }),
+    refreshAgentHistory: async () => {
+        try {
+            const messages = await invoke<any[]>('get_agent_messages');
+            if (messages && Array.isArray(messages) && messages.length > 0) {
+                // Map backend format to frontend format if needed
+                const mapped = messages.map((m: any) => ({
+                    role: m.role,
+                    content: typeof m.content === 'object' ? (m.content.text || '') : (m.content || ''),
+                    timestamp: m.metadata?.timestamp || Date.now(),
+                    metadata: m.metadata || {},
+                    context: []
+                }));
+                set({ agentMessages: mapped });
+                console.log("[Persistence] History refreshed from backend core.");
+            }
+        } catch (err) {
+            console.error("[Persistence] Refresh failed:", err);
+        }
+    },
     setAgentTasks: (agentTasks) => set({ agentTasks }),
     clearAgentMessages: () => set({ agentMessages: [] }),
     resetThread: () => {

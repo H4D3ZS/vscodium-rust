@@ -33,8 +33,16 @@ function pathToUri(path: string): string {
 
 const CTRL_S = 2048 | 49; // KeyMod.CtrlCmd | KeyCode.KeyS
 const CTRL_I = 2048 | 40; // KeyMod.CtrlCmd | KeyCode.KeyI
+const CTRL_K = 2048 | 41; // KeyMod.CtrlCmd | KeyCode.KeyK  (Cursor inline edit)
+const CTRL_L = 2048 | 42; // KeyMod.CtrlCmd | KeyCode.KeyL  (Cursor chat with selection)
+const ALT_LEFT = 512 | 15;  // KeyMod.Alt | KeyCode.LeftArrow
+const ALT_RIGHT = 512 | 17; // KeyMod.Alt | KeyCode.RightArrow
 
-const Editor: React.FC = React.memo(() => {
+interface EditorProps {
+    tabId?: string; // if provided, override activeTabId (for split pane)
+}
+
+const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     const activeTabId = useStore(state => state.activeTabId);
     const tabs = useStore(state => state.tabs);
     const updateTabContent = useStore(state => state.updateTabContent);
@@ -48,30 +56,102 @@ const Editor: React.FC = React.memo(() => {
 
     const [isInlineEditOpen, setIsInlineEditOpen] = React.useState(false);
     const [inlineEditPosition, setInlineEditPosition] = React.useState({ top: 0, left: 0 });
+    const [inlineEditSelection, setInlineEditSelection] = React.useState<{ text: string; startLine: number; endLine: number } | null>(null);
 
-    const activeTab = tabs.find(t => t.id === activeTabId) ?? null;
+    const effectiveTabId = forcedTabId ?? activeTabId;
+    const activeTab = tabs.find(t => t.id === effectiveTabId) ?? null;
 
     const editorRef = useRef<any>(null);
+    const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // Update active editor path in store whenever tab changes
+    // Update active editor path in store whenever tab changes (only for primary pane)
     useEffect(() => {
-        if (activeTab?.path) {
+        if (!forcedTabId && activeTab?.path) {
             setActiveEditorPath(activeTab.path);
         }
-    }, [activeTabId, activeTab?.path, setActiveEditorPath]);
+    }, [effectiveTabId, activeTab?.path, setActiveEditorPath, forcedTabId]);
 
     const handleMount: OnMount = useCallback((editor) => {
         editorRef.current = editor;
         editor.addCommand(CTRL_S, () => saveActiveFile());
 
-        editor.addCommand(CTRL_I, () => {
+        // ── Tab to accept Ghost Text (inline AI completion) ────────────────
+        editor.addCommand(monaco.KeyCode.Tab, () => {
+            // Check if there's an inline completion to accept
+            const inlineSuggestions = (editor as any).getInlineCompletions?.();
+            if (inlineSuggestions && inlineSuggestions.items?.length > 0) {
+                // Accept the first inline suggestion
+                editor.trigger('source', 'editor.action.inlineCompletions.accept', null);
+                return;
+            }
+            // Otherwise, let Tab do its normal thing
+            return false;
+        });
+
+        // Shared logic: open inline edit with selection context
+        const openInlineEdit = () => {
             const position = editor.getPosition();
+            const selection = editor.getSelection();
+            let selText = '';
+            let startLine = position?.lineNumber ?? 1;
+            let endLine = position?.lineNumber ?? 1;
+            if (selection && !selection.isEmpty()) {
+                selText = editor.getModel()?.getValueInRange(selection) || '';
+                startLine = selection.startLineNumber;
+                endLine = selection.endLineNumber;
+            } else if (position) {
+                // Default: grab 10 lines around cursor
+                const model = editor.getModel();
+                startLine = Math.max(1, position.lineNumber - 3);
+                endLine = Math.min(model?.getLineCount() ?? position.lineNumber, position.lineNumber + 6);
+                selText = model?.getValueInRange({
+                    startLineNumber: startLine, startColumn: 1,
+                    endLineNumber: endLine, endColumn: model.getLineMaxColumn(endLine),
+                }) || '';
+            }
+            setInlineEditSelection({ text: selText, startLine, endLine });
             if (position) {
                 const pixelCoords = editor.getScrolledVisiblePosition(position);
                 if (pixelCoords) {
                     setInlineEditPosition({ top: pixelCoords.top + 20, left: pixelCoords.left });
-                    setIsInlineEditOpen(true);
                 }
+            }
+            setIsInlineEditOpen(true);
+        };
+
+        // Alt+Left/Right = tab history navigation
+        editor.addCommand(ALT_LEFT, () => useStore.getState().navigateBack?.());
+        editor.addCommand(ALT_RIGHT, () => useStore.getState().navigateForward?.());
+
+        // Track cursor position → emit for breadcrumb symbol context
+        editor.onDidChangeCursorPosition((e) => {
+            window.dispatchEvent(new CustomEvent('editor:cursor-position', {
+                detail: { line: e.position.lineNumber, column: e.position.column }
+            }));
+        });
+
+        // Ctrl+K = Cursor-style inline edit (primary binding)
+        editor.addCommand(CTRL_K, openInlineEdit);
+        // Ctrl+I = legacy binding, same action
+        editor.addCommand(CTRL_I, openInlineEdit);
+
+        // Ctrl+L = send selected code to chat (like Cursor)
+        editor.addCommand(CTRL_L, () => {
+            const selection = editor.getSelection();
+            const selText = selection && !selection.isEmpty()
+                ? editor.getModel()?.getValueInRange(selection) || ''
+                : editor.getModel()?.getValue() || '';
+            if (selText) {
+                const store = useStore.getState();
+                store.attachFile?.({
+                    id: `sel-${Date.now()}`,
+                    type: 'file' as any,
+                    name: `${activeTab?.path?.split(/[/\\]/).pop() ?? 'selection'} (selected)`,
+                    path: activeTab?.path ?? '',
+                    data: selText,
+                });
+                // Open right sidebar if closed
+                if (!store.isRightSidebarOpen) store.toggleRightSidebar?.();
             }
         });
 
@@ -79,156 +159,206 @@ const Editor: React.FC = React.memo(() => {
         import('monaco-editor').then(monaco => {
             const lang = activeTab?.language || 'plaintext';
 
-            // Register Completion Item Provider (Intellisense)
+            // LSP kind → Monaco CompletionItemKind
+            const lspKindToMonaco = (k: number) => {
+                const map: Record<number, number> = {
+                    1: 17, 2: 0, 3: 1, 4: 2, 5: 3, 6: 4, 7: 6, 8: 7, 9: 8,
+                    10: 9, 12: 11, 13: 12, 14: 13, 15: 14, 16: 15, 17: 16, 18: 17, 25: 24,
+                };
+                return map[k] ?? 9;
+            };
+
+            // Use pathToUri to get the canonical URI the LSP server knows about
+            const getFileUri = () => pathToUri(activeTab?.path || '');
+
+            // ── Completion (Intellisense) ──────────────────────────────────
             const completionDisposable = monaco.languages.registerCompletionItemProvider(lang, {
-                triggerCharacters: ['.', ':', '/', '@'],
+                triggerCharacters: ['.', ':', '(', '<', '"', "'", '/', '@', '#'],
                 provideCompletionItems: async (model, position) => {
-                    if (model.uri.toString() !== pathToUri(activeTab?.path || '')) return { suggestions: [] };
                     try {
                         const res = await invoke<any>('lsp_completion', {
-                            uri: model.uri.toString(),
+                            uri: getFileUri(),
                             line: position.lineNumber - 1,
-                            character: position.column - 1
+                            character: position.column - 1,
                         });
-                        const items = res.items || [];
-                        return {
-                            suggestions: items.map((item: any) => ({
-                                label: item.label,
-                                kind: item.kind ?? monaco.languages.CompletionItemKind.Property,
-                                insertText: item.insertText || item.label,
-                                detail: item.detail,
-                                documentation: item.documentation,
-                                range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column)
-                            }))
+                        const word = model.getWordUntilPosition(position);
+                        const range = {
+                            startLineNumber: position.lineNumber,
+                            endLineNumber: position.lineNumber,
+                            startColumn: word.startColumn,
+                            endColumn: word.endColumn,
                         };
-                    } catch (e) { return { suggestions: [] }; }
-                }
+                        return {
+                            suggestions: (res?.items ?? []).map((item: any) => ({
+                                label: item.label,
+                                kind: lspKindToMonaco(item.kind ?? 1),
+                                insertText: item.insertText ?? item.textEdit?.newText ?? item.label,
+                                insertTextRules: item.insertTextFormat === 2 ? 4 : 0,
+                                detail: item.detail ?? '',
+                                documentation: { value: item.documentation?.value ?? item.documentation ?? '' },
+                                sortText: item.sortText ?? item.label,
+                                filterText: item.filterText ?? item.label,
+                                preselect: item.preselect ?? false,
+                                range,
+                            })),
+                            incomplete: false,
+                        };
+                    } catch { return { suggestions: [] }; }
+                },
             });
 
-            // Register Hover Provider
+            // ── Hover (doc on mouseover) ───────────────────────────────────
             const hoverDisposable = monaco.languages.registerHoverProvider(lang, {
-                provideHover: async (model, position) => {
+                provideHover: async (_model, position) => {
                     try {
                         const res = await invoke<any>('lsp_hover', {
-                            uri: model.uri.toString(),
+                            uri: getFileUri(),
                             line: position.lineNumber - 1,
-                            character: position.column - 1
-                        });
-                        if (!res || !res.contents) return null;
-                        const contents = Array.isArray(res.contents) ? res.contents : [res.contents];
-                        return {
-                            contents: contents.map((c: any) => {
-                                if (typeof c === 'string') return { value: c };
-                                return { value: c.value };
-                            })
-                        };
-                    } catch (e) { return null; }
-                }
-            });
-
-            // Register Definition Provider
-            const definitionDisposable = monaco.languages.registerDefinitionProvider(lang, {
-                provideDefinition: async (model, position) => {
-                    try {
-                        const res = await invoke<any>('lsp_goto_definition', {
-                            uri: model.uri.toString(),
-                            line: position.lineNumber - 1,
-                            character: position.column - 1
+                            character: position.column - 1,
                         });
                         if (!res) return null;
-                        const links = Array.isArray(res) ? res : [res];
-                        return links.map((link: any) => ({
-                            uri: monaco.Uri.parse(link.uri || link.targetUri),
-                            range: {
-                                startLineNumber: (link.range?.start?.line ?? link.targetRange?.start?.line ?? 0) + 1,
-                                startColumn: (link.range?.start?.character ?? link.targetRange?.start?.character ?? 0) + 1,
-                                endLineNumber: (link.range?.end?.line ?? link.targetRange?.end?.line ?? 0) + 1,
-                                endColumn: (link.range?.end?.character ?? link.targetRange?.end?.character ?? 0) + 1,
-                            }
+                        const raw = res.contents ?? res;
+                        const contents = Array.isArray(raw) ? raw : [raw];
+                        const mdParts = contents.map((c: any) => ({
+                            value: typeof c === 'string' ? c : (c.value ?? String(c)),
                         }));
-                    } catch (e) { return null; }
-                }
+                        if (!mdParts.length || !mdParts[0].value) return null;
+                        const range = res.range ? {
+                            startLineNumber: res.range.start.line + 1,
+                            startColumn: res.range.start.character + 1,
+                            endLineNumber: res.range.end.line + 1,
+                            endColumn: res.range.end.character + 1,
+                        } : undefined;
+                        return { contents: mdParts, range };
+                    } catch { return null; }
+                },
             });
 
-            // Register References Provider
+            // ── Go To Definition ───────────────────────────────────────────
+            const definitionDisposable = monaco.languages.registerDefinitionProvider(lang, {
+                provideDefinition: async (_model, position) => {
+                    try {
+                        const res = await invoke<any>('lsp_goto_definition', {
+                            uri: getFileUri(),
+                            line: position.lineNumber - 1,
+                            character: position.column - 1,
+                        });
+                        if (!res) return [];
+                        const locs = Array.isArray(res) ? res : [res];
+                        return locs.map((loc: any) => {
+                            const locUri = loc.uri ?? loc.targetUri ?? '';
+                            const r = loc.range ?? loc.targetSelectionRange ?? {};
+                            return {
+                                uri: monaco.Uri.parse(locUri.startsWith('file:') ? locUri : `file:///${locUri.replace(/\\/g, '/')}`),
+                                range: {
+                                    startLineNumber: (r.start?.line ?? 0) + 1,
+                                    startColumn: (r.start?.character ?? 0) + 1,
+                                    endLineNumber: (r.end?.line ?? 0) + 1,
+                                    endColumn: (r.end?.character ?? 0) + 1,
+                                },
+                            };
+                        });
+                    } catch { return []; }
+                },
+            });
+
+            // ── Find All References ────────────────────────────────────────
             const referencesDisposable = monaco.languages.registerReferenceProvider(lang, {
-                provideReferences: async (model, position) => {
+                provideReferences: async (_model, position) => {
                     try {
                         const res = await invoke<any[]>('lsp_find_references', {
-                            uri: model.uri.toString(),
+                            uri: getFileUri(),
                             line: position.lineNumber - 1,
-                            character: position.column - 1
+                            character: position.column - 1,
                         });
                         if (!res) return [];
                         return res.map((ref: any) => ({
-                            uri: monaco.Uri.parse(ref.uri),
+                            uri: monaco.Uri.parse(ref.uri.startsWith('file:') ? ref.uri : `file:///${ref.uri.replace(/\\/g, '/')}`),
                             range: {
                                 startLineNumber: (ref.range?.start?.line ?? 0) + 1,
                                 startColumn: (ref.range?.start?.character ?? 0) + 1,
                                 endLineNumber: (ref.range?.end?.line ?? 0) + 1,
                                 endColumn: (ref.range?.end?.character ?? 0) + 1,
-                            }
+                            },
                         }));
-                    } catch (e) { return []; }
-                }
+                    } catch { return []; }
+                },
             });
 
-            // Register Rename Provider
+            // ── Rename Symbol (F2) ─────────────────────────────────────────
             const renameDisposable = monaco.languages.registerRenameProvider(lang, {
-                provideRenameEdits: async (model, position, newName) => {
+                provideRenameEdits: async (_model, position, newName) => {
                     try {
                         const res = await invoke<any>('lsp_rename_symbol', {
-                            uri: model.uri.toString(),
+                            uri: getFileUri(),
                             line: position.lineNumber - 1,
                             character: position.column - 1,
-                            newName
+                            newName,
                         });
-                        if (!res || !res.documentChanges) return null;
-                        return {
-                            edits: res.documentChanges.flatMap((dc: any) =>
-                                dc.edits.map((e: any) => ({
-                                    resource: monaco.Uri.parse(dc.textDocument.uri),
-                                    edit: {
-                                        range: {
-                                            startLineNumber: (e.range.start.line ?? 0) + 1,
-                                            startColumn: (e.range.start.character ?? 0) + 1,
-                                            endLineNumber: (e.range.end.line ?? 0) + 1,
-                                            endColumn: (e.range.end.character ?? 0) + 1,
-                                        },
-                                        text: e.newText
-                                    }
-                                }))
-                            )
-                        };
-                    } catch (e) { return null; }
-                }
+                        if (!res) return null;
+                        // Handle both documentChanges and changes formats
+                        const edits: any[] = [];
+                        if (res.documentChanges) {
+                            for (const dc of res.documentChanges) {
+                                const dcUri = monaco.Uri.parse(dc.textDocument?.uri ?? dc.uri ?? '');
+                                for (const e of (dc.edits ?? [])) {
+                                    edits.push({
+                                        resource: dcUri, textEdit: {
+                                            range: {
+                                                startLineNumber: (e.range.start.line ?? 0) + 1,
+                                                startColumn: (e.range.start.character ?? 0) + 1,
+                                                endLineNumber: (e.range.end.line ?? 0) + 1,
+                                                endColumn: (e.range.end.character ?? 0) + 1,
+                                            },
+                                            text: e.newText,
+                                        }
+                                    });
+                                }
+                            }
+                        } else if (res.changes) {
+                            for (const [u, fileEdits] of Object.entries(res.changes as Record<string, any[]>)) {
+                                const dcUri = monaco.Uri.parse(u);
+                                for (const e of fileEdits) {
+                                    edits.push({
+                                        resource: dcUri, textEdit: {
+                                            range: {
+                                                startLineNumber: (e.range.start.line ?? 0) + 1,
+                                                startColumn: (e.range.start.character ?? 0) + 1,
+                                                endLineNumber: (e.range.end.line ?? 0) + 1,
+                                                endColumn: (e.range.end.character ?? 0) + 1,
+                                            },
+                                            text: e.newText,
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        return { edits };
+                    } catch { return null; }
+                },
             });
 
+            // ── Ghost Text / Inline Completions (Tab to accept) ────────────
             let inlineTimer: any = null;
             const inlineDisposable = monaco.languages.registerInlineCompletionsProvider(lang, {
-                provideInlineCompletions: async (model, position, context, token) => {
-                    // Debounce: wait for 350ms of inactivity
+                provideInlineCompletions: async (model, position, _ctx, token) => {
                     if (inlineTimer) clearTimeout(inlineTimer);
-
                     const suggestion = await new Promise<string | null>(resolve => {
                         inlineTimer = setTimeout(async () => {
                             if (token.isCancellationRequested) return resolve(null);
-
                             const textBefore = model.getValueInRange({
-                                startLineNumber: Math.max(1, position.lineNumber - 50),
+                                startLineNumber: Math.max(1, position.lineNumber - 40),
                                 startColumn: 1,
                                 endLineNumber: position.lineNumber,
-                                endColumn: position.column
+                                endColumn: position.column,
                             });
                             const textAfter = model.getValueInRange({
                                 startLineNumber: position.lineNumber,
                                 startColumn: position.column,
-                                endLineNumber: Math.min(model.getLineCount(), position.lineNumber + 20),
-                                endColumn: model.getLineMaxColumn(Math.min(model.getLineCount(), position.lineNumber + 20))
+                                endLineNumber: Math.min(model.getLineCount(), position.lineNumber + 15),
+                                endColumn: model.getLineMaxColumn(Math.min(model.getLineCount(), position.lineNumber + 15)),
                             });
-
-                            if (textBefore.trim().length < 2) return resolve(null);
-
+                            if (textBefore.trim().length < 3) return resolve(null);
                             try {
                                 const res = await invoke<string>('ai_inline_complete', {
                                     prefix: textBefore,
@@ -236,39 +366,136 @@ const Editor: React.FC = React.memo(() => {
                                     language: lang,
                                     filePath: activeTab?.path || '',
                                 });
-                                resolve(res);
-                            } catch (e) { resolve(null); }
-                        }, 350);
+                                resolve(res ?? null);
+                            } catch { resolve(null); }
+                        }, 400);
                     });
-
-                    if (!suggestion || suggestion.trim().length === 0 || token.isCancellationRequested) {
-                        return { items: [] };
-                    }
-
+                    if (!suggestion?.trim() || token.isCancellationRequested) return { items: [] };
                     return {
                         items: [{
                             insertText: suggestion,
-                            range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column)
-                        }]
+                            range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+                        }],
                     };
                 },
                 handleItemDidShow: () => { },
-                disposeInlineCompletions: () => { if (inlineTimer) clearTimeout(inlineTimer); }
+                disposeInlineCompletions: () => { if (inlineTimer) clearTimeout(inlineTimer); },
             });
 
-            // Store disposables to clean up if needed
+            // ── Fix with AIRI action (right-click or Ctrl+.) ───────────────
+            const fixAction = editor.addAction({
+                id: 'airi-fix-with-ai',
+                label: '✦ Fix with AIRI',
+                contextMenuGroupId: 'navigation',
+                contextMenuOrder: 0.5,
+                run: async (ed) => {
+                    const pos = ed.getPosition();
+                    const model = ed.getModel();
+                    if (!pos || !model) return;
+                    const markers = (monaco.editor.getModelMarkers({ resource: model.uri }))
+                        .filter((m: any) => m.severity >= 4); // errors + warnings
+                    const errMsg = markers.length
+                        ? markers.map((m: any) => `Line ${m.startLineNumber}: [${m.source}] ${m.message}`).join('\n')
+                        : `Code at line ${pos.lineNumber}`;
+                    const code = model.getValue();
+                    const store = (window as any).useStore?.getState?.();
+                    if (!store) return;
+                    store.addAgentMessage('user', `[Fix with AIRI]\n${errMsg}`);
+                    store.addAgentMessage('assistant', '');
+                    store.setIsAgentThinking(true);
+                    store.setActivePanelTab?.('TERMINAL');
+                    import('../agent').then(({ sendAgentMessage }) => {
+                        sendAgentMessage(
+                            `Fix the following issues in \`${activeTab?.path || 'the file'}\`:\n\n${errMsg}\n\nFile content (${code.split('\n').length} lines):\n\`\`\`${lang}\n${code.slice(0, 8000)}\n\`\`\`\n\nUse search_replace_edit or patch_file_content to apply the fix directly. Do not just describe it.`,
+                            () => { }
+                        ).finally(() => store.setIsAgentThinking(false));
+                    });
+                },
+            });
+
+            // ── Code Lens ────────────────────────────────────────────────
+            const codeLensDisposable = monaco.languages.registerCodeLensProvider(lang, {
+                provideCodeLenses: async (model) => {
+                    try {
+                        const res = await invoke<any>('lsp_code_lens', { uri: getFileUri() });
+                        if (!res || !Array.isArray(res)) return { lenses: [], dispose: () => { } };
+                        const lenses = res.map((cl: any) => ({
+                            range: {
+                                startLineNumber: (cl.range?.start?.line ?? 0) + 1,
+                                startColumn: (cl.range?.start?.character ?? 0) + 1,
+                                endLineNumber: (cl.range?.end?.line ?? 0) + 1,
+                                endColumn: (cl.range?.end?.character ?? 0) + 1,
+                            },
+                            command: cl.command ? {
+                                id: cl.command.command || '',
+                                title: cl.command.title || '',
+                                arguments: cl.command.arguments,
+                            } : { id: '', title: cl.data?.toString() ?? '' },
+                        }));
+                        return { lenses, dispose: () => { } };
+                    } catch { return { lenses: [], dispose: () => { } }; }
+                },
+                resolveCodeLens: (_, codeLens) => Promise.resolve(codeLens),
+            });
+
+            // ── Format Document (Shift+Alt+F) ────────────────────────────
+            const formatDisposable = monaco.languages.registerDocumentFormattingEditProvider(lang, {
+                provideDocumentFormattingEdits: async (model) => {
+                    try {
+                        const res = await invoke<any[]>('lsp_format_document', { uri: getFileUri() });
+                        if (!Array.isArray(res)) return [];
+                        return res.map((edit: any) => ({
+                            range: {
+                                startLineNumber: (edit.range?.start?.line ?? 0) + 1,
+                                startColumn: (edit.range?.start?.character ?? 0) + 1,
+                                endLineNumber: (edit.range?.end?.line ?? 0) + 1,
+                                endColumn: (edit.range?.end?.character ?? 0) + 1,
+                            },
+                            text: edit.newText ?? '',
+                        }));
+                    } catch { return []; }
+                },
+            });
+
             (editor as any)._lspDisposables = [
                 completionDisposable, hoverDisposable, definitionDisposable,
-                referencesDisposable, renameDisposable, inlineDisposable
+                referencesDisposable, renameDisposable, inlineDisposable, fixAction,
+                codeLensDisposable, formatDisposable,
             ];
+
+            // ── Code Actions Lightbulb (Ctrl+.) ───────────────────────────────
+            monaco.languages.registerCodeActionProvider(lang, {
+                provideCodeActions: async (model, range) => {
+                    const markers = monaco.editor.getModelMarkers({ resource: model.uri })
+                        .filter((m: any) => m.severity >= 4);
+                    if (!markers.length) return { actions: [], dispose: () => {} };
+                    
+                    const actions = markers.slice(0, 5).map((m: any) => ({
+                        title: m.message.slice(0, 100),
+                        id: 'airi-fix-' + m.startLineNumber,
+                        edit: null,
+                        command: {
+                            id: 'airi-fix-command',
+                            title: '✦ Fix with AI',
+                            arguments: [{ resource: model.uri, marker: m }],
+                        },
+                    }));
+                    return { actions, dispose: () => {} };
+                },
+            });
         });
-    }, [saveActiveFile, activeTab?.language]);
+    }, [saveActiveFile, activeTab?.language, activeTab?.path]);
 
     const handleChange: OnChange = useCallback((value) => {
-        if (activeTabId && value !== undefined) {
-            updateTabContent(activeTabId, value);
+        if (effectiveTabId && value !== undefined) {
+            updateTabContent(effectiveTabId, value);
+            // Auto-save after 1 second of inactivity (afterDelay mode)
+            if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+            autoSaveTimer.current = setTimeout(() => {
+                useStore.getState().saveActiveFile();
+            }, 1000);
         }
-    }, [activeTabId, updateTabContent]);
+    }, [effectiveTabId, updateTabContent]);
 
     const pendingChanges = useStore(state => state.pendingChanges);
     const activeFilePendingChange = pendingChanges.find(c => c.path === activeTab?.path);
@@ -300,13 +527,12 @@ const Editor: React.FC = React.memo(() => {
     useEffect(() => {
         if (editorRef.current && activeTab) {
             const currentValue = editorRef.current.getValue();
-            // If there's a pending change, show the new content
             const targetContent = activeFilePendingChange ? activeFilePendingChange.newContent : activeTab.content;
             if (currentValue !== targetContent) {
                 editorRef.current.setValue(targetContent);
             }
         }
-    }, [activeTabId, activeFilePendingChange]);
+    }, [effectiveTabId, activeFilePendingChange]);
 
     // LSP: notify did_open when a file is opened / tab switches
     const lspVersionRef = useRef<Record<string, number>>({});
@@ -322,7 +548,7 @@ const Editor: React.FC = React.memo(() => {
             version: ver,
             text: activeTab.content ?? '',
         }).catch(() => { /* LSP may not be running */ });
-    }, [activeTabId, activeTab?.path]);
+    }, [effectiveTabId, activeTab?.path]);
 
     // LSP: notify did_change when content changes (debounced 300 ms)
     const lspChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -337,12 +563,27 @@ const Editor: React.FC = React.memo(() => {
         }, 300);
     }, [activeTab?.path]);
 
-    // LSP: listen for publishDiagnostics and set Monaco markers
+    // Jump-to-line: listen for custom events from SearchView / SymbolOutline
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const { path, line, column } = (e as CustomEvent).detail;
+            if (!editorRef.current) return;
+            if (path && activeTab?.path && path !== activeTab.path) return;
+            editorRef.current.revealLineInCenter(line);
+            editorRef.current.setPosition({ lineNumber: line, column: column ?? 1 });
+            editorRef.current.focus();
+        };
+        window.addEventListener('editor:jump-to-line', handler);
+        return () => window.removeEventListener('editor:jump-to-line', handler);
+    }, [activeTab?.path]);
+
+    // LSP: listen for publishDiagnostics → Monaco markers + Problems panel store
     useEffect(() => {
         const unlisten = listen('lsp-diagnostics', (event) => {
             const { uri, diagnostics } = event.payload;
+            // Push to Problems panel store
+            useStore.getState().setDiagnosticsForUri(uri, diagnostics);
             import('monaco-editor').then(monaco => {
-                // Find the model matching this URI
                 const models = monaco.editor.getModels();
                 const targetPath = uriToPath(uri);
                 const model = models.find(m => {
@@ -350,11 +591,8 @@ const Editor: React.FC = React.memo(() => {
                     return mp === targetPath.replace(/\\/g, '/') || m.uri.toString() === uri;
                 });
                 if (!model) return;
-
-                // Map LSP severity (1=error, 2=warning, 3=info, 4=hint) → Monaco MarkerSeverity
                 const severityMap: Record<number, number> = { 1: 8, 2: 4, 3: 2, 4: 1 };
-
-                const markers = diagnostics.map(d => ({
+                const markers = diagnostics.map((d: any) => ({
                     severity: severityMap[d.severity ?? 1] ?? 8,
                     message: d.message ?? '',
                     startLineNumber: (d.range?.start?.line ?? 0) + 1,
@@ -364,12 +602,92 @@ const Editor: React.FC = React.memo(() => {
                     source: d.source ?? 'lsp',
                     code: d.code?.toString() ?? '',
                 }));
-
                 monaco.editor.setModelMarkers(model, 'lsp', markers);
             });
         });
         return () => { unlisten.then(f => f()); };
     }, []);
+
+    // Git blame — show "author · date · summary" as ghost text on the cursor line (GitLens style)
+    const blameDataRef = useRef<string[]>([]);
+    const blameDecorationsRef = useRef<string[]>([]);
+    useEffect(() => {
+        if (!activeTab?.path) return;
+        const root = useStore.getState().activeRoot ?? '';
+        invoke<string[]>('git_blame', { path: root, filePath: activeTab.path })
+            .then(lines => { blameDataRef.current = lines ?? []; })
+            .catch(() => { blameDataRef.current = []; });
+    }, [activeTab?.path]);
+
+    useEffect(() => {
+        if (!editorRef.current) return;
+        const editor = editorRef.current;
+        const disposable = editor.onDidChangeCursorPosition((e: any) => {
+            const line = e.position.lineNumber;
+            const entry = blameDataRef.current[line - 1];
+            import('monaco-editor').then(monaco => {
+                if (!editorRef.current) return;
+                const [hash, author, date, summary] = (entry ?? '').split('|');
+                const newDecorations = (!author || author === 'Not Committed Yet') ? [] : [{
+                    range: new monaco.Range(line, 1, line, 1),
+                    options: {
+                        isWholeLine: true,
+                        after: {
+                            content: `  ${author} · ${date} · ${summary ?? ''}`,
+                            inlineClassName: 'git-blame-ghost',
+                        },
+                    },
+                }];
+                blameDecorationsRef.current = editorRef.current.deltaDecorations(
+                    blameDecorationsRef.current,
+                    newDecorations
+                );
+            });
+        });
+        return () => disposable.dispose();
+    }, []);
+
+    // Git gutter decorations — green added, blue modified, red deleted
+    const gitDecorationsRef = useRef<string[]>([]);
+    const refreshGitGutter = useCallback(() => {
+        if (!editorRef.current || !activeTab?.path) return;
+        invoke<{ added: number[]; modified: number[]; deleted: number[]; new_file: boolean }>(
+            'get_git_file_hunks', { path: activeTab.path }
+        ).then(hunks => {
+            import('monaco-editor').then(monaco => {
+                const editor = editorRef.current;
+                if (!editor) return;
+                const decorations: any[] = [
+                    ...hunks.added.map((line: number) => ({
+                        range: new monaco.Range(line, 1, line, 1),
+                        options: { isWholeLine: false, linesDecorationsClassName: 'git-gutter-added' },
+                    })),
+                    ...hunks.modified.map((line: number) => ({
+                        range: new monaco.Range(line, 1, line, 1),
+                        options: { isWholeLine: false, linesDecorationsClassName: 'git-gutter-modified' },
+                    })),
+                    ...hunks.deleted.map((line: number) => ({
+                        range: new monaco.Range(line, 1, line, 1),
+                        options: { isWholeLine: false, linesDecorationsClassName: 'git-gutter-deleted' },
+                    })),
+                ];
+                gitDecorationsRef.current = editor.deltaDecorations(
+                    gitDecorationsRef.current,
+                    decorations
+                );
+            });
+        }).catch(() => { });
+    }, [activeTab?.path]);
+
+    useEffect(() => {
+        refreshGitGutter();
+        const unlisten = listen('file-changed', (event: any) => {
+            if (event.payload?.path === activeTab?.path) {
+                refreshGitGutter();
+            }
+        });
+        return () => { unlisten.then(f => f()); };
+    }, [activeTab?.path, refreshGitGutter]);
 
     if (!activeTab) {
         return null;
@@ -391,7 +709,7 @@ const Editor: React.FC = React.memo(() => {
                     fontFamily: 'var(--font-mono)',
                     lineNumbers: 'on',
                     lineNumbersMinChars: 3,
-                    glyphMargin: false,
+                    glyphMargin: true,
                     folding: true,
                     lineDecorationsWidth: 10,
                     minimap: { enabled: true },
@@ -405,6 +723,8 @@ const Editor: React.FC = React.memo(() => {
                     cursorBlinking: 'smooth',
                     cursorSmoothCaretAnimation: 'on',
                     bracketPairColorization: { enabled: true },
+                    stickyScroll: { enabled: true },
+                    codeLens: true,
                 }}
             />
 
@@ -457,43 +777,28 @@ const Editor: React.FC = React.memo(() => {
             {isInlineEditOpen && (
                 <InlineEditOverlay
                     position={inlineEditPosition}
-                    onClose={() => setIsInlineEditOpen(false)}
+                    onClose={() => { setIsInlineEditOpen(false); setInlineEditSelection(null); }}
                     onSubmit={async (prompt) => {
                         setIsInlineEditOpen(false);
+                        const sel = inlineEditSelection;
+                        setInlineEditSelection(null);
 
-                        const editor = editorRef.current;
-                        if (!editor) return;
+                        const filePath = activeTab?.path || 'unknown';
+                        const lang = activeTab?.language || 'unknown';
+                        const selectedText = sel?.text || '';
 
-                        // Get selected text or surrounding context for the AI
-                        const selection = editor.getSelection();
-                        let selectedText = '';
-                        if (selection && !selection.isEmpty()) {
-                            selectedText = editor.getModel()?.getValueInRange(selection) || '';
-                        } else {
-                            // Get the current line and nearby context
-                            const pos = editor.getPosition();
-                            if (pos) {
-                                const startLine = Math.max(1, pos.lineNumber - 5);
-                                const endLine = Math.min(editor.getModel()?.getLineCount() || pos.lineNumber, pos.lineNumber + 5);
-                                selectedText = editor.getModel()?.getValueInRange({
-                                    startLineNumber: startLine, startColumn: 1,
-                                    endLineNumber: endLine, endColumn: editor.getModel()?.getLineMaxColumn(endLine) || 1
-                                }) || '';
-                            }
-                        }
-
-                        // Build the full prompt with context and send to agent
-                        const fullPrompt = `INLINE EDIT REQUEST (Ctrl+I).\nFile: ${activeTab?.path || 'unknown'}\nLanguage: ${activeTab?.language || 'unknown'}\n\nUser instruction: ${prompt}\n\nCode context:\n\`\`\`${activeTab?.language || ''}\n${selectedText}\n\`\`\`\n\nApply the edit using the replace_file_content or patch_file_content tool. Only modify what's needed.`;
+                        // Build precise prompt: use str_replace for surgical edit
+                        const fullPrompt = `INLINE EDIT (Ctrl+K)\nFile: ${filePath}\nLanguage: ${lang}\nLines: ${sel?.startLine ?? 1}–${sel?.endLine ?? 1}\n\nInstruction: ${prompt}\n\nSelected code to modify:\n\`\`\`${lang}\n${selectedText}\n\`\`\`\n\nUse str_replace(path="${filePath}", old_str=<exact code above>, new_str=<modified code>) to apply the change. Only change what the instruction asks. Keep surrounding code intact.`;
 
                         const store = useStore.getState();
-                        store.addAgentMessage('user', `[Inline Edit] ${prompt}`);
+                        store.addAgentMessage('user', `✦ ${prompt}`);
                         store.addAgentMessage('assistant', '');
-                        store.setIsAgentThinking(true);
+                        store.setIsAgentThinking?.(true);
 
                         try {
                             await sendAgentMessage(fullPrompt, () => { });
                         } catch (error: any) {
-                            store.setIsAgentThinking(false);
+                            store.setIsAgentThinking?.(false);
                             store.updateLastAgentMessage(`**Error:** ${error.message || error}`);
                         }
                     }}

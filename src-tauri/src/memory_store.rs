@@ -41,7 +41,7 @@ struct KortexSnapshot {
 }
 
 pub struct MemoryStore {
-    messages: Arc<RwLock<Vec<ChatMessage>>>,
+    pub messages: Arc<RwLock<Vec<ChatMessage>>>, // Made pub for bridge sync
     pub slots: Arc<RwLock<Vec<SemanticSlot>>>,
     entities: Arc<RwLock<HashMap<String, Vec<String>>>>,
     symbol_graph: Arc<RwLock<SymbolGraph>>,
@@ -49,9 +49,10 @@ pub struct MemoryStore {
     binary_body: Arc<RwLock<Vec<u8>>>, // Cache the binary suffix of the .aim file
     binary_header_raw: Arc<RwLock<Value>>, // Cache the non-kortex parts of the header
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
-    is_dirty: Arc<AtomicBool>,
+    pub is_dirty: Arc<AtomicBool>, // Made pub for bridge sync
     vfs_bridge: Arc<RwLock<Option<crate::vfs_bridge::VfsBridge>>>,
     events: Arc<tokio::sync::Mutex<Vec<Value>>>,
+    vfs_cache: Arc<RwLock<HashMap<PathBuf, (String, std::time::SystemTime)>>>,
 }
 
 impl MemoryStore {
@@ -70,6 +71,7 @@ impl MemoryStore {
             is_dirty: is_dirty.clone(),
             vfs_bridge: Arc::new(RwLock::new(None)),
             events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            vfs_cache: Arc::new(RwLock::new(HashMap::new())),
         };
 
         // Spawn background persistence task (Phase 24: Emergency Performance)
@@ -301,6 +303,32 @@ impl MemoryStore {
         self.is_dirty.store(true, Ordering::SeqCst);
     }
 
+    pub async fn store_message_params(&self, role: String, content: String, timestamp: i64) {
+        let mut lock = self.messages.write().await;
+        
+        // Phase 25: Enhanced Upsert Logic for Streaming
+        let mut found = false;
+        if let Some(last) = lock.last_mut() {
+            if last.role == role && (timestamp - (last.metadata.as_ref().and_then(|m| m["timestamp"].as_i64()).unwrap_or(0)) < 1000) {
+                last.content = Some(crate::ai_engine::MessageContent::Text(content.clone()));
+                found = true;
+            }
+        }
+        
+        if !found {
+            lock.push(ChatMessage {
+                role: role.clone(),
+                content: Some(crate::ai_engine::MessageContent::Text(content)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: Some(json!({ "timestamp": timestamp })),
+            });
+        }
+        
+        drop(lock);
+        self.is_dirty.store(true, Ordering::SeqCst);
+    }
+
     pub async fn clear(&self) {
         let mut msg_lock = self.messages.write().await;
         msg_lock.clear();
@@ -410,18 +438,33 @@ impl MemoryStore {
         // Check for Page-Fault (Confidence < 0.95)
         let mut final_context = String::new();
         let vfs_lock = self.vfs_bridge.read().await;
-
         for (slot, confidence) in top {
             let mut content = slot.content.clone();
-            
+            let metadata = slot.metadata.as_ref().cloned().unwrap_or(json!({}));
+
             if *confidence < 0.95 {
-                // Page-Fault trigger
-                if let (Some(bridge), Some(metadata)) = (vfs_lock.as_ref(), &slot.metadata) {
+                // Page-Fault trigger: Check cache first, then bridge
+                let mut cached_result = None;
+                {
+                    let cache_lock = self.vfs_cache.read().await;
                     if let Some(path_str) = metadata.get("path").and_then(|v| v.as_str()) {
-                        println!("[PAGE-FAULT] Low confidence ({:.2}) for {}. Fetching L2 verbatim source...", confidence, path_str);
-                        if let Ok(raw_source) = bridge.fetch_raw(std::path::Path::new(path_str)) {
-                            content = format!("(L2 VERBATIM SOURCE RESOLVED VIA PAGE-FAULT)\n{}", raw_source);
+                        let path_pb = PathBuf::from(path_str);
+                        if let Some((cached_content, _mtime)) = cache_lock.get(&path_pb) {
+                            println!("[PAGE-FAULT] Resolved via VFS-CACHE: {}", path_str);
+                            cached_result = Some(cached_content.clone());
                         }
+                    }
+                }
+                
+                if let Some(res) = cached_result {
+                    content = format!("(L2 VERBATIM SOURCE RESOLVED VIA VFS-CACHE)\n{}", res);
+                } else if let (Some(bridge), Some(path_str)) = (vfs_lock.as_ref(), metadata.get("path").and_then(|v| v.as_str())) {
+                    println!("[PAGE-FAULT] Low confidence ({:.2}) for {}. Fetching L2 verbatim source...", confidence, path_str);
+                    if let Ok(raw_source) = bridge.fetch_raw(std::path::Path::new(path_str)) {
+                        content = format!("(L2 VERBATIM SOURCE RESOLVED VIA PAGE-FAULT)\n{}", raw_source);
+                        // Populate cache for future hits
+                        let mut cache_write = self.vfs_cache.write().await;
+                        cache_write.insert(PathBuf::from(path_str), (raw_source, std::time::SystemTime::now()));
                     }
                 }
             }
@@ -430,7 +473,7 @@ impl MemoryStore {
                 "\n[{}] {}: {}\n",
                 slot.category,
                 slot.tags.join(", "),
-                &content[..content.len().min(800)] // Increased limit for richer L2 context
+                if content.len() > 800 { format!("{}...", &content[..800]) } else { content }
             ));
         }
 
@@ -697,6 +740,16 @@ impl MemoryStore {
             "timestamp": chrono::Utc::now().timestamp()
         }));
         Ok(())
+    }
+
+    pub async fn update_vfs_cache(&self, path: PathBuf, content: String) {
+        let mut lock = self.vfs_cache.write().await;
+        lock.insert(path, (content, std::time::SystemTime::now()));
+    }
+
+    pub async fn get_vfs_cache(&self, path: &PathBuf) -> Option<String> {
+        let lock = self.vfs_cache.read().await;
+        lock.get(path).map(|(c, _)| c.clone())
     }
 }
 

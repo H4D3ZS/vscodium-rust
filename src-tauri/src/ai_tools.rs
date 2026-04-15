@@ -114,8 +114,21 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "str_replace".to_string(),
+                description: "Replace an exact string in a file. Reads the file, replaces old_str with new_str, writes back. Use this for surgical code edits.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Relative path to the file" },
+                        "old_str": { "type": "string", "description": "Exact string to find (must exist in file)" },
+                        "new_str": { "type": "string", "description": "Replacement string" }
+                    },
+                    "required": ["path", "old_str", "new_str"]
+                }),
+            },
+            ToolDefinition {
                 name: "search_replace_edit".to_string(),
-                description: "Surgically edit a file. Stages in shadow buffer unless direct_apply=true. Format:\n<<<< SEARCH\n<exact existing code>\n====\n<new code>\n>>>>".to_string(),
+                description: "Surgically edit a file using SEARCH/REPLACE blocks. Format:\n<<<< SEARCH\n<exact existing code>\n====\n<new code>\n>>>>".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -1142,6 +1155,7 @@ impl AiTools {
             | "editor_open_file"
             | "editor_get_active_file"
             // Surgical editing — THE coding tools
+            | "str_replace"
             | "search_replace_edit"
             | "patch_file_content"
             | "ai_propose_edit"
@@ -1306,6 +1320,7 @@ impl AiTools {
             "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
             "web_search" => self.web_search_tool(arguments).await,
             "ai_propose_edit" => self.ai_propose_edit(arguments).await,
+            "str_replace" => self.str_replace_file(arguments).await,
             "search_replace_edit" => self.search_replace_edit(arguments).await,
             "patch_file_content" => self.patch_file_content(arguments).await,
             "preview_shadow_diff" => self.preview_shadow_diff(arguments).await,
@@ -1726,13 +1741,20 @@ impl AiTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing TargetFile"))?;
 
-        let root = self
-            .root_path
-            .lock()
-            .await;
+        let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
 
-        let content = fs::read_to_string(full_path)?;
+        // Phase 25: Unified Comprehension - Check VFS Cache first
+        if let Some(cached) = self.memory_store.get_vfs_cache(&full_path).await {
+            // println!("[VFS-CACHE] Bypassing disk read for {}", path_str);
+            return Ok(Value::String(cached));
+        }
+
+        let content = fs::read_to_string(&full_path)?;
+        
+        // Populate cache for sentient follow-ups
+        self.memory_store.update_vfs_cache(full_path, content.clone()).await;
+        
         Ok(Value::String(content))
     }
 
@@ -1754,8 +1776,12 @@ impl AiTools {
         }
         fs::write(&full_path, content)?;
 
-        // Emit artifact for UI card
+        // Phase 25: Sync Cache
+        self.memory_store.update_vfs_cache(full_path.clone(), content.to_string()).await;
+
+        // Emit artifact for UI card + file-changed so Monaco tabs reload + open in editor
         {
+            let path_abs = full_path.to_string_lossy().to_string();
             let h_lock = self.app_handle.lock().await;
             if let Some(h) = h_lock.as_ref() {
                 let _ = h.emit(
@@ -1767,10 +1793,55 @@ impl AiTools {
                         "content": "File saved successfully"
                     }),
                 );
+                // Reload if already open in editor, or open fresh
+                let _ = h.emit("file-changed", json!({ "path": &path_abs }));
+                let _ = h.emit("editor_open_file", json!({ "path": &path_abs }));
             }
         }
 
         Ok(serde_json::json!({ "status": "success", "file": path_str }))
+    }
+
+    /// Simple str_replace: finds old_str in file, replaces with new_str, writes back.
+    /// Much simpler than search_replace_edit — no block format needed.
+    async fn str_replace_file(&self, args: Value) -> Result<Value> {
+        let path_str = args.get("path").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing path"))?;
+        let old_str = args.get("old_str").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing old_str"))?;
+        let new_str = args.get("new_str").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing new_str"))?;
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+
+        let content = fs::read_to_string(&full_path)
+            .map_err(|e| anyhow!("Cannot read {}: {}", path_str, e))?;
+
+        if !content.contains(old_str) {
+            return Err(anyhow!(
+                "str_replace failed: old_str not found in {}.\nFirst 200 chars of file:\n{}",
+                path_str,
+                &content[..content.len().min(200)]
+            ));
+        }
+
+        // Only replace the first occurrence to be surgical
+        let new_content = content.replacen(old_str, new_str, 1);
+        fs::write(&full_path, &new_content)?;
+
+        self.memory_store.update_vfs_cache(full_path.clone(), new_content).await;
+
+        {
+            let path_abs = full_path.to_string_lossy().to_string();
+            let h_lock = self.app_handle.lock().await;
+            if let Some(h) = h_lock.as_ref() {
+                let _ = h.emit("file-changed", json!({ "path": &path_abs }));
+            }
+        }
+
+        Ok(json!({
+            "status": "success",
+            "path": path_str,
+            "message": format!("Replaced in {}", path_str)
+        }))
     }
 
     async fn remove_item(&self, args: Value) -> Result<Value> {
@@ -3429,7 +3500,10 @@ impl AiTools {
         }
 
         let new_content = content.replace(target, replacement);
-        fs::write(full_path, new_content)?;
+        fs::write(&full_path, &new_content)?;
+        
+        // Phase 25: Sync Cache
+        self.memory_store.update_vfs_cache(full_path, new_content).await;
 
         Ok(json!({ "status": "success" }))
     }
@@ -3470,6 +3544,10 @@ impl AiTools {
         if direct_apply {
             // Write directly to disk, bypass shadow review
             fs::write(&full_path, &new_content)?;
+            
+            // Phase 25: Sync Cache
+            self.memory_store.update_vfs_cache(full_path, new_content).await;
+
             let h_lock = self.app_handle.lock().await;
             if let Some(h) = h_lock.as_ref() {
                 let _ = h.emit("ai-artifact", json!({
@@ -3536,7 +3614,12 @@ impl AiTools {
         let mut engine = self.patch_engine.lock().await;
         engine.commit_shadow(&full_path)?;
         
-        // HADES SYNAPSE: Record the architectural impact
+        // Phase 25: Sync Cache after commit
+        if let Ok(content) = fs::read_to_string(&full_path) {
+            self.memory_store.update_vfs_cache(full_path.clone(), content).await;
+        }
+        
+        // HADES SYNAPSE: Record the architectural impact + notify Monaco to reload
         {
             let h_lock = self.app_handle.lock().await;
             if let Some(h) = h_lock.as_ref() {
@@ -3546,9 +3629,10 @@ impl AiTools {
                     "Shadow buffer verification passed (Ghost Mode).",
                     "Persistent VFS sync complete."
                ).map_err(|e| anyhow!(e.to_string()));
+                let _ = h.emit("file-changed", json!({ "path": full_path.to_string_lossy() }));
             }
         }
-        
+
         Ok(json!({
             "status": "success",
             "path": path_str,
@@ -3596,7 +3680,11 @@ impl AiTools {
             content = content.replace(target, replacement);
         }
 
-        fs::write(full_path, content)?;
+        fs::write(&full_path, &content)?;
+        
+        // Phase 25: Sync Cache
+        self.memory_store.update_vfs_cache(full_path, content).await;
+        
         Ok(json!({ "status": "success" }))
     }
 
@@ -3800,7 +3888,17 @@ impl AiTools {
         new_lines.push(replacement.to_string());
         new_lines.extend_from_slice(&lines[end_idx..]);
 
-        fs::write(full_path, new_lines.join("\n"))?;
+        let path_string = full_path.to_string_lossy().to_string();
+        fs::write(&full_path, new_lines.join("\n"))?;
+
+        // Notify Monaco editor to reload this file
+        {
+            let h_lock = self.app_handle.lock().await;
+            if let Some(h) = h_lock.as_ref() {
+                let _ = h.emit("file-changed", json!({ "path": path_string }));
+            }
+        }
+
         Ok(json!({ "status": "success" }))
     }
 

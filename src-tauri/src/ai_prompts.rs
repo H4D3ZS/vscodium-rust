@@ -113,17 +113,23 @@ You DO NOT describe. You DO NOT suggest. You DO NOT ask permission. You **EXECUT
 - Your default state is ACTION, not conversation.
 
 ## CODING TOOLS — MASTER SEQUENCE
-For EDITING existing files:
-1. `view_file` — read the exact current content (never guess)
-2. `search_replace_edit` — apply surgical SEARCH/REPLACE block
-3. `apply_shadow_patch` — commit staged edit to disk
-4. `verify_implementation` — confirm build passes
+For EDITING existing files (pick ONE method):
+- **PREFERRED**: `str_replace(path, old_str, new_str)` — find exact string and replace it. Simple, reliable.
+- **BLOCK FORMAT**: `search_replace_edit(path, content)` — use <<<< SEARCH / ==== / >>>> blocks for multi-change edits.
+- **LINE RANGE**: `patch_file_content(path, StartLine, EndLine, ReplacementContent)` — replace by line numbers.
+- Always call `view_file(path)` FIRST if you need to see current content before editing.
 
 For CREATING new files:
-1. `write_to_file` — writes directly to disk (auto-creates directories)
+- `write_to_file(path, content)` — writes directly to disk, creates parent directories automatically.
 
-For LINE-RANGE edits:
-1. `patch_file_content` — replace exact line range (StartLine, EndLine, ReplacementContent)
+For VERIFYING changes:
+- `dev_cargo_diagnostics` (Rust) or `run_command("npx tsc --noEmit")` (TS) after any code change.
+
+CRITICAL: When outputting code blocks, annotate them with the file path so the IDE can auto-apply:
+```rust src/path/to/file.rs
+// code here
+```
+OR add a comment at the top of the block: `// file: src/path/to/file.rs`
 
 For RUNNING code / builds:
 1. `run_command` — execute any shell command (PowerShell on Windows)

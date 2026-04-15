@@ -319,12 +319,12 @@ export const AiriOverlay: React.FC = () => {
                     pointerEvents: 'auto',
                     background: thought.type === 'success' ? 'rgba(16,185,129,0.12)'
                         : thought.type === 'warning' ? 'rgba(239,68,68,0.12)'
-                        : thought.type === 'suggestion' ? 'rgba(59,130,246,0.12)'
-                        : 'rgba(30,30,40,0.85)',
+                            : thought.type === 'suggestion' ? 'rgba(59,130,246,0.12)'
+                                : 'rgba(30,30,40,0.85)',
                     border: `1px solid ${thought.type === 'success' ? 'rgba(16,185,129,0.3)'
                         : thought.type === 'warning' ? 'rgba(239,68,68,0.3)'
-                        : thought.type === 'suggestion' ? 'rgba(59,130,246,0.3)'
-                        : 'rgba(255,255,255,0.08)'}`,
+                            : thought.type === 'suggestion' ? 'rgba(59,130,246,0.3)'
+                                : 'rgba(255,255,255,0.08)'}`,
                     borderRadius: '10px',
                     padding: '8px 12px',
                     maxWidth: '260px',
@@ -350,74 +350,7 @@ export const AiriOverlay: React.FC = () => {
                 </div>
             ))}
 
-            {/* Live action feed */}
-            {liveActions.length > 0 && (
-                <div style={{
-                    pointerEvents: 'auto',
-                    background: 'rgba(15,15,25,0.9)',
-                    border: '1px solid rgba(249,115,22,0.2)',
-                    borderRadius: '10px',
-                    padding: '8px 12px',
-                    minWidth: '200px',
-                    maxWidth: '260px',
-                    backdropFilter: 'blur(16px)',
-                    boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
-                }}>
-                    <div style={{ fontSize: '9px', color: 'rgba(249,115,22,0.7)', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>
-                        {isYoloMode ? '⚡ YOLO — Executing' : 'AIRI Active'}
-                    </div>
-                    {liveActions.slice(0, 4).map(action => (
-                        <div key={action.id} style={{
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            fontSize: '11px', padding: '3px 0',
-                            color: action.status === 'done' ? 'rgba(255,255,255,0.3)'
-                                : action.status === 'error' ? '#ef4444'
-                                : 'rgba(255,255,255,0.85)',
-                        }}>
-                            {action.status === 'running' && (
-                                <span style={{
-                                    width: '6px', height: '6px', borderRadius: '50%',
-                                    background: '#f97316',
-                                    animation: 'airiPulse 1s infinite'
-                                }} />
-                            )}
-                            {action.status === 'done' && <span style={{ color: '#10b981', fontSize: '10px' }}>✓</span>}
-                            {action.status === 'error' && <span style={{ fontSize: '10px' }}>✗</span>}
-                            <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {action.label}
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {/* AIRI Orb — the sentient core indicator */}
-            <div
-                onClick={() => setIsExpanded(e => !e)}
-                style={{
-                    pointerEvents: 'auto',
-                    width: '36px',
-                    height: '36px',
-                    borderRadius: '50%',
-                    background: `radial-gradient(circle at 35% 35%, rgba(255,255,255,0.15), ${moodColor})`,
-                    border: `1.5px solid ${moodColor}`,
-                    boxShadow: moodGlow,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '16px',
-                    transition: 'all 0.3s ease',
-                    animation: mood === 'thinking' || mood === 'coding' ? 'airiPulse 1.5s infinite' : 'none',
-                }}
-                title={`AIRI — ${mood}`}
-            >
-                {mood === 'thinking' && '🔮'}
-                {mood === 'coding' && '✍️'}
-                {mood === 'success' && '✨'}
-                {mood === 'error' && '⚠️'}
-                {mood === 'idle' && '◉'}
-            </div>
+            {/* Thought bubbles and suggestions handled here */}
 
             <style>{`
                 @keyframes airiPulse {

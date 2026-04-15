@@ -721,22 +721,9 @@ body.resizing * {
   flex: 1;
 }
 
+/* Window controls — now rendered in React, no spacer needed */
 .window-controls-spacer {
   display: none;
-  flex-shrink: 0;
-}
-
-body.os-macos .window-controls-spacer {
-  display: block;
-  width: 80px;
-  /* Precise macOS traffic light width for integrated looks */
-  flex-shrink: 0;
-}
-
-body.os-windows .title-bar-right,
-body.os-linux .title-bar-right {
-  padding-right: 140px;
-  /* Space for Windows/Linux title buttons */
 }
 
 .app-identity {
@@ -862,9 +849,10 @@ body.os-linux .title-bar-right {
 .title-bar-right {
   flex: 1;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  padding-right: 12px;
-  gap: 12px;
+  gap: 8px;
+  /* No padding-right — window controls are inline */
 }
 
 .title-bar-right i {
@@ -888,7 +876,45 @@ body.os-linux .title-bar-right {
 
 .window-controls-right {
   display: flex;
+  align-items: stretch;
   -webkit-app-region: no-drag;
+  margin-left: 4px;
+}
+
+/* Windows-style window control buttons */
+.wc-btn {
+  width: 46px;
+  height: var(--title-bar-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--vscode-titleBar-activeForeground);
+  opacity: 0.8;
+  cursor: pointer;
+  transition: background 0.1s, opacity 0.1s;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+
+.wc-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
+}
+
+.wc-btn:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.wc-close:hover {
+  background: #e81123 !important;
+  color: #fff;
+  opacity: 1;
+}
+
+.wc-close:active {
+  background: #c50f1f !important;
 }
 
 .control-button {
@@ -3372,6 +3398,35 @@ body {
 
 .agent-bubble.assistant {
   border-left: 4px solid var(--airi-success);
+}
+
+/* ── Git Gutter Decorations ───────────────────────────────────────── */
+.git-gutter-added {
+  background: #2ea04380;
+  width: 3px !important;
+  margin-left: 3px;
+}
+
+.git-gutter-modified {
+  background: #1f6febbf;
+  width: 3px !important;
+  margin-left: 3px;
+}
+
+.git-gutter-deleted {
+  background: #f8514980;
+  width: 3px !important;
+  margin-left: 3px;
+}
+
+/* Git blame ghost text — shown after cursor line (GitLens style) */
+.git-blame-ghost {
+  color: rgba(153, 153, 153, 0.55) !important;
+  font-style: italic;
+  font-size: 0.85em;
+  margin-left: 2em;
+  pointer-events: none;
+  white-space: pre;
 }
 
 .agent-bubble.user {

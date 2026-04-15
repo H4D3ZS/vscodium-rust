@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useEffect, useState } from 'react';
 import ActivityBar from './ActivityBar';
 import { invoke } from '../tauri_bridge';
 import Sidebar from './Sidebar';
@@ -56,6 +56,59 @@ const Workbench: React.FC = () => {
     const setActiveTab = useStore(state => state.setActiveTab);
     const isVisualLabSplitView = useStore(state => state.isVisualLabSplitView);
     const isVisualLabOpen = useStore(state => state.isVisualLabOpen);
+    const isSplitEditorOpen = useStore(state => state.isSplitEditorOpen);
+    const splitEditorTabId = useStore(state => state.splitEditorTabId);
+    const setSplitEditorTab = useStore(state => state.setSplitEditorTab);
+    const toggleSplitEditor = useStore(state => state.toggleSplitEditor);
+    const [cursorSymbol, setCursorSymbol] = useState<string>('');
+
+    // Ctrl+\ = toggle split editor (global listener, works regardless of Monaco focus)
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+                e.preventDefault();
+                toggleSplitEditor();
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [toggleSplitEditor]);
+
+    // Breadcrumb: track cursor symbol via LSP document symbols
+    const symbolCacheRef = useRef<{ path: string; symbols: any[] }>({ path: '', symbols: [] });
+    useEffect(() => {
+        const handler = async (e: Event) => {
+            const { line } = (e as CustomEvent).detail;
+            const store = useStore.getState();
+            const path = store.activeEditorPath;
+            if (!path) return;
+            // Refresh symbol cache when file changes
+            if (symbolCacheRef.current.path !== path) {
+                symbolCacheRef.current = { path, symbols: [] };
+                try {
+                    const normalized = path.replace(/\\/g, '/');
+                    const uri = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`;
+                    const res = await invoke<any[]>('lsp_document_symbols', { uri });
+                    symbolCacheRef.current = { path, symbols: Array.isArray(res) ? res : [] };
+                } catch { /* LSP may not be running */ }
+            }
+            // Find innermost symbol containing cursor line
+            const findSymbol = (syms: any[], ln: number): string => {
+                for (const s of syms) {
+                    const start = (s.range?.start?.line ?? s.location?.range?.start?.line ?? 0) + 1;
+                    const end = (s.range?.end?.line ?? s.location?.range?.end?.line ?? 0) + 1;
+                    if (ln >= start && ln <= end) {
+                        const child = s.children ? findSymbol(s.children, ln) : '';
+                        return child || s.name;
+                    }
+                }
+                return '';
+            };
+            setCursorSymbol(findSymbol(symbolCacheRef.current.symbols, line));
+        };
+        window.addEventListener('editor:cursor-position', handler);
+        return () => window.removeEventListener('editor:cursor-position', handler as any);
+    }, []);
 
     const resizingRef = useRef<'sidebar' | 'right-sidebar' | 'panel' | null>(null);
 
@@ -170,6 +223,15 @@ const Workbench: React.FC = () => {
                                         <span className="breadcrumb-item active" style={{ color: 'var(--vscode-tab-activeForeground)', fontWeight: 400 }}>
                                             {tabs.find(t => t.id === activeTabId)?.filename}
                                         </span>
+                                        {cursorSymbol && (
+                                            <>
+                                                <i className="codicon codicon-chevron-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', margin: '0 4px', opacity: 0.4 }} />
+                                                <i className="codicon codicon-symbol-method" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', marginRight: '4px', opacity: 0.6 }} />
+                                                <span className="breadcrumb-item" style={{ color: 'var(--vscode-tab-activeForeground)', opacity: 0.75, fontStyle: 'italic' }}>
+                                                    {cursorSymbol}
+                                                </span>
+                                            </>
+                                        )}
                                     </div>
                                 )}
 
@@ -310,9 +372,10 @@ const Workbench: React.FC = () => {
                                                 <SettingsPage />
                                             ) : (
                                                 <div style={{ display: 'flex', flex: 1, width: '100%', height: '100%', minWidth: 0 }}>
+                                                    {/* Primary editor */}
                                                     <div style={{
-                                                        flex: (isVisualLabSplitView && isVisualLabOpen) ? '0 0 50%' : 1,
-                                                        borderRight: (isVisualLabSplitView && isVisualLabOpen) ? '1px solid var(--vscode-panel-border)' : 'none',
+                                                        flex: (isVisualLabSplitView && isVisualLabOpen) ? '0 0 50%' : (isSplitEditorOpen ? '0 0 50%' : 1),
+                                                        borderRight: (isVisualLabSplitView && isVisualLabOpen) || isSplitEditorOpen ? '1px solid var(--vscode-panel-border)' : 'none',
                                                         height: '100%',
                                                         minWidth: 0,
                                                         display: 'flex',
@@ -320,9 +383,39 @@ const Workbench: React.FC = () => {
                                                     }}>
                                                         <Editor />
                                                     </div>
+                                                    {/* Visual Lab split */}
                                                     {(isVisualLabSplitView && isVisualLabOpen) && (
                                                         <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, background: '#090909' }}>
                                                             <VisualLab isInline={true} />
+                                                        </div>
+                                                    )}
+                                                    {/* Split editor pane (Ctrl+\) */}
+                                                    {isSplitEditorOpen && !(isVisualLabSplitView && isVisualLabOpen) && (
+                                                        <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                                                            {/* Split pane tab strip */}
+                                                            <div className="tabs-row" style={{ flexShrink: 0 }}>
+                                                                {tabs.map(tab => (
+                                                                    <div
+                                                                        key={tab.id}
+                                                                        className={`tab${splitEditorTabId === tab.id ? ' active' : ''}`}
+                                                                        onClick={() => setSplitEditorTab(tab.id)}
+                                                                        title={tab.path}
+                                                                        style={{ maxWidth: '150px' }}
+                                                                    >
+                                                                        <span className="tab-label">{tab.filename}</span>
+                                                                    </div>
+                                                                ))}
+                                                                <div
+                                                                    title="Close split"
+                                                                    onClick={() => setSplitEditorTab(null)}
+                                                                    style={{ marginLeft: 'auto', padding: '0 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', opacity: 0.5, fontSize: '12px', flexShrink: 0 }}
+                                                                >
+                                                                    <i className="codicon codicon-close" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                                                </div>
+                                                            </div>
+                                                            <div style={{ flex: 1, overflow: 'hidden' }}>
+                                                                {splitEditorTabId && <Editor tabId={splitEditorTabId} />}
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>

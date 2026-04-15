@@ -19,6 +19,7 @@ import { initTerminal } from './terminal';
 import { initAgent } from './agent';
 import { initTheme } from './theme_engine';
 import CommandPalette from './components/CommandPalette';
+import QuickOpen from './components/QuickOpen';
 
 const ContextMenu: React.FC = () => {
     const isOpen = useStore(state => state.isContextMenuOpen);
@@ -118,6 +119,7 @@ const App: React.FC = () => {
     return (
         <div id="vscodium-app-root" style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <CommandPalette />
+            <QuickOpen />
 
             <div className="body-backdrop"></div>
             <TitleBar />

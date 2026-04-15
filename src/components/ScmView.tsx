@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../store';
 import GitGraph from './GitGraph';
@@ -8,13 +8,52 @@ interface GitStatus {
     status: string; // M, A, D, ??
 }
 
+const DiffInline: React.FC<{ content: string; loading: boolean }> = ({ content, loading }) => {
+    if (loading) return <div style={{ padding: '6px 12px', fontSize: '11px', opacity: 0.5, fontFamily: 'var(--font-mono)' }}>Loading diff…</div>;
+    if (!content) return null;
+    return (
+        <div style={{ maxHeight: '240px', overflowY: 'auto', margin: '0 0 6px 0', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)', fontSize: '11px', fontFamily: 'var(--font-mono)', background: 'rgba(0,0,0,0.25)' }}>
+            {content.split('\n').map((line, i) => {
+                let bg = 'transparent', color = 'inherit';
+                if (line.startsWith('+') && !line.startsWith('+++')) { bg = 'rgba(16,185,129,0.12)'; color = '#4ade80'; }
+                else if (line.startsWith('-') && !line.startsWith('---')) { bg = 'rgba(239,68,68,0.12)'; color = '#f87171'; }
+                else if (line.startsWith('@@')) { color = '#60a5fa'; bg = 'rgba(96,165,250,0.06)'; }
+                else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) { color = 'rgba(255,255,255,0.35)'; }
+                return (
+                    <div key={i} style={{ padding: '0 8px', background: bg, color, lineHeight: '18px', whiteSpace: 'pre', overflow: 'hidden' }}>
+                        {line || ' '}
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
 const ScmView: React.FC = () => {
     const [statuses, setStatuses] = useState<GitStatus[]>([]);
     const [commitMessage, setCommitMessage] = useState('');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [activeTab, setActiveTab] = useState<'changes' | 'graph'>('changes');
     const [conflicts, setConflicts] = useState<string[]>([]);
+    const [diffFile, setDiffFile] = useState<string | null>(null);
+    const [diffContent, setDiffContent] = useState<string>('');
+    const [isDiffLoading, setIsDiffLoading] = useState(false);
     const activeRoot = useStore(state => state.activeRoot);
+
+    const showDiff = useCallback(async (filePath: string) => {
+        if (diffFile === filePath) { setDiffFile(null); setDiffContent(''); return; }
+        setDiffFile(filePath);
+        setIsDiffLoading(true);
+        try {
+            // Use git diff for the specific file (unstaged changes)
+            const diff = await invoke<string>('git_diff_file', { path: activeRoot, filePath });
+            setDiffContent(diff);
+        } catch {
+            setDiffContent('(diff unavailable)');
+        } finally {
+            setIsDiffLoading(false);
+        }
+    }, [activeRoot, diffFile]);
 
     useEffect(() => {
         refreshStatus();
@@ -247,12 +286,21 @@ const ScmView: React.FC = () => {
                             <div className="scm-section">
                                 <div style={{ fontSize: '10px', fontWeight: 'bold', marginBottom: '8px', opacity: 0.6, letterSpacing: '0.5px' }}>STAGED</div>
                                 {staged.map((s, i) => (
-                                    <div key={i} className="scm-file-item" style={{ display: 'flex', alignItems: 'center', padding: '4px 6px', fontSize: '12px', borderRadius: 4, margin: '2px 0' }}>
-                                        <i className="codicon codicon-file" style={{ fontSize: 13, marginRight: 8, opacity: 0.4 }}></i>
-                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.path}</span>
-                                        <span style={{ color: '#4ec9b0', width: '15px', textAlign: 'center', fontSize: 10, fontWeight: 700 }}>{s.status}</span>
-                                        <i className="codicon codicon-remove" onClick={() => handleUnstage(s.path)} style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.4 }} />
-                                    </div>
+                                    <React.Fragment key={i}>
+                                        <div
+                                            className="scm-file-item"
+                                            style={{ display: 'flex', alignItems: 'center', padding: '4px 6px', fontSize: '12px', borderRadius: 4, margin: '2px 0', cursor: 'pointer', background: diffFile === s.path ? 'var(--vscode-list-activeSelectionBackground, rgba(0,122,204,0.2))' : 'transparent' }}
+                                            onClick={() => showDiff(s.path)}
+                                        >
+                                            <i className="codicon codicon-file" style={{ fontSize: 13, marginRight: 8, opacity: 0.4 }}></i>
+                                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.path}</span>
+                                            <span style={{ color: '#4ec9b0', width: '15px', textAlign: 'center', fontSize: 10, fontWeight: 700 }}>{s.status}</span>
+                                            <i className="codicon codicon-remove" onClick={e => { e.stopPropagation(); handleUnstage(s.path); }} style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.4 }} />
+                                        </div>
+                                        {diffFile === s.path && (
+                                            <DiffInline content={diffContent} loading={isDiffLoading} />
+                                        )}
+                                    </React.Fragment>
                                 ))}
                             </div>
                         )}
@@ -260,12 +308,21 @@ const ScmView: React.FC = () => {
                             <div style={{ fontSize: '10px', fontWeight: 'bold', marginBottom: '8px', opacity: 0.6, letterSpacing: '0.5px' }}>UNSTAGED</div>
                             {unstaged.length > 0 ? (
                                 unstaged.map((s, i) => (
-                                    <div key={i} className="scm-file-item" style={{ display: 'flex', alignItems: 'center', padding: '4px 6px', fontSize: '12px', borderRadius: 4, margin: '2px 0' }}>
-                                        <i className="codicon codicon-file" style={{ fontSize: 13, marginRight: 8, opacity: 0.4 }}></i>
-                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.path}</span>
-                                        <span style={{ color: '#d16d9e', width: '15px', textAlign: 'center', fontSize: 10, fontWeight: 700 }}>{s.status}</span>
-                                        <i className="codicon codicon-add" onClick={() => handleStage(s.path)} style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.4 }} />
-                                    </div>
+                                    <React.Fragment key={i}>
+                                        <div
+                                            className="scm-file-item"
+                                            style={{ display: 'flex', alignItems: 'center', padding: '4px 6px', fontSize: '12px', borderRadius: 4, margin: '2px 0', cursor: 'pointer', background: diffFile === s.path ? 'var(--vscode-list-activeSelectionBackground, rgba(0,122,204,0.2))' : 'transparent' }}
+                                            onClick={() => showDiff(s.path)}
+                                        >
+                                            <i className="codicon codicon-file" style={{ fontSize: 13, marginRight: 8, opacity: 0.4 }}></i>
+                                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.path}</span>
+                                            <span style={{ color: '#d16d9e', width: '15px', textAlign: 'center', fontSize: 10, fontWeight: 700 }}>{s.status}</span>
+                                            <i className="codicon codicon-add" onClick={e => { e.stopPropagation(); handleStage(s.path); }} style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.4 }} />
+                                        </div>
+                                        {diffFile === s.path && (
+                                            <DiffInline content={diffContent} loading={isDiffLoading} />
+                                        )}
+                                    </React.Fragment>
                                 ))
                             ) : (
                                 <div style={{ opacity: 0.5, fontSize: '11px', textAlign: 'center', padding: '20px 0' }}>No local changes.</div>

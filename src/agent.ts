@@ -404,14 +404,10 @@ export async function initAgent() {
         state.setIsAgentThinking(false);
     });
 
-    // Auto-load session if active root exists
-    const root = useStore.getState().activeRoot;
-    if (root) {
-        console.log("Found active root, attempting to resume session...");
-        TaskManager.loadSession().then(success => {
-            if (success) console.log("Session resumed successfully.");
-        });
-    }
+    // Ensure a fresh UI on startup (Quick Missions Dashboard)
+    useStore.getState().setAgentMessages([]);
+
+    // Note: Project context is preserved in the backend MemoryStore (.aim). 
 }
 
 export function openModelDropdown(element: HTMLElement, onSelect: (label: string) => void) {
@@ -778,8 +774,11 @@ async function buildIdeContext(): Promise<string> {
                         const rawContent = await invoke<string>("read_file", { path: fullPath });
                         if (rawContent) {
                             const lines = rawContent.split('\n');
-                            content = lines.slice(0, 300).join('\n');
-                            if (lines.length > 300) content += `\n... (truncated, ${lines.length - 300} more lines)`;
+                            const store = (window as any).useStore?.getState();
+                            const isOllama = store?.agentModel?.toLowerCase().includes('ollama');
+                            const limit = isOllama ? 300 : 1500;
+                            content = lines.slice(0, limit).join('\n');
+                            if (lines.length > limit) content += `\n... (truncated, ${lines.length - limit} more lines — use file_read with offset to read more)`;
                         }
                     } catch (e) {
                         content = `(Error: Could not read file content for ${c.name})`;
@@ -862,9 +861,14 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
 
     // --- Build enhanced system prompt with Claude Code-style context ---
     const storeState = store.getState();
+    const activeRoot = storeState.activeRoot || '';
+
+    // Resolve special @mentions (@codebase, @web, @git, @docs) before sending
+    const resolvedContext = await resolveSpecialMentions(context || storeState.attachedFiles || [], userPrompt, activeRoot);
+
     const tabs = (storeState as any).tabs || [];
     const promptConfig: SystemPromptConfig = {
-        activeRoot: storeState.activeRoot || '',
+        activeRoot,
         activeFile: storeState.activeEditorPath || undefined,
         openTabs: tabs.map((t: any) => ({
             path: t.path,
@@ -873,7 +877,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
         })),
         agentMode: storeState.agentMode || 'Execution',
         projectMemory: storeState.projectMemory || undefined,
-        attachedContext: context || storeState.attachedFiles || [], // Prefer passed-in context
+        attachedContext: resolvedContext,
     };
     const systemContext = await buildSystemPrompt(promptConfig);
     const systemMessage = {
@@ -894,15 +898,15 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
     }
 
     // Cap history sent to model — keeps UI display full but limits context window.
-    // Local models (Ollama) are slow; sending 40+ messages kills perf.
-    // Keep first 2 (establish context) + last N (recent working memory).
-    const MAX_HISTORY = 16;
+    // Ollama/local: keep 16 (slow, small context). Cloud/large models: keep 40.
+    const isOllama = normalizedProvider === 'ollama';
+    const MAX_HISTORY = isOllama ? 16 : 40;
     const cappedMessages: typeof agentMessages = agentMessages.length > MAX_HISTORY
         ? [
             ...agentMessages.slice(0, 2),
             { role: 'system' as const, content: `[⚡ Phase-Wrap: ${agentMessages.length - MAX_HISTORY} earlier messages compressed to save context. Recent working memory follows.]` },
-            ...agentMessages.slice(-( MAX_HISTORY - 2))
-          ]
+            ...agentMessages.slice(-(MAX_HISTORY - 2))
+        ]
         : agentMessages;
 
     // Map messages to the format expected by the backend
@@ -1756,6 +1760,40 @@ listen('ai-file-proposal', async (event: { payload: { path: string, content: str
     }
 });
 
+// Open a file in a tab when the AI requests it
+listen('editor_open_file', async (event: { payload: { path: string } }) => {
+    const filePath = event.payload?.path;
+    if (!filePath) return;
+    try {
+        await useStore.getState().openFile(filePath);
+    } catch (e) {
+        console.error('[editor_open_file] Failed to open:', filePath, e);
+    }
+});
+
+// Reload open tabs when the backend writes a file to disk
+listen('file-changed', async (event: { payload: { path: string } }) => {
+    const changedPath = event.payload?.path;
+    if (!changedPath) return;
+    const store = useStore.getState();
+    const tab = store.tabs.find((t: any) => {
+        // Normalize slashes for comparison
+        const tp = (t.path || '').replace(/\\/g, '/');
+        const cp = changedPath.replace(/\\/g, '/');
+        return tp === cp || tp.endsWith(cp) || cp.endsWith(tp);
+    });
+    if (tab) {
+        try {
+            const newContent = await invoke<string>('read_file', { path: tab.path });
+            store.updateTabContent(tab.id, newContent);
+        } catch (e) {
+            console.error('[file-changed] Failed to reload tab:', changedPath, e);
+        }
+    }
+    // Also refresh file tree so new files appear in the sidebar
+    store.refreshFileTree?.().catch(() => { });
+});
+
 listen('ai-thinking', (event: { payload: { thought: string } | any }) => {
     if (event.payload && event.payload.thought) {
         useStore.getState().updateLastAgentThought(event.payload.thought);
@@ -1768,6 +1806,115 @@ listen('ai-content', (event: { payload: { content: string } | any }) => {
         useStore.getState().updateLastAgentMessage(event.payload.content);
     }
 });
+
+// ---------------------------------------------------------------------------
+// Special @mention resolution — @codebase, @web, @git, @docs
+// ---------------------------------------------------------------------------
+async function resolveSpecialMentions(context: any[], query: string, activeRoot: string): Promise<any[]> {
+    const resolved: any[] = [];
+    let hasCodebase = false;
+
+    for (const item of context) {
+        if (item.type !== 'special') {
+            resolved.push(item);
+            continue;
+        }
+
+        try {
+            if (item.path === '__codebase__') {
+                hasCodebase = true;
+                // Auto-find relevant files using keyword grep
+                const keywords = query.replace(/[^a-zA-Z0-9_\s]/g, ' ').split(/\s+/)
+                    .filter(w => w.length > 3)
+                    .slice(0, 5);
+                const relevantFiles: any[] = [];
+                for (const kw of keywords) {
+                    try {
+                        const result = await invoke<any>('search_codebase_files', { query: kw, root: activeRoot }).catch(() => null);
+                        if (result?.files) {
+                            for (const f of result.files.slice(0, 3)) {
+                                if (!relevantFiles.find(r => r.path === f)) {
+                                    const content = await invoke<string>('read_file', { path: f }).catch(() => '');
+                                    if (content) relevantFiles.push({ path: f, content });
+                                }
+                            }
+                        }
+                    } catch { /* ignore */ }
+                }
+                // Fallback: inject directory structure
+                if (relevantFiles.length === 0) {
+                    try {
+                        const structure = await invoke<string>('get_directory_tree', { root: activeRoot, max_depth: 3 }).catch(() => null);
+                        if (structure) {
+                            resolved.push({ id: '__codebase__', type: 'file', name: 'Project Structure', path: '__codebase__', data: structure });
+                        }
+                    } catch { /* ignore */ }
+                } else {
+                    for (const rf of relevantFiles.slice(0, 5)) {
+                        resolved.push({ id: rf.path, type: 'file', name: rf.path.split(/[/\\]/).pop(), path: rf.path, data: rf.content });
+                    }
+                }
+            } else if (item.path === '__git__') {
+                try {
+                    const [diff, status, log] = await Promise.all([
+                        invoke<string>('ai_execute_command', { command: 'git diff HEAD', cwd: activeRoot }).catch(() => ''),
+                        invoke<string>('ai_execute_command', { command: 'git status --short', cwd: activeRoot }).catch(() => ''),
+                        invoke<string>('ai_execute_command', { command: 'git log --oneline -10', cwd: activeRoot }).catch(() => ''),
+                    ]);
+                    const gitContext = `### Git Status\n${status}\n\n### Recent Commits\n${log}\n\n### Diff (HEAD)\n${diff}`.slice(0, 8000);
+                    resolved.push({ id: '__git__', type: 'file', name: 'git diff', path: '__git__', data: gitContext });
+                } catch { /* ignore */ }
+            } else if (item.path === '__web__') {
+                try {
+                    const result = await invoke<any>('web_search', { query }).catch(() => null);
+                    if (result) {
+                        const data = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+                        resolved.push({ id: '__web__', type: 'file', name: 'Web search results', path: '__web__', data: data.slice(0, 6000) });
+                    }
+                } catch { /* ignore */ }
+            } else if (item.path === '__docs__') {
+                try {
+                    // Pre-fetch relevant documentation via targeted web search
+                    const result = await invoke<any>('web_search', { query: `documentation for ${query}` }).catch(() => null);
+                    if (result) {
+                        const data = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+                        resolved.push({ id: '__docs__', type: 'file', name: 'Documentation context', path: '__docs__', data: data.slice(0, 8000) });
+                    }
+                } catch { /* ignore */ }
+            }
+        } catch (e) {
+            console.error('[resolveSpecialMentions] Error resolving', item.path, e);
+        }
+    }
+
+    // --- AUTO-LOAD .cursorrules (Workspace Context) ---
+    try {
+        if (activeRoot) {
+            const cursorRulesPath = activeRoot.endsWith('/') || activeRoot.endsWith('\\')
+                ? `${activeRoot}.cursorrules`
+                : `${activeRoot}/.cursorrules`;
+            const content = await invoke<string>('read_file', { path: cursorRulesPath }).catch(() => '');
+            if (content) {
+                resolved.push({ id: '__cursorrules__', type: 'file', name: '.cursorrules', path: '.cursorrules', data: content });
+            }
+        }
+    } catch { /* ignore */ }
+
+    // Auto-context injection: if no @codebase mention and query seems code-related,
+    // auto-inject the active file and a few relevant files by keyword search
+    if (!hasCodebase && query.length > 10) {
+        try {
+            const storeState = (window as any).useStore?.getState();
+            const activeFile = storeState?.activeEditorPath;
+            const activeContent = storeState?.tabs?.find((t: any) => t.path === activeFile)?.content;
+            if (activeFile && activeContent && !resolved.find(r => r.path === activeFile)) {
+                resolved.unshift({ id: activeFile, type: 'file', name: activeFile.split(/[/\\]/).pop(), path: activeFile, data: activeContent.slice(0, 4000) });
+            }
+        } catch { /* ignore */ }
+    }
+
+    return resolved;
+}
 
 function formatToolSummary(name: string, args: any, result: any): string {
     try {
