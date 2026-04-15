@@ -879,52 +879,50 @@ const AgentSettingsView: React.FC = () => {
                             </button>
                             <button
                                 onClick={async () => {
-                                    console.log('[ElevenLabs] 💾 Direct save button clicked');
+                                    console.log('[ElevenLabs] 🔄 Force replacing API key...');
                                     const apiKey = (apiKeys as any).elevenlabs;
-                                    console.log('[ElevenLabs] Current key:', apiKey ? `${apiKey.substring(0, 8)}...` : 'empty', 'starts_with_bullet:', apiKey?.startsWith('•'));
+                                    console.log('[ElevenLabs] Current key:', apiKey ? `${apiKey.substring(0, 8)}...` : 'empty', 'length:', apiKey?.length);
                                     
-                                    // Use real key if available, otherwise use the input value
-                                    const keyToSave = realApiKey || apiKey;
-                                    
-                                    if (keyToSave && !keyToSave.startsWith('•')) {
+                                    // Always save, even if masked (force replace)
+                                    if (apiKey && apiKey.length > 10) {
                                         try {
                                             const result = await invoke('save_api_keys', {
-                                                keys: { elevenlabs_api_key: keyToSave }
+                                                keys: { elevenlabs_api_key: apiKey }
                                             });
-                                            console.log('[ElevenLabs] ✅ Direct save result:', result);
+                                            console.log('[ElevenLabs] ✅ Force replace result:', result);
                                             setKeyStatus(prev => ({ ...prev, ...result }));
                                             
                                             // Verify save
                                             const reloaded = await invoke('get_api_keys');
                                             console.log('[ElevenLabs] 🔍 Verified save:', {
-                                                elevenlabs_api_key: (reloaded as any).elevenlabs_api_key ? '✓ SAVED' : '✗ MISSING',
+                                                elevenlabs_api_key: (reloaded as any).elevenlabs_api_key ? '✓ REPLACED' : '✗ FAILED',
                                                 elevenlabs_voice_id: (reloaded as any).elevenlabs_voice_id || 'NOT SET'
                                             });
                                             
-                                            alert('✅ ElevenLabs API key saved successfully!\n\nCheck console for details.');
-                                        } catch (err) {
-                                            console.error('[ElevenLabs] ❌ Direct save failed:', err);
-                                            alert('❌ Failed to save: ' + err);
+                                            alert('✅ ElevenLabs API key REPLACED successfully!\n\nOld key has been overwritten with new key.\nCheck console for details.');
+                                        } catch (err: any) {
+                                            console.error('[ElevenLabs] ❌ Force replace failed:', err);
+                                            alert('❌ Failed to replace: ' + (err.message || err));
                                         }
                                     } else {
-                                        console.log('[ElevenLabs] ⚠️ No new key to save (already masked or empty)');
-                                        alert('⚠️ Key is already saved (masked) or empty');
+                                        console.log('[ElevenLabs] ⚠️ Key too short');
+                                        alert('⚠️ Please enter a valid API key (starts with sk_, min 10 chars)');
                                     }
                                 }}
-                                style={{ 
-                                    background: 'var(--vscode-button-background)', 
-                                    color: 'var(--vscode-button-foreground)', 
-                                    border: 'none', 
-                                    padding: '6px 12px', 
-                                    fontSize: '11px', 
-                                    cursor: 'pointer', 
+                                style={{
+                                    background: 'var(--vscode-button-background)',
+                                    color: 'var(--vscode-button-foreground)',
+                                    border: 'none',
+                                    padding: '6px 12px',
+                                    fontSize: '11px',
+                                    cursor: 'pointer',
                                     borderRadius: '4px',
                                     marginLeft: '6px',
                                 }}
-                                title="Save API key immediately"
+                                title="Force replace API key (overwrites old key)"
                             >
-                                <i className="codicon codicon-save" style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: '4px' }}></i>
-                                Save
+                                <i className="codicon codicon-refresh" style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: '4px' }}></i>
+                                Replace
                             </button>
                         </div>
                     </div>
