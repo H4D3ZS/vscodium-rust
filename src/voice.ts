@@ -535,12 +535,21 @@ export async function speak(
             URL.revokeObjectURL(url);
             onEnd?.();
             window.dispatchEvent(new CustomEvent('airi-tts-end'));
+            
+            // Stop lip sync
+            window.dispatchEvent(new CustomEvent('airi-lipsync-stop'));
         };
         currentAudio.onerror = (e) => {
             isPlaying = false;
             URL.revokeObjectURL(url);
             console.error('[TTS] Audio error:', e);
             window.dispatchEvent(new CustomEvent('airi-tts-error', { detail: { error: e } }));
+            window.dispatchEvent(new CustomEvent('airi-lipsync-stop'));
+        };
+
+        // Start lip sync when audio starts
+        currentAudio.onplay = () => {
+            window.dispatchEvent(new CustomEvent('airi-lipsync-start', { detail: { text } }));
         };
 
         await currentAudio.play();

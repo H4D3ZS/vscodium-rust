@@ -38,9 +38,6 @@ let _ttsPreset: VoicePreset = 'airi';
 async function ttsSpeak(iframeRef: React.RefObject<HTMLIFrameElement | null>, text: string) {
     if (!text.trim()) return;
 
-    // TTS disabled in AiriPanel - only handle VRM lip sync
-    // Voice output handled by RightSidebar
-    
     // Strip markdown for cleaner speech synthesis
     const clean = text
         .replace(/```[\s\S]*?```/g, ' code block. ')
@@ -53,11 +50,23 @@ async function ttsSpeak(iframeRef: React.RefObject<HTMLIFrameElement | null>, te
 
     if (!clean) return;
 
-    // Send to iframe for VRM lip sync animation ONLY (no audio)
-    iframeRef.current?.contentWindow?.postMessage({
-        type: 'airi-speak',
-        payload: { text: clean }
-    }, '*');
+    console.log('[AiriPanel] 🎤 Sending lip sync text:', clean.substring(0, 50) + '...');
+
+    // Send to iframe for VRM lip sync animation
+    if (iframeRef.current?.contentWindow) {
+        // Send text for lip sync
+        iframeRef.current.contentWindow.postMessage({
+            type: 'airi-speak',
+            payload: { 
+                text: clean,
+                timestamp: Date.now()
+            }
+        }, '*');
+        
+        console.log('[AiriPanel] ✅ Lip sync message sent to VRM');
+    } else {
+        console.warn('[AiriPanel] ⚠️ Iframe not ready for lip sync');
+    }
 }
 
 function ttsStop(iframeRef: React.RefObject<HTMLIFrameElement | null>) {
@@ -179,6 +188,30 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     }, [isAgentThinking, lastActivityTime, isHibernating, wakeUp]);
 
     const uiStatus = useStore(s => s.aiStatus);
+
+    // ── Lip Sync Integration ──────────────────────────────────────────────
+    useEffect(() => {
+        // Listen for TTS start/stop events
+        const handleLipSyncStart = (e: any) => {
+            console.log('[AiriPanel] 🎭 Lip sync STARTED');
+            // Send text to VRM for lip sync
+            const text = e.detail?.text || '';
+            ttsSpeak(iframeRef, text);
+        };
+
+        const handleLipSyncStop = () => {
+            console.log('[AiriPanel] 🎭 Lip sync STOPPED');
+            ttsStop(iframeRef);
+        };
+
+        window.addEventListener('airi-lipsync-start', handleLipSyncStart as any);
+        window.addEventListener('airi-lipsync-stop', handleLipSyncStop);
+
+        return () => {
+            window.removeEventListener('airi-lipsync-start', handleLipSyncStart as any);
+            window.removeEventListener('airi-lipsync-stop', handleLipSyncStop);
+        };
+    }, []);
 
     // ── Live tool-call tracking ──────────────────────────────────────────────
     const [currentTool, setCurrentTool] = useState<string | null>(null);
