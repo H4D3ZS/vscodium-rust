@@ -225,6 +225,13 @@ const RightSidebar: React.FC = () => {
                         await speak(greeting, 'airi');
                     }, 2000);
                 }).catch(console.error);
+                
+                // Initialize Autonomous Agent (24/7 independent work)
+                import('../autonomous-agent').then(({ autonomousAgent }) => {
+                    autonomousAgent.startAutonomousLoop();
+                    console.log('[AutonomousAgent] ✅ AIRI is now working 24/7 autonomously!');
+                    console.log('[AutonomousAgent] ✨ AIRI will debug, implement, research while you sleep!');
+                }).catch(console.error);
             } else {
                 console.warn('[TTS] ⚠️ Voice system initialization failed');
             }
@@ -308,8 +315,13 @@ const RightSidebar: React.FC = () => {
     }, [isAgentThinking]);
 
     // Capture streaming AI content — token-by-token rendering (Cursor-style)
+    // Also handles REAL-TIME TTS - speaks WHILE typing like a human
     useEffect(() => {
         let buffer = '';
+        let lastSpokenIndex = 0;
+        let isSpeaking = false;
+        let ttsTimeout: NodeJS.Timeout | null = null;
+        
         const unsub: (() => void)[] = [];
         import('@tauri-apps/api/event').then(({ listen }) => {
             // Primary: token-by-token delta from backend streaming
@@ -319,8 +331,38 @@ const RightSidebar: React.FC = () => {
                     buffer += delta;
                     updateLastAgentMessage(buffer);
                     if (agentUiMode === 'airi') setAiriSpeech(buffer);
+
+                    // REAL-TIME TTS - Speak as text arrives (natural human-like)
+                    if (ttsEnabled && !isSpeaking && buffer.length > lastSpokenIndex + 80) {
+                        // Find the last sentence boundary (. ! ?)
+                        const textToConsider = buffer.substring(lastSpokenIndex);
+                        const lastSentenceEnd = Math.max(
+                            textToConsider.lastIndexOf('.'),
+                            textToConsider.lastIndexOf('!'),
+                            textToConsider.lastIndexOf('?')
+                        );
+                        
+                        if (lastSentenceEnd > 20) { // Only speak if sentence is long enough
+                            const textToSpeak = textToConsider.substring(0, lastSentenceEnd + 1).trim();
+                            
+                            if (textToSpeak.length > 20 && ttsEnabled) {
+                                console.log('[TTS] 🎤 Streaming speech:', textToSpeak.substring(0, 50) + '...');
+                                
+                                // Stop any current speech before starting new one
+                                stop();
+                                
+                                isSpeaking = true;
+                                speak(textToSpeak, ttsPreset, () => {
+                                    isSpeaking = false;
+                                });
+                                
+                                lastSpokenIndex += lastSentenceEnd + 1;
+                            }
+                        }
+                    }
                 }
             }).then(u => unsub.push(u));
+            
             // Fallback: full content once streaming completes
             listen<any>('ai-content', (e) => {
                 const content: string = e.payload?.content || '';
@@ -328,14 +370,30 @@ const RightSidebar: React.FC = () => {
                     buffer = content;
                     updateLastAgentMessage(content);
                     if (agentUiMode === 'airi') { setAiriSpeech(content); setAiriSpeaking(false); }
+
+                    // Speak any remaining text that wasn't spoken yet
+                    if (ttsEnabled && buffer.length > lastSpokenIndex + 20) {
+                        const remainingText = buffer.substring(lastSpokenIndex);
+                        console.log('[TTS] 🎤 Speaking remaining:', remainingText.substring(0, 50) + '...');
+                        
+                        // Stop any current speech first
+                        stop();
+                        
+                        speak(remainingText, ttsPreset, () => {
+                            setAiriSpeaking(false);
+                            isSpeaking = false;
+                        });
+                        isSpeaking = true;
+                    }
                 }
             }).then(u => unsub.push(u));
         });
 
         return () => {
             unsub.forEach(u => u());
+            if (ttsTimeout) clearTimeout(ttsTimeout);
         };
-    }, [agentUiMode, updateLastAgentMessage]);
+    }, [agentUiMode, updateLastAgentMessage, ttsEnabled, ttsPreset]);
 
     useEffect(() => {
         if (agentUiMode === 'airi') {
