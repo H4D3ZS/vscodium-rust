@@ -551,8 +551,14 @@ export async function speak(
         isPlaying = false;
         window.dispatchEvent(new CustomEvent('airi-tts-error', { detail: { error } }));
         
-        // No fallback - ElevenLabs only
-        // If you want browser fallback, set ttsProvider = 'browser' in voice.ts
+        // Fallback to browser TTS if ElevenLabs fails (quota exceeded, etc.)
+        if (ttsProvider === 'elevenlabs') {
+            console.log('[TTS] ⚠️ ElevenLabs failed, falling back to browser TTS');
+            ttsProvider = 'browser';
+            const utterance = speakBrowser(text, preset);
+            utterance.onend = () => { isPlaying = false; onEnd?.(); };
+            window.speechSynthesis.speak(utterance);
+        }
         return false;
     }
 }

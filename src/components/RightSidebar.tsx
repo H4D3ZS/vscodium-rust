@@ -233,6 +233,21 @@ const RightSidebar: React.FC = () => {
                     console.log('[Consciousness] ✨ Not a parrot - a thinking, feeling entity');
                 }).catch(console.error);
                 
+                // Initialize Biological Systems (sleep, eat, energy, mood)
+                import('../biology').then(({ biology }) => {
+                    biology.awaken();
+                    console.log('[Biology] ✅ AIRI Biological Systems ACTIVE');
+                    console.log('[Biology] ✨ Sleep, hunger, energy, mood enabled');
+                }).catch(console.error);
+                
+                // Initialize Cybersecurity Engine (Red Team / Blue Team)
+                import('../security-engine').then(({ security }) => {
+                    security.setMode('purple'); // Combined red/blue
+                    security.monitorThreats();
+                    console.log('[Security] ✅ AIRI Cybersecurity Engine ACTIVE');
+                    console.log('[Security] ⚔️ Red Team / Blue Team operations enabled');
+                }).catch(console.error);
+                
                 // Initialize Autonomous Agent (24/7 independent work)
                 import('../autonomous-agent').then(({ autonomousAgent }) => {
                     autonomousAgent.startAutonomousLoop();
