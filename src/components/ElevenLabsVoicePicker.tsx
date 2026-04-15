@@ -24,9 +24,15 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
     const [error, setError] = useState<string | null>(null);
     const [playingId, setPlayingId] = useState<string | null>(null);
     const [filter, setFilter] = useState<'all' | 'premade' | 'cloned' | 'generated'>('premade');
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
     const fetchVoices = useCallback(async () => {
+        console.log('[Voice Picker] fetchVoices called');
+        console.log('[Voice Picker] apiKey:', apiKey ? `${apiKey.substring(0, 8)}... (length: ${apiKey.length})` : 'MISSING');
+        console.log('[Voice Picker] apiKey starts with sk_:', apiKey?.startsWith('sk_'));
+        
         if (!apiKey || !apiKey.startsWith('sk_')) {
+            console.warn('[Voice Picker] API key not configured or invalid');
             setError('ElevenLabs API key not configured');
             return;
         }
@@ -34,14 +40,57 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
         setLoading(true);
         setError(null);
         try {
+            console.log('[Voice Picker] Calling elevenlabs_get_voices...');
             const fetchedVoices = await invoke<ElevenLabsVoice[]>('elevenlabs_get_voices');
+            console.log('[Voice Picker] ✅ Voices fetched:', fetchedVoices.length);
             setVoices(fetchedVoices);
         } catch (e: any) {
+            console.error('[Voice Picker] ❌ Error fetching voices:', e);
             setError(e?.message || e?.toString() || 'Failed to fetch voices');
         } finally {
             setLoading(false);
         }
     }, [apiKey]);
+
+    const handleSaveVoice = useCallback(async (voiceId: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setSaveStatus('saving');
+        console.log('[Voice Picker] 💾 Saving voice:', voiceId);
+        
+        try {
+            // Save voice ID to persistent storage
+            const result = await invoke('save_api_keys', { 
+                keys: { elevenlabs_voice_id: voiceId } 
+            });
+            
+            console.log('[Voice Picker] ✅ Save result:', result);
+            console.log('[Voice Picker] ✅ Voice ID saved to api_keys.json');
+            
+            // Notify parent component to update local state
+            onVoiceSelect(voiceId);
+            console.log('[Voice Picker] ✅ Parent component notified');
+            
+            // Also update voice.ts module directly
+            try {
+                const voiceModule = await import('../voice');
+                if (voiceModule.setSelectedVoice) {
+                    voiceModule.setSelectedVoice(voiceId);
+                    console.log('[Voice Picker] ✅ Voice set in voice.ts:', voiceId);
+                }
+            } catch (err) {
+                console.warn('[Voice Picker] ⚠️ Could not update voice.ts:', err);
+            }
+            
+            // Show saved confirmation
+            setSaveStatus('saved');
+            console.log('[Voice Picker] 🎉 Save complete!');
+            setTimeout(() => setSaveStatus('idle'), 2000);
+        } catch (err) {
+            console.error('[Voice Picker] ❌ Failed to save voice:', err);
+            setError('Failed to save voice selection');
+            setSaveStatus('idle');
+        }
+    }, [onVoiceSelect]);
 
     useEffect(() => {
         fetchVoices();
@@ -203,7 +252,6 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                     filteredVoices.map(voice => (
                         <div
                             key={voice.voice_id}
-                            onClick={() => onVoiceSelect(voice.voice_id)}
                             style={{
                                 padding: '8px 12px',
                                 cursor: 'pointer',
@@ -230,32 +278,44 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                                 {genderIcon(voice.gender)}
                             </span>
 
-                            {/* Voice name */}
-                            <span style={{ flex: 1, fontWeight: selectedVoiceId === voice.voice_id ? 600 : 400 }}>
-                                {voice.name}
-                            </span>
-
-                            {/* Metadata chips */}
-                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                {voice.age && (
+                            {/* Voice name - click to select */}
+                            <div 
+                                onClick={() => onVoiceSelect(voice.voice_id)}
+                                style={{ flex: 1 }}
+                            >
+                                <span style={{ fontWeight: selectedVoiceId === voice.voice_id ? 600 : 400 }}>
+                                    {voice.name}
+                                </span>
+                                {selectedVoiceId === voice.voice_id && (
                                     <span style={{
-                                        background: 'var(--vscode-badge-background)',
-                                        color: 'var(--vscode-badge-foreground)',
-                                        padding: '1px 4px',
-                                        borderRadius: '3px',
+                                        marginLeft: '6px',
                                         fontSize: '9px',
-                                        textTransform: 'capitalize',
-                                    }}>{voice.age}</span>
+                                        color: '#4ade80',
+                                        fontWeight: 600,
+                                    }}>✓ SELECTED</span>
                                 )}
-                                {voice.accent && (
-                                    <span style={{
-                                        background: 'var(--vscode-badge-background)',
-                                        color: 'var(--vscode-badge-foreground)',
-                                        padding: '1px 4px',
-                                        borderRadius: '3px',
-                                        fontSize: '9px',
-                                    }}>{voice.accent}</span>
-                                )}
+                                {/* Metadata chips */}
+                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '3px' }}>
+                                    {voice.age && (
+                                        <span style={{
+                                            background: 'var(--vscode-badge-background)',
+                                            color: 'var(--vscode-badge-foreground)',
+                                            padding: '1px 4px',
+                                            borderRadius: '3px',
+                                            fontSize: '9px',
+                                            textTransform: 'capitalize',
+                                        }}>{voice.age}</span>
+                                    )}
+                                    {voice.accent && (
+                                        <span style={{
+                                            background: 'var(--vscode-badge-background)',
+                                            color: 'var(--vscode-badge-foreground)',
+                                            padding: '1px 4px',
+                                            borderRadius: '3px',
+                                            fontSize: '9px',
+                                        }}>{voice.accent}</span>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Play preview */}
@@ -271,9 +331,10 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                                         border: 'none',
                                         color: playingId === voice.voice_id ? 'var(--vscode-button-background)' : 'var(--vscode-foreground)',
                                         cursor: 'pointer',
-                                        padding: '2px',
+                                        padding: '4px',
                                         display: 'flex',
                                         alignItems: 'center',
+                                        borderRadius: '3px',
                                     }}
                                 >
                                     <i className={`codicon codicon-${playingId === voice.voice_id ? 'loading' : 'play-circle'}`} style={{
@@ -284,6 +345,57 @@ const ElevenLabsVoicePicker: React.FC<ElevenLabsVoicePickerProps> = ({ onVoiceSe
                                     }}></i>
                                 </button>
                             )}
+
+                            {/* Save voice button */}
+                            <button
+                                onClick={(e) => handleSaveVoice(voice.voice_id, e)}
+                                title={selectedVoiceId === voice.voice_id ? 'Selected voice' : 'Select and save this voice'}
+                                disabled={saveStatus === 'saving'}
+                                style={{
+                                    background: selectedVoiceId === voice.voice_id
+                                        ? 'var(--vscode-button-background)'
+                                        : saveStatus === 'saving' && selectedVoiceId !== voice.voice_id
+                                        ? 'rgba(255,255,255,0.1)'
+                                        : 'rgba(255,255,255,0.05)',
+                                    color: selectedVoiceId === voice.voice_id
+                                        ? 'var(--vscode-button-foreground)'
+                                        : 'var(--vscode-foreground)',
+                                    border: selectedVoiceId === voice.voice_id
+                                        ? 'none'
+                                        : '1px solid var(--vscode-button-background)',
+                                    padding: '4px 10px',
+                                    fontSize: '9px',
+                                    borderRadius: '3px',
+                                    cursor: saveStatus === 'saving' ? 'wait' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    minWidth: '70px',
+                                    justifyContent: 'center',
+                                }}
+                            >
+                                {saveStatus === 'saving' && selectedVoiceId !== voice.voice_id ? (
+                                    <>
+                                        <i className="codicon codicon-loading" style={{
+                                            fontSize: '12px',
+                                            fontFamily: 'codicon',
+                                            fontStyle: 'normal',
+                                            animation: 'spin 1s linear infinite',
+                                        }}></i>
+                                        Saving...
+                                    </>
+                                ) : selectedVoiceId === voice.voice_id ? (
+                                    <>
+                                        <i className="codicon codicon-check" style={{ fontSize: '12px', fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                                        Saved
+                                    </>
+                                ) : (
+                                    <>
+                                        <i className="codicon codicon-save" style={{ fontSize: '12px', fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                                        Save
+                                    </>
+                                )}
+                            </button>
                         </div>
                     ))
                 )}

@@ -194,6 +194,13 @@ export async function initTTS(): Promise<boolean> {
             currentApiKey = apiKeys.elevenlabs_api_key;
             ttsProvider = 'elevenlabs';
             console.log('[TTS] ✅ ElevenLabs provider configured');
+            
+            // Load saved voice ID from storage
+            const savedVoiceId = (apiKeys as any).elevenlabs_voice_id;
+            if (savedVoiceId) {
+                selectedVoiceId = savedVoiceId;
+                console.log(`[TTS] ✅ Loaded saved voice ID: ${savedVoiceId}`);
+            }
             return true;
         }
 
@@ -229,6 +236,8 @@ export function setSelectedVoice(voiceId: string): void {
 async function speakElevenLabs(text: string, preset: VoicePreset): Promise<ArrayBuffer> {
     const config = ELEVENLABS_VOICES[preset];
     const voiceId = selectedVoiceId || config.voice_id;
+    
+    console.log(`[TTS] speakElevenLabs: preset=${preset}, selectedVoiceId=${selectedVoiceId}, using voiceId=${voiceId}`);
 
     if (!currentApiKey) {
         const apiKeys = await invoke<any>('get_api_keys');
@@ -460,8 +469,33 @@ export async function speak(
     onEnd?: () => void,
     onStart?: () => void
 ): Promise<boolean> {
-    // Stop any current playback
+    console.log(`[TTS] speak() called: provider=${ttsProvider}, preset=${preset}, selectedVoiceId=${selectedVoiceId}`);
+    
+    // Prevent overlapping speech - stop any current playback
     stop();
+
+    // Force ElevenLabs if API key is available
+    if (!currentApiKey) {
+        const apiKeys = (window as any).apiKeysForTTS; // Cached if available
+        if (!apiKeys?.elevenlabs_api_key?.startsWith('sk_')) {
+            try {
+                const keys = await invoke<any>('get_api_keys');
+                if (keys?.elevenlabs_api_key?.startsWith('sk_')) {
+                    currentApiKey = keys.elevenlabs_api_key;
+                    ttsProvider = 'elevenlabs';
+                    console.log('[TTS] ✅ ElevenLabs activated');
+                }
+            } catch (e) {
+                console.warn('[TTS] Could not check API keys');
+            }
+        }
+    }
+    
+    // Only use ElevenLabs - no browser fallback unless explicitly configured
+    if (ttsProvider !== 'elevenlabs' && ttsProvider !== 'openai') {
+        console.warn('[TTS] ⚠️ No valid TTS provider. ElevenLabs API key required.');
+        return false;
+    }
 
     isPlaying = true;
     onStart?.();
@@ -516,14 +550,9 @@ export async function speak(
         console.error('[TTS] Speak error:', error);
         isPlaying = false;
         window.dispatchEvent(new CustomEvent('airi-tts-error', { detail: { error } }));
-
-        // Fallback to browser TTS
-        if (ttsProvider !== 'browser') {
-            console.log('[TTS] Falling back to browser TTS');
-            const utterance = speakBrowser(text, preset);
-            utterance.onend = () => { isPlaying = false; onEnd?.(); };
-            window.speechSynthesis.speak(utterance);
-        }
+        
+        // No fallback - ElevenLabs only
+        // If you want browser fallback, set ttsProvider = 'browser' in voice.ts
         return false;
     }
 }
@@ -531,16 +560,41 @@ export async function speak(
 // ── Sentence Splitting for Natural TTS Chunks ──────────────────────────────
 
 function splitIntoSentences(text: string): string[] {
-    // Split on sentence boundaries while preserving punctuation
-    const sentences = text.match(/[^.!?]+[.!?]+[\s]*/g);
-    if (!sentences || sentences.length === 0) {
-        return [text];
-    }
+    // Improved sentence splitting for natural, human-like speech
+    // Handles abbreviations, numbers, and preserves speech flow
     
-    // Filter out empty sentences and trim
+    // First, clean the text while preserving natural speech patterns
+    let cleaned = text
+        // Remove markdown code blocks
+        .replace(/```[\s\S]*?```/g, ' ')
+        // Remove inline code but keep content readable
+        .replace(/`([^`]+)`/g, '$1')
+        // Remove markdown headers but keep text
+        .replace(/#{1,6}\s+/g, '')
+        // Remove markdown formatting
+        .replace(/[*_~]/g, '')
+        // Convert URLs to readable text
+        .replace(/https?:\/\/\S+/g, ' link ')
+        // Normalize whitespace
+        .replace(/\s+/g, ' ')
+        .trim();
+    
+    // Protect common abbreviations from being split
+    const abbreviations = ['Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Jr', 'vs', 'etc', 'e.g', 'i.e', 'cf', 'al', 'St', 'Ave', 'Blvd', 'Rd', 'Inc', 'Ltd', 'Co'];
+    const protectedText = cleaned;
+    
+    // Split on natural sentence boundaries
+    // Matches: sentence-ending punctuation followed by space (or end of string)
+    const sentences = protectedText.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g);
+    
+    if (!sentences || sentences.length === 0) {
+        return [cleaned];
+    }
+
+    // Filter and trim sentences
     return sentences
         .map(s => s.trim())
-        .filter(s => s.length > 0);
+        .filter(s => s.length > 2 && s.length < 300); // Skip very short or overly long segments
 }
 
 // ── Controls ───────────────────────────────────────────────────────────────
@@ -646,6 +700,7 @@ async function processTtsQueue(): Promise<void> {
     flushTtsQueue,
     clearTtsQueue,
     presets: ELEVENLABS_VOICES,
+    setSelectedVoice,
 };
 
 console.log('[TTS] ✅ AIRI Voice System v2 loaded');

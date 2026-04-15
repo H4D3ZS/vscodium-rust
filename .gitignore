@@ -42,3 +42,6 @@ api_keys.json
 src-tauri/target/
 src-tauri/zed/
 native/
+"config/api_keys.json"  
+"src-tauri/config/api_keys.json"  
+"*.env"  

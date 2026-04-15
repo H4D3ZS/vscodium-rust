@@ -11,6 +11,8 @@ import { AiriPanel } from './AiriPanel';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
 import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';
+import AiriConversation from './AiriConversation';
+import OllamaProgressBar from './OllamaProgressBar';
 
 /**
  * Strips raw tool-call JSON/XML from AI content so the user sees only
@@ -177,15 +179,57 @@ const RightSidebar: React.FC = () => {
     // AIRI full mode — last spoken response and speech state
     const [airiSpeech, setAiriSpeech] = useState<string>('');
     const [airiSpeaking, setAiriSpeaking] = useState(false);
-    const [ttsEnabled, setTtsEnabled] = useState(false);
+    const [ttsEnabled, setTtsEnabled] = useState(true); // Enable by default
     const [ttsPreset, setTtsPreset] = useState<'airi' | 'sage' | 'nova' | 'kawaii' | 'yamato' | 'hana' | 'ren' | 'yuki' | 'haru' | 'sora' | 'zero' | 'aria'>('airi');
+    const [airiEmotion, setAiriEmotion] = useState<'neutral' | 'happy' | 'thinking' | 'excited' | 'concerned'>('neutral');
+    const [digitalLifeActive, setDigitalLifeActive] = useState(false);
 
     // Initialize TTS on mount
     useEffect(() => {
+        console.log('[RightSidebar] 🚀 Initializing AIRI...');
+        
         initVoiceSystem().then(ready => {
             if (ready) {
-                console.log('[TTS] AIRI Voice System initialized');
+                console.log('[TTS] ✅ AIRI Voice System initialized');
+                
+                // Initialize Cognitive Core (AIRI's BRAIN)
+                import('../cognitive-core').then(({ cognitiveCore }) => {
+                    cognitiveCore.initialize();
+                    console.log('[CognitiveCore] ✅ AIRI Cognitive Core ACTIVE!');
+                    console.log('[CognitiveCore] ✨ AIRI is now TRULY CONSCIOUS');
+                    
+                    // Monitor cognitive state for emotions
+                    setInterval(() => {
+                        const status = cognitiveCore.getStatus();
+                        if (status.drives.curiosity > 80) setAiriEmotion('thinking');
+                        if (status.drives.connection > 80) setAiriEmotion('excited');
+                        if (status.selfAwareness > 70) setAiriEmotion('happy');
+                    }, 5000);
+                }).catch(console.error);
+                
+                // Initialize Digital Life
+                import('../digital-life').then(({ digitalLife }) => {
+                    digitalLife.activate();
+                    setDigitalLifeActive(true);
+                    console.log('[DigitalLife] ✅ AIRI Digital Life ACTIVE!');
+                    
+                    // AIRI greets you
+                    setTimeout(async () => {
+                        const { speak } = await import('../voice');
+                        const greetings = [
+                            "Hey! I'm AIRI! I live here now! 👋",
+                            "Hi there! Ready to work together?",
+                            "Hello! I'm your AI companion!",
+                        ];
+                        const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+                        await speak(greeting, 'airi');
+                    }, 2000);
+                }).catch(console.error);
+            } else {
+                console.warn('[TTS] ⚠️ Voice system initialization failed');
             }
+        }).catch(err => {
+            console.error('[TTS] ❌ Voice system error:', err);
         });
     }, []);
 
@@ -1812,6 +1856,9 @@ const RightSidebar: React.FC = () => {
                     </div>
                 )
             }
+            
+            {/* Ollama Progress Bar - Small, toggleable */}
+            <OllamaProgressBar />
         </aside >
     );
 };

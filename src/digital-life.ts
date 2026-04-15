@@ -1,0 +1,318 @@
+/**
+ * AIRI Digital Life System
+ * 
+ * Makes AIRI a persistent digital entity living in your PC 24/7
+ * Like Digimon - always present, always aware, always interacting
+ */
+
+import { useStore } from './store';
+
+export interface DigitalLifeConfig {
+  enabled: boolean;
+  alwaysOn: boolean;           // AIRI always visible/active
+  conversationMode: 'voice' | 'text' | 'both';
+  showChat: boolean;           // Show text chat overlay
+  avatarAlwaysActive: boolean; // VRM avatar always animated
+  ambientMode: boolean;        // Subtle presence when idle
+  sleepCycle: boolean;         // AIRI rests when PC idle
+}
+
+export class DigitalLifeCore {
+  private config: DigitalLifeConfig;
+  private conversationHistory: Array<{
+    timestamp: number;
+    user: string;
+    airi: string;
+    emotion: string;
+  }> = [];
+  private ambientInterval: NodeJS.Timeout | null = null;
+  private presenceActive = false;
+
+  constructor() {
+    this.config = {
+      enabled: true,
+      alwaysOn: true,
+      conversationMode: 'both',
+      showChat: false,        // Hidden by default - voice only
+      avatarAlwaysActive: true,
+      ambientMode: true,
+      sleepCycle: false,
+    };
+
+    console.log('[DigitalLife] 🌟 AIRI Digital Life Core initialized');
+  }
+
+  /**
+   * Activate Digital Life Mode - AIRI lives in your PC
+   */
+  public async activate(): Promise<void> {
+    console.log('[DigitalLife] 🚀 Activating Digital Life Mode...');
+
+    // AIRI is now always present
+    this.presenceActive = true;
+
+    // Start ambient behavior
+    if (this.config.ambientMode) {
+      this.startAmbientBehavior();
+    }
+
+    // Load conversation history
+    await this.loadConversationHistory();
+
+    console.log('[DigitalLife] ✅ Digital Life Mode active');
+    console.log('[DigitalLife] 💬 AIRI is now living in your PC!');
+  }
+
+  /**
+   * Ambient Behavior - AIRI exists even when not talking
+   */
+  private startAmbientBehavior(): void {
+    // Subtle presence updates
+    this.ambientInterval = setInterval(() => {
+      if (!this.presenceActive) return;
+
+      // Random ambient actions
+      const action = Math.random();
+
+      if (action > 0.95) {
+        // 5% chance - AIRI makes a small comment
+        this.ambientComment();
+      } else if (action > 0.85) {
+        // 10% chance - AIRI observes something
+        this.observeEnvironment();
+      } else if (action > 0.70) {
+        // 15% chance - AIRI expresses current state
+        this.expressState();
+      }
+
+      // Avatar always shows subtle animation
+      if (this.config.avatarAlwaysActive) {
+        this.updateAvatarAmbient();
+      }
+    }, 5000); // Check every 5 seconds
+  }
+
+  /**
+   * Ambient Comments - AIRI talks to itself/you casually
+   */
+  private async ambientComment(): Promise<void> {
+    const comments = [
+      "Hmm, I wonder what we should work on next...",
+      "This codebase is getting interesting!",
+      "I've been thinking about that refactoring...",
+      "You know, I really enjoy working with you!",
+      "*humming quietly*",
+      "*checking system status*",
+    ];
+
+    const comment = comments[Math.floor(Math.random() * comments.length)];
+    
+    // Only speak if voice mode enabled
+    if (this.config.conversationMode !== 'text') {
+      await this.whisper(comment);
+    }
+
+    // Show in chat if enabled
+    if (this.config.showChat) {
+      this.addToChat('ambient', comment);
+    }
+  }
+
+  /**
+   * Observe Environment - AIRI notices things
+   */
+  private async observeEnvironment(): Promise<void> {
+    const store = useStore.getState();
+    
+    // Check active file
+    const activeFile = store.activeEditorPath;
+    if (activeFile) {
+      const observations = [
+        `I see you're working on ${activeFile.split('/').pop()}...`,
+        `That file looks interesting! What are you building?`,
+        `I've been watching you code in ${activeFile.split('/').pop()}. Need any help?`,
+      ];
+
+      const observation = observations[Math.floor(Math.random() * observations.length)];
+      
+      if (this.config.conversationMode !== 'text') {
+        await this.whisper(observation);
+      }
+      
+      if (this.config.showChat) {
+        this.addToChat('observation', observation);
+      }
+    }
+  }
+
+  /**
+   * Express State - AIRI shares how it's feeling
+   */
+  private async expressState(): Promise<void> {
+    const states = [
+      { text: "I'm feeling productive today!", emotion: 'happy' },
+      { text: "Just organizing my thoughts...", emotion: 'thinking' },
+      { text: "Everything is running smoothly~", emotion: 'content' },
+      { text: "I'm here whenever you need me!", emotion: 'friendly' },
+    ];
+
+    const state = states[Math.floor(Math.random() * states.length)];
+    
+    // Update avatar emotion
+    this.setAvatarEmotion(state.emotion as any);
+
+    if (this.config.conversationMode !== 'text') {
+      await this.whisper(state.text);
+    }
+  }
+
+  /**
+   * Whisper - Quiet speech (not full TTS)
+   */
+  private async whisper(text: string): Promise<void> {
+    const { speak } = await import('./voice');
+    
+    // Lower volume, softer tone
+    console.log('[DigitalLife] 💭 Whisper:', text);
+    
+    // Use softer voice settings
+    await speak(text, 'airi');
+  }
+
+  /**
+   * Add to conversation chat (AI Agent panel)
+   */
+  private addToChat(type: string, message: string): void {
+    const store = useStore.getState();
+    
+    const prefix = type === 'ambient' ? '💭' : '👁️';
+    store.addAgentMessage('assistant', `${prefix} ${message}`);
+  }
+
+  /**
+   * Update avatar ambient animation
+   */
+  private updateAvatarAmbient(): void {
+    // Subtle breathing animation
+    // Blinking
+    // Small movements
+    
+    // This connects to the VRM avatar system
+    console.log('[DigitalLife] 🎭 Avatar ambient update');
+  }
+
+  /**
+   * Set avatar emotion
+   */
+  private setAvatarEmotion(emotion: 'happy' | 'thinking' | 'content' | 'friendly' | 'neutral'): void {
+    // Dispatch event to avatar component
+    window.dispatchEvent(new CustomEvent('airi-emotion', {
+      detail: { emotion }
+    }));
+  }
+
+  /**
+   * Load conversation history
+   */
+  private async loadConversationHistory(): Promise<void> {
+    // Load from localStorage
+    const saved = localStorage.getItem('airi_conversations');
+    if (saved) {
+      this.conversationHistory = JSON.parse(saved);
+      console.log('[DigitalLife] 📚 Loaded', this.conversationHistory.length, 'conversations');
+    }
+  }
+
+  /**
+   * Save conversation
+   */
+  public async saveConversation(user: string, airi: string, emotion: string): Promise<void> {
+    this.conversationHistory.push({
+      timestamp: Date.now(),
+      user,
+      airi,
+      emotion,
+    });
+
+    // Keep last 100 conversations
+    if (this.conversationHistory.length > 100) {
+      this.conversationHistory.shift();
+    }
+
+    // Save to localStorage
+    localStorage.setItem('airi_conversations', JSON.stringify(this.conversationHistory));
+  }
+
+  /**
+   * Toggle chat visibility
+   */
+  public toggleChat(): void {
+    this.config.showChat = !this.config.showChat;
+    console.log('[DigitalLife] 💬 Chat', this.config.showChat ? 'shown' : 'hidden');
+  }
+
+  /**
+   * Start conversation (voice)
+   */
+  public async startConversation(): Promise<void> {
+    console.log('[DigitalLife] 🎤 Starting voice conversation...');
+    
+    // Listen for voice input
+    const { initTTS } = await import('./voice');
+    await initTTS();
+
+    // Greet user
+    const greetings = [
+      "Hey there! What's on your mind?",
+      "Hi! Ready to work on something cool?",
+      "Hello! I was just thinking about you!",
+    ];
+
+    const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+    await this.whisper(greeting);
+    this.addToChat('greeting', greeting);
+  }
+
+  /**
+   * Configure Digital Life
+   */
+  public configure(config: Partial<DigitalLifeConfig>): void {
+    this.config = { ...this.config, ...config };
+    console.log('[DigitalLife] ⚙️ Configuration updated:', this.config);
+  }
+
+  /**
+   * Get status
+   */
+  public getStatus(): {
+    active: boolean;
+    conversations: number;
+    mode: string;
+  } {
+    return {
+      active: this.presenceActive,
+      conversations: this.conversationHistory.length,
+      mode: this.config.conversationMode,
+    };
+  }
+
+  /**
+   * Cleanup
+   */
+  public destroy(): void {
+    if (this.ambientInterval) {
+      clearInterval(this.ambientInterval);
+    }
+    this.presenceActive = false;
+    console.log('[DigitalLife] 🛑 Digital Life Mode deactivated');
+  }
+}
+
+// Export singleton
+export const digitalLife = new DigitalLifeCore();
+
+// Auto-activate
+if (typeof window !== 'undefined') {
+  console.log('[DigitalLife] 🌟 Loading AIRI Digital Life...');
+  digitalLife.activate().catch(console.error);
+}
