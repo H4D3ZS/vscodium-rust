@@ -251,7 +251,6 @@ const RightSidebar: React.FC = () => {
     const [kortexSlots, setKortexSlots] = useState<any[]>([]);
     const [kortexLoading, setKortexLoading] = useState(false);
     const [liveToolCalls, setLiveToolCalls] = useState<Array<{ id: string; tool: string; label: string; status: 'running' | 'done' | 'error'; detail?: string }>>([]);
-    const [isCloudExpanded, setIsCloudExpanded] = useState(false);
 
     const refreshKortex = useCallback(async () => {
         setKortexLoading(true);
@@ -383,19 +382,22 @@ const RightSidebar: React.FC = () => {
                     updateLastAgentMessage(content);
                     if (agentUiMode === 'airi') { setAiriSpeech(content); setAiriSpeaking(false); }
 
-                    // Speak any remaining text that wasn't spoken yet
-                    if (ttsEnabled && buffer.length > lastSpokenIndex + 20) {
-                        const remainingText = buffer.substring(lastSpokenIndex);
-                        console.log('[TTS] 🎤 Speaking remaining:', remainingText.substring(0, 50) + '...');
+                    // FORCE SPEAK - Full content if nothing was spoken yet
+                    if (ttsEnabled && lastSpokenIndex === 0 && content.length > 50) {
+                        console.log('[TTS] 🎤 FORCE SPEAK full content:', content.substring(0, 50) + '...');
                         
                         // Stop any current speech first
                         stop();
                         
-                        speak(remainingText, ttsPreset, () => {
+                        isSpeaking = true;
+                        speak(content, ttsPreset, () => {
                             setAiriSpeaking(false);
                             isSpeaking = false;
+                            console.log('[TTS] ✅ Full content speech complete');
+                        }).catch(err => {
+                            console.error('[TTS] ❌ Full content speech error:', err);
+                            isSpeaking = false;
                         });
-                        isSpeaking = true;
                     }
                 }
             }).then(u => unsub.push(u));
@@ -911,59 +913,6 @@ const RightSidebar: React.FC = () => {
                     0%, 100% { opacity: 1; transform: scale(1); }
                     50% { opacity: 0.4; transform: scale(1.3); }
                 }
-                @keyframes thoughtCloudIn {
-                    from { opacity: 0; transform: translateX(-50%) scale(0.75) translateY(12px); }
-                    to   { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
-                }
-                @keyframes thoughtFloat {
-                    0%, 100% { transform: translateX(-50%) translateY(0); }
-                    50%      { transform: translateX(-50%) translateY(-7px); }
-                }
-                /* Anime-style cloud thought bubble for AIRI 3D mode */
-                }
-                .airi-thought-cloud-3d {
-                    background: rgba(232, 245, 255, 0.94);
-                    border: 1.5px solid rgba(180, 215, 255, 0.65);
-                    border-radius: 22px;
-                    padding: 11px 16px;
-                    max-width: 210px;
-                    min-width: 110px;
-                    position: relative;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.25),
-                                inset 0 1px 0 rgba(255,255,255,0.9);
-                    animation: thoughtFloat 2.8s ease-in-out infinite;
-                    cursor: pointer;
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                }
-                .airi-thought-cloud-3d:hover {
-                    background: rgba(240, 250, 255, 0.98);
-                    transform: scale(1.02);
-                }
-                .airi-thought-cloud-3d.expanded {
-                    max-width: 280px;
-                    border-radius: 12px;
-                    padding: 14px;
-                }
-                .airi-thought-cloud-3d::before {
-                    content: '';
-                    position: absolute;
-                    width: 42px; height: 28px;
-                    background: rgba(232,245,255,0.94);
-                    border: 1.5px solid rgba(180,215,255,0.65);
-                    border-radius: 50%;
-                    top: -16px;
-                    left: 14%;
-                }
-                .airi-thought-cloud-3d::after {
-                    content: '';
-                    position: absolute;
-                    width: 32px; height: 22px;
-                    background: rgba(232,245,255,0.94);
-                    border: 1.5px solid rgba(180,215,255,0.65);
-                    border-radius: 50%;
-                    top: -12px;
-                    right: 18%;
-                }
             `}</style>
 
             <div className="sidebar-header" style={{
@@ -1080,80 +1029,7 @@ const RightSidebar: React.FC = () => {
                         <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
                             <AiriPanel style={{ width: '100%', height: '100%' }} transparent={true} character={avatarCharacter} />
 
-                            {/* ── Anime Thought Bubble — what AIRI is currently thinking ── */}
-                            {isAgentThinking && (
-                                <div style={{
-                                    position: 'absolute',
-                                    top: '12%',
-                                    left: '50%',
-                                    transform: 'translateX(-50%)',
-                                    zIndex: 50,
-                                    pointerEvents: 'auto',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center',
-                                    animation: 'thoughtCloudIn 0.35s ease-out',
-                                }}>
-                                    {/* Cloud body */}
-                                    <div
-                                        className={`airi-thought-cloud-3d ${isCloudExpanded ? 'expanded' : ''}`}
-                                        onClick={() => setIsCloudExpanded(!isCloudExpanded)}
-                                    >
-                                        {!isCloudExpanded ? (
-                                            <span style={{
-                                                display: 'block',
-                                                fontSize: '11px',
-                                                color: '#080516',
-                                                lineHeight: 1.5,
-                                                textAlign: 'center',
-                                                maxWidth: '190px',
-                                                wordBreak: 'break-word',
-                                            }}>
-                                                {(() => {
-                                                    const raw = cleanAiContent(airiSpeech);
-                                                    if (raw) return raw;
-                                                    if (liveToolCalls[0]) return liveToolCalls[0].label;
-                                                    return 'Thinking...';
-                                                })()}
-                                            </span>
-                                        ) : (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '220px' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.05)', paddingBottom: '4px', marginBottom: '4px' }}>
-                                                    <span style={{ fontSize: '10px', fontWeight: 800, color: '#080516', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Process Stack</span>
-                                                    <i className="codicon codicon-close" style={{ fontSize: '10px', color: '#080516', opacity: 0.4 }} />
-                                                </div>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                    {liveToolCalls.length === 0 ? (
-                                                        <div style={{ fontSize: '11px', color: '#080516', opacity: 0.5, fontStyle: 'italic' }}>Analyzing mission parameters...</div>
-                                                    ) : (
-                                                        liveToolCalls.map(tc => (
-                                                            <div key={tc.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                <span style={{
-                                                                    width: '6px', height: '6px', borderRadius: '50%',
-                                                                    background: tc.status === 'running' ? '#3b82f6' : (tc.status === 'done' ? '#10b981' : '#ef4444'),
-                                                                    animation: tc.status === 'running' ? 'hubPulse 1s infinite' : 'none'
-                                                                }} />
-                                                                <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                                                                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#080516' }}>{tc.label}</span>
-                                                                    {tc.detail && <span style={{ fontSize: '9px', color: '#080516', opacity: 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tc.detail}</span>}
-                                                                </div>
-                                                            </div>
-                                                        ))
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                    {/* Trail dots from cloud down toward avatar head */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', marginTop: '6px' }}>
-                                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'rgba(180, 215, 255, 0.8)', border: '1px solid rgba(255,255,255,0.4)' }} />
-                                        <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'rgba(180, 215, 255, 0.6)' }} />
-                                        <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: 'rgba(180, 215, 255, 0.4)' }} />
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Active tool pill — bottom of avatar, not top */}
+                            {/* Active tool pill — bottom of avatar */}
                             {liveToolCalls[0] && liveToolCalls[0].status === 'running' && (
                                 <div style={{
                                     position: 'absolute', bottom: '12px', left: '50%', transform: 'translateX(-50%)',
