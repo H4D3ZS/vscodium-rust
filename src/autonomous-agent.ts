@@ -5,8 +5,8 @@
  * 24/7 autonomous development, debugging, research
  */
 
-import { invoke } from '../tauri_bridge';
-import { useStore } from '../store';
+import { invoke } from './tauri_bridge';
+import { useStore } from './store';
 
 export interface AutonomousTask {
   id: string;
