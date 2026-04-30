@@ -99,6 +99,7 @@ use scrcpy::{
     send_emulator_text,
     send_emulator_key,
     get_scrcpy_status,
+    spawn_emulator_headless,
 };
 
 #[allow(dead_code)]
@@ -3582,6 +3583,7 @@ pub fn run() {
             send_emulator_text,
             send_emulator_key,
             get_scrcpy_status,
+            spawn_emulator_headless,
             set_ai_model,
             set_advisor_model,
             list_mcp_servers,

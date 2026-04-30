@@ -1,17 +1,95 @@
 //! scrcpy Integration - Embed Android emulator in IDE
 //! 
-//! Provides commands to start/stop scrcpy stream and capture frames
+//! Provides commands to start/stop scrcpy stream, spawn emulator headless, and capture frames
 
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 static SCRCPY_RUNNING: AtomicBool = AtomicBool::new(false);
+static EMULATOR_RUNNING: AtomicBool = AtomicBool::new(false);
 static FRAME_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-/// Start scrcpy stream for device
+/// Start emulator headless (no external window) and scrcpy stream
 #[tauri::command]
-pub async fn start_scrcpy_stream(device_id: String, port: u16) -> Result<String, String> {
+pub async fn spawn_emulator_headless(avd_name: String, port: u16) -> Result<String, String> {
+    if EMULATOR_RUNNING.load(Ordering::SeqCst) {
+        return Ok("Emulator already running".to_string());
+    }
+
+    // Find emulator.exe path
+    let emulator_path = std::env::var("ANDROID_HOME")
+        .or_else(|_| std::env::var("ANDROID_SDK_ROOT"))
+        .map(|sdk| format!("{}\\emulator\\emulator.exe", sdk))
+        .unwrap_or_else(|_| "C:\\Users\\HADES\\AppData\\Local\\Android\\Sdk\\emulator\\emulator.exe".to_string());
+
+    // Start emulator in background (no display window on Windows isn't directly supported,
+    // but we can minimize it and use scrcpy for display)
+    let emulator_result = Command::new(&emulator_path)
+        .args(&[
+            "-avd", &avd_name,
+            "-no-audio",
+            "-gpu", "host",
+            "-no-window",  // Headless mode (Linux only, but we try)
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    // If -no-window fails (Windows), start normally and let scrcpy handle display
+    let emulator_result = match emulator_result {
+        Ok(child) => Ok(child),
+        Err(_) => {
+            // Fallback: start with window, we'll capture via scrcpy anyway
+            Command::new(&emulator_path)
+                .args(&[
+                    "-avd", &avd_name,
+                    "-no-audio",
+                    "-gpu", "host",
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+        }
+    };
+
+    match emulator_result {
+        Ok(_) => {
+            EMULATOR_RUNNING.store(true, Ordering::SeqCst);
+            
+            // Wait for emulator to boot (poll adb)
+            for _ in 0..30 {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                
+                let output = Command::new("adb")
+                    .args(&["devices"])
+                    .output();
+
+                if let Ok(out) = output {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    if stdout.contains("emulator-") && stdout.contains("device") {
+                        // Extract device ID
+                        for line in stdout.lines() {
+                            if line.contains("emulator-") && line.contains("device") {
+                                let device_id = line.split_whitespace().next().unwrap_or("emulator-5554");
+                                
+                                // Start scrcpy stream
+                                let stream_url = start_scrcpy_for_device(device_id.to_string(), port).await?;
+                                return Ok(stream_url);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Ok(format!("Emulator '{}' starting (may take longer to boot)", avd_name))
+        }
+        Err(e) => Err(format!("Failed to spawn emulator: {}", e)),
+    }
+}
+
+/// Helper to start scrcpy for a device
+async fn start_scrcpy_for_device(device_id: String, port: u16) -> Result<String, String> {
     if SCRCPY_RUNNING.load(Ordering::SeqCst) {
         return Ok(format!("http://localhost:{}/video", port));
     }

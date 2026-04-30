@@ -83,6 +83,30 @@ const EmulatorPanel: React.FC = () => {
         }
     };
 
+    const handleSpawnAndEmbed = async (avdName: string) => {
+        setIsLoading(true);
+        setSpawnStatus(`Spawning "${avdName}" and embedding in IDE...`);
+        
+        try {
+            // Spawn emulator headless and start scrcpy stream
+            const result = await invoke<string>('spawn_emulator_headless', { 
+                avdName,
+                port: 8989
+            });
+            
+            setSpawnStatus(result);
+            
+            // Wait a bit for emulator to boot
+            setTimeout(async () => {
+                await loadRunningEmulators();
+            }, 5000);
+        } catch (err) {
+            setSpawnStatus(`Error: ${err}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const handleSpawnEmulator = async (avdName: string) => {
         setIsLoading(true);
         setSpawnStatus(`Starting "${avdName}"... This may take 30-60 seconds`);
@@ -185,24 +209,46 @@ const EmulatorPanel: React.FC = () => {
                                     <div style={{ fontSize: '10px', opacity: 0.6, marginBottom: '8px' }}>
                                         {avd.target || 'Unknown'} • {avd.abi || 'Unknown'}
                                     </div>
-                                    <button
-                                        onClick={() => handleSpawnEmulator(avd.name)}
-                                        disabled={isLoading}
-                                        style={{
-                                            width: '100%',
-                                            padding: '6px 10px',
-                                            fontSize: '11px',
-                                            fontWeight: 500,
-                                            background: isLoading ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)',
-                                            color: 'var(--vscode-button-foreground)',
-                                            border: 'none',
-                                            borderRadius: '3px',
-                                            cursor: isLoading ? 'not-allowed' : 'pointer',
-                                            opacity: isLoading ? 0.6 : 1
-                                        }}
-                                    >
-                                        {isLoading ? '⏳ Starting...' : '▶ Start Emulator'}
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                                        <button
+                                            onClick={() => handleSpawnAndEmbed(avd.name)}
+                                            disabled={isLoading}
+                                            style={{
+                                                flex: 1,
+                                                padding: '6px 10px',
+                                                fontSize: '11px',
+                                                fontWeight: 600,
+                                                background: isLoading ? 'var(--vscode-button-secondaryBackground)' : '#0e639c',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '3px',
+                                                cursor: isLoading ? 'not-allowed' : 'pointer',
+                                                opacity: isLoading ? 0.6 : 1
+                                            }}
+                                            title="Spawn emulator and embed directly in IDE (no external window)"
+                                        >
+                                            {isLoading ? '⏳ Spawning...' : '🚀 Spawn & Embed'}
+                                        </button>
+                                        <button
+                                            onClick={() => handleSpawnEmulator(avd.name)}
+                                            disabled={isLoading}
+                                            style={{
+                                                flex: 1,
+                                                padding: '6px 10px',
+                                                fontSize: '11px',
+                                                fontWeight: 500,
+                                                background: isLoading ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)',
+                                                color: 'var(--vscode-button-foreground)',
+                                                border: 'none',
+                                                borderRadius: '3px',
+                                                cursor: isLoading ? 'not-allowed' : 'pointer',
+                                                opacity: isLoading ? 0.6 : 1
+                                            }}
+                                            title="Start emulator normally (external window)"
+                                        >
+                                            {isLoading ? '⏳ Starting...' : '▶ Start Normal'}
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
