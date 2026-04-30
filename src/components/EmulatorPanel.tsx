@@ -1,64 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
+import { EmulatorPreview } from './EmulatorPreview';
 
 const EmulatorPanel: React.FC = () => {
     const activeDevice = useStore(state => state.activeDevice);
-    const [screenshot, setScreenshot] = useState<string | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const imgRef = useRef<HTMLImageElement>(null);
+    const [streamStarted, setStreamStarted] = useState(false);
 
     useEffect(() => {
+        if (activeDevice && !streamStarted) {
+            console.log('📱 [EmulatorPanel] Device detected:', activeDevice);
+            setStreamStarted(true);
+        }
+        
         if (!activeDevice) {
-            setScreenshot(null);
-            return;
+            setStreamStarted(false);
         }
-
-        let isMounted = true;
-        const poll = async () => {
-            if (!isMounted || !activeDevice) return;
-            try {
-                const b64 = await invoke<string>('get_emulator_screenshot', { deviceId: activeDevice });
-                if (isMounted) {
-                    setScreenshot(b64);
-                    setError(null);
-                }
-            } catch (err) {
-                if (isMounted) {
-                    setError(String(err));
-                }
-            }
-            if (isMounted) {
-                setTimeout(poll, 250); // Poll every 250ms for performance/smoothness balance
-            }
-        };
-
-        poll();
-        return () => { isMounted = false; };
-    }, [activeDevice]);
-
-    const handleInteraction = async (e: React.MouseEvent) => {
-        if (!activeDevice || !imgRef.current) return;
-
-        const rect = imgRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        // Scale coordinates to actual device resolution
-        const scaleX = imgRef.current.naturalWidth / imgRef.current.clientWidth;
-        const scaleY = imgRef.current.naturalHeight / imgRef.current.clientHeight;
-
-        try {
-            await invoke('emulator_tap', {
-                deviceId: activeDevice,
-                x: Math.round(x * scaleX),
-                y: Math.round(y * scaleY)
-            });
-        } catch (err) {
-            console.error('Tap failed:', err);
-        }
-    };
+    }, [activeDevice, streamStarted]);
 
     if (!activeDevice) {
         return (
@@ -68,85 +25,30 @@ const EmulatorPanel: React.FC = () => {
         );
     }
 
-    const isIPhone = activeDevice?.includes("iPhone") || activeDevice?.includes("iOS");
-
+    // Render live emulator stream
     return (
-        <div ref={containerRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'var(--vscode-editor-background)', overflow: 'hidden' }}>
-            <div className="emulator-controls" style={{ width: '100%', padding: '4px 12px', background: 'var(--vscode-panel-background)', borderBottom: '1px solid var(--vscode-panel-border)', display: 'flex', alignItems: 'center', gap: '12px', zIndex: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: isIPhone ? '#3498db' : '#4ec9b0' }}></div>
-                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBar-foreground)', opacity: 0.8 }}>{activeDevice}</span>
-                </div>
-                <div style={{ flex: 1 }}></div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                     <i className="codicon codicon-refresh" style={{ fontSize: '12px', cursor: 'pointer', opacity: 0.8 }} title="Refresh Stream" onClick={() => setScreenshot(null)}></i>
-                     <i className="codicon codicon-screen-full" style={{ fontSize: '12px', cursor: 'pointer', opacity: 0.8 }} title="Fit to Screen"></i>
-                </div>
+        <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--vscode-editor-background)', overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ width: '100%', padding: '8px 12px', background: 'var(--vscode-panel-background)', borderBottom: '1px solid var(--vscode-panel-border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ec9b0' }}></div>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBar-foreground)', opacity: 0.8 }}>{activeDevice}</span>
+                <span style={{ fontSize: '10px', opacity: 0.5, marginLeft: 'auto' }}>Live Stream</span>
             </div>
-            
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', padding: '20px', position: 'relative', overflow: 'auto', perspective: '1000px' }}>
-                {isIPhone ? (
-                     <div className="device-frame-ios" style={{ 
-                        width: '280px', 
-                        height: '580px', 
-                        background: '#000', 
-                        borderRadius: '40px', 
-                        border: '8px solid #222', 
-                        position: 'relative',
-                        boxShadow: '0 30px 60px rgba(0,0,0,0.8)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                     }}>
-                        <div style={{ width: '120px', height: '24px', background: '#222', borderRadius: '0 0 15px 15px', position: 'absolute', top: 0 }}></div>
-                        <i className="codicon codicon-device-mobile" style={{ fontSize: '64px', color: '#fff', opacity: 0.2 }}></i>
-                        <div style={{ color: '#fff', textAlign: 'center', padding: '0 40px' }}>
-                            <div style={{ fontWeight: 600, fontSize: '16px', marginBottom: '8px' }}>Virtual iOS</div>
-                            <div style={{ fontSize: '11px', opacity: 0.4 }}>Direct stream requires local bridge.</div>
-                        </div>
-                     </div>
-                ) : (
-                    <div className="device-frame-android" style={{ 
-                        width: '300px', 
-                        height: '620px', 
-                        background: '#111', 
-                        borderRadius: '32px', 
-                        border: '10px solid #222', 
-                        position: 'relative',
-                        boxShadow: '0 40px 80px rgba(0,0,0,0.9)',
-                        display: 'flex',
-                        flexDirection: 'column'
-                    }}>
-                        {/* Speaker Grill */}
-                        <div style={{ width: '50px', height: '4px', background: '#333', borderRadius: '2px', position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)' }}></div>
-                        
-                        {/* Screen Area */}
-                        <div style={{ flex: 1, margin: '20px 0', background: '#000', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {screenshot ? (
-                                <img 
-                                    ref={imgRef}
-                                    src={screenshot} 
-                                    onClick={handleInteraction}
-                                    style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer' }} 
-                                    alt="android-emulator"
-                                />
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-                                    <div className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: '24px', color: 'var(--vscode-progressBar-background)' }}></div>
-                                    <div style={{ color: '#fff', opacity: 0.5, fontSize: '11px' }}>{error ? 'Connect failed' : 'Booting...'}</div>
-                                </div>
-                            )}
-                        </div>
 
-                        {/* Navigation Buttons */}
-                        <div style={{ height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '0 60px', borderTop: '1px solid #222' }}>
-                            <i className="codicon codicon-triangle-left" style={{ fontSize: '18px', color: '#fff', opacity: 0.4, cursor: 'pointer' }}></i>
-                            <i className="codicon codicon-circle-outline" style={{ fontSize: '18px', color: '#fff', opacity: 0.4, cursor: 'pointer' }}></i>
-                            <i className="codicon codicon-debug-step-over" style={{ fontSize: '18px', color: '#fff', opacity: 0.4, cursor: 'pointer', transform: 'rotate(90deg)' }}></i>
-                        </div>
-                    </div>
-                )}
+            {/* Emulator Preview Component */}
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', overflow: 'auto' }}>
+                <EmulatorPreview
+                    streamUrl="ws://localhost:8989"
+                    width={360}
+                    height={640}
+                    showFps={true}
+                    showControls={true}
+                />
+            </div>
+
+            {/* Footer with instructions */}
+            <div style={{ padding: '8px 12px', fontSize: '10px', opacity: 0.5, borderTop: '1px solid var(--vscode-panel-border)' }}>
+                Stream requires scrcpy backend. Run: scrcpy --no-display --tcpip=5555
             </div>
         </div>
     );
