@@ -460,7 +460,7 @@ const Workbench: React.FC = () => {
                 </div>
             </div>
 
-            {/* Right Sidebar - Contains BOTH AIRI and Emulator side-by-side */}
+            {/* Right Sidebar - Contains SEPARATE AIRI and Emulator panels */}
             <div
                 className="right-sidebar-container"
                 style={{
@@ -482,39 +482,97 @@ const Workbench: React.FC = () => {
                 )}
                 <div style={{ 
                     flex: 1, 
-                    minWidth: isRightSidebarOpen ? '400px' : '0', 
+                    minWidth: isRightSidebarOpen ? '350px' : '0', 
                     overflow: 'hidden', 
                     height: '100%',
                     display: 'flex',
                     flexDirection: 'column'
                 }}>
-                    {/* Top: AIRI Panel (always visible, takes remaining space) */}
+                    {/* Tab bar for switching between AIRI and Emulator */}
                     <div style={{
-                        flex: 1,
+                        display: 'flex',
+                        borderBottom: '1px solid var(--vscode-panel-border)',
+                        background: 'var(--vscode-sideBar-background)',
+                        flexShrink: 0
+                    }}>
+                        <button
+                            onClick={() => {
+                                useStore.getState().openAiriPanel();
+                                useStore.getState().closeEmulatorPanel();
+                            }}
+                            style={{
+                                flex: 1,
+                                padding: '8px 12px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                background: useStore(state => state.isAiriPanelOpen) && !useStore(state => state.isEmulatorPanelOpen)
+                                    ? 'var(--vscode-button-background)' 
+                                    : 'transparent',
+                                color: useStore(state => state.isAiriPanelOpen) && !useStore(state => state.isEmulatorPanelOpen)
+                                    ? 'var(--vscode-button-foreground)'
+                                    : 'var(--vscode-descriptionForeground)',
+                                border: 'none',
+                                borderBottom: useStore(state => state.isAiriPanelOpen) && !useStore(state => state.isEmulatorPanelOpen)
+                                    ? '2px solid var(--vscode-button-background)'
+                                    : '2px solid transparent',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            🤖 AIRI
+                        </button>
+                        <button
+                            onClick={() => {
+                                useStore.getState().openEmulatorPanel();
+                                useStore.getState().closeAiriPanel();
+                            }}
+                            style={{
+                                flex: 1,
+                                padding: '8px 12px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                background: useStore(state => state.isEmulatorPanelOpen)
+                                    ? 'var(--vscode-button-background)' 
+                                    : 'transparent',
+                                color: useStore(state => state.isEmulatorPanelOpen)
+                                    ? 'var(--vscode-button-foreground)'
+                                    : 'var(--vscode-descriptionForeground)',
+                                border: 'none',
+                                borderBottom: useStore(state => state.isEmulatorPanelOpen)
+                                    ? '2px solid var(--vscode-button-background)'
+                                    : '2px solid transparent',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            📱 Emulator
+                        </button>
+                    </div>
+
+                    {/* Panel content - show ONE at a time */}
+                    <div style={{ 
+                        flex: 1, 
                         overflow: 'hidden',
-                        minHeight: '300px',
                         display: 'flex',
                         flexDirection: 'column'
                     }}>
-                        <RightSidebar />
+                        {useStore(state => state.isAiriPanelOpen) && !useStore(state => state.isEmulatorPanelOpen) && (
+                            <div style={{ flex: 1, overflow: 'hidden' }}>
+                                <RightSidebar />
+                            </div>
+                        )}
+                        {useStore(state => state.isEmulatorPanelOpen) && (
+                            <div style={{ flex: 1, overflow: 'hidden' }}>
+                                <UnifiedEmulatorPanel />
+                            </div>
+                        )}
                     </div>
-
-                    {/* Bottom: Emulator Panel (when open) */}
-                    {useStore(state => state.isEmulatorPanelOpen) && (
-                        <div
-                            style={{
-                                height: '400px',
-                                borderTop: '1px solid var(--vscode-panel-border)',
-                                background: 'var(--vscode-editor-background)',
-                                flexShrink: 0,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                overflow: 'hidden'
-                            }}
-                        >
-                            <UnifiedEmulatorPanel />
-                        </div>
-                    )}
                 </div>
             </div>
 

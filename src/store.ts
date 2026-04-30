@@ -164,9 +164,10 @@ interface AppState {
     contextMenuPosition: { x: number, y: number };
     commandPaletteQuery: string;
 
-    // Emulator panel position
-    emulatorPanelPosition: 'left' | 'right' | 'hidden' | 'bottom';
+    // Right sidebar panels (independent toggles)
+    isAiriPanelOpen: boolean;
     isEmulatorPanelOpen: boolean;
+    emulatorPanelPosition: 'android' | 'iphone';
     
     // Inference Backend Configuration
     inferenceBackend: 'ollama' | 'llama-cpp' | 'openai';
@@ -511,9 +512,10 @@ const storeImplementation: any = (set: any, get: any) => ({
     avatar3dConfig: JSON.parse(localStorage.getItem('avatar3dConfig') || '{}'),
     ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
     
-    // Emulator panel position
-    emulatorPanelPosition: (localStorage.getItem('emulatorPanelPosition') as 'left' | 'right' | 'hidden' | 'bottom') || 'bottom',
-    isEmulatorPanelOpen: false,
+    // Right sidebar panels
+    isAiriPanelOpen: true,  // AIRI open by default
+    isEmulatorPanelOpen: false,  // Emulator closed by default
+    emulatorPanelPosition: 'android',
     
     // Inference Backend Configuration
     inferenceBackend: (localStorage.getItem('inferenceBackend') as 'ollama' | 'llama-cpp' | 'openai') || 'ollama',  // Default to Ollama (GPU-accelerated via DirectML)
@@ -840,13 +842,14 @@ const storeImplementation: any = (set: any, get: any) => ({
         localStorage.setItem('llamaCppHadesEnabled', enabled.toString());
         set({ llamaCppHadesEnabled: enabled });
     },
-    setEmulatorPanelPosition: (position: 'left' | 'right' | 'hidden' | 'bottom') => {
-        localStorage.setItem('emulatorPanelPosition', position);
-        set({ emulatorPanelPosition: position, isEmulatorPanelOpen: position !== 'hidden' });
-    },
+    // Right sidebar panel toggles
+    toggleAiriPanel: () => set((state) => ({ isAiriPanelOpen: !state.isAiriPanelOpen })),
+    toggleEmulatorPanel: () => set((state) => ({ isEmulatorPanelOpen: !state.isEmulatorPanelOpen })),
+    setEmulatorPanelPosition: (position: 'android' | 'iphone') => set({ emulatorPanelPosition: position }),
+    openAiriPanel: () => set({ isAiriPanelOpen: true }),
+    closeAiriPanel: () => set({ isAiriPanelOpen: false }),
     openEmulatorPanel: () => set({ isEmulatorPanelOpen: true }),
     closeEmulatorPanel: () => set({ isEmulatorPanelOpen: false }),
-    toggleEmulatorPanel: () => set((state) => ({ isEmulatorPanelOpen: !state.isEmulatorPanelOpen })),
     checkLlamaCppStatus: async () => {
         set({ llamaCppStatus: 'checking' });
         try {

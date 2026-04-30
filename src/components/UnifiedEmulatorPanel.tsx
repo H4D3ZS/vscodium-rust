@@ -1,15 +1,15 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useStore } from '../store';
 import EmulatorPanel from './EmulatorPanel';
 import IPhoneEmulatorPanel from './IPhoneEmulatorPanel';
 
 /**
  * Unified Emulator Panel
- * Supports both Android and iPhone emulators
- * Integrated in right sidebar with AIRI
+ * Shows Android OR iPhone based on store state
+ * Integrated in right sidebar
  */
 const UnifiedEmulatorPanel: React.FC = () => {
-    const [activeEmulator, setActiveEmulator] = useState<'android' | 'iphone'>('android');
+    const activeEmulator = useStore(state => state.emulatorPanelPosition);
 
     return (
         <div
@@ -22,62 +22,65 @@ const UnifiedEmulatorPanel: React.FC = () => {
                 overflow: 'hidden'
             }}
         >
-            {/* Header with emulator switcher */}
+            {/* Emulator type switcher */}
             <div style={{
                 display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '6px 10px',
                 borderBottom: '1px solid var(--vscode-panel-border)',
                 background: 'var(--vscode-sideBar-background)',
                 flexShrink: 0
             }}>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                    <button
-                        onClick={() => setActiveEmulator('android')}
-                        style={{
-                            padding: '3px 10px',
-                            fontSize: '10px',
-                            fontWeight: 600,
-                            background: activeEmulator === 'android' 
-                                ? 'var(--vscode-button-background)' 
-                                : 'var(--vscode-button-secondaryBackground)',
-                            color: activeEmulator === 'android'
-                                ? 'var(--vscode-button-foreground)'
-                                : 'var(--vscode-descriptionForeground)',
-                            border: '1px solid var(--vscode-panel-border)',
-                            borderRadius: '3px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                        }}
-                    >
-                        🤖 Android
-                    </button>
-                    <button
-                        onClick={() => setActiveEmulator('iphone')}
-                        style={{
-                            padding: '3px 10px',
-                            fontSize: '10px',
-                            fontWeight: 600,
-                            background: activeEmulator === 'iphone'
-                                ? 'var(--vscode-button-background)'
-                                : 'var(--vscode-button-secondaryBackground)',
-                            color: activeEmulator === 'iphone'
-                                ? 'var(--vscode-button-foreground)'
-                                : 'var(--vscode-descriptionForeground)',
-                            border: '1px solid var(--vscode-panel-border)',
-                            borderRadius: '3px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                        }}
-                    >
-                        🍎 iPhone
-                    </button>
-                </div>
+                <button
+                    onClick={() => useStore.getState().setEmulatorPanelPosition('android')}
+                    style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        background: activeEmulator === 'android' 
+                            ? 'var(--vscode-button-background)' 
+                            : 'transparent',
+                        color: activeEmulator === 'android'
+                            ? 'var(--vscode-button-foreground)'
+                            : 'var(--vscode-descriptionForeground)',
+                        border: 'none',
+                        borderBottom: activeEmulator === 'android'
+                            ? '2px solid var(--vscode-button-background)'
+                            : '2px solid transparent',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px'
+                    }}
+                >
+                    🤖 Android
+                </button>
+                <button
+                    onClick={() => useStore.getState().setEmulatorPanelPosition('iphone')}
+                    style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        background: activeEmulator === 'iphone'
+                            ? 'var(--vscode-button-background)'
+                            : 'transparent',
+                        color: activeEmulator === 'iphone'
+                            ? 'var(--vscode-button-foreground)'
+                            : 'var(--vscode-descriptionForeground)',
+                        border: 'none',
+                        borderBottom: activeEmulator === 'iphone'
+                            ? '2px solid var(--vscode-button-background)'
+                            : '2px solid transparent',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px'
+                    }}
+                >
+                    🍎 iPhone
+                </button>
             </div>
 
             {/* Emulator content */}
