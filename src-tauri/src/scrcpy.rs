@@ -10,6 +10,36 @@ static SCRCPY_RUNNING: AtomicBool = AtomicBool::new(false);
 static EMULATOR_RUNNING: AtomicBool = AtomicBool::new(false);
 static FRAME_COUNT: AtomicUsize = AtomicUsize::new(0);
 
+/// Start scrcpy stream for device
+#[tauri::command]
+pub async fn start_scrcpy_stream(device_id: String, port: u16) -> Result<String, String> {
+    if SCRCPY_RUNNING.load(Ordering::SeqCst) {
+        return Ok(format!("http://localhost:{}/video", port));
+    }
+
+    // Start scrcpy server
+    let scrcpy_result = Command::new("scrcpy")
+        .args(&[
+            "--serial", &device_id,
+            "--no-audio",
+            "--no-control",
+            "--port", &port.to_string(),
+            "--bit-rate", "2M",
+            "--max-fps", "30",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    match scrcpy_result {
+        Ok(_) => {
+            SCRCPY_RUNNING.store(true, Ordering::SeqCst);
+            Ok(format!("http://localhost:{}/video", port))
+        }
+        Err(e) => Err(format!("Failed to start scrcpy: {}", e)),
+    }
+}
+
 /// Start emulator headless (no external window) and scrcpy stream
 #[tauri::command]
 pub async fn spawn_emulator_headless(avd_name: String, port: u16) -> Result<String, String> {
