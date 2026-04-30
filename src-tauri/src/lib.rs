@@ -91,7 +91,7 @@ use emulator_stream::{
 
 mod scrcpy;
 use scrcpy::{
-    start_scrcpy_stream,
+    spawn_emulator_headless,
     stop_scrcpy_stream,
     capture_emulator_frame,
     send_emulator_tap,
@@ -99,7 +99,6 @@ use scrcpy::{
     send_emulator_text,
     send_emulator_key,
     get_scrcpy_status,
-    spawn_emulator_headless,
 };
 
 #[allow(dead_code)]
@@ -3575,7 +3574,7 @@ pub fn run() {
             stop_emulator_stream,
             get_stream_status,
             // scrcpy commands
-            start_scrcpy_stream,
+            spawn_emulator_headless,
             stop_scrcpy_stream,
             capture_emulator_frame,
             send_emulator_tap,
@@ -3583,7 +3582,6 @@ pub fn run() {
             send_emulator_text,
             send_emulator_key,
             get_scrcpy_status,
-            spawn_emulator_headless,
             set_ai_model,
             set_advisor_model,
             list_mcp_servers,

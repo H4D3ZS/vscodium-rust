@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use warp::ws::{Message, WebSocket, WebSocket as Ws};
+use warp::ws::{Message, WebSocket as Ws};
 use warp::Filter;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
