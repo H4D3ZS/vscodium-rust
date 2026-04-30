@@ -7,10 +7,11 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use warp::ws::{Message, WebSocket};
+use warp::ws::{Message, WebSocket, WebSocket as Ws};
 use warp::Filter;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
+use futures::{SinkExt, StreamExt};
 
 static STREAM_ACTIVE: AtomicBool = AtomicBool::new(false);
 static FRAME_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -99,18 +100,15 @@ pub async fn spawn_emulator_by_name(avd_name: String) -> Result<String, String> 
     let emulator_path = format!("{}\\emulator\\emulator.exe", android_home);
 
     // Start emulator
-    let child = Command::new(&emulator_path)
+    let _child = Command::new(&emulator_path)
         .args(&["-avd", &avd_name, "-no-audio", "-gpu", "host"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to spawn emulator: {}", e))?;
 
-    // Store PID for later management (optional)
-    std::mem::forget(child); // Don't kill on drop
-
     // Wait for emulator to boot (poll adb)
-    for i in 0..60 {
+    for _ in 0..60 {
         // Wait up to 60 seconds
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         
@@ -158,7 +156,7 @@ pub fn list_running_emulators() -> Result<Vec<EmulatorProcess>, String> {
 
                 emulators.push(EmulatorProcess {
                     device_id,
-                    avd_name: String::new(), // Would need to query emulator for this
+                    avd_name: String::new(),
                     port,
                     status: "running".to_string(),
                 });
@@ -203,8 +201,8 @@ pub async fn start_emulator_stream(device_id: Option<String>) -> Result<String, 
                 .args(&["-s", &device_id_clone, "shell", "screencap", "-p"])
                 .output();
 
-            if let Ok(out) = output {
-                // Frame captured - would send to WebSocket clients
+            if let Ok(_out) = output {
+                // Frame captured
                 FRAME_COUNT.fetch_add(1, Ordering::SeqCst);
             }
 
@@ -245,12 +243,12 @@ pub fn ws_route() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejec
         .and(warp::ws())
         .map(|ws: warp::ws::Ws| {
             ws.on_upgrade(|websocket| async move {
-                handleWebSocket(websocket).await;
+                handle_websocket(websocket).await;
             })
         })
 }
 
-async fn handleWebSocket(websocket: WebSocket) {
+async fn handle_websocket(websocket: Ws) {
     let (mut ws_tx, mut ws_rx) = websocket.split();
     let frame_buffer = Arc::new(Mutex::new(Vec::<u8>::new()));
 
@@ -279,15 +277,16 @@ async fn handleWebSocket(websocket: WebSocket) {
     });
 
     // Send frames to client
+    let buffer_clone = Arc::clone(&frame_buffer);
     let send_task = tokio::spawn(async move {
-        let buffer_clone = Arc::clone(&frame_buffer);
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
             let buf = buffer_clone.lock().await;
             if !buf.is_empty() {
                 let base64_frame = BASE64.encode(&*buf);
-                if ws_tx.send(Message::text(base64_frame)).await.is_err() {
+                let send_result = ws_tx.send(Message::text(base64_frame)).await;
+                if send_result.is_err() {
                     break;
                 }
             }
