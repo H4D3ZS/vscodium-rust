@@ -8,7 +8,7 @@
  * - Semantic gist enhancement
  */
 
-import { store } from './store';
+import { useStore } from './store';
 
 export interface HadesOllamaConfig {
   baseUrl: string;
@@ -45,7 +45,7 @@ class HadesOllamaService {
   }
 
   private loadConfig() {
-    const s = store;
+    const s = useStore.getState();
     this.config = {
       baseUrl: s.ollamaUrl || 'http://localhost:11434',
       model: s.agentModel?.split('|')[1] || 'llama3.2',
