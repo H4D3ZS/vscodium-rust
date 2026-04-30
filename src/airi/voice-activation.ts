@@ -138,7 +138,7 @@ export class AIRIVoiceActivation {
    * Speak with emotion
    */
   public async speak(text: string, emotion?: 'neutral' | 'friendly' | 'excited' | 'concerned'): Promise<void> {
-    const { speak } = await import('./voice');
+    const { speak } = await import('../voice');
     
     // Map emotion to preset
     const preset = emotion === 'friendly' ? 'friendly' : 
