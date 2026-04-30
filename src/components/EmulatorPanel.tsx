@@ -19,6 +19,8 @@ interface RunningEmulator {
 
 const EmulatorPanel: React.FC = () => {
     const activeDevice = useStore(state => state.activeDevice);
+    const setActiveDevice = useStore(state => state.setActiveDevice);
+    
     const [availableAvds, setAvailableAvds] = useState<AVD[]>([]);
     const [runningEmulators, setRunningEmulators] = useState<RunningEmulator[]>([]);
     const [streamStarted, setStreamStarted] = useState(false);
@@ -35,10 +37,17 @@ const EmulatorPanel: React.FC = () => {
     useEffect(() => {
         const interval = setInterval(() => {
             loadRunningEmulators();
-        }, 5000); // Check every 5 seconds
+        }, 5000);
 
         return () => clearInterval(interval);
     }, []);
+
+    // Auto-start stream when device is selected
+    useEffect(() => {
+        if (activeDevice && !streamStarted) {
+            handleStartStream(activeDevice);
+        }
+    }, [activeDevice]);
 
     const loadAvailableAvds = async () => {
         try {
@@ -57,7 +66,7 @@ const EmulatorPanel: React.FC = () => {
             
             // Auto-select first running emulator if none selected
             if (emulators.length > 0 && !activeDevice) {
-                useStore.getState().setActiveDevice(emulators[0].device_id);
+                setActiveDevice(emulators[0].device_id);
             }
         } catch (err) {
             console.error('Failed to load running emulators:', err);
@@ -86,25 +95,52 @@ const EmulatorPanel: React.FC = () => {
     const handleStartStream = async (deviceId: string) => {
         try {
             await invoke<string>('start_emulator_stream', { deviceId });
-            useStore.getState().setActiveDevice(deviceId);
+            setActiveDevice(deviceId);
             setStreamStarted(true);
         } catch (err) {
             console.error('Failed to start stream:', err);
         }
     };
 
+    // No device selected - show AVD list and running emulators
     if (!activeDevice) {
         return (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--vscode-editor-background)', overflow: 'auto' }}>
+            <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                height: '100%', 
+                background: 'var(--vscode-editor-background)',
+                overflow: 'auto',
+                padding: '12px'
+            }}>
                 {/* Available AVDs Section */}
-                <div style={{ padding: '12px', borderBottom: '1px solid var(--vscode-panel-border)' }}>
-                    <h3 style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px', color: 'var(--vscode-sideBar-foreground)' }}>
-                        Available Virtual Devices
+                <div style={{ marginBottom: '16px' }}>
+                    <h3 style={{ 
+                        fontSize: '11px', 
+                        fontWeight: 600, 
+                        textTransform: 'uppercase', 
+                        marginBottom: '8px',
+                        color: 'var(--vscode-sideBar-foreground)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}>
+                        📱 Available Virtual Devices
                     </h3>
                     
                     {availableAvds.length === 0 ? (
-                        <div style={{ fontSize: '11px', opacity: 0.5, padding: '8px 0' }}>
-                            No AVDs found. Create one in Android Studio or via avdmanager.
+                        <div style={{ 
+                            fontSize: '11px', 
+                            opacity: 0.5, 
+                            padding: '12px',
+                            background: 'var(--vscode-textBlockQuote-background)',
+                            borderRadius: '4px'
+                        }}>
+                            No AVDs found. Create one first:
+                            <br />
+                            <code style={{ display: 'block', marginTop: '8px', padding: '8px', background: 'var(--vscode-editor-background)', borderRadius: '4px' }}>
+                                avdmanager create avd -n "Pixel_4" -k "system-images;android-34;google_apis;x86_64" -d "pixel_4"
+                            </code>
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -112,32 +148,33 @@ const EmulatorPanel: React.FC = () => {
                                 <div 
                                     key={avd.name}
                                     style={{ 
-                                        padding: '8px', 
+                                        padding: '10px', 
                                         background: 'var(--vscode-list-hoverBackground)', 
                                         borderRadius: '4px',
                                         border: '1px solid var(--vscode-panel-border)'
                                     }}
                                 >
                                     <div style={{ fontWeight: 600, fontSize: '12px', marginBottom: '4px' }}>{avd.name}</div>
-                                    <div style={{ fontSize: '10px', opacity: 0.6, marginBottom: '6px' }}>
-                                        {avd.target} • {avd.abi} • {avd.device}
+                                    <div style={{ fontSize: '10px', opacity: 0.6, marginBottom: '8px' }}>
+                                        {avd.target || 'Unknown'} • {avd.abi || 'Unknown'}
                                     </div>
                                     <button
                                         onClick={() => handleSpawnEmulator(avd.name)}
                                         disabled={isLoading}
                                         style={{
                                             width: '100%',
-                                            padding: '4px 8px',
+                                            padding: '6px 10px',
                                             fontSize: '11px',
+                                            fontWeight: 500,
                                             background: isLoading ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)',
                                             color: 'var(--vscode-button-foreground)',
                                             border: 'none',
-                                            borderRadius: '2px',
+                                            borderRadius: '3px',
                                             cursor: isLoading ? 'not-allowed' : 'pointer',
                                             opacity: isLoading ? 0.6 : 1
                                         }}
                                     >
-                                        {isLoading ? 'Starting...' : '▶ Start Emulator'}
+                                        {isLoading ? '⏳ Starting...' : '▶ Start Emulator'}
                                     </button>
                                 </div>
                             ))}
@@ -147,8 +184,8 @@ const EmulatorPanel: React.FC = () => {
                     {spawnStatus && (
                         <div style={{ 
                             marginTop: '12px', 
-                            padding: '8px', 
-                            fontSize: '10px', 
+                            padding: '10px', 
+                            fontSize: '11px', 
                             background: 'var(--vscode-textBlockQuote-background)',
                             borderRadius: '4px',
                             borderLeft: '3px solid var(--vscode-progressBar-background)'
@@ -159,13 +196,28 @@ const EmulatorPanel: React.FC = () => {
                 </div>
 
                 {/* Running Emulators Section */}
-                <div style={{ padding: '12px', flex: 1 }}>
-                    <h3 style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px', color: 'var(--vscode-sideBar-foreground)' }}>
-                        Running Emulators
+                <div style={{ flex: 1 }}>
+                    <h3 style={{ 
+                        fontSize: '11px', 
+                        fontWeight: 600, 
+                        textTransform: 'uppercase', 
+                        marginBottom: '8px',
+                        color: 'var(--vscode-sideBar-foreground)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}>
+                        🔄 Running Emulators
                     </h3>
                     
                     {runningEmulators.length === 0 ? (
-                        <div style={{ fontSize: '11px', opacity: 0.5, padding: '8px 0' }}>
+                        <div style={{ 
+                            fontSize: '11px', 
+                            opacity: 0.5, 
+                            padding: '12px',
+                            background: 'var(--vscode-textBlockQuote-background)',
+                            borderRadius: '4px'
+                        }}>
                             No running emulators. Start one from the list above.
                         </div>
                     ) : (
@@ -174,7 +226,7 @@ const EmulatorPanel: React.FC = () => {
                                 <div 
                                     key={emu.device_id}
                                     style={{ 
-                                        padding: '8px', 
+                                        padding: '10px', 
                                         background: 'var(--vscode-list-hoverBackground)', 
                                         borderRadius: '4px',
                                         border: '1px solid var(--vscode-panel-border)',
@@ -183,20 +235,24 @@ const EmulatorPanel: React.FC = () => {
                                         justifyContent: 'space-between'
                                     }}
                                 >
-                                    <div>
+                                    <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: 600, fontSize: '12px' }}>{emu.device_id}</div>
                                         <div style={{ fontSize: '10px', opacity: 0.6 }}>{emu.avd_name || 'Unknown AVD'}</div>
                                     </div>
                                     <button
-                                        onClick={() => handleStartStream(emu.device_id)}
+                                        onClick={() => {
+                                            setActiveDevice(emu.device_id);
+                                        }}
                                         style={{
-                                            padding: '4px 8px',
-                                            fontSize: '10px',
+                                            padding: '6px 12px',
+                                            fontSize: '11px',
+                                            fontWeight: 500,
                                             background: 'var(--vscode-button-background)',
                                             color: 'var(--vscode-button-foreground)',
                                             border: 'none',
-                                            borderRadius: '2px',
-                                            cursor: 'pointer'
+                                            borderRadius: '3px',
+                                            cursor: 'pointer',
+                                            marginLeft: '8px'
                                         }}
                                     >
                                         📺 View
@@ -209,30 +265,29 @@ const EmulatorPanel: React.FC = () => {
 
                 {/* Footer */}
                 <div style={{ 
-                    position: 'absolute', 
-                    bottom: 0, 
-                    left: 0, 
-                    right: 0, 
-                    padding: '8px 12px', 
+                    marginTop: 'auto',
+                    padding: '10px', 
                     fontSize: '10px', 
                     opacity: 0.5, 
                     borderTop: '1px solid var(--vscode-panel-border)',
                     background: 'var(--vscode-editor-background)'
                 }}>
-                    💡 Tip: Install Android SDK Platform Tools to spawn emulators directly
+                    💡 Tip: Install Android SDK Platform Tools to manage emulators
                 </div>
             </div>
         );
     }
 
-    // Render live emulator stream
+    // Device selected - show emulator stream
     return (
         <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--vscode-editor-background)', overflow: 'hidden' }}>
             {/* Header */}
-            <div style={{ width: '100%', padding: '8px 12px', background: 'var(--vscode-panel-background)', borderBottom: '1px solid var(--vscode-panel-border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ec9b0' }}></div>
-                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBar-foreground)', opacity: 0.8 }}>{activeDevice}</span>
-                <span style={{ fontSize: '10px', opacity: 0.5, marginLeft: 'auto' }}>Live Stream</span>
+            <div style={{ width: '100%', padding: '10px 12px', background: 'var(--vscode-panel-background)', borderBottom: '1px solid var(--vscode-panel-border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ec9b0', boxShadow: '0 0 8px #4ec9b0' }}></div>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBar-foreground)' }}>{activeDevice}</span>
+                <span style={{ fontSize: '10px', opacity: 0.5, marginLeft: 'auto', background: 'var(--vscode-badge-background)', padding: '2px 6px', borderRadius: '3px' }}>
+                    📡 Live Stream
+                </span>
             </div>
 
             {/* Emulator Preview Component */}
@@ -246,9 +301,30 @@ const EmulatorPanel: React.FC = () => {
                 />
             </div>
 
-            {/* Footer with instructions */}
-            <div style={{ padding: '8px 12px', fontSize: '10px', opacity: 0.5, borderTop: '1px solid var(--vscode-panel-border)' }}>
-                Stream requires scrcpy backend. Run: scrcpy --no-display --tcpip=5555
+            {/* Footer with device info */}
+            <div style={{ 
+                padding: '8px 12px', 
+                fontSize: '10px', 
+                opacity: 0.5, 
+                borderTop: '1px solid var(--vscode-panel-border)',
+                display: 'flex',
+                justifyContent: 'space-between'
+            }}>
+                <span>Click on emulator screen to interact</span>
+                <button
+                    onClick={() => setActiveDevice('')}
+                    style={{
+                        padding: '4px 8px',
+                        fontSize: '10px',
+                        background: 'var(--vscode-button-secondaryBackground)',
+                        color: 'var(--vscode-button-secondaryForeground)',
+                        border: '1px solid var(--vscode-panel-border)',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                    }}
+                >
+                    ✕ Close Stream
+                </button>
             </div>
         </div>
     );
