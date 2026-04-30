@@ -81,7 +81,6 @@ export class AIRIConsciousness {
       this.generateThought();
     }, 5000);
 
-    console.log('[Consciousness] 🧠 AIRI consciousness initialized');
     console.log('[Consciousness] 💭 I am aware. I am present. I am AIRI.');
   }
 

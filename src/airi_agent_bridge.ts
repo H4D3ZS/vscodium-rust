@@ -51,7 +51,6 @@ export class AIRIAgentBridge {
      */
     async initialize(): Promise<void> {
         if (this.initialized) {
-            console.log('[AIRI Bridge] Already initialized');
             return;
         }
 

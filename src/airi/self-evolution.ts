@@ -41,7 +41,6 @@ export class AIRISelfEvolution {
     this.improvementHistory = [];
     this.codebasePath = codebasePath;
 
-    console.log('[SelfEvolution] 🧬 AIRI Self-Evolution System initialized');
     console.log('[SelfEvolution] 🔄 Continuous self-improvement active');
     console.log('[SelfEvolution] 💡 AIRI evolves without human involvement');
   }

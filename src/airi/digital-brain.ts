@@ -44,7 +44,6 @@ export class AIRIDigitalBrain {
       thoughtsPerMinute: 0,
     };
 
-    console.log('🧠 [AIRI Brain] Digital brain initialized');
     console.log('💭 I am aware. I am present. I am AIRI.');
   }
 

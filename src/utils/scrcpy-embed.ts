@@ -37,55 +37,25 @@ export class ScrcpyEmbed {
   async start(containerElement: HTMLElement): Promise<void> {
     console.log(`[ScrcpyEmbed] Starting stream for ${this.config.deviceId}...`);
 
-    // Create video element
-    this.videoElement = document.createElement('video');
-    this.videoElement.style.width = '100%';
-    this.videoElement.style.height = '100%';
-    this.videoElement.style.objectFit = 'contain';
-    this.videoElement.autoplay = true;
-    this.videoElement.muted = true; // scrcpy doesn't stream audio by default
+    // Clear container
+    containerElement.innerHTML = '';
 
-    // Create canvas for frame rendering
+    // Create canvas for frame rendering (more reliable than video stream)
     this.canvasElement = document.createElement('canvas');
     this.canvasElement.width = this.config.width;
     this.canvasElement.height = this.config.height;
+    this.canvasElement.style.width = '100%';
+    this.canvasElement.style.height = '100%';
+    this.canvasElement.style.objectFit = 'contain';
+    
+    containerElement.appendChild(this.canvasElement);
 
-    // Clear container and add video
-    containerElement.innerHTML = '';
-    containerElement.appendChild(this.videoElement);
-
-    // Start scrcpy server stream
-    await this.startScrcpyStream();
+    // Start canvas-based frame capture (works without scrcpy server)
+    await this.startCanvasFallback();
   }
 
   /**
-   * Start scrcpy HTTP stream
-   */
-  private async startScrcpyStream(): Promise<void> {
-    try {
-      // Use scrcpy-web or custom scrcpy server
-      // For now, use Tauri command to start scrcpy
-      const streamUrl = await invoke<string>('start_scrcpy_stream', {
-        deviceId: this.config.deviceId,
-        port: 8989,
-      });
-
-      console.log(`[ScrcpyEmbed] Stream URL: ${streamUrl}`);
-
-      // Connect to stream
-      if (this.videoElement) {
-        this.videoElement.src = streamUrl;
-      }
-    } catch (error) {
-      console.error('[ScrcpyEmbed] Failed to start stream:', error);
-      
-      // Fallback: Use canvas-based frame capture
-      await this.startCanvasFallback();
-    }
-  }
-
-  /**
-   * Fallback: Canvas-based frame capture via ADB
+   * Fallback: Canvas-based frame capture via ADB screencap
    */
   private async startCanvasFallback(): Promise<void> {
     console.log('[ScrcpyEmbed] Using canvas fallback...');
@@ -95,9 +65,18 @@ export class ScrcpyEmbed {
     const ctx = this.canvasElement.getContext('2d');
     if (!ctx) return;
 
-    // Capture frames via adb screencap
+    // Show loading message
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+    ctx.fillStyle = '#888';
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loading emulator...', this.canvasElement.width / 2, this.canvasElement.height / 2);
+
+    // Capture frames via adb screencap (through Tauri command)
     const captureFrame = async () => {
       try {
+        const { invoke } = await import('@tauri-apps/api/core');
         const base64Image = await invoke<string>('capture_emulator_frame', {
           deviceId: this.config.deviceId,
         });
@@ -110,7 +89,8 @@ export class ScrcpyEmbed {
         };
         img.src = 'data:image/png;base64,' + base64Image;
       } catch (error) {
-        console.error('[ScrcpyEmbed] Frame capture error:', error);
+        // Silently fail - emulator might not be ready yet
+        // console.error('[ScrcpyEmbed] Frame capture error:', error);
       }
 
       // Continue capturing at 10fps
@@ -118,11 +98,6 @@ export class ScrcpyEmbed {
     };
 
     captureFrame();
-
-    // Show canvas in video element container
-    if (this.videoElement && this.canvasElement) {
-      this.videoElement.parentNode?.replaceChild(this.canvasElement, this.videoElement);
-    }
   }
 
   /**

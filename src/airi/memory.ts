@@ -53,7 +53,6 @@ export class AIRIMemorySystem {
       compressedCount: 0
     };
 
-    console.log('[Memory] 🧠 AIRI Memory System initialized');
     console.log('[Memory] 📁 Memory path:', memoryPath);
     console.log('[Memory] 🗄️  AIM cache path:', aimCachePath);
   }

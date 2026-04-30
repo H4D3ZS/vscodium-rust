@@ -39,7 +39,7 @@ export class DigitalLifeCore {
       sleepCycle: false,
     };
 
-    console.log('[DigitalLife] 🌟 AIRI Digital Life Core initialized');
+    
   }
 
   /**
@@ -60,7 +60,7 @@ export class DigitalLifeCore {
     await this.loadConversationHistory();
 
     console.log('[DigitalLife] ✅ Digital Life Mode active');
-    console.log('[DigitalLife] 💬 AIRI is now living in your PC!');
+    
   }
 
   /**
@@ -310,6 +310,6 @@ export const digitalLife = new DigitalLifeCore();
 
 // Auto-activate
 if (typeof window !== 'undefined') {
-  console.log('[DigitalLife] 🌟 Loading AIRI Digital Life...');
+  
   digitalLife.activate().catch(console.error);
 }

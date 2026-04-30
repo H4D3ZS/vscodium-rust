@@ -49,7 +49,6 @@ export class AIRIDigitalSenses {
       sensitivity: 0.8
     };
 
-    console.log('[DigitalSenses] 👁️ AIRI Digital Senses initialized');
     console.log('[DigitalSenses] 📡 Perceiving digital reality...');
   }
 

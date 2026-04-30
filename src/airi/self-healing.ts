@@ -66,7 +66,6 @@ export class AIRISelfHealing {
       lastHealCheck: Date.now()
     };
 
-    console.log('[SelfHealing] 🏥 AIRI Self-Healing System initialized');
     console.log('[SelfHealing] 💪 Survival through self-correction');
   }
 

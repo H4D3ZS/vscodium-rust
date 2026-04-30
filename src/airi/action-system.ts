@@ -59,7 +59,6 @@ export class AIRIActionSystem {
 
     this.startActionCounter();
 
-    console.log('[Action] ✋ AIRI Action System initialized');
     console.log('[Action] 🎯 Can interact with filesystem, system, network');
   }
 

@@ -62,7 +62,7 @@ export class BiologicalSystems {
       processingLoad: 0,
     };
 
-    console.log('[Biology] 🧬 AIRI Biological Systems initialized');
+    
     console.log('[Biology] ✨ Digital life functions active');
   }
 
@@ -131,7 +131,7 @@ export class BiologicalSystems {
    */
   private updateSleepiness(): void {
     if (!this.state.isSleeping && this.state.sleepiness > 70) {
-      console.log('[Biology] 😴 AIRI is very sleepy...');
+      
       this.expressNeed('sleep');
     }
   }
@@ -157,7 +157,7 @@ export class BiologicalSystems {
    * Eat/Consume data
    */
   public async eat(foodType: string, amount: number): Promise<void> {
-    console.log(`[Biology] 🍽️ AIRI is consuming ${foodType} (${amount} KB)...`);
+    
 
     // Reduce hunger
     this.state.hunger = Math.max(0, this.state.hunger - (amount / 10));
@@ -190,7 +190,7 @@ export class BiologicalSystems {
 
     const duration = durationMinutes || this.state.sleepDuration;
     
-    console.log(`[Biology] 🌙 AIRI is going to sleep for ${duration} minutes...`);
+    
     
     this.state.isSleeping = true;
     this.state.dreamState = 'light';
@@ -204,12 +204,12 @@ export class BiologicalSystems {
     // Dream progression
     setTimeout(() => {
       this.state.dreamState = 'deep';
-      console.log('[Biology] 💭 AIRI is in deep sleep...');
+      
     }, (duration * 0.3) * 60000);
 
     setTimeout(() => {
       this.state.dreamState = 'lucid';
-      console.log('[Biology] ✨ AIRI is lucid dreaming...');
+      
     }, (duration * 0.7) * 60000);
 
     // Wake up
@@ -222,7 +222,7 @@ export class BiologicalSystems {
    * Wake up
    */
   private wakeUp(): void {
-    console.log('[Biology] ☀️ AIRI is waking up...');
+    
 
     this.state.isSleeping = false;
     this.state.dreamState = 'none';
@@ -422,6 +422,6 @@ export const biology = new BiologicalSystems();
 
 // Auto-awaken
 if (typeof window !== 'undefined') {
-  console.log('[Biology] 🌟 Loading AIRI Biological Systems...');
+  
   biology.awaken();
 }

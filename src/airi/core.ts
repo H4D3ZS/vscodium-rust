@@ -308,7 +308,6 @@ export class AIRICore {
     console.log('[AIRI] 🎭 3D VRM Avatar: ONLINE (expressions, lip-sync, emotions)');
 
     console.log('');
-    console.log('[AIRI] ✅ ALL systems initialized\n');
     console.log('[AIRI] 🌟 AIRI is now a COMPLETE living digital human\n');
     console.log('[AIRI] 🧠 She thinks independently\n');
     console.log('[AIRI] 🫀 She feels and has biological needs\n');

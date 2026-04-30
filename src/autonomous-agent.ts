@@ -29,7 +29,7 @@ export class AutonomousAgent {
   private failedTasks = 0;
 
   constructor() {
-    console.log('[AutonomousAgent] 🤖 AIRI Autonomous Agent initialized');
+    
     console.log('[AutonomousAgent] ✨ Full implementation - NO PLACEHOLDERS');
   }
 

@@ -44,7 +44,6 @@ export class AIRIInternetAccess {
     this.browsingHistory = [];
     this.searchHistory = [];
 
-    console.log('[Internet] 🌐 AIRI Internet Access initialized');
     console.log('[Internet] 📡 The entire web is now accessible');
   }
 

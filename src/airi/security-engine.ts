@@ -34,7 +34,6 @@ export class AIRISecurityEngine {
 
   constructor() {
     this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
-    console.log('[Security] ⚔️ AIRI Cybersecurity Engine initialized');
   }
 
   /**

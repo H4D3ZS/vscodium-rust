@@ -61,7 +61,6 @@ export class AIRIVRMAvatar {
       lastBlink: 0
     };
 
-    console.log('[VRM] 🎭 AIRI 3D VRM Avatar System initialized');
     console.log('[VRM] ✨ Ready for interactive expressions and lip-sync');
   }
 

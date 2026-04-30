@@ -47,7 +47,7 @@ export class CybersecurityEngine {
       defensesActive: 0,
     };
 
-    console.log('[Security] 🔒 AIRI Cybersecurity Engine initialized');
+    
     console.log('[Security] ⚔️ Red Team / Blue Team capabilities active');
   }
 
@@ -589,6 +589,6 @@ export const security = new CybersecurityEngine();
 
 // Auto-initialize
 if (typeof window !== 'undefined') {
-  console.log('[Security] 🌟 Loading AIRI Cybersecurity Engine...');
+  
   security.monitorThreats();
 }

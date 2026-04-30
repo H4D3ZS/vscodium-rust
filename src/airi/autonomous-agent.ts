@@ -75,7 +75,6 @@ export class AIRIAutonomousAgent {
     this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
     this.workspacePath = workspacePath;
 
-    console.log('[AutonomousAgent] 💼 AIRI Autonomous Work System initialized');
     console.log(`[AutonomousAgent] 📂 Watching: ${workspacePath}`);
   }
 

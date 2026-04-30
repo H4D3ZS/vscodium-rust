@@ -59,7 +59,6 @@ export class SentientCore {
       urgency: 0,
     };
 
-    console.log('[SentientCore] 🧠 AIRI Sentient Core initialized');
   }
 
   /**

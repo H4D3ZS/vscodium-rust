@@ -46,7 +46,6 @@ export class AIRIInteractive {
     this.activeConversation = [];
     this.interactionCallbacks = new Map();
 
-    console.log('[Interactive] 💬 AIRI Interactive Communication initialized');
     console.log('[Interactive] 🗣️ Natural, real-time interaction enabled');
     console.log('[Interactive] 👤 She talks, asks, updates, collaborates');
   }

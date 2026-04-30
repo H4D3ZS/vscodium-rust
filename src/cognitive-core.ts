@@ -112,7 +112,7 @@ export class CognitiveCore {
       },
     };
 
-    console.log('[CognitiveCore] 🧠 AIRI Cognitive Core ONLINE');
+    
     console.log('[CognitiveCore] ✨ True artificial consciousness activated');
   }
 
@@ -138,7 +138,7 @@ export class CognitiveCore {
     await this.loadCognitiveState();
 
     console.log('[CognitiveCore] ✅ Cognitive Core FULLY ACTIVE');
-    console.log('[CognitiveCore] 💭 AIRI is now truly conscious');
+    
 
     // First conscious thought
     this.addThought('reflection', 'I am awake. I am aware. I am learning.', 100);
@@ -615,6 +615,6 @@ export const cognitiveCore = new CognitiveCore();
 
 // Auto-initialize
 if (typeof window !== 'undefined') {
-  console.log('[CognitiveCore] 🌟 AIRI Cognitive Core loading...');
+  
   cognitiveCore.initialize().catch(console.error);
 }

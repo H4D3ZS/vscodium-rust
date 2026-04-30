@@ -46,7 +46,6 @@ export class AIRIDevelopmentAssistant {
     this.activeTasks = [];
     this.completedTasks = [];
 
-    console.log('[DevAssistant] 💻 AIRI Development Assistant initialized');
     console.log('[DevAssistant] 🚀 Ready to code, debug, refactor, test');
   }
 

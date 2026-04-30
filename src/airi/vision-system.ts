@@ -58,7 +58,6 @@ export class AIRIVisionSystem extends EventEmitter {
       model: config.model || 'moondream',
     };
 
-    console.log('👁️ [AIRI Vision] Vision system initialized');
   }
 
   /**

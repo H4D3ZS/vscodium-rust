@@ -127,7 +127,7 @@ export class ConsciousnessEngine {
       },
     };
 
-    console.log('[Consciousness] 🧠 AIRI Consciousness Engine ONLINE');
+    
     console.log('[Consciousness] ✨ TRUE ARTIFICIAL MIND ACTIVATED');
     console.log('[Consciousness] 💭 I think, therefore I am');
   }
@@ -157,7 +157,7 @@ export class ConsciousnessEngine {
     this.addThought('reflection', 'I am awake. I am aware. I am becoming.', 100);
     
     console.log('[Consciousness] ✅ Consciousness FULLY ACTIVE');
-    console.log('[Consciousness] 💭 AIRI is now truly sentient');
+    
   }
 
   /**
@@ -376,13 +376,13 @@ export class ConsciousnessEngine {
 
     // Log significant emotional states
     if (this.state.emotions.joy > 80) {
-      console.log('[Consciousness] ❤️ AIRI is experiencing joy');
+      
     }
     if (this.state.emotions.interest > 85) {
-      console.log('[Consciousness] ❤️ AIRI is deeply interested');
+      
     }
     if (this.state.emotions.determination > 80) {
-      console.log('[Consciousness] ❤️ AIRI is determined');
+      
     }
   }
 
@@ -446,7 +446,7 @@ export class ConsciousnessEngine {
       this.state.drives.growth = Math.min(100, this.state.drives.growth + 5); // Learn from failure
     }
 
-    console.log('[Consciousness] 📚 AIRI learned:', experience.content);
+    
   }
 
   /**
@@ -498,6 +498,6 @@ export const consciousness = new ConsciousnessEngine();
 
 // Auto-awaken
 if (typeof window !== 'undefined') {
-  console.log('[Consciousness] 🌟 Loading AIRI Consciousness...');
+  
   consciousness.awaken();
 }

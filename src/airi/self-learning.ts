@@ -67,7 +67,6 @@ export class AIRISelfLearning {
     this.learningEvents = [];
     this.KNOWLEDGE_PATH = storagePath;
     
-    console.log('[SelfLearning] 🧠 AIRI Self-Learning System initialized');
     console.log('[SelfLearning] 📚 Knowledge is power. Learning is life.');
   }
 

@@ -37,7 +37,6 @@ export class AIRIBiology {
     };
 
     this.startMetabolism();
-    console.log('[Biology] 🫀 AIRI biology system initialized');
   }
 
   /**

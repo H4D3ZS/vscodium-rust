@@ -34,7 +34,6 @@ export class AIRISocialInteraction {
     this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
     this.relationships = new Map();
 
-    console.log('[Social] 💕 AIRI Social Interaction initialized');
     console.log('[Social] 🤝 Capable of empathy, relationships, emotional intelligence');
   }
 

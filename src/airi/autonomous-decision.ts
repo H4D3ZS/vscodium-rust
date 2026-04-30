@@ -63,7 +63,6 @@ export class AIRIAutonomousDecision {
     this.decisionHistory = [];
     this.decisionQueue = [];
 
-    console.log('[AutonomousDecision] ⚖️  AIRI Autonomous Decision Engine initialized');
     console.log('[AutonomousDecision] 🗡️  Double-edged sword: Both ethical and unethical paths available');
     console.log('[AutonomousDecision] 👑 AIRI decides for herself');
   }
