@@ -81,12 +81,12 @@ use debug_adapter::DebugManager;
 
 mod emulator_stream;
 use emulator_stream::{
-    start_emulator_stream, 
-    stop_emulator_stream, 
-    get_stream_status,
     list_available_avds,
     spawn_emulator_by_name,
     list_running_emulators,
+    start_emulator_stream,
+    stop_emulator_stream,
+    get_stream_status,
 };
 
 mod scrcpy;
