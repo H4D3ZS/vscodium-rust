@@ -1215,16 +1215,11 @@ const storeImplementation: any = (set: any, get: any) => ({
         }
         return { agentMessages: messages };
     }),
-    updateLastAgentThought: (thought: string) => set((state) => {
-        const messages = [...state.agentMessages];
-        const lastIndex = messages.length - 1;
-        const last = messages[lastIndex];
-        if (last && last.role === 'assistant') {
-            const currentThoughts = last.thoughts || '';
-            messages[lastIndex] = { ...last, thoughts: currentThoughts + thought };
-        }
-        return { agentMessages: messages };
-    }),
+    updateLastAgentThought: (thought: string) => {
+        // HADES FIX: Thoughts are internal - don't store them in visible messages
+        // Only update the internal thought state for UI display (THINKING indicator)
+        return { currentThought: thought };
+    },
     appendLastAgentMessage: (delta: string) => set((state: any) => {
         const messages = [...state.agentMessages];
         const lastIndex = messages.length - 1;
@@ -1251,16 +1246,16 @@ const storeImplementation: any = (set: any, get: any) => ({
             let newContent = currentContent;
             let newThoughts = currentThoughts;
 
-            // Handle Deep Thinking blocks if present
+            // Strip thinking blocks from visible content - thoughts are internal only
             if (fullRaw.includes('<think>')) {
                 const thinkMatch = fullRaw.match(/<think>([\s\S]*?)<\/think>/);
                 if (thinkMatch) {
-                    newThoughts = thinkMatch[1].trim();
-                    newContent = fullRaw.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+                    // Store thought internally for UI state, but DON'T add to message
+                    set({ currentThought: thinkMatch[1].trim() });
+                    newContent = fullRaw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
                 } else {
                     const parts = fullRaw.split('<think>');
                     newContent = parts[0] || '';
-                    newThoughts = parts[1] || '';
                 }
             } else {
                 newContent += cleanDelta;

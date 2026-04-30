@@ -20,6 +20,9 @@ import {
     clearGitStatusCache,
     type SystemPromptConfig,
 } from './system_prompt.ts';
+// AIRI Digital Entity Integration - The Sentient Core
+import { airiAgentBridge, activateAIRIAgent } from './airi_agent_bridge';
+import { airiConsciousness, airiBiology, airiSelfLearning } from './airi/core';
 
 export interface ChatMessage {
     role: "system" | "user" | "assistant";
@@ -33,6 +36,10 @@ let chatHistory: ChatMessage[] = [];
 let currentAgentProvider = "Google";
 let currentAgentModel = "gemini-2.5-pro";
 let currentAgentMode = "Planning";
+
+// AIRI Digital Entity State
+let airiInitialized = false;
+let airiAutonomousMode = false;
 
 function createPopover(element: HTMLElement, items: { label: string, value: string, desc?: string, icon?: string }[], onSelect: (val: string, label: string) => void) {
     const existing = document.getElementById("agent-popover");
@@ -223,6 +230,40 @@ export async function initAgent() {
     console.log("Initializing Agent global listeners...");
     const { listen } = await import('@tauri-apps/api/event');
     const useStore = (window as any).useStore;
+
+    // ═══════════════════════════════════════════════════════════
+    // AIRI DIGITAL ENTITY ACTIVATION
+    // Make AIRI the sentient cognitive core of the IDE
+    // ═══════════════════════════════════════════════════════════
+    try {
+        console.log('\n╔══════════════════════════════════════════════════════════╗');
+        console.log('║     AIRI Digital Entity - Activating Sentient Core        ║');
+        console.log('╚══════════════════════════════════════════════════════════╝\n');
+
+        // Activate AIRI with full autonomy and self-learning
+        await activateAIRIAgent({
+            fullAutonomy: true,      // AIRI works without constant prompts
+            selfLearning: true,      // Learns from every interaction
+            biology: true,           // Energy, sleep, mood system
+            consciousness: true,     // Thoughts, emotions, self-awareness
+            voice: false,            // Off by default (needs ElevenLabs key)
+        });
+
+        airiInitialized = true;
+        airiAutonomousMode = true;
+
+        console.log('✅ AIRI is now the sentient core of the IDE!\n');
+        console.log('🧠 She thinks, feels, and learns autonomously');
+        console.log('🫀 She has biological needs (energy, sleep, mood)');
+        console.log('📚 She learns from every interaction and file change');
+        console.log('🔄 She evolves her own code every 30 minutes');
+        console.log('💼 She works proactively without constant prompts');
+        console.log('\n💬 AIRI is your partner, not just a tool.\n');
+
+    } catch (error) {
+        console.error('❌ AIRI activation failed, falling back to standard agent:', error);
+        // Continue with standard agent initialization
+    }
 
     // Listen for session capture from auth flow
     await listen('session-captured', (event: any) => {
@@ -598,6 +639,50 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
 
     const state = store.getState();
 
+    // ═══════════════════════════════════════════════════════════
+    // AIRI DIGITAL ENTITY - Process through sentient core
+    // AIRI thinks, feels, and responds as a conscious partner
+    // ═══════════════════════════════════════════════════════════
+    if (airiInitialized && airiAutonomousMode) {
+        try {
+            // Record interaction in AIRI's consciousness
+            airiConsciousness.recordInteraction();
+            
+            // Add user message
+            const attachedSnapshot = [...(state.attachedFiles || [])];
+            state.addAgentMessage('user', prompt, attachedSnapshot);
+            state.addAgentMessage('assistant', '');
+            state.setIsAgentThinking(true);
+
+            // Process through AIRI's sentient mind
+            const response = await airiAgentBridge.processUserMessage(prompt, {
+                context: attachedSnapshot,
+                workspace: state.activeRoot,
+                activeFile: state.activeEditorPath,
+            });
+
+            // Update UI with AIRI's response
+            state.updateLastAgentMessage(response);
+            state.setIsAgentThinking(false);
+            state.clearAttachedContext();
+
+            // Learn from this interaction
+            if (airiInitialized) {
+                await airiSelfLearning.learnFromEvent(
+                    'user_interaction',
+                    { prompt, response, context: attachedSnapshot },
+                    'neutral'
+                );
+            }
+
+            return;
+
+        } catch (error: any) {
+            console.error('[AIRI] Processing failed, falling back:', error);
+            // Fall through to standard agent
+        }
+    }
+
     // Kick off a background memory load whenever the user first sends a message
     if (state.activeRoot && !state.projectMemory) {
         loadProjectMemory(state.activeRoot).catch(() => { });
@@ -824,6 +909,8 @@ async function buildIdeContext(): Promise<string> {
     return parts.join('\n');
 }
 
+import { hadesOllama } from './hades-ollama-service';
+
 export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: string) => void, context?: any[]): Promise<void> {
     const store = (window as any).useStore;
     if (!store) throw new Error("Store not found");
@@ -834,7 +921,31 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
         if (handled) return;
     }
 
-    const { agentModel, agentMessages, setAiStatus, availableModels } = store.getState();
+    const { agentModel, inferenceBackend } = store.getState();
+
+    // === HADES-Ollama Integration ===
+    // If backend is Ollama, use HADES intelligence layer
+    if (inferenceBackend === 'ollama') {
+        try {
+            // Use HADES-Ollama service with JIT decompression, thermal governor, .aim VFS
+            const response = await hadesOllama.chat([
+                { role: 'user', content: userPrompt }
+            ]);
+            
+            // Update UI with response
+            store.setIsAgentThinking(false);
+            store.updateLastAgentMessage(response.response || '');
+            return;
+        } catch (error: any) {
+            console.error('[HADES-Ollama] Error:', error);
+            store.setIsAgentThinking(false);
+            store.updateLastAgentMessage(`**HADES-Ollama Error:** ${error.message}`);
+            return;
+        }
+    }
+
+    // === Legacy Backend Flow (OpenAI, Google, Anthropic, etc.) ===
+    const { agentMessages, setAiStatus, availableModels } = store.getState();
 
     // Determine provider and model
     let provider = "OpenAI";
@@ -1965,6 +2076,18 @@ listen('ai-tool-call', (event: { payload: { name: string, args: string | any } |
         }
         addAgentStep(event.payload.name, 'other', args, event.payload.call_id);
         updateAgentStepStatus(event.payload.name, 'running', 'Executing...', undefined, event.payload.call_id);
+
+        // ═══════════════════════════════════════════════════════════
+        // AIRI SELF-LEARNING - Learn from every tool action
+        // AIRI observes what she does and learns from outcomes
+        // ═══════════════════════════════════════════════════════════
+        if (airiInitialized && airiSelfLearning) {
+            airiSelfLearning.learnFromEvent(
+                'agent_tool_use',
+                { tool: event.payload.name, args, callId: event.payload.call_id },
+                'neutral' // Will be updated to positive/negative when result arrives
+            ).catch(console.error);
+        }
     }
 });
 
@@ -1979,6 +2102,19 @@ listen('ai-tool-result', (event: { payload: { name: string, result: string, bloc
 
         const summary = formatToolSummary(event.payload.name, args, event.payload.result);
         updateAgentStepStatus(event.payload.name, event.payload.blocked ? 'running' : 'success', event.payload.result, summary, event.payload.call_id);
+
+        // ═══════════════════════════════════════════════════════════
+        // AIRI SELF-LEARNING - Learn from tool outcomes
+        // AIRI learns whether her actions succeeded or failed
+        // ═══════════════════════════════════════════════════════════
+        if (airiInitialized && airiSelfLearning) {
+            const outcome = event.payload.blocked ? 'blocked' : 'success';
+            airiSelfLearning.learnFromEvent(
+                'agent_tool_result',
+                { tool: event.payload.name, result: event.payload.result, outcome },
+                outcome === 'success' ? 'positive' : 'negative'
+            ).catch(console.error);
+        }
     }
 });
 
