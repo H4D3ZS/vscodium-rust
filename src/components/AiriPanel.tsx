@@ -660,9 +660,6 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                     >
                         🎤
                     </div>
-                    >
-                        {isListening ? '🎙️' : '🎤'}
-                    </div>
 
                     {/* Error badge */}
                     {errorText && (
