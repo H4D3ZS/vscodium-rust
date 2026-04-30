@@ -8,7 +8,6 @@
  * - Semantic gist enhancement
  */
 
-import { get } from 'svelte/store';
 import { store } from './store';
 
 export interface HadesOllamaConfig {
@@ -46,7 +45,7 @@ class HadesOllamaService {
   }
 
   private loadConfig() {
-    const s = get(store);
+    const s = store;
     this.config = {
       baseUrl: s.ollamaUrl || 'http://localhost:11434',
       model: s.agentModel?.split('|')[1] || 'llama3.2',
