@@ -353,9 +353,10 @@ export class AIRIMobileDevelopment {
 
         this.activeProject.progress = 100;
 
+        // DISABLED: Auto-speech (was causing spam)
         // await this.speak(
-            "Development complete! Your app is ready. The emulator shows the final result. What would you like to adjust?"
-        );
+        //     "Development complete! Your app is ready. The emulator shows the final result. What would you like to adjust?"
+        // );
 
         console.log('[Dev Workflow] ✅ Integration complete - App ready!\n');
     }
