@@ -10,7 +10,7 @@
  * NOT auto-speech spam - ALL voice is USER-TRIGGERED
  */
 
-import { store } from '../store';
+import { useStore } from '../store';
 
 export interface VoiceActivationConfig {
   wakeWordEnabled: boolean;
@@ -80,7 +80,7 @@ export class AIRIVoiceActivation {
     console.log('🎤 [VoiceActivation] Wake word detected!');
 
     // Visual feedback
-    store.setIsAgentThinking(true);
+    useStore.getState().setIsAgentThinking(true);
 
     // Play activation sound
     this.playActivationSound();
@@ -98,7 +98,7 @@ export class AIRIVoiceActivation {
     // Speak response
     await this.speak(response);
 
-    store.setIsAgentThinking(false);
+    useStore.getState().setIsAgentThinking(false);
   }
 
   /**
