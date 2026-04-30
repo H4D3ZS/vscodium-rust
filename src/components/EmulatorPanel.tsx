@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../store';
-import { EmulatorPreview } from './EmulatorPreview';
+import { ScrcpyEmbed, getScrcpyForDevice, stopAllScrcpyInstances } from '../utils/scrcpy-embed';
 import { detectPlatform, isMacOS, canUseIOSEmulator, canUseAndroidEmulator } from '../utils/platform';
 
 interface AVD {
@@ -102,14 +102,31 @@ const EmulatorPanel: React.FC = () => {
         }
     };
 
+    const scrcpyContainerRef = useRef<HTMLDivElement>(null);
+    const scrcpyInstance = useRef<ScrcpyEmbed | null>(null);
+
     const handleStartStream = async (deviceId: string) => {
         try {
-            await invoke<string>('start_emulator_stream', { deviceId });
             setActiveDevice(deviceId);
             setStreamStarted(true);
+            
+            // Start embedded scrcpy stream
+            if (scrcpyContainerRef.current) {
+                scrcpyInstance.current = getScrcpyForDevice(deviceId);
+                await scrcpyInstance.current.start(scrcpyContainerRef.current);
+            }
         } catch (err) {
             console.error('Failed to start stream:', err);
         }
+    };
+
+    const handleStopStream = async () => {
+        if (scrcpyInstance.current) {
+            await scrcpyInstance.current.stop();
+            scrcpyInstance.current = null;
+        }
+        setStreamStarted(false);
+        setActiveDevice('');
     };
 
     // No device selected - show AVD list and running emulators
@@ -288,7 +305,7 @@ const EmulatorPanel: React.FC = () => {
         );
     }
 
-    // Device selected - show emulator stream
+    // Device selected - show embedded scrcpy stream
     return (
         <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--vscode-editor-background)', overflow: 'hidden' }}>
             {/* Header */}
@@ -296,33 +313,39 @@ const EmulatorPanel: React.FC = () => {
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ec9b0', boxShadow: '0 0 8px #4ec9b0' }}></div>
                 <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBar-foreground)' }}>{activeDevice}</span>
                 <span style={{ fontSize: '10px', opacity: 0.5, marginLeft: 'auto', background: 'var(--vscode-badge-background)', padding: '2px 6px', borderRadius: '3px' }}>
-                    📡 Live Stream
+                    📡 Embedded (scrcpy)
                 </span>
             </div>
 
-            {/* Emulator Preview Component */}
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', overflow: 'auto' }}>
-                <EmulatorPreview
-                    streamUrl="ws://localhost:8989"
-                    width={360}
-                    height={640}
-                    showFps={true}
-                    showControls={true}
-                />
+            {/* Embedded scrcpy Stream */}
+            <div 
+                ref={scrcpyContainerRef}
+                style={{ 
+                    flex: 1, 
+                    background: '#000',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                }}
+            >
+                <div style={{ color: '#888', fontSize: '12px' }}>
+                    {streamStarted ? 'Loading emulator stream...' : 'Starting stream...'}
+                </div>
             </div>
 
-            {/* Footer with device info */}
+            {/* Footer with controls */}
             <div style={{ 
                 padding: '8px 12px', 
                 fontSize: '10px', 
                 opacity: 0.5, 
                 borderTop: '1px solid var(--vscode-panel-border)',
                 display: 'flex',
-                justifyContent: 'space-between'
+                justifyContent: 'space-between',
+                alignItems: 'center'
             }}>
-                <span>Click on emulator screen to interact</span>
+                <span>Click on emulator to interact</span>
                 <button
-                    onClick={() => setActiveDevice('')}
+                    onClick={handleStopStream}
                     style={{
                         padding: '4px 8px',
                         fontSize: '10px',

@@ -89,6 +89,18 @@ use emulator_stream::{
     list_running_emulators,
 };
 
+mod scrcpy;
+use scrcpy::{
+    start_scrcpy_stream,
+    stop_scrcpy_stream,
+    capture_emulator_frame,
+    send_emulator_tap,
+    send_emulator_swipe,
+    send_emulator_text,
+    send_emulator_key,
+    get_scrcpy_status,
+};
+
 #[allow(dead_code)]
 extern "system" {
     fn GetCurrentProcess() -> isize;
@@ -3561,6 +3573,15 @@ pub fn run() {
             start_emulator_stream,
             stop_emulator_stream,
             get_stream_status,
+            // scrcpy commands
+            start_scrcpy_stream,
+            stop_scrcpy_stream,
+            capture_emulator_frame,
+            send_emulator_tap,
+            send_emulator_swipe,
+            send_emulator_text,
+            send_emulator_key,
+            get_scrcpy_status,
             set_ai_model,
             set_advisor_model,
             list_mcp_servers,
