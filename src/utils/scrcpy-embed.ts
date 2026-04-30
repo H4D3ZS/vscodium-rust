@@ -71,7 +71,12 @@ export class ScrcpyEmbed {
     ctx.fillStyle = '#888';
     ctx.font = '14px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Loading emulator...', this.canvasElement.width / 2, this.canvasElement.height / 2);
+    ctx.fillText('Connecting to emulator...', this.canvasElement.width / 2, this.canvasElement.height / 2 - 20);
+    ctx.font = '12px Arial';
+    ctx.fillText('Make sure emulator is running', this.canvasElement.width / 2, this.canvasElement.height / 2 + 10);
+
+    let frameCount = 0;
+    let lastSuccessfulFrame = 0;
 
     // Capture frames via adb screencap (through Tauri command)
     const captureFrame = async () => {
@@ -81,16 +86,45 @@ export class ScrcpyEmbed {
           deviceId: this.config.deviceId,
         });
 
-        const img = new Image();
-        img.onload = () => {
-          if (ctx && this.canvasElement) {
-            ctx.drawImage(img, 0, 0, this.canvasElement.width, this.canvasElement.height);
+        if (base64Image && base64Image.length > 100) {
+          const img = new Image();
+          img.onload = () => {
+            if (ctx && this.canvasElement) {
+              ctx.drawImage(img, 0, 0, this.canvasElement.width, this.canvasElement.height);
+              frameCount++;
+              lastSuccessfulFrame = Date.now();
+            }
+          };
+          img.onerror = () => {
+            console.error('[ScrcpyEmbed] Failed to decode frame');
+          };
+          img.src = 'data:image/png;base64,' + base64Image;
+        } else {
+          // No frame returned - emulator might not be ready
+          if (frameCount === 0) {
+            // Still showing loading message
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+            ctx.fillStyle = '#888';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Waiting for emulator to boot...', this.canvasElement.width / 2, this.canvasElement.height / 2);
           }
-        };
-        img.src = 'data:image/png;base64,' + base64Image;
+        }
       } catch (error) {
         // Silently fail - emulator might not be ready yet
-        // console.error('[ScrcpyEmbed] Frame capture error:', error);
+        if (frameCount === 0 && Date.now() - lastSuccessfulFrame > 5000) {
+          // Show error after 5 seconds of no frames
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+          ctx.fillStyle = '#f44';
+          ctx.font = '14px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('Emulator not connected', this.canvasElement.width / 2, this.canvasElement.height / 2 - 20);
+          ctx.fillStyle = '#888';
+          ctx.font = '12px Arial';
+          ctx.fillText('Start an Android emulator first', this.canvasElement.width / 2, this.canvasElement.height / 2 + 10);
+        }
       }
 
       // Continue capturing at 10fps

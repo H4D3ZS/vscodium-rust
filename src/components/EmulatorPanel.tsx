@@ -143,6 +143,25 @@ const EmulatorPanel: React.FC = () => {
         }
     };
 
+    const handleLaunchEmulator = async (avdName: string) => {
+        setIsLoading(true);
+        setSpawnStatus(`Launching "${avdName}"...`);
+        
+        try {
+            const result = await invoke<string>('spawn_emulator_by_name', { avdName });
+            setSpawnStatus(result);
+            
+            // Wait for emulator to boot, then auto-connect
+            setTimeout(async () => {
+                await loadRunningEmulators();
+            }, 10000); // Wait 10 seconds for boot
+        } catch (err) {
+            setSpawnStatus(`Error: ${err}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const handleStopStream = async () => {
         if (scrcpyInstance.current) {
             await scrcpyInstance.current.stop();
@@ -282,7 +301,7 @@ const EmulatorPanel: React.FC = () => {
                                     </div>
                                     <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
                                         <button
-                                            onClick={() => handleSpawnAndEmbed(avd.name)}
+                                            onClick={() => handleLaunchEmulator(avd.name)}
                                             disabled={isLoading}
                                             style={{
                                                 flex: 1,
@@ -296,9 +315,9 @@ const EmulatorPanel: React.FC = () => {
                                                 cursor: isLoading ? 'not-allowed' : 'pointer',
                                                 opacity: isLoading ? 0.6 : 1
                                             }}
-                                            title="Spawn emulator and embed directly in IDE (no external window)"
+                                            title="Launch emulator and embed in IDE"
                                         >
-                                            {isLoading ? '⏳ Spawning...' : '🚀 Spawn & Embed'}
+                                            {isLoading ? '⏳ Launching...' : '🚀 Launch & Embed'}
                                         </button>
                                         <button
                                             onClick={() => handleSpawnEmulator(avd.name)}
@@ -315,9 +334,9 @@ const EmulatorPanel: React.FC = () => {
                                                 cursor: isLoading ? 'not-allowed' : 'pointer',
                                                 opacity: isLoading ? 0.6 : 1
                                             }}
-                                            title="Start emulator normally (external window)"
+                                            title="Start emulator in external window"
                                         >
-                                            {isLoading ? '⏳ Starting...' : '▶ Start Normal'}
+                                            {isLoading ? '⏳ Starting...' : '▶ External'}
                                         </button>
                                     </div>
                                 </div>
