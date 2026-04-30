@@ -10,10 +10,12 @@ export default defineConfig({
     },
     server: {
         port: 5173,
-        strictPort: true,
+        strictPort: false,  // Don't fail if port is in use, find another
         host: true,
     },
     // Vite settings for Tauri
     clearScreen: false,
     envPrefix: ['VITE_', 'TAURI_'],
+    // Tauri needs relative asset paths for production builds
+    base: './',
 });

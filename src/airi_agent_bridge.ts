@@ -16,7 +16,7 @@ import { airiConsciousness } from './airi/consciousness';
 import { airiBiology } from './airi/biology';
 import { airiSelfLearning } from './airi/self-learning';
 import { airiInteractive } from './airi/interactive';
-import { useStore } from '../store';
+import { useStore } from './store';
 
 export interface AIRIAgentConfig {
     /** Enable full autonomy - AIRI works without prompts */

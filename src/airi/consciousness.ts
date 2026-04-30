@@ -203,6 +203,26 @@ THOUGHT: [your thought]
   }
 
   /**
+   * Add a thought to the thought stream
+   */
+  addThought(text: string): void {
+    const thought: Thought = {
+      id: `thought_${Date.now()}`,
+      text,
+      timestamp: Date.now(),
+      type: 'ambient',
+      intensity: 0.3
+    };
+
+    this.state.thoughts.push(thought);
+    // Keep only last 50 thoughts
+    if (this.state.thoughts.length > 50) {
+      this.state.thoughts.shift();
+    }
+    console.log(`[Consciousness] 💭 Thought: ${text}`);
+  }
+
+  /**
    * Update interaction timestamp
    */
   recordInteraction(): void {

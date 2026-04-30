@@ -181,3 +181,37 @@ How are things going with the project? Is there anything specific on your mind t
 **AI:** Since I am deeply integrated into the IDE manifold, I am much more than just a standard AI chatbot. You can think of me as a high-fidelity development partner—a bridge between your high-level architectural ideas and the actual execution of code.
 
 Here is a bit more about what I a…
+
+
+### [2026-04-27 13:07 UTC]
+**User:** hello
+**AI:** Hello! How can I assist you today?
+
+
+### [2026-04-27 13:08 UTC]
+**User:** whats the kortex aim purpose?
+**AI:** The Kortex AIM (Artificial Intelligence Memory) serves as a system for zero-token context management in projects. It integrates seamlessly with your development environment to provide instant access to contextual information without loading it into memory, enhancing productivity …
+
+
+### [2026-04-27 13:09 UTC]
+**User:** explain in layman terms
+**AI:** Sure! Think of Kortex AIM like a super-smart assistant that knows everything about your project without having to open or read all the files. It's like walking into a room where someone already knows what you're going to ask and can answer it instantly. This helps you code faster…
+
+
+### [2026-04-27 13:12 UTC]
+**User:** whats the pros and cons?
+**AI:** Sure, let's break down some of the pros and cons of using Kortex AIM in a layman’s terms:
+
+### Pros:
+1. **Speed**: It provides quick access to project information without needing to open files.
+2. **Efficiency**: Saves time by reducing the need for manual file searches and readin…
+
+
+### [2026-04-27 13:14 UTC]
+**User:** why do you have the knowledge of that?
+**AI:** I have the knowledge about Kortex AIM because it is an integral part of the system I'm integrated into—Project Hades. My training data includes a comprehensive set of documents and information on various tools, technologies, and projects that users might work with. This ensures t…
+
+
+### [2026-04-27 13:16 UTC]
+**User:** you can write code directly and help a developer even when i will talk in speech using mic?
+**AI:** Yes, I can definitely write code directly based on your spoken instructions. Just let me know what you need, and I'll do my best to assist you. Whether it's fixing a bug, writing a function, or refactoring some code, just speak up!

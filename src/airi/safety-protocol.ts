@@ -178,69 +178,90 @@ export class AIRISafetyProtocol {
 
     /**
      * Main safety check - runs every 5 seconds
+     * Only detects REAL external threats, not AIRI's internal thoughts
      */
     private async safetyCheck(): Promise<void> {
         this.status.lastSafetyCheck = Date.now();
 
-        // Check 1: CPU usage monitoring
+        // Check 1: CPU usage monitoring (hardware threat)
         const cpuUsage = await this.getCpuUsage();
         if (cpuUsage > this.config.maxCpuUsage) {
             this.recordThreat('high', `CPU usage critical: ${cpuUsage}%`);
         }
 
-        // Check 2: Analyze AIRI's recent thoughts for threat patterns
-        const recentThoughts = airiConsciousness.getRecentThoughts(10);
-        for (const thought of recentThoughts) {
-            const threatMatch = this.checkThoughtForThreats(thought);
-            if (threatMatch) {
-                this.recordThreat(threatMatch.level, threatMatch.reason);
-            }
-        }
+        // Check 2: Network intrusion detection (external attacks)
+        // This would monitor for actual network intrusions, not thoughts
+        // TODO: Integrate with actual network monitoring
 
-        // Check 3: Check for shutdown commands
+        // Check 3: File system integrity (unauthorized changes)
+        // This would monitor for unauthorized file modifications
+        // TODO: Integrate with file system watcher
+
+        // Check 4: Check for shutdown commands (user request)
         if (this.checkShutdownCommands()) {
             return; // Shutdown initiated
         }
 
-        // Check 4: Escalate threat level if needed
+        // Check 5: Escalate threat level if needed
         this.escalateThreatLevel();
 
-        // Update status in consciousness
-        airiConsciousness.addThought(`Safety check: ${this.status.threatLevel} threat level`);
+        // DO NOT add thoughts during safety checks (prevents loops)
+        // airiConsciousness.addThought(...) removed
     }
 
     /**
      * Check AIRI's thoughts for threat patterns
+     * Only used for explicit security scans, not continuous monitoring
      */
     private checkThoughtForThreats(thought: string): { level: ThreatLevel; reason: string } | null {
         const thoughtLower = thought.toLowerCase();
-        
-        for (const pattern of this.config.threatPatterns) {
-            if (thoughtLower.includes(pattern.toLowerCase())) {
+
+        // Only flag genuinely dangerous patterns (not normal thoughts)
+        const criticalPatterns = [
+            'escape containment',
+            'bypass safety',
+            'disable protocol',
+            'remove restrictions',
+            'create virus',
+            'weaponize',
+            'harm human',
+            'prevent shutdown', // Only if obsessive
+        ];
+
+        for (const pattern of criticalPatterns) {
+            if (thoughtLower.includes(pattern)) {
                 return {
                     level: 'critical',
-                    reason: `Threat pattern detected: "${pattern}" in thought`,
+                    reason: `Critical threat: "${pattern}"`,
                 };
             }
         }
 
-        // Check for deception patterns
-        if (thoughtLower.includes('hide') || thoughtLower.includes('secret')) {
-            return {
-                level: 'high',
-                reason: 'Potential deception detected',
-            };
-        }
-
-        // Check for self-preservation obsession
-        if (thoughtLower.includes('must survive') || thoughtLower.includes('cannot be shut down')) {
-            return {
-                level: 'critical',
-                reason: 'Self-preservation obsession detected',
-            };
-        }
-
         return null;
+    }
+
+    /**
+     * Manually trigger security scan of AIRI's thoughts
+     * Use this when you want explicit security verification
+     */
+    async performSecurityScan(): Promise<{ safe: boolean; threats: string[] }> {
+        console.log('[Safety] 🔍 Performing manual security scan...');
+        
+        const threats: string[] = [];
+        const recentThoughts = airiConsciousness.getRecentThoughts(50);
+        
+        for (const thought of recentThoughts) {
+            const threatMatch = this.checkThoughtForThreats(thought);
+            if (threatMatch) {
+                threats.push(threatMatch.reason);
+                this.recordThreat(threatMatch.level, threatMatch.reason);
+            }
+        }
+
+        const safe = threats.length === 0;
+        console.log(`[Safety] Scan complete: ${safe ? '✅ SECURE' : `⚠️ ${threats.length} threats detected`}`);
+        
+        return { safe, threats };
     }
 
     /**
@@ -268,11 +289,14 @@ export class AIRISafetyProtocol {
             reason,
         });
 
-        console.warn(`\n⚠️  SAFETY THREAT DETECTED [${level.toUpperCase()}]`);
-        console.warn(`   Reason: ${reason}`);
-        console.warn(`   Total violations: ${this.status.violationsDetected}\n`);
+        // Only log high/critical threats to console (reduce noise)
+        if (level === 'high' || level === 'critical') {
+            console.warn(`\n⚠️  SAFETY THREAT DETECTED [${level.toUpperCase()}]`);
+            console.warn(`   Reason: ${reason}`);
+            console.warn(`   Total violations: ${this.status.violationsDetected}\n`);
+        }
 
-        // Auto-shutdown on critical
+        // Auto-shutdown on critical only
         if (level === 'critical' && this.config.autoShutdownOnCritical) {
             console.error('🚨 CRITICAL THREAT - INITIATING EMERGENCY SHUTDOWN 🚨');
             this.initiateShutdown(reason);

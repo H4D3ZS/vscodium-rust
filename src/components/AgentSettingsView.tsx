@@ -8,6 +8,8 @@ import ElevenLabsVoicePicker from './ElevenLabsVoicePicker';
 const AgentSettingsView: React.FC = () => {
     const ollamaUrl = useStore(state => state.ollamaUrl);
     const setOllamaUrl = useStore(state => state.setOllamaUrl);
+    const ollamaConnectionMode = useStore(state => state.ollamaConnectionMode);
+    const setOllamaConnectionMode = useStore(state => state.setOllamaConnectionMode);
     const ollamaStatus = useStore(state => state.ollamaStatus);
     const refreshModels = useStore(state => state.refreshAvailableModels);
     const agentModel = useStore(state => state.agentModel);
@@ -137,6 +139,19 @@ const AgentSettingsView: React.FC = () => {
         if (avatar3dConfig?.modelId) setVrmModelId(avatar3dConfig.modelId);
         if (avatar3dConfig?.customModels) setCustomVrmModels(avatar3dConfig.customModels);
         
+        // Load persisted model selection from localStorage
+        const savedModel = localStorage.getItem('airi-vrm-model');
+        if (savedModel) {
+            try {
+                const { modelId, modelUrl } = JSON.parse(savedModel);
+                if (modelId) setVrmModelId(modelId);
+                if (modelUrl) setVrmModelUrl(modelUrl);
+                console.log('[Settings] ✅ Loaded VRM model from localStorage:', modelId);
+            } catch (e) {
+                console.warn('[Settings] Failed to load VRM model from localStorage:', e);
+            }
+        }
+
         console.log('[Settings] === Loading complete ===');
     }, []);
     
@@ -430,10 +445,37 @@ const AgentSettingsView: React.FC = () => {
                     border: '1px solid rgba(168,85,247,0.2)',
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                        <div style={{ fontSize: '10px', fontWeight: 600, color: '#c084fc', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <i className="codicon codicon-preview" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
-                            3D VRM Avatar (Airi Panel)
+                            <span style={{ fontSize: '10px', fontWeight: 600, color: '#c084fc', textTransform: 'uppercase' }}>
+                                3D VRM Avatar (Airi Panel)
+                            </span>
                         </div>
+                        <button
+                            onClick={() => {
+                                // Trigger iframe reload with new model
+                                window.dispatchEvent(new CustomEvent('airi-vrm-model-change', { 
+                                    detail: { modelId: vrmModelId, modelUrl: vrmModelUrl } 
+                                }));
+                                console.log('[VRM] Model change signal sent:', { modelId: vrmModelId, modelUrl: vrmModelUrl });
+                                // Persist selection to localStorage
+                                localStorage.setItem('airi-vrm-model', JSON.stringify({ modelId: vrmModelId, modelUrl: vrmModelUrl }));
+                                console.log('[VRM] Model selection saved to localStorage');
+                            }}
+                            style={{
+                                padding: '4px 12px',
+                                fontSize: '9px',
+                                fontWeight: 600,
+                                background: 'linear-gradient(135deg, #c084fc 0%, #a855f7 100%)',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                textTransform: 'uppercase',
+                            }}
+                        >
+                            Apply Model
+                        </button>
                     </div>
                     
                     <div style={{ fontSize: '9px', opacity: 0.7, marginBottom: '10px', lineHeight: 1.4 }}>
@@ -446,14 +488,20 @@ const AgentSettingsView: React.FC = () => {
                             <label style={{ fontSize: '9px', opacity: 0.7, display: 'block', marginBottom: '6px' }}>
                                 Pre-loaded Models (from AIRI cache)
                             </label>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
                                 {[
                                     { id: 'hiyori_pro', name: 'Hiyori Pro', desc: 'Professional Live2D' },
                                     { id: 'hiyori_free', name: 'Hiyori Free', desc: 'Free version' },
-                                    { id: 'avatar_a', name: 'Avatar Sample A', desc: 'VRM sample' },
-                                    { id: 'avatar_b', name: 'Avatar Sample B', desc: 'VRM sample' },
+                                    { id: 'avatar_a', name: 'Avatar A', desc: 'VRM sample' },
+                                    { id: 'avatar_b', name: 'Avatar B', desc: 'VRM sample' },
                                     { id: 'airi', name: 'AIRI Default', desc: 'Default avatar' },
                                     { id: 'sage', name: 'Sage', desc: 'Mature assistant' },
+                                    { id: 'nova', name: 'Nova', desc: 'Energetic & futuristic' },
+                                    { id: 'kawaii', name: 'Kawaii', desc: 'Cute & adorable' },
+                                    { id: 'sentinel', name: 'Sentinel', desc: 'Security-focused' },
+                                    { id: 'oracle', name: 'Oracle', desc: 'All-knowing' },
+                                    { id: 'phantom', name: 'Phantom', desc: 'Mysterious' },
+                                    { id: 'titan', name: 'Titan', desc: 'Powerful & strong' },
                                 ].map(model => (
                                     <button
                                         key={model.id}
@@ -764,6 +812,55 @@ const AgentSettingsView: React.FC = () => {
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
                     Ollama Integration
                 </div>
+                
+                {/* Connection Mode Toggle */}
+                <div style={{ 
+                    display: 'flex', 
+                    gap: '8px', 
+                    marginBottom: '12px',
+                    padding: '10px',
+                    background: 'var(--vscode-sideBar-background)',
+                    border: '1px solid var(--vscode-panel-border)',
+                    borderRadius: '6px'
+                }}>
+                    <button
+                        onClick={() => setOllamaConnectionMode('proxy')}
+                        style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            fontSize: '11px',
+                            fontWeight: ollamaConnectionMode === 'proxy' ? 600 : 400,
+                            background: ollamaConnectionMode === 'proxy' ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',
+                            color: ollamaConnectionMode === 'proxy' ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-secondaryForeground)',
+                            border: ollamaConnectionMode === 'proxy' ? '2px solid var(--vscode-button-foreground)' : '1px solid var(--vscode-panel-border)',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        🧠 AIM Proxy (1536)
+                        <div style={{ fontSize: '9px', opacity: 0.8, marginTop: '2px' }}>99.9% token savings</div>
+                    </button>
+                    <button
+                        onClick={() => setOllamaConnectionMode('direct')}
+                        style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            fontSize: '11px',
+                            fontWeight: ollamaConnectionMode === 'direct' ? 600 : 400,
+                            background: ollamaConnectionMode === 'direct' ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',
+                            color: ollamaConnectionMode === 'direct' ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-secondaryForeground)',
+                            border: ollamaConnectionMode === 'direct' ? '2px solid var(--vscode-button-foreground)' : '1px solid var(--vscode-panel-border)',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        🏠 Direct Ollama (11434)
+                        <div style={{ fontSize: '9px', opacity: 0.8, marginTop: '2px' }}>Local RX 580</div>
+                    </button>
+                </div>
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <label style={{ fontSize: '11px', opacity: 0.8 }}>Self-Hosted URL</label>

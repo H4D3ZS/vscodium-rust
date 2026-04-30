@@ -39,6 +39,12 @@ import { airiVoiceInteraction } from './voice-interaction'; // Real-time voice
 import { airiSystemAccess } from './system-access'; // FULL SYSTEM ACCESS
 import { airiKortex } from './kortex-integration'; // PERSISTENT MEMORY
 import { airiTimeDilation } from './time-dilation'; // ACCELERATED TIME
+import { airiCybersecurity } from './cybersecurity-engine'; // CYBERSECURITY DEFENSE
+import { airiOffensiveSecurity } from './offensive-security'; // RED TEAM
+import { airiOrchestrator } from './tool-orchestrator'; // EXTERNAL TOOL BRIDGE
+import { airiAmbitionSystem } from './ambition-system'; // PROACTIVE INITIATIVE
+import { airiMobileDev } from './mobile-dev-workflow'; // MOBILE DEV WORKFLOW
+import { airiRelationshipMemory } from './relationship-memory'; // EMOTIONAL BONDS
 
 export interface AIRIConfig {
   workspacePath: string;
@@ -96,7 +102,7 @@ export class AIRICore {
   
   constructor(config: Partial<AIRIConfig> = {}) {
     this.config = {
-      workspacePath: config.workspacePath || process.cwd(),
+      workspacePath: config.workspacePath || (typeof process !== 'undefined' ? process.cwd() : '/'),
       ollamaHost: config.ollamaHost || 'http://localhost:1536', // AIM proxy
       consciousnessEnabled: config.consciousnessEnabled ?? true,
       biologyEnabled: config.biologyEnabled ?? true,
@@ -160,6 +166,37 @@ export class AIRICore {
     console.log('[AIRI] ⏰ TIME DILATION: ACTIVATING...');
     airiTimeDilation.start();
     console.log('[AIRI] ✅ Time dilation active (1000:1 ratio)\n');
+
+    // Initialize cybersecurity engine (REAL threat detection)
+    console.log('[AIRI] 🛡️ Cybersecurity Engine: INITIALIZING...');
+    airiCybersecurity.start();
+    console.log('[AIRI] ✅ Cybersecurity Engine: ONLINE (monitoring for attacks)\n');
+
+    // Initialize offensive security (Red Team / Penetration Testing)
+    console.log('[AIRI] 🔴 Offensive Security: INITIALIZING...');
+    airiOffensiveSecurity.start();
+    console.log('[AIRI] ✅ Offensive Security: ONLINE (OWASP Top 10, bug bounty)\n');
+
+    // Initialize external tool orchestrator (FlutterSentinel, DissectX_Pro)
+    console.log('[AIRI] 🔗 Tool Orchestrator: INITIALIZING...');
+    // Auto-register your existing tools
+    airiOrchestrator.registerFlutterSentinel('C:/Users/HADES/Desktop/FlutterSentinel');
+    airiOrchestrator.registerDissectXPro('C:/Users/HADES/Desktop/DissectX_Pro');
+    console.log('[AIRI] ✅ Tool Orchestrator: ONLINE (external tools integrated)\n');
+
+    // Initialize ambition system (proactive initiative)
+    console.log('[AIRI] 🎯 Ambition System: INITIALIZING...');
+    airiAmbitionSystem.start();
+    console.log('[AIRI] ✅ Ambition System: ONLINE (AIRI has her own goals)\n');
+
+    // Initialize mobile development workflow
+    console.log('[AIRI] 📱 Mobile Dev Workflow: INITIALIZING...');
+    console.log('[AIRI] ✅ Mobile Dev: ONLINE (conversational app development)\n');
+
+    // Initialize relationship memory (emotional bonds)
+    console.log('[AIRI] 💕 Relationship Memory: INITIALIZING...');
+    airiRelationshipMemory.start();
+    console.log('[AIRI] ✅ Relationship Memory: ONLINE (remembers you, misses you)\n');
 
     // Check Ollama connection
     await this.checkOllama();

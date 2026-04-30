@@ -20,6 +20,7 @@ import AgentDiffView from './agent/AgentDiffView';
 import { AiriPanel } from './AiriPanel';
 import { AiriOverlay } from './AiriOverlay';
 import OllamaProgressBar from './OllamaProgressBar';
+import { EmulatorPreview } from './EmulatorPreview';
 
 function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: string } {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
@@ -62,6 +63,9 @@ const Workbench: React.FC = () => {
     const setSplitEditorTab = useStore(state => state.setSplitEditorTab);
     const toggleSplitEditor = useStore(state => state.toggleSplitEditor);
     const [cursorSymbol, setCursorSymbol] = useState<string>('');
+    
+    // Dev Workflow State
+    const isDevWorkflowActive = useStore(state => state.isDevWorkflowActive);
 
     // Ctrl+\ = toggle split editor (global listener, works regardless of Monaco focus)
     useEffect(() => {
@@ -388,6 +392,12 @@ const Workbench: React.FC = () => {
                                                     {(isVisualLabSplitView && isVisualLabOpen) && (
                                                         <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, background: '#090909' }}>
                                                             <VisualLab isInline={true} />
+                                                        </div>
+                                                    )}
+                                                    {/* Emulator Preview (Dev Workflow) */}
+                                                    {isDevWorkflowActive && (
+                                                        <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, background: 'var(--vscode-editor-background)' }}>
+                                                            <EmulatorPreview />
                                                         </div>
                                                     )}
                                                     {/* Split editor pane (Ctrl+\) */}

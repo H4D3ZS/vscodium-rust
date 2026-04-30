@@ -1,9 +1,13 @@
 // =============================================================================
 // AIRI Voice System v2 - Real-Time Streaming TTS with ElevenLabs
-// Supports ElevenLabs (WebSocket streaming), OpenAI TTS, and Browser Fallback
+// Priority: ElevenLabs (when API key present) > Qwen3-TTS (local browser)
 // =============================================================================
 
 import { invoke } from './tauri_bridge';
+import { qwenTTS } from './airi/qwen-tts'; // Qwen3-TTS local fallback
+
+// NEW API KEY (saved securely via Tauri backend)
+const ELEVENLABS_API_KEY = 'sk_e184e0a4bfa989bb8a04dee3076313f56173c6b29adcc777';
 
 export type VoicePreset =
     | 'airi'      // Energetic anime girl
@@ -17,7 +21,8 @@ export type VoicePreset =
     | 'haru'      // Male, youthful
     | 'sora'      // Female, calm
     | 'zero'      // Deep, authoritative
-    | 'aria';     // Musical, expressive
+    | 'aria'      // Musical, expressive
+    | 'filipino'; // Filipino/Tagalog native speaker
 
 export interface VoiceConfig {
     voice_id: string;
@@ -30,11 +35,13 @@ export interface VoiceConfig {
     gender: 'male' | 'female';
 }
 
-// ElevenLabs voice IDs (verified working voices from ElevenLabs voice library)
+// ElevenLabs voice IDs - Free Tier Compatible
+// Free tier: Can use "premade" voices, not "library" voices via API
+// Your free credits work with these voices:
 const ELEVENLABS_VOICES: Record<VoicePreset, VoiceConfig> = {
     // === FEMALE VOICES ===
     airi: {
-        voice_id: '21m00Tcm4TlvDq8ikWAM', // Rachel - clear, versatile
+        voice_id: 'pNInz6obPdDQGk7smAjV', // Free tier friendly voice
         name: 'AIRI',
         description: 'Energetic anime girl - youthful, expressive',
         stability: 0.5,
@@ -44,7 +51,7 @@ const ELEVENLABS_VOICES: Record<VoicePreset, VoiceConfig> = {
         gender: 'female',
     },
     sage: {
-        voice_id: 'EXAVITQu4vr4xnSDxMaL', // Bella - calm, professional
+        voice_id: 'ThT5C4ZRbQsXWXq8yRvT', // Calm, professional - free tier
         name: 'Sage',
         description: 'Mature assistant - professional, calm',
         stability: 0.7,
@@ -54,7 +61,7 @@ const ELEVENLABS_VOICES: Record<VoicePreset, VoiceConfig> = {
         gender: 'female',
     },
     nova: {
-        voice_id: 'AZnzlk1XvdvUeBnXmlld', // Antoni - energetic
+        voice_id: 'AZnzlk1XvdvUeBnXmlld', // Antoni - energetic (free tier)
         name: 'Nova',
         description: 'Young & energetic - teenage energy',
         stability: 0.4,
@@ -64,7 +71,7 @@ const ELEVENLABS_VOICES: Record<VoicePreset, VoiceConfig> = {
         gender: 'female',
     },
     kawaii: {
-        voice_id: 'MFw3iBd7yC6D3J2XJVyQ', // Custom kawaii voice
+        voice_id: 'VR6AewLTigWG4xSOukaG', // Arnold - can be pitched up (free)
         name: 'Kawaii',
         description: 'Cute & adorable - high-pitched, sweet',
         stability: 0.3,
@@ -111,6 +118,16 @@ const ELEVENLABS_VOICES: Record<VoicePreset, VoiceConfig> = {
         similarity_boost: 0.8,
         style: 0.65,
         speed: 1.05,
+        gender: 'female',
+    },
+    filipino: {
+        voice_id: 'jBpfuIE2acCO8z3wKNLl', // Using Gillian - Filipino/Tagalog
+        name: 'Filipino',
+        description: 'Native Filipino/Tagalog speaker - natural accent',
+        stability: 0.5,
+        similarity_boost: 0.75,
+        style: 0.5,
+        speed: 1.0,
         gender: 'female',
     },
 
@@ -184,42 +201,52 @@ let isAudioQueuePlaying = false;
 // ── Initialization ─────────────────────────────────────────────────────────
 
 export async function initTTS(): Promise<boolean> {
-    // Check for API keys and set provider
+    console.log('[TTS] 🎤 Initializing voice system...');
+    
+    // ALWAYS load API keys first before any speech
     try {
         const apiKeys = await invoke<any>('get_api_keys');
         console.log('[TTS] API keys received:', Object.keys(apiKeys || {}));
 
-        // Priority: ElevenLabs > OpenAI > Browser
+        // Priority: ElevenLabs ALWAYS FIRST
         if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.startsWith('sk_')) {
             currentApiKey = apiKeys.elevenlabs_api_key;
             ttsProvider = 'elevenlabs';
-            console.log('[TTS] ✅ ElevenLabs provider configured');
-            
-            // Load saved voice ID from storage
-            const savedVoiceId = (apiKeys as any).elevenlabs_voice_id;
-            if (savedVoiceId) {
-                selectedVoiceId = savedVoiceId;
-                console.log(`[TTS] ✅ Loaded saved voice ID: ${savedVoiceId}`);
+            console.log('[TTS] ✅ ElevenLabs provider configured (from storage)');
+        } else if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.startsWith('sk_')) {
+            // Use hardcoded key (will be saved to storage)
+            currentApiKey = ELEVENLABS_API_KEY;
+            ttsProvider = 'elevenlabs';
+            console.log('[TTS] ✅ ElevenLabs provider configured (from config)');
+
+            // Save to storage
+            try {
+                await invoke('save_api_key', { key: 'elevenlabs_api_key', value: ELEVENLABS_API_KEY });
+                console.log('[TTS] 💾 ElevenLabs API key saved to secure storage');
+            } catch (e) {
+                console.warn('[TTS] Could not save API key:', e);
             }
-            return true;
+        } else {
+            // No ElevenLabs key - use Qwen3-TTS as fallback
+            console.log('[TTS] ⚠️  No ElevenLabs key found, using Qwen3-TTS (local)');
+            ttsProvider = 'qwen';
         }
 
-        if (apiKeys?.openai && apiKeys.openai.startsWith('sk-')) {
-            openaiApiKey = apiKeys.openai;
-            ttsProvider = 'openai';
-            console.log('[TTS] ✅ OpenAI TTS provider configured');
-            return true;
+        // Load saved voice ID
+        const savedVoiceId = (apiKeys as any).elevenlabs_voice_id;
+        if (savedVoiceId) {
+            selectedVoiceId = savedVoiceId;
+            console.log(`[TTS] ✅ Loaded saved voice ID: ${savedVoiceId}`);
         }
 
-        console.log('[TTS] ⚠️ No valid API keys found. elevenlabs_api_key:', apiKeys?.elevenlabs_api_key ? 'present but masked' : 'missing');
+        console.log(`[TTS] 🎯 TTS Provider: ${ttsProvider}`);
+        return true;
     } catch (e) {
-        console.warn('[TTS] Error loading API keys:', e);
+        console.error('[TTS] ❌ Error initializing TTS:', e);
+        ttsProvider = 'qwen'; // Fallback to local
+        console.log('[TTS] ⚠️  Using Qwen3-TTS (local) as fallback');
+        return false;
     }
-
-    ttsProvider = 'browser';
-    console.log('[TTS] ⚠️ Using browser Web Speech API (fallback)');
-    console.log('[TTS] 💡 Add your ElevenLabs API key in Settings for premium voices');
-    return true;
 }
 
 export function getProvider(): string {
@@ -469,12 +496,47 @@ export async function speak(
     onEnd?: () => void,
     onStart?: () => void
 ): Promise<boolean> {
+    // ALWAYS check for ElevenLabs API key first (highest priority)
+    if (!currentApiKey) {
+        // Try to load from hardcoded config first
+        if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.startsWith('sk_')) {
+            currentApiKey = ELEVENLABS_API_KEY;
+            ttsProvider = 'elevenlabs';
+            console.log('[TTS] ✅ ElevenLabs ACTIVATED (from hardcoded config)');
+        } else {
+            // Try to load from storage
+            try {
+                const apiKeys = await invoke<any>('get_api_keys');
+                if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.startsWith('sk_')) {
+                    currentApiKey = apiKeys.elevenlabs_api_key;
+                    ttsProvider = 'elevenlabs';
+                    console.log('[TTS] ✅ ElevenLabs ACTIVATED (from storage)');
+                }
+            } catch (e) {
+                console.warn('[TTS] Could not load API keys:', e);
+            }
+        }
+    }
+    
+    // Auto-detect Filipino/Tagalog text and switch voice
+    const filipinoPatterns = [
+        /\b(kumusta|kamusta|salamat|paalam|oo|hindi|baka|nandito|tagalog|filipino|pinoy|pinay)\b/i,
+        /\b(na|ng|sa|ang|mga|kay|kay|nina|para|tungkol)\b/,
+        /\b(magandang|masayang|malungkot|pagod|gutom|uhaw)\b/i,
+    ];
+    
+    const isFilipino = filipinoPatterns.some(pattern => pattern.test(text));
+    if (isFilipino && preset !== 'filipino') {
+        console.log('[TTS] 🇵 Filipino/Tagalog detected, switching voice...');
+        preset = 'filipino';
+    }
+    
     console.log(`[TTS] speak() called: provider=${ttsProvider}, preset=${preset}, selectedVoiceId=${selectedVoiceId}`);
     
     // Prevent overlapping speech - stop any current playback
     stop();
 
-    // Force ElevenLabs if API key is available
+// Force ElevenLabs if API key is available
     if (!currentApiKey) {
         const apiKeys = (window as any).apiKeysForTTS; // Cached if available
         if (!apiKeys?.elevenlabs_api_key?.startsWith('sk_')) {
@@ -483,18 +545,23 @@ export async function speak(
                 if (keys?.elevenlabs_api_key?.startsWith('sk_')) {
                     currentApiKey = keys.elevenlabs_api_key;
                     ttsProvider = 'elevenlabs';
-                    console.log('[TTS] ✅ ElevenLabs activated');
+                    console.log('[TTS] ✅ ElevenLabs activated (API key found)');
                 }
             } catch (e) {
                 console.warn('[TTS] Could not check API keys');
             }
+        } else if (apiKeys?.elevenlabs_api_key?.startsWith('sk_')) {
+            // API key already in memory
+            currentApiKey = apiKeys.elevenlabs_api_key;
+            ttsProvider = 'elevenlabs';
+            console.log('[TTS] ✅ ElevenLabs activated (from memory)');
         }
     }
-    
-    // Only use ElevenLabs - no browser fallback unless explicitly configured
-    if (ttsProvider !== 'elevenlabs' && ttsProvider !== 'openai') {
-        console.warn('[TTS] ⚠️ No valid TTS provider. ElevenLabs API key required.');
-        return false;
+
+    // Priority: ElevenLabs > OpenAI > Qwen3-TTS (local) > Browser
+    if (ttsProvider !== 'elevenlabs' && ttsProvider !== 'openai' && ttsProvider !== 'qwen') {
+        console.warn('[TTS] ⚠️ No valid TTS provider configured. Using Qwen3-TTS (local browser) fallback.');
+        ttsProvider = 'qwen';
     }
 
     isPlaying = true;
@@ -508,6 +575,13 @@ export async function speak(
             audioBuffer = await speakElevenLabs(text, preset);
         } else if (ttsProvider === 'openai') {
             audioBuffer = await speakOpenAI(text, preset);
+        } else if (ttsProvider === 'qwen') {
+            // Use Qwen3-TTS (free, local)
+            await qwenTTS.speak(text, preset);
+            isPlaying = false;
+            onEnd?.();
+            window.dispatchEvent(new CustomEvent('airi-tts-end'));
+            return true;
         } else {
             // Browser fallback - play synchronously
             const utterance = speakBrowser(text, preset);

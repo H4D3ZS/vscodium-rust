@@ -690,7 +690,55 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     }, [activeTab?.path, refreshGitGutter]);
 
     if (!activeTab) {
-        return null;
+        // Show AIRI VRD Avatar when no file is open
+        return (
+            <div style={{ 
+                height: '100%', 
+                width: '100%', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                background: 'var(--vscode-editor-background)',
+                flexDirection: 'column',
+                gap: '20px'
+            }}>
+                <div style={{ 
+                    width: '200px', 
+                    height: '200px', 
+                    borderRadius: '50%', 
+                    background: 'radial-gradient(circle, rgba(124, 58, 237, 0.3) 0%, rgba(0, 0, 0, 0) 70%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    animation: 'pulse 2s ease-in-out infinite'
+                }}>
+                    <div style={{ 
+                        width: '120px', 
+                        height: '120px', 
+                        borderRadius: '50%', 
+                        background: 'linear-gradient(135deg, #7c3aed 0%, #4c1d95 100%)',
+                        boxShadow: '0 0 60px rgba(124, 58, 237, 0.5)',
+                        animation: 'float 3s ease-in-out infinite'
+                    }} />
+                </div>
+                <div style={{ color: 'var(--vscode-editor-foreground)', fontSize: '14px', opacity: 0.7 }}>
+                    AIRI is ready for your mission
+                </div>
+                <div style={{ color: 'var(--vscode-descriptionForeground)', fontSize: '12px' }}>
+                    Speak to AIRI or start a new project
+                </div>
+                <style>{`
+                    @keyframes pulse {
+                        0%, 100% { transform: scale(1); opacity: 0.5; }
+                        50% { transform: scale(1.1); opacity: 0.8; }
+                    }
+                    @keyframes float {
+                        0%, 100% { transform: translateY(0); }
+                        50% { transform: translateY(-20px); }
+                    }
+                `}</style>
+            </div>
+        );
     }
 
     return (

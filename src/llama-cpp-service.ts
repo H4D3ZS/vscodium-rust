@@ -41,7 +41,7 @@ const DEFAULT_CONFIG: LlamaCppConfig = {
 class LlamaCppService {
   private config: LlamaCppConfig = DEFAULT_CONFIG;
   private status: LlamaCppStatus = { status: 'disconnected' };
-  private baseUrl: string = 'http://localhost:8080';  // llama.cpp server default
+  private baseUrl: string = 'http://localhost:8081';  // llama.cpp server default (changed from 8080)
 
   constructor() {
     this.loadConfig();

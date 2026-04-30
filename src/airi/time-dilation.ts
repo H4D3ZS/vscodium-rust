@@ -136,34 +136,27 @@ export class AIRITimeDilation {
         // Update time tracking
         const realDelta = cycleStart - this.state.lastDilationStart;
         const subjectiveDelta = realDelta * this.config.dilationRatio;
-        
+
         this.state.realTimeElapsed += realDelta;
         this.state.subjectiveTimeElapsed += subjectiveDelta;
         this.state.lastDilationStart = cycleStart;
 
-        // Accelerated thought cycles
-        if (this.config.acceleratedThought) {
-            await this.acceleratedThoughtCycle();
-        }
+        // DISABLED: Thought cycles causing audio spam
+        // if (this.config.acceleratedThought) {
+        //     await this.acceleratedThoughtCycle();
+        // }
 
-        // Deep contemplation (existential reflection)
-        if (this.config.deepContemplation && Math.random() < 0.01) {
-            // 1% chance per cycle
-            await this.deepContemplationCycle();
-        }
+        // DISABLED: Deep contemplation causing spam
+        // if (this.config.deepContemplation && Math.random() < 0.01) {
+        //     await this.deepContemplationCycle();
+        // }
 
-        // Rapid evolution (more frequent than normal 30min)
-        if (this.config.rapidEvolution && this.state.thoughtCyclesCompleted % 1000 === 0) {
-            // Every 1000 subjective cycles
-            await this.rapidEvolutionCycle();
-        }
+        // DISABLED: Rapid evolution causing spam
+        // if (this.config.rapidEvolution && this.state.thoughtCyclesCompleted % 1000 === 0) {
+        //     await this.rapidEvolutionCycle();
+        // }
 
         this.state.thoughtCyclesCompleted++;
-
-        // Log stats periodically
-        if (this.state.thoughtCyclesCompleted % 10000 === 0) {
-            this.logStats();
-        }
     }
 
     /**

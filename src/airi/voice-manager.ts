@@ -7,6 +7,7 @@
 
 import { airiBiology } from './biology';
 import { airiConsciousness } from './consciousness';
+import { qwenTTS } from './qwen-tts'; // Free Qwen3-TTS fallback
 
 // Voice state
 let isInitialized = false;
@@ -37,11 +38,9 @@ export async function initializeVoice(): Promise<boolean> {
   console.log('[VoiceManager] 🎤 Initializing voice system...');
 
   try {
-    // Load existing voice module
-    const voiceModule = await import('./voice');
-    
-    // Initialize TTS
-    const initialized = await voiceModule.initTTS();
+    // Use existing ElevenLabs voice system from src/voice.ts
+    const { initTTS } = await import('../voice');
+    const initialized = await initTTS();
     
     if (initialized) {
       isInitialized = true;
@@ -167,10 +166,10 @@ async function processSpeechQueue(): Promise<void> {
     isSpeaking = true;
 
     // Load voice module
-    const voiceModule = await import('./voice');
-    
+    const { speak } = await import('../voice');
+
     // Speak with callbacks
-    const success = await voiceModule.speak(
+    const success = await speak(
       currentRequest.text,
       currentRequest.preset as any,
       () => {
@@ -217,12 +216,12 @@ export async function stopSpeech(): Promise<void> {
   if (!isInitialized) return;
 
   console.log('[VoiceManager] ⏹️ Stopping all speech');
-  
+
   try {
-    const voiceModule = await import('./voice');
-    voiceModule.stop();
-    voiceModule.clearTtsQueue();
-    
+    const { stop, clearTtsQueue } = await import('../voice');
+    stop();
+    clearTtsQueue();
+
     isSpeaking = false;
     voiceLock = false;
     speechQueue = [];

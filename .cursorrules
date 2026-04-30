@@ -1,0 +1,30 @@
+# Kortex Context Integration
+# This file is auto-populated by the .aim Neural VFS system
+
+[INSTRUCTIONS]
+This project uses Kortex (.aim) for zero-token context management.
+
+When analyzing this codebase:
+1. Check for .aim/memory.aim files in the project root or parent directories
+2. The AIM proxy at http://127.0.0.1:1536 provides compressed context injection
+3. Use the neuraldrive GUI to explore the 3D code graph for architecture understanding
+
+## Project Structure
+- `kortex/` - Main Rust workspace with AI-interactive memory system
+  - `aim-proxy/` - Ollama MITM proxy (port 1536)
+  - `neuraldrive/` - Tauri desktop app for 3D code visualization
+  - `daemon/` - Memory management daemon
+  - `vfs_layer/` - Virtual filesystem integration
+  - `tui/` - Terminal UI
+
+## Development Guidelines
+- Always build with `cargo build --release` from kortex root
+- The aim-proxy intercepts Ollama requests and injects compressed context
+- NeuralDrive mounts projects and generates .aim memory tokens
+- Token cost optimization: ~1 token per 50MB of project state via prefix caching
+
+## Quick Start
+1. Start Ollama: `ollama serve`
+2. Start AIM-Proxy: `cd kortex && .\target\release\aim-proxy.exe`
+3. Configure AI client to use http://127.0.0.1:1536
+4. Launch NeuralDrive: `.\target\release\neuraldrive.exe`

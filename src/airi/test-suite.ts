@@ -494,9 +494,12 @@ async function main() {
   await testSuite.runAllTests();
 }
 
-// Export for CLI
-if (require.main === module) {
-  main().catch(console.error);
+// Export for CLI (browser-safe)
+if (typeof window === 'undefined' && typeof require !== 'undefined') {
+  // Node.js environment only
+  if (require.main === module) {
+    main().catch(console.error);
+  }
 }
 
 export { main as runTests };

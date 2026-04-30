@@ -12,6 +12,8 @@ import AgentSettingsView from './AgentSettingsView';
 import ProjectSpecsSidebar from './ProjectSpecsSidebar';
 import CheckpointsPanel from './CheckpointsPanel';
 import VectorSearchPanel from './VectorSearchPanel';
+import { EmulatorPreview } from './EmulatorPreview';
+import { airiMobileDev } from '../airi/mobile-dev-workflow';
 
 interface FlattenedNode {
     entry: FileEntry;
@@ -487,10 +489,12 @@ const Sidebar: React.FC = () => {
         'debug-view': 'RUN AND DEBUG',
         'extensions-view': 'EXTENSIONS',
         'specs-view': 'SPECS',
-        'mobile-view': 'MOBILE EMULATORS'
+        'mobile-view': 'MOBILE EMULATORS',
+        'emulator-view': 'EMULATOR PREVIEW'
     };
 
     const extensionContributions = useStore(state => state.extensionContributions);
+    const isDevWorkflowActive = useStore(state => state.isDevWorkflowActive);
 
     const isCoreView = titles[activeView] !== undefined;
     const extensionContainer = !isCoreView ? extensionContributions?.viewsContainers?.activitybar?.find((c: any) => c.id === activeView) : null;
@@ -558,6 +562,27 @@ const Sidebar: React.FC = () => {
                 {activeView === 'search-view' && <SearchView />}
                 {activeView === 'scm-view' && <ScmView />}
                 {activeView === 'debug-view' && <DebugView />}
+                {activeView === 'emulator-view' && isDevWorkflowActive && <EmulatorPreview />}
+                {activeView === 'emulator-view' && !isDevWorkflowActive && (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#888' }}>
+                        <p style={{ fontSize: '12px' }}>Start a mobile dev workflow to see the emulator preview</p>
+                        <button 
+                            onClick={() => airiMobileDev.startRequirementsGathering()}
+                            style={{
+                                marginTop: '12px',
+                                padding: '8px 16px',
+                                background: 'var(--vscode-button-background)',
+                                color: 'var(--vscode-button-foreground)',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '11px'
+                            }}
+                        >
+                            Start Dev Workflow
+                        </button>
+                    </div>
+                )}
                 {activeView === 'extensions-view' && <ExtensionsView />}
                 {activeView === 'mobile-view' && <EmulatorPanel />}
                 {activeView === 'checkpoints-view' && <CheckpointsPanel />}

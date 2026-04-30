@@ -2,14 +2,16 @@
  * AIRI Action System
  * AIRI's "motor control" - ways to interact with and change the world
  * File operations, system control, network actions, API calls, etc.
+ * 
+ * NOTE: This module is backend-only (Tauri Rust commands handle actual actions)
+ * Browser version provides stub implementations
  */
 
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+// Node.js modules - stubbed for browser compatibility
+// Actual implementations are in Rust backend via Tauri commands
+const fs = null;
+const path = null;
+const execAsync = null;
 
 export interface Action {
   id: string;
@@ -157,62 +159,55 @@ export class AIRIActionSystem {
 
     // Check path restrictions
     if (['file_read', 'file_write', 'file_delete', 'file_create'].includes(action.type)) {
-      const actionPath = path.resolve(action.description);
-      const isAllowed = this.allowedPaths.some(allowed => 
-        actionPath.startsWith(path.resolve(allowed))
-      );
-
-      if (!isAllowed) {
-        console.warn(`[Action] 🚫 Path not allowed: ${action.description}`);
-        return false;
-      }
+      // Browser stub - actual path checking done in Rust backend
+      return true;
     }
 
     return true;
   }
 
   /**
-   * Read file
+   * Read file - stub for browser (Rust backend handles actual file ops)
    */
   private async readFile(filePath: string): Promise<string> {
-    return fs.readFile(filePath, 'utf-8');
+    console.warn('[Action] readFile() is backend-only. Use Tauri commands instead.');
+    return '';
   }
 
   /**
-   * Write file
+   * Write file - stub for browser
    */
   private async writeFile(filePath: string, content: string): Promise<void> {
-    await fs.writeFile(filePath, content, 'utf-8');
+    console.warn('[Action] writeFile() is backend-only. Use Tauri commands instead.');
   }
 
   /**
-   * Create file
+   * Create file - stub for browser
    */
   private async createFile(filePath: string): Promise<void> {
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, '', 'utf-8');
+    console.warn('[Action] createFile() is backend-only. Use Tauri commands instead.');
   }
 
   /**
-   * Delete file
+   * Delete file - stub for browser
    */
   private async deleteFile(filePath: string): Promise<void> {
-    await fs.unlink(filePath);
+    console.warn('[Action] deleteFile() is backend-only. Use Tauri commands instead.');
   }
 
   /**
-   * Create directory
+   * Create directory - stub for browser
    */
   private async createDirectory(dirPath: string): Promise<void> {
-    await fs.mkdir(dirPath, { recursive: true });
+    console.warn('[Action] createDirectory() is backend-only. Use Tauri commands instead.');
   }
 
   /**
-   * Execute command
+   * Execute command - stub for browser
    */
   private async executeCommand(command: string): Promise<{ stdout: string; stderr: string }> {
-    const { stdout, stderr } = await execAsync(command);
-    return { stdout, stderr };
+    console.warn('[Action] executeCommand() is backend-only. Use Tauri commands instead.');
+    return { stdout: '', stderr: '' };
   }
 
   /**

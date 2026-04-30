@@ -1051,10 +1051,10 @@ impl Sentient {
                     if parts.len() > 1 {
                         let model = parts[1];
                         if model == "off" {
-                            self.set_advisor_model(None);
+                            self.set_advisor_model(None).await;
                             return Ok("Advisor model disabled.".to_string());
                         } else {
-                            self.set_advisor_model(Some(model.to_string()));
+                            self.set_advisor_model(Some(model.to_string())).await;
                             return Ok(format!("Advisor model set to: {}", model));
                         }
                     } else {
@@ -2482,10 +2482,8 @@ impl Sentient {
                                 if !path.is_empty() {
                                     // For Rust files: run cargo check and inject errors
                                     if path.ends_with(".rs") {
-                                        let root = {
                                         // root available for future use (e.g. running cargo from project root)
-                                        let _unused = path;
-                                    };
+                                        let _root_path = path;
                                         let diag_args = json!({ "path": path }).to_string();
                                         if let Ok(diag) = self.tool_invoker.execute_tool("dev_cargo_diagnostics", &diag_args).await {
                                             if let Some(errors) = diag["errors"].as_str() {
@@ -3417,7 +3415,6 @@ impl Sentient {
                 // Unclosed block - try parsing rest of content
                 let json_block = rest.trim();
                 self.parse_json_to_tools(json_block, &mut tools);
-                search_pos = content.len();
                 break;
             }
         }

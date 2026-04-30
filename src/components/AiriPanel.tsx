@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { listen } from '@tauri-apps/api/event';
 import { useStore } from '../store';
 import { speak, stop, isSpeaking, initTTS, getProvider, type VoicePreset } from '../voice';
+import { airiVoiceActivation } from '../airi/voice-activation';
 
 interface AiriPanelProps {
     className?: string;
@@ -204,12 +205,59 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
             ttsStop(iframeRef);
         };
 
+        // Listen for model change events from settings
+        const handleModelChange = (e: any) => {
+            console.log('[AiriPanel] 🎭 Model change requested:', e.detail);
+            const iframe = iframeRef.current;
+            if (iframe?.contentWindow) {
+                setAiriLoading(true);
+                
+                // Build new URL with model parameters
+                const baseUrl = 'http://localhost:5174/';
+                const params = new URLSearchParams();
+                params.set('headless', 'true');
+                params.set('transparent', 'true');
+                
+                if (e.detail.modelId) {
+                    params.set('char', e.detail.modelId);
+                    console.log('[AiriPanel] Setting character:', e.detail.modelId);
+                }
+                if (e.detail.modelUrl) {
+                    params.set('modelUrl', e.detail.modelUrl);
+                    console.log('[AiriPanel] Setting model URL:', e.detail.modelUrl);
+                }
+                
+                // Add cache-busting timestamp
+                params.set('t', Date.now().toString());
+                
+                // Force complete reload
+                iframe.src = `${baseUrl}?${params.toString()}`;
+                console.log('[AiriPanel] 🔄 Reloading iframe with new model:', iframe.src);
+                
+                // Also send postMessage in case AIRI app supports it
+                try {
+                    iframe.contentWindow.postMessage({
+                        type: 'change-model',
+                        modelId: e.detail.modelId,
+                        modelUrl: e.detail.modelUrl,
+                    }, '*');
+                    console.log('[AiriPanel] ✅ Sent postMessage to AIRI app');
+                } catch (err) {
+                    console.warn('[AiriPanel] postMessage failed:', err);
+                }
+            } else {
+                console.warn('[AiriPanel] ⚠️ Iframe not ready for model change');
+            }
+        };
+
         window.addEventListener('airi-lipsync-start', handleLipSyncStart as any);
         window.addEventListener('airi-lipsync-stop', handleLipSyncStop);
+        window.addEventListener('airi-vrm-model-change', handleModelChange);
 
         return () => {
             window.removeEventListener('airi-lipsync-start', handleLipSyncStart as any);
             window.removeEventListener('airi-lipsync-stop', handleLipSyncStop);
+            window.removeEventListener('airi-vrm-model-change', handleModelChange);
         };
     }, []);
 
@@ -391,7 +439,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     const isSmall = (style?.width as number || 400) < 200;
 
     const url = useMemo(() => {
-        const base = "http://localhost:5174/?headless=true";
+        const base = "http://localhost:5174/?headless=true";  // AIRI 3D VRM app
         const scaleParam = scale ? `&scale=${scale}` : "";
         const yOffsetParam = yOffset ? `&yOffset=${encodeURIComponent(yOffset)}` : "";
         const transparentParam = transparent ? `&transparent=true` : "";
@@ -437,7 +485,8 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                     <iframe
                         ref={iframeRef}
                         src={url}
-                        allowtransparency={true}
+                        allow="autoplay; microphone; camera"
+                        allowtransparency="true"
                         style={{ width: '100%', height: '100%', border: 'none', opacity: isAiriLoading ? 0 : 1, background: 'transparent' }}
                         onLoad={() => setAiriLoading(false)}
                     />
@@ -582,11 +631,20 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         {isTtsEnabled ? '🔊' : '🔇'}
                     </div>
 
-                    {/* Microphone toggle */}
+                    {/* Microphone toggle - Voice Activation */}
                     <div
-                        onClick={() => {
+                        onClick={async () => {
                             const newState = !isListening;
                             setIsListening(newState);
+                            
+                            // Use voice activation system
+                            if (newState) {
+                                await airiVoiceActivation.startConversation();
+                            } else {
+                                airiVoiceActivation.stopListening();
+                            }
+                            
+                            // Also notify iframe for 3D avatar
                             iframeRef.current?.contentWindow?.postMessage({
                                 type: 'airi-listen',
                                 payload: { enabled: newState }
@@ -598,7 +656,10 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                             color: isListening ? '#f97316' : 'rgba(255,255,255,0.5)',
                             display: 'flex', alignItems: 'center'
                         }}
-                        title={isListening ? 'Stop listening' : 'Start interactive voice mission'}
+                        title={isListening ? 'Stop voice interaction' : 'Start voice interaction (say "Hey AIRI" or click to talk)'}
+                    >
+                        🎤
+                    </div>
                     >
                         {isListening ? '🎙️' : '🎤'}
                     </div>
