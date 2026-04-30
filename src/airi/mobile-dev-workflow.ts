@@ -93,7 +93,7 @@ export class AIRIMobileDevelopment {
 
         // DISABLED: Auto-speech for dev workflow (was causing spam)
         // Voice announcement
-        // // DISABLED: await this.speak(
+        // await this.speak(
         //     "I'm ready to help you build your app. Tell me about your vision - what should it do? Who is it for?"
         // );
 
@@ -206,10 +206,10 @@ export class AIRIMobileDevelopment {
 
         console.log('\n[Dev Workflow] 💻 Starting development...\n');
 
-        // Voice announcement
-        // DISABLED: await this.speak(
-            "Starting development now. I'll keep you updated as I build each component."
-        );
+        // DISABLED: Auto-speech for dev workflow announcements (was causing spam)
+        // await this.speak(
+        //     "Starting development now. I'll keep you updated as I build each component."
+        // );
 
         // Phase 1: Models
         await this.developModels();
@@ -353,7 +353,7 @@ export class AIRIMobileDevelopment {
 
         this.activeProject.progress = 100;
 
-        // DISABLED: await this.speak(
+        // await this.speak(
             "Development complete! Your app is ready. The emulator shows the final result. What would you like to adjust?"
         );
 
