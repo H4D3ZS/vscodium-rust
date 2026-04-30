@@ -58,6 +58,15 @@ export interface AgentMessage {
     context?: AttachedContext[];
 }
 
+export interface DevWorkflowProject {
+    id: string;
+    name: string;
+    currentPhase: string;
+    progress: number;
+    emulatorPreview: boolean;
+    platform: 'ios' | 'android' | 'cross-platform';
+}
+
 export interface AttachedContext {
     type: 'attachment' | 'mention' | 'workflow' | 'file';
     id: string; // path or unique id
@@ -138,6 +147,7 @@ interface AppState {
     mitmLogs: string[];
     mcpServers: any[];
     ollamaStatus: 'idle' | 'checking' | 'running' | 'error';
+    llamaCppStatus: 'idle' | 'checking' | 'running' | 'error';
     agentMessages: any[];
     isAgentThinking: boolean;
     isAgentPaused: boolean;
@@ -153,6 +163,18 @@ interface AppState {
     isAgentBlocked: boolean;
     contextMenuPosition: { x: number, y: number };
     commandPaletteQuery: string;
+
+    // Inference Backend Configuration
+    inferenceBackend: 'ollama' | 'llama-cpp' | 'openai';
+    llamaCppUrl: string;
+    llamaCppModelPath: string;
+    llamaCppNgl: number;
+    llamaCppHadesEnabled: boolean;
+    
+    // Dev Workflow State
+    isDevWorkflowActive: boolean;
+    currentDevProject: DevWorkflowProject | null;
+    emulatorPlatform: 'ios' | 'android';
     ollamaUrl: string;
     isPullingModel: boolean;
     pullProgress: number;
@@ -290,10 +312,22 @@ interface AppState {
     updateTabContent: (id: string, content: string) => void;
     saveActiveFile: () => Promise<void>;
     setOllamaUrl: (url: string) => void;
+    setOllamaConnectionMode: (mode: 'proxy' | 'direct') => void;
     checkOllamaStatus: () => Promise<void>;
     pullOllamaModel: (name: string) => Promise<void>;
+    setInferenceBackend: (backend: 'ollama' | 'llama-cpp' | 'openai') => void;
+    setLlamaCppUrl: (url: string) => void;
+    setLlamaCppModelPath: (path: string) => void;
+    setLlamaCppNgl: (ngl: number) => void;
+    setLlamaCppHadesEnabled: (enabled: boolean) => void;
+    checkLlamaCppStatus: () => Promise<void>;
     openSettings: () => void;
     setProjectMemory: (content: string, files?: string[]) => void;
+    
+    // Dev Workflow Actions
+    setDevWorkflowActive: (active: boolean) => void;
+    updateDevProject: (project: Partial<DevWorkflowProject>) => void;
+    setEmulatorPlatform: (platform: 'ios' | 'android') => void;
 
     // Backend Actions
     backendPing: () => Promise<string>;
@@ -462,14 +496,24 @@ const storeImplementation: any = (set: any, get: any) => ({
     mitmLogs: [],
     mcpServers: [],
     ollamaStatus: 'idle',
+    llamaCppStatus: 'idle',
     agentMessages: [],
     isAgentThinking: false,
     isAgentPaused: false,
     isYoloMode: false,
-    agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'chat',
+    agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'airi',
     avatarCharacter: localStorage.getItem('avatarCharacter') || 'airi',
     avatarCustomConfig: JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}'),
     avatar3dConfig: JSON.parse(localStorage.getItem('avatar3dConfig') || '{}'),
+    ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
+    
+    // Inference Backend Configuration
+    inferenceBackend: (localStorage.getItem('inferenceBackend') as 'ollama' | 'llama-cpp' | 'openai') || 'ollama',
+    llamaCppUrl: localStorage.getItem('llamaCppUrl') || 'http://localhost:8080',
+    llamaCppModelPath: localStorage.getItem('llamaCppModelPath') || '',
+    llamaCppNgl: parseInt(localStorage.getItem('llamaCppNgl') || '99'),
+    llamaCppHadesEnabled: localStorage.getItem('llamaCppHadesEnabled') !== 'false',
+    
     agentCurrentAction: null,
     isCommandPaletteOpen: false,
     isContextMenuOpen: false,
@@ -477,7 +521,13 @@ const storeImplementation: any = (set: any, get: any) => ({
     isAgentBlocked: false,
     contextMenuPosition: { x: 0, y: 0 },
     commandPaletteQuery: '',
-    ollamaUrl: 'http://localhost:11434',
+    
+    // Dev Workflow State (initial values)
+    isDevWorkflowActive: false,
+    currentDevProject: null,
+    emulatorPlatform: 'ios',
+    
+    ollamaUrl: 'http://localhost:11434', // Default to direct Ollama (AIM proxy on 1536 is optional)
     isPullingModel: false,
     pullProgress: 0,
     pendingChanges: [],
@@ -716,6 +766,26 @@ const storeImplementation: any = (set: any, get: any) => ({
         set({ ollamaUrl: url });
         invoke('set_ollama_url', { url }).catch(console.error);
     },
+    setOllamaConnectionMode: (mode: 'proxy' | 'direct') => {
+        const url = mode === 'proxy' ? 'http://localhost:1536' : 'http://localhost:11434';
+        set({ ollamaConnectionMode: mode, ollamaUrl: url });
+        invoke('set_ollama_url', { url }).catch(console.error);
+        // Persist mode to localStorage
+        localStorage.setItem('ollamaConnectionMode', mode);
+    },
+    setDevWorkflowActive: (active: boolean) => {
+        set({ isDevWorkflowActive: active });
+    },
+    updateDevProject: (project: Partial<DevWorkflowProject>) => {
+        set((state) => ({
+            currentDevProject: state.currentDevProject
+                ? { ...state.currentDevProject, ...project }
+                : { id: `dev_${Date.now()}`, name: 'New App', currentPhase: 'requirements', progress: 0, emulatorPreview: true, platform: 'cross-platform', ...project },
+        }));
+    },
+    setEmulatorPlatform: (platform: 'ios' | 'android') => {
+        set({ emulatorPlatform: platform });
+    },
     checkOllamaStatus: async () => {
         set({ ollamaStatus: 'checking' });
         try {
@@ -734,6 +804,38 @@ const storeImplementation: any = (set: any, get: any) => ({
             console.error('Failed to pull model:', e);
         } finally {
             set({ isPullingModel: false });
+        }
+    },
+    setInferenceBackend: (backend: 'ollama' | 'llama-cpp' | 'openai') => {
+        localStorage.setItem('inferenceBackend', backend);
+        set({ inferenceBackend: backend });
+    },
+    setLlamaCppUrl: (url: string) => {
+        localStorage.setItem('llamaCppUrl', url);
+        set({ llamaCppUrl: url });
+    },
+    setLlamaCppModelPath: (path: string) => {
+        localStorage.setItem('llamaCppModelPath', path);
+        set({ llamaCppModelPath: path });
+    },
+    setLlamaCppNgl: (ngl: number) => {
+        localStorage.setItem('llamaCppNgl', ngl.toString());
+        set({ llamaCppNgl: ngl });
+    },
+    setLlamaCppHadesEnabled: (enabled: boolean) => {
+        localStorage.setItem('llamaCppHadesEnabled', enabled.toString());
+        set({ llamaCppHadesEnabled: enabled });
+    },
+    checkLlamaCppStatus: async () => {
+        set({ llamaCppStatus: 'checking' });
+        try {
+            const response = await fetch(`${get().llamaCppUrl}/health`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(3000),
+            });
+            set({ llamaCppStatus: response.ok ? 'running' : 'error' });
+        } catch (e) {
+            set({ llamaCppStatus: 'error' });
         }
     },
 
@@ -901,8 +1003,23 @@ const storeImplementation: any = (set: any, get: any) => ({
             for (const p of activeProviders) {
                 try {
                     if (p.toLowerCase() === 'ollama') {
-                        // Ensure backend has the latest URL before listing
-                        await invoke('set_ollama_url', { url: ollamaUrl });
+                        // Auto-detect: Try AIM proxy first (1536), fall back to direct Ollama (11434)
+                        let ollamaToUse = 'http://localhost:1536';
+                        try {
+                            const testResponse = await fetch('http://localhost:1536/api/tags', {
+                                method: 'GET',
+                                signal: AbortSignal.timeout(1000),
+                            });
+                            if (!testResponse.ok) throw new Error('AIM proxy not available');
+                            console.log('[Ollama] ✅ Using AIM proxy (port 1536) for token efficiency');
+                        } catch {
+                            ollamaToUse = 'http://localhost:11434';
+                            console.log('[Ollama] 📍 Using direct Ollama (port 11434)');
+                        }
+                        // Ensure backend has the correct URL before listing
+                        await invoke('set_ollama_url', { url: ollamaToUse });
+                        // Also update store state to match
+                        set({ ollamaUrl: ollamaToUse });
                     }
                     const models = await invoke<string[]>('list_provider_models', { provider: p });
                     allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
