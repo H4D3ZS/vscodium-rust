@@ -124,10 +124,7 @@ const App: React.FC = () => {
 
             <div className="body-backdrop"></div>
             <TitleBar />
-            <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-                <Workbench />
-                <RightSidebar />
-            </div>
+            <Workbench />
             <StatusBar />
 
             {isDebugToolbarOpen && (
