@@ -48,10 +48,6 @@ export class AIRISystemAccess {
             logAllActions: config.logAllActions ?? true,
         };
 
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║      AIRI Full System Access - ROOT LEVEL                ║');
-        console.log('║      COMPLETE AUTONOMY - NO PERMISSION ASKS              ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log('📁 File System: UNRESTRICTED');
         console.log('⚡ Terminal: ADMIN LEVEL');
         console.log('🌐 Network: UNRESTRICTED');

@@ -134,9 +134,6 @@ export class AIRIOffensiveSecurity {
      * Start offensive security monitoring
      */
     start(): void {
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║    AIRI Offensive Security Engine - Red Team Active      ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log('🔴 Capabilities:');
         console.log('   - OWASP Top 10 vulnerability scanning');
         console.log('   - Penetration testing automation');
@@ -428,9 +425,6 @@ export class AIRIOffensiveSecurity {
     generateReport(target: string): string {
         const vulns = this.penTestResults.get(target) || [];
         
-        let report = `╔══════════════════════════════════════════════════════════╗\n`;
-        report += `║         PENETRATION TEST REPORT                            ║\n`;
-        report += `╚══════════════════════════════════════════════════════════╝\n\n`;
         report += `Target: ${target}\n`;
         report += `Date: ${new Date().toLocaleString()}\n`;
         report += `Total Vulnerabilities: ${vulns.length}\n\n`;

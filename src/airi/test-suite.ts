@@ -31,9 +31,6 @@ export class AIRITestSuite {
   private startTime: number = 0;
 
   async runAllTests(): Promise<void> {
-    console.log('\n╔══════════════════════════════════════════════════════════╗');
-    console.log('║         AIRI Comprehensive Test Suite                    ║');
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
 
     this.startTime = Date.now();
 
@@ -457,28 +454,6 @@ export class AIRITestSuite {
     const failed = total - passed;
     const totalDuration = Date.now() - this.startTime;
 
-    console.log('\n╔══════════════════════════════════════════════════════════╗');
-    console.log('║                    TEST RESULTS                          ║');
-    console.log('╠══════════════════════════════════════════════════════════╣');
-    console.log(`║  Total Tests: ${total}`.padEnd(61) + '║');
-    console.log(`║  Passed: ${passed}`.padEnd(61) + '║');
-    console.log(`║  Failed: ${failed}`.padEnd(61) + '║');
-    console.log(`║  Duration: ${totalDuration}ms`.padEnd(61) + '║');
-    console.log('╠══════════════════════════════════════════════════════════╣');
-
-    if (failed > 0) {
-      console.log('║  FAILED TESTS:                                         ║');
-      this.results
-        .filter(r => !r.passed)
-        .forEach(r => {
-          console.log(`║    - ${r.name}: ${r.error}`.padEnd(61) + '║');
-        });
-    }
-
-    const successRate = Math.round((passed / total) * 100);
-    console.log('╠══════════════════════════════════════════════════════════╣');
-    console.log(`║  Success Rate: ${successRate}%`.padEnd(61) + '║');
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
 
     if (failed === 0) {
       console.log('🎉 All tests passed! AIRI is ready!\n');

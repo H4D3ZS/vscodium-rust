@@ -48,7 +48,7 @@ export class CybersecurityEngine {
     };
 
     
-    console.log('[Security] ⚔️ Red Team / Blue Team capabilities active');
+    
   }
 
   /**
@@ -56,20 +56,20 @@ export class CybersecurityEngine {
    */
   public setMode(mode: 'red' | 'blue' | 'purple' | 'monitor'): void {
     this.state.mode = mode;
-    console.log(`[Security] 🎯 Mode set to: ${mode.toUpperCase()}`);
+    
     
     switch (mode) {
       case 'red':
-        console.log('[Security] 🔴 Offensive security operations enabled');
+        
         break;
       case 'blue':
-        console.log('[Security] 🔵 Defensive security operations enabled');
+        
         break;
       case 'purple':
-        console.log('[Security] 🟣 Combined red/blue operations enabled');
+        
         break;
       case 'monitor':
-        console.log('[Security] 👁️ Passive monitoring only');
+        
         break;
     }
   }
@@ -80,7 +80,7 @@ export class CybersecurityEngine {
    * Web vulnerability scanning
    */
   public async scanWeb(target: string): Promise<VulnerabilityReport[]> {
-    console.log(`[Security] 🔴 Starting web scan: ${target}`);
+    
     
     const vulnerabilities: VulnerabilityReport[] = [];
 
@@ -101,7 +101,7 @@ export class CybersecurityEngine {
 
       this.state.vulnerabilitiesFound += vulnerabilities.length;
       
-      console.log(`[Security] ✅ Web scan complete. Found ${vulnerabilities.length} vulnerabilities`);
+      
       
       // Report findings
       this.reportFindings(vulnerabilities);
@@ -129,7 +129,7 @@ export class CybersecurityEngine {
         
         // In real implementation, would make actual request
         // For now, simulate detection
-        console.log(`[Security] 🔍 Testing SQLi: ${payload.substring(0, 20)}...`);
+        
         
         // Simulate detection logic
         const isVulnerable = Math.random() > 0.9; // 10% chance for demo
@@ -166,7 +166,7 @@ export class CybersecurityEngine {
 
     for (const payload of payloads) {
       try {
-        console.log(`[Security] 🔍 Testing XSS: ${payload.substring(0, 20)}...`);
+        
         
         const isVulnerable = Math.random() > 0.9;
         
@@ -202,7 +202,7 @@ export class CybersecurityEngine {
 
     for (const payload of payloads) {
       try {
-        console.log(`[Security] 🔍 Testing Path Traversal...`);
+        
         
         const isVulnerable = Math.random() > 0.95;
         
@@ -280,7 +280,7 @@ export class CybersecurityEngine {
 
     for (const file of sensitiveFiles) {
       const testUrl = url + file;
-      console.log(`[Security] 🔍 Checking: ${file}`);
+      
       
       const isExposed = Math.random() > 0.9; // 10% chance
       
@@ -311,7 +311,7 @@ export class CybersecurityEngine {
    * Monitor for threats
    */
   public async monitorThreats(): Promise<void> {
-    console.log('[Security] 🔵 Starting threat monitoring...');
+    
     
     // Continuous monitoring loop
     setInterval(() => {
@@ -336,7 +336,7 @@ export class CybersecurityEngine {
     const detected = anomalies.filter(() => Math.random() > 0.9);
 
     if (detected.length > 0) {
-      console.log('[Security] ⚠️ Anomalies detected:', detected.join(', '));
+      
       this.state.threatsDetected++;
       this.alertThreat('anomaly', detected.join(', '));
     }
@@ -356,7 +356,7 @@ export class CybersecurityEngine {
     const detected = intrusionSigns.filter(() => Math.random() > 0.95);
 
     if (detected.length > 0) {
-      console.log('[Security] 🚨 Intrusion detected:', detected.join(', '));
+      
       this.state.threatsDetected++;
       this.alertThreat('intrusion', detected.join(', '));
     }
@@ -367,7 +367,7 @@ export class CybersecurityEngine {
    */
   private analyzeLogs(): void {
     // In real implementation, would analyze system/application logs
-    console.log('[Security] 📊 Analyzing security logs...');
+    
   }
 
   /**
@@ -375,7 +375,7 @@ export class CybersecurityEngine {
    */
   private alertThreat(type: string, details: string): void {
     const message = `🚨 Security Alert: ${type} - ${details}`;
-    console.log('[Security]', message);
+    
     
     // Speak alert
     this.speakAlert(message);
@@ -387,7 +387,7 @@ export class CybersecurityEngine {
    * Scan codebase for vulnerabilities
    */
   public async scanCodebase(rootPath: string): Promise<VulnerabilityReport[]> {
-    console.log(`[Security] 🔍 Scanning codebase: ${rootPath}`);
+    
     
     const vulnerabilities: VulnerabilityReport[] = [];
 
@@ -403,7 +403,7 @@ export class CybersecurityEngine {
 
       this.state.vulnerabilitiesFound += vulnerabilities.length;
       
-      console.log(`[Security] ✅ Code scan complete. Found ${vulnerabilities.length} vulnerabilities`);
+      
       
       this.reportFindings(vulnerabilities);
       
@@ -508,11 +508,11 @@ export class CybersecurityEngine {
    */
   private reportFindings(vulnerabilities: VulnerabilityReport[]): void {
     if (vulnerabilities.length === 0) {
-      console.log('[Security] ✅ No vulnerabilities found!');
+      
       return;
     }
 
-    console.log('\n[Security] 📋 SECURITY REPORT');
+    
     console.log('='.repeat(50));
     
     // Group by severity

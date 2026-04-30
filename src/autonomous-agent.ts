@@ -30,7 +30,7 @@ export class AutonomousAgent {
 
   constructor() {
     
-    console.log('[AutonomousAgent] ✨ Full implementation - NO PLACEHOLDERS');
+    
   }
 
   /**
@@ -39,7 +39,7 @@ export class AutonomousAgent {
   public async startAutonomousLoop(): Promise<void> {
     if (this.isRunning) return;
 
-    console.log('[AutonomousAgent] 🚀 Starting 24/7 autonomous loop...');
+    
     this.isRunning = true;
 
     // Main loop - scan and act every 10 seconds
@@ -48,7 +48,7 @@ export class AutonomousAgent {
     // Learning loop - improve every minute
     setInterval(() => this.backgroundLearning(), 60000);
 
-    console.log('[AutonomousAgent] ✅ AUTONOMOUS AGENT ACTIVE');
+    
   }
 
   /**
@@ -230,7 +230,7 @@ export class AutonomousAgent {
     };
 
     this.taskQueue.push(task);
-    console.log('[AutonomousAgent] 📋 Generated task:', task.description);
+    
 
     // Announce to user
     this.announceTask(task);
@@ -249,7 +249,7 @@ export class AutonomousAgent {
     this.currentTask = task;
     task.status = 'active';
 
-    console.log('[AutonomousAgent] 🔧 Executing:', task.description);
+    
 
     try {
       switch (task.type) {
@@ -278,7 +278,7 @@ export class AutonomousAgent {
       this.completedTasks++;
       this.competenceLevel = Math.min(100, this.competenceLevel + 2);
       
-      console.log('[AutonomousAgent] ✅ Task complete:', task.description);
+      
       this.reportCompletion(task);
 
     } catch (e: any) {
@@ -297,7 +297,7 @@ export class AutonomousAgent {
    * Debug task - ACTUALLY fix errors
    */
   private async executeDebugTask(task: AutonomousTask): Promise<void> {
-    console.log('[AutonomousAgent] 🔬 Debugging...');
+    
     task.progress = 10;
 
     const store = useStore.getState();
@@ -325,7 +325,7 @@ export class AutonomousAgent {
         if (lines[lineIndex]) {
           lines[lineIndex] = '// ' + lines[lineIndex]; // Comment out
           await invoke('write_file', { path: task.file, content: lines.join('\n') });
-          console.log('[AutonomousAgent] Fixed unused variable at line', error.startLineNumber);
+          
         }
       } else if (error.message.includes('type') || error.message.includes('Type')) {
         // Add type annotation (simple heuristic)
@@ -334,14 +334,14 @@ export class AutonomousAgent {
           // Add : any as fallback
           lines[lineIndex] = lines[lineIndex].replace(/(\w+)\s*=/, '$1: any =');
           await invoke('write_file', { path: task.file, content: lines.join('\n') });
-          console.log('[AutonomousAgent] Fixed type error at line', error.startLineNumber);
+          
         }
       } else if (error.message.includes('cannot find')) {
         // Add missing import
         const importStatement = `import { ${error.message.match(/'([^']+)'/)?.[1] || 'unknown' } } from './';\n`;
         lines.unshift(importStatement);
         await invoke('write_file', { path: task.file, content: lines.join('\n') });
-        console.log('[AutonomousAgent] Added missing import');
+        
       }
 
       await new Promise(r => setTimeout(r, 2000));
@@ -354,7 +354,7 @@ export class AutonomousAgent {
    * Research task - ACTUALLY search web
    */
   private async executeResearchTask(task: AutonomousTask): Promise<void> {
-    console.log('[AutonomousAgent] 🔍 Researching...');
+    
     task.progress = 20;
 
     try {
@@ -391,7 +391,7 @@ export class AutonomousAgent {
    * Implement task - ACTUALLY write code
    */
   private async executeImplementTask(task: AutonomousTask): Promise<void> {
-    console.log('[AutonomousAgent] 💻 Implementing...');
+    
     task.progress = 20;
 
     const store = useStore.getState();
@@ -425,7 +425,7 @@ export class AutonomousAgent {
         content: lines.join('\n') 
       });
 
-      console.log('[AutonomousAgent] Implemented TODO:', todo);
+      
       await new Promise(r => setTimeout(r, 3000));
     }
 
@@ -436,7 +436,7 @@ export class AutonomousAgent {
    * Refactor task - ACTUALLY improve code
    */
   private async executeRefactorTask(task: AutonomousTask): Promise<void> {
-    console.log('[AutonomousAgent] ✨ Refactoring...');
+    
     task.progress = 20;
 
     const store = useStore.getState();
@@ -480,7 +480,7 @@ export class AutonomousAgent {
         content: newContent 
       });
 
-      console.log('[AutonomousAgent] Extracted helper function:', helperName);
+      
       task.progress = 100;
     }
 
@@ -491,7 +491,7 @@ export class AutonomousAgent {
    * Test task - ACTUALLY write tests
    */
   private async executeTestTask(task: AutonomousTask): Promise<void> {
-    console.log('[AutonomousAgent] 🧪 Writing tests...');
+    
     task.progress = 20;
 
     const store = useStore.getState();
@@ -526,7 +526,7 @@ describe('${fileName}', () => {
    * Document task - ACTUALLY write docs
    */
   private async executeDocumentTask(task: AutonomousTask): Promise<void> {
-    console.log('[AutonomousAgent] 📝 Writing documentation...');
+    
     task.progress = 20;
 
     const store = useStore.getState();
@@ -572,7 +572,7 @@ describe('${fileName}', () => {
         content: newContent 
       });
 
-      console.log('[AutonomousAgent] Documented function:', funcName);
+      
     }
 
     task.progress = 100;
@@ -699,7 +699,7 @@ export const autonomousAgent = new AutonomousAgent();
 
 // Auto-start
 if (typeof window !== 'undefined') {
-  console.log('[AutonomousAgent] 🌟 Loading Autonomous Agent...');
+  
   setTimeout(() => {
     autonomousAgent.startAutonomousLoop();
   }, 5000);

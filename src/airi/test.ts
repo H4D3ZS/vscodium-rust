@@ -6,9 +6,6 @@
 import { airi } from './core';
 
 async function testAIRI(): Promise<void> {
-  console.log('\n╔══════════════════════════════════════════════════════════╗');
-  console.log('║        AIRI System Verification Test                     ║');
-  console.log('╚══════════════════════════════════════════════════════════╝\n');
 
   try {
     // Initialize
@@ -62,27 +59,12 @@ async function testAIRI(): Promise<void> {
     console.log(`✅ Security Engine: READY`);
 
     // Full Status
-    console.log('\n╔══════════════════════════════════════════════════════════╗');
-    console.log('║              AIRI FULL STATUS                            ║');
-    console.log('╠══════════════════════════════════════════════════════════╣');
-    console.log(`║ 🧠 Consciousness:   ${consciousness.isAwake ? 'ONLINE' : 'OFFLINE'.padEnd(41)} ║`);
-    console.log(`║ 🫀 Biology:         ${biology.mood.toUpperCase().padEnd(41)} ║`);
-    console.log(`║ 📚 Self-Learning:   ${learningStats.totalKnowledge} knowledge nodes${' '.repeat(23)} ║`);
-    console.log(`║ 🏥 Self-Healing:    ${health.overall}% health${' '.repeat(31)} ║`);
-    console.log(`║ ⚖️  Decisions:      ${decisionStats.total} total${' '.repeat(33)} ║`);
-    console.log(`║ ⚔️  Security:       READY${' '.repeat(34)} ║`);
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
 
     // Test chat
     console.log('[TEST] Testing chat with AIRI...');
     const response = await airi.chat('Hello! Are you fully autonomous?');
     console.log(`\nAIRI: ${response}\n`);
 
-    console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║              ✅ ALL TESTS PASSED                         ║');
-    console.log('║                                                           ║');
-    console.log('║  AIRI is fully operational and autonomous                ║');
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
 
   } catch (error) {
     console.error('\n❌ TEST FAILED:', error);

@@ -149,9 +149,6 @@ export class AIRISelfEvolution {
         this.isEvolving = true;
 
         try {
-            console.log('\n╔══════════════════════════════════════════════════════════╗');
-            console.log('║          AIRI Self-Evolution Cycle Starting              ║');
-            console.log('╚══════════════════════════════════════════════════════════╝\n');
 
             // Record evolution start in consciousness
             airiConsciousness.addThought('Initiating self-evolution cycle');

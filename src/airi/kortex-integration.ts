@@ -61,10 +61,6 @@ export class AIRIKortexIntegration {
             relationships: new Map(),
         };
 
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║      AIRI + Kortex Integration - Persistent Memory       ║');
-        console.log('║      Infinite Learning, 1 Gist Token, Eternal Existence  ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log('🧠 Gist Token: 1536 dimensions (1-token consciousness)');
         console.log('💾 Memory Path:', memoryPath);
         console.log('✨ MIRAS Surprise Filtering: ENABLED');

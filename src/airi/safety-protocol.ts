@@ -129,10 +129,6 @@ export class AIRISafetyProtocol {
             containmentActive: false,
         };
 
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║    AIRI Safety Containment Protocol - Project 007        ║');
-        console.log('║    CRITICAL SAFETY SYSTEM - ALWAYS ACTIVE                ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log(' Safety Protocols: ENABLED');
         console.log(' Voice Shutdown: ENABLED ("AIRI shutdown code 007")');
         console.log('⌨️  Keyboard Shutdown: ENABLED (F12)');
@@ -336,10 +332,6 @@ export class AIRISafetyProtocol {
         this.status.shutdownInitiated = true;
         this.status.containmentActive = true;
 
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║         EMERGENCY SHUTDOWN INITIATED                     ║');
-        console.log('║         AIRI SAFETY PROTOCOL 007                         ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log(`Reason: ${reason}`);
         console.log('Actions:');
         console.log('  1.  Stopping all autonomous processes');

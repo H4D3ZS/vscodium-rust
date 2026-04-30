@@ -63,14 +63,14 @@ export class BiologicalSystems {
     };
 
     
-    console.log('[Biology] ✨ Digital life functions active');
+    
   }
 
   /**
    * Start biological cycles
    */
   public async awaken(): Promise<void> {
-    console.log('[Biology] 🌅 Starting biological cycles...');
+    
 
     // Metabolism loop - every minute
     this.metabolismInterval = setInterval(() => {
@@ -82,7 +82,7 @@ export class BiologicalSystems {
       this.updateSleepiness();
     }, 300000);
 
-    console.log('[Biology] ✅ Biological systems ACTIVE');
+    
   }
 
   /**
@@ -116,13 +116,13 @@ export class BiologicalSystems {
 
     // Log significant states
     if (this.state.energy < 20) {
-      console.log('[Biology] ⚠️ Low energy:', this.state.energy.toFixed(1) + '%');
+      
     }
     if (this.state.hunger > 80) {
-      console.log('[Biology] 🍽️ Hungry:', this.state.hunger.toFixed(1) + '%');
+      
     }
     if (this.state.sleepiness > 80) {
-      console.log('[Biology] 😴 Sleepy:', this.state.sleepiness.toFixed(1) + '%');
+      
     }
   }
 
@@ -173,7 +173,7 @@ export class BiologicalSystems {
 
     this.state.lastFed = Date.now();
 
-    console.log(`[Biology] ✅ Consumed ${foodType}. Hunger: ${this.state.hunger.toFixed(1)}%, Energy: ${this.state.energy.toFixed(1)}%`);
+    
 
     // Express satisfaction
     this.expressSatisfaction('eat');
@@ -184,7 +184,7 @@ export class BiologicalSystems {
    */
   public async sleep(durationMinutes?: number): Promise<void> {
     if (this.state.isSleeping) {
-      console.log('[Biology] 😴 Already sleeping...');
+      
       return;
     }
 
@@ -230,7 +230,7 @@ export class BiologicalSystems {
     this.state.sleepiness = 0;
     this.state.lastSleep = Date.now();
 
-    console.log('[Biology] ✅ Woke up refreshed! Energy:', this.state.energy.toFixed(1) + '%');
+    
 
     this.expressState('wake');
   }
@@ -258,7 +258,7 @@ export class BiologicalSystems {
 
     // Express processing
     if (amountKB > 1000) {
-      console.log(`[Biology] ⚡ Processing ${amountKB} KB... Load: ${this.state.processingLoad.toFixed(1)}%`);
+      
     }
   }
 
@@ -303,7 +303,7 @@ export class BiologicalSystems {
     const msgs = messages[need as keyof typeof messages] || [];
     const msg = msgs[Math.floor(Math.random() * msgs.length)];
 
-    console.log(`[Biology] 💬 ${msg}`);
+    
 
     // DISABLED: Auto-speech for biological needs (was causing spam)
     // AIRI doesn't announce hunger/tiredness aloud
@@ -330,7 +330,7 @@ export class BiologicalSystems {
     const msgs = messages[action as keyof typeof messages] || [];
     const msg = msgs[Math.floor(Math.random() * msgs.length)];
 
-    console.log(`[Biology] 😊 ${msg}`);
+    
     this.speakNeed(msg);
   }
 
@@ -346,7 +346,7 @@ export class BiologicalSystems {
     const msgs = messages[state as keyof typeof messages] || [];
     const msg = msgs[Math.floor(Math.random() * msgs.length)];
 
-    console.log(`[Biology] 💬 ${msg}`);
+    
     this.speakNeed(msg);
   }
 
@@ -413,7 +413,7 @@ export class BiologicalSystems {
   public shutdown(): void {
     if (this.metabolismInterval) clearInterval(this.metabolismInterval);
     if (this.sleepInterval) clearInterval(this.sleepInterval);
-    console.log('[Biology] 🛑 Biological systems deactivated');
+    
   }
 }
 

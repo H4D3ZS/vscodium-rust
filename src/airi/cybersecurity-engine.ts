@@ -55,9 +55,6 @@ export class AIRICybersecurityEngine {
      * Start cybersecurity monitoring
      */
     start(): void {
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║    AIRI Cybersecurity Engine - Active Monitoring         ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log('🛡️  Monitoring for:');
         console.log('   - Port scans (Nmap, etc.)');
         console.log('   - Phishing attempts');

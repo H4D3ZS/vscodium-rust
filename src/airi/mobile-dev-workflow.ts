@@ -87,9 +87,6 @@ export class AIRIMobileDevelopment {
      * Start requirements gathering (conversational)
      */
     async startRequirementsGathering(): Promise<void> {
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║      AIRI Mobile Development - Requirements Phase        ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
 
         // DISABLED: Auto-speech for dev workflow (was causing spam)
         // Voice announcement

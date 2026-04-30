@@ -65,9 +65,6 @@ export class AIRIVoiceInteraction {
             isProcessing: false,
         };
 
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║      AIRI Real-Time Voice Interaction Enabled            ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log('🎤 Wake Word: "Hey AIRI"');
         console.log('👂 Continuous Listening:', this.config.continuousListening);
         console.log('⚡ Interruption:', this.config.interruptionEnabled);

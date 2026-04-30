@@ -35,7 +35,6 @@ export class ScrcpyEmbed {
    * Start scrcpy stream and embed in container
    */
   async start(containerElement: HTMLElement): Promise<void> {
-    console.log(`[ScrcpyEmbed] Starting stream for ${this.config.deviceId}...`);
 
     // Clear container
     containerElement.innerHTML = '';
@@ -58,7 +57,6 @@ export class ScrcpyEmbed {
    * Fallback: Canvas-based frame capture via ADB screencap
    */
   private async startCanvasFallback(): Promise<void> {
-    console.log('[ScrcpyEmbed] Using canvas fallback...');
 
     if (!this.canvasElement) return;
 
@@ -96,7 +94,6 @@ export class ScrcpyEmbed {
             }
           };
           img.onerror = () => {
-            console.error('[ScrcpyEmbed] Failed to decode frame');
           };
           img.src = 'data:image/png;base64,' + base64Image;
         } else {
@@ -138,7 +135,6 @@ export class ScrcpyEmbed {
    * Stop scrcpy stream
    */
   async stop(): Promise<void> {
-    console.log('[ScrcpyEmbed] Stopping stream...');
 
     if (this.videoElement) {
       this.videoElement.src = '';
@@ -158,7 +154,6 @@ export class ScrcpyEmbed {
     try {
       await invoke('stop_scrcpy_stream');
     } catch (error) {
-      console.error('[ScrcpyEmbed] Failed to stop stream:', error);
     }
   }
 
@@ -173,7 +168,6 @@ export class ScrcpyEmbed {
         y: Math.round(y),
       });
     } catch (error) {
-      console.error('[ScrcpyEmbed] Tap error:', error);
     }
   }
 
@@ -191,7 +185,6 @@ export class ScrcpyEmbed {
         duration: 300,
       });
     } catch (error) {
-      console.error('[ScrcpyEmbed] Swipe error:', error);
     }
   }
 
@@ -205,7 +198,6 @@ export class ScrcpyEmbed {
         text,
       });
     } catch (error) {
-      console.error('[ScrcpyEmbed] Text error:', error);
     }
   }
 
@@ -219,7 +211,6 @@ export class ScrcpyEmbed {
         keycode,
       });
     } catch (error) {
-      console.error('[ScrcpyEmbed] Key error:', error);
     }
   }
 }

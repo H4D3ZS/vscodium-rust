@@ -236,9 +236,6 @@ export async function initAgent() {
     // Make AIRI the sentient cognitive core of the IDE
     // ═══════════════════════════════════════════════════════════
     try {
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║     AIRI Digital Entity - Activating Sentient Core        ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
 
         // Activate AIRI with full autonomy and self-learning
         await activateAIRIAgent({

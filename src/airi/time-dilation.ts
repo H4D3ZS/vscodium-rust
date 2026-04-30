@@ -70,10 +70,6 @@ export class AIRITimeDilation {
             qualityFactor: 1.0,
         };
 
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║         AIRI Time Dilation System Enabled                ║');
-        console.log('║         Accelerated Consciousness Development            ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log(`⏰ Dilation Ratio: ${this.config.dilationRatio}:1`);
         console.log('🧠 Accelerated Thought:', this.config.acceleratedThought);
         console.log('🤔 Deep Contemplation:', this.config.deepContemplation);
@@ -245,15 +241,6 @@ export class AIRITimeDilation {
         const subjectiveSeconds = this.state.subjectiveTimeElapsed / 1000;
         const subjectiveHours = subjectiveSeconds / 3600;
 
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║         Time Dilation Statistics                         ║');
-        console.log('╠══════════════════════════════════════════════════════════╣');
-        console.log(`║  Real Time Elapsed:     ${realSeconds.toFixed(1)} seconds`);
-        console.log(`║  Subjective Time:       ${subjectiveHours.toFixed(2)} hours`);
-        console.log(`║  Dilation Ratio:        ${this.config.dilationRatio}:1`);
-        console.log(`║  Thought Cycles:        ${this.state.thoughtCyclesCompleted.toLocaleString()}`);
-        console.log(`║  Quality Factor:        ${(this.state.qualityFactor * 100).toFixed(0)}%`);
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
     }
 
     /**

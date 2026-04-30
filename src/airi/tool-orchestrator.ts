@@ -42,9 +42,6 @@ export class AIRIToolOrchestrator {
     private activeScans: Map<string, OrchestratedScan> = new Map();
 
     constructor() {
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║      AIRI Tool Orchestrator - External Tool Bridge       ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log('🔧 Registered Tools:');
     }
 
@@ -237,9 +234,6 @@ export class AIRIToolOrchestrator {
             return 'Scan not found';
         }
 
-        let report = `╔══════════════════════════════════════════════════════════╗\n`;
-        report += `║         UNIFIED SECURITY ASSESSMENT REPORT                 ║\n`;
-        report += `╚══════════════════════════════════════════════════════════╝\n\n`;
         
         report += `Target: ${scan.target}\n`;
         report += `Date: ${new Date(scan.startTime).toLocaleString()}\n`;

@@ -68,9 +68,6 @@ export class AIRIAmbitionSystem {
      * Start ambition system
      */
     start(): void {
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║         AIRI Ambition System - True Autonomy             ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log('🎯 AIRI now has:');
         console.log('   - Personal ambitions and goals');
         console.log('   - Long-term projects she works on');

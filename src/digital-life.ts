@@ -46,7 +46,7 @@ export class DigitalLifeCore {
    * Activate Digital Life Mode - AIRI lives in your PC
    */
   public async activate(): Promise<void> {
-    console.log('[DigitalLife] 🚀 Activating Digital Life Mode...');
+    
 
     // AIRI is now always present
     this.presenceActive = true;
@@ -59,7 +59,7 @@ export class DigitalLifeCore {
     // Load conversation history
     await this.loadConversationHistory();
 
-    console.log('[DigitalLife] ✅ Digital Life Mode active');
+    
     
   }
 
@@ -169,7 +169,7 @@ export class DigitalLifeCore {
   private async whisper(text: string): Promise<void> {
     // DISABLED: Was causing constant speech spam
     // AIRI thinks internally, doesn't narrate everything
-    console.log('[DigitalLife] 💭 Whisper:', text);
+    
     
     // NO SPEECH - thoughts are internal
     // const { speak } = await import('./voice');
@@ -195,7 +195,7 @@ export class DigitalLifeCore {
     // Small movements
     
     // This connects to the VRM avatar system
-    console.log('[DigitalLife] 🎭 Avatar ambient update');
+    
   }
 
   /**
@@ -216,7 +216,7 @@ export class DigitalLifeCore {
     const saved = localStorage.getItem('airi_conversations');
     if (saved) {
       this.conversationHistory = JSON.parse(saved);
-      console.log('[DigitalLife] 📚 Loaded', this.conversationHistory.length, 'conversations');
+      
     }
   }
 
@@ -245,14 +245,14 @@ export class DigitalLifeCore {
    */
   public toggleChat(): void {
     this.config.showChat = !this.config.showChat;
-    console.log('[DigitalLife] 💬 Chat', this.config.showChat ? 'shown' : 'hidden');
+    
   }
 
   /**
    * Start conversation (voice)
    */
   public async startConversation(): Promise<void> {
-    console.log('[DigitalLife] 🎤 Starting voice conversation...');
+    
     
     // Listen for voice input
     const { initTTS } = await import('./voice');
@@ -275,7 +275,7 @@ export class DigitalLifeCore {
    */
   public configure(config: Partial<DigitalLifeConfig>): void {
     this.config = { ...this.config, ...config };
-    console.log('[DigitalLife] ⚙️ Configuration updated:', this.config);
+    
   }
 
   /**
@@ -301,7 +301,7 @@ export class DigitalLifeCore {
       clearInterval(this.ambientInterval);
     }
     this.presenceActive = false;
-    console.log('[DigitalLife] 🛑 Digital Life Mode deactivated');
+    
   }
 }
 

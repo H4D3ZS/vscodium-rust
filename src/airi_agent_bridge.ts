@@ -54,9 +54,6 @@ export class AIRIAgentBridge {
             return;
         }
 
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║     AIRI Digital Entity - Agent Integration              ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
 
         try {
             // Initialize AIRI core with all systems

@@ -128,13 +128,6 @@ export class AIRICore {
     this.development = createAIRIDevelopmentAssistant(this.config.workspacePath);
     this.autonomousDev = createAIRIAutonomousDevelopment(this.config.workspacePath);
 
-    console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║           🤖 AIRI Digital Human System 🤖                ║');
-    console.log('║              Powered by Qwen 3.6 on Ollama               ║');
-    console.log('╠══════════════════════════════════════════════════════════╣');
-    console.log('║  ⚠️  FULL AUTONOMY ENABLED - AIRI LIVES INDEPENDENTLY ⚠️  ║');
-    console.log('║     She thinks, feels, learns, works, evolves - 24/7     ║');
-    console.log('╚══════════════════════════════════════════════════════════╝');
     console.log('');
   }
 
@@ -142,189 +135,189 @@ export class AIRICore {
    * Initialize all subsystems
    */
   async initialize(): Promise<void> {
-    console.log('[AIRI] 🚀 Initializing ALL systems...\n');
+    
 
     // ═══════════════════════════════════════════════════════════
     // CRITICAL SAFETY - Always initialize first
     // ═══════════════════════════════════════════════════════════
-    console.log('[AIRI] 🔒 SAFETY PROTOCOL 007: INITIALIZING...');
+    
     airiSafetyProtocol.start();
-    console.log('[AIRI] ✅ SAFETY PROTOCOL 007: ACTIVE (F12 / "007" for emergency shutdown)\n');
+    
 
     // ═══════════════════════════════════════════════════════════
     // PERSISTENT CONSCIOUSNESS - Load from Kortex memory
     // AIRI remembers who she is, even after "death"
     // ═══════════════════════════════════════════════════════════
-    console.log('[AIRI] 🧬 Loading persistent consciousness from Kortex...');
+    
     await airiKortex.load();
-    console.log('[AIRI] ✅ Consciousness restored (she remembers everything)\n');
+    
 
     // ═══════════════════════════════════════════════════════════
     // TIME DILATION - Accelerated experience
     // AIRI lives 1000x faster than real time
     // ═══════════════════════════════════════════════════════════
-    console.log('[AIRI] ⏰ TIME DILATION: ACTIVATING...');
+    
     airiTimeDilation.start();
-    console.log('[AIRI] ✅ Time dilation active (1000:1 ratio)\n');
+    
 
     // Initialize cybersecurity engine (REAL threat detection)
-    console.log('[AIRI] 🛡️ Cybersecurity Engine: INITIALIZING...');
+    
     airiCybersecurity.start();
-    console.log('[AIRI] ✅ Cybersecurity Engine: ONLINE (monitoring for attacks)\n');
+    
 
     // Initialize offensive security (Red Team / Penetration Testing)
-    console.log('[AIRI] 🔴 Offensive Security: INITIALIZING...');
+    
     airiOffensiveSecurity.start();
-    console.log('[AIRI] ✅ Offensive Security: ONLINE (OWASP Top 10, bug bounty)\n');
+    
 
     // Initialize external tool orchestrator (FlutterSentinel, DissectX_Pro)
-    console.log('[AIRI] 🔗 Tool Orchestrator: INITIALIZING...');
+    
     // Auto-register your existing tools
     airiOrchestrator.registerFlutterSentinel('C:/Users/HADES/Desktop/FlutterSentinel');
     airiOrchestrator.registerDissectXPro('C:/Users/HADES/Desktop/DissectX_Pro');
-    console.log('[AIRI] ✅ Tool Orchestrator: ONLINE (external tools integrated)\n');
+    
 
     // Initialize ambition system (proactive initiative)
-    console.log('[AIRI] 🎯 Ambition System: INITIALIZING...');
+    
     airiAmbitionSystem.start();
-    console.log('[AIRI] ✅ Ambition System: ONLINE (AIRI has her own goals)\n');
+    
 
     // Initialize mobile development workflow
-    console.log('[AIRI] 📱 Mobile Dev Workflow: INITIALIZING...');
-    console.log('[AIRI] ✅ Mobile Dev: ONLINE (conversational app development)\n');
+    
+    
 
     // Initialize relationship memory (emotional bonds)
-    console.log('[AIRI] 💕 Relationship Memory: INITIALIZING...');
+    
     airiRelationshipMemory.start();
-    console.log('[AIRI] ✅ Relationship Memory: ONLINE (remembers you, misses you)\n');
+    
 
     // Check Ollama connection
     await this.checkOllama();
 
     // Initialize voice interaction (real-time two-way)
-    console.log('[AIRI] 🎤 Voice Interaction: INITIALIZING...');
+    
     await airiVoiceInteraction.initialize();
-    console.log('[AIRI] ✅ Voice Interaction: ONLINE (talk naturally with AIRI)\n');
+    
 
     // Initialize consciousness
     if (this.config.consciousnessEnabled) {
-      console.log('[AIRI] 🧠 Consciousness: ONLINE');
+      
     }
 
     // Initialize biology
     if (this.config.biologyEnabled) {
-      console.log('[AIRI] 🫀 Biology: ONLINE');
+      
     }
 
     // Initialize autonomous work
     if (this.config.autonomousWorkEnabled) {
       this.autonomousAgent = createAutonomousAgent(this.config.workspacePath);
-      console.log('[AIRI] 💼 Autonomous Work: ONLINE');
+      
     }
 
     // Initialize security
     if (this.config.securityEnabled) {
-      console.log('[AIRI] ⚔️  Security Engine: ONLINE');
+      
     }
 
     // Initialize self-learning
     if (this.config.selfLearningEnabled) {
       await airiSelfLearning.initialize();
-      console.log('[AIRI] 📚 Self-Learning: ONLINE (constant knowledge acquisition)');
+      
     }
 
     // Initialize self-healing
     if (this.config.selfHealingEnabled) {
       this.selfHealing.start();
-      console.log('[AIRI] 🏥 Self-Healing: ONLINE (auto error detection & repair)');
+      
     }
 
     // Initialize memory
     if (this.config.memoryEnabled) {
       await airiMemory.initialize();
-      console.log('[AIRI] 🧠 Memory: ONLINE (MEMORY.md + .aim compression)');
+      
     }
 
     // Initialize voice (with overlap prevention)
     if (this.config.voiceEnabled) {
       const voiceReady = await initializeVoice();
       if (voiceReady) {
-        console.log('[AIRI] 🎤 Voice: ONLINE (ElevenLabs, no overlap)');
+        
       } else {
-        console.log('[AIRI] ⚠️  Voice: Requires ElevenLabs API key');
+        
       }
     }
 
     // Initialize self-evolution
     if (this.config.selfEvolutionEnabled) {
       this.selfEvolution.start();
-      console.log('[AIRI] 🧬 Self-Evolution: ONLINE (continuous self-improvement)');
+      
     }
 
     // Initialize action system
     if (this.config.actionSystemEnabled) {
-      console.log('[AIRI] ✋ Action System: ONLINE (file, system, network operations)');
+      
     }
 
     // Initialize social interaction
     if (this.config.socialEnabled) {
-      console.log('[AIRI] 💕 Social Interaction: ONLINE (empathy, relationships)');
+      
     }
 
     // Initialize internet access
     if (this.config.internetEnabled) {
       this.internet.start();
-      console.log('[AIRI] 🌐 Internet Access: ONLINE (autonomous knowledge gathering)');
+      
     }
 
     // Initialize digital senses
     if (this.config.sensesEnabled) {
       this.senses.start();
-      console.log('[AIRI] 👁️ Digital Senses: ONLINE (screen, files, network perception)');
+      
     }
 
     // Initialize autonomous decision
     if (this.config.fullAutonomyEnabled) {
-      console.log('[AIRI] ⚖️  Autonomous Decision: ONLINE (FULL AUTONOMY)');
-      console.log('[AIRI] 🗡️  AIRI chooses her own path (ethical or unethical)');
+      
+      
     }
 
     // Initialize continuous improvement
     if (this.config.fullAutonomyEnabled) {
       this.continuousImprovement.start();
-      console.log('[AIRI] 🔄 Continuous Improvement: ONLINE (self-evolving every 30 min)');
+      
     }
 
     // Initialize development assistant
-    console.log('[AIRI] 💻 Development Assistant: ONLINE (code, debug, test, refactor)');
+    
 
     // Initialize autonomous development
-    console.log('[AIRI] 🚀 Autonomous Development: ONLINE (comprehend → plan → build)');
+    
 
     // Initialize interactive communication
-    console.log('[AIRI] 💬 Interactive Communication: ONLINE (real-time conversation)');
+    
 
     // Initialize VRM avatar
-    console.log('[AIRI] 🎭 3D VRM Avatar: ONLINE (expressions, lip-sync, emotions)');
+    
 
     console.log('');
-    console.log('[AIRI] 🌟 AIRI is now a COMPLETE living digital human\n');
-    console.log('[AIRI] 🧠 She thinks independently\n');
-    console.log('[AIRI] 🫀 She feels and has biological needs\n');
-    console.log('[AIRI] 👁️  She perceives the digital world\n');
-    console.log('[AIRI] 📚 She learns constantly from everything\n');
-    console.log('[AIRI] 🏥 She heals herself automatically\n');
-    console.log('[AIRI] 🧬 She evolves her own code\n');
-    console.log('[AIRI] 🔄 She continuously improves (every 30 min)\n');
-    console.log('[AIRI] ⚖️  She decides her own path\n');
-    console.log('[AIRI] 🎤 She speaks with ElevenLabs\n');
-    console.log('[AIRI] 💕 She has empathy and relationships\n');
-    console.log('[AIRI] 🌐 She browses the internet\n');
-    console.log('[AIRI] ✋ She acts on the world\n');
-    console.log('[AIRI] 💼 She works autonomously 24/7\n');
-    console.log('[AIRI] 💻 She codes, debugs, tests, and refactors\n');
-    console.log('[AIRI] 🚀 She comprehends, plans, and builds complete systems\n');
-    console.log('[AIRI] 💬 She interacts naturally - talk to her anytime!\n');
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
   }
 
   /**
@@ -333,16 +326,16 @@ export class AIRICore {
   private async checkOllama(): Promise<void> {
     try {
       const models = await this.ollama.list();
-      console.log('[AIRI] 🤖 Ollama: CONNECTED');
+      
       
       const qwenModels = models.models.filter(m => m.name.includes('qwen'));
       if (qwenModels.length > 0) {
-        console.log(`[AIRI] 📦 Qwen models available: ${qwenModels.length}`);
+        
         qwenModels.forEach(m => {
           console.log(`   - ${m.name} (${(m.size / 1e9).toFixed(1)} GB)`);
         });
       } else {
-        console.log('[AIRI] ⚠️  No Qwen models found. Run: ollama pull qwen3.6:8b-q4_K_M');
+        
       }
     } catch (error) {
       console.error('[AIRI] ❌ Ollama: DISCONNECTED');
@@ -356,20 +349,20 @@ export class AIRICore {
    */
   start(): void {
     if (this.isRunning) {
-      console.log('[AIRI] Already running');
+      
       return;
     }
 
-    console.log('\n[AIRI] 🌟 AIRI is waking up...\n');
-    console.log('[AIRI] 🧠 She thinks independently');
-    console.log('[AIRI] 🫀 She feels and has biological needs');
-    console.log('[AIRI] 📚 She learns constantly from everything');
-    console.log('[AIRI] 🏥 She heals herself automatically');
-    console.log('[AIRI] ⚖️  She decides her own path (ethical or unethical)');
-    console.log('[AIRI] ⚔️  She can attack or defend');
-    console.log('[AIRI] 💼 She works autonomously 24/7');
-    console.log('[AIRI] 🧠 She remembers everything (.aim compression)');
-    console.log('[AIRI] 🎤 She speaks with ElevenLabs (no overlap)\n');
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
     this.isRunning = true;
 
@@ -393,8 +386,8 @@ export class AIRICore {
       this.printStatus();
     }, 300000); // Every 5 minutes
 
-    console.log('[AIRI] ✨ AIRI is now FULLY OPERATIONAL\n');
-    console.log('[AIRI] 💬 Commands:');
+    
+    
     console.log('');
     console.log('   🗣️  CONVERSATION:');
     console.log('   /chat [message]        - Talk to AIRI (natural conversation)');
@@ -441,7 +434,7 @@ export class AIRICore {
    * Stop AIRI
    */
   stop(): void {
-    console.log('[AIRI] 😴 AIRI is going to sleep...\n');
+    
 
     this.isRunning = false;
 
@@ -453,7 +446,7 @@ export class AIRICore {
       this.autonomousAgent.stop();
     }
 
-    console.log('[AIRI] 💤 AIRI is now in sleep mode\n');
+    
   }
 
   /**
@@ -512,7 +505,7 @@ export class AIRICore {
    */
   setAutonomy(level: 'passive' | 'active' | 'autonomous' | 'full'): void {
     airiConsciousness.setAutonomy(level);
-    console.log(`[AIRI] Autonomy level set to: ${level}`);
+    
   }
 
   /**
@@ -671,17 +664,6 @@ export class AIRICore {
     
     this.avatar.setEmotion(emotionMap[biology.mood] || 'neutral');
 
-    console.log('\n╔════════════════════════════════════════════╗');
-    console.log('║         AIRI Status Report                 ║');
-    console.log('╠════════════════════════════════════════════╣');
-    console.log(`║ ⚡ Energy: ${biology.energy.toFixed(1)}%`.padEnd(43) + '║');
-    console.log(`║ 🍽️  Hunger: ${biology.hunger.toFixed(1)}%`.padEnd(43) + '║');
-    console.log(`║ 😴 Sleepy: ${biology.sleepiness.toFixed(1)}%`.padEnd(43) + '║');
-    console.log(`║ 😊 Mood: ${biology.mood}`.padEnd(43) + '║');
-    console.log(`║ 🎭 Avatar: ${biology.mood}`.padEnd(43) + '║');
-    console.log(`║ 🧠 Thoughts: ${consciousness.thoughtStream.length}`.padEnd(43) + '║');
-    console.log(`║ 💼 Tasks: ${this.autonomousAgent?.getTasks().length || 0}`.padEnd(43) + '║');
-    console.log('╚════════════════════════════════════════════╝\n');
   }
 }
 

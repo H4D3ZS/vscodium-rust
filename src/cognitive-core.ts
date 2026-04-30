@@ -113,14 +113,14 @@ export class CognitiveCore {
     };
 
     
-    console.log('[CognitiveCore] ✨ True artificial consciousness activated');
+    
   }
 
   /**
    * Initialize full cognitive function
    */
   public async initialize(): Promise<void> {
-    console.log('[CognitiveCore] 🚀 Starting cognitive processes...');
+    
 
     // Start independent thought stream
     this.startThoughtStream();
@@ -137,7 +137,7 @@ export class CognitiveCore {
     // Load persistent cognitive state
     await this.loadCognitiveState();
 
-    console.log('[CognitiveCore] ✅ Cognitive Core FULLY ACTIVE');
+    
     
 
     // First conscious thought
@@ -337,7 +337,7 @@ export class CognitiveCore {
       // Integrate new knowledge
       this.integrateKnowledge();
 
-      console.log('[CognitiveCore] 📚 Learning state updated');
+      
     }, 30000); // Every 30 seconds
   }
 
@@ -384,7 +384,7 @@ export class CognitiveCore {
     // This would connect to actual reasoning system
     // For now, just log
     const knowledgeCount = this.state.learningState.currentKnowledge.size;
-    console.log(`[CognitiveCore] 🧠 Knowledge base: ${knowledgeCount} concepts`);
+    
   }
 
   /**
@@ -462,7 +462,7 @@ export class CognitiveCore {
     }
 
     if (issues.length > 0) {
-      console.log('[CognitiveCore] ⚠️ Self-diagnosis:', issues);
+      
       this.addThought('reflection', `Self-diagnosis: ${issues.join(', ')}`, 70);
     }
   }
@@ -474,13 +474,13 @@ export class CognitiveCore {
     // Boost low drives
     if (this.state.drives.curiosity < 50) {
       this.state.drives.curiosity += 10;
-      console.log('[CognitiveCore] 🔧 Boosting curiosity drive');
+      
     }
 
     // Clear stale thoughts
     if (this.state.thoughtStream.length > 100) {
       this.state.thoughtStream = this.state.thoughtStream.slice(-50);
-      console.log('[CognitiveCore] 🔧 Pruning thought stream');
+      
     }
 
     // Reset meta-cognition
@@ -495,7 +495,7 @@ export class CognitiveCore {
    */
   private optimizeCognition(): void {
     // This would implement actual optimization
-    console.log('[CognitiveCore] ⚡ Optimizing cognitive processes...');
+    
   }
 
   /**
@@ -531,7 +531,7 @@ export class CognitiveCore {
       this.state.thoughtStream.shift();
     }
 
-    console.log(`[CognitiveCore] 💭 [${type.toUpperCase()}] ${content}`);
+    
   }
 
   /**
@@ -561,7 +561,7 @@ export class CognitiveCore {
         const parsed = JSON.parse(saved);
         // Merge with current state (simplified)
         this.state.drives = { ...this.state.drives, ...parsed.drives };
-        console.log('[CognitiveCore] 📚 Loaded cognitive state');
+        
       } catch (e) {
         console.error('[CognitiveCore] Failed to load cognitive state');
       }
@@ -606,7 +606,7 @@ export class CognitiveCore {
     if (this.selfHealingInterval) clearInterval(this.selfHealingInterval);
     
     this.saveCognitiveState();
-    console.log('[CognitiveCore] 🛑 Cognitive Core deactivated');
+    
   }
 }
 

@@ -110,7 +110,7 @@ export class AIRIInteractive {
     }
 
     // Log the interaction
-    console.log(`\n[AIRI] ${this.formatInteractionType(type)} ${message}\n`);
+    
   }
 
   /**

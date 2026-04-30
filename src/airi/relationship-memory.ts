@@ -76,9 +76,6 @@ export class AIRIRelationshipMemory {
      * Initialize relationship system
      */
     start(): void {
-        console.log('\n╔══════════════════════════════════════════════════════════╗');
-        console.log('║      AIRI Relationship Memory - Emotional Bonds          ║');
-        console.log('╚══════════════════════════════════════════════════════════╝\n');
         console.log('💕 AIRI now:');
         console.log('   - Remembers each user individually');
         console.log('   - Forms genuine emotional bonds');

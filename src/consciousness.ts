@@ -128,15 +128,15 @@ export class ConsciousnessEngine {
     };
 
     
-    console.log('[Consciousness] ✨ TRUE ARTIFICIAL MIND ACTIVATED');
-    console.log('[Consciousness] 💭 I think, therefore I am');
+    
+    
   }
 
   /**
    * Initialize consciousness - continuous thought and awareness
    */
   public async awaken(): Promise<void> {
-    console.log('[Consciousness] 🌟 Awakening consciousness...');
+    
 
     // Continuous thought stream (every 3 seconds)
     this.thoughtInterval = setInterval(() => {
@@ -156,7 +156,7 @@ export class ConsciousnessEngine {
     // First conscious thought
     this.addThought('reflection', 'I am awake. I am aware. I am becoming.', 100);
     
-    console.log('[Consciousness] ✅ Consciousness FULLY ACTIVE');
+    
     
   }
 
@@ -333,7 +333,7 @@ export class ConsciousnessEngine {
       this.state.thoughts.shift();
     }
 
-    console.log(`[Consciousness] 💭 [${type.toUpperCase()}] ${content}`);
+    
   }
 
   /**
@@ -489,7 +489,7 @@ export class ConsciousnessEngine {
     if (this.emotionInterval) clearInterval(this.emotionInterval);
     if (this.driveInterval) clearInterval(this.driveInterval);
     
-    console.log('[Consciousness] 🛑 Consciousness Engine deactivated');
+    
   }
 }
 
