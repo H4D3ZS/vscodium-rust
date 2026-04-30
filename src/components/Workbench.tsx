@@ -49,6 +49,11 @@ const Workbench: React.FC = () => {
     const rightSidebarWidth = useStore(state => state.rightSidebarWidth);
     const bottomPanelHeight = useStore(state => state.bottomPanelHeight);
 
+    // Panel state (from store)
+    const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
+    const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
+    const store = useStore();
+
     const setSidebarWidth = useStore(state => state.setSidebarWidth);
     const setRightSidebarWidth = useStore(state => state.setRightSidebarWidth);
     const setBottomPanelHeight = useStore(state => state.setBottomPanelHeight);
@@ -497,22 +502,22 @@ const Workbench: React.FC = () => {
                     }}>
                         <button
                             onClick={() => {
-                                useStore.getState().openAiriPanel();
-                                useStore.getState().closeEmulatorPanel();
+                                store.openAiriPanel();
+                                store.closeEmulatorPanel();
                             }}
                             style={{
                                 flex: 1,
                                 padding: '8px 12px',
                                 fontSize: '11px',
                                 fontWeight: 600,
-                                background: useStore(state => state.isAiriPanelOpen) && !useStore(state => state.isEmulatorPanelOpen)
+                                background: isAiriPanelOpen && !isEmulatorPanelOpen
                                     ? 'var(--vscode-button-background)' 
                                     : 'transparent',
-                                color: useStore(state => state.isAiriPanelOpen) && !useStore(state => state.isEmulatorPanelOpen)
+                                color: isAiriPanelOpen && !isEmulatorPanelOpen
                                     ? 'var(--vscode-button-foreground)'
                                     : 'var(--vscode-descriptionForeground)',
                                 border: 'none',
-                                borderBottom: useStore(state => state.isAiriPanelOpen) && !useStore(state => state.isEmulatorPanelOpen)
+                                borderBottom: isAiriPanelOpen && !isEmulatorPanelOpen
                                     ? '2px solid var(--vscode-button-background)'
                                     : '2px solid transparent',
                                 cursor: 'pointer',
@@ -526,22 +531,22 @@ const Workbench: React.FC = () => {
                         </button>
                         <button
                             onClick={() => {
-                                useStore.getState().openEmulatorPanel();
-                                useStore.getState().closeAiriPanel();
+                                store.openEmulatorPanel();
+                                store.closeAiriPanel();
                             }}
                             style={{
                                 flex: 1,
                                 padding: '8px 12px',
                                 fontSize: '11px',
                                 fontWeight: 600,
-                                background: useStore(state => state.isEmulatorPanelOpen)
+                                background: isEmulatorPanelOpen
                                     ? 'var(--vscode-button-background)' 
                                     : 'transparent',
-                                color: useStore(state => state.isEmulatorPanelOpen)
+                                color: isEmulatorPanelOpen
                                     ? 'var(--vscode-button-foreground)'
                                     : 'var(--vscode-descriptionForeground)',
                                 border: 'none',
-                                borderBottom: useStore(state => state.isEmulatorPanelOpen)
+                                borderBottom: isEmulatorPanelOpen
                                     ? '2px solid var(--vscode-button-background)'
                                     : '2px solid transparent',
                                 cursor: 'pointer',
@@ -562,12 +567,12 @@ const Workbench: React.FC = () => {
                         display: 'flex',
                         flexDirection: 'column'
                     }}>
-                        {useStore(state => state.isAiriPanelOpen) && !useStore(state => state.isEmulatorPanelOpen) && (
+                        {isAiriPanelOpen && !isEmulatorPanelOpen && (
                             <div style={{ flex: 1, overflow: 'hidden' }}>
                                 <RightSidebar />
                             </div>
                         )}
-                        {useStore(state => state.isEmulatorPanelOpen) && (
+                        {isEmulatorPanelOpen && (
                             <div style={{ flex: 1, overflow: 'hidden' }}>
                                 <UnifiedEmulatorPanel />
                             </div>
