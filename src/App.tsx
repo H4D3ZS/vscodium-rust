@@ -20,6 +20,7 @@ import { initAgent } from './agent';
 import { initTheme } from './theme_engine';
 import CommandPalette from './components/CommandPalette';
 import QuickOpen from './components/QuickOpen';
+import RightSidebar from './components/RightSidebar';
 
 const ContextMenu: React.FC = () => {
     const isOpen = useStore(state => state.isContextMenuOpen);
@@ -123,7 +124,10 @@ const App: React.FC = () => {
 
             <div className="body-backdrop"></div>
             <TitleBar />
-            <Workbench />
+            <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+                <Workbench />
+                <RightSidebar />
+            </div>
             <StatusBar />
 
             {isDebugToolbarOpen && (

@@ -376,6 +376,7 @@ const SymbolOutlinePane: React.FC = () => {
 const Sidebar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
     const isOpen = useStore(state => state.isSidebarOpen);
+    const emulatorPanelPosition = useStore(state => state.emulatorPanelPosition);
     const { activeRoot, activeRootName, fileTree, refreshFileTree, setActiveRoot, closeFolder, iconThemeMapping, tabs, activeTabId, setActiveTab, closeTab } = useStore();
 
     const handleOpenFolder = async () => {
@@ -584,7 +585,7 @@ const Sidebar: React.FC = () => {
                     </div>
                 )}
                 {activeView === 'extensions-view' && <ExtensionsView />}
-                {activeView === 'mobile-view' && <EmulatorPanel />}
+                {activeView === 'mobile-view' && emulatorPanelPosition !== 'right' && <EmulatorPanel />}
                 {activeView === 'checkpoints-view' && <CheckpointsPanel />}
                 {activeView === 'vector-search-view' && <VectorSearchPanel />}
 

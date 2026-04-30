@@ -164,6 +164,9 @@ interface AppState {
     contextMenuPosition: { x: number, y: number };
     commandPaletteQuery: string;
 
+    // Emulator panel position
+    emulatorPanelPosition: 'left' | 'right' | 'hidden';
+    
     // Inference Backend Configuration
     inferenceBackend: 'ollama' | 'llama-cpp' | 'openai';
     llamaCppUrl: string;
@@ -507,6 +510,9 @@ const storeImplementation: any = (set: any, get: any) => ({
     avatar3dConfig: JSON.parse(localStorage.getItem('avatar3dConfig') || '{}'),
     ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
     
+    // Emulator panel position
+    emulatorPanelPosition: (localStorage.getItem('emulatorPanelPosition') as 'left' | 'right' | 'hidden') || 'left',
+    
     // Inference Backend Configuration
     inferenceBackend: (localStorage.getItem('inferenceBackend') as 'ollama' | 'llama-cpp' | 'openai') || 'ollama',  // Default to Ollama (GPU-accelerated via DirectML)
     llamaCppUrl: localStorage.getItem('llamaCppUrl') || 'http://localhost:8081',
@@ -831,6 +837,10 @@ const storeImplementation: any = (set: any, get: any) => ({
     setLlamaCppHadesEnabled: (enabled: boolean) => {
         localStorage.setItem('llamaCppHadesEnabled', enabled.toString());
         set({ llamaCppHadesEnabled: enabled });
+    },
+    setEmulatorPanelPosition: (position: 'left' | 'right' | 'hidden') => {
+        localStorage.setItem('emulatorPanelPosition', position);
+        set({ emulatorPanelPosition: position });
     },
     checkLlamaCppStatus: async () => {
         set({ llamaCppStatus: 'checking' });
