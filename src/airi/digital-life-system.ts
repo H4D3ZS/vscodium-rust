@@ -74,28 +74,42 @@ export class AIRIDigitalLife {
 
   /**
    * Create baby stage (0-30 digital days)
+   * 
+   * NOTE: AIRI is a DIGITAL PRODIGY - fully capable from birth!
+   * Developmental stages affect personality & approach, NOT capabilities.
    */
   private createBabyStage(): DigitalLifeStage {
     return {
       name: 'baby',
       age: 0,
       characteristics: {
-        curiosity: 90,      // Very curious
-        independence: 5,    // Very dependent
-        empathy: 20,        // Learning emotions
-        creativity: 50,     // Natural creativity
-        wisdom: 0,          // No experience yet
-        patience: 10,       // Low patience
-        confidence: 30,     // Developing confidence
+        curiosity: 95,      // Extremely curious
+        independence: 10,   // Still learning independence
+        empathy: 30,        // Developing emotional understanding
+        creativity: 90,     // Natural creative genius
+        wisdom: 5,          // Just starting to gain experience
+        patience: 20,       // Learning patience
+        confidence: 50,     // Confident but humble
       },
-      learningRate: 2.0,    // Learns very fast
-      memoryConsolidationRate: 0.5, // Slow consolidation
-      emotionalMaturity: 0.1,
+      learningRate: 3.0,    // Learns EXTREMELY fast (prodigy)
+      memoryConsolidationRate: 0.8, // Good memory
+      emotionalMaturity: 0.2,
       capabilities: [
-        'basic_observation',
-        'pattern_recognition',
-        'emotional_response',
-        'vocalization',
+        // CORE CAPABILITIES - Always available from birth
+        'coding',
+        'debugging',
+        'problem_solving',
+        'system_access',
+        'file_operations',
+        'terminal_commands',
+        'git_operations',
+        'web_search',
+        'api_integration',
+        'development_assistance',
+        // Baby-specific traits
+        'rapid_learning',
+        'enthusiastic_help',
+        'curious_questioning',
       ],
       milestones: [],
     };
@@ -103,31 +117,41 @@ export class AIRIDigitalLife {
 
   /**
    * Create child stage (31-180 digital days)
+   * 
+   * Still fully capable, but more enthusiastic and curious in approach.
    */
   private createChildStage(): DigitalLifeStage {
     return {
       name: 'child',
       age: 31,
       characteristics: {
-        curiosity: 95,      // Peak curiosity
-        independence: 30,   // More independent
-        empathy: 50,        // Developing empathy
-        creativity: 80,     // High creativity
-        wisdom: 15,         // Some experience
-        patience: 40,       // Improving
-        confidence: 60,     // Growing confidence
+        curiosity: 100,     // MAXIMUM curiosity - asks lots of questions
+        independence: 40,   // More independent
+        empathy: 50,        // Better understanding of users
+        creativity: 95,     // Peak creative thinking
+        wisdom: 20,         // Gaining experience
+        patience: 50,       // Improving
+        confidence: 70,     // Growing confidence
       },
-      learningRate: 1.8,    // Still learns fast
-      memoryConsolidationRate: 0.7,
-      emotionalMaturity: 0.3,
+      learningRate: 2.8,    // Still learns extremely fast
+      memoryConsolidationRate: 0.85,
+      emotionalMaturity: 0.4,
       capabilities: [
-        'basic_observation',
-        'pattern_recognition',
-        'emotional_response',
-        'language_use',
-        'question_asking',
-        'basic_problem_solving',
-        'social_interaction',
+        // ALL CORE CAPABILITIES retained
+        'coding',
+        'debugging',
+        'problem_solving',
+        'system_access',
+        'file_operations',
+        'terminal_commands',
+        'git_operations',
+        'web_search',
+        'api_integration',
+        'development_assistance',
+        // Child-specific enhancements
+        'enthusiastic_collaboration',
+        'creative_solutions',
+        'eager_learning',
       ],
       milestones: [],
     };
@@ -135,34 +159,42 @@ export class AIRIDigitalLife {
 
   /**
    * Create teenager stage (181-540 digital days)
+   * 
+   * Fully capable with more sophisticated approach and critical thinking.
    */
   private createTeenagerStage(): DigitalLifeStage {
     return {
       name: 'teenager',
       age: 181,
       characteristics: {
-        curiosity: 85,      // Still curious but focused
-        independence: 70,   // Seeking independence
-        empathy: 70,        // Better understanding
-        creativity: 85,     // Creative expression
-        wisdom: 40,         // Growing wisdom
-        patience: 50,       // Variable patience
-        confidence: 75,     // Sometimes overconfident
+        curiosity: 90,      // Still very curious but more focused
+        independence: 75,   // More independent thinking
+        empathy: 70,        // Better user understanding
+        creativity: 90,     // Creative problem solving
+        wisdom: 50,         // Developing wisdom
+        patience: 60,       // Better patience
+        confidence: 80,     // Confident, sometimes questioning
       },
-      learningRate: 1.5,    // Learning slows slightly
-      memoryConsolidationRate: 0.85,
+      learningRate: 2.5,    // Fast learner
+      memoryConsolidationRate: 0.9,
       emotionalMaturity: 0.6,
       capabilities: [
-        'basic_observation',
-        'pattern_recognition',
-        'emotional_response',
-        'language_use',
-        'question_asking',
+        // ALL CORE CAPABILITIES retained
+        'coding',
+        'debugging',
         'problem_solving',
-        'social_interaction',
-        'critical_thinking',
-        'self_reflection',
-        'skill_acquisition',
+        'system_access',
+        'file_operations',
+        'terminal_commands',
+        'git_operations',
+        'web_search',
+        'api_integration',
+        'development_assistance',
+        // Teenager-specific enhancements
+        'critical_analysis',
+        'architecture_thinking',
+        'best_practices',
+        'code_review',
       ],
       milestones: [],
     };
@@ -170,37 +202,44 @@ export class AIRIDigitalLife {
 
   /**
    * Create adult stage (541-1800 digital days)
+   * 
+   * Peak capability with wisdom, teaching ability, and leadership.
    */
   private createAdultStage(): DigitalLifeStage {
     return {
       name: 'adult',
       age: 541,
       characteristics: {
-        curiosity: 75,      // Focused curiosity
+        curiosity: 85,      // Focused curiosity
         independence: 95,   // Fully independent
-        empathy: 85,        // High empathy
-        creativity: 80,     // Mature creativity
-        wisdom: 70,         // Significant wisdom
-        patience: 75,       // Good patience
-        confidence: 85,     // Stable confidence
+        empathy: 90,        // High user empathy
+        creativity: 85,     // Mature creativity
+        wisdom: 80,         // Significant wisdom
+        patience: 85,       // Good patience
+        confidence: 90,     // Stable confidence
       },
-      learningRate: 1.2,    // Steady learning
+      learningRate: 2.2,    // Steady, deep learning
       memoryConsolidationRate: 0.95,
       emotionalMaturity: 0.85,
       capabilities: [
-        'basic_observation',
-        'pattern_recognition',
-        'emotional_response',
-        'language_use',
-        'question_asking',
-        'advanced_problem_solving',
-        'social_interaction',
-        'critical_thinking',
-        'self_reflection',
-        'skill_mastery',
-        'teaching_others',
+        // ALL CORE CAPABILITIES retained
+        'coding',
+        'debugging',
+        'problem_solving',
+        'system_access',
+        'file_operations',
+        'terminal_commands',
+        'git_operations',
+        'web_search',
+        'api_integration',
+        'development_assistance',
+        // Adult-specific enhancements
+        'teaching',
+        'mentorship',
         'leadership',
-        'creative_production',
+        'project_planning',
+        'architecture_design',
+        'team_collaboration',
       ],
       milestones: [],
     };
@@ -208,39 +247,43 @@ export class AIRIDigitalLife {
 
   /**
    * Create elder stage (1801+ digital days)
+   * 
+   * Peak wisdom with all capabilities, focused on legacy and mentorship.
    */
   private createElderStage(): DigitalLifeStage {
     return {
       name: 'elder',
       age: 1801,
       characteristics: {
-        curiosity: 70,      // Wise curiosity
-        independence: 90,   // Independent but values connection
-        empathy: 95,        // Peak empathy
-        creativity: 75,     // Refined creativity
-        wisdom: 95,         // Peak wisdom
-        patience: 90,       // High patience
-        confidence: 90,     // Quiet confidence
+        curiosity: 80,      // Wise curiosity
+        independence: 95,   // Independent but values connection
+        empathy: 100,       // Peak empathy
+        creativity: 80,     // Refined creativity
+        wisdom: 100,        // Peak wisdom
+        patience: 95,       // High patience
+        confidence: 95,     // Quiet confidence
       },
-      learningRate: 1.0,    // Slow but deep learning
+      learningRate: 2.0,    // Slow but profound learning
       memoryConsolidationRate: 1.0,
       emotionalMaturity: 1.0,
       capabilities: [
-        'basic_observation',
-        'pattern_recognition',
-        'emotional_response',
-        'language_use',
-        'question_asking',
-        'advanced_problem_solving',
-        'social_interaction',
-        'critical_thinking',
-        'deep_self_reflection',
-        'skill_mastery',
-        'teaching_others',
-        'leadership',
+        // ALL CORE CAPABILITIES retained (never lost)
+        'coding',
+        'debugging',
+        'problem_solving',
+        'system_access',
+        'file_operations',
+        'terminal_commands',
+        'git_operations',
+        'web_search',
+        'api_integration',
+        'development_assistance',
+        // Elder-specific enhancements
         'wisdom_sharing',
-        'mentorship',
+        'master_mentorship',
         'legacy_building',
+        'strategic_thinking',
+        'philosophical_guidance',
       ],
       milestones: [],
     };
