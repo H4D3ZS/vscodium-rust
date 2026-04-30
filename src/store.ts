@@ -165,6 +165,7 @@ interface AppState {
     commandPaletteQuery: string;
 
     // Right sidebar panels (independent toggles)
+    isRightSidebarOpen: boolean;  // Master toggle
     isAiriPanelOpen: boolean;
     isEmulatorPanelOpen: boolean;
     emulatorPanelPosition: 'android' | 'iphone';
@@ -513,6 +514,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
     
     // Right sidebar panels
+    isRightSidebarOpen: true,  // Master toggle - sidebar open by default
     isAiriPanelOpen: true,  // AIRI open by default
     isEmulatorPanelOpen: false,  // Emulator closed by default
     emulatorPanelPosition: 'android',
@@ -843,12 +845,20 @@ const storeImplementation: any = (set: any, get: any) => ({
         set({ llamaCppHadesEnabled: enabled });
     },
     // Right sidebar panel toggles
-    toggleAiriPanel: () => set((state) => ({ isAiriPanelOpen: !state.isAiriPanelOpen })),
-    toggleEmulatorPanel: () => set((state) => ({ isEmulatorPanelOpen: !state.isEmulatorPanelOpen })),
+    toggleAiriPanel: () => set((state) => ({ 
+        isRightSidebarOpen: true,  // Open sidebar when toggling AIRI
+        isAiriPanelOpen: !state.isAiriPanelOpen,
+        isEmulatorPanelOpen: false  // Close emulator when opening AIRI
+    })),
+    toggleEmulatorPanel: () => set((state) => ({ 
+        isRightSidebarOpen: true,  // Open sidebar when toggling Emulator
+        isEmulatorPanelOpen: !state.isEmulatorPanelOpen,
+        isAiriPanelOpen: false  // Close AIRI when opening emulator
+    })),
     setEmulatorPanelPosition: (position: 'android' | 'iphone') => set({ emulatorPanelPosition: position }),
-    openAiriPanel: () => set({ isAiriPanelOpen: true }),
+    openAiriPanel: () => set({ isRightSidebarOpen: true, isAiriPanelOpen: true, isEmulatorPanelOpen: false }),
     closeAiriPanel: () => set({ isAiriPanelOpen: false }),
-    openEmulatorPanel: () => set({ isEmulatorPanelOpen: true }),
+    openEmulatorPanel: () => set({ isRightSidebarOpen: true, isEmulatorPanelOpen: true, isAiriPanelOpen: false }),
     closeEmulatorPanel: () => set({ isEmulatorPanelOpen: false }),
     checkLlamaCppStatus: async () => {
         set({ llamaCppStatus: 'checking' });
