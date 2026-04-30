@@ -130,10 +130,10 @@ export class AIRIMobileDevelopment {
 
         console.log(`[Dev Workflow] ✅ Requirements processed: ${parsedRequirements.length}`);
 
-        // Voice update
-        // DISABLED: await this.speak(
-            "I've analyzed your requirements. The architecture looks solid - MVC pattern with clean separation. Ready to start coding?"
-        );
+        // Voice update - DISABLED (was causing spam)
+        // await this.speak(
+        //     "I've analyzed your requirements. The architecture looks solid - MVC pattern with clean separation. Ready to start coding?"
+        // );
     }
 
     /**

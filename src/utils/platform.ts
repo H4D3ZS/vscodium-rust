@@ -20,7 +20,7 @@ export function detectPlatform(): PlatformInfo {
     return cachedPlatform;
   }
 
-  // Detect OS from user agent (browser) or process (Node.js/Tauri)
+  // Default to Windows for browser context
   let os: 'windows' | 'macos' | 'linux' = 'windows';
   let arch: 'x64' | 'arm64' | 'x86' = 'x64';
 
@@ -43,23 +43,6 @@ export function detectPlatform(): PlatformInfo {
       arch = 'x64';
     } else if (ua.includes('x86')) {
       arch = 'x86';
-    }
-  }
-
-  // Tauri/Node.js detection (more accurate)
-  if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-    try {
-      const platform = (window as any).__TAURI__.os?.platform();
-      if (platform === 'win32') os = 'windows';
-      else if (platform === 'darwin') os = 'macos';
-      else if (platform === 'linux') os = 'linux';
-
-      const archType = (window as any).__TAURI__.os?.arch();
-      if (archType === 'arm64' || archType === 'aarch64') arch = 'arm64';
-      else if (archType === 'x86_64') arch = 'x64';
-      else if (archType === 'x86') arch = 'x86';
-    } catch (e) {
-      // Fallback to browser detection
     }
   }
 
@@ -112,4 +95,21 @@ export function canUseIOSEmulator(): boolean {
  */
 export function canUseAndroidEmulator(): boolean {
   return detectPlatform().canRunAndroidEmulator;
+}
+
+/**
+ * Get platform summary for UI
+ */
+export function getPlatformSummary(): string {
+  const platform = detectPlatform();
+  const emulators: string[] = [];
+  
+  if (platform.canRunAndroidEmulator) {
+    emulators.push('Android');
+  }
+  if (platform.canRunIOSEmulator) {
+    emulators.push('iOS');
+  }
+  
+  return `${platform.os} (${platform.arch}) - ${emulators.join(' + ')} emulators`;
 }
