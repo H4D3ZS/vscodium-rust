@@ -158,6 +158,10 @@ const EmulatorPanel: React.FC = () => {
         setEmulatorPosition(newPosition);
     };
 
+    const moveToRightSidebar = () => {
+        setEmulatorPosition('right');
+    };
+
     // Helper functions
     function isMacOS(): boolean {
         return navigator.userAgent.toLowerCase().includes('mac');

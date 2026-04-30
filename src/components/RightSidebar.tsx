@@ -10,9 +10,10 @@ import ContextSidebar from './visual/ContextSidebar';
 import { AiriPanel } from './AiriPanel';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
-import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';
+import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';  
 import AiriConversation from './AiriConversation';
 import OllamaProgressBar from './OllamaProgressBar';
+import EmulatorPanel from './EmulatorPanel';
 
 /**
  * Strips raw tool-call JSON/XML from AI content so the user sees only
@@ -183,6 +184,11 @@ const RightSidebar: React.FC = () => {
     const [ttsPreset, setTtsPreset] = useState<'airi' | 'sage' | 'nova' | 'kawaii' | 'yamato' | 'hana' | 'ren' | 'yuki' | 'haru' | 'sora' | 'zero' | 'aria'>('airi');
     const [airiEmotion, setAiriEmotion] = useState<'neutral' | 'happy' | 'thinking' | 'excited' | 'concerned'>('neutral');
     const [digitalLifeActive, setDigitalLifeActive] = useState(false);
+
+    // Emulator panel positioning
+    const emulatorPosition = useStore(state => state.emulatorPanelPosition);
+    const setEmulatorPosition = useStore(state => state.setEmulatorPosition);
+    const [showEmulatorInRight, setShowEmulatorInRight] = useState(false);
 
     // Initialize TTS on mount
     useEffect(() => {
@@ -1820,6 +1826,46 @@ const RightSidebar: React.FC = () => {
             
             {/* Ollama Progress Bar - Small, toggleable */}
             <OllamaProgressBar />
+
+            {/* Emulator Panel - Optional section in right sidebar */}
+            {emulatorPosition === 'right' && (
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flexShrink: 0,
+                    borderTop: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))',
+                    minHeight: '300px',
+                    maxHeight: '50%',
+                    overflow: 'hidden'
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '6px 10px',
+                        background: 'var(--vscode-sideBarSectionHeader-background, rgba(255,255,255,0.02))',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        color: 'var(--vscode-sideBar-foreground)',
+                        opacity: 0.8,
+                        cursor: 'pointer'
+                    }}
+                    onClick={() => setShowEmulatorInRight(!showEmulatorInRight)}
+                    >
+                        <span>📱 Emulator</span>
+                        <span style={{ fontSize: '10px', opacity: 0.6 }}>
+                            {showEmulatorInRight ? '▼' : '▶'}
+                        </span>
+                    </div>
+                    {showEmulatorInRight && (
+                        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                            <EmulatorPanel />
+                        </div>
+                    )}
+                </div>
+            )}
         </aside >
     );
 };
