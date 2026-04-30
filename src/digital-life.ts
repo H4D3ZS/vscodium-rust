@@ -164,13 +164,13 @@ export class DigitalLifeCore {
   }
 
   /**
-   * Whisper - Quiet thought (NO SPEECH - prevents spam)
+   * Whisper - Quiet thought (DISABLED - was causing spam)
    */
   private async whisper(text: string): Promise<void> {
     // DISABLED: Was causing constant speech spam
     // AIRI thinks internally, doesn't narrate everything
     console.log('[DigitalLife] 💭 Whisper:', text);
-
+    
     // NO SPEECH - thoughts are internal
     // const { speak } = await import('./voice');
     // await speak(text, 'airi');

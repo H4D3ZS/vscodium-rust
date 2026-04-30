@@ -546,32 +546,34 @@ export class CybersecurityEngine {
   }
 
   /**
-   * Speak alert
+   * Speak alert (DISABLED - was causing spam)
    */
   private async speakAlert(message: string): Promise<void> {
-    try {
-      const { speak } = await import('./voice');
-      await speak(`Security alert. ${message}`, 'airi');
-    } catch (e) {
-      console.error('[Security] Voice error:', e);
-    }
+    // DISABLED: Security alerts should be visual, not spoken
+    // try {
+    //   const { speak } = await import('./voice');
+    //   await speak(`Security alert. ${message}`, 'airi');
+    // } catch (e) {
+    //   console.error('[Security] Voice error:', e);
+    // }
   }
 
   /**
-   * Speak report
+   * Speak report (DISABLED - was causing spam)
    */
   private async speakReport(vulnerabilities: VulnerabilityReport[]): Promise<void> {
-    try {
-      const { speak } = await import('./voice');
-      
-      const summary = `Security scan complete. Found ${vulnerabilities.length} vulnerabilities. ` +
-        `${vulnerabilities.filter(v => v.severity === 'critical').length} critical, ` +
-        `${vulnerabilities.filter(v => v.severity === 'high').length} high priority.`;
-      
-      await speak(summary, 'airi');
-    } catch (e) {
-      console.error('[Security] Voice error:', e);
-    }
+    // DISABLED: Security reports should be visual, not spoken
+    // try {
+    //   const { speak } = await import('./voice');
+
+    //   const summary = `Security scan complete. Found ${vulnerabilities.length} vulnerabilities. ` +
+    //     `${vulnerabilities.filter(v => v.severity === 'critical').length} critical, ` +
+    //     `${vulnerabilities.filter(v => v.severity === 'high').length} high priority.`;
+
+    //   await speak(summary, 'airi');
+    // } catch (e) {
+    //   console.error('[Security] Voice error:', e);
+    // }
   }
 
   /**

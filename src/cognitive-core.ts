@@ -543,11 +543,12 @@ export class CognitiveCore {
       detail: { thought }
     }));
 
-    // Sometimes speak
-    if (Math.random() > 0.5) {
-      const { speak } = await import('./voice');
-      await speak(thought, 'airi');
-    }
+    // DISABLED: Auto-speech (was causing constant spam)
+    // Thoughts are internal - AIRI doesn't narrate everything
+    // if (Math.random() > 0.5) {
+    //   const { speak } = await import('./voice');
+    //   await speak(thought, 'airi');
+    // }
   }
 
   /**
