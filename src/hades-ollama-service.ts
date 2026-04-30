@@ -9,7 +9,7 @@
  */
 
 import { get } from 'svelte/store';
-import { store } from '../store';
+import { store } from './store';
 
 export interface HadesOllamaConfig {
   baseUrl: string;
