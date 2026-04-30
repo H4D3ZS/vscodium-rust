@@ -205,8 +205,9 @@ export class AIRIVoiceInteraction {
             indicator.style.animation = 'pulse 1s infinite';
         }
 
-        // AIRI responds
-        await speak("Yes? I'm listening.", 'friendly', 8);
+        // DISABLED: Auto-speech (was causing spam)
+        // AIRI responds via voice activation system instead
+        // await speak("Yes? I'm listening.", 'friendly', 8);
     }
 
     /**

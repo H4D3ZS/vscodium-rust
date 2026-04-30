@@ -91,10 +91,11 @@ export class AIRIMobileDevelopment {
         console.log('║      AIRI Mobile Development - Requirements Phase        ║');
         console.log('╚══════════════════════════════════════════════════════════╝\n');
 
+        // DISABLED: Auto-speech for dev workflow (was causing spam)
         // Voice announcement
-        await this.speak(
-            "I'm ready to help you build your app. Tell me about your vision - what should it do? Who is it for?"
-        );
+        // // DISABLED: await this.speak(
+        //     "I'm ready to help you build your app. Tell me about your vision - what should it do? Who is it for?"
+        // );
 
         airiConsciousness.addThought('Starting new app development project');
     }
@@ -130,7 +131,7 @@ export class AIRIMobileDevelopment {
         console.log(`[Dev Workflow] ✅ Requirements processed: ${parsedRequirements.length}`);
 
         // Voice update
-        await this.speak(
+        // DISABLED: await this.speak(
             "I've analyzed your requirements. The architecture looks solid - MVC pattern with clean separation. Ready to start coding?"
         );
     }
@@ -206,7 +207,7 @@ export class AIRIMobileDevelopment {
         console.log('\n[Dev Workflow] 💻 Starting development...\n');
 
         // Voice announcement
-        await this.speak(
+        // DISABLED: await this.speak(
             "Starting development now. I'll keep you updated as I build each component."
         );
 
@@ -235,7 +236,7 @@ export class AIRIMobileDevelopment {
         this.activeProject.currentPhase = 'models';
         console.log('[Dev Workflow] 📦 Developing Models...\n');
 
-        await this.speak("Building data models - defining the core entities and relationships.");
+        // DISABLED: await this.speak("Building data models - defining the core entities and relationships.");
 
         for (const model of this.activeProject.architecture.models) {
             console.log(`   Creating model: ${model.name}`);
@@ -248,7 +249,7 @@ export class AIRIMobileDevelopment {
             this.updateEmulatorPreview('models', model.name);
 
             // Voice update
-            await this.speak(`Model ${model.name} complete - properties and methods defined.`);
+            // DISABLED: await this.speak(`Model ${model.name} complete - properties and methods defined.`);
 
             // Progress update
             this.activeProject.progress += 5;
@@ -266,7 +267,7 @@ export class AIRIMobileDevelopment {
         this.activeProject.currentPhase = 'views';
         console.log('[Dev Workflow] 🎨 Developing Views...\n');
 
-        await this.speak("Now building the user interface - homescreen and navigation.");
+        // DISABLED: await this.speak("Now building the user interface - homescreen and navigation.");
 
         for (const view of this.activeProject.architecture.views) {
             console.log(`   Creating view: ${view.name}`);
@@ -279,7 +280,7 @@ export class AIRIMobileDevelopment {
             this.updateEmulatorPreview('views', view.name);
 
             // Voice update
-            await this.speak(`${view.name} is rendering - you can see it in the preview.`);
+            // DISABLED: await this.speak(`${view.name} is rendering - you can see it in the preview.`);
 
             // Progress update
             this.activeProject.progress += 10;
@@ -297,7 +298,7 @@ export class AIRIMobileDevelopment {
         this.activeProject.currentPhase = 'controllers';
         console.log('[Dev Workflow] 🎮 Developing Controllers...\n');
 
-        await this.speak("Wiring up the business logic - connecting views to models.");
+        // DISABLED: await this.speak("Wiring up the business logic - connecting views to models.");
 
         for (const controller of this.activeProject.architecture.controllers) {
             console.log(`   Creating controller: ${controller.name}`);
@@ -308,7 +309,7 @@ export class AIRIMobileDevelopment {
             this.activeProject.progress += 10;
         }
 
-        await this.speak("Controllers complete - all actions and business logic implemented.");
+        // DISABLED: await this.speak("Controllers complete - all actions and business logic implemented.");
         console.log('[Dev Workflow] ✅ Controllers complete\n');
     }
 
@@ -321,7 +322,7 @@ export class AIRIMobileDevelopment {
         this.activeProject.currentPhase = 'services';
         console.log('[Dev Workflow] 🔌 Developing Services...\n');
 
-        await this.speak("Setting up external integrations and API services.");
+        // DISABLED: await this.speak("Setting up external integrations and API services.");
 
         for (const service of this.activeProject.architecture.services) {
             console.log(`   Creating service: ${service.name}`);
@@ -344,7 +345,7 @@ export class AIRIMobileDevelopment {
         this.activeProject.currentPhase = 'integration';
         console.log('[Dev Workflow] 🔗 Integrating components...\n');
 
-        await this.speak("Final integration - bringing everything together.");
+        // DISABLED: await this.speak("Final integration - bringing everything together.");
 
         // Generate main app file
         const appCode = this.generateAppCode();
@@ -352,7 +353,7 @@ export class AIRIMobileDevelopment {
 
         this.activeProject.progress = 100;
 
-        await this.speak(
+        // DISABLED: await this.speak(
             "Development complete! Your app is ready. The emulator shows the final result. What would you like to adjust?"
         );
 
@@ -451,7 +452,7 @@ export const App: React.FC = () => {
         // Use AIRI's voice system
         try {
             const { speak } = await import('./voice-manager');
-            await speak(text, 'friendly', 7);
+            // DISABLED: await speak(text, 'friendly', 7);
         } catch (error) {
             console.error('[Dev Workflow] Voice error:', error);
         }

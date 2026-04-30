@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../store';
 import { EmulatorPreview } from './EmulatorPreview';
+import { detectPlatform, isMacOS, canUseIOSEmulator, canUseAndroidEmulator } from '../utils/platform';
 
 interface AVD {
     name: string;
@@ -21,15 +22,24 @@ const EmulatorPanel: React.FC = () => {
     const activeDevice = useStore(state => state.activeDevice);
     const setActiveDevice = useStore(state => state.setActiveDevice);
     
+    const platform = detectPlatform();
+    const [showIOSTab, setShowIOSTab] = useState(isMacOS());
+    const [showAndroidTab, setShowAndroidTab] = useState(canUseAndroidEmulator());
+    const [activeTab, setActiveTab] = useState<'android' | 'ios'>('android');
+    
     const [availableAvds, setAvailableAvds] = useState<AVD[]>([]);
+    const [availableIOSSimulators, setAvailableIOSSimulators] = useState<any[]>([]);
     const [runningEmulators, setRunningEmulators] = useState<RunningEmulator[]>([]);
     const [streamStarted, setStreamStarted] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [spawnStatus, setSpawnStatus] = useState<string>('');
 
-    // Load available AVDs on mount
+    // Load available emulators on mount
     useEffect(() => {
         loadAvailableAvds();
+        if (isMacOS()) {
+            loadAvailableIOSSimulators();
+        }
         loadRunningEmulators();
     }, []);
 
