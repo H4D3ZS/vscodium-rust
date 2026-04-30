@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import BottomPanel from './BottomPanel';
 import RightSidebar from './RightSidebar';
 import Editor from './Editor';
+import UnifiedEmulatorPanel from './UnifiedEmulatorPanel';
 import SettingsPage from './SettingsPage';
 import VisualLab from './visual/VisualLab';
 import SpecsToCodeWizard from './SpecsToCodeWizard';
@@ -482,6 +483,21 @@ const Workbench: React.FC = () => {
                     <RightSidebar />
                 </div>
             </div>
+
+            {/* Emulator Panel - Separate from AIRI */}
+            {useStore(state => state.isEmulatorPanelOpen) && (
+                <div
+                    className="emulator-panel-container"
+                    style={{
+                        height: '300px',
+                        borderTop: '1px solid var(--vscode-panel-border)',
+                        background: 'var(--vscode-editor-background)',
+                        flexShrink: 0
+                    }}
+                >
+                    <UnifiedEmulatorPanel />
+                </div>
+            )}
 
             {!isVisualLabSplitView && <VisualLab />}
             <AiriOverlay />

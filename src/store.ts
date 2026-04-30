@@ -165,7 +165,8 @@ interface AppState {
     commandPaletteQuery: string;
 
     // Emulator panel position
-    emulatorPanelPosition: 'left' | 'right' | 'hidden';
+    emulatorPanelPosition: 'left' | 'right' | 'hidden' | 'bottom';
+    isEmulatorPanelOpen: boolean;
     
     // Inference Backend Configuration
     inferenceBackend: 'ollama' | 'llama-cpp' | 'openai';
@@ -511,7 +512,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
     
     // Emulator panel position
-    emulatorPanelPosition: (localStorage.getItem('emulatorPanelPosition') as 'left' | 'right' | 'hidden') || 'left',
+    emulatorPanelPosition: (localStorage.getItem('emulatorPanelPosition') as 'left' | 'right' | 'hidden' | 'bottom') || 'bottom',
+    isEmulatorPanelOpen: false,
     
     // Inference Backend Configuration
     inferenceBackend: (localStorage.getItem('inferenceBackend') as 'ollama' | 'llama-cpp' | 'openai') || 'ollama',  // Default to Ollama (GPU-accelerated via DirectML)
@@ -838,10 +840,13 @@ const storeImplementation: any = (set: any, get: any) => ({
         localStorage.setItem('llamaCppHadesEnabled', enabled.toString());
         set({ llamaCppHadesEnabled: enabled });
     },
-    setEmulatorPanelPosition: (position: 'left' | 'right' | 'hidden') => {
+    setEmulatorPanelPosition: (position: 'left' | 'right' | 'hidden' | 'bottom') => {
         localStorage.setItem('emulatorPanelPosition', position);
-        set({ emulatorPanelPosition: position });
+        set({ emulatorPanelPosition: position, isEmulatorPanelOpen: position !== 'hidden' });
     },
+    openEmulatorPanel: () => set({ isEmulatorPanelOpen: true }),
+    closeEmulatorPanel: () => set({ isEmulatorPanelOpen: false }),
+    toggleEmulatorPanel: () => set((state) => ({ isEmulatorPanelOpen: !state.isEmulatorPanelOpen })),
     checkLlamaCppStatus: async () => {
         set({ llamaCppStatus: 'checking' });
         try {

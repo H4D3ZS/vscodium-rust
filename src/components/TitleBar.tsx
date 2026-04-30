@@ -160,8 +160,14 @@ const TitleBar: React.FC = () => {
                     <i
                         className="codicon codicon-layout-sidebar-right hoverable"
                         style={{ fontFamily: 'codicon', fontStyle: 'normal' }}
-                        title="Toggle Agent (⌥⌘B)"
+                        title="Toggle AIRI Agent (⌥⌘B)"
                         onClick={() => (window as any).useStore?.getState().toggleRightSidebar()}
+                    ></i>
+                    <i
+                        className="codicon codicon-device-mobile hoverable"
+                        style={{ fontFamily: 'codicon', fontStyle: 'normal' }}
+                        title="Toggle Emulator Panel"
+                        onClick={() => (window as any).useStore?.getState().toggleEmulatorPanel()}
                     ></i>
                 </div>
 
