@@ -644,14 +644,15 @@ describe('${fileName}', () => {
     const store = useStore.getState();
     
     const message = `💭 **I'm going to work autonomously:**\n\n${task.description}\n\nI'll handle this myself - check progress anytime!`;
-    
+
     store.addAgentMessage('assistant', message);
 
-    // Speak it
-    import('./voice').then(({ speak }) => {
-      speak(`I'm going to work on ${task.description}`, 'airi')
-        .catch(err => console.error('[AutonomousAgent] Voice error:', err));
-    });
+    // DISABLED: Auto-speech for task announcements (was causing spam)
+    // AIRI doesn't narrate her tasks aloud
+    // import('./voice').then(({ speak }) => {
+    //   speak(`I'm going to work on ${task.description}`, 'airi')
+    //     .catch(err => console.error('[AutonomousAgent] Voice error:', err));
+    // });
   }
 
   /**
@@ -659,16 +660,16 @@ describe('${fileName}', () => {
    */
   private reportCompletion(task: AutonomousTask): void {
     const store = useStore.getState();
-    
+
     const message = `✅ **Task Complete!**\n\n${task.description}\n\nResult: ${task.result || 'Success!'}`;
-    
+
     store.addAgentMessage('assistant', message);
 
-    // Speak it
-    import('./voice').then(({ speak }) => {
-      speak(`I've completed ${task.description}`, 'airi')
-        .catch(err => console.error('[AutonomousAgent] Voice error:', err));
-    });
+    // DISABLED: Auto-speech for task completion (was causing spam)
+    // import('./voice').then(({ speak }) => {
+    //   speak(`I've completed ${task.description}`, 'airi')
+    //     .catch(err => console.error('[AutonomousAgent] Voice error:', err));
+    // });
   }
 
   /**

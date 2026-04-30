@@ -351,15 +351,16 @@ export class BiologicalSystems {
   }
 
   /**
-   * Speak need (integrates with voice system)
+   * Speak need (DISABLED - was causing speech spam)
    */
   private async speakNeed(text: string): Promise<void> {
-    try {
-      const { speak } = await import('./voice');
-      await speak(text, 'airi');
-    } catch (e) {
-      console.error('[Biology] Voice error:', e);
-    }
+    // DISABLED: AIRI doesn't announce biological needs aloud
+    // try {
+    //   const { speak } = await import('./voice');
+    //   await speak(text, 'airi');
+    // } catch (e) {
+    //   console.error('[Biology] Voice error:', e);
+    // }
   }
 
   /**
