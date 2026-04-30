@@ -2,12 +2,12 @@
  * AIRI Vision System
  * 
  * Real-time emulator capture, Moondream vision analysis,
- * and visual verification with HADES thermal integration.
+ * and visual verification with thermal integration.
  */
 
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
-import { ThermalGovernor } from 'hades-kernel';
+import { invoke } from '@tauri-apps/api/core';
 
 export interface VisionConfig {
   emulatorPort: number;
@@ -43,7 +43,6 @@ export class AIRIVisionSystem extends EventEmitter {
   private config: VisionConfig;
   private scrcpy: ChildProcess | null = null;
   private frameBuffer: FrameData[] = [];
-  private thermalGovernor: ThermalGovernor;
   private currentFps: number = 10;
   private isRunning: boolean = false;
   private captureInterval: NodeJS.Timeout | null = null;
@@ -59,8 +58,6 @@ export class AIRIVisionSystem extends EventEmitter {
       model: config.model || 'moondream',
     };
 
-    this.thermalGovernor = new ThermalGovernor();
-    
     console.log('👁️ [AIRI Vision] Vision system initialized');
   }
 
@@ -206,8 +203,15 @@ export class AIRIVisionSystem extends EventEmitter {
    */
   private async updateCaptureRate(): Promise<void> {
     try {
-      const telemetry = await this.thermalGovernor.sample();
-      const temp = telemetry.temperature_c;
+      // Get GPU temperature via Tauri command
+      let temp = 0;
+      try {
+        const telemetry = await invoke<any>('get_gpu_telemetry');
+        temp = telemetry.temperature_c || 0;
+      } catch (e) {
+        // Fallback if command not available
+        console.warn('[AIRI Vision] Could not get GPU telemetry');
+      }
 
       if (temp >= 80) {
         // Emergency - stop capture
