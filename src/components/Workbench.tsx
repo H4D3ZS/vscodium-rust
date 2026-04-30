@@ -488,15 +488,17 @@ const Workbench: React.FC = () => {
                     display: 'flex',
                     flexDirection: 'column'
                 }}>
-                    {/* Top: AIRI Panel (takes remaining space) */}
-                    <div style={{ 
-                        flex: useStore(state => state.isEmulatorPanelOpen) ? 1 : 'auto',
+                    {/* Top: AIRI Panel (always visible, takes remaining space) */}
+                    <div style={{
+                        flex: 1,
                         overflow: 'hidden',
-                        minHeight: useStore(state => state.isEmulatorPanelOpen) ? '400px' : '100%'
+                        minHeight: '300px',
+                        display: 'flex',
+                        flexDirection: 'column'
                     }}>
                         <RightSidebar />
                     </div>
-                    
+
                     {/* Bottom: Emulator Panel (when open) */}
                     {useStore(state => state.isEmulatorPanelOpen) && (
                         <div
@@ -506,7 +508,8 @@ const Workbench: React.FC = () => {
                                 background: 'var(--vscode-editor-background)',
                                 flexShrink: 0,
                                 display: 'flex',
-                                flexDirection: 'column'
+                                flexDirection: 'column',
+                                overflow: 'hidden'
                             }}
                         >
                             <UnifiedEmulatorPanel />
