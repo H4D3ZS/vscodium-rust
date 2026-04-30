@@ -460,6 +460,7 @@ const Workbench: React.FC = () => {
                 </div>
             </div>
 
+            {/* Right Sidebar - Contains BOTH AIRI and Emulator side-by-side */}
             <div
                 className="right-sidebar-container"
                 style={{
@@ -479,25 +480,40 @@ const Workbench: React.FC = () => {
                         style={{ position: 'absolute', left: 0, height: '100%' }}
                     />
                 )}
-                <div style={{ flex: 1, minWidth: isRightSidebarOpen ? '200px' : '0', overflow: 'hidden', height: '100%' }}>
-                    <RightSidebar />
+                <div style={{ 
+                    flex: 1, 
+                    minWidth: isRightSidebarOpen ? '400px' : '0', 
+                    overflow: 'hidden', 
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column'
+                }}>
+                    {/* Top: AIRI Panel (takes remaining space) */}
+                    <div style={{ 
+                        flex: useStore(state => state.isEmulatorPanelOpen) ? 1 : 'auto',
+                        overflow: 'hidden',
+                        minHeight: useStore(state => state.isEmulatorPanelOpen) ? '400px' : '100%'
+                    }}>
+                        <RightSidebar />
+                    </div>
+                    
+                    {/* Bottom: Emulator Panel (when open) */}
+                    {useStore(state => state.isEmulatorPanelOpen) && (
+                        <div
+                            style={{
+                                height: '400px',
+                                borderTop: '1px solid var(--vscode-panel-border)',
+                                background: 'var(--vscode-editor-background)',
+                                flexShrink: 0,
+                                display: 'flex',
+                                flexDirection: 'column'
+                            }}
+                        >
+                            <UnifiedEmulatorPanel />
+                        </div>
+                    )}
                 </div>
             </div>
-
-            {/* Emulator Panel - Separate from AIRI */}
-            {useStore(state => state.isEmulatorPanelOpen) && (
-                <div
-                    className="emulator-panel-container"
-                    style={{
-                        height: '300px',
-                        borderTop: '1px solid var(--vscode-panel-border)',
-                        background: 'var(--vscode-editor-background)',
-                        flexShrink: 0
-                    }}
-                >
-                    <UnifiedEmulatorPanel />
-                </div>
-            )}
 
             {!isVisualLabSplitView && <VisualLab />}
             <AiriOverlay />

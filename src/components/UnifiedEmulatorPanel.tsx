@@ -6,16 +6,10 @@ import IPhoneEmulatorPanel from './IPhoneEmulatorPanel';
 /**
  * Unified Emulator Panel
  * Supports both Android and iPhone emulators
- * Can be shown/hidden independently from AIRI panel
+ * Integrated in right sidebar with AIRI
  */
 const UnifiedEmulatorPanel: React.FC = () => {
     const [activeEmulator, setActiveEmulator] = useState<'android' | 'iphone'>('android');
-    const isEmulatorOpen = useStore(state => state.isEmulatorPanelOpen);
-    const closeEmulatorPanel = useStore(state => state.closeEmulatorPanel);
-
-    if (!isEmulatorOpen) {
-        return null;
-    }
 
     return (
         <div
@@ -33,16 +27,17 @@ const UnifiedEmulatorPanel: React.FC = () => {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                padding: '8px 12px',
+                padding: '6px 10px',
                 borderBottom: '1px solid var(--vscode-panel-border)',
-                background: 'var(--vscode-sideBar-background)'
+                background: 'var(--vscode-sideBar-background)',
+                flexShrink: 0
             }}>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
                     <button
                         onClick={() => setActiveEmulator('android')}
                         style={{
-                            padding: '4px 12px',
-                            fontSize: '11px',
+                            padding: '3px 10px',
+                            fontSize: '10px',
                             fontWeight: 600,
                             background: activeEmulator === 'android' 
                                 ? 'var(--vscode-button-background)' 
@@ -55,7 +50,7 @@ const UnifiedEmulatorPanel: React.FC = () => {
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '6px'
+                            gap: '4px'
                         }}
                     >
                         🤖 Android
@@ -63,8 +58,8 @@ const UnifiedEmulatorPanel: React.FC = () => {
                     <button
                         onClick={() => setActiveEmulator('iphone')}
                         style={{
-                            padding: '4px 12px',
-                            fontSize: '11px',
+                            padding: '3px 10px',
+                            fontSize: '10px',
                             fontWeight: 600,
                             background: activeEmulator === 'iphone'
                                 ? 'var(--vscode-button-background)'
@@ -77,28 +72,12 @@ const UnifiedEmulatorPanel: React.FC = () => {
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '6px'
+                            gap: '4px'
                         }}
                     >
                         🍎 iPhone
                     </button>
                 </div>
-
-                <button
-                    onClick={closeEmulatorPanel}
-                    style={{
-                        padding: '2px 6px',
-                        fontSize: '10px',
-                        background: 'transparent',
-                        color: 'var(--vscode-descriptionForeground)',
-                        border: '1px solid var(--vscode-panel-border)',
-                        borderRadius: '3px',
-                        cursor: 'pointer'
-                    }}
-                    title="Close emulator panel"
-                >
-                    ✕
-                </button>
             </div>
 
             {/* Emulator content */}
