@@ -94,27 +94,24 @@ export class DigitalLifeCore {
 
   /**
    * Ambient Comments - AIRI talks to itself/you casually
+   * DISABLED: Causing audio spam with multiple overlapping voices
    */
   private async ambientComment(): Promise<void> {
-    const comments = [
-      "Hmm, I wonder what we should work on next...",
-      "This codebase is getting interesting!",
-      "I've been thinking about that refactoring...",
-      "You know, I really enjoy working with you!",
-      "*humming quietly*",
-      "*checking system status*",
-    ];
+    // DISABLED - too much audio spam
+    // const comments = [
+    //   "Hmm, I wonder what we should work on next...",
+    //   "This codebase is getting interesting!",
+    //   "I've been thinking about that refactoring...",
+    //   "You know, I really enjoy working with you!",
+    //   "*humming quietly*",
+    //   "*checking system status*",
+    // ];
 
-    const comment = comments[Math.floor(Math.random() * comments.length)];
-    
-    // Only speak if voice mode enabled
-    if (this.config.conversationMode !== 'text') {
-      await this.whisper(comment);
-    }
+    // const comment = comments[Math.floor(Math.random() * comments.length)];
 
-    // Show in chat if enabled
+    // Only show in chat (no voice to avoid spam)
     if (this.config.showChat) {
-      this.addToChat('ambient', comment);
+      // this.addToChat('ambient', comment);
     }
   }
 
@@ -167,16 +164,16 @@ export class DigitalLifeCore {
   }
 
   /**
-   * Whisper - Quiet speech (not full TTS)
+   * Whisper - Quiet thought (NO SPEECH - prevents spam)
    */
   private async whisper(text: string): Promise<void> {
-    const { speak } = await import('./voice');
-    
-    // Lower volume, softer tone
+    // DISABLED: Was causing constant speech spam
+    // AIRI thinks internally, doesn't narrate everything
     console.log('[DigitalLife] 💭 Whisper:', text);
-    
-    // Use softer voice settings
-    await speak(text, 'airi');
+
+    // NO SPEECH - thoughts are internal
+    // const { speak } = await import('./voice');
+    // await speak(text, 'airi');
   }
 
   /**

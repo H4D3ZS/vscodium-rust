@@ -305,8 +305,9 @@ export class BiologicalSystems {
 
     console.log(`[Biology] 💬 ${msg}`);
 
-    // Dispatch to voice system
-    this.speakNeed(msg);
+    // DISABLED: Auto-speech for biological needs (was causing spam)
+    // AIRI doesn't announce hunger/tiredness aloud
+    // this.speakNeed(msg);
   }
 
   /**
