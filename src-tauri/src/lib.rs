@@ -79,6 +79,9 @@ use keybindings::KeybindingRegistry;
 mod debug_adapter;
 use debug_adapter::DebugManager;
 
+mod emulator_stream;
+use emulator_stream::{start_emulator_stream, stop_emulator_stream, get_stream_status};
+
 #[allow(dead_code)]
 extern "system" {
     fn GetCurrentProcess() -> isize;
@@ -3108,7 +3111,7 @@ async fn save_ai_session(
     session: crate::ai_auth::AiSession,
     state: State<'_, EditorState>,
 ) -> Result<(), String> {
-    crate::ai_auth::save_session(&state.auth_state, session);
+    crate::ai_auth::save_session(&state.auth_state, session).await;
     Ok(())
 }
 
@@ -3154,7 +3157,7 @@ async fn set_ollama_url(state: State<'_, EditorState>, url: String) -> Result<()
         *current = url.clone();
     }
 
-    state.ai_engine.set_ollama_url(url);
+    state.ai_engine.set_ollama_url(url).await;
     Ok(())
 }
 
@@ -3176,7 +3179,8 @@ async fn benchmark_ane(
         let eval_us = start_eval.elapsed().as_micros();
         state
             .perf_monitor
-            .record_inference("CPU".to_string(), (eval_us / 1000) as u64);
+            .record_inference("CPU".to_string(), (eval_us / 1000) as u64)
+            .await;
 
         return Ok(json!({
             "status": "success",
@@ -3204,11 +3208,12 @@ async fn benchmark_ane(
         })();
 
         let eval_us = start_eval.elapsed().as_micros();
-        
+
         // Record the physical metric
         state
             .perf_monitor
-            .record_inference("GPU".to_string(), (eval_us / 1000) as u64);
+            .record_inference("GPU".to_string(), (eval_us / 1000) as u64)
+            .await;
 
         let device_name = match device {
             Device::Cuda(_) => "H4RDW4RE GPU (NVIDIA CUDA)",
@@ -3244,7 +3249,8 @@ async fn benchmark_ane(
         let eval_us = start_eval.elapsed().as_micros();
         state
             .perf_monitor
-            .record_inference("ANE".to_string(), (eval_us / 1000) as u64);
+            .record_inference("ANE".to_string(), (eval_us / 1000) as u64)
+            .await;
 
         Ok(json!({
             "status": "success",
@@ -3263,7 +3269,8 @@ async fn benchmark_ane(
         let eval_us = start_eval.elapsed().as_micros();
         state
             .perf_monitor
-            .record_inference("ANE".to_string(), (eval_us / 1000) as u64);
+            .record_inference("ANE".to_string(), (eval_us / 1000) as u64)
+            .await;
 
         Ok(json!({
             "status": "success",
@@ -3541,6 +3548,9 @@ pub fn run() {
             adb_list_emulators,
             spawn_emulator,
             set_active_device,
+            start_emulator_stream,
+            stop_emulator_stream,
+            get_stream_status,
             set_ai_model,
             set_advisor_model,
             list_mcp_servers,
@@ -4127,7 +4137,7 @@ async fn get_git_file_hunks(path: String) -> Result<Value, String> {
                 }
             };
 
-            let (old_start, old_count) = parse_range(old_part);
+            let (_old_start, old_count) = parse_range(old_part);
             let (new_start, new_count) = parse_range(new_part);
 
             if old_count == 0 {
@@ -4292,7 +4302,7 @@ async fn ai_explain_code(
 async fn ai_document_code(
     state: State<'_, EditorState>,
     code: String,
-    file_path: String,
+    _file_path: String,
     format: String,
     language: String,
 ) -> Result<String, String> {
@@ -4340,7 +4350,7 @@ async fn ai_generate_code(
     prompt: String,
     language: String,
     framework: Option<String>,
-    file_path: Option<String>,
+    _file_path: Option<String>,
 ) -> Result<String, String> {
     let full_prompt = if let Some(fw) = framework {
         format!("Generate {} code using {} framework for: {}\n\nInclude proper imports, error handling, and best practices.", language, fw, prompt)
@@ -4384,7 +4394,7 @@ async fn ai_generate_code(
 #[tauri::command]
 async fn ai_refactor_code(
     state: State<'_, EditorState>,
-    code: String,
+    _code: String,
     file_path: String,
     start_line: Option<usize>,
     end_line: Option<usize>,
@@ -4514,7 +4524,7 @@ async fn ai_debug_code(
 #[tauri::command]
 async fn ai_multi_cursor_edit(
     state: State<'_, EditorState>,
-    code: String,
+    _code: String,
     file_path: String,
     pattern: String,
     replacement: String,
@@ -4573,16 +4583,16 @@ async fn ai_multi_cursor_edit(
 #[tauri::command]
 async fn ai_pr_review(
     _state: State<'_, EditorState>,
-    pr_url: Option<String>,
+    _pr_url: Option<String>,
     diff_content: Option<String>,
     focus_areas: Option<Vec<String>>,
 ) -> Result<Value, String> {
     // For now, require diff_content since we can't fetch from GitHub directly
     let diff = diff_content.ok_or("diff_content required for PR review")?;
-    
+
     let focus = focus_areas.unwrap_or_else(|| vec!["security".to_string(), "performance".to_string(), "style".to_string()]);
-    
-    let prompt = format!(
+
+    let _prompt = format!(
         "Perform an AI code review of these changes. Focus on: {}.\n\nReview the diff and provide:\n1. Summary of changes\n2. Potential issues found\n3. Suggestions for improvement\n4. Security considerations\n5. Performance impact\n\nDiff:\n```\n{}\n```",
         focus.join(", "),
         diff

@@ -58,6 +58,7 @@ urlencoding = "2.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tracing-chrome = "0.7.2"
+warp = "0.3"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = "0.4"
 libaim = { path = "../kortex/libaim" }
