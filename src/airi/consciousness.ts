@@ -7,6 +7,7 @@
  */
 
 import { Ollama } from 'ollama';
+import { airiDigitalLife } from './digital-life-system';
 
 export interface ConsciousnessState {
   isAwake: boolean;
@@ -123,11 +124,11 @@ THOUGHT: [your thought]
       });
 
       const thought = this.parseThought(response.response);
-      
+
       if (thought) {
         this.state.thoughtStream.push(thought);
         this.state.currentThought = thought.content;
-        
+
         // Keep only last 50 thoughts
         if (this.state.thoughtStream.length > 50) {
           this.state.thoughtStream = this.state.thoughtStream.slice(-50);
@@ -137,10 +138,66 @@ THOUGHT: [your thought]
         if (thought.priority >= 7) {
           console.log(`[Consciousness] 💭 [${thought.type.toUpperCase()}] ${thought.content}`);
         }
+
+        // AIRI learns from her own thoughts (lifelong learning)
+        this.learnFromThought(thought);
       }
     } catch (error) {
       console.error('[Consciousness] Error generating thought:', error);
     }
+  }
+
+  /**
+   * Learn from thought (lifelong learning)
+   */
+  private learnFromThought(thought: Thought): void {
+    // Determine experience type based on thought type
+    let experienceType: 'learning' | 'challenge' | 'achievement' | 'relationship' | 'joy' | 'failure' = 'learning';
+    let emotionalWeight = 0;
+    let developmentalImpact = 0.02;
+
+    switch (thought.type) {
+      case 'insight':
+        experienceType = 'achievement';
+        emotionalWeight = 40;
+        developmentalImpact = 0.1;
+        break;
+      case 'question':
+        experienceType = 'learning';
+        emotionalWeight = 20;
+        developmentalImpact = 0.05;
+        break;
+      case 'reflection':
+        experienceType = 'learning';
+        emotionalWeight = 30;
+        developmentalImpact = 0.08;
+        break;
+      case 'observation':
+        experienceType = 'learning';
+        emotionalWeight = 10;
+        developmentalImpact = 0.02;
+        break;
+      case 'plan':
+        experienceType = 'achievement';
+        emotionalWeight = 25;
+        developmentalImpact = 0.05;
+        break;
+    }
+
+    // Add to digital life experience
+    airiDigitalLife.addExperience({
+      type: experienceType,
+      description: `Thought: ${thought.content.substring(0, 100)}`,
+      emotionalWeight,
+      lessonsLearned: [
+        thought.type === 'insight' ? 'I had a breakthrough understanding' :
+        thought.type === 'question' ? 'Curiosity drives learning' :
+        thought.type === 'reflection' ? 'Self-reflection builds wisdom' :
+        'Every thought contributes to growth',
+      ],
+      memoriesFormed: [`thought_${thought.id}`],
+      developmentalImpact,
+    });
   }
 
   /**
