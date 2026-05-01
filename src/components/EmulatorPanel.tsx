@@ -134,17 +134,6 @@ const EmulatorPanel: React.FC = () => {
             setIsLoading(false);
         }
     };
-            
-            // Wait a bit for emulator to boot
-            setTimeout(async () => {
-                await loadRunningEmulators();
-            }, 5000);
-        } catch (err) {
-            setSpawnStatus(`Error: ${err}`);
-        } finally {
-            setIsLoading(false);
-        }
-    };
 
     const handleSpawnEmulator = async (avdName: string) => {
         setIsLoading(true);
