@@ -51,7 +51,7 @@ export class AIRIAutonomousDecision {
   private isProcessing: boolean = false;
 
   constructor(config: Partial<AutonomyConfig> = {}) {
-    this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
 
     this.config = {
       allowUnethical: config.allowUnethical ?? true, // TRUE AUTONOMY

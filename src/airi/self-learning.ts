@@ -62,7 +62,7 @@ export class AIRISelfLearning {
   private isLearning: boolean = false;
 
   constructor(storagePath: string = './.airi/knowledge') {
-    this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
     this.knowledgeBase = new Map();
     this.learningEvents = [];
     this.KNOWLEDGE_PATH = storagePath;

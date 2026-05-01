@@ -72,7 +72,7 @@ export class AIRIAutonomousAgent {
   private readonly MODEL = 'qwen3.6:14b-q4_K_M';
 
   constructor(workspacePath: string) {
-    this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
     this.workspacePath = workspacePath;
 
   }

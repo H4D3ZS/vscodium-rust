@@ -33,7 +33,7 @@ export class AIRISecurityEngine {
   private readonly MODEL = 'qwen3.6:14b-q4_K_M';
 
   constructor() {
-    this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
   }
 
   /**

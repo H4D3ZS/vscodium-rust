@@ -31,7 +31,7 @@ export class AIRISocialInteraction {
   private currentContext: SocialContext | null = null;
 
   constructor() {
-    this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
     this.relationships = new Map();
 
   }

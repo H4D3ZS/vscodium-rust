@@ -51,7 +51,7 @@ export class AIRIConsciousness {
   private readonly MODEL = 'airi-personality';
 
   constructor() {
-    this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
 
     this.state = {
       isAwake: true,

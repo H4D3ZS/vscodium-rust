@@ -53,7 +53,7 @@ export class AIRISelfHealing {
   private workspacePath: string;
 
   constructor(workspacePath: string) {
-    this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
     this.workspacePath = workspacePath;
     
     this.state = {
@@ -340,7 +340,7 @@ LINE: [approximate line number]
     
     // Check if Ollama is running
     try {
-      const response = await fetch('http://localhost:1536/api/tags');
+      const response = await fetch('http://localhost:11434/api/tags');
       if (!response.ok) {
         issues.push({
           id: `sys_${Date.now()}`,

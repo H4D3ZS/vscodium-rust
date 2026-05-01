@@ -103,7 +103,7 @@ export class AIRICore {
   constructor(config: Partial<AIRIConfig> = {}) {
     this.config = {
       workspacePath: config.workspacePath || (typeof process !== 'undefined' ? process.cwd() : '/'),
-      ollamaHost: config.ollamaHost || 'http://localhost:1536', // AIM proxy
+      ollamaHost: config.ollamaHost || 'http://localhost:11434', // AIM proxy
       consciousnessEnabled: config.consciousnessEnabled ?? true,
       biologyEnabled: config.biologyEnabled ?? true,
       autonomousWorkEnabled: config.autonomousWorkEnabled ?? true,

@@ -72,7 +72,7 @@ export class AIRIAutonomousDevelopment {
   private isWorking: boolean = false;
 
   constructor(workspacePath: string) {
-    this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
     this.goals = [];
     this.activeGoal = null;
     this.workspacePath = workspacePath;

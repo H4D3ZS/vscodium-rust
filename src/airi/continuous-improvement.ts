@@ -47,7 +47,7 @@ export class AIRIContinuousImprovement {
   private cycleCount: number = 0;
 
   constructor(codebasePath: string) {
-    this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
     this.optimizations = [];
     this.evolutionHistory = [];
     this.codebasePath = codebasePath;

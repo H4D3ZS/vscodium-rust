@@ -36,7 +36,7 @@ export class AIRISelfEvolution {
   private codebasePath: string;
 
   constructor(codebasePath: string) {
-    this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
     this.goals = [];
     this.improvementHistory = [];
     this.codebasePath = codebasePath;
