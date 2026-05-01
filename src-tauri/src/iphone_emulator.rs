@@ -32,9 +32,32 @@ impl iPhoneEmulatorManager {
             return Err(format!("Project path not found: {}", project_path));
         }
 
+        // Find Flutter executable
+        let flutter_exe = std::env::var("FLUTTER_ROOT")
+            .map(|root| format!("{}\\bin\\flutter.exe", root))
+            .unwrap_or_else(|_| {
+                // Try common locations
+                let common_paths = vec![
+                    r"C:\Program Files\flutter\bin\flutter.bat".to_string(),
+                    r"C:\src\flutter\bin\flutter.bat".to_string(),
+                    r"C:\flutter\bin\flutter.bat".to_string(),
+                    "flutter".to_string(), // Fallback to PATH
+                ];
+                
+                // Check which one exists
+                for path in common_paths {
+                    if path == "flutter" || std::path::Path::new(&path).exists() {
+                        return path;
+                    }
+                }
+                
+                "flutter".to_string()
+            });
+
+        println!("[iPhone] Using Flutter: {}", flutter_exe);
+
         // Launch Flutter as native Windows app
-        // This creates a REAL native window (not web, not iframe)
-        let child = Command::new("flutter")
+        let child = Command::new(&flutter_exe)
             .args(&["run", "-d", "windows"])
             .current_dir(flutter_path)
             .stdout(Stdio::piped())
