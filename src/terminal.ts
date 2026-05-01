@@ -6,12 +6,19 @@
 import { invoke, listen } from './tauri_bridge.ts';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { SearchAddon, ISearchOptions } from '@xterm/addon-search';
+import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { CanvasAddon } from '@xterm/addon-canvas';
 import '@xterm/xterm/css/xterm.css';
+
+export interface ISearchOptions {
+  regex?: boolean;
+  wholeWord?: boolean;
+  caseSensitive?: boolean;
+  incremental?: boolean;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
