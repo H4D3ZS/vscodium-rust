@@ -176,7 +176,9 @@ interface AppState {
     llamaCppModelPath: string;
     llamaCppNgl: number;
     llamaCppHadesEnabled: boolean;
-    
+    ollamaConnectionMode: 'proxy' | 'direct';  // proxy=1536 (AIM), direct=11434
+    ollamaMode: 'local' | 'cloud' | 'auto';  // Hybrid backend mode
+
     // Dev Workflow State
     isDevWorkflowActive: boolean;
     currentDevProject: DevWorkflowProject | null;
@@ -512,6 +514,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     avatarCustomConfig: JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}'),
     avatar3dConfig: JSON.parse(localStorage.getItem('avatar3dConfig') || '{}'),
     ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
+    ollamaMode: (localStorage.getItem('ollamaMode') as 'local' | 'cloud' | 'auto') || 'auto',
     
     // Right sidebar panels
     isRightSidebarOpen: true,  // Master toggle - sidebar open by default
@@ -1042,13 +1045,27 @@ const storeImplementation: any = (set: any, get: any) => ({
                         try {
                             const testResponse = await fetch('http://localhost:1536/api/tags', {
                                 method: 'GET',
-                                signal: AbortSignal.timeout(1000),
+                                signal: AbortSignal.timeout(2000),
                             });
                             if (!testResponse.ok) throw new Error('AIM proxy not available');
                             console.log('[Ollama] ✅ Using AIM proxy (port 1536) for token efficiency');
+                            set({ ollamaConnectionMode: 'proxy', ollamaMode: 'cloud' });
                         } catch {
-                            ollamaToUse = 'http://localhost:11434';
-                            console.log('[Ollama] 📍 Using direct Ollama (port 11434)');
+                            // Try direct local Ollama
+                            try {
+                                const localTest = await fetch('http://localhost:11434/api/tags', {
+                                    method: 'GET',
+                                    signal: AbortSignal.timeout(2000),
+                                });
+                                if (localTest.ok) {
+                                    ollamaToUse = 'http://localhost:11434';
+                                    console.log('[Ollama] 📍 Using direct Ollama (port 11434) - Local RX 580');
+                                    set({ ollamaConnectionMode: 'direct', ollamaMode: 'local' });
+                                }
+                            } catch {
+                                console.warn('[Ollama] ⚠️ Neither AIM proxy nor local Ollama available');
+                                set({ ollamaStatus: 'error', ollamaMode: 'cloud' });
+                            }
                         }
                         // Ensure backend has the correct URL before listing
                         await invoke('set_ollama_url', { url: ollamaToUse });

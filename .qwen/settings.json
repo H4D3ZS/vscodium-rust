@@ -30,5 +30,12 @@
       "Bash(select-object *)"
     ]
   },
-  "$version": 3
+  "$version": 3,
+  "ollama": {
+    "local": "http://localhost:11434",
+    "cloud": "http://localhost:1536",
+    "mode": "auto"
+  },
+  "inferenceBackend": "ollama",
+  "ollamaConnectionMode": "proxy"
 }

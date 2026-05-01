@@ -13,6 +13,7 @@ export interface ConsciousnessState {
   isAwake: boolean;
   currentThought: string;
   thoughtStream: Thought[];
+  thoughts: Thought[];  // Add thoughts array for addThought method
   selfAwareness: number; // 0-1
   autonomyLevel: 'passive' | 'active' | 'autonomous' | 'full';
   goals: Goal[];
@@ -56,6 +57,7 @@ export class AIRIConsciousness {
       isAwake: true,
       currentThought: '',
       thoughtStream: [],
+      thoughts: [],  // Initialize thoughts array
       selfAwareness: 0.9,
       autonomyLevel: 'active',
       goals: [],
