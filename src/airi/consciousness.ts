@@ -90,10 +90,14 @@ export class AIRIConsciousness {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       
+      console.log('[AIRI Vision] Starting screen check...');
+      
       // Get temporal analysis from last 5 frames (continuous vision)
       const analysis = await invoke('hades_vision_get_temporal_analysis', {
         frameCount: 5,
       });
+
+      console.log('[AIRI Vision] Analysis received:', analysis);
 
       this.state.lastScreenAnalysis = JSON.stringify({
         status: 'healthy',
@@ -103,7 +107,7 @@ export class AIRIConsciousness {
       this.state.lastVisionCheck = Date.now();
 
       // Add thought about what AIRI saw
-      if (analysis && typeof analysis === 'string') {
+      if (analysis && typeof analysis === 'string' && analysis.length > 10) {
         this.addThought({
           id: Date.now().toString(),
           content: `I see: ${analysis}`,
@@ -113,10 +117,13 @@ export class AIRIConsciousness {
         });
       }
     } catch (error: any) {
-      // Silent fail - vision is optional
-      if (error.message && !error.message.includes('not found')) {
-        console.warn('[AIRI Vision] Check failed:', error.message);
-      }
+      console.warn('[AIRI Vision] Check failed:', error.message);
+      // Store error for debugging
+      this.state.lastScreenAnalysis = JSON.stringify({
+        status: 'error',
+        error: error.message,
+        timestamp: Date.now(),
+      });
     }
   }
 
