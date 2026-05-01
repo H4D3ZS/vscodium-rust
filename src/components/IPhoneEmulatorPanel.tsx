@@ -23,54 +23,31 @@ const IPhoneEmulatorPanel: React.FC = () => {
             // Launch Flutter iPhone Emulator
             const flutterPath = 'F:/Virtual-iPhone-Emulator/frontend';
             
-            // Try to launch via Flutter command
-            const { invoke } = await import('@tauri-apps/api/core');
+            // Call Tauri command to launch Flutter
+            const result = await invoke('launch_iphone_emulator', {
+                projectPath: flutterPath,
+            });
             
-            try {
-                // Launch Flutter app in web mode and embed via iframe
-                await invoke('launch_iphone_emulator', {
-                    projectPath: flutterPath,
-                    launchMode: 'web',
+            console.log('[iPhone] Launch result:', result);
+            setStatus('booting');
+            
+            // Simulate realistic boot progress
+            const bootInterval = setInterval(() => {
+                setBootProgress(prev => {
+                    if (prev >= 100) {
+                        clearInterval(bootInterval);
+                        setStatus('connected');
+                        setIsRunning(true);
+                        return 100;
+                    }
+                    return prev + 2;
                 });
-                
-                setStatus('booting');
-                
-                // Simulate boot progress
-                const bootInterval = setInterval(() => {
-                    setBootProgress(prev => {
-                        if (prev >= 100) {
-                            clearInterval(bootInterval);
-                            setStatus('connected');
-                            setIsRunning(true);
-                            return 100;
-                        }
-                        return prev + 5;
-                    });
-                }, 200);
-                
-            } catch (tauriError) {
-                // Fallback: Show embedded web view
-                console.log('[iPhone] Opening Flutter web view...');
-                setStatus('booting');
-                
-                // Simulate boot progress
-                const bootInterval = setInterval(() => {
-                    setBootProgress(prev => {
-                        if (prev >= 100) {
-                            clearInterval(bootInterval);
-                            setStatus('connected');
-                            setIsRunning(true);
-                            return 100;
-                        }
-                        return prev + 2;
-                    });
-                }, 300);
-            }
+            }, 300);
+            
         } catch (error) {
             setStatus('error');
             setErrorMessage(`Failed to launch iPhone emulator: ${error}`);
             console.error('[iPhone] Launch error:', error);
-        } finally {
             setIsLoading(false);
         }
     };
@@ -304,22 +281,27 @@ const IPhoneEmulatorPanel: React.FC = () => {
                         </div>
                     </div>
                 ) : (
-                    /* Running - show iframe to Flutter web app */
+                    /* Running - show Flutter web app */
                     <div style={{
                         width: '100%',
                         height: '100%',
                         display: 'flex',
-                        flexDirection: 'column'
+                        flexDirection: 'column',
+                        background: '#000'
                     }}>
+                        {/* Flutter web app loads here after boot */}
                         <iframe
                             ref={iframeRef}
-                            src="http://localhost:5175"
+                            src="http://localhost:5173"
                             style={{
                                 flex: 1,
                                 border: 'none',
-                                background: '#000'
+                                background: '#000',
+                                width: '100%',
+                                height: '100%'
                             }}
                             title="iPhone Emulator"
+                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                         />
                     </div>
                 )}

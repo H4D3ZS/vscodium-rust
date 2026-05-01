@@ -48,6 +48,8 @@ use knowledge_distiller::KnowledgeDistiller;
 mod vision_bridge;
 mod workflow_engine;
 mod kairos;
+mod iphone_emulator;
+use iphone_emulator::{iPhoneEmulatorManager, launch_iphone_emulator, stop_iphone_emulator, is_iphone_emulator_running};
 mod vfs_bridge;
 mod mcp_server;
 mod memory_layer;
@@ -3507,6 +3509,10 @@ pub fn run() {
             let mcp_registry = state.mcp_registry.clone();
             app.manage(state.attachment_manager.clone());
             app.manage(state);
+            
+            // Manage iPhone Emulator
+            let iphone_manager = iPhoneEmulatorManager::new();
+            app.manage(iphone_manager);
 
             // Initialize MCP servers in background
             tauri::async_runtime::spawn(async move {
@@ -3636,6 +3642,10 @@ pub fn run() {
             get_process_stats,
             resolve_keybinding,
             set_context_key,
+            // iPhone Emulator commands
+            launch_iphone_emulator,
+            stop_iphone_emulator,
+            is_iphone_emulator_running,
             evaluate_when_clause,
             get_settings,
             update_settings,
