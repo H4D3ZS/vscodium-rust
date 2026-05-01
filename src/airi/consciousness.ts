@@ -82,43 +82,34 @@ export class AIRIConsciousness {
   }
 
   /**
-   * Check screen using vision (real-time awareness)
+   * Check screen using HADES Vision (real-time framebuffer streaming)
    */
   async checkScreen(): Promise<void> {
     if (!this.state.visionEnabled) return;
 
     try {
-      // Call Tauri vision command
       const { invoke } = await import('@tauri-apps/api/core');
       
-      // Use local vision model (moondream:latest for RX 580 8GB)
-      // or cloud model (qwen2.5-vl:72b) for better quality
-      const analysis = await invoke('airi_vision_analyze_screen', {
-        prompt: 'What is happening on this screen? Note any errors, UI elements, or important changes.',
-        ollamaUrl: 'http://localhost:11434',
-        model: 'moondream:latest', // Your existing model (1.7GB, perfect for RX 580)
+      // Get temporal analysis from last 5 frames (continuous vision)
+      const analysis = await invoke('hades_vision_get_temporal_analysis', {
+        frameCount: 5,
       });
 
-      this.state.lastScreenAnalysis = JSON.stringify(analysis);
+      this.state.lastScreenAnalysis = JSON.stringify({
+        status: 'healthy',
+        description: analysis,
+        timestamp: Date.now(),
+      });
       this.state.lastVisionCheck = Date.now();
 
       // Add thought about what AIRI saw
-      const result = analysis as any;
-      if (result.status === 'error' || result.error_message) {
+      if (analysis && typeof analysis === 'string') {
         this.addThought({
           id: Date.now().toString(),
-          content: `I noticed an error on screen: ${result.error_message || 'Something is wrong'}`,
+          content: `I see: ${analysis}`,
           type: 'observation',
           timestamp: Date.now(),
-          priority: 8
-        });
-      } else if (result.ui_elements && result.ui_elements.length > 0) {
-        this.addThought({
-          id: Date.now().toString(),
-          content: `I can see ${result.ui_elements.length} UI elements on screen. The interface looks ${result.status}.`,
-          type: 'observation',
-          timestamp: Date.now(),
-          priority: 5
+          priority: 6
         });
       }
     } catch (error: any) {

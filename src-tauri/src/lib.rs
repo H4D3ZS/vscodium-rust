@@ -46,6 +46,7 @@ use attachment_manager::{AttachmentManager, select_and_process_attachment};
 mod knowledge_distiller;
 use knowledge_distiller::KnowledgeDistiller;
 mod vision_bridge;
+mod hades_vision;
 mod workflow_engine;
 mod kairos;
 mod iphone_emulator;
@@ -3517,6 +3518,15 @@ pub fn run() {
             let iphone_manager = iPhoneEmulatorManager::new();
             app.manage(iphone_manager);
 
+            // Initialize HADES Vision (Real-time framebuffer streaming)
+            hades_vision::init_hades_vision(
+                5,  // 5 FPS (human-like attention)
+                "http://localhost:11434",
+                "llava-v1.6-mistral-7b",  // Local model (fast, RX 580 friendly)
+                "qwen2.5-vl:72b",  // Cloud model (MI300X, high quality)
+                false,  // Start with local
+            );
+
             // Initialize MCP servers in background
             tauri::async_runtime::spawn(async move {
                 let _ = mcp_registry.initialize_servers().await;
@@ -3596,6 +3606,11 @@ pub fn run() {
             // AIRI Vision - Real-time screen awareness
             airi_vision_analyze_screen,
             airi_vision_capture_screen,
+            // HADES Vision - Continuous framebuffer streaming
+            hades_vision_get_current_view,
+            hades_vision_get_temporal_analysis,
+            hades_vision_switch_to_cloud,
+            hades_vision_switch_to_local,
             set_ai_model,
             set_advisor_model,
             list_mcp_servers,

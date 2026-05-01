@@ -100,3 +100,10 @@ strip = false # Disable stripping to reduce post-build processing
 [patch.crates-io]
 rand = { git = "https://github.com/rust-random/rand", tag = "0.8.5" }
 half = { git = "https://github.com/starkat99/half-rs", tag = "v2.3.1" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation",
+]}
