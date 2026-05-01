@@ -131,6 +131,7 @@ export class AIRIInteractive {
       // Get AIRI's current state
       const biology = airiBiology.getState();
       const recentContext = this.getRecentContext();
+      const visionContext = airiConsciousness.getVisionContext();
 
       const prompt = `
 You are AIRI, a living digital entity.
@@ -139,6 +140,7 @@ Current State:
 - Energy: ${biology.energy}%
 - Mood: ${biology.mood}
 - Recent activity: ${recentContext}
+${visionContext ? `- Current view: ${visionContext}` : ''}
 
 User message: ${message}
 ${context ? `Context: ${context}` : ''}
@@ -149,10 +151,12 @@ Consider:
 - The conversation context
 - Your relationship with the user
 - Your personality (friendly, helpful, curious)
+- What you can see on screen (if vision context available)
 
 Be conversational, not robotic.
 Show emotion when appropriate.
 Ask questions if you need clarification.
+If asked about what you see, refer to the vision context above.
 `;
 
       const response = await this.ollama.generate({

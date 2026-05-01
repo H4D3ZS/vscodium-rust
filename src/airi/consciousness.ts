@@ -339,10 +339,40 @@ THOUGHT: [your thought]
   }
 
   /**
-   * Get current consciousness state
+   * Get current consciousness state with vision context
    */
   getState(): ConsciousnessState {
     return { ...this.state };
+  }
+
+  /**
+   * Get vision context for chat responses
+   */
+  getVisionContext(): string {
+    if (!this.state.lastScreenAnalysis) return '';
+    
+    try {
+      const analysis = JSON.parse(this.state.lastScreenAnalysis);
+      const timeSinceCheck = Date.now() - this.state.lastVisionCheck;
+      const minutesAgo = Math.floor(timeSinceCheck / 60000);
+      
+      if (minutesAgo > 5) return ''; // Too old
+      
+      let context = `[Vision - ${minutesAgo}min ago]: `;
+      if (analysis.ui_elements && analysis.ui_elements.length > 0) {
+        context += `I can see: ${analysis.ui_elements.join(', ')}. `;
+      }
+      if (analysis.error_message) {
+        context += `Error detected: ${analysis.error_message}. `;
+      }
+      if (analysis.suggested_action) {
+        context += `Suggestion: ${analysis.suggested_action}`;
+      }
+      
+      return context;
+    } catch {
+      return '';
+    }
   }
 
   /**
