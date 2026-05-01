@@ -774,3 +774,20 @@ export const registerTerminalShortcuts = (manager: TerminalManager) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const terminalManager = new TerminalManager();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEGACY INIT FUNCTION (for App.tsx compatibility)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const initTerminal = async (addTerminalGroup: (shell: string) => void) => {
+  // Create initial terminal with default profile
+  try {
+    const id = await terminalManager.createTerminal();
+    const instance = terminalManager.getTerminal(id);
+    if (instance) {
+      addTerminalGroup(instance.shell);
+    }
+  } catch (e) {
+    console.warn('Failed to create initial terminal:', e);
+  }
+};
