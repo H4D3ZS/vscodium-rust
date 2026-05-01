@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { terminalManager, getVSCodeTheme } from '../../terminal';
-import { SearchAddon } from '@xterm/addon-search';
+import { terminalManager, getVSCodeTheme, registerTerminalShortcuts } from '../../terminal';
+import { SearchAddon, ISearchOptions } from '@xterm/addon-search';
 import TerminalFindWidget from './TerminalFindWidget';
 import { useStore } from '../../store';
 
@@ -13,97 +13,132 @@ interface TerminalInstanceProps {
 const TerminalInstance: React.FC<TerminalInstanceProps> = ({ id, groupId, active }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const setActiveInstance = useStore(state => state.setActiveTerminalInstance);
-    
-    const [searchAddon, setSearchAddon] = useState<SearchAddon | null>(null);
+    const [findAddon, setFindAddon] = useState<SearchAddon | null>(null);
     const [findVisible, setFindVisible] = useState(false);
+    const [searchOptions, setSearchOptions] = useState<ISearchOptions>({
+        regex: false,
+        wholeWord: false,
+        caseSensitive: false,
+        incremental: false
+    });
 
-    // Initial attachment and re-attachment on container change
+    // Initial attachment
     useEffect(() => {
         if (containerRef.current) {
             terminalManager.attach(id, containerRef.current);
-            const t = terminalManager.terminals.get(id);
+            const t = terminalManager.getTerminal(id);
             if (t) {
-                setSearchAddon(t.searchAddon);
+                setFindAddon(t.searchAddon);
             }
         }
+        
+        // Register shortcuts once
+        registerTerminalShortcuts(terminalManager);
     }, [id]);
 
-    // Handle visibility changes
+    // Handle visibility and focus
     useEffect(() => {
         if (active && containerRef.current) {
             terminalManager.resize(id);
-            const t = terminalManager.terminals.get(id);
-            if (t) t.term.focus();
+            const t = terminalManager.getTerminal(id);
+            if (t) {
+                t.term.focus();
+                setActiveInstance(groupId, id);
+            }
         }
-    }, [active, id]);
+    }, [active, id, groupId, setActiveInstance]);
 
     // Resize handling
     useEffect(() => {
         if (!containerRef.current) return;
-        
+
         const observer = new ResizeObserver(() => {
             if (active) {
                 terminalManager.resize(id);
             }
         });
-        
+
         observer.observe(containerRef.current);
         return () => observer.disconnect();
     }, [id, active]);
 
+    // Theme updates
     const currentTheme = useStore(state => state.theme);
     useEffect(() => {
-        terminalManager.setTheme(id, getVSCodeTheme());
-    }, [currentTheme, id]);
+        terminalManager.updateAllThemes();
+    }, [currentTheme]);
 
-    // Keyboard Shortcuts
+    // Keyboard shortcuts for find widget
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!active) return;
-            
-            // Cmd+F (Mac) or Ctrl+F (Others)
-            if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+
+            // Ctrl+F or Cmd+F - Find
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
                 e.preventDefault();
                 setFindVisible(prev => !prev);
+            }
+            
+            // Escape - Close find widget
+            if (e.key === 'Escape' && findVisible) {
+                setFindVisible(false);
+                const t = terminalManager.getTerminal(id);
+                if (t) t.term.focus();
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [active]);
+    }, [active, findVisible, id]);
 
     return (
-        <div 
+        <div
             className={`terminal-instance-wrapper ${active ? 'active' : ''}`}
             onClick={() => setActiveInstance(groupId, id)}
-            style={{ 
+            style={{
                 flex: 1,
-                width: '100%', 
+                width: '100%',
                 height: '100%',
                 background: 'var(--vscode-terminal-background, #1e1e1e)',
-                borderLeft: active ? '1px solid var(--vscode-terminal-tab-activeBorder, #007acc)' : '1px solid transparent',
+                borderLeft: active ? '2px solid var(--vscode-terminal-tab-activeBorder, #007acc)' : '1px solid transparent',
                 position: 'relative',
                 overflow: 'hidden',
                 display: active ? 'flex' : 'none',
                 flexDirection: 'column'
-            }} 
+            }}
         >
-            <TerminalFindWidget 
-                searchAddon={searchAddon} 
-                visible={findVisible} 
+            {/* Find Widget */}
+            <TerminalFindWidget
+                searchAddon={findAddon}
+                visible={findVisible}
+                options={searchOptions}
+                onOptionsChange={setSearchOptions}
                 onClose={() => {
                     setFindVisible(false);
-                    const t = terminalManager.terminals.get(id);
+                    const t = terminalManager.getTerminal(id);
                     if (t) t.term.focus();
-                }} 
+                }}
+                onFindNext={(term: string) => {
+                    terminalManager.findNext(id, term, searchOptions);
+                }}
+                onFindPrevious={(term: string) => {
+                    terminalManager.findPrevious(id, term, searchOptions);
+                }}
             />
-            <div 
+            
+            {/* Terminal Container */}
+            <div
                 ref={containerRef}
-                style={{ 
-                    flex: 1, 
-                    width: '100%', 
+                className="terminal-container"
+                style={{
+                    flex: 1,
+                    width: '100%',
                     height: '100%',
-                    position: 'relative'
+                    overflow: 'hidden'
+                }}
+                onContextMenu={(e) => {
+                    e.preventDefault();
+                    // Context menu is handled by xterm's onContextMenu
                 }}
             />
         </div>

@@ -1,17 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { SearchAddon } from '@xterm/addon-search';
+import { SearchAddon, ISearchOptions } from '@xterm/addon-search';
 
 interface TerminalFindWidgetProps {
     searchAddon: SearchAddon | null;
     visible: boolean;
+    options?: ISearchOptions;
+    onOptionsChange?: (options: ISearchOptions) => void;
     onClose: () => void;
+    onFindNext?: (term: string) => void;
+    onFindPrevious?: (term: string) => void;
 }
 
-const TerminalFindWidget: React.FC<TerminalFindWidgetProps> = ({ searchAddon, visible, onClose }) => {
+const TerminalFindWidget: React.FC<TerminalFindWidgetProps> = ({ 
+    searchAddon, 
+    visible, 
+    options,
+    onOptionsChange,
+    onClose,
+    onFindNext,
+    onFindPrevious
+}) => {
     const [searchTerm, setSearchTerm] = useState('');
-    const [isCaseSensitive, setIsCaseSensitive] = useState(false);
-    const [isWholeWord, setIsWholeWord] = useState(false);
-    const [isRegex, setIsRegex] = useState(false);
+    const [isCaseSensitive, setIsCaseSensitive] = useState(options?.caseSensitive || false);
+    const [isWholeWord, setIsWholeWord] = useState(options?.wholeWord || false);
+    const [isRegex, setIsRegex] = useState(options?.regex || false);
     const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -21,22 +33,38 @@ const TerminalFindWidget: React.FC<TerminalFindWidgetProps> = ({ searchAddon, vi
         }
     }, [visible]);
 
+    useEffect(() => {
+        if (options) {
+            setIsCaseSensitive(options.caseSensitive || false);
+            setIsWholeWord(options.wholeWord || false);
+            setIsRegex(options.regex || false);
+        }
+    }, [options]);
+
     const handleSearch = (next = true) => {
-        if (!searchAddon || !searchTerm) return;
-        
-        if (next) {
-            searchAddon.findNext(searchTerm, {
-                caseSensitive: isCaseSensitive,
-                wholeWord: isWholeWord,
-                regex: isRegex,
-                incremental: true
-            });
-        } else {
-            searchAddon.findPrevious(searchTerm, {
-                caseSensitive: isCaseSensitive,
-                wholeWord: isWholeWord,
-                regex: isRegex
-            });
+        if (!searchTerm) return;
+
+        const searchOptions: ISearchOptions = {
+            caseSensitive: isCaseSensitive,
+            wholeWord: isWholeWord,
+            regex: isRegex,
+            incremental: true
+        };
+
+        if (onOptionsChange) {
+            onOptionsChange(searchOptions);
+        }
+
+        if (next && onFindNext) {
+            onFindNext(searchTerm);
+        } else if (!next && onFindPrevious) {
+            onFindPrevious(searchTerm);
+        } else if (searchAddon) {
+            if (next) {
+                searchAddon.findNext(searchTerm, searchOptions);
+            } else {
+                searchAddon.findPrevious(searchTerm, searchOptions);
+            }
         }
     };
 
