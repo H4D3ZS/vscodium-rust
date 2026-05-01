@@ -227,8 +227,8 @@ pub async fn airi_vision_analyze_screen(
     // Capture screen
     let screenshot = capture_screen().map_err(|e| format!("Capture failed: {}", e))?;
     
-    // Use provided model or default to moondream:1.8b (good for 8GB VRAM)
-    let vision_model = model.unwrap_or_else(|| "moondream:1.8b".to_string());
+    // Use provided model or default to moondream:latest (your existing model)
+    let vision_model = model.unwrap_or_else(|| "moondream:latest".to_string());
     
     // Analyze with vision model
     analyze_screen(&prompt, &screenshot, &ollama_url, &vision_model)
