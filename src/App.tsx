@@ -115,8 +115,17 @@ const App: React.FC = () => {
             }
         });
         
-        // Expose store to window for global access
-        (window as any).useStore = useStore;
+        // Expose store actions and state to window for global access
+        const store = useStore.getState();
+        (window as any).useStore = {
+            getState: () => useStore.getState(),
+            setState: (state: any) => useStore.setState(state),
+            subscribe: useStore.subscribe,
+            // Expose all actions directly
+            setIsAgentThinking: useStore.getState().setIsAgentThinking,
+            addAgentMessage: useStore.getState().addAgentMessage,
+            setActivePanelTab: useStore.getState().setActivePanelTab,
+        };
         
         return () => unsubDiag();
     }, []);
