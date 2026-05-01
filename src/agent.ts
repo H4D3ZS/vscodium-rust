@@ -928,7 +928,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
             const response = await hadesOllama.chat([
                 { role: 'user', content: userPrompt }
             ]);
-            
+
             // Update UI with response
             store.setIsAgentThinking(false);
             store.updateLastAgentMessage(response.response || '');
@@ -936,7 +936,16 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
         } catch (error: any) {
             console.error('[HADES-Ollama] Error:', error);
             store.setIsAgentThinking(false);
-            store.updateLastAgentMessage(`**HADES-Ollama Error:** ${error.message}`);
+            
+            // Better error messages
+            let errorMsg = `**HADES-Ollama Error:** ${error.message}`;
+            if (error.message.includes('model') || error.message.includes('not found')) {
+                errorMsg += `\n\n**Model not found in Ollama!**\n\nPull a model first:\n\`\`\`bash\nssh root@your-cloud-ip\nollama pull qwen2.5-coder:7b\n\`\`\``;
+            } else if (error.message.includes('fetch') || error.message.includes('ECONNREFUSED')) {
+                errorMsg += `\n\n**Cannot connect to Ollama!**\n\nMake sure SSH tunnel is running:\n\`\`\`bash\nssh -L 11434:localhost:11434 root@your-cloud-ip\n\`\`\``;
+            }
+            
+            store.updateLastAgentMessage(errorMsg);
             return;
         }
     }
