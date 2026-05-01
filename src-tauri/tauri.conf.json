@@ -16,15 +16,14 @@
         "label": "main",
         "title": "vscode-rust-app",
         "url": "index.html",
-        "width": 1024,
-        "height": 768,
-        "hiddenTitle": true,
-        "titleBarStyle": "Overlay",
+        "width": 1280,
+        "height": 800,
+        "decorations": false,
         "additionalBrowserArgs": "--process-per-site --renderer-process-limit=1 --disable-features=SharedArrayBuffer --disable-gpu-shader-disk-cache"
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:11434 https://*.gallery.vsassets.io https://open-vsx.org; script-src 'self' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; img-src 'self' data: https: asset:; style-src 'self' 'unsafe-inline' data: http://localhost:5173 https://fonts.googleapis.com asset:; font-src 'self' data: https://fonts.gstatic.com asset:;"
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:11434 http://localhost:5173 http://localhost:5175 https://*.gallery.vsassets.io https://open-vsx.org; script-src 'self' https://cdn.jsdelivr.net; frame-src 'self' http://localhost:5173 http://localhost:5175; worker-src 'self' blob: https://cdn.jsdelivr.net; img-src 'self' data: https: asset:; style-src 'self' 'unsafe-inline' data: http://localhost:5173 http://localhost:5175 https://fonts.googleapis.com asset:; font-src 'self' data: https://fonts.gstatic.com asset:;"
     }
   },
   "bundle": {

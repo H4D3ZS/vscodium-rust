@@ -19,6 +19,8 @@ import { initTerminal } from './terminal';
 import { initAgent } from './agent';
 import { initTheme } from './theme_engine';
 import CommandPalette from './components/CommandPalette';
+import QuickOpen from './components/QuickOpen';
+import RightSidebar from './components/RightSidebar';
 
 const ContextMenu: React.FC = () => {
     const isOpen = useStore(state => state.isContextMenuOpen);
@@ -78,12 +80,25 @@ const App: React.FC = () => {
         else document.body.classList.add('is-web');
         // ----------------------------------------
 
-        const { refreshAvailableModels, setActiveRoot, activeRoot } = useStore.getState();
+        const { refreshAvailableModels, setActiveRoot, activeRoot, refreshFileTree } = useStore.getState();
         refreshAvailableModels();
 
-        // Sync active root with backend on startup
+        // Restore the active project root on startup.
+        // Priority: 1) localStorage (user's last session), 2) backend's cwd (first launch).
         if (activeRoot) {
-            setActiveRoot(activeRoot);
+            // We have a saved root — tell the backend and load the file tree
+            invoke('set_active_root', { path: activeRoot })
+                .then(() => refreshFileTree())
+                .catch(console.error);
+        } else {
+            // No saved root — ask backend what it was initialized with (cwd)
+            invoke<string | null>('get_active_root')
+                .then((backendRoot) => {
+                    if (backendRoot) {
+                        setActiveRoot(backendRoot);
+                    }
+                })
+                .catch(console.error);
         }
 
         // Listen for reload-window from backend
@@ -99,12 +114,23 @@ const App: React.FC = () => {
                 console.trace(`[DIAG] isRightSidebarOpen changed: ${prev.isRightSidebarOpen} → ${state.isRightSidebarOpen}`);
             }
         });
+        
+        // Expose ENTIRE store to window - all state and ALL actions
+        (window as any).useStore = {
+            getState: () => useStore.getState(),
+            setState: (state: any) => useStore.setState(state),
+            subscribe: useStore.subscribe,
+            // Proxy to expose ALL store functions dynamically
+            ...useStore.getState(),
+        };
+        
         return () => unsubDiag();
     }, []);
 
     return (
         <div id="vscodium-app-root" style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <CommandPalette />
+            <QuickOpen />
 
             <div className="body-backdrop"></div>
             <TitleBar />

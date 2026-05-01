@@ -22,6 +22,7 @@ export interface AgentStep {
     result?: string;
     summary?: string;
     type?: 'filesystem' | 'git' | 'terminal' | 'browser' | 'system' | 'other';
+    callId?: string;
 }
 
 export interface PendingChange {
@@ -55,6 +56,15 @@ export interface AgentMessage {
     files?: string[];
     artifacts?: Artifact[];
     context?: AttachedContext[];
+}
+
+export interface DevWorkflowProject {
+    id: string;
+    name: string;
+    currentPhase: string;
+    progress: number;
+    emulatorPreview: boolean;
+    platform: 'ios' | 'android' | 'cross-platform';
 }
 
 export interface AttachedContext {
@@ -137,9 +147,15 @@ interface AppState {
     mitmLogs: string[];
     mcpServers: any[];
     ollamaStatus: 'idle' | 'checking' | 'running' | 'error';
+    llamaCppStatus: 'idle' | 'checking' | 'running' | 'error';
     agentMessages: any[];
     isAgentThinking: boolean;
     isAgentPaused: boolean;
+    isYoloMode: boolean;
+    agentUiMode: 'chat' | 'airi';
+    avatarCharacter: string; // Selected AI avatar character
+    avatarCustomConfig?: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }; // Custom 2D avatar URLs
+    avatar3dConfig?: { modelUrl?: string; modelId?: string; customModels?: Array<{ id: string; name: string; url: string }> }; // 3D VRM avatar config
     agentCurrentAction: string | null;
     isCommandPaletteOpen: boolean;
     isContextMenuOpen: boolean;
@@ -147,14 +163,38 @@ interface AppState {
     isAgentBlocked: boolean;
     contextMenuPosition: { x: number, y: number };
     commandPaletteQuery: string;
+
+    // Right sidebar panels (independent toggles)
+    isRightSidebarOpen: boolean;  // Master toggle
+    isAiriPanelOpen: boolean;
+    isEmulatorPanelOpen: boolean;
+    emulatorPanelPosition: 'android' | 'iphone' | 'vision';
+    
+    // Inference Backend Configuration
+    inferenceBackend: 'ollama' | 'llama-cpp' | 'openai';
+    llamaCppUrl: string;
+    llamaCppModelPath: string;
+    llamaCppNgl: number;
+    llamaCppHadesEnabled: boolean;
+    ollamaConnectionMode: 'proxy' | 'direct';  // proxy=1536 (AIM), direct=11434
+    ollamaMode: 'local' | 'cloud' | 'auto';  // Hybrid backend mode
+
+    // Dev Workflow State
+    isDevWorkflowActive: boolean;
+    currentDevProject: DevWorkflowProject | null;
+    emulatorPlatform: 'ios' | 'android';
     ollamaUrl: string;
     isPullingModel: boolean;
     pullProgress: number;
     pendingChanges: any[];
+    autoAcceptChanges: boolean;
+    checkpoint: Record<string, string> | null; // path → original content snapshot
     agentRootAccess: boolean;
     chatSessions: any[];
     brainTelemetry: any | null;
     attachedFiles: { id: string, path: string, name: string, gist?: string, thumbnail?: string, type: 'file' | 'attachment' | 'mention' }[];
+    kairosSuggestions: any[];
+    kairosStatus: 'idle' | 'indexing' | 'dreaming';
 
     // Phase 8: Agentic State
     taskPlannerState: any | null;
@@ -213,10 +253,28 @@ interface AppState {
     isVisualLabOpen: boolean;
     isVisualLabSplitView: boolean;
 
+    isAiriOpen: boolean;
+
+    // Tab History (Alt+←/→)
+    tabHistory: string[];
+    tabHistoryIndex: number;
+    navigateBack: () => void;
+    navigateForward: () => void;
+
+    // Split Editor
+    splitEditorTabId: string | null;
+    isSplitEditorOpen: boolean;
+    setSplitEditorTab: (tabId: string | null) => void;
+    toggleSplitEditor: () => void;
+
     // Specs-to-Code State
     isSpecsWizardOpen: boolean;
     specsWizardStep: 'generator' | 'status' | 'project';
     currentSpecProjectId: number | null;
+
+    // LSP Diagnostics (for Problems panel)
+    diagnosticsMap: Record<string, { severity: number; message: string; startLine: number; startCol: number; endLine: number; endCol: number; source: string; code: string }[]>;
+    setDiagnosticsForUri: (uri: string, diags: any[]) => void;
 
     // Actions
     setVisualLabMode: (mode: 'none' | 'json' | 'flow' | 'erd' | 'summary') => void;
@@ -224,6 +282,7 @@ interface AppState {
     setIsVisualLabFullScreen: (isFullScreen: boolean) => void;
     setIsVisualLabSplitView: (isSplit: boolean) => void;
     toggleVisualLab: (open?: boolean) => void;
+    toggleAiri: (open?: boolean) => void;
     setLayoutMode: (mode: 'editor' | 'manager' | 'browser') => void;
     setArtifactReviewPolicy: (policy: 'always_proceed' | 'request_review') => void;
     setTerminalAutoExecution: (policy: 'always_proceed' | 'request_review') => void;
@@ -261,10 +320,22 @@ interface AppState {
     updateTabContent: (id: string, content: string) => void;
     saveActiveFile: () => Promise<void>;
     setOllamaUrl: (url: string) => void;
+    setOllamaConnectionMode: (mode: 'proxy' | 'direct') => void;
     checkOllamaStatus: () => Promise<void>;
     pullOllamaModel: (name: string) => Promise<void>;
+    setInferenceBackend: (backend: 'ollama' | 'llama-cpp' | 'openai') => void;
+    setLlamaCppUrl: (url: string) => void;
+    setLlamaCppModelPath: (path: string) => void;
+    setLlamaCppNgl: (ngl: number) => void;
+    setLlamaCppHadesEnabled: (enabled: boolean) => void;
+    checkLlamaCppStatus: () => Promise<void>;
     openSettings: () => void;
     setProjectMemory: (content: string, files?: string[]) => void;
+    
+    // Dev Workflow Actions
+    setDevWorkflowActive: (active: boolean) => void;
+    updateDevProject: (project: Partial<DevWorkflowProject>) => void;
+    setEmulatorPlatform: (platform: 'ios' | 'android') => void;
 
     // Backend Actions
     backendPing: () => Promise<string>;
@@ -279,13 +350,16 @@ interface AppState {
     refreshMemorySavings: () => Promise<void>;
     addAgentMessage: (role: 'user' | 'assistant', content: string, context?: AttachedContext[] | boolean) => void;
     updateLastAgentMessage: (content: string) => void;
+    appendLastAgentMessage: (delta: string) => void;
     updateLastAgentThought: (thought: string) => void;
-    updateAgentStepStatus: (name: string, status: 'running' | 'success' | 'error', result?: string, summary?: string) => void;
-    addAgentStep: (name: string, type?: AgentStep['type'], args?: any) => void;
+    updateAgentStepStatus: (name: string, status: 'running' | 'success' | 'error', result?: string, summary?: string, callId?: string) => void;
+    addAgentStep: (name: string, type?: AgentStep['type'], args?: any, callId?: string) => void;
     addAgentFile: (path: string) => void;
     addAgentArtifact: (artifact: Omit<Artifact, 'id' | 'timestamp'>) => void;
     setIsAgentThinking: (isThinking: boolean) => void;
     setIsAgentPaused: (paused: boolean) => void;
+    setYoloMode: (enabled: boolean) => void;
+    setAgentUiMode: (mode: 'chat' | 'airi') => void;
     setAgentCurrentAction: (action: string | null) => void;
     attachFile: (file: any | any[]) => void;
     removeFile: (path: string) => void;
@@ -305,6 +379,9 @@ interface AppState {
     rejectPendingChange: (id: string) => void;
     acceptAllPendingChanges: () => Promise<void>;
     rejectAllPendingChanges: () => void;
+    setAutoAcceptChanges: (v: boolean) => void;
+    snapshotCheckpoint: (paths: string[]) => Promise<void>;
+    revertToCheckpoint: () => Promise<void>;
     acceptHunk: (changeId: string, hunkId: string) => Promise<void>;
     rejectHunk: (changeId: string, hunkId: string) => Promise<void>;
     setCommandPaletteOpen: (open: boolean) => void;
@@ -359,6 +436,7 @@ interface AppState {
     archiveCurrentSession: () => Promise<void>;
     createNewSession: () => Promise<void>;
     refreshBrainTelemetry: () => Promise<void>;
+    addKairosSuggestion: (suggestion: any) => void;
 }
 
 export interface AgentTask {
@@ -396,6 +474,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     activePanelTab: 'TERMINAL',
     isRightSidebarOpen: false,
     theme: localStorage.getItem('active-monaco-theme') || 'vs-dark',
+    kairosSuggestions: [],
+    kairosStatus: 'idle',
     sidebarWidth: parseInt(localStorage.getItem('sidebarWidth') || '260'),
     rightSidebarWidth: parseInt(localStorage.getItem('rightSidebarWidth') || '300'),
     bottomPanelHeight: parseInt(localStorage.getItem('bottomPanelHeight') || '240'),
@@ -407,12 +487,12 @@ const storeImplementation: any = (set: any, get: any) => ({
     aiStatus: 'alive',
     tokenUsage: 0,
     iconThemeMapping: null,
-    agentMode: 'Planning',
-    agentModel: 'Google|gemini-1.5-pro', // Match internal value format
+    agentMode: 'Chat',
+    agentModel: 'Ollama|llama3', // Default to Ollama (auto-detects local models)
     trustedPublishers: JSON.parse(localStorage.getItem('trustedPublishers') || '[]'),
-    activeRoot: null,
+    activeRoot: localStorage.getItem('activeRoot') || null,
     activeEditorPath: '',
-    activeRootName: null,
+    activeRootName: localStorage.getItem('activeRootName') || null,
     activeDevice: null,
     emulators: [],
     availableModels: [],
@@ -424,9 +504,37 @@ const storeImplementation: any = (set: any, get: any) => ({
     mitmLogs: [],
     mcpServers: [],
     ollamaStatus: 'idle',
+    llamaCppStatus: 'idle',
     agentMessages: [],
     isAgentThinking: false,
     isAgentPaused: false,
+    isYoloMode: false,
+    agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'airi',
+    avatarCharacter: localStorage.getItem('avatarCharacter') || 'airi',
+    avatarCustomConfig: JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}'),
+    avatar3dConfig: JSON.parse(localStorage.getItem('avatar3dConfig') || '{}'),
+    ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
+    ollamaMode: (localStorage.getItem('ollamaMode') as 'local' | 'cloud' | 'auto') || 'auto',
+    
+    // Right sidebar panels
+    isRightSidebarOpen: true,  // Master toggle - sidebar open by default
+    isAiriPanelOpen: true,  // AIRI open by default
+    isEmulatorPanelOpen: false,  // Emulator closed by default
+    emulatorPanelPosition: 'android',
+    
+    // Inference Backend Configuration
+    inferenceBackend: (localStorage.getItem('inferenceBackend') as 'ollama' | 'llama-cpp' | 'openai') || 'ollama',  // Default to Ollama (GPU-accelerated via DirectML)
+    llamaCppUrl: localStorage.getItem('llamaCppUrl') || 'http://localhost:8081',
+    llamaCppModelPath: localStorage.getItem('llamaCppModelPath') || '',
+    llamaCppNgl: parseInt(localStorage.getItem('llamaCppNgl') || '99'),
+    llamaCppHadesEnabled: localStorage.getItem('llamaCppHadesEnabled') !== 'false',
+    
+    // HADES Intelligence Layer (works with any backend)
+    aimVfsEnabled: localStorage.getItem('aimVfsEnabled') !== 'false',  // .aim VFS context injection
+    thermalGovernorEnabled: localStorage.getItem('thermalGovernorEnabled') !== 'false',  // RX 580 thermal monitoring
+    jitDecompressionEnabled: localStorage.getItem('jitDecompressionEnabled') === 'true',  // JIT code inflation
+    jitThreshold: parseFloat(localStorage.getItem('jitThreshold') || '0.85'),  // Attention trigger threshold
+    
     agentCurrentAction: null,
     isCommandPaletteOpen: false,
     isContextMenuOpen: false,
@@ -434,7 +542,13 @@ const storeImplementation: any = (set: any, get: any) => ({
     isAgentBlocked: false,
     contextMenuPosition: { x: 0, y: 0 },
     commandPaletteQuery: '',
-    ollamaUrl: 'http://localhost:11434',
+    
+    // Dev Workflow State (initial values)
+    isDevWorkflowActive: false,
+    currentDevProject: null,
+    emulatorPlatform: 'ios',
+    
+    ollamaUrl: 'http://localhost:11434', // Default to direct Ollama (AIM proxy on 1536 is optional)
     isPullingModel: false,
     pullProgress: 0,
     pendingChanges: [],
@@ -474,10 +588,39 @@ const storeImplementation: any = (set: any, get: any) => ({
     isVisualLabOpen: false,
     isVisualLabSplitView: false,
 
+    isAiriOpen: true, // Default to true for the sentient oracle experience
+
+    // Tab History
+    tabHistory: [],
+    tabHistoryIndex: -1,
+
+    // Split Editor
+    splitEditorTabId: null,
+    isSplitEditorOpen: false,
+
     // Initial Specs-to-Code State
     isSpecsWizardOpen: false,
     specsWizardStep: 'generator',
     currentSpecProjectId: null,
+
+    // LSP Diagnostics
+    diagnosticsMap: {},
+    setDiagnosticsForUri: (uri: string, diags: any[]) => set(state => {
+        const severityMap: Record<number, number> = { 1: 8, 2: 4, 3: 2, 4: 1 };
+        const mapped = diags.map((d: any) => ({
+            severity: severityMap[d.severity ?? 1] ?? 8,
+            message: d.message ?? '',
+            startLine: (d.range?.start?.line ?? 0) + 1,
+            startCol: (d.range?.start?.character ?? 0) + 1,
+            endLine: (d.range?.end?.line ?? 0) + 1,
+            endCol: (d.range?.end?.character ?? 0) + 1,
+            source: d.source ?? 'lsp',
+            code: d.code?.toString() ?? '',
+        }));
+        // Use path as key (strip file:// prefix)
+        const key = uri.replace(/^file:\/\/\//, '').replace(/^file:\/\//, '').replace(/\//g, '\\');
+        return { diagnosticsMap: { ...state.diagnosticsMap, [key]: mapped } };
+    }),
 
     // Initial Extension State
     installedExtensions: [],
@@ -489,6 +632,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     layoutMode: 'editor',
     artifactReviewPolicy: 'request_review',
     terminalAutoExecution: 'request_review',
+    autoAcceptChanges: false,
+    checkpoint: null,
     agentThreads: {},
     activeAgentThreadId: '',
 
@@ -498,6 +643,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     setIsVisualLabFullScreen: (isFullScreen: boolean) => set({ isVisualLabFullScreen: isFullScreen }),
     setIsVisualLabSplitView: (isSplit: boolean) => set({ isVisualLabSplitView: isSplit }),
     toggleVisualLab: (open: any) => set((state: any) => ({ isVisualLabOpen: open !== undefined ? open : !state.isVisualLabOpen, isVisualLabSplitView: false })),
+    toggleAiri: (open: any) => set((state: any) => ({ isAiriOpen: open !== undefined ? open : !state.isAiriOpen })),
     setProjectMemory: (content: any, files = []) => set(() => ({ projectMemory: content, memoryFiles: files })),
     toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
     setActiveSidebarView: (view) => set(() => ({ activeSidebarView: view, isSidebarOpen: true })),
@@ -542,6 +688,9 @@ const storeImplementation: any = (set: any, get: any) => ({
     setActiveRoot: (path) => {
         if (path) {
             const name = path.replace(/\\/g, '/').split('/').pop() || path;
+            // Persist to localStorage so we can restore on next launch
+            localStorage.setItem('activeRoot', path);
+            localStorage.setItem('activeRootName', name);
             set({ activeRoot: path, activeRootName: name });
             // Sync with backend
             invoke('set_active_root', { path }).then(() => {
@@ -638,6 +787,26 @@ const storeImplementation: any = (set: any, get: any) => ({
         set({ ollamaUrl: url });
         invoke('set_ollama_url', { url }).catch(console.error);
     },
+    setOllamaConnectionMode: (mode: 'proxy' | 'direct') => {
+        const url = mode === 'proxy' ? 'http://localhost:1536' : 'http://localhost:11434';
+        set({ ollamaConnectionMode: mode, ollamaUrl: url });
+        invoke('set_ollama_url', { url }).catch(console.error);
+        // Persist mode to localStorage
+        localStorage.setItem('ollamaConnectionMode', mode);
+    },
+    setDevWorkflowActive: (active: boolean) => {
+        set({ isDevWorkflowActive: active });
+    },
+    updateDevProject: (project: Partial<DevWorkflowProject>) => {
+        set((state) => ({
+            currentDevProject: state.currentDevProject
+                ? { ...state.currentDevProject, ...project }
+                : { id: `dev_${Date.now()}`, name: 'New App', currentPhase: 'requirements', progress: 0, emulatorPreview: true, platform: 'cross-platform', ...project },
+        }));
+    },
+    setEmulatorPlatform: (platform: 'ios' | 'android') => {
+        set({ emulatorPlatform: platform });
+    },
     checkOllamaStatus: async () => {
         set({ ollamaStatus: 'checking' });
         try {
@@ -656,6 +825,54 @@ const storeImplementation: any = (set: any, get: any) => ({
             console.error('Failed to pull model:', e);
         } finally {
             set({ isPullingModel: false });
+        }
+    },
+    setInferenceBackend: (backend: 'ollama' | 'llama-cpp' | 'openai') => {
+        localStorage.setItem('inferenceBackend', backend);
+        set({ inferenceBackend: backend });
+    },
+    setLlamaCppUrl: (url: string) => {
+        localStorage.setItem('llamaCppUrl', url);
+        set({ llamaCppUrl: url });
+    },
+    setLlamaCppModelPath: (path: string) => {
+        localStorage.setItem('llamaCppModelPath', path);
+        set({ llamaCppModelPath: path });
+    },
+    setLlamaCppNgl: (ngl: number) => {
+        localStorage.setItem('llamaCppNgl', ngl.toString());
+        set({ llamaCppNgl: ngl });
+    },
+    setLlamaCppHadesEnabled: (enabled: boolean) => {
+        localStorage.setItem('llamaCppHadesEnabled', enabled.toString());
+        set({ llamaCppHadesEnabled: enabled });
+    },
+    // Right sidebar panel toggles
+    toggleAiriPanel: () => set((state) => ({ 
+        isRightSidebarOpen: true,  // Open sidebar when toggling AIRI
+        isAiriPanelOpen: !state.isAiriPanelOpen,
+        isEmulatorPanelOpen: false  // Close emulator when opening AIRI
+    })),
+    toggleEmulatorPanel: () => set((state) => ({ 
+        isRightSidebarOpen: true,  // Open sidebar when toggling Emulator
+        isEmulatorPanelOpen: !state.isEmulatorPanelOpen,
+        isAiriPanelOpen: false  // Close AIRI when opening emulator
+    })),
+    setEmulatorPanelPosition: (position: 'android' | 'iphone') => set({ emulatorPanelPosition: position }),
+    openAiriPanel: () => set({ isRightSidebarOpen: true, isAiriPanelOpen: true, isEmulatorPanelOpen: false }),
+    closeAiriPanel: () => set({ isAiriPanelOpen: false }),
+    openEmulatorPanel: () => set({ isRightSidebarOpen: true, isEmulatorPanelOpen: true, isAiriPanelOpen: false }),
+    closeEmulatorPanel: () => set({ isEmulatorPanelOpen: false }),
+    checkLlamaCppStatus: async () => {
+        set({ llamaCppStatus: 'checking' });
+        try {
+            const response = await fetch(`${get().llamaCppUrl}/health`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(3000),
+            });
+            set({ llamaCppStatus: response.ok ? 'running' : 'error' });
+        } catch (e) {
+            set({ llamaCppStatus: 'error' });
         }
     },
 
@@ -682,7 +899,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     openFile: async (path: string) => {
         const existingTab = get().tabs.find(t => t.path === path);
         if (existingTab) {
-            set({ activeTabId: existingTab.id });
+            get().setActiveTab(existingTab.id);
             return;
         }
         try {
@@ -690,7 +907,11 @@ const storeImplementation: any = (set: any, get: any) => ({
             const filename = path.replace(/\\/g, '/').split('/').pop() ?? path;
             const id = `tab-${Date.now()}-${Math.random()}`;
             const tab: EditorTab = { id, filename, path, content, isModified: false, language: detectLanguage(filename) };
-            set((state) => ({ tabs: [...state.tabs, tab], activeTabId: id }));
+            set((state) => {
+                const history = state.tabHistory.slice(0, state.tabHistoryIndex + 1);
+                history.push(id);
+                return { tabs: [...state.tabs, tab], activeTabId: id, tabHistory: history, tabHistoryIndex: history.length - 1 };
+            });
         } catch (error) {
             console.error('Open File Error:', error);
         }
@@ -707,7 +928,35 @@ const storeImplementation: any = (set: any, get: any) => ({
         });
     },
 
-    setActiveTab: (id: string) => set({ activeTabId: id }),
+    setActiveTab: (id: string) => set((state) => {
+        if (state.activeTabId === id) return {};
+        const history = state.tabHistory.slice(0, state.tabHistoryIndex + 1);
+        history.push(id);
+        return { activeTabId: id, tabHistory: history, tabHistoryIndex: history.length - 1 };
+    }),
+
+    navigateBack: () => set((state) => {
+        if (state.tabHistoryIndex <= 0) return {};
+        const newIndex = state.tabHistoryIndex - 1;
+        const tabId = state.tabHistory[newIndex];
+        if (!state.tabs.find((t: any) => t.id === tabId)) return {};
+        return { activeTabId: tabId, tabHistoryIndex: newIndex };
+    }),
+
+    navigateForward: () => set((state) => {
+        if (state.tabHistoryIndex >= state.tabHistory.length - 1) return {};
+        const newIndex = state.tabHistoryIndex + 1;
+        const tabId = state.tabHistory[newIndex];
+        if (!state.tabs.find((t: any) => t.id === tabId)) return {};
+        return { activeTabId: tabId, tabHistoryIndex: newIndex };
+    }),
+
+    setSplitEditorTab: (tabId: string | null) => set({ splitEditorTabId: tabId, isSplitEditorOpen: tabId !== null }),
+    toggleSplitEditor: () => set((state: any) => {
+        if (state.isSplitEditorOpen) return { isSplitEditorOpen: false, splitEditorTabId: null };
+        // default: clone active tab in split
+        return { isSplitEditorOpen: true, splitEditorTabId: state.activeTabId };
+    }),
 
     updateTabContent: (id: string, content: string) => {
         set((state: any) => {
@@ -767,6 +1016,10 @@ const storeImplementation: any = (set: any, get: any) => ({
         try {
             const keys: any = await invoke('get_api_keys');
             const providers: string[] = [];
+            
+            // ALWAYS try Ollama first (default to local models)
+            providers.push('Ollama');
+            
             if (keys.google) providers.push('Google');
             if (keys.anthropic) providers.push('Anthropic');
             if (keys.openai) providers.push('OpenAI');
@@ -776,11 +1029,6 @@ const storeImplementation: any = (set: any, get: any) => ({
             if (keys.xai) providers.push('xAI');
             if (keys.alibaba) providers.push('Alibaba');
             providers.push('ApiRadar'); // Always include for aggregated view
-
-            // Always try Ollama if requested or by default
-            if (targetProvider === 'ollama' || !targetProvider) {
-                providers.push('Ollama');
-            }
 
             let allModels: { id: string, provider: string }[] = [];
 
@@ -792,14 +1040,49 @@ const storeImplementation: any = (set: any, get: any) => ({
             for (const p of activeProviders) {
                 try {
                     if (p.toLowerCase() === 'ollama') {
-                        // Ensure backend has the latest URL before listing
-                        await invoke('set_ollama_url', { url: ollamaUrl });
+                        // Auto-detect: Try AIM proxy first (1536), fall back to direct Ollama (11434)
+                        let ollamaToUse = 'http://localhost:1536';
+                        try {
+                            const testResponse = await fetch('http://localhost:1536/api/tags', {
+                                method: 'GET',
+                                signal: AbortSignal.timeout(2000),
+                            });
+                            if (!testResponse.ok) throw new Error('AIM proxy not available');
+                            console.log('[Ollama] ✅ Using AIM proxy (port 1536) for token efficiency');
+                            set({ ollamaConnectionMode: 'proxy', ollamaMode: 'cloud' });
+                        } catch {
+                            // Try direct local Ollama
+                            try {
+                                const localTest = await fetch('http://localhost:11434/api/tags', {
+                                    method: 'GET',
+                                    signal: AbortSignal.timeout(2000),
+                                });
+                                if (localTest.ok) {
+                                    ollamaToUse = 'http://localhost:11434';
+                                    console.log('[Ollama] 📍 Using direct Ollama (port 11434) - Local RX 580');
+                                    set({ ollamaConnectionMode: 'direct', ollamaMode: 'local' });
+                                }
+                            } catch {
+                                console.warn('[Ollama] ⚠️ Neither AIM proxy nor local Ollama available');
+                                set({ ollamaStatus: 'error', ollamaMode: 'cloud' });
+                            }
+                        }
+                        // Ensure backend has the correct URL before listing
+                        await invoke('set_ollama_url', { url: ollamaToUse });
+                        // Also update store state to match
+                        set({ ollamaUrl: ollamaToUse });
                     }
                     const models = await invoke<string[]>('list_provider_models', { provider: p });
                     allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
 
                     if (p.toLowerCase() === 'ollama') {
-                        if (models.length > 0) set({ ollamaStatus: 'running' });
+                        if (models.length > 0) {
+                            set({ ollamaStatus: 'running' });
+                            // Auto-select first Ollama model if none selected
+                            if (models.length > 0 && get().agentModel?.includes('Ollama')) {
+                                set({ agentModel: `Ollama|${models[0]}` });
+                            }
+                        }
                     }
                 } catch (e: any) {
                     // Suppress common error when a provider key is simply missing
@@ -930,14 +1213,23 @@ const storeImplementation: any = (set: any, get: any) => ({
     addAgentMessage: (role: any, content: any, contextOrSubAgent: any) => set((state: any) => {
         const isSubAgent = typeof contextOrSubAgent === 'boolean' ? contextOrSubAgent : false;
         const context = Array.isArray(contextOrSubAgent) ? contextOrSubAgent : [];
+        const timestamp = Date.now();
         const newMessage: any = {
             role,
             content,
             context,
-            timestamp: Date.now(),
+            timestamp,
             isSubAgentResponse: isSubAgent,
             steps: role === 'assistant' ? [] : undefined
         };
+
+        // Phase 25: Sync to Backend Persistence
+        invoke('store_message', {
+            role,
+            content: typeof content === 'string' ? content : JSON.stringify(content),
+            timestamp
+        }).catch((err: any) => console.error("[Persistence] Sync failed:", err));
+
         return { agentMessages: [...state.agentMessages, newMessage] };
     }),
     updateLastAgentMessage: (content: any) => set((state) => {
@@ -968,71 +1260,83 @@ const storeImplementation: any = (set: any, get: any) => ({
         }
         return { agentMessages: messages };
     }),
-    updateLastAgentThought: (thought: string) => set((state) => {
+    updateLastAgentThought: (thought: string) => {
+        // HADES FIX: Thoughts are internal - don't store them in visible messages
+        // Only update the internal thought state for UI display (THINKING indicator)
+        return { currentThought: thought };
+    },
+    appendLastAgentMessage: (delta: string) => set((state: any) => {
         const messages = [...state.agentMessages];
         const lastIndex = messages.length - 1;
         const last = messages[lastIndex];
         if (last && last.role === 'assistant') {
+            const currentContent = last.content || '';
             const currentThoughts = last.thoughts || '';
-            messages[lastIndex] = { ...last, thoughts: currentThoughts + thought };
-        }
-        return { agentMessages: messages };
-    }),
-    appendLastAgentMessage: (delta: string) => set((state) => {
-        const messages = [...state.agentMessages];
-        const lastIndex = messages.length - 1;
-        const last = messages[lastIndex];
-        if (last && last.role === 'assistant') {
-            const fullRaw = (last.content || '') + delta; // This is naive but works if we don't have tags yet
+            const currentRaw = last.raw_buffer || (currentContent + currentThoughts);
 
-            // Smart append: if we are in a thinking block, append to thoughts
-            // If we are out, append to content.
-            // For simplicity, we re-parse the full string for tags if it's small, 
-            // or we track state. Let's do a simple check.
-
-            let newContent = last.content;
-            let newThoughts = last.thoughts;
-
-            if (delta.includes('<think>') || last.thoughts !== undefined) {
-                // If we are currently thinking or starting to think
-                const combined = (last.thoughts ? `<think>${last.thoughts}</think>` : '') + delta;
-                const thinkMatch = combined.match(/<think>([\s\S]*?)<\/think>/);
-                if (thinkMatch) {
-                    newThoughts = thinkMatch[1].trim();
-                    newContent = combined.replace(/<think>[\s\S]*?<\/think>/, '').trim();
-                } else if (combined.includes('<think>')) {
-                    newThoughts = combined.split('<think>')[1] || '';
-                    newContent = combined.split('<think>')[0] || '';
-                } else {
-                    newContent = combined;
+            // Robust Overlap Merger:
+            // Find the longest suffix of currentRaw that is a prefix of delta.
+            let overlapLength = 0;
+            const maxCheck = Math.min(currentRaw.length, delta.length);
+            for (let i = 1; i <= maxCheck; i++) {
+                if (currentRaw.slice(-i) === delta.slice(0, i)) {
+                    overlapLength = i;
                 }
-            } else {
-                newContent = delta; // <--- The critical fix: delta is the FULL payload from the backend
             }
 
-            messages[lastIndex] = { ...last, content: newContent, thoughts: newThoughts };
+            const cleanDelta = delta.slice(overlapLength);
+            if (cleanDelta.length === 0) return state;
+
+            const fullRaw = currentRaw + cleanDelta;
+            let newContent = currentContent;
+            let newThoughts = currentThoughts;
+
+            // Strip thinking blocks from visible content - thoughts are internal only
+            if (fullRaw.includes('<think>')) {
+                const thinkMatch = fullRaw.match(/<think>([\s\S]*?)<\/think>/);
+                if (thinkMatch) {
+                    // Store thought internally for UI state, but DON'T add to message
+                    set({ currentThought: thinkMatch[1].trim() });
+                    newContent = fullRaw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                } else {
+                    const parts = fullRaw.split('<think>');
+                    newContent = parts[0] || '';
+                }
+            } else {
+                newContent += cleanDelta;
+            }
+
+            messages[lastIndex] = {
+                ...last,
+                content: newContent,
+                thoughts: newThoughts,
+                raw_buffer: fullRaw
+            };
+            return { agentMessages: messages };
         }
-        return { agentMessages: messages };
+        return state;
     }),
-    addAgentStep: (name, type, args) => set((state) => {
+    addAgentStep: (name, type, args, callId) => set((state) => {
         const messages = [...state.agentMessages];
         if (messages.length === 0) return state;
         const last = messages[messages.length - 1];
         if (last && last.role === 'assistant') {
             const steps = last.steps || [];
-            // Avoid duplicate steps if redelivered
-            if (!steps.find(s => s.name === name)) {
-                last.steps = [...steps, { name, status: 'running', type, args }];
+            // Avoid duplicate steps if redelivered, check callId if present
+            if (!steps.find(s => (callId && s.callId === callId) || (!callId && s.name === name && s.status === 'running'))) {
+                last.steps = [...steps, { name, status: 'running', type, args, callId }];
             }
         }
         return { agentMessages: messages };
     }),
-    updateAgentStepStatus: (name, status, result?: string, summary?: string) => set((state) => {
+    updateAgentStepStatus: (name, status, result, summary, callId) => set((state) => {
         const messages = [...state.agentMessages];
         if (messages.length === 0) return state;
         const last = messages[messages.length - 1];
         if (last && last.role === 'assistant' && last.steps) {
-            const step = last.steps.find(s => s.name === name);
+            // Priority 1: Match by callId
+            // Priority 2: Match by name if still running
+            const step = last.steps.find(s => (callId && s.callId === callId) || (!callId && s.name === name && s.status === 'running'));
             if (step) {
                 step.status = status;
                 if (result !== undefined) step.result = result;
@@ -1044,6 +1348,21 @@ const storeImplementation: any = (set: any, get: any) => ({
     setActiveEditorPath: (activeEditorPath) => set({ activeEditorPath }),
     setIsAgentThinking: (isAgentThinking) => set({ isAgentThinking }),
     setIsAgentPaused: (isAgentPaused) => set({ isAgentPaused }),
+    setYoloMode: (isYoloMode) => set({ isYoloMode }),
+    setAgentUiMode: (agentUiMode) => { localStorage.setItem('agentUiMode', agentUiMode); set({ agentUiMode }); },
+    setAvatarCharacter: (avatarCharacter) => { localStorage.setItem('avatarCharacter', avatarCharacter); set({ avatarCharacter }); },
+    setAvatarCustomConfig: (config: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }) => {
+        const existing = JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}');
+        const updated = { ...existing, ...config };
+        localStorage.setItem('avatarCustomConfig', JSON.stringify(updated));
+        set({ avatarCustomConfig: updated });
+    },
+    setAvatar3dConfig: (config: { modelUrl?: string; modelId?: string; customModels?: Array<{ id: string; name: string; url: string }> }) => {
+        const existing = JSON.parse(localStorage.getItem('avatar3dConfig') || '{}');
+        const updated = { ...existing, ...config };
+        localStorage.setItem('avatar3dConfig', JSON.stringify(updated));
+        set({ avatar3dConfig: updated });
+    },
     setAgentCurrentAction: (agentCurrentAction) => set({ agentCurrentAction }),
     addAgentFile: (path: string) => {
         set((state) => {
@@ -1087,6 +1406,25 @@ const storeImplementation: any = (set: any, get: any) => ({
         });
     },
     setAgentMessages: (agentMessages) => set({ agentMessages }),
+    refreshAgentHistory: async () => {
+        try {
+            const messages = await invoke<any[]>('get_agent_messages');
+            if (messages && Array.isArray(messages) && messages.length > 0) {
+                // Map backend format to frontend format if needed
+                const mapped = messages.map((m: any) => ({
+                    role: m.role,
+                    content: typeof m.content === 'object' ? (m.content.text || '') : (m.content || ''),
+                    timestamp: m.metadata?.timestamp || Date.now(),
+                    metadata: m.metadata || {},
+                    context: []
+                }));
+                set({ agentMessages: mapped });
+                console.log("[Persistence] History refreshed from backend core.");
+            }
+        } catch (err) {
+            console.error("[Persistence] Refresh failed:", err);
+        }
+    },
     setAgentTasks: (agentTasks) => set({ agentTasks }),
     clearAgentMessages: () => set({ agentMessages: [] }),
     resetThread: () => {
@@ -1159,23 +1497,58 @@ const storeImplementation: any = (set: any, get: any) => ({
         }
     },
 
+    setAutoAcceptChanges: (v) => set({ autoAcceptChanges: v }),
+
+    snapshotCheckpoint: async (paths) => {
+        const snap: Record<string, string> = {};
+        for (const p of paths) {
+            try {
+                const content = await invoke<string>('read_file', { path: p });
+                snap[p] = content;
+            } catch (_) { /* file may not exist yet */ }
+        }
+        set({ checkpoint: Object.keys(snap).length > 0 ? snap : null });
+    },
+
+    revertToCheckpoint: async () => {
+        const { checkpoint } = get();
+        if (!checkpoint) return;
+        for (const [path, content] of Object.entries(checkpoint)) {
+            try {
+                await invoke('write_file', { path, content });
+                const tab = get().tabs.find((t: any) => t.path === path);
+                if (tab) get().updateTabContent(tab.id, content);
+            } catch (e) {
+                console.error('Checkpoint revert failed for', path, e);
+            }
+        }
+        set({ checkpoint: null, pendingChanges: [] });
+        await get().refreshFileTree();
+    },
+
     // Diff Review Implementation
     proposePendingChange: (change) => {
         const id = Math.random().toString(36).substring(7);
-        set((state) => ({
-            pendingChanges: [...state.pendingChanges, {
-                id,
-                path: change.path,
-                originalContent: (change as any).oldContent || '',
-                proposedContent: (change as any).newContent || '',
-                newContent: (change as any).newContent || '',
-                description: change.description,
-                additions: change.additions,
-                deletions: change.deletions,
-                acceptedHunkIds: [],
-                rejectedHunkIds: [],
-            }]
-        }));
+        const newChange = {
+            id,
+            path: change.path,
+            originalContent: (change as any).oldContent || '',
+            proposedContent: (change as any).newContent || '',
+            newContent: (change as any).newContent || '',
+            description: change.description,
+            additions: change.additions,
+            deletions: change.deletions,
+            acceptedHunkIds: [],
+            rejectedHunkIds: [],
+        };
+        // Auto-accept mode: skip the review queue, apply immediately
+        if (get().autoAcceptChanges) {
+            set((state) => ({ pendingChanges: [...state.pendingChanges, newChange] }));
+            // Fire-and-forget accept — errors logged but not surfaced
+            get().acceptPendingChange(id).catch(console.error);
+        } else {
+            set((state) => ({ pendingChanges: [...state.pendingChanges, newChange] }));
+        }
     },
 
     acceptPendingChange: async (id) => {
@@ -1598,6 +1971,12 @@ const storeImplementation: any = (set: any, get: any) => ({
             console.error('Refresh Brain Telemetry Error:', error);
         }
     },
+
+    addKairosSuggestion: (suggestion: any) => {
+        set((state: any) => ({
+            kairosSuggestions: [suggestion, ...state.kairosSuggestions].slice(0, 50)
+        }));
+    },
 });
 
 export const useStore = create<AppState>(storeImplementation);
@@ -1654,6 +2033,12 @@ if (typeof window !== 'undefined') {
                 description: 'Sentient AI Surgical Patch'
             });
         }
+    });
+
+    listen('kairos://suggestion', (event: any) => {
+        console.log('[KAIROS] Suggestion received:', event.payload);
+        const state = useStore.getState() as any;
+        state.addKairosSuggestion(event.payload);
     });
 
     (window as any).useStore = useStore;

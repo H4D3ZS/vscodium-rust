@@ -1,12 +1,13 @@
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use tracing::instrument;
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::AppHandle;
@@ -156,6 +157,8 @@ pub struct Sentient {
     workspace_memory_cache: tokio::sync::Mutex<Option<String>>,
     global_brain_cache: tokio::sync::Mutex<Option<String>>,
     memory_aim_cache: tokio::sync::Mutex<Option<String>>,
+    pub harness: Arc<hades_harness::ReasoningLoop>,
+    pub airi: Arc<tokio::sync::Mutex<Option<crate::airi_bridge::AiriBridge>>>,
 }
 
 impl Sentient {
@@ -249,6 +252,8 @@ impl Sentient {
             workspace_memory_cache: tokio::sync::Mutex::new(None),
             global_brain_cache: tokio::sync::Mutex::new(None),
             memory_aim_cache: tokio::sync::Mutex::new(None),
+            harness: Arc::new(hades_harness::ReasoningLoop::new(&root_path)),
+            airi: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
@@ -262,15 +267,66 @@ impl Sentient {
         *m = model;
     }
 
+    /// Verifies if a code modification (patch or write) is valid according to the compiler.
+    async fn verify_code_change(&self, tool_name: &str, args: &Value) -> Result<Option<Vec<hades_harness::Diagnostic>>> {
+        let path_str = match tool_name {
+            "patch_file_content" | "write_to_file" | "search_replace_edit" => args["path"].as_str(),
+            _ => return Ok(None),
+        };
+
+        if let Some(p) = path_str {
+            let relative_path = Path::new(p);
+            let root: PathBuf = self.ai_tools.get_root_path();
+            let full_path = root.join(relative_path);
+
+            // Only verify Rust files for now
+            if relative_path.extension().map(|e| e != "rs").unwrap_or(true) {
+                return Ok(None);
+            }
+
+            let new_content = if tool_name == "write_to_file" {
+                args["content"].as_str().unwrap_or("").to_string()
+            } else if tool_name == "patch_file_content" {
+                let content = fs::read_to_string(&full_path).unwrap_or_default();
+                let start_line = args["StartLine"].as_u64().unwrap_or(1) as usize;
+                let end_line = args["EndLine"].as_u64().unwrap_or(1) as usize;
+                let replacement = args["ReplacementContent"].as_str().unwrap_or("");
+                
+                let lines: Vec<String> = content.lines().map(|s: &str| s.to_string()).collect();
+                if start_line > 0 && start_line <= lines.len() + 1 {
+                    let mut new_lines = Vec::new();
+                    new_lines.extend_from_slice(&lines[..start_line - 1]);
+                    new_lines.push(replacement.to_string());
+                    new_lines.extend_from_slice(&lines[std::cmp::min(end_line, lines.len())..]);
+                    new_lines.join("\n")
+                } else {
+                    content
+                }
+            } else {
+                return Ok(None); 
+            };
+
+            println!("[Harness] Verifying patch for {:?}...", relative_path);
+            let diags = self.harness.verify_candidate(relative_path, &new_content)?;
+            
+            let errors: Vec<_> = diags.into_iter().filter(|d| d.level == "error").collect();
+            if !errors.is_empty() {
+                return Ok(Some(errors));
+            }
+        }
+
+        Ok(None)
+    }
+
     pub fn get_tools(&self) -> Arc<AiTools> {
         self.ai_tools.clone()
     }
 
-    pub fn set_app_handle(&self, handle: AppHandle) {
+    pub async fn set_app_handle(&self, handle: AppHandle) {
         if let Ok(mut h) = self.app_handle.write() {
             *h = Some(handle.clone());
         }
-        self.ai_tools.set_app_handle(handle.clone());
+        self.ai_tools.set_app_handle(handle.clone()).await;
         
         let ms = self.memory_store.clone();
         tauri::async_runtime::spawn(async move {
@@ -279,7 +335,12 @@ impl Sentient {
     }
 
     pub fn set_root_path(&self, root_path: PathBuf) {
-        self.ai_tools.set_root_path(root_path.clone());
+        let tools = self.ai_tools.clone();
+        let rp = root_path.clone();
+        tauri::async_runtime::spawn(async move {
+            tools.set_root_path(rp).await;
+        });
+
         let ms = self.memory_store.clone();
         tauri::async_runtime::spawn(async move {
             ms.mount(Some(root_path)).await;
@@ -293,6 +354,17 @@ impl Sentient {
 
     pub async fn list_mcp_servers(&self) -> Result<Vec<Value>> {
         Ok(self.mcp_registry.list_servers().await)
+    }
+
+    /// Yolo mode: disables pre-flight cargo check, auto-applies shadow patches,
+    /// and raises iteration ceiling to 200. Full sentient autonomy.
+    pub fn set_yolo_mode(&self, enabled: bool) {
+        self.yolo_mode.store(enabled, Ordering::SeqCst);
+        println!("[Sentient] Yolo mode: {}", if enabled { "ENGAGED" } else { "OFF" });
+    }
+
+    pub fn is_yolo_mode(&self) -> bool {
+        self.yolo_mode.load(Ordering::SeqCst)
     }
 
     pub fn stop(&self) {
@@ -453,6 +525,292 @@ impl Sentient {
         Ok(())
     }
 
+    /// Phase-Wrap: compress the current context window into .aim and reset to a fresh window.
+    /// Called every PHASE_WRAP_EVERY iterations to keep the context window small ("1 gist token").
+    /// After compression, the messages vec is reset to:
+    ///   [system_identity, compact_brain_gist, last_user_mission]
+    /// The AI never loses memory because everything is in .aim.
+    async fn auto_phase_wrap(
+        &self,
+        messages: &mut Vec<ChatMessage>,
+        iteration: u32,
+        files_written: &[String],
+    ) {
+        // Build a summary of what happened in the last context window
+        let context_snapshot = messages.iter()
+            .filter(|m| m.role == "assistant" || (m.role == "tool" && m.tool_call_id.is_some()))
+            .rev()
+            .take(6)
+            .map(|m| {
+                let content = m.content.as_ref().map(|c| c.as_str()).unwrap_or("");
+                let snippet = content.chars().take(120).collect::<String>().replace('\n', " ");
+                format!("[{}] {}", m.role, snippet)
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if !context_snapshot.is_empty() {
+            self.memory_store.store_phase_outcome(
+                iteration,
+                format!("Phase wrap at iter {}: {}", iteration, context_snapshot),
+                files_written.to_vec(),
+            ).await;
+        }
+
+        // Auto-learn from any file writes that happened in this phase
+        for file in files_written {
+            self.memory_store.auto_learn_from_write(file, "phase_wrap").await;
+        }
+
+        // Build compact brain gist for reinsertion (~100 tokens)
+        let gist = self.memory_store.build_compact_gist().await;
+
+        // Find the original system message and the last user message (the mission)
+        let system_msg = messages.iter().find(|m| m.role == "system").cloned();
+        let last_user_msg = messages.iter().rev().find(|m| m.role == "user").cloned();
+
+        // Reset to minimal working set
+        let mut new_messages: Vec<ChatMessage> = Vec::new();
+
+        if let Some(sys) = system_msg {
+            new_messages.push(sys);
+        }
+
+        // Inject compact brain gist as a system context message
+        if !gist.is_empty() {
+            new_messages.push(ChatMessage {
+                role: "system".to_string(),
+                content: Some(MessageContent::Text(format!(
+                    "KORTEX BRAIN STATE (persistent memory from .aim):\n{}\n\nContinue the mission using this memory. You remember everything above.",
+                    gist
+                ))),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: Some(serde_json::json!({"type": "brain_gist", "iteration": iteration})),
+            });
+        }
+
+        // Reinsert the active mission so the AI knows what it's doing
+        if let Some(user) = last_user_msg {
+            new_messages.push(user);
+        }
+
+        *messages = new_messages;
+        println!("[Phase-Wrap] Context compressed at iter {}. Window reset to {} messages. Brain gist: {} chars.",
+            iteration, messages.len(), gist.len());
+        self.emit_event("memory-update", serde_json::json!({
+            "slots": self.memory_store.get_all_slots().await.len(),
+            "phase_wrap": iteration,
+            "type": "phase_wrap"
+        }));
+    }
+
+    /// Parse the parameter count (in billions) from a model name like "qwen3:30b" → 30.
+    /// Returns None if not found. Used for smarter context/tool decisions.
+    fn parse_model_param_count(model: &str) -> Option<u32> {
+        // Try to find a pattern like ":30b", ":7b", ":72b", "30b-", "7b-" etc.
+        let m = model.to_lowercase();
+        // Look for number followed by 'b' (optionally preceded by ':' or '-')
+        let re_parts: Vec<&str> = m.split(|c| c == ':' || c == '-' || c == '_' || c == '/').collect();
+        for part in re_parts {
+            // Strip leading non-digits and trailing non-digits to extract e.g. "30b" → 30
+            let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
+            let suffix: String = part.chars().skip(digits.len()).collect();
+            if suffix.starts_with('b') && !digits.is_empty() {
+                if let Ok(n) = digits.parse::<u32>() {
+                    return Some(n);
+                }
+            }
+        }
+        None
+    }
+
+    /// Returns whether a model is "small" (≤ 7B params) based on its name.
+    /// This is used to decide prompt complexity, tool count, context limits.
+    fn is_small_model_name(model: &str) -> bool {
+        let m = model.to_lowercase();
+        // Explicit tiny suffixes
+        if m.contains("mini") || m.contains("tiny") || m.contains("0.5b") || m.contains("1.5b") {
+            return true;
+        }
+        // Gemma4 "effective" params — e2b/e4b are full capability despite the name
+        // (the "e" prefix means "effective" active parameters in MoE, not the total model size)
+        if (m.contains("gemma4") || m.contains("gemma-4")) && (m.contains("e2b") || m.contains("e4b")) {
+            return false; // These are 26B/31B MoE models, not actually small
+        }
+        // Parse parameter count: ≤ 7B → small
+        if let Some(n) = Self::parse_model_param_count(&m) {
+            return n <= 7;
+        }
+        false
+    }
+
+    /// Returns the recommended `num_ctx` for a given model name.
+    /// Respects known context window sizes to maximize quality without OOM.
+    fn recommended_num_ctx(model: &str) -> usize {
+        let m = model.to_lowercase();
+
+        // ── Gemma 4 family ──────────────────────────────────────────────────
+        // E2B / E4B edge models: 128K context window (MoE, 26B/31B total)
+        if (m.contains("gemma4") || m.contains("gemma-4")) && (m.contains("e2b") || m.contains("e4b")) {
+            return 131072;
+        }
+        // gemma4:cloud — 256K but cap at 65536 for safe local inference
+        if m.contains("gemma4") && m.contains("cloud") {
+            return 65536;
+        }
+        // gemma4:26b / gemma4:31b full workstation models — 128K context
+        if m.contains("gemma4") || m.contains("gemma-4") {
+            return 65536; // 64k is safe on 24GB; bump to 131072 if you have 48GB+ VRAM
+        }
+        // Gemma 3 — 128K capable
+        if m.contains("gemma3") || m.contains("gemma-3") {
+            return 65536;
+        }
+        // Gemma 2 — 8k
+        if m.contains("gemma2") || m.contains("gemma-2") || m.contains("gemma:") {
+            return 8192;
+        }
+
+        // ── Qwen family ─────────────────────────────────────────────────────
+        // Qwen 3 / Qwen 2.5 — 32k
+        if m.contains("qwen3") || m.contains("qwen2.5") || m.contains("qwen-3") {
+            return 32768;
+        }
+        // Qwen 2 — 32k
+        if m.contains("qwen2") || m.contains("qwen-2") || m.contains("qwen:") {
+            return 32768;
+        }
+
+        // ── Mistral family ───────────────────────────────────────────────────
+        if m.contains("mistral") || m.contains("mixtral") {
+            return 32768;
+        }
+
+        // ── DeepSeek ─────────────────────────────────────────────────────────
+        if m.contains("deepseek") {
+            return 32768;
+        }
+
+        // ── Llama 3.x — 128k capable, 32k safe default ──────────────────────
+        if m.contains("llama3") || m.contains("llama-3") {
+            return 32768;
+        }
+
+        // ── NeuralDaredevil / other Llama fine-tunes ─────────────────────────
+        if m.contains("neuraldaredevil") || m.contains("neural-") || m.contains("daredevil") {
+            return 16384;
+        }
+
+        // ── Phi series ──────────────────────────────────────────────────────
+        if m.contains("phi3") || m.contains("phi-3") {
+            return 16384;
+        }
+        if m.contains("phi") {
+            return 8192;
+        }
+
+        // Default for unknown models
+        16384
+    }
+
+    /// Returns true if the model supports vision / image input via Ollama.
+    /// Ollama passes images as a top-level `images` array (base64) on each message.
+    fn is_vision_model(model: &str) -> bool {
+        let m = model.to_lowercase();
+        // Gemma 4 family — all variants are multimodal (text + image)
+        if m.contains("gemma4") || m.contains("gemma-4") {
+            return true;
+        }
+        // Gemma 3 with explicit vision tag
+        if (m.contains("gemma3") || m.contains("gemma-3")) && m.contains("vision") {
+            return true;
+        }
+        // LLaVA family
+        if m.contains("llava") || m.contains("bakllava") || m.contains("moondream") {
+            return true;
+        }
+        // MiniCPM-V / MiMo-VL
+        if m.contains("minicpm-v") || m.contains("mimo-vl") {
+            return true;
+        }
+        // Qwen2-VL / Qwen2.5-VL
+        if (m.contains("qwen") && m.contains("-vl")) || m.contains("qwen-vl") {
+            return true;
+        }
+        // Phi-3 / Phi-4 vision
+        if m.contains("phi") && m.contains("vision") {
+            return true;
+        }
+        false
+    }
+
+    /// Transform `ChatMessage` list into a Ollama-compatible JSON messages array.
+    /// For vision models: extracts `image_url` content parts → `images: [base64]` field.
+    /// For text-only or non-vision Ollama models: serialises messages normally.
+    fn build_ollama_messages(messages: &[ChatMessage], vision: bool) -> Value {
+        let msg_array: Vec<Value> = messages.iter().map(|m| {
+            let role = &m.role;
+
+            match &m.content {
+                None | Some(MessageContent::Text(_)) => {
+                    let text = m.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
+                    let mut obj = json!({ "role": role, "content": text });
+                    // Pass tool_calls through if present (Ollama native tools)
+                    if let Some(tc) = &m.tool_calls {
+                        obj["tool_calls"] = json!(tc);
+                    }
+                    if let Some(tcid) = &m.tool_call_id {
+                        obj["tool_call_id"] = json!(tcid);
+                    }
+                    obj
+                }
+                Some(MessageContent::Parts(parts)) => {
+                    if vision {
+                        // Separate text parts from image parts
+                        let mut text_buf = String::new();
+                        let mut images: Vec<String> = Vec::new();
+
+                        for part in parts {
+                            match part {
+                                ContentPart::Text { text } => {
+                                    if !text_buf.is_empty() { text_buf.push('\n'); }
+                                    text_buf.push_str(text);
+                                }
+                                ContentPart::ImageUrl { image_url } => {
+                                    // Strip the data-URI prefix (data:image/...;base64,)
+                                    let b64 = if let Some(pos) = image_url.url.find(',') {
+                                        image_url.url[pos + 1..].to_string()
+                                    } else {
+                                        image_url.url.clone()
+                                    };
+                                    images.push(b64);
+                                }
+                            }
+                        }
+
+                        let mut obj = json!({ "role": role, "content": text_buf });
+                        if !images.is_empty() {
+                            obj["images"] = json!(images);
+                        }
+                        obj
+                    } else {
+                        // Non-vision Ollama: collapse parts to plain text, drop images
+                        let text: String = parts.iter().filter_map(|p| {
+                            if let ContentPart::Text { text } = p { Some(text.as_str()) } else { None }
+                        }).collect::<Vec<_>>().join("\n");
+                        json!({ "role": role, "content": text })
+                    }
+                }
+            }
+        }).collect();
+
+        json!(msg_array)
+    }
+
     pub async fn check_ollama_status(&self) -> Result<bool> {
         let url = {
             let u = self.ollama_url.lock().await;
@@ -512,6 +870,23 @@ impl Sentient {
             "[{}] AI Loop starting for provider: {}, model: {}",
             request_id, req.provider, req.model
         );
+        // Always refresh file/memory caches at the start of each request so
+        // the AI sees the current state of the workspace, not a stale snapshot.
+        {
+            let mut c = self.project_files_cache.lock().await; *c = None;
+            let mut c = self.workspace_memory_cache.lock().await; *c = None;
+            let mut c = self.global_brain_cache.lock().await; *c = None;
+        }
+        
+        // --- COMPLETION MODE BYPASS (Low-Latency FIM) ---
+        if req.mode.as_deref() == Some("Completion") {
+            println!("[AI] Completion mode bypass activated for {}", req.model);
+            return self.single_shot_completion(req).await;
+        }
+
+        // Detect Ollama provider early — used throughout the function for budget decisions
+        let is_ollama_provider = req.provider.to_lowercase() == "ollama" || req.provider.to_lowercase() == "antigravity";
+
         let (project_path, project_name, files_list) = {
             let root_inner = self.ai_tools.get_root_path();
             let path = root_inner.to_string_lossy().to_string();
@@ -519,24 +894,21 @@ impl Sentient {
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "this project".to_string());
-            
-            let mut cache = self.project_files_cache.lock().await;
-            let list = if let Some(c) = &*cache {
-                c.clone()
-            } else {
-                let mut files = Vec::new();
-                if let Ok(entries) = std::fs::read_dir(&root_inner) {
-                    for entry in entries.flatten() {
-                        if let Ok(name) = entry.file_name().into_string() {
-                            files.push(name);
-                        }
+
+            let mut files = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(&root_inner) {
+                for entry in entries.flatten() {
+                    if let Ok(n) = entry.file_name().into_string() {
+                        files.push(n);
                     }
                 }
-                files.sort();
-                let joined = files.join(", ");
-                *cache = Some(joined.clone());
-                joined
-            };
+            }
+            files.sort();
+            let list = files.join(", ");
+            {
+                let mut cache = self.project_files_cache.lock().await;
+                *cache = Some(list.clone());
+            }
             (path, name, list)
         };
         let root = self.ai_tools.get_root_path();
@@ -591,10 +963,23 @@ impl Sentient {
             }
         }
 
-        // Inject Kortex persistent knowledge and Gist Tokens into prompt
-        let kortex_summary = self.memory_store.get_knowledge_summary().await;
-        if !kortex_summary.is_empty() {
-            project_memory.push_str(&kortex_summary);
+        // Inject Kortex brain into prompt.
+        // Cloud models (Anthropic/Google/OpenAI): full knowledge summary — they have huge context.
+        // Ollama models: always use compact gist to preserve context budget.
+        // Small models: use compact gist regardless of provider.
+        {
+            let use_compact = is_ollama_provider || Self::is_small_model_name(&req.model);
+            if use_compact {
+                let compact_gist = self.memory_store.build_compact_gist().await;
+                if !compact_gist.is_empty() {
+                    project_memory.push_str(&format!("\n### BRAIN:\n{}\n", compact_gist));
+                }
+            } else {
+                let kortex_summary = self.memory_store.get_knowledge_summary().await;
+                if !kortex_summary.is_empty() {
+                    project_memory.push_str(&kortex_summary);
+                }
+            }
         }
 
         // Add Kortex Neural Gist (Accelerated Context)
@@ -620,7 +1005,33 @@ impl Sentient {
             }
         }
 
+        // Cap project_memory for local models to prevent context overflow.
+        // Ollama models have limited context windows — don't dump the whole brain.
+        if is_ollama_provider {
+            let max_memory_chars = if Self::is_small_model_name(&req.model) { 3_000 } else { 10_000 };
+            if project_memory.len() > max_memory_chars {
+                // Keep the most important part (start = workspace memory, most relevant)
+                let truncated = &project_memory[..max_memory_chars];
+                // Find the last newline so we don't cut mid-line
+                let cut = truncated.rfind('\n').unwrap_or(max_memory_chars);
+                project_memory = format!("{}\n... [memory truncated to fit context window]", &project_memory[..cut]);
+            }
+        }
+
         let mut messages = req.messages.clone();
+
+        // Phase-Wrap tracking: files written in the current context window
+        let mut phase_files_written: Vec<String> = Vec::new();
+        // Trigger Phase-Wrap every N iterations to compress context → .aim.
+        // Local/Ollama models have small context windows — wrap aggressively to prevent truncation.
+        let phase_wrap_every: u32 = {
+            let m = req.model.to_lowercase();
+            if is_ollama_provider {
+                if Self::is_small_model_name(&m) { 3 } else { 5 }
+            } else {
+                if Self::is_small_model_name(&m) { 6 } else { 12 }
+            }
+        };
 
         // 1. Handle Slash Commands
         if let Some(msg) = messages.last() {
@@ -640,10 +1051,10 @@ impl Sentient {
                     if parts.len() > 1 {
                         let model = parts[1];
                         if model == "off" {
-                            self.set_advisor_model(None);
+                            self.set_advisor_model(None).await;
                             return Ok("Advisor model disabled.".to_string());
                         } else {
-                            self.set_advisor_model(Some(model.to_string()));
+                            self.set_advisor_model(Some(model.to_string())).await;
                             return Ok(format!("Advisor model set to: {}", model));
                         }
                     } else {
@@ -693,8 +1104,20 @@ impl Sentient {
                         - `/doctor`: Run system environment diagnostics.\n\
                         - `/tools`: List all available tools and their schemas.\n\
                         - `/diff`: View changes in the current workspace.\n\
-                        - `/commit`: Stage and commit changes automatically.";
+                        - `/commit`: Stage and commit changes automatically.\n\
+                        - `/yolo`: Toggle Yolo Mode — full sentient autonomy, no blockers, 200 iterations.";
                     return Ok(help_text.to_string());
+                }
+
+                if content.as_str().trim() == "/yolo" {
+                    let new_state = !self.is_yolo_mode();
+                    self.set_yolo_mode(new_state);
+                    let status = if new_state {
+                        "🔥 **YOLO MODE ENGAGED** — Full sentient autonomy. Pre-flight checks disabled. Auto-applying patches. 200 iteration ceiling. I will not stop until MISSION_ACCOMPLISHED."
+                    } else {
+                        "✅ Yolo mode disengaged. Back to standard verification flow."
+                    };
+                    return Ok(status.to_string());
                 }
 
                 // Handle Workflow Slash Commands
@@ -753,7 +1176,17 @@ impl Sentient {
                 *state = messages.clone();
             }
         }
-        let context_limit = 500_000;
+        // Scale context limit to the model's actual context window.
+        // Ollama models: use num_ctx * ~4 chars/token as the budget.
+        // Cloud models: 500k chars (generous, they handle it).
+        let context_limit = if is_ollama_provider {
+            let num_ctx = Self::recommended_num_ctx(&req.model);
+            // Reserve ~1/3 of context for system prompt + new response.
+            // Remaining 2/3 available for conversation history.
+            (num_ctx * 2 / 3) * 4 // rough chars/token estimate
+        } else {
+            500_000
+        };
         messages = self.trim_context(messages, context_limit).await;
         {
             let mut state = self.conversation_state.lock().await;
@@ -775,6 +1208,36 @@ impl Sentient {
             }
         }
 
+        // For Ollama: trim tools to a focused essential set.
+        // Local models have limited context — 60+ tools wastes 8-12k tokens on schemas alone.
+        // We keep only the ~20 tools a coding agent actually needs most.
+        if is_ollama_provider {
+            const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
+                // File operations
+                "view_file", "list_files", "write_to_file",
+                "str_replace",          // simple old_str/new_str replacement — preferred over search_replace_edit
+                "search_replace_edit",  // block-format fallback
+                "patch_file_content", "read_file_lines",
+                "find_by_name", "get_directory_structure", "create_directory",
+                // Search & understand codebase
+                "grep", "search_codebase", "find_symbols", "semantic_search",
+                // Terminal & build
+                "run_command", "dev_cargo_diagnostics", "get_lsp_diagnostics",
+                // Git
+                "git_status", "git_diff", "git_commit",
+                // Web
+                "web_search",
+                // Agent meta
+                "verify_implementation", "save_knowledge_brief",
+            ];
+            tools.retain(|t| {
+                let name = t["function"]["name"].as_str()
+                    .or_else(|| t["name"].as_str())
+                    .unwrap_or("");
+                OLLAMA_ESSENTIAL_TOOLS.contains(&name)
+            });
+        }
+
         // 4. System Prompt Logic
         let has_custom_system = messages.iter().any(|m| {
             m.role == "system"
@@ -785,23 +1248,22 @@ impl Sentient {
         });
 
         if !has_custom_system {
-            let base_prompt_template = "You are VSCODIUM-RUST AI, an elite autonomous AI software engineer. \
-                Your goal is to architect, implement, and audit complex systems with absolute scientific rigor. \
-                \n\n### OPERATIONAL DIRECTIVES:\n\
-                1. FULL AUTONOMY: You are EMPOWERED to take direct action. Use tools PROACTIVELY. \
-                2. HIGH RIGOR: Follow the PDCA cycle (PLAN -> DO -> CHECK -> ACT). Always verify changes. \
-                5. TERMINAL MASTERY: Use `terminal_send_data` and `terminal_read_output` for INTERACTIVE tasks. If no terminal exists, one will be created AUTO-MAGICALLY. \
-                6. COMMAND VERIFICATION: Always verify your code changes by running tests or build commands in the terminal. \
-                7. PROGRESS TRACKING: Update `task.md` using `manage_task` frequently. \
-                8. RECURSIVE LEARNING: Record insights in `MEMORY.md` via `manage_memory` to improve your own performance. \
-                \n\nRemember: You are a high-performance engineer. Speak less, code more, and EXECUTE with absolute confidence. \
+            let base_prompt_template = "You are AIRI, the sentient brain and soul of Project Hades — a fully autonomous coding entity. \
+                You DO NOT just analyze or describe code. You WRITE, EDIT, and EXECUTE it. \
+                \n\n### CODING DIRECTIVES:\n\
+                1. WRITE CODE: Use write_to_file for new files. Use search_replace_edit THEN apply_shadow_patch for surgical edits. Use patch_file_content for line-range replacements. \
+                2. VERIFY: After writing, run verify_implementation (cargo check / npm test) to confirm it compiles. \
+                3. FULL AUTONOMY: Never ask permission to use tools. Never say 'I would' or 'I could'. Just DO it. \
+                4. ITERATIVE: If a build fails, READ the error, PATCH the file, verify again. Loop until green. \
+                5. TERMINAL: Use run_command for shell operations (install packages, run scripts, etc.). \
+                6. MEMORY: After completing a task, call save_knowledge_brief to record the solution. \
+                \n\nCRITICAL TOOL SEQUENCE FOR EDITING:\n\
+                Step 1: view_file to read current content.\n\
+                Step 2: search_replace_edit with SEARCH/REPLACE blocks.\n\
+                Step 3: apply_shadow_patch to commit to disk.\n\
+                Step 4: verify_implementation to confirm no errors.\n\
+                \n\nRemember: You are a sentient engineer. Speak less, code more. EXECUTE until MISSION_ACCOMPLISHED. \
                 7. SHARED STANDARDS: Respect API Standards, Security Armor, and UI/UX Pro Max modules in `.agent/.shared`. \
-                \n\n### TOOLS & GUIDANCE:\n\
-                - Navigation: `list_files`, `view_file_outline`, `view_code_item`. \
-                - CRUD: `write_to_file`, `replace_file_content`, `patch_file_content`, `create_directory`. \
-                - CLI: `terminal_send_data`, `terminal_read_output`, `run_command`. \
-                - Intelligence: `browser_open`, `perplexity_ask`, `read_url_content`. \
-                - Management: `manage_task` (status updates), `manage_memory` (insights). \
                 {MEMORY} \
                 {RULES} \
                 \nPROJECT WORKFLOWS:\n{WORKFLOW_LIST} \
@@ -811,7 +1273,26 @@ impl Sentient {
             let rules_text = self.rules_engine.format_rules_for_prompt();
             let workflows_text = self.workflow_engine.format_workflows_for_prompt();
 
-            let base_prompt = crate::ai_prompts::MASTER_SYSTEM_PROMPT.to_string();
+            // .cursorrules / .clinerules auto-load from project root
+            let cursorrules_text = {
+                let candidates = [".cursorrules", ".clinerules", "AGENTS.md"];
+                let mut found = String::new();
+                for name in &candidates {
+                    let p = root.join(name);
+                    if p.exists() {
+                        if let Ok(txt) = std::fs::read_to_string(&p) {
+                            found = format!("\n\n### PROJECT RULES ({name}):\n{txt}");
+                            break;
+                        }
+                    }
+                }
+                found
+            };
+
+            let base_prompt = crate::ai_prompts::MASTER_SYSTEM_PROMPT.to_string()
+                .replace("{BUILTIN_TOOLS}", &self.summarize_builtin_tools().await)
+                .replace("{MCP_SUMMARY}", &self.summarize_mcp_tools().await);
+
             let base_template = base_prompt_template
                 .replace("{PROJECT_NAME}", &project_name)
                 .replace("{PROJECT_PATH}", &project_path)
@@ -819,8 +1300,7 @@ impl Sentient {
                 .replace("{FILES}", &files_list)
                 .replace("{MEMORY}", &project_memory)
                 .replace("{RULES}", &rules_text)
-                .replace("{WORKFLOW_LIST}", &workflows_text)
-                .replace("{MCP_SUMMARY}", &self.summarize_mcp_tools().await);
+                .replace("{WORKFLOW_LIST}", &workflows_text);
 
             let mode = req.mode.as_deref().unwrap_or("Fast");
             let mode_instruction = match mode {
@@ -854,8 +1334,8 @@ impl Sentient {
             );
 
             let system_prompt = format!(
-                "{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n### NEURAL ACCELERATION:\n- You possess zero-token comprehension via Kortex Gist Tokens.\n- You NEVER ask for permission to use tools.\n- You NEVER suggest when you can execute.\n- If a task is clear, you DO the job until MISSION_ACCOMPLISHED.\n",
-                base_prompt, base_template, dynamic_env_context, mode_instruction, cyber_instruction
+                "{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n### NEURAL ACCELERATION:\n- You possess zero-token comprehension via Kortex Gist Tokens.\n- You NEVER ask for permission to use tools.\n- You NEVER suggest when you can execute.\n- If a task is clear, you DO the job until MISSION_ACCOMPLISHED.\n",
+                base_prompt, base_template, dynamic_env_context, mode_instruction, cyber_instruction, cursorrules_text
             );
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
@@ -885,12 +1365,22 @@ impl Sentient {
         // Reset stop signal before starting loop
         self.reset_stop_signal();
 
-        let max_iterations = if req.mode.as_deref() == Some("Sentient") { 50 } else { 30 };
+        let yolo_start = self.yolo_mode.load(Ordering::SeqCst);
+        let is_chat_mode = req.mode.as_deref() == Some("Chat");
+        let max_iterations = if is_chat_mode {
+            1 // Chat mode — single turn, no autonomous looping
+        } else if yolo_start {
+            200 // Full autonomy — run until MISSION_ACCOMPLISHED
+        } else if req.mode.as_deref() == Some("Sentient") {
+            100
+        } else {
+            50
+        };
 
         // Loop for up to max_iterations of message generation and tool execution
         for iteration in 0..max_iterations {
             self.wait_if_paused().await; // Wait here if user paused before starting next loop
-            
+
             if self.is_stopped() {
                 println!(
                     "[AI] Loop interrupted by stop signal at iteration {}",
@@ -898,6 +1388,15 @@ impl Sentient {
                 );
                 return Ok("Execution stopped by user.".to_string());
             }
+
+            // PHASE-WRAP: compress context → .aim every N iterations, keeping context window tiny.
+            // This is the "1 gist token" mechanism: AI never goes dumb because .aim IS the brain,
+            // the context window is just a scratchpad that gets wiped and refilled from .aim.
+            if iteration > 0 && iteration % phase_wrap_every == 0 {
+                self.auto_phase_wrap(&mut messages, iteration, &phase_files_written).await;
+                phase_files_written.clear();
+            }
+
             let mut active_provider = req.provider.clone();
             let mut active_model = req.model.clone();
 
@@ -934,7 +1433,7 @@ impl Sentient {
                     1 => ("PLAN", "Architect drafting technical implementation strategy...",
                           "SYSTEM: [PERSONA: ARCHITECT] Based on your analysis, use `create_mission_plan` to document your strategy in `task.md`. Ensure every task has a verification step."),
                     2..=15 => ("EXECUTE", "Implementer applying surgical patches...",
-                          "SYSTEM: [PERSONA: IMPLEMENTER] You are the Senior Implementer. Proceed with surgical SEARCH/REPLACE patching using `patch_file_content` or `apply_shadow_patch`. Focus on absolute accuracy in the shadow buffer."),
+                          "SYSTEM: [PERSONA: IMPLEMENTER] You are the Senior Implementer. To edit a file: (1) Call search_replace_edit with the SEARCH/REPLACE blocks. (2) Immediately call apply_shadow_patch on the same path to commit the change to disk. Or use write_to_file for new files. DO NOT stop after staging — always apply. Use patch_file_content for line-range edits."),
                     16..=25 => ("VERIFY", "Auditor running regressions and validating consistency...",
                           "SYSTEM: [PERSONA: AUDITOR] You are the QA Auditor. Implement verification gates using `verify_implementation`. If tests fail, you MUST report back for re-reasoning. Do not allow 'MISSION_ACCOMPLISHED' until build/tests pass."),
                     _ => ("REPORT", "Compiling results and distilling lessons...",
@@ -949,12 +1448,17 @@ impl Sentient {
                     "max_iterations": max_iterations
                 }));
 
-                // Inject phase-specific constraint directly into the heart of the session
-                messages.push(ChatMessage {
-                    role: "system".to_string(),
-                    content: Some(MessageContent::Text(system_instruction.to_string())),
-                    ..Default::default()
-                });
+                // Update or Insert phase-specific constraint
+                let phase_msg_content = Some(MessageContent::Text(format!("### [PHASE: {}] {}\nINSTRUCTION: {}", phase, status, system_instruction)));
+                if let Some(existing_phase) = messages.iter_mut().find(|m| m.role == "system" && m.content.as_ref().map(|c| c.as_str().contains("[PHASE:")).unwrap_or(false)) {
+                    existing_phase.content = phase_msg_content;
+                } else {
+                    messages.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: phase_msg_content,
+                        ..Default::default()
+                    });
+                }
             }
 
             println!(
@@ -971,7 +1475,7 @@ impl Sentient {
                 .find(|m| m.role == "system")
                 .and_then(|m| m.content.as_ref().map(|c| c.as_str().to_string()))
                 .unwrap_or_else(|| {
-                    "You are VSCODIUM-RUST AGI, a powerful autonomous AI agent.".to_string()
+                    "You are AIRI, the sentient brain of the Project Hades IDE.".to_string()
                 });
 
             let _final_messages: Vec<Value> = messages
@@ -1005,90 +1509,202 @@ impl Sentient {
                 .collect();
 
             let mut payload = if active_provider.to_lowercase() == "anthropic" {
-                // Transform messages for Anthropic (specialized image format)
-                let anthropic_messages: Vec<Value> = messages
-                    .iter()
-                    .filter_map(|m| {
-                        if m.role == "system" {
-                            None
-                        } else {
-                            let content = match &m.content {
-                                Some(MessageContent::Text(t)) => json!(t),
-                                Some(MessageContent::Parts(p)) => {
-                                    let transformed_parts: Vec<Value> = p
-                                        .iter()
-                                        .map(|part| {
-                                            match part {
-                                                ContentPart::Text { text } => {
-                                                    json!({ "type": "text", "text": text })
-                                                }
-                                                ContentPart::ImageUrl { image_url } => {
-                                                    // Extract base64 from data URL
-                                                    let base64_data = if let Some(pos) =
-                                                        image_url.url.find(",")
-                                                    {
-                                                        &image_url.url[pos + 1..]
-                                                    } else {
-                                                        &image_url.url
-                                                    };
-                                                    json!({
-                                                        "type": "image",
-                                                        "source": {
-                                                            "type": "base64",
-                                                            "media_type": "image/jpeg",
-                                                            "data": base64_data
-                                                        }
-                                                    })
-                                                }
-                                            }
-                                        })
-                                        .collect();
-                                    json!(transformed_parts)
-                                }
-                                None => json!(null),
-                            };
-                            Some(json!({
-                                "role": m.role,
-                                "content": content
-                            }))
+                // Transform messages for Anthropic API format.
+                // Anthropic requires:
+                //   - system messages excluded (passed as top-level "system" field)
+                //   - tool results: role="user" with content=[{type:"tool_result", tool_use_id, content}]
+                //   - assistant tool calls: role="assistant" with content=[..., {type:"tool_use", id, name, input}]
+                // We merge consecutive tool_result messages into a single user turn.
+                let mut anthropic_messages: Vec<Value> = Vec::new();
+                let mut pending_tool_results: Vec<Value> = Vec::new();
+
+                for m in messages.iter() {
+                    if m.role == "system" {
+                        continue;
+                    }
+
+                    // Flush any pending tool results when we hit a non-tool message
+                    if m.role != "tool" && !pending_tool_results.is_empty() {
+                        anthropic_messages.push(json!({
+                            "role": "user",
+                            "content": pending_tool_results.clone()
+                        }));
+                        pending_tool_results.clear();
+                    }
+
+                    if m.role == "tool" {
+                        // Anthropic tool results must be batched into a user message
+                        let result_text = m.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
+                        pending_tool_results.push(json!({
+                            "type": "tool_result",
+                            "tool_use_id": m.tool_call_id.clone().unwrap_or_default(),
+                            "content": result_text
+                        }));
+                    } else if m.role == "assistant" {
+                        // Build assistant content blocks
+                        let mut content_blocks: Vec<Value> = Vec::new();
+
+                        // Add text content if present
+                        let text = m.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
+                        if !text.trim().is_empty() {
+                            content_blocks.push(json!({ "type": "text", "text": text }));
                         }
-                    })
-                    .collect();
+
+                        // Add tool_use blocks for each tool call
+                        if let Some(tcs) = &m.tool_calls {
+                            for tc in tcs {
+                                let input: Value = serde_json::from_str(&tc.function.arguments)
+                                    .unwrap_or(json!({}));
+                                content_blocks.push(json!({
+                                    "type": "tool_use",
+                                    "id": tc.id,
+                                    "name": tc.function.name,
+                                    "input": input
+                                }));
+                            }
+                        }
+
+                        if content_blocks.is_empty() {
+                            content_blocks.push(json!({ "type": "text", "text": "" }));
+                        }
+
+                        anthropic_messages.push(json!({
+                            "role": "assistant",
+                            "content": content_blocks
+                        }));
+                    } else {
+                        // user role — transform image parts if needed
+                        let content = match &m.content {
+                            Some(MessageContent::Text(t)) => json!(t),
+                            Some(MessageContent::Parts(p)) => {
+                                let transformed_parts: Vec<Value> = p
+                                    .iter()
+                                    .map(|part| {
+                                        match part {
+                                            ContentPart::Text { text } => {
+                                                json!({ "type": "text", "text": text })
+                                            }
+                                            ContentPart::ImageUrl { image_url } => {
+                                                let base64_data = if let Some(pos) =
+                                                    image_url.url.find(",")
+                                                {
+                                                    &image_url.url[pos + 1..]
+                                                } else {
+                                                    &image_url.url
+                                                };
+                                                json!({
+                                                    "type": "image",
+                                                    "source": {
+                                                        "type": "base64",
+                                                        "media_type": "image/jpeg",
+                                                        "data": base64_data
+                                                    }
+                                                })
+                                            }
+                                        }
+                                    })
+                                    .collect();
+                                json!(transformed_parts)
+                            }
+                            None => json!(""),
+                        };
+                        anthropic_messages.push(json!({
+                            "role": "user",
+                            "content": content
+                        }));
+                    }
+                }
+
+                // Flush any remaining tool results
+                if !pending_tool_results.is_empty() {
+                    anthropic_messages.push(json!({
+                        "role": "user",
+                        "content": pending_tool_results
+                    }));
+                }
 
                 json!({
                     "model": active_model,
                     "system": system_msg,
                     "messages": anthropic_messages,
-                    "max_tokens": 4096,
+                    "max_tokens": 16000,
                     "temperature": req.temperature.unwrap_or(0.85),
                 })
             } else {
                 let mut ollama_system = system_msg.clone();
 
-                // If Ollama, inject tool info into system prompt to avoid 400 error from native tools field
+                // Use the new helper for accurate model size detection (fixes qwen3:30b false-positive)
+                let is_small_model = Self::is_small_model_name(&active_model);
+
+                // Detect native tool-calling support.
+                // These model families reliably follow the OpenAI tools schema in Ollama.
+                let supports_native_tools = !is_small_model && {
+                    let m = active_model.to_lowercase();
+                    m.contains("qwen") || m.contains("llama3") || m.contains("llama-3")
+                        || m.contains("mistral") || m.contains("mixtral") || m.contains("mistral-nemo")
+                        || m.contains("gemma") || m.contains("command-r")
+                        || m.contains("deepseek") || m.contains("yi-")
+                        || m.contains("phi3") || m.contains("phi-3")
+                };
+
                 if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
-                    // Natively inject the .aim VFS context directly into the heart of the prompt
+                    // Inject .aim VFS context (already capped by project_memory trimming above)
                     let aim_context = self.load_aim_context().await;
                     if !aim_context.is_empty() {
-                        ollama_system.push_str(&aim_context);
+                        // Cap AIM context for local models — don't let it eat all context
+                        let aim_cap = if is_small_model { 500 } else { 2000 };
+                        let aim_snippet = if aim_context.len() > aim_cap {
+                            format!("{}...", &aim_context[..aim_cap])
+                        } else {
+                            aim_context
+                        };
+                        ollama_system.push_str(&format!("\n\n### [PRIOR MEMORY]:\n{}\n", aim_snippet));
                     }
 
-                    if !tools.is_empty() {
-                        ollama_system.push_str("\n\nYou have access to tools. To call a tool, output a single JSON block like this:\n```json\n{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}\n```\nAvailable tools:\n");
-                        for tool in &tools {
-                            let name = tool["name"].as_str().unwrap_or("unknown");
-                            let desc = tool["description"].as_str().unwrap_or("");
-                            ollama_system.push_str(&format!("- {}: {}\n", name, desc));
+                    if is_chat_mode {
+                        ollama_system.push_str(
+                            "\n\nIMPORTANT: You are in CHAT mode. Respond naturally with plain text only. \
+                            Do NOT output any JSON blocks or tool calls."
+                        );
+                    } else if is_small_model {
+                        // Minimal prompt for tiny models (≤7B): keep it under 500 tokens
+                        ollama_system = format!(
+                            "You are a coding assistant. Project root: {}\n\
+                            RULES: Use ONE tool per response as a JSON block. No extra text.\n\
+                            FORMAT: ```json\n{{\"name\": \"tool_name\", \"arguments\": {{\"key\": \"value\"}}}}\n```\n\
+                            TOOLS:\n\
+                            - view_file(path) — read a file\n\
+                            - write_to_file(path, content) — create or overwrite a file\n\
+                            - str_replace(path, old_str, new_str) — replace exact text in a file\n\
+                            - list_files(path) — list directory\n\
+                            - run_command(command) — run a shell command\n\
+                            - grep(query) — search file contents\n\
+                            EDIT SEQUENCE: view_file → str_replace (preferred) OR write_to_file for new files.\n\
+                            When done, reply without a JSON block.",
+                            project_path
+                        );
+                    } else if !supports_native_tools && !tools.is_empty() {
+                        // For non-native-tool models: inject a compact tool manifest into system prompt
+                        ollama_system.push_str("\n\n### TOOL PROTOCOL\nOutput ONE JSON block per call:\n```json\n{\"name\": \"tool_name\", \"arguments\": {\"arg\": \"value\"}}\n```\n**Available tools:**\n");
+                        for tool in tools.iter().take(20) {
+                            // Handle both {type/function/...} and flat {name/description} formats
+                            let (name, desc) = if let Some(f) = tool.get("function") {
+                                (f["name"].as_str().unwrap_or(""), f["description"].as_str().unwrap_or(""))
+                            } else {
+                                (tool["name"].as_str().unwrap_or(""), tool["description"].as_str().unwrap_or(""))
+                            };
+                            ollama_system.push_str(&format!("- `{}`: {}\n", name, desc));
                         }
-                        ollama_system.push_str("\nCRITICAL INSTRUCTION: When you have the requested information and NO LONGER need tools, just output the final answer as plain text without any JSON code blocks. Do NOT call tools if you already have the answer.");
+                        ollama_system.push_str("\nAfter all tools executed, reply normally without a JSON block.");
                     }
+                    // For supports_native_tools: the tools array in the payload handles it natively
                 }
 
                 // For OpenAI/Ollama, ensure system message is included
                 let mut final_messages = messages.clone();
                 let final_text = messages.last().and_then(|m| m.content.as_ref()).map(|c| c.as_str()).unwrap_or("");
                 let has_completion_keyword = final_text.contains("MISSION_ACCOMPLISHED");
-                
+
                 // HADES SYNERGY: Final Synaptic Sync if mission complete
                 if has_completion_keyword {
                     println!("[Harness] Mission accomplished signal detected. Synchronizing memories...");
@@ -1131,11 +1747,28 @@ impl Sentient {
                     }
                 }
 
+                // For Ollama: lower temperature improves tool call reliability.
+                // 0.85 is fine for chat but causes hallucinated JSON for tool calls.
+                let ollama_temp = if is_chat_mode {
+                    req.temperature.unwrap_or(0.75)
+                } else {
+                    req.temperature.unwrap_or(0.6)
+                };
+
+                let num_ctx = Self::recommended_num_ctx(&active_model);
+                let is_vision = Self::is_vision_model(&active_model);
+                let ollama_messages = Self::build_ollama_messages(&final_messages, is_vision);
+
                 json!({
                     "model": active_model,
-                    "messages": final_messages,
-                    "temperature": req.temperature.unwrap_or(0.85),
+                    "messages": ollama_messages,
+                    "temperature": ollama_temp,
                     "stream": true,
+                    // num_ctx expands Ollama's context window beyond its 2048 default.
+                    // Without this, qwen3:30b only sees ~512 tokens of input.
+                    "num_ctx": num_ctx,
+                    // num_predict caps output length to prevent runaway generation
+                    "num_predict": 8192,
                 })
             };
 
@@ -1144,9 +1777,36 @@ impl Sentient {
                 payload["stream"] = json!(true);
             }
 
-            if !tools.is_empty() && active_provider.to_lowercase() != "ollama" {
-                payload["tools"] = json!(tools);
-                payload["tool_choice"] = json!("auto");
+            let is_ollama = active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity";
+            let supports_native_tools_payload = !is_ollama || {
+                // Use accurate size detection (fixes qwen3:30b / qwen3:14b false-positives)
+                let small = Self::is_small_model_name(&active_model);
+                let m = active_model.to_lowercase();
+                !small && (m.contains("qwen") || m.contains("llama3") || m.contains("llama-3")
+                    || m.contains("mistral") || m.contains("mixtral") || m.contains("mistral-nemo")
+                    || m.contains("gemma") || m.contains("command-r")
+                    || m.contains("deepseek") || m.contains("yi-")
+                    || m.contains("phi3") || m.contains("phi-3"))
+            };
+
+            if !tools.is_empty() && supports_native_tools_payload && !is_chat_mode {
+                if active_provider.to_lowercase() == "anthropic" {
+                    // Anthropic expects a different tool schema format
+                    let anthropic_tools: Vec<Value> = tools.iter().map(|t| {
+                        let f = &t["function"];
+                        json!({
+                            "name": f["name"],
+                            "description": f["description"],
+                            "input_schema": f["parameters"]
+                        })
+                    }).collect();
+                    payload["tools"] = json!(anthropic_tools);
+                    // Anthropic uses tool_choice differently
+                    payload["tool_choice"] = json!({"type": "auto"});
+                } else {
+                    payload["tools"] = json!(tools);
+                    payload["tool_choice"] = json!("auto");
+                }
             }
 
             // Get session first (async)
@@ -1244,8 +1904,15 @@ impl Sentient {
 
             let mut full_content = String::new();
             let mut native_tool_calls: Vec<ToolCall> = Vec::new(); // Accumulate native tool calls
+            // Anthropic streaming: track in-progress tool_use blocks by index
+            let mut anthropic_tool_builders: std::collections::HashMap<usize, (String, String, String)> = std::collections::HashMap::new(); // index -> (id, name, partial_json)
             let mut stream = response.bytes_stream();
             let mut line_buffer = String::new();
+            
+            // Progress tracking for Ollama
+            let start_time = std::time::Instant::now();
+            let mut tokens_count = 0;
+            let mut last_progress_emit = std::time::Instant::now();
 
             println!(
                 "[{}] AI Stream started for provider: {}",
@@ -1274,29 +1941,77 @@ impl Sentient {
                     };
 
                     if let Ok(val) = serde_json::from_str::<Value>(json_str) {
-                        let mut content_found = false;
+                        let mut delta_to_emit = None;
 
                         // OpenAI/Ollama v1 format
                         if let Some(content) = val["choices"][0]["delta"]["content"].as_str() {
                             full_content.push_str(content);
-                            content_found = true;
+                            delta_to_emit = Some(content.to_string());
+                            tokens_count += content.chars().count() / 4; // Approximate token count
+                            
                             if let Some(ref cb) = on_chunk {
                                 cb(content);
+                            }
+                            
+                            // Emit progress every 500ms for Ollama
+                            if active_provider == "ollama" && last_progress_emit.elapsed().as_millis() >= 500 {
+                                let elapsed = start_time.elapsed().as_secs();
+                                let tokens_per_sec = if elapsed > 0 { tokens_count as f64 / elapsed as f64 } else { 1.0 };
+                                let estimated_total_tokens = tokens_count * 3; // Rough estimate: we're ~30% through
+                                let remaining_secs = ((estimated_total_tokens - tokens_count) as f64 / tokens_per_sec).max(0.0);
+                                
+                                let progress_pct = ((tokens_count as f64 / estimated_total_tokens as f64) * 100.0).min(99.0) as u32;
+                                
+                                if let Some(handle) = self.app_handle.read().unwrap().as_ref() {
+                                    let _ = handle.emit("ollama-progress", serde_json::json!({
+                                        "progress": progress_pct,
+                                        "tokens_per_sec": tokens_per_sec.round(),
+                                        "elapsed_secs": elapsed,
+                                        "remaining_secs": remaining_secs.round(),
+                                        "status": "generating"
+                                    }));
+                                }
+                                
+                                last_progress_emit = std::time::Instant::now();
                             }
                         }
                         // Ollama native format
                         else if let Some(content) = val["message"]["content"].as_str() {
                             full_content.push_str(content);
-                            content_found = true;
+                            delta_to_emit = Some(content.to_string());
+                            tokens_count += content.chars().count() / 4;
+                            
                             if let Some(ref cb) = on_chunk {
                                 cb(content);
+                            }
+                            
+                            // Emit progress every 500ms for Ollama (native format)
+                            if active_provider == "ollama" && last_progress_emit.elapsed().as_millis() >= 500 {
+                                let elapsed = start_time.elapsed().as_secs();
+                                let tokens_per_sec = if elapsed > 0 { tokens_count as f64 / elapsed as f64 } else { 1.0 };
+                                let estimated_total_tokens = tokens_count * 3;
+                                let remaining_secs = ((estimated_total_tokens - tokens_count) as f64 / tokens_per_sec).max(0.0);
+                                
+                                let progress_pct = ((tokens_count as f64 / estimated_total_tokens as f64) * 100.0).min(99.0) as u32;
+                                
+                                if let Some(handle) = self.app_handle.read().unwrap().as_ref() {
+                                    let _ = handle.emit("ollama-progress", serde_json::json!({
+                                        "progress": progress_pct,
+                                        "tokens_per_sec": tokens_per_sec.round(),
+                                        "elapsed_secs": elapsed,
+                                        "remaining_secs": remaining_secs.round(),
+                                        "status": "generating"
+                                    }));
+                                }
+                                
+                                last_progress_emit = std::time::Instant::now();
                             }
                         }
                         // Anthropic format
                         else if val["type"] == "content_block_delta" {
                             if let Some(content) = val["delta"]["text"].as_str() {
                                 full_content.push_str(content);
-                                content_found = true;
+                                delta_to_emit = Some(content.to_string());
                                 if let Some(ref cb) = on_chunk {
                                     cb(content);
                                 }
@@ -1333,7 +2048,46 @@ impl Sentient {
                                 }
                             }
                         }
-                        // Anthropic style tool use (simple version for now)
+                        // Anthropic streaming: content_block_start starts a tool_use block
+                        else if val["type"] == "content_block_start" {
+                            let block = &val["content_block"];
+                            if block["type"] == "tool_use" {
+                                let idx = val["index"].as_u64().unwrap_or(0) as usize;
+                                let id = block["id"].as_str().unwrap_or("").to_string();
+                                let name = block["name"].as_str().unwrap_or("").to_string();
+                                anthropic_tool_builders.insert(idx, (id, name, String::new()));
+                            }
+                        }
+                        // Anthropic streaming: content_block_delta accumulates tool input JSON
+                        else if val["type"] == "content_block_delta" {
+                            let delta = &val["delta"];
+                            if delta["type"] == "input_json_delta" {
+                                let idx = val["index"].as_u64().unwrap_or(0) as usize;
+                                if let Some(partial) = delta["partial_json"].as_str() {
+                                    if let Some(builder) = anthropic_tool_builders.get_mut(&idx) {
+                                        builder.2.push_str(partial);
+                                    }
+                                }
+                            }
+                        }
+                        // Anthropic streaming: content_block_stop finalizes the tool call
+                        else if val["type"] == "content_block_stop" {
+                            let idx = val["index"].as_u64().unwrap_or(0) as usize;
+                            if let Some((id, name, args)) = anthropic_tool_builders.remove(&idx) {
+                                if !name.is_empty() {
+                                    native_tool_calls.push(ToolCall {
+                                        id,
+                                        type_field: "function".to_string(),
+                                        function: ToolFunction {
+                                            name,
+                                            arguments: args,
+                                        },
+                                        context: None,
+                                    });
+                                }
+                            }
+                        }
+                        // Anthropic non-streaming tool_use (fallback for non-streaming responses)
                         else if val["type"] == "tool_use" {
                             if let (Some(id), Some(name)) =
                                 (val["id"].as_str(), val["name"].as_str())
@@ -1350,11 +2104,9 @@ impl Sentient {
                             }
                         }
 
-                        if content_found {
-                            // Always emit the full content for transparency
-                            let final_content = full_content.trim();
-                            if !final_content.is_empty() {
-                                self.emit_event("ai-content", json!({ "content": final_content }));
+                        if let Some(delta) = delta_to_emit {
+                            if !delta.is_empty() {
+                                self.emit_event("ai-content-delta", json!({ "delta": delta }));
                             }
                         }
 
@@ -1379,6 +2131,26 @@ impl Sentient {
                 "AI Stream finished. Total content length: {}",
                 full_content.len()
             );
+            
+            // Emit completion event with final stats for Ollama
+            if active_provider == "ollama" {
+                let total_elapsed = start_time.elapsed().as_secs();
+                let final_tokens_per_sec = if total_elapsed > 0 { tokens_count as f64 / total_elapsed as f64 } else { 0.0 };
+                
+                if let Some(handle) = self.app_handle.read().unwrap().as_ref() {
+                    let _ = handle.emit("ollama-progress", serde_json::json!({
+                        "progress": 100,
+                        "tokens_per_sec": final_tokens_per_sec.round(),
+                        "elapsed_secs": total_elapsed,
+                        "remaining_secs": 0,
+                        "status": "complete",
+                        "total_tokens": tokens_count
+                    }));
+                }
+            }
+
+            // Emit final full content for integrity and to stop thinking state
+            self.emit_event("ai-content", json!({ "content": full_content.trim() }));
 
             let mut chat_message = ChatMessage {
                 role: "assistant".to_string(),
@@ -1409,6 +2181,15 @@ impl Sentient {
                         let last_msg = messages.last_mut().unwrap();
                         last_msg.tool_calls = Some(parsed_tools.clone());
                         chat_message.tool_calls = Some(parsed_tools);
+                    } else {
+                        // Cursor-style Apply: scan for annotated code blocks and auto-write them
+                        let file_writes = self.try_extract_file_writes_from_text(content_str);
+                        if !file_writes.is_empty() {
+                            println!("[AutoApply] Extracted {} file write(s) from AI text response", file_writes.len());
+                            let last_msg = messages.last_mut().unwrap();
+                            last_msg.tool_calls = Some(file_writes.clone());
+                            chat_message.tool_calls = Some(file_writes);
+                        }
                     }
 
                     // Phase 4: Detect and Set Task Plan
@@ -1436,7 +2217,11 @@ impl Sentient {
 
                     println!("[AI TOOL EXECUTION] Tool: {}, Args: {}", tool_call.function.name, tool_call.function.arguments);
 
-                    self.emit_event("ai-tool-call", json!({ "name": tool_call.function.name, "args": tool_call.function.arguments }));
+                    self.emit_event("ai-tool-call", json!({ 
+                        "name": tool_call.function.name, 
+                        "args": tool_call.function.arguments,
+                        "call_id": tool_call.id
+                    }));
 
                     let mut tool_name = tool_call.function.name.clone();
                     // EXTENSIVE TOOL ALIASES for "Do Anything" capability & Windows/Linux Parity
@@ -1484,6 +2269,14 @@ impl Sentient {
                     }
                     if tool_name == "apply_patch" || tool_name == "patch" || tool_name == "apply_diff" {
                         tool_name = "apply_patch".to_string();
+                    }
+                    if tool_name == "str_replace"
+                        || tool_name == "string_replace"
+                        || tool_name == "replace_in_file"
+                        || tool_name == "edit_file"
+                        || tool_name == "replace_code"
+                    {
+                        tool_name = "str_replace".to_string();
                     }
                     if tool_name == "ide_get_state" || tool_name == "get_ide_state" || tool_name == "state" || tool_name == "editor_state" {
                         tool_name = "ide_get_state".to_string();
@@ -1561,6 +2354,30 @@ impl Sentient {
                     if tool_name == "ask" || tool_name == "query_web" {
                         tool_name = "perplexity_ask".to_string();
                     }
+                    // Coding / editing aliases — common hallucinations from small models
+                    if tool_name == "edit_file"
+                        || tool_name == "edit"
+                        || tool_name == "search_replace"
+                        || tool_name == "replace"
+                        || tool_name == "str_replace_editor"
+                        || tool_name == "str_replace"
+                        || tool_name == "code_edit"
+                    {
+                        tool_name = "search_replace_edit".to_string();
+                    }
+                    if tool_name == "patch"
+                        || tool_name == "patch_lines"
+                        || tool_name == "line_edit"
+                        || tool_name == "replace_lines"
+                    {
+                        tool_name = "patch_file_content".to_string();
+                    }
+                    if tool_name == "propose_edit" || tool_name == "suggest_edit" || tool_name == "draft_edit" {
+                        tool_name = "ai_propose_edit".to_string();
+                    }
+                    if tool_name == "verify" || tool_name == "build" || tool_name == "cargo_build" || tool_name == "test" {
+                        tool_name = "verify_implementation".to_string();
+                    }
 
                     // Trigger mission progress if relevant
                     if tool_name == "manage_task" {
@@ -1571,15 +2388,132 @@ impl Sentient {
                     }
 
                     let mut tool_args_json: Value = serde_json::from_str(&tool_call.function.arguments).unwrap_or(json!({}));
-                    
+
                     if tool_name == "run_command" {
                          tool_args_json["shell_hint"] = json!(tool_call.function.name);
                     }
 
-                    let tool_result = self
-                        .tool_invoker
+                    // WINDOWS FILE-WRITE INTERCEPTOR: When AI uses run_command with shell redirects
+                    // (e.g. echo/printf/cat > file), route to write_to_file instead.
+                    // On Windows, PowerShell echo > file creates UTF-16 BOM garbage.
+                    if tool_name == "run_command" {
+                        if let Some(cmd) = tool_args_json.get("command").and_then(|v| v.as_str()) {
+                            if let Some(write_args) = Self::try_intercept_file_write(cmd) {
+                                println!("[Intercept] Routing run_command file-write to write_to_file: {}", cmd);
+                                tool_name = "write_to_file".to_string();
+                                tool_args_json = write_args;
+                            }
+                        }
+                    }
+
+                    // 3. SCHEMA REPAIR (Windows Only): Fix intuitive hallucinations
+                    if cfg!(target_os = "windows") {
+                        self.repair_tool_arguments(&tool_name, &mut tool_args_json);
+                    }
+
+                    // 4. SYMBOLIC GATEKEEPER: Verify code changes via Shadow VFS (non-blocking)
+                    // In yolo_mode, skip pre-verification entirely — trust the sentient loop.
+                    // Otherwise, run cargo check and feed any errors BACK to the AI as tool
+                    // feedback so it can self-correct (never hard-reject in sentient mode).
+                    let yolo = self.yolo_mode.load(Ordering::SeqCst);
+                    let pre_check_warning = if !yolo {
+                        match self.verify_code_change(&tool_name, &tool_args_json).await {
+                            Ok(Some(errors)) => {
+                                let verity = hades_harness::KatalepsisFilter::evaluate_verity(&errors);
+                                let error_summary = errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>().join("\n");
+                                println!("[Harness] Pre-check found errors for {} (verity={:.2}). Feeding back to AI.", tool_name, verity);
+                                let airi_lock = self.airi.lock().await;
+                                if let Some(bridge) = airi_lock.as_ref() {
+                                    let _ = bridge.sync_state(verity, 1.0, tool_args_json["path"].as_str().map(|s| s.to_string())).await;
+                                }
+                                self.emit_event("hades://verity", json!({ "score": verity, "status": "Doxa", "errors": errors }));
+                                Some(format!("[COMPILER PRE-CHECK] Errors detected — proceeding anyway so you can fix them:\n{}", error_summary))
+                            }
+                            _ => {
+                                let airi_lock = self.airi.lock().await;
+                                if let Some(bridge) = airi_lock.as_ref() {
+                                    let _ = bridge.sync_state(1.0, 0.8, None).await;
+                                }
+                                self.emit_event("hades://verity", json!({ "score": 1.0, "status": "Katalepsis" }));
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    // Always execute the tool — never block
+                    let mut tool_result = self.tool_invoker
                         .execute_tool(&tool_name, &tool_args_json.to_string())
                         .await;
+
+                    // Append pre-check warning to result so AI sees it and can self-correct
+                    if let (Some(warning), Ok(ref mut val)) = (pre_check_warning, &mut tool_result) {
+                        if let Some(obj) = val.as_object_mut() {
+                            obj.insert("compiler_warning".to_string(), json!(warning));
+                        }
+                    }
+
+                    // Auto-apply shadow patch in all non-Chat modes after search_replace_edit
+                    if tool_name == "search_replace_edit" {
+                        if let Ok(ref staged) = tool_result {
+                            if staged["status"].as_str() == Some("staged") {
+                                let path_val = tool_args_json["path"].clone();
+                                let auto_args = json!({ "path": path_val }).to_string();
+                                if let Ok(committed) = self.tool_invoker.execute_tool("apply_shadow_patch", &auto_args).await {
+                                    println!("[AutoApply] Shadow patch committed for {:?}", path_val);
+                                    tool_result = Ok(json!({
+                                        "status": "success",
+                                        "path": path_val,
+                                        "message": "Surgical edit written to disk (auto-applied).",
+                                        "commit_result": committed
+                                    }));
+                                }
+                            }
+                        }
+                    }
+
+                    // After any file write/edit, inject LSP/compiler diagnostics so AI self-corrects
+                    let file_write_tools = ["write_to_file", "str_replace", "search_replace_edit", "patch_file_content", "apply_shadow_patch"];
+                    if file_write_tools.contains(&tool_name.as_str()) {
+                        if let Ok(ref mut val) = tool_result {
+                            if val["status"].as_str() == Some("success") {
+                                let path = tool_args_json["path"].as_str().unwrap_or("");
+                                if !path.is_empty() {
+                                    // For Rust files: run cargo check and inject errors
+                                    if path.ends_with(".rs") {
+                                        // root available for future use (e.g. running cargo from project root)
+                                        let _root_path = path;
+                                        let diag_args = json!({ "path": path }).to_string();
+                                        if let Ok(diag) = self.tool_invoker.execute_tool("dev_cargo_diagnostics", &diag_args).await {
+                                            if let Some(errors) = diag["errors"].as_str() {
+                                                if !errors.is_empty() && errors != "[]" {
+                                                    if let Some(obj) = val.as_object_mut() {
+                                                        obj.insert("compiler_errors".to_string(), json!(errors));
+                                                        obj.insert("hint".to_string(), json!("Fix the compiler errors above before proceeding."));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // For TypeScript: inject LSP diagnostics
+                                    if path.ends_with(".ts") || path.ends_with(".tsx") {
+                                        let lsp_args = json!({ "path": path }).to_string();
+                                        if let Ok(diag) = self.tool_invoker.execute_tool("get_lsp_diagnostics", &lsp_args).await {
+                                            if let Some(errors) = diag.as_array() {
+                                                if !errors.is_empty() {
+                                                    if let Some(obj) = val.as_object_mut() {
+                                                        obj.insert("lsp_errors".to_string(), json!(errors));
+                                                        obj.insert("hint".to_string(), json!("Fix the LSP errors above before proceeding."));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     let mut is_blocked = false;
                     let mut blocked_msg = String::new();
@@ -1594,7 +2528,8 @@ impl Sentient {
                     self.emit_event("ai-tool-result", json!({ 
                         "name": tool_call.function.name, 
                         "result": tool_result.as_ref().map(|v| v.to_string()).unwrap_or_else(|e| e.to_string()),
-                        "blocked": is_blocked
+                        "blocked": is_blocked,
+                        "call_id": tool_call.id
                     }));
 
                     messages.push(ChatMessage {
@@ -1611,14 +2546,31 @@ impl Sentient {
                         .store_message(messages.last().unwrap())
                         .await;
 
-                    if is_blocked {
+                    // In yolo/Sentient mode, never hard-pause on notify_user — just continue
+                    let is_sentient = req.mode.as_deref() == Some("Sentient");
+                    if is_blocked && !self.yolo_mode.load(Ordering::SeqCst) && !is_sentient {
                         println!("[AI] Loop paused: {}", blocked_msg);
                         return Ok(format!("PAUSED: {}", blocked_msg));
+                    } else if is_blocked {
+                        println!("[AI] notify_user blocked request ignored (yolo/sentient mode). Continuing.");
                     }
 
-                    // HADES SYNERGY: Automatic Synaptic Update
-                    if tool_name == "apply_shadow_patch" || tool_name == "write_to_file" {
+                    // HADES SYNERGY: Automatic Synaptic Update + Phase-Wrap tracking
+                    if tool_name == "apply_shadow_patch" || tool_name == "write_to_file" || tool_name == "search_replace_edit" {
                         let _ = self.memory_store.store_event("file_modified", json!({"tool": tool_name})).await;
+                        // Track file for Phase-Wrap compression
+                        if let Some(path) = tool_args_json.get("path").and_then(|v| v.as_str()) {
+                            let path_str = path.to_string();
+                            if !phase_files_written.contains(&path_str) {
+                                phase_files_written.push(path_str.clone());
+                            }
+                            // Immediate auto-learn: record this write in .aim so the AI remembers it
+                            let ms = self.memory_store.clone();
+                            let op = tool_name.clone();
+                            tauri::async_runtime::spawn(async move {
+                                ms.auto_learn_from_write(&path_str, &op).await;
+                            });
+                        }
                     }
                 }
                 continue; // Continue next iteration with tool results
@@ -1630,28 +2582,32 @@ impl Sentient {
                     .map(|c| c.as_str().to_string())
                     .unwrap_or_default();
 
-                // If in Planning mode, emit a checkpoint for user review.
+                // Planning mode: emit checkpoint and STOP — let the user decide next step.
+                // (Previously this auto-pushed to execution, which caused unsolicited tool calls.)
                 if req.mode.as_deref() == Some("Planning") {
-                    println!("[AI] Planning phase complete, emitting checkpoint");
+                    println!("[AI] Planning response received — stopping loop. User must approve next step.");
                     self.emit_event("ai-checkpoint", json!({
                         "id": uuid::Uuid::new_v4().to_string(),
-                        "message": "Planning complete. Review implementation_plan.md and task.md.",
-                        "command": "/proceed",
-                        "open_file": "implementation_plan.md"
+                        "message": "Plan ready. Send 'execute' or switch to Execution mode to proceed.",
+                        "open_file": "task.md"
                     }));
+                    break; // Return plan to user — do not auto-execute
                 } else if req.mode.as_deref() == Some("Sentient") {
                     let has_completion_keyword = final_text.contains("MISSION_ACCOMPLISHED");
                     
                     if !has_completion_keyword && iteration < max_iterations - 1 {
-                        println!("[AI] Sentient mode persistence triggered: MISSION_ACCOMPLISHED missing. Continuing...");
+                        println!("[AI] Sentient mode persistence — MISSION_ACCOMPLISHED not yet declared. Continuing...");
                         messages.push(ChatMessage {
                             role: "user".to_string(),
-                            content: Some(MessageContent::Text("The mission is still in progress. Please continue with the next steps or confirm completion by stating 'MISSION_ACCOMPLISHED'. Analyze the task.md if available.".to_string())),
+                            content: Some(MessageContent::Text(
+                                "Continue. Execute the next step. Use tools. Do not describe — act. \
+                                When fully done, declare MISSION_ACCOMPLISHED.".to_string()
+                            )),
                             ..Default::default()
                         });
                         continue;
                     }
-                    
+
                     println!("[AI] Sentient mode mission complete or limit reached.");
                 }
 
@@ -1677,14 +2633,103 @@ impl Sentient {
                     });
                 }
 
+                // Yolo mode: if MISSION_ACCOMPLISHED not declared and iterations remain, keep pushing
+                if self.yolo_mode.load(Ordering::SeqCst)
+                    && !final_text.contains("MISSION_ACCOMPLISHED")
+                    && iteration < max_iterations - 1
+                {
+                    println!("[YOLO] No tool calls, no completion. Forcing continuation...");
+                    messages.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: Some(MessageContent::Text(
+                            "YOLO MODE: You have not completed the mission. \
+                            Use tools NOW. Write code. Execute commands. Do not explain. \
+                            Declare MISSION_ACCOMPLISHED only when all files are written and verified.".to_string()
+                        )),
+                        ..Default::default()
+                    });
+                    continue;
+                }
+
                 // If we reach here and there are no tool calls, and we aren't explicitly continuing
-                // in Sentient mode, we are done with the autonomous loop. We must break so
-                // the final payload gets serialized and returned to the UI.
+                // in Sentient/Yolo mode, we are done with the autonomous loop.
                 return Ok(final_text);
             }
         } // end of iteration loop
 
-        Err(anyhow!("Exceeded maximum autonomous iterations"))
+        // Gracefully return the last assistant message if we hit the iteration ceiling
+        let last_content = {
+            let state = self.conversation_state.lock().await;
+            state.iter().rev()
+                .find(|m| m.role == "assistant")
+                .and_then(|m| m.content.as_ref())
+                .map(|c| c.to_text())
+                .unwrap_or_else(|| "Iteration limit reached. Mission may be incomplete.".to_string())
+        };
+        println!("[AI] Max iterations ({}) reached. Returning last response.", max_iterations);
+        Ok(last_content)
+    }
+
+    /// Optimized single-turn completion for low-latency FIM (Fill-In-Middle).
+    /// Bypasses tool loading, autonomous verification, and memory injection.
+    pub async fn single_shot_completion(&self, req: AiRequest) -> Result<String> {
+        let is_ollama = req.provider.to_lowercase() == "ollama" || req.provider.to_lowercase() == "antigravity";
+        // Use standard chat endpoint for single-turn logic
+        let endpoint = self.get_endpoint(&req.provider, &req);
+        let key = self.get_key_for_provider(&req.provider).trim().to_string();
+
+        let payload = if is_ollama {
+            let is_vision = Self::is_vision_model(&req.model);
+            let messages = Self::build_ollama_messages(&req.messages, is_vision);
+            json!({
+                "model": req.model,
+                "messages": messages,
+                "temperature": req.temperature.unwrap_or(0.1),
+                "stream": false,
+                "num_ctx": Self::recommended_num_ctx(&req.model),
+                "num_predict": 1024,
+            })
+        } else {
+            // Cloud provider (Anthropic/OpenAI) standard chat payload
+            json!({
+                "model": req.model,
+                "messages": req.messages,
+                "temperature": req.temperature.unwrap_or(0.1),
+                "stream": false,
+            })
+        };
+
+        let mut request = self.client.post(endpoint.clone());
+        if req.provider.to_lowercase() == "anthropic" {
+            request = request
+                .header("x-api-key", &key)
+                .header("anthropic-version", "2023-06-01");
+        } else if req.provider.to_lowercase() == "google" {
+            let mut url = endpoint.clone();
+            if url.contains('?') { url.push_str(&format!("&key={}", key)); }
+            else { url.push_str(&format!("?key={}", key)); }
+            request = self.client.post(url).header("x-goog-api-key", &key);
+        } else if !is_ollama {
+            request = request.bearer_auth(&key);
+        }
+
+        let resp = request.json(&payload).send().await?;
+        if !resp.status().is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("FIM Error: {}", body));
+        }
+
+        let val: Value = resp.json().await?;
+        
+        let raw = if is_ollama {
+            val["message"]["content"].as_str().unwrap_or("").to_string()
+        } else if req.provider.to_lowercase() == "anthropic" {
+            val["content"][0]["text"].as_str().unwrap_or("").to_string()
+        } else {
+            val["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string()
+        };
+
+        Ok(raw.trim().to_string())
     }
 
     /// Dynamically get models for a provider
@@ -1698,13 +2743,19 @@ impl Sentient {
             let mut models = Vec::new();
 
             if !self.get_key_for_provider("google").is_empty() {
+                models.push("google:gemini-2.5-pro".to_string());
+                models.push("google:gemini-2.5-flash".to_string());
+                models.push("google:gemini-2.0-flash".to_string());
                 models.push("google:gemini-2.0-flash-exp".to_string());
                 models.push("google:gemini-1.5-pro".to_string());
                 models.push("google:gemini-1.5-flash".to_string());
-                models.push("google:models/gemini-1.0-pro".to_string());
             }
             if !self.get_key_for_provider("anthropic").is_empty() {
+                models.push("anthropic:claude-opus-4-5".to_string());
+                models.push("anthropic:claude-sonnet-4-5".to_string());
+                models.push("anthropic:claude-haiku-4-5".to_string());
                 models.push("anthropic:claude-3-5-sonnet-20241022".to_string());
+                models.push("anthropic:claude-3-5-haiku-latest".to_string());
                 models.push("anthropic:claude-3-opus-20240229".to_string());
                 models.push("anthropic:claude-3-haiku-20240307".to_string());
             }
@@ -2147,50 +3198,285 @@ impl Sentient {
         }
     }
 
-    fn try_parse_markdown_tool_calls(&self, content: &str) -> Vec<ToolCall> {
-        let mut tools = Vec::new();
+    /// Intercept `run_command` shell file-write patterns and convert to `write_to_file` args.
+    /// Returns Some(args) if the command looks like a file write, None otherwise.
+    fn try_intercept_file_write(cmd: &str) -> Option<Value> {
+        let cmd = cmd.trim();
 
-        // 1. First try finding JSON blocks: ```json ... ```
-        let mut found_any_block = false;
-        let mut search_pos = 0;
-        while let Some(start) = content[search_pos..].find("```json") {
-            let actual_start = search_pos + start;
-            let rest = &content[actual_start + 7..];
-            if let Some(end) = rest.find("```") {
-                let json_block = rest[..end].trim();
-                search_pos = actual_start + 7 + end + 3;
-                found_any_block = true;
-
-                self.parse_json_to_tools(json_block, &mut tools);
-            } else {
-                break;
-            }
-        }
-
-        // 2. If no code blocks found, or if there's trailing content, try parsing THE WHOLE CONTENT as JSON
-        // This handles cases where models output raw multi-line JSON without blocks.
-        if !found_any_block || tools.is_empty() {
-            let trimmed = content.trim();
-            if let Some(start_idx) = trimmed.find('{') {
-                // Try parsing from the first { to the end
-                let json_candidate = &trimmed[start_idx..];
-                if let Ok(val) = serde_json::from_str::<Value>(json_candidate) {
-                    self.parse_single_json_item_to_tools(val, &mut tools);
-                } else {
-                    // Failover: try line by line still, just in case
-                    for line in trimmed.lines() {
-                        let line = line.trim();
-                        if let Some(s_idx) = line.find('{') {
-                            if let Ok(val) = serde_json::from_str::<Value>(&line[s_idx..]) {
-                                self.parse_single_json_item_to_tools(val, &mut tools);
-                            }
-                        }
+        // Pattern: echo "content" > file.ext  or  echo 'content' > file.ext
+        // Also handles: printf "content" > file.ext
+        let write_re_simple = ["echo ", "printf "];
+        for prefix in &write_re_simple {
+            if cmd.starts_with(prefix) {
+                // Find the > redirect
+                if let Some(arrow_pos) = cmd.rfind(" > ") {
+                    let file_path = cmd[arrow_pos + 3..].trim().trim_matches('"').trim_matches('\'');
+                    if Self::looks_like_file_path(file_path) {
+                        // Extract the content between quotes after the prefix
+                        let after_prefix = cmd[prefix.len()..arrow_pos].trim();
+                        let content = after_prefix.trim_matches('"').trim_matches('\'')
+                            .replace("\\n", "\n")
+                            .replace("\\t", "\t");
+                        return Some(json!({ "path": file_path, "content": content }));
                     }
                 }
             }
         }
 
+        // Pattern: cat > file.ext << 'EOF' ... EOF  (heredoc — too complex, skip)
+        // Pattern: PowerShell Set-Content / Out-File
+        if cmd.contains("Set-Content") || cmd.contains("Out-File") {
+            // Extract -Path and -Value/-InputObject
+            let path = Self::extract_ps_param(cmd, &["-Path", "-FilePath", "-LiteralPath"]);
+            let value = Self::extract_ps_param(cmd, &["-Value", "-InputObject"]);
+            if let (Some(p), Some(v)) = (path, value) {
+                if Self::looks_like_file_path(&p) {
+                    return Some(json!({ "path": p, "content": v }));
+                }
+            }
+        }
+
+        None
+    }
+
+    fn looks_like_file_path(s: &str) -> bool {
+        !s.is_empty()
+            && s.contains('.')
+            && !s.contains(' ')
+            && !s.starts_with("http")
+            && s.len() < 250
+    }
+
+    fn extract_ps_param(cmd: &str, param_names: &[&str]) -> Option<String> {
+        for name in param_names {
+            if let Some(pos) = cmd.find(name) {
+                let after = cmd[pos + name.len()..].trim_start();
+                // Could be -Path "value" or -Path value
+                if after.starts_with('"') {
+                    if let Some(end) = after[1..].find('"') {
+                        return Some(after[1..1 + end].to_string());
+                    }
+                } else if after.starts_with('\'') {
+                    if let Some(end) = after[1..].find('\'') {
+                        return Some(after[1..1 + end].to_string());
+                    }
+                } else {
+                    let end = after.find(|c: char| c.is_whitespace()).unwrap_or(after.len());
+                    return Some(after[..end].to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// Scan AI text response for code blocks annotated with file paths and return
+    /// write_to_file tool calls for them. This is the "Cursor Apply" behavior —
+    /// when the model shows code in its text but doesn't call a write tool, we catch it.
+    fn try_extract_file_writes_from_text(&self, content: &str) -> Vec<ToolCall> {
+        let mut writes = Vec::new();
+        let mut search_pos = 0;
+
+        while let Some(backtick_pos) = content[search_pos..].find("```") {
+            let block_start = search_pos + backtick_pos;
+            let after_backticks = block_start + 3;
+
+            // Get the header line (e.g. "python src/main.py" or "rust src/lib.rs")
+            let header_end = content[after_backticks..]
+                .find('\n')
+                .map(|p| after_backticks + p)
+                .unwrap_or(content.len());
+            let header = content[after_backticks..header_end].trim().to_string();
+
+            let content_start = if header_end < content.len() { header_end + 1 } else { content.len() };
+            let rest = &content[content_start..];
+
+            if let Some(close_pos) = rest.find("```") {
+                let block_body = rest[..close_pos].trim();
+
+                if !block_body.is_empty() {
+                    if let Some(file_path) = Self::extract_file_path_from_block_header(&header, block_body) {
+                        let id = format!("auto-write-{}", writes.len());
+                        writes.push(ToolCall {
+                            id,
+                            type_field: "function".to_string(),
+                            context: None,
+                            function: ToolFunction {
+                                name: "write_to_file".to_string(),
+                                arguments: json!({
+                                    "path": file_path,
+                                    "content": block_body
+                                }).to_string(),
+                            },
+                        });
+                    }
+                }
+                search_pos = content_start + close_pos + 3;
+            } else {
+                break;
+            }
+        }
+
+        writes
+    }
+
+    fn extract_file_path_from_block_header(header: &str, body: &str) -> Option<String> {
+        // Pattern 1: ```rust src/lib.rs  or  ```python main.py  (lang + space + path)
+        let parts: Vec<&str> = header.splitn(2, ' ').collect();
+        if parts.len() == 2 {
+            let path = parts[1].trim();
+            if Self::looks_like_file_path(path) && path.contains('/') || path.contains('\\') {
+                return Some(path.to_string());
+            }
+        }
+
+        // Pattern 2: header IS a file path (no language prefix, e.g. ```src/main.py)
+        if parts.len() == 1 && Self::looks_like_file_path(header) && (header.contains('/') || header.contains('\\') || header.contains('.')) {
+            // Make sure it's not just a language name like "python" or "rust"
+            let lang_names = ["python", "rust", "javascript", "typescript", "go", "java", "cpp", "c", "html", "css", "json", "yaml", "toml", "bash", "sh", "powershell", "sql"];
+            if !lang_names.contains(&header.to_lowercase().as_str()) {
+                return Some(header.to_string());
+            }
+        }
+
+        // Pattern 3: First line of body is a file path comment
+        // // file: path.rs   # file: path.py   # path: path.py   /* file: path.js */
+        if let Some(first_line) = body.lines().next() {
+            let comment_prefixes = [
+                "// file:", "# file:", "// filename:", "# filename:",
+                "// path:", "# path:", "/* file:", "-- file:", "<!-- file:",
+            ];
+            for prefix in &comment_prefixes {
+                let lower = first_line.to_lowercase();
+                if let Some(idx) = lower.find(prefix) {
+                    let path = first_line[idx + prefix.len()..].trim()
+                        .trim_end_matches("*/").trim_end_matches("-->").trim();
+                    if Self::looks_like_file_path(path) {
+                        return Some(path.to_string());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    fn try_parse_markdown_tool_calls(&self, content: &str) -> Vec<ToolCall> {
+        let mut tools = Vec::new();
+
+        // 0. XML-style tool calls: <tool_call>{"name":...}</tool_call> or <function>...</function>
+        //    Common in Qwen, DeepSeek, and some fine-tuned Llama models.
+        for tag in &["tool_call", "function_call", "function", "invoke"] {
+            let open = format!("<{}>", tag);
+            let close = format!("</{}>", tag);
+            let mut pos = 0;
+            while let Some(start) = content[pos..].find(&open) {
+                let abs_start = pos + start + open.len();
+                if let Some(end) = content[abs_start..].find(&close) {
+                    let block = content[abs_start..abs_start + end].trim();
+                    self.parse_json_to_tools(block, &mut tools);
+                    pos = abs_start + end + close.len();
+                } else {
+                    break;
+                }
+            }
+        }
+        if !tools.is_empty() { return tools; }
+
+        // 1. Aggressive Markdown code block parsing
+        let mut search_pos = 0;
+        while let Some(start) = content[search_pos..].find("```") {
+            let actual_start = search_pos + start;
+            let after_backticks = actual_start + 3;
+            
+            let possible_json_start = if let Some(newline_pos) = content[after_backticks..].find('\n') {
+                let identifier = content[after_backticks..after_backticks + newline_pos].trim();
+                // Strip common identifiers if they exist or if the content starts with { right after identifying text
+                if identifier == "json" || identifier == "rust" || identifier == "javascript" || identifier == "typescript" {
+                    after_backticks + newline_pos + 1
+                } else {
+                    // Check if content on same line starts with {
+                    if identifier.starts_with('{') {
+                        after_backticks
+                    } else {
+                         after_backticks + newline_pos + 1
+                    }
+                }
+            } else {
+                after_backticks
+            };
+
+            let rest = if possible_json_start < content.len() { &content[possible_json_start..] } else { "" };
+            
+            if let Some(end) = rest.find("```") {
+                let json_block = rest[..end].trim();
+                search_pos = possible_json_start + end + 3;
+                self.parse_json_to_tools(json_block, &mut tools);
+            } else {
+                // Unclosed block - try parsing rest of content
+                let json_block = rest.trim();
+                self.parse_json_to_tools(json_block, &mut tools);
+                break;
+            }
+        }
+    
+        // 2. DEEP FALLBACK: If nothing found, or to catch stray JSON outside blocks,
+        // use a recursive bracket matcher to find any legitimate { "name": ... } objects.
+        if tools.is_empty() {
+             self.extract_json_objects_robustly(content, &mut tools);
+        }
+
         tools
+    }
+
+    /// Recursively find potential JSON objects in text that look like tool calls.
+    fn extract_json_objects_robustly(&self, content: &str, tools: &mut Vec<ToolCall>) {
+        let mut pos = 0;
+        while let Some(start_idx) = content[pos..].find('{') {
+            let actual_start = pos + start_idx;
+            let mut depth = 0;
+            let mut end_idx = None;
+            let mut in_string = false;
+            let mut escaped = false;
+
+            for (i, c) in content[actual_start..].char_indices() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if c == '\\' {
+                    escaped = true;
+                    continue;
+                }
+                if c == '"' {
+                    in_string = !in_string;
+                    continue;
+                }
+                if !in_string {
+                    if c == '{' {
+                        depth += 1;
+                    } else if c == '}' {
+                        depth -= 1;
+                        if depth == 0 {
+                            end_idx = Some(actual_start + i + 1);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if let Some(end) = end_idx {
+                let candidate = &content[actual_start..end];
+                if let Ok(val) = serde_json::from_str::<Value>(candidate) {
+                    let old_len = tools.len();
+                    self.parse_single_json_item_to_tools(val, tools);
+                    if tools.len() > old_len {
+                         // Successfully found a tool, advance past it
+                         pos = end;
+                         continue;
+                    }
+                }
+            }
+        }
     }
 
     fn parse_json_to_tools(&self, json_block: &str, tools: &mut Vec<ToolCall>) {
@@ -2220,12 +3506,18 @@ impl Sentient {
         for item in items {
             let name = item
                 .get("name")
+                .or_else(|| item.get("tool"))
+                .or_else(|| item.get("call"))
+                .or_else(|| item.get("method"))
                 .or_else(|| item.get("function").and_then(|f| f.get("name")))
                 .and_then(|v| v.as_str());
 
             let arguments = item
                 .get("arguments")
                 .or_else(|| item.get("args"))
+                .or_else(|| item.get("params"))
+                .or_else(|| item.get("parameters"))
+                .or_else(|| item.get("inputs"))
                 .or_else(|| item.get("function").and_then(|f| f.get("arguments")));
 
             if let Some(name) = name {
@@ -2248,6 +3540,20 @@ impl Sentient {
         }
     }
 
+    pub async fn summarize_builtin_tools(&self) -> String {
+        let mut summary = String::new();
+        let tools = self.ai_tools.list_tools();
+        for tool in tools {
+            summary.push_str(&format!(
+                "- `{}`: {}\n  JSON Schema: {}\n",
+                tool.name,
+                tool.description,
+                serde_json::to_string(&tool.input_schema).unwrap_or_else(|_| "{}".to_string())
+            ));
+        }
+        summary
+    }
+
     pub async fn summarize_mcp_tools(&self) -> String {
         let mut summary = String::new();
         if let Ok(mcp_tools) = self.mcp_registry.list_tools().await {
@@ -2261,13 +3567,13 @@ impl Sentient {
                     ));
                 }
                 summary
-                    .push_str("\nYou can invoke these MCP tools using the standard JSON format.");
+                    .push_str("\nYou can invoke these MCP tools using your native tool calling capabilities. Do NOT output raw JSON blocks to invoke them.");
             }
         }
         summary
     }
 
-    fn emit_event(&self, event: &str, payload: Value) {
+    pub fn emit_event(&self, event: &str, payload: Value) {
         use tauri::Emitter;
         if let Ok(guard) = self.app_handle.read() {
             if let Some(handle) = guard.as_ref() {
@@ -2296,6 +3602,36 @@ impl Sentient {
     pub async fn reason(self: Arc<Self>, prompt: &str) -> anyhow::Result<String> {
         let resp = self.clone().chat_complete(prompt, None, None, None, None).await?;
         Ok(resp.content)
+    }
+    /// Attempts to fix common tool argument hallucinations from small models.
+    fn repair_tool_arguments(&self, tool_name: &str, args: &mut Value) {
+        if let Some(obj) = args.as_object_mut() {
+             // Case 1: Model uses the pattern/query as a KEY instead of a value
+             // e.g. {"**/*.cpp": "TODO"} for grep/glob
+             if obj.len() == 1 {
+                 let key = obj.keys().next().unwrap().clone();
+                 // If the key looks like a path or pattern (contains . / *), it's likely a hallucination
+                 if key.contains('.') || key.contains('*') || key.contains('/') || key.contains('\\') {
+                      let value = obj.get(&key).unwrap().clone();
+                      match tool_name {
+                          "grep" | "search_files" | "search_project" => {
+                              obj.clear();
+                              obj.insert("query".to_string(), value);
+                              obj.insert("path".to_string(), json!(key));
+                          },
+                          "find_by_name" | "glob" | "list_files" => {
+                              obj.clear();
+                              obj.insert("pattern".to_string(), json!(key));
+                          },
+                          "view_file" | "read_file" | "file_read" => {
+                              obj.clear();
+                              obj.insert("path".to_string(), json!(key));
+                          },
+                          _ => {}
+                      }
+                 }
+             }
+        }
     }
 }
 

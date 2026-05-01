@@ -23,10 +23,10 @@ impl MemoryLayer {
     }
 
     /// Appends a new decision to decisions.md
-    pub fn record_decision(&self, decision: &str, Rationale: &str, impact: &str) -> Result<()> {
+    pub fn record_decision(&self, decision: &str, rationale: &str, impact: &str) -> Result<()> {
         let path = self.hades_dir.join("decisions.md");
         let date = chrono::Local::now().format("%Y-%m-%d");
-        let new_line = format!("| {} | {} | {} | {} |\n", date, decision, Rationale, impact);
+        let new_line = format!("| {} | {} | {} | {} |\n", date, decision, rationale, impact);
         
         let mut content = fs::read_to_string(&path).unwrap_or_default();
         if content.is_empty() {

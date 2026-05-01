@@ -1,88 +1,55 @@
-use anyhow::Result;
 use std::sync::Arc;
+use crate::ai_engine::Sentient;
 use crate::memory_layer::MemoryLayer;
+use crate::shadow_workspace::ShadowWorkspace;
 use crate::patch_engine::PatchEngine;
 use crate::ghost_runtime::GhostRuntime;
-use crate::shadow_workspace::ShadowWorkspace;
-use crate::ai_engine::Sentient;
-use serde_json::{json, Value};
 
 pub struct HadesHarness {
-    sentient: Arc<Sentient>,
-    memory: Arc<MemoryLayer>,
-    shadow: Arc<ShadowWorkspace>,
-    patch: Arc<tokio::sync::Mutex<PatchEngine>>,
-    ghost: Arc<GhostRuntime>,
+    pub sentient: Arc<Sentient>,
+    pub memory_layer: Arc<MemoryLayer>,
+    pub shadow_workspace: Arc<ShadowWorkspace>,
+    pub patch_engine: Arc<tokio::sync::Mutex<PatchEngine>>,
+    pub ghost_runtime: Arc<GhostRuntime>,
 }
 
 impl HadesHarness {
     pub fn new(
         sentient: Arc<Sentient>,
-        memory: Arc<MemoryLayer>,
-        shadow: Arc<ShadowWorkspace>,
-        patch: Arc<tokio::sync::Mutex<PatchEngine>>,
-        ghost: Arc<GhostRuntime>,
+        memory_layer: Arc<MemoryLayer>,
+        shadow_workspace: Arc<ShadowWorkspace>,
+        patch_engine: Arc<tokio::sync::Mutex<PatchEngine>>,
+        ghost_runtime: Arc<GhostRuntime>,
     ) -> Self {
         Self {
             sentient,
-            memory,
-            shadow,
-            patch,
-            ghost,
+            memory_layer,
+            shadow_workspace,
+            patch_engine,
+            ghost_runtime,
         }
     }
 
-    /// The "Sentient" Execution Wrapper (ULTRAPLAN orchestration)
-    pub async fn execute_agent_step(&self, task_description: &str) -> Result<Value> {
-        println!("[Harness] Starting mission step: {}", task_description);
+    pub async fn execute_agent_step(&self, step: &str) -> anyhow::Result<()> {
+        println!("[HadesHarness] Executing mission step: {}", step);
+        // High-level mission orchestration using Vedic shortcuts for address logic if needed
+        let calculative_seed = hades_harness::vedic::VedicBrain::fold_address(0xDEADBEEF, 0x1337);
+        println!("[Hades-Vedic] Computational seed for step: 0x{:X}", calculative_seed);
+        Ok(())
+    }
 
-        // 1. Pre-computation: The Architect reads memory and maps dependencies
-        let _context = self.memory.get_aggregate_context()?;
-        // (Simulated Architect phase - reasoning is inside Sentient::reason)
+    /// Validates a code candidate using the Stoic Katalepsis filter.
+    /// Emits a "Verity Level" to the frontend.
+    pub async fn validate_verity(&self, diagnostics: &[hades_harness::Diagnostic]) -> f32 {
+        let verity_score = hades_harness::KatalepsisFilter::evaluate_verity(diagnostics);
         
-        // 2. Execution: The Implementer applies patch to SHADOW buffer
-        // Note: In this version, we trigger the agent reasoning which uses the patch_file tool
-        let _result = self.sentient.clone().reason(task_description).await?;
-        
-        // 3. Verification: The Auditor runs background 'cargo check'
-        // If the agent used 'apply_shadow_patch', it's already in the shadow files.
-        println!("[Harness] Initiating Auditor verification...");
-        let verify_result = self.ghost.execute("cargo check", 60).await?;
-        
-        if verify_result.success {
-            // 4. Persistence: AUTO-UPDATE memory.md and task.md on success
-            println!("[Harness] Verification SUCCESS. Syncing synaptic pins.");
-            self.memory.record_decision(
-                "Auto-verified step completion",
-                task_description,
-                "Verified via cargo check in Ghost Runtime"
-            )?;
-            
-            self.memory.update_state("Idle", "Mission segment complete")?;
-            
-            Ok(json!({
-                "status": "success",
-                "message": "Step verified and memory synced.",
-                "auditor_report": verify_result
-            }))
-        } else {
-            // 5. Re-reasoning: The Architect analyzes the failure
-            println!("[Harness] Verification FAILED. Triggering re-reasoning loop.");
-            let error_msg = if !verify_result.stderr.is_empty() { &verify_result.stderr } else { &verify_result.stdout };
-            let error_msg = if error_msg.is_empty() { "Unknown build error" } else { error_msg };
-            
-            let re_reason_prompt = format!(
-                "The previous implementation failed verification with error: {}. Please analyze and fix.", 
-                error_msg
-            );
-            
-            let fixed_result = self.sentient.clone().reason(&re_reason_prompt).await?;
-            
-            Ok(json!({
-                "status": "re_reasoned",
-                "original_error": error_msg,
-                "re_reason_result": fixed_result
-            }))
-        }
+        // Emit truth state to the frontend (TUI/AIRI)
+        self.sentient.emit_event("hades://verity", serde_json::json!({
+            "score": verity_score,
+            "status": if verity_score >= 1.0 { "Katalepsis" } else { "Doxa" },
+            "count": diagnostics.len()
+        }));
+
+        verity_score
     }
 }

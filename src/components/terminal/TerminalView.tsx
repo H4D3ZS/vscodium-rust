@@ -2,6 +2,7 @@ import React from 'react';
 import TerminalSidebar from './TerminalSidebar';
 import TerminalGroupView from './TerminalGroupView';
 import { useStore } from '../../store';
+import { terminalManager } from '../../terminal';
 
 const TerminalView: React.FC = () => {
     const groups = useStore(state => state.terminalGroups);
@@ -10,8 +11,15 @@ const TerminalView: React.FC = () => {
     const closeTerminalGroup = useStore(state => state.closeTerminalGroup);
     const toggleBottomPanel = useStore(state => state.toggleBottomPanel);
 
+    const [availableShells, setAvailableShells] = React.useState<string[]>([]);
+    const [selectedShell, setSelectedShell] = React.useState<string | undefined>(undefined);
+
+    React.useEffect(() => {
+        terminalManager.getAvailableShells().then(setAvailableShells);
+    }, []);
+
     const handleAddTerminal = () => {
-        addTerminalGroup();
+        addTerminalGroup(selectedShell);
     };
 
     const handleKillTerminal = () => {
@@ -23,22 +31,22 @@ const TerminalView: React.FC = () => {
     const activeGroup = groups.find(g => g.id === activeGroupId);
 
     return (
-        <div 
+        <div
             className="terminal-view-host"
-            style={{ 
-                display: 'flex', 
+            style={{
+                display: 'flex',
                 flexDirection: 'column',
-                width: '100%', 
+                width: '100%',
                 height: '100%',
                 background: 'var(--vscode-panel-background, #1e1e1e)',
                 color: 'var(--vscode-terminal-foreground, #cccccc)'
             }}
         >
             {/* Terminal Panel Header */}
-            <div className="terminal-header" style={{ 
-                height: '35px', 
-                display: 'flex', 
-                alignItems: 'center', 
+            <div className="terminal-header" style={{
+                height: '35px',
+                display: 'flex',
+                alignItems: 'center',
                 padding: '0 8px',
                 borderBottom: '1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35))',
                 background: 'var(--vscode-panel-background)',
@@ -49,6 +57,28 @@ const TerminalView: React.FC = () => {
                 </div>
 
                 <div className="terminal-actions" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {availableShells.length > 0 && (
+                        <select
+                            value={selectedShell || ''}
+                            onChange={(e) => setSelectedShell(e.target.value || undefined)}
+                            style={{
+                                background: 'transparent',
+                                border: '1px solid var(--vscode-panel-border)',
+                                color: 'var(--vscode-foreground)',
+                                fontSize: '11px',
+                                outline: 'none',
+                                padding: '2px 4px',
+                                borderRadius: '2px',
+                                marginRight: '4px',
+                                opacity: 0.8
+                            }}
+                        >
+                            <option value="">Default Shell</option>
+                            {availableShells.map(s => (
+                                <option key={s} value={s}>{s.split(/[\\/]/).pop()}</option>
+                            ))}
+                        </select>
+                    )}
                     <div className="terminal-action-item" onClick={handleAddTerminal} title="New Terminal (Ctrl+Shift+`)">
                         <i className="codicon codicon-add"></i>
                     </div>
@@ -62,10 +92,10 @@ const TerminalView: React.FC = () => {
                 </div>
             </div>
 
-            <div 
+            <div
                 className="terminal-body"
-                style={{ 
-                    flex: 1, 
+                style={{
+                    flex: 1,
                     display: 'flex',
                     flexDirection: 'row',
                     width: '100%',
@@ -73,39 +103,39 @@ const TerminalView: React.FC = () => {
                     overflow: 'hidden'
                 }}
             >
-                <div 
+                <div
                     className="terminal-groups-host"
-                    style={{ 
-                        flex: 1, 
-                        position: 'relative', 
+                    style={{
+                        flex: 1,
+                        position: 'relative',
                         height: '100%',
                         overflow: 'hidden'
                     }}
                 >
                     {groups.map((group) => (
-                        <TerminalGroupView 
-                            key={group.id} 
-                            groupId={group.id} 
-                            active={activeGroupId === group.id} 
+                        <TerminalGroupView
+                            key={group.id}
+                            groupId={group.id}
+                            active={activeGroupId === group.id}
                         />
                     ))}
-                    
+
                     {groups.length === 0 && (
-                        <div style={{ 
+                        <div style={{
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
                             height: '100%',
-                            opacity: 0.5, 
-                            fontSize: '12px', 
+                            opacity: 0.5,
+                            fontSize: '12px',
                             color: 'var(--vscode-foreground)'
                         }}>
                             <i className="codicon codicon-terminal" style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.2 }}></i>
                             <div>No active terminals.</div>
-                            <button 
+                            <button
                                 onClick={handleAddTerminal}
-                                style={{ 
+                                style={{
                                     marginTop: '12px',
                                     background: 'var(--vscode-button-background)',
                                     color: 'var(--vscode-button-foreground)',
@@ -123,7 +153,7 @@ const TerminalView: React.FC = () => {
                 </div>
 
                 {/* Vertical Tabs Section (Right Side) */}
-                {groups.length > 1 && (
+                {groups.length > 0 && (
                     <div style={{ width: '180px', height: '100%', borderLeft: '1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35))' }}>
                         <TerminalSidebar />
                     </div>

@@ -1,4 +1,4 @@
-use crate::ai_engine::ChatMessage;
+        use crate::ai_engine::ChatMessage;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -41,7 +41,7 @@ struct KortexSnapshot {
 }
 
 pub struct MemoryStore {
-    messages: Arc<RwLock<Vec<ChatMessage>>>,
+    pub messages: Arc<RwLock<Vec<ChatMessage>>>, // Made pub for bridge sync
     pub slots: Arc<RwLock<Vec<SemanticSlot>>>,
     entities: Arc<RwLock<HashMap<String, Vec<String>>>>,
     symbol_graph: Arc<RwLock<SymbolGraph>>,
@@ -49,9 +49,10 @@ pub struct MemoryStore {
     binary_body: Arc<RwLock<Vec<u8>>>, // Cache the binary suffix of the .aim file
     binary_header_raw: Arc<RwLock<Value>>, // Cache the non-kortex parts of the header
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
-    is_dirty: Arc<AtomicBool>,
+    pub is_dirty: Arc<AtomicBool>, // Made pub for bridge sync
     vfs_bridge: Arc<RwLock<Option<crate::vfs_bridge::VfsBridge>>>,
     events: Arc<tokio::sync::Mutex<Vec<Value>>>,
+    vfs_cache: Arc<RwLock<HashMap<PathBuf, (String, std::time::SystemTime)>>>,
 }
 
 impl MemoryStore {
@@ -70,6 +71,7 @@ impl MemoryStore {
             is_dirty: is_dirty.clone(),
             vfs_bridge: Arc::new(RwLock::new(None)),
             events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            vfs_cache: Arc::new(RwLock::new(HashMap::new())),
         };
 
         // Spawn background persistence task (Phase 24: Emergency Performance)
@@ -301,6 +303,32 @@ impl MemoryStore {
         self.is_dirty.store(true, Ordering::SeqCst);
     }
 
+    pub async fn store_message_params(&self, role: String, content: String, timestamp: i64) {
+        let mut lock = self.messages.write().await;
+        
+        // Phase 25: Enhanced Upsert Logic for Streaming
+        let mut found = false;
+        if let Some(last) = lock.last_mut() {
+            if last.role == role && (timestamp - (last.metadata.as_ref().and_then(|m| m["timestamp"].as_i64()).unwrap_or(0)) < 1000) {
+                last.content = Some(crate::ai_engine::MessageContent::Text(content.clone()));
+                found = true;
+            }
+        }
+        
+        if !found {
+            lock.push(ChatMessage {
+                role: role.clone(),
+                content: Some(crate::ai_engine::MessageContent::Text(content)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: Some(json!({ "timestamp": timestamp })),
+            });
+        }
+        
+        drop(lock);
+        self.is_dirty.store(true, Ordering::SeqCst);
+    }
+
     pub async fn clear(&self) {
         let mut msg_lock = self.messages.write().await;
         msg_lock.clear();
@@ -331,6 +359,17 @@ impl MemoryStore {
         lock.definitions.push(symbol);
         drop(lock);
         self.is_dirty.store(true, Ordering::SeqCst);
+    }
+
+    /// Search symbol definitions by name substring (case-insensitive). Returns up to `limit` results.
+    pub async fn query_symbols(&self, query: &str, limit: usize) -> Vec<SymbolDefinition> {
+        let q = query.to_lowercase();
+        let lock = self.symbol_graph.read().await;
+        lock.definitions.iter()
+            .filter(|s| s.name.to_lowercase().contains(&q))
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
     pub async fn query_slots(&self, category: &str) -> Vec<SemanticSlot> {
@@ -399,18 +438,33 @@ impl MemoryStore {
         // Check for Page-Fault (Confidence < 0.95)
         let mut final_context = String::new();
         let vfs_lock = self.vfs_bridge.read().await;
-
         for (slot, confidence) in top {
             let mut content = slot.content.clone();
-            
+            let metadata = slot.metadata.as_ref().cloned().unwrap_or(json!({}));
+
             if *confidence < 0.95 {
-                // Page-Fault trigger
-                if let (Some(bridge), Some(metadata)) = (vfs_lock.as_ref(), &slot.metadata) {
+                // Page-Fault trigger: Check cache first, then bridge
+                let mut cached_result = None;
+                {
+                    let cache_lock = self.vfs_cache.read().await;
                     if let Some(path_str) = metadata.get("path").and_then(|v| v.as_str()) {
-                        println!("[PAGE-FAULT] Low confidence ({:.2}) for {}. Fetching L2 verbatim source...", confidence, path_str);
-                        if let Ok(raw_source) = bridge.fetch_raw(std::path::Path::new(path_str)) {
-                            content = format!("(L2 VERBATIM SOURCE RESOLVED VIA PAGE-FAULT)\n{}", raw_source);
+                        let path_pb = PathBuf::from(path_str);
+                        if let Some((cached_content, _mtime)) = cache_lock.get(&path_pb) {
+                            println!("[PAGE-FAULT] Resolved via VFS-CACHE: {}", path_str);
+                            cached_result = Some(cached_content.clone());
                         }
+                    }
+                }
+                
+                if let Some(res) = cached_result {
+                    content = format!("(L2 VERBATIM SOURCE RESOLVED VIA VFS-CACHE)\n{}", res);
+                } else if let (Some(bridge), Some(path_str)) = (vfs_lock.as_ref(), metadata.get("path").and_then(|v| v.as_str())) {
+                    println!("[PAGE-FAULT] Low confidence ({:.2}) for {}. Fetching L2 verbatim source...", confidence, path_str);
+                    if let Ok(raw_source) = bridge.fetch_raw(std::path::Path::new(path_str)) {
+                        content = format!("(L2 VERBATIM SOURCE RESOLVED VIA PAGE-FAULT)\n{}", raw_source);
+                        // Populate cache for future hits
+                        let mut cache_write = self.vfs_cache.write().await;
+                        cache_write.insert(PathBuf::from(path_str), (raw_source, std::time::SystemTime::now()));
                     }
                 }
             }
@@ -419,7 +473,7 @@ impl MemoryStore {
                 "\n[{}] {}: {}\n",
                 slot.category,
                 slot.tags.join(", "),
-                &content[..content.len().min(800)] // Increased limit for richer L2 context
+                if content.len() > 800 { format!("{}...", &content[..800]) } else { content }
             ));
         }
 
@@ -465,6 +519,85 @@ impl MemoryStore {
             }
         }
         summary
+    }
+
+    /// Compact brain gist — fits in ~100 tokens. Used as the "1 Gist Token" context injection.
+    /// Replaces verbose knowledge_summary for small models and Phase-Wrap context resets.
+    pub async fn build_compact_gist(&self) -> String {
+        let slots = self.slots.read().await;
+        if slots.is_empty() {
+            return String::new();
+        }
+
+        let total = slots.len();
+        // Prioritize: phase_wrap > decision > code > task — last 3 of each
+        let mut lines: Vec<String> = Vec::new();
+
+        let priority_cats = ["phase_wrap", "decision", "code", "fix", "task"];
+        for cat in &priority_cats {
+            let cat_slots: Vec<&SemanticSlot> = slots.iter()
+                .filter(|s| s.category == *cat)
+                .rev()
+                .take(2)
+                .collect();
+            for s in cat_slots {
+                let snippet = s.content.chars().take(80).collect::<String>().replace('\n', " ");
+                lines.push(format!("[{}] {}", cat, snippet));
+            }
+        }
+        // Fill remaining budget with any other recent slots
+        for s in slots.iter().rev().take(4) {
+            if !priority_cats.contains(&s.category.as_str()) {
+                let snippet = s.content.chars().take(60).collect::<String>().replace('\n', " ");
+                lines.push(format!("[{}] {}", s.category, snippet));
+            }
+        }
+
+        if lines.is_empty() {
+            return String::new();
+        }
+        format!("[KORTEX:{} slots]\n{}", total, lines.join("\n"))
+    }
+
+    /// Store a Phase-Wrap outcome — called automatically after every context compression cycle.
+    pub async fn store_phase_outcome(&self, iteration: u32, summary: String, files_written: Vec<String>) {
+        let tags = {
+            let mut t = vec![format!("iter_{}", iteration)];
+            for f in &files_written {
+                t.push(f.split('/').last().unwrap_or(f).to_string());
+            }
+            t
+        };
+        self.store_slot(SemanticSlot {
+            id: uuid::Uuid::new_v4().to_string(),
+            category: "phase_wrap".to_string(),
+            content: summary,
+            tags,
+            metadata: Some(serde_json::json!({ "files": files_written, "iteration": iteration })),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }).await;
+    }
+
+    /// Auto-save a code knowledge brief after a successful file write/patch.
+    pub async fn auto_learn_from_write(&self, file_path: &str, operation: &str) {
+        let brief = format!("{} modified via {} — pattern recorded", file_path, operation);
+        self.store_slot(SemanticSlot {
+            id: uuid::Uuid::new_v4().to_string(),
+            category: "code".to_string(),
+            content: brief,
+            tags: vec![
+                operation.to_string(),
+                file_path.split('/').last().unwrap_or(file_path).to_string(),
+            ],
+            metadata: None,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }).await;
     }
 
     pub async fn get_brain_telemetry(&self) -> Value {
@@ -607,6 +740,16 @@ impl MemoryStore {
             "timestamp": chrono::Utc::now().timestamp()
         }));
         Ok(())
+    }
+
+    pub async fn update_vfs_cache(&self, path: PathBuf, content: String) {
+        let mut lock = self.vfs_cache.write().await;
+        lock.insert(path, (content, std::time::SystemTime::now()));
+    }
+
+    pub async fn get_vfs_cache(&self, path: &PathBuf) -> Option<String> {
+        let lock = self.vfs_cache.read().await;
+        lock.get(path).map(|(c, _)| c.clone())
     }
 }
 

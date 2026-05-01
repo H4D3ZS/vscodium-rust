@@ -236,11 +236,22 @@ export const FileEditTool: ToolDef = {
     },
     execute: async (input, _ctx) => {
         try {
-            await invoke('ai_modify_file', {
-                path: input.file_path,
-                target: input.old_string,
-                replacement: input.new_string,
-            });
+            // Read current content
+            const content = await invoke<string>('read_file', { path: input.file_path });
+            if (content === null || content === undefined) return fail(`File not found: ${input.file_path}`);
+
+            // Exact string match replacement
+            const oldStr: string = input.old_string;
+            if (!content.includes(oldStr)) {
+                // Try normalized whitespace match as fallback
+                return fail(`Could not find exact match for old_string in ${input.file_path}. Ensure the text matches exactly including indentation and whitespace. Read the file first to get the exact text.`);
+            }
+
+            const newContent = input.replace_all
+                ? content.split(oldStr).join(input.new_string)
+                : content.replace(oldStr, input.new_string);
+
+            await invoke('write_file_content', { path: input.file_path, content: newContent });
             return ok({ filePath: input.file_path, type: 'edited' });
         } catch (e: any) {
             return fail(`Failed to edit file: ${e.message || e}`);
@@ -1209,12 +1220,12 @@ export const ReplaceFileContentTool: ToolDef = {
             const content = await invoke<string>('read_file', { path: fullPath });
             if (content === null || content === undefined) return fail(`File not found: ${fullPath}`);
 
-            const lines = content.split('\\n');
+            const lines = content.split('\n');
             const start = Math.max(0, input.StartLine - 1);
             const end = Math.min(lines.length, input.EndLine);
 
-            lines.splice(start, end - start, ...input.ReplacementContent.split('\\n'));
-            const newContent = lines.join('\\n');
+            lines.splice(start, end - start, ...input.ReplacementContent.split('\n'));
+            const newContent = lines.join('\n');
 
             await invoke('write_file_content', {
                 path: fullPath,
@@ -1259,17 +1270,17 @@ export const MultiReplaceFileContentTool: ToolDef = {
             const content = await invoke<string>('read_file', { path: fullPath });
             if (content === null || content === undefined) return fail(`File not found: ${fullPath}`);
 
-            let lines = content.split('\\n');
+            let lines = content.split('\n');
             // Sort replacements in reverse order by StartLine to avoid shifting indices
             const sortedReplacements = [...input.Replacements].sort((a, b) => b.StartLine - a.StartLine);
 
             for (const rep of sortedReplacements) {
                 const start = Math.max(0, rep.StartLine - 1);
                 const end = Math.min(lines.length, rep.EndLine);
-                lines.splice(start, end - start, ...rep.ReplacementContent.split('\\n'));
+                lines.splice(start, end - start, ...rep.ReplacementContent.split('\n'));
             }
 
-            const newContent = lines.join('\\n');
+            const newContent = lines.join('\n');
             await invoke('write_file_content', {
                 path: fullPath,
                 content: newContent,
@@ -1326,6 +1337,556 @@ export const SpecsToCodePipelineTool: ToolDef = {
             });
         } catch (e: any) {
             return fail(`Pipeline start failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 28. AI Explain Code — Explain what code does in plain English
+// ---------------------------------------------------------------------------
+export const AIExplainCodeTool: ToolDef = {
+    name: 'ai_explain_code',
+    description: `Explain what a piece of code does in plain English. Analyzes the code and provides a clear explanation of its functionality, logic flow, and purpose. Use this to understand unfamiliar code or to document how something works.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            file_path: {
+                type: 'string',
+                description: 'The absolute path to the file to explain.',
+            },
+            code_block: {
+                type: 'string',
+                description: 'Optional specific code block to explain. If not provided, explains the entire file or selected function.',
+            },
+            start_line: {
+                type: 'number',
+                description: 'Line to start explanation from.',
+            },
+            end_line: {
+                type: 'number',
+                description: 'Line to end explanation at.',
+            },
+            detail_level: {
+                type: 'string',
+                description: 'Explanation detail level.',
+                enum: ['brief', 'medium', 'detailed'],
+                default: 'medium',
+            },
+        },
+        required: ['file_path'],
+    },
+    isReadOnly: true,
+    execute: async (input, _ctx) => {
+        try {
+            let codeContent = input.code_block || '';
+            
+            if (!codeContent && input.file_path) {
+                const content = await invoke<string>('read_file', { path: input.file_path });
+                const lines = content.split('\n');
+                const start = Math.max(0, (input.start_line || 1) - 1);
+                const end = input.end_line ? Math.min(lines.length, input.end_line) : lines.length;
+                codeContent = lines.slice(start, end).join('\n');
+            }
+
+            const result = await invoke<string>('ai_explain_code', {
+                code: codeContent,
+                filePath: input.file_path,
+                detailLevel: input.detail_level || 'medium',
+            });
+            return ok({ explanation: result });
+        } catch (e: any) {
+            return fail(`Explain code failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 29. AI Document Code — Generate documentation for code
+// ---------------------------------------------------------------------------
+export const AIDocumentCodeTool: ToolDef = {
+    name: 'ai_document_code',
+    description: `Automatically generate documentation for code including JSDoc comments, README files, or inline explanations. Creates professional documentation that explains functions, classes, parameters, and return values.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            file_path: {
+                type: 'string',
+                description: 'The absolute path to the file to document.',
+            },
+            output_format: {
+                type: 'string',
+                description: 'Format for the documentation.',
+                enum: ['jsdoc', 'inline', 'readme', 'markdown'],
+                default: 'jsdoc',
+            },
+            language: {
+                type: 'string',
+                description: 'Programming language for proper documentation formatting.',
+                default: 'typescript',
+            },
+        },
+        required: ['file_path'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            const content = await invoke<string>('read_file', { path: input.file_path });
+            const result = await invoke<string>('ai_document_code', {
+                code: content,
+                filePath: input.file_path,
+                format: input.output_format || 'jsdoc',
+                language: input.language || 'typescript',
+            });
+            return ok({ documentation: result });
+        } catch (e: any) {
+            return fail(`Document code failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 30. AI Generate Code — Generate code from natural language
+// ---------------------------------------------------------------------------
+export const AIGenerateCodeTool: ToolDef = {
+    name: 'ai_generate_code',
+    description: `Generate new code from natural language description. Creates functional code based on your requirements including proper imports, error handling, and best practices. Use this to quickly scaffold new functions, classes, or entire files.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            prompt: {
+                type: 'string',
+                description: 'Natural language description of what code to generate.',
+            },
+            language: {
+                type: 'string',
+                description: 'Programming language to generate.',
+                default: 'typescript',
+            },
+            framework: {
+                type: 'string',
+                description: 'Optional framework context (e.g., react, vue, express).',
+            },
+            file_path: {
+                type: 'string',
+                description: 'Optional path where the generated code will be saved.',
+            },
+        },
+        required: ['prompt'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            const result = await invoke<string>('ai_generate_code', {
+                prompt: input.prompt,
+                language: input.language || 'typescript',
+                framework: input.framework,
+                filePath: input.file_path,
+            });
+            
+            if (input.file_path && result) {
+                await invoke('write_file_content', {
+                    path: input.file_path,
+                    content: result,
+                });
+            }
+            
+            return ok({ generated_code: result, saved: !!input.file_path });
+        } catch (e: any) {
+            return fail(`Generate code failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 31. AI Refactor — Refactor code for better quality
+// ---------------------------------------------------------------------------
+export const AIRefactorTool: ToolDef = {
+    name: 'ai_refactor_code',
+    description: `Refactor code to improve readability, performance, or follow best practices. Can extract functions, rename variables, simplify logic, or apply design patterns. Provides multiple refactoring options and explains each change.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            file_path: {
+                type: 'string',
+                description: 'The absolute path to the file to refactor.',
+            },
+            start_line: {
+                type: 'number',
+                description: 'Line to start refactoring from.',
+            },
+            end_line: {
+                type: 'number',
+                description: 'Line to end refactoring at.',
+            },
+            refactor_type: {
+                type: 'string',
+                description: 'Type of refactoring to perform.',
+                enum: ['extract_function', 'rename', 'simplify', 'performance', 'security', 'best_practices'],
+            },
+            target_name: {
+                type: 'string',
+                description: 'Target name for rename or extraction refactors.',
+            },
+        },
+        required: ['file_path'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            const content = await invoke<string>('read_file', { path: input.file_path });
+            const result = await invoke<string>('ai_refactor_code', {
+                code: content,
+                filePath: input.file_path,
+                startLine: input.start_line,
+                endLine: input.end_line,
+                refactorType: input.refactor_type || 'best_practices',
+                targetName: input.target_name,
+            });
+
+            if (result && input.file_path) {
+                await invoke('write_file_content', {
+                    path: input.file_path,
+                    content: result,
+                });
+            }
+
+            return ok({ refactored_code: result });
+        } catch (e: any) {
+            return fail(`Refactor failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 32. AI Debug — Analyze and fix bugs
+// ---------------------------------------------------------------------------
+export const AIDebugTool: ToolDef = {
+    name: 'ai_debug_code',
+    description: `Analyze code for bugs, errors, and issues. Provides detailed diagnosis of problems along with fixed code. Can identify logic errors, race conditions, memory leaks, and security vulnerabilities.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            file_path: {
+                type: 'string',
+                description: 'The absolute path to the file to debug.',
+            },
+            error_message: {
+                type: 'string',
+                description: 'Optional error message or stack trace to help diagnose the issue.',
+            },
+            start_line: {
+                type: 'number',
+                description: 'Line to start debugging from.',
+            },
+            end_line: {
+                type: 'number',
+                description: 'Line to end debugging at.',
+            },
+        },
+        required: ['file_path'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            const content = await invoke<string>('read_file', { path: input.file_path });
+            const result = await invoke<any>('ai_debug_code', {
+                code: content,
+                filePath: input.file_path,
+                errorMessage: input.error_message,
+                startLine: input.start_line,
+                endLine: input.end_line,
+            });
+
+            if (result?.fixed_code && input.file_path) {
+                await invoke('write_file_content', {
+                    path: input.file_path,
+                    content: result.fixed_code,
+                });
+            }
+
+            return ok({
+                diagnosis: result?.diagnosis,
+                issues: result?.issues,
+                fixed_code: result?.fixed_code,
+                suggestions: result?.suggestions,
+            });
+        } catch (e: any) {
+            return fail(`Debug failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 33. Apply from Chat — Apply AI suggestions to code
+// ---------------------------------------------------------------------------
+export const ApplyFromChatTool: ToolDef = {
+    name: 'apply_from_chat',
+    description: `Apply code changes that were generated in the AI chat to the actual file. Takes the AI-generated code and writes it to the specified location. This is the core "Apply" feature that makes AI editing seamless.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            file_path: {
+                type: 'string',
+                description: 'The absolute path to the file to apply changes to.',
+            },
+            code: {
+                type: 'string',
+                description: 'The code to write or replace with.',
+            },
+            mode: {
+                type: 'string',
+                description: 'How to apply the code.',
+                enum: ['replace', 'insert_after', 'insert_before', 'patch'],
+                default: 'replace',
+            },
+            start_line: {
+                type: 'number',
+                description: 'For replace/patch modes, the starting line.',
+            },
+            end_line: {
+                type: 'number',
+                description: 'For replace mode, the ending line.',
+            },
+        },
+        required: ['file_path', 'code'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            let finalContent = input.code;
+
+            if (input.mode === 'replace' && input.start_line && input.end_line) {
+                const content = await invoke<string>('read_file', { path: input.file_path });
+                const lines = content.split('\n');
+                const start = Math.max(0, input.start_line - 1);
+                const end = Math.min(lines.length, input.end_line);
+                lines.splice(start, end - start, ...input.code.split('\n'));
+                finalContent = lines.join('\n');
+            } else if (input.mode === 'insert_after' && input.start_line) {
+                const content = await invoke<string>('read_file', { path: input.file_path });
+                const lines = content.split('\n');
+                const insertIdx = Math.max(0, Math.min(lines.length, input.start_line - 1));
+                lines.splice(insertIdx + 1, 0, ...input.code.split('\n'));
+                finalContent = lines.join('\n');
+            } else if (input.mode === 'insert_before' && input.start_line) {
+                const content = await invoke<string>('read_file', { path: input.file_path });
+                const lines = content.split('\n');
+                const insertIdx = Math.max(0, input.start_line - 1);
+                lines.splice(insertIdx, 0, ...input.code.split('\n'));
+                finalContent = lines.join('\n');
+            }
+
+            await invoke('write_file_content', {
+                path: input.file_path,
+                content: finalContent,
+            });
+
+            return ok({ applied: true, filePath: input.file_path, mode: input.mode });
+        } catch (e: any) {
+            return fail(`Apply failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 34. Multi-Cursor AI — AI-powered multi-location edits
+// ---------------------------------------------------------------------------
+export const MultiCursorAITool: ToolDef = {
+    name: 'ai_multi_cursor_edit',
+    description: `Perform AI-powered edits at multiple locations simultaneously. Similar to VS Code's multi-cursor but driven by AI — describe a pattern and AI finds all occurrences and edits them consistently.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            file_path: {
+                type: 'string',
+                description: 'The absolute path to the file to edit.',
+            },
+            pattern: {
+                type: 'string',
+                description: 'Code pattern to find (can be a string or regex).',
+            },
+            replacement: {
+                type: 'string',
+                description: 'Replacement code or description of changes.',
+            },
+            match_scope: {
+                type: 'string',
+                description: 'Scope of matching.',
+                enum: ['exact', 'similar', 'semantic'],
+                default: 'exact',
+            },
+            apply: {
+                type: 'boolean',
+                description: 'If true, apply changes. If false, just preview.',
+                default: true,
+            },
+        },
+        required: ['file_path', 'pattern', 'replacement'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            const content = await invoke<string>('read_file', { path: input.file_path });
+            
+            const result = await invoke<any>('ai_multi_cursor_edit', {
+                code: content,
+                filePath: input.file_path,
+                pattern: input.pattern,
+                replacement: input.replacement,
+                matchScope: input.match_scope || 'exact',
+                apply: input.apply !== false,
+            });
+
+            if (result?.modified_code && input.apply !== false) {
+                await invoke('write_file_content', {
+                    path: input.file_path,
+                    content: result.modified_code,
+                });
+            }
+
+            return ok({
+                matches: result?.matches || [],
+                modified: result?.modified_code || content,
+                preview_only: input.apply === false,
+            });
+        } catch (e: any) {
+            return fail(`Multi-cursor edit failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 35. Project Rules — Define project-specific AI behavior
+// ---------------------------------------------------------------------------
+export const ProjectRulesTool: ToolDef = {
+    name: 'project_rules',
+    description: `Define or retrieve project-specific rules that the AI should follow. Similar to Cursor's .cursorrules, this sets coding standards, conventions, and preferences that the AI agent will use when generating or editing code.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            action: {
+                type: 'string',
+                description: 'Action to perform.',
+                enum: ['get', 'set', 'list'],
+                default: 'get',
+            },
+            rules: {
+                type: 'string',
+                description: 'Rules content to set (for set action).',
+            },
+            rules_file: {
+                type: 'string',
+                description: 'Path to rules file (defaults to .hades/rules.md).',
+                default: '.hades/rules.md',
+            },
+        },
+        required: ['action'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            if (input.action === 'get') {
+                const rulesPath = input.rules_file || '.hades/rules.md';
+                try {
+                    const content = await invoke<string>('read_file', { path: rulesPath });
+                    return ok({ rules: content, path: rulesPath });
+                } catch {
+                    return ok({ rules: '', path: rulesPath, exists: false });
+                }
+            } else if (input.action === 'set' && input.rules) {
+                const rulesPath = input.rules_file || '.hades/rules.md';
+                await invoke('write_file_content', {
+                    path: rulesPath,
+                    content: input.rules,
+                });
+                return ok({ saved: true, path: rulesPath });
+            } else if (input.action === 'list') {
+                return ok({
+                    rules_files: [
+                        '.hades/rules.md',
+                        '.hades/patterns.md',
+                        '.hades/decisions.md',
+                        'CLAUDE.md',
+                        'AGENTS.md',
+                    ],
+                });
+            }
+            return fail('Invalid action');
+        } catch (e: any) {
+            return fail(`Project rules failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 36. PR AI Review — AI-powered code review
+// ---------------------------------------------------------------------------
+export const PRAIReviewTool: ToolDef = {
+    name: 'ai_pr_review',
+    description: `Perform an AI-powered review of a Pull Request or code changes. Analyzes the diff, identifies potential issues, suggests improvements, and provides a comprehensive review report. Similar to GitHub Copilot's PR review.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            pr_url: {
+                type: 'string',
+                description: 'URL of the Pull Request to review.',
+            },
+            diff_content: {
+                type: 'string',
+                description: 'Alternative: raw diff content to review.',
+            },
+            focus_areas: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Areas to focus on (security, performance, style, etc.).',
+            },
+        },
+    },
+    isReadOnly: true,
+    execute: async (input, _ctx) => {
+        try {
+            const result = await invoke<any>('ai_pr_review', {
+                prUrl: input.pr_url,
+                diffContent: input.diff_content,
+                focusAreas: input.focus_areas,
+            });
+            return ok(result);
+        } catch (e: any) {
+            return fail(`PR review failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 37. Context Awareness — Get relevant codebase context
+// ---------------------------------------------------------------------------
+export const ContextAwarenessTool: ToolDef = {
+    name: 'ai_get_context',
+    description: `Retrieve relevant context from the codebase for the current task. Uses semantic search to find related files, functions, and patterns that are relevant to what you are working on. This provides the "knowledge" that makes AI coding assistants effective.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            query: {
+                type: 'string',
+                description: 'What you are trying to accomplish or find context for.',
+            },
+            max_files: {
+                type: 'number',
+                description: 'Maximum number of relevant files to return.',
+                default: 5,
+            },
+            include_types: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Types of context to include.',
+            },
+        },
+        required: ['query'],
+    },
+    isReadOnly: true,
+    execute: async (input, _ctx) => {
+        try {
+            const result = await invoke<any>('ai_get_context', {
+                query: input.query,
+                maxFiles: input.max_files || 5,
+                includeTypes: input.include_types,
+            });
+            return ok(result);
+        } catch (e: any) {
+            return fail(`Context retrieval failed: ${e.message || e}`);
         }
     },
 };
@@ -1391,6 +1952,18 @@ const ALL_TOOLS: ToolDef[] = [
     NotebookEditTool,
     CreateDirectoryTool,
     SkillTool,
+
+    // AI Code Tools (Cursor-like features)
+    AIExplainCodeTool,
+    AIDocumentCodeTool,
+    AIGenerateCodeTool,
+    AIRefactorTool,
+    AIDebugTool,
+    ApplyFromChatTool,
+    MultiCursorAITool,
+    ProjectRulesTool,
+    PRAIReviewTool,
+    ContextAwarenessTool,
 ];
 
 // ---------------------------------------------------------------------------

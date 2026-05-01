@@ -58,17 +58,25 @@ urlencoding = "2.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tracing-chrome = "0.7.2"
+warp = "0.3"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = "0.4"
+image = "0.24"
+screenshots = "0.8"
 libaim = { path = "../kortex/libaim" }
 daemon = { path = "../kortex/daemon" }
 candle-core = "=0.7.1"
 half = { version = "=2.3.1", default-features = false, features = ["num-traits", "rand_distr"] }
-image = "0.24"
 which = "6.0"
 diffy = "0.3"
 notify = "6.1"
 streaming-iterator = "0.1"
+rayon = "1.10"
+sha2 = "0.10"
+tempfile = "3"
+hades-harness = { path = "../kortex/harness" }
+tokio-tungstenite = "0.20"
+futures-util = "0.3"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

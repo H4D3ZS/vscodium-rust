@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store';
+import { invoke } from '@tauri-apps/api/core';
 
 interface Command {
     id: string;
@@ -45,19 +46,53 @@ const CommandPalette: React.FC = () => {
 
     const [commands, setCommands] = useState<Command[]>([]);
     const [selectedIndex, setSelectedIndex] = useState(0);
+    const [symbolResults, setSymbolResults] = useState<any[]>([]);
+    const [isSymbolMode, setIsSymbolMode] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
+    const symbolTimer = useRef<any>(null);
 
-    // Load commands fresh each time palette opens (fixes race condition)
+    // Global Ctrl+T → open with # prefix for workspace symbol search
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 't') {
+                e.preventDefault();
+                useStore.getState().setCommandPaletteOpen(true);
+                setTimeout(() => {
+                    setQuery('#');
+                    inputRef.current?.focus();
+                }, 60);
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, []);
+
+    // Load commands fresh each time palette opens
     useEffect(() => {
         if (isOpen) {
             const registry: Command[] = (window as any).commandRegistry || [];
             setCommands(registry);
             setSelectedIndex(0);
-            setQuery('');
+            if (!query.startsWith('#')) setQuery('');
             setTimeout(() => inputRef.current?.focus(), 50);
         }
-    }, [isOpen, setQuery]);
+    }, [isOpen]);
+
+    // Symbol mode: when query starts with #, search workspace symbols via LSP
+    useEffect(() => {
+        const sym = query.startsWith('#');
+        setIsSymbolMode(sym);
+        if (!sym) { setSymbolResults([]); return; }
+        const q = query.slice(1);
+        if (symbolTimer.current) clearTimeout(symbolTimer.current);
+        symbolTimer.current = setTimeout(async () => {
+            try {
+                const res = await invoke<any>('lsp_workspace_symbols', { query: q });
+                setSymbolResults(Array.isArray(res) ? res.slice(0, 50) : []);
+            } catch { setSymbolResults([]); }
+        }, 200);
+    }, [query]);
 
     const filtered = commands.filter(c =>
         query.length === 0 || c.label.toLowerCase().includes(query.toLowerCase())
@@ -162,9 +197,53 @@ const CommandPalette: React.FC = () => {
                     </div>
                 </div>
 
+                {isSymbolMode && (
+                    <div style={{ padding: '4px 12px', fontSize: '10px', opacity: 0.5, borderBottom: '1px solid var(--vscode-panel-border)' }}>
+                        Workspace symbols — type to filter  <kbd style={{ fontSize: '9px', opacity: 0.6, padding: '1px 4px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '2px' }}>Ctrl+T</kbd>
+                    </div>
+                )}
+
                 {/* Results */}
                 <div className="command-list" ref={listRef}>
-                    {filtered.length === 0 ? (
+                    {isSymbolMode ? (
+                        symbolResults.length === 0 ? (
+                            <div style={{ padding: '16px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>
+                                {query === '#' ? 'Type to search symbols…' : `No symbols found for "${query.slice(1)}"`}
+                            </div>
+                        ) : symbolResults.map((sym, idx) => {
+                            const isSelected = idx === selectedIndex;
+                            const locUri = sym.location?.uri ?? '';
+                            const filename = locUri.replace(/\\/g, '/').split('/').pop() ?? locUri;
+                            const line = (sym.location?.range?.start?.line ?? 0) + 1;
+                            return (
+                                <div
+                                    key={idx}
+                                    data-idx={idx}
+                                    style={{
+                                        padding: '6px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px',
+                                        background: isSelected ? 'var(--vscode-list-activeSelectionBackground)' : 'transparent',
+                                        color: isSelected ? 'var(--vscode-list-activeSelectionForeground)' : 'inherit',
+                                    }}
+                                    onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; }}
+                                    onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                                    onClick={() => {
+                                        setOpen(false);
+                                        const path = locUri.replace('file:///', '').replace('file://', '');
+                                        useStore.getState().openFile(path).then(() => {
+                                            setTimeout(() => window.dispatchEvent(new CustomEvent('editor:jump-to-line', { detail: { path, line, column: 1 } })), 100);
+                                        });
+                                    }}
+                                >
+                                    <i className="codicon codicon-symbol-method" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', opacity: 0.7 }} />
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sym.name}</div>
+                                        <div style={{ fontSize: '10px', opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filename}:{line}</div>
+                                    </div>
+                                    {sym.containerName && <span style={{ fontSize: '10px', opacity: 0.4, flexShrink: 0 }}>{sym.containerName}</span>}
+                                </div>
+                            );
+                        })
+                    ) : filtered.length === 0 ? (
                         <div style={{
                             padding: '24px 16px',
                             textAlign: 'center',

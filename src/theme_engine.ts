@@ -146,9 +146,9 @@ export async function applyTheme(themePath: string) {
         } else {
             // Clear assets if switching to a non-Doki theme
             const root = document.documentElement;
-            root.style.setProperty('--terminator-sticker', 'none');
-            root.style.setProperty('--terminator-wallpaper', 'none');
-            document.body.classList.remove('has-terminator-wallpaper');
+            root.style.setProperty('--airi-sticker', 'none');
+            root.style.setProperty('--airi-wallpaper', 'none');
+            document.body.classList.remove('has-airi-wallpaper');
         }
 
         // Persist theme choice
@@ -163,6 +163,10 @@ export async function applyTheme(themePath: string) {
 }
 
 async function applyDokiAssets(themeName: string) {
+    // Check for custom avatar configuration first
+    const customConfig = JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}');
+    const hasCustomAvatar = customConfig?.enabled && (customConfig.stickerUrl || customConfig.wallpaperUrl);
+    
     // Doki Theme Asset CDN Base URLs
     const STICKER_BASE = 'https://doki.assets.unthrottled.io/stickers/vscode/v2';
     const WALLPAPER_BASE = 'https://doki.assets.unthrottled.io/backgrounds/wallpapers/transparent';
@@ -193,6 +197,21 @@ async function applyDokiAssets(themeName: string) {
         'Yuri': { sticker: '/ddlc/yuri/dark/yuri_dark.png', wallpaper: '/yuri_dark.png' },
     };
 
+    const root = document.documentElement;
+    
+    // Apply custom avatar if enabled
+    if (hasCustomAvatar) {
+        if (customConfig.stickerUrl) {
+            root.style.setProperty('--airi-sticker', `url('${customConfig.stickerUrl}')`);
+        }
+        if (customConfig.wallpaperUrl) {
+            root.style.setProperty('--airi-wallpaper', `url('${customConfig.wallpaperUrl}')`);
+        }
+        document.body.classList.add('has-airi-wallpaper');
+        console.log('[ThemeEngine] Custom avatar applied');
+        return; // Skip Doki theme assets when using custom avatar
+    }
+
     // Clean theme name (remove known suffixes for better matching)
     const cleanName = themeName
         .replace('Doki Theme ', '')
@@ -205,16 +224,15 @@ async function applyDokiAssets(themeName: string) {
     const assetKey = Object.keys(themeToAssetPath).find(k => k === cleanName || cleanName.includes(k));
     const assets = assetKey ? themeToAssetPath[assetKey] : null;
 
-    const root = document.documentElement;
     if (assets) {
-        root.style.setProperty('--terminator-sticker', `url('${STICKER_BASE}${assets.sticker}')`);
-        root.style.setProperty('--terminator-wallpaper', `url('${WALLPAPER_BASE}${assets.wallpaper}')`);
-        document.body.classList.add('has-terminator-wallpaper');
+        root.style.setProperty('--airi-sticker', `url('${STICKER_BASE}${assets.sticker}')`);
+        root.style.setProperty('--airi-wallpaper', `url('${WALLPAPER_BASE}${assets.wallpaper}')`);
+        document.body.classList.add('has-airi-wallpaper');
     } else {
         // Fallback or Clear
-        root.style.setProperty('--terminator-sticker', 'none');
-        root.style.setProperty('--terminator-wallpaper', 'none');
-        document.body.classList.remove('has-terminator-wallpaper');
+        root.style.setProperty('--airi-sticker', 'none');
+        root.style.setProperty('--airi-wallpaper', 'none');
+        document.body.classList.remove('has-airi-wallpaper');
     }
 }
 

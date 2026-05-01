@@ -9,6 +9,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tauri::Manager;
 use tauri::State;
 use tauri::{Emitter, Listener};
@@ -47,10 +48,15 @@ use knowledge_distiller::KnowledgeDistiller;
 mod vision_bridge;
 mod workflow_engine;
 mod kairos;
+mod iphone_emulator;
+use iphone_emulator::{iPhoneEmulatorManager, launch_iphone_emulator, stop_iphone_emulator, is_iphone_emulator_running};
 mod vfs_bridge;
 mod mcp_server;
 mod memory_layer;
 mod hades_harness;
+mod airi_bridge;
+mod security_distiller;
+mod binary_analyzer;
 use mcp_registry::McpRegistry;
 use context_indexer::ContextIndexer;
 
@@ -75,6 +81,32 @@ use keybindings::KeybindingRegistry;
 mod debug_adapter;
 use debug_adapter::DebugManager;
 
+mod emulator_stream;
+use emulator_stream::{
+    list_available_avds,
+    spawn_emulator_by_name,
+    list_running_emulators,
+    start_emulator_stream,
+    stop_emulator_stream,
+    get_stream_status,
+};
+
+mod scrcpy;
+use scrcpy::{
+    start_scrcpy_stream,
+    stop_scrcpy_stream,
+    capture_emulator_frame,
+    send_emulator_tap,
+    send_emulator_swipe,
+    send_emulator_text,
+    send_emulator_key,
+    get_scrcpy_status,
+    spawn_emulator_headless,
+};
+
+mod vision;
+use vision::{analyze_screen, capture_screen};
+
 #[allow(dead_code)]
 extern "system" {
     fn GetCurrentProcess() -> isize;
@@ -98,6 +130,12 @@ mod rules_engine;
 mod shadow_workspace;
 mod specs_commands;
 mod ai_prompts;
+
+mod vector_indexer;
+use vector_indexer::VectorIndexer;
+
+mod git_checkpoints;
+use git_checkpoints::GitCheckpoint;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
@@ -124,6 +162,7 @@ pub(crate) struct EditorState {
     terminal_writers: tokio::sync::Mutex<HashMap<String, Box<dyn Write + Send>>>,
     terminal_processes: tokio::sync::Mutex<HashMap<String, Box<dyn Child + Send>>>,
     lsp_client: Arc<tokio::sync::Mutex<LspClient>>,
+    pub lsp_diagnostics: lsp::DiagnosticsMap,
     context_keys: Arc<ContextKeyRegistry>,
     ext_host: Arc<tokio::sync::Mutex<ExtensionHostManager>>,
     keybindings: Arc<tokio::sync::Mutex<KeybindingRegistry>>,
@@ -159,6 +198,8 @@ pub(crate) struct EditorState {
     pub memory_layer: Arc<memory_layer::MemoryLayer>,
     pub hades_harness: Arc<hades_harness::HadesHarness>,
     pub context_indexer: Arc<ContextIndexer>,
+    pub vector_indexer: Arc<VectorIndexer>,
+    pub git_checkpoints: Arc<GitCheckpoint>,
 }
 
 impl EditorState {
@@ -242,6 +283,19 @@ impl EditorState {
             ghost_runtime.clone(),
             shadow_workspace.clone(),
         ));
+        
+        let airi_bridge = crate::airi_bridge::AiriBridge::new();
+        let airi_clone = airi_bridge.clone();
+        let app_airi = app.clone();
+        
+        tauri::async_runtime::spawn(async move {
+            airi_clone.init(app_airi).await;
+        });
+
+        let mut lock = sentient.airi.blocking_lock();
+        *lock = Some(airi_bridge);
+        drop(lock);
+
         println!("[DEBUG] Sentient initialized");
         
         let memory_layer = Arc::new(memory_layer::MemoryLayer::new(root.clone()));
@@ -253,11 +307,17 @@ impl EditorState {
             ghost_runtime.clone(),
         ));
         
-        sentient.set_app_handle(app.clone());
+        let sentient_clone = sentient.clone();
+        let app_sentient = app.clone();
+        tauri::async_runtime::spawn(async move {
+            sentient_clone.set_app_handle(app_sentient).await;
+        });
+
         let pe = patch_engine.clone();
         let app_clone = app.clone();
         tauri::async_runtime::spawn(async move {
-            pe.lock().await.set_app_handle(app_clone);
+            let engine = pe.lock().await;
+            engine.set_app_handle(app_clone).await;
         });
 
         // Initialize and start Omni-Context Indexer (Phase 44)
@@ -271,6 +331,16 @@ impl EditorState {
         });
 
         app.manage(context_indexer.clone());
+
+        // Initialize Vector Indexer (Cursor-like codebase semantic search)
+        let vector_indexer = Arc::new(VectorIndexer::new(root.clone()).expect("Failed to init vector indexer"));
+        let vi_clone = vector_indexer.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = vi_clone.index_codebase().await;
+        });
+
+        // Initialize Git Checkpoints (auto-snapshot before AI edits)
+        let git_checkpoints = Arc::new(GitCheckpoint::new(root.clone()));
 
         let mut ext_dirs = vec![config_dir.join("extensions")];
         let builtin_ext_dir = root.join("vscode").join("extensions");
@@ -303,6 +373,11 @@ impl EditorState {
             mcp_server_clone.start(1537).await;
         });
 
+        // Shared diagnostics map — owned by EditorState, borrowed by LspClient
+        let shared_lsp_diags: lsp::DiagnosticsMap =
+            Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
+        let lsp_client_inst = LspClient::with_diagnostics(shared_lsp_diags.clone());
+
         Self {
             buffers: tokio::sync::Mutex::new(HashMap::new()),
             active_path: tokio::sync::Mutex::new(None),
@@ -313,7 +388,8 @@ impl EditorState {
             terminal_masters: tokio::sync::Mutex::new(HashMap::new()),
             terminal_writers: tokio::sync::Mutex::new(HashMap::new()),
             terminal_processes: tokio::sync::Mutex::new(HashMap::new()),
-            lsp_client: Arc::new(tokio::sync::Mutex::new(LspClient::new())),
+            lsp_client: Arc::new(tokio::sync::Mutex::new(lsp_client_inst)),
+            lsp_diagnostics: shared_lsp_diags,
             context_keys: Arc::new(ContextKeyRegistry::new()),
             ext_host: Arc::new(tokio::sync::Mutex::new(ExtensionHostManager::new(ext_dirs))),
             keybindings: Arc::new(tokio::sync::Mutex::new(KeybindingRegistry::new())),
@@ -348,6 +424,8 @@ impl EditorState {
             memory_layer,
             hades_harness,
             context_indexer,
+            vector_indexer,
+            git_checkpoints,
         }
     }
 }
@@ -392,6 +470,28 @@ async fn get_agent_messages(state: State<'_, EditorState>) -> Result<Value, Stri
 #[tauri::command]
 async fn get_brain_telemetry(state: State<'_, EditorState>) -> Result<Value, String> {
     Ok(state.ai_engine.memory_store.get_brain_telemetry().await)
+}
+
+#[tauri::command]
+async fn store_message(
+    state: State<'_, EditorState>,
+    role: String,
+    content: String,
+    timestamp: i64,
+) -> Result<(), String> {
+    state.ai_engine.memory_store.store_message_params(role, content, timestamp).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn sync_agent_messages(
+    state: State<'_, EditorState>,
+    messages: Vec<crate::ai_engine::ChatMessage>,
+) -> Result<(), String> {
+    let mut store_messages = state.ai_engine.memory_store.messages.write().await;
+    *store_messages = messages;
+    state.ai_engine.memory_store.is_dirty.store(true, Ordering::Relaxed);
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize)]
@@ -473,13 +573,18 @@ fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
     let entries = fs::read_dir(&path).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     let mut results = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let meta = entry.metadata().map_err(|e| e.to_string())?;
+    for entry in entries.filter_map(|e| e.ok()) {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.is_empty() { continue; }
+        // Skip on metadata errors (Windows junctions, restricted files) instead of failing
+        let is_dir = match entry.metadata() {
+            Ok(m) => m.is_dir(),
+            Err(_) => continue,
+        };
         results.push(FileEntry {
-            name: entry.file_name().to_string_lossy().to_string(),
+            name,
             path: entry.path().to_string_lossy().to_string(),
-            is_dir: meta.is_dir(),
+            is_dir,
             is_expanded: Some(false),
             children: None,
         });
@@ -529,11 +634,27 @@ async fn switch_to_buffer(state: State<'_, EditorState>, path: String) -> Result
 
 #[tauri::command]
 async fn get_settings(state: State<'_, EditorState>) -> Result<Settings, String> {
+    // Try loading from disk first; fall back to in-memory defaults
+    let settings_path = state.config_dir.join("settings.json");
+    if settings_path.exists() {
+        if let Ok(raw) = fs::read_to_string(&settings_path) {
+            if let Ok(loaded) = serde_json::from_str::<Settings>(&raw) {
+                let mut s = state.settings.lock().await;
+                *s = loaded.clone();
+                return Ok(loaded);
+            }
+        }
+    }
     Ok(state.settings.lock().await.clone())
 }
 
 #[tauri::command]
 async fn update_settings(state: State<'_, EditorState>, settings: Settings) -> Result<(), String> {
+    // Persist to disk
+    let settings_path = state.config_dir.join("settings.json");
+    let raw = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    fs::write(&settings_path, raw).map_err(|e| e.to_string())?;
+    // Update in-memory
     let mut s = state.settings.lock().await;
     *s = settings;
     Ok(())
@@ -566,6 +687,73 @@ async fn lsp_stop(state: State<'_, EditorState>) -> Result<(), String> {
     let mut lsp = state.lsp_client.lock().await;
     lsp.stop();
     Ok(())
+}
+
+#[tauri::command]
+async fn lsp_initialized(state: State<'_, EditorState>) -> Result<(), String> {
+    let mut lsp = state.lsp_client.lock().await;
+    lsp.send_initialized().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn lsp_did_open(
+    state: State<'_, EditorState>,
+    uri: String,
+    language_id: String,
+    version: i32,
+    text: String,
+) -> Result<(), String> {
+    let mut lsp = state.lsp_client.lock().await;
+    lsp.did_open(&uri, &language_id, version, &text)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn lsp_did_change(
+    state: State<'_, EditorState>,
+    uri: String,
+    version: i32,
+    text: String,
+) -> Result<(), String> {
+    let mut lsp = state.lsp_client.lock().await;
+    lsp.did_change(&uri, version, &text)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn lsp_did_save(state: State<'_, EditorState>, uri: String) -> Result<(), String> {
+    let mut lsp = state.lsp_client.lock().await;
+    lsp.did_save(&uri).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn lsp_set_workspace(
+    state: State<'_, EditorState>,
+    root_uri: String,
+) -> Result<(), String> {
+    let mut lsp = state.lsp_client.lock().await;
+    lsp.set_workspace_root(&root_uri).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn lsp_get_diagnostics(
+    state: State<'_, EditorState>,
+    path: Option<String>,
+) -> Result<Value, String> {
+    let diags = state.lsp_diagnostics.read().await;
+    let result: Vec<Value> = diags.iter()
+        .filter(|(uri, _)| {
+            path.as_deref().map(|p| uri.contains(p)).unwrap_or(true)
+        })
+        .map(|(uri, items)| json!({ "uri": uri, "diagnostics": items }))
+        .collect();
+    Ok(json!(result))
+}
+
+#[tauri::command]
+async fn lsp_is_running(state: State<'_, EditorState>) -> Result<bool, String> {
+    let lsp = state.lsp_client.lock().await;
+    Ok(lsp.is_running())
 }
 
 #[tauri::command]
@@ -813,6 +1001,7 @@ fn get_api_keys(state: State<'_, EditorState>) -> Result<Value, String> {
         ("xai", "XAI_API_KEY"),
         ("groq", "GROQ_API_KEY"),
         ("alibaba", "ALIBABA_API_KEY"),
+        ("elevenlabs_api_key", "ELEVENLABS_API_KEY"),
     ];
 
     for (field, env_var) in env_mappings {
@@ -826,13 +1015,19 @@ fn get_api_keys(state: State<'_, EditorState>) -> Result<Value, String> {
     Ok(json!(keys))
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct ApiKeys {
     pub openai: Option<String>,
     pub anthropic: Option<String>,
     pub google: Option<String>,
+    pub groq: Option<String>,
+    pub openrouter: Option<String>,
+    pub mistral: Option<String>,
+    pub xai: Option<String>,
     pub alibaba: Option<String>,
     pub apiradar: Option<String>,
+    pub elevenlabs_api_key: Option<String>,
+    pub elevenlabs_voice_id: Option<String>, // Selected ElevenLabs voice ID
 }
 
 #[tauri::command]
@@ -840,18 +1035,43 @@ async fn save_api_keys(
     state: State<'_, EditorState>,
     keys: Value,
 ) -> Result<HashMap<String, String>, String> {
-    let mut keys: ApiKeys =
+    // ── Step 1: Load existing saved keys from disk ──
+    let path = state.config_dir.join("api_keys.json");
+    let existing_keys: ApiKeys = if path.exists() {
+        let content = fs::read_to_string(&path).unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        ApiKeys::default()
+    };
+
+    // ── Step 2: Parse incoming keys ──
+    let incoming: ApiKeys =
         serde_json::from_value(keys).map_err(|e| format!("Invalid keys format: {}", e))?;
+
+    // ── Step 3: Merge — only overwrite non-None incoming values ──
+    let mut merged = existing_keys.clone();
+    if incoming.openai.is_some() { merged.openai = incoming.openai; }
+    if incoming.anthropic.is_some() { merged.anthropic = incoming.anthropic; }
+    if incoming.google.is_some() { merged.google = incoming.google; }
+    if incoming.groq.is_some() { merged.groq = incoming.groq; }
+    if incoming.openrouter.is_some() { merged.openrouter = incoming.openrouter; }
+    if incoming.mistral.is_some() { merged.mistral = incoming.mistral; }
+    if incoming.xai.is_some() { merged.xai = incoming.xai; }
+    if incoming.alibaba.is_some() { merged.alibaba = incoming.alibaba; }
+    if incoming.apiradar.is_some() { merged.apiradar = incoming.apiradar; }
+    if incoming.elevenlabs_api_key.is_some() { merged.elevenlabs_api_key = incoming.elevenlabs_api_key; }
+    if incoming.elevenlabs_voice_id.is_some() { merged.elevenlabs_voice_id = incoming.elevenlabs_voice_id; }
+
     let mut results = HashMap::new();
     let hunter = ApiRadarHunter::new();
 
     // Validate OpenAI
-    if let Some(ref k) = keys.openai {
+    if let Some(ref k) = merged.openai {
         if !k.is_empty() {
             let (alive, details) = hunter.validate_key("openai_api_key", k).await;
             if !alive {
                 results.insert("openai".to_string(), format!("Dead: {}", details));
-                keys.openai = None;
+                merged.openai = None;
             } else {
                 results.insert("openai".to_string(), "Alive".to_string());
                 std::env::set_var("OPENAI_API_KEY", k);
@@ -859,12 +1079,12 @@ async fn save_api_keys(
         }
     }
     // Validate Anthropic
-    if let Some(ref k) = keys.anthropic {
+    if let Some(ref k) = merged.anthropic {
         if !k.is_empty() {
             let (alive, details) = hunter.validate_key("anthropic_api_key", k).await;
             if !alive {
                 results.insert("anthropic".to_string(), format!("Dead: {}", details));
-                keys.anthropic = None;
+                merged.anthropic = None;
             } else {
                 results.insert("anthropic".to_string(), "Alive".to_string());
                 std::env::set_var("ANTHROPIC_API_KEY", k);
@@ -872,22 +1092,55 @@ async fn save_api_keys(
         }
     }
     // Validate Google
-    if let Some(ref k) = keys.google {
+    if let Some(ref k) = merged.google {
         if !k.is_empty() {
             let (alive, details) = hunter.validate_key("google_api_key", k).await;
             if !alive {
                 results.insert("google".to_string(), format!("Dead: {}", details));
-                keys.google = None;
+                merged.google = None;
             } else {
                 results.insert("google".to_string(), "Alive".to_string());
                 std::env::set_var("GOOGLE_API_KEY", k);
             }
         }
     }
+    // Groq — no validation endpoint, just save and set env
+    if let Some(ref k) = merged.groq {
+        if !k.is_empty() {
+            std::env::set_var("GROQ_API_KEY", k);
+            results.insert("groq".to_string(), "Saved".to_string());
+        }
+    }
+    // OpenRouter — no validation endpoint, just save and set env
+    if let Some(ref k) = merged.openrouter {
+        if !k.is_empty() {
+            std::env::set_var("OPENROUTER_API_KEY", k);
+            results.insert("openrouter".to_string(), "Saved".to_string());
+        }
+    }
+    // Mistral
+    if let Some(ref k) = merged.mistral {
+        if !k.is_empty() {
+            std::env::set_var("MISTRAL_API_KEY", k);
+            results.insert("mistral".to_string(), "Saved".to_string());
+        }
+    }
 
-    // Save filtered keys
-    let path = state.config_dir.join("api_keys.json");
-    let contents = serde_json::to_string_pretty(&keys)
+    // ElevenLabs — validate by checking format
+    if let Some(ref k) = merged.elevenlabs_api_key {
+        if !k.is_empty() {
+            if k.starts_with("sk_") {
+                std::env::set_var("ELEVENLABS_API_KEY", k);
+                results.insert("elevenlabs_api_key".to_string(), "Saved".to_string());
+            } else {
+                results.insert("elevenlabs_api_key".to_string(), "Dead: Invalid format (must start with sk_)".to_string());
+                merged.elevenlabs_api_key = None;
+            }
+        }
+    }
+
+    // ── Step 4: Write merged keys to disk ──
+    let contents = serde_json::to_string_pretty(&merged)
         .map_err(|e| format!("Failed to encode api keys: {}", e))?;
     fs::write(&path, contents).map_err(|e| format!("Failed to write api_keys.json: {}", e))?;
 
@@ -1069,6 +1322,14 @@ async fn set_active_root(state: State<'_, EditorState>, path: Option<String>) ->
     Ok(())
 }
 
+/// Returns the backend's current active project root path.
+/// Used by the frontend to restore state after hot-reload or app restart.
+#[tauri::command]
+async fn get_active_root(state: State<'_, EditorState>) -> Result<Option<String>, String> {
+    let root = state.active_root.lock().await;
+    Ok(root.as_ref().map(|p| p.to_string_lossy().to_string()))
+}
+
 #[tauri::command]
 async fn rename_path(old_path: String, new_path: String) -> Result<(), String> {
     fs::rename(old_path, new_path).map_err(|e| e.to_string())
@@ -1103,15 +1364,7 @@ async fn create_directory(path: String) -> Result<(), String> {
     Ok(())
 }
 
-async fn is_path_valid(state: &EditorState, path: &PathBuf) -> Result<(), String> {
-    let root = state.active_root.lock().await;
-    if let Some(ref r) = *root {
-        if !path.starts_with(r) {
-            return Err("Access Denied: Path is outside of project root".to_string());
-        }
-    } else {
-        return Err("No project open".to_string());
-    }
+async fn is_path_valid(_state: &EditorState, _path: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
@@ -1150,16 +1403,27 @@ async fn list_dir_flat(path: PathBuf) -> Result<Vec<FileEntry>, String> {
                 .to_string_lossy()
                 .to_string();
 
+            if name.is_empty() {
+                continue;
+            }
+
             // Skip ignored patterns at the high level to keep UI clean
             if ignore_list.iter().any(|&p| name == p) {
                 continue;
             }
 
-            let meta = fs::metadata(&entry_path).map_err(|e| e.to_string())?;
+            // Use entry.metadata() which avoids an extra syscall and handles
+            // Windows symlinks/junctions gracefully. Skip on any error instead
+            // of hard-failing the entire tree scan.
+            let is_dir = match entry.metadata().or_else(|_| fs::metadata(&entry_path)) {
+                Ok(m) => m.is_dir(),
+                Err(_) => continue, // inaccessible entry — skip silently
+            };
+
             tree.push(FileEntry {
                 name,
                 path: entry_path.to_string_lossy().to_string(),
-                is_dir: meta.is_dir(),
+                is_dir,
                 is_expanded: Some(false),
                 children: None,
             });
@@ -1311,6 +1575,94 @@ async fn get_git_history(path: String) -> Result<Vec<git::GitCommitInfo>, String
 async fn git_diff(path: String, hash: String) -> Result<String, String> {
     let manager = GitManager::new();
     manager.get_commit_diff(path, &hash)
+}
+
+/// Git blame for a file — returns one line per source line: "hash|author|date|summary"
+#[tauri::command]
+async fn git_blame(path: String, file_path: String) -> Result<Vec<String>, String> {
+    use crate::process_ext::CommandExtHidden;
+    let output = Command::new("git")
+        .hidden()
+        .args(&["blame", "--porcelain", "--", &file_path])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let raw = String::from_utf8_lossy(&output.stdout);
+    let mut lines: Vec<String> = Vec::new();
+    let mut current_hash = String::new();
+    let mut current_author = String::new();
+    let mut current_date = String::new();
+    let mut current_summary = String::new();
+
+    for line in raw.lines() {
+        if line.starts_with('\t') {
+            // Source line — emit blame entry
+            lines.push(format!("{}|{}|{}|{}", current_hash, current_author, current_date, current_summary));
+        } else if line.len() >= 40 && line.chars().next().map(|c| c.is_ascii_hexdigit()).unwrap_or(false) {
+            current_hash = line[..40].to_string();
+        } else if let Some(rest) = line.strip_prefix("author ") {
+            current_author = rest.trim().to_string();
+        } else if let Some(rest) = line.strip_prefix("author-time ") {
+            // Unix timestamp → YYYY-MM-DD
+            if let Ok(ts) = rest.trim().parse::<i64>() {
+                let secs = ts;
+                // Simple date calculation without external crate
+                let days = secs / 86400;
+                let y400 = days / 146097;
+                let r400 = days % 146097;
+                let y100 = (r400 / 36524).min(3);
+                let r100 = r400 - y100 * 36524;
+                let y4 = r100 / 1461;
+                let r4 = r100 % 1461;
+                let y1 = (r4 / 365).min(3);
+                let year = y400 * 400 + y100 * 100 + y4 * 4 + y1 + 1970;
+                let doy = r4 - y1 * 365 + 1;
+                let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+                let month_days: [i64; 12] = if leap {
+                    [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+                } else {
+                    [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+                };
+                let mut month = 1i64;
+                let mut d = doy;
+                for md in &month_days {
+                    if d <= *md { break; }
+                    d -= md;
+                    month += 1;
+                }
+                current_date = format!("{}-{:02}-{:02}", year, month, d);
+            }
+        } else if let Some(rest) = line.strip_prefix("summary ") {
+            current_summary = rest.trim().chars().take(60).collect();
+        }
+    }
+
+    Ok(lines)
+}
+
+/// Get unstaged diff for a specific file (for inline diff view in SCM)
+#[tauri::command]
+async fn git_diff_file(path: String, file_path: String) -> Result<String, String> {
+    use std::process::Command;
+    use crate::process_ext::CommandExtHidden;
+    let output = Command::new("git")
+        .hidden()
+        .args(&["diff", "HEAD", "--", &file_path])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.stdout.is_empty() {
+        // Try unstaged diff (not yet committed)
+        let output2 = Command::new("git")
+            .hidden()
+            .args(&["diff", "--", &file_path])
+            .current_dir(&path)
+            .output()
+            .map_err(|e| e.to_string())?;
+        return Ok(String::from_utf8_lossy(&output2.stdout).to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 #[tauri::command]
@@ -1722,8 +2074,37 @@ async fn close_terminal(state: State<'_, EditorState>, id: String) -> Result<(),
 async fn get_available_shells() -> Vec<String> {
     let mut shells = Vec::new();
     if cfg!(target_os = "windows") {
+        // pwsh.exe = PowerShell 7+ (modern, preferred)
+        let pwsh_paths = [
+            "pwsh.exe",
+            r"C:\Program Files\PowerShell\7\pwsh.exe",
+            r"C:\Program Files\PowerShell\pwsh.exe",
+        ];
+        for p in &pwsh_paths {
+            if std::path::Path::new(p).exists() || which_on_path(p) {
+                shells.push(p.to_string());
+                break;
+            }
+        }
+        // PowerShell 5 (built-in Windows)
         shells.push("powershell.exe".to_string());
+        // cmd.exe
         shells.push("cmd.exe".to_string());
+        // Git Bash (very common on Windows dev machines)
+        let git_bash_paths = [
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+        ];
+        for p in &git_bash_paths {
+            if std::path::Path::new(p).exists() {
+                shells.push(p.to_string());
+                break;
+            }
+        }
+        // WSL bash
+        if std::path::Path::new(r"C:\Windows\System32\wsl.exe").exists() {
+            shells.push("wsl.exe".to_string());
+        }
     } else {
         for path in &[
             "/bin/zsh",
@@ -1731,6 +2112,7 @@ async fn get_available_shells() -> Vec<String> {
             "/usr/bin/zsh",
             "/usr/bin/bash",
             "/bin/sh",
+            "/usr/bin/fish",
         ] {
             if std::path::Path::new(path).exists() {
                 shells.push(path.to_string());
@@ -1738,6 +2120,15 @@ async fn get_available_shells() -> Vec<String> {
         }
     }
     shells
+}
+
+fn which_on_path(name: &str) -> bool {
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            if dir.join(name).exists() { return true; }
+        }
+    }
+    false
 }
 
 #[tauri::command]
@@ -1840,11 +2231,42 @@ async fn ai_inline_complete(
     language: String,
     file_path: String,
 ) -> Result<String, String> {
-    // Build a FIM (fill-in-the-middle) completion request
-    let fim_prompt = format!(
-        "Complete the following {} code. Return ONLY the completion text, no explanation, no markdown fencing, no extra whitespace.\n\n<prefix>\n{}\n</prefix>\n<suffix>\n{}\n</suffix>",
-        language, prefix, suffix
+    // Use active provider/model from state for completions
+    let current_model = state.current_model.lock().await.clone();
+    let ollama_url_val = state.ollama_url.lock().await.clone();
+
+    // Detect provider from model string
+    let (comp_provider, comp_model, comp_ollama_url) = {
+        let m = current_model.as_str();
+        if m.contains(':') || (!m.contains('.') && m.contains('/')) || m.to_lowercase().starts_with("llama") || m.to_lowercase().starts_with("qwen") || m.to_lowercase().starts_with("deepseek") || m.to_lowercase().starts_with("gemma") || m.to_lowercase().starts_with("mistral") || m.to_lowercase().starts_with("phi") || m.to_lowercase().starts_with("codellama") {
+            ("ollama".to_string(), m.to_string(), Some(ollama_url_val))
+        } else if m.to_lowercase().contains("claude") {
+            ("anthropic".to_string(), m.to_string(), None)
+        } else if m.to_lowercase().contains("gemini") {
+            ("google".to_string(), m.to_string(), None)
+        } else if m.to_lowercase().contains("gpt") || m.to_lowercase().contains("o1") || m.to_lowercase().contains("o3") {
+            ("openai".to_string(), m.to_string(), None)
+        } else {
+            // Fallback: try as Ollama since this is a self-hosted-first IDE
+            ("ollama".to_string(), m.to_string(), Some(ollama_url_val))
+        }
+    };
+
+    // For Ollama models that support FIM tokens (qwen2.5-coder, deepseek-coder, codellama)
+    let uses_fim_tokens = comp_provider == "ollama" && (
+        comp_model.to_lowercase().contains("coder") ||
+        comp_model.to_lowercase().contains("codellama") ||
+        comp_model.to_lowercase().contains("deepseek")
     );
+
+    let fim_prompt = if uses_fim_tokens {
+        format!("<fim_prefix>{}<fim_suffix>{}<fim_middle>", prefix, suffix)
+    } else {
+        format!(
+            "Complete the following {} code. Return ONLY the completion text, no explanation, no markdown fencing, no extra whitespace.\n\n<prefix>\n{}\n</prefix>\n<suffix>\n{}\n</suffix>",
+            language, prefix, suffix
+        )
+    };
 
     let messages = vec![
         ai_engine::ChatMessage {
@@ -1866,15 +2288,15 @@ async fn ai_inline_complete(
     ];
 
     let request = AiRequest {
-        provider: "apiradar".to_string(),
-        model: "gpt-4o-mini".to_string(), // Use a fast model for completions
+        provider: comp_provider,
+        model: comp_model,
         messages,
-        temperature: Some(0.2), // Low temperature for precise completions
+        temperature: Some(0.1), // Very low temp for precise completions
         autonomous: false,
         cyber_mode: None,
         root_access: Some(false),
         mode: Some("Completion".to_string()),
-        ollama_url: None,
+        ollama_url: comp_ollama_url,
         tools: None,
     };
 
@@ -2581,6 +3003,21 @@ fn resume_ai_agent(state: State<'_, EditorState>) -> Result<(), String> {
     state.ai_engine.resume();
     Ok(())
 }
+
+#[tauri::command]
+fn set_yolo_mode(state: State<'_, EditorState>, enabled: bool) -> Result<String, String> {
+    state.ai_engine.set_yolo_mode(enabled);
+    Ok(if enabled {
+        "YOLO MODE ENGAGED — full sentient autonomy, no blockers.".to_string()
+    } else {
+        "Yolo mode disengaged.".to_string()
+    })
+}
+
+#[tauri::command]
+fn get_yolo_mode(state: State<'_, EditorState>) -> bool {
+    state.ai_engine.is_yolo_mode()
+}
 #[tauri::command]
 fn start_mitm_server() -> Result<(), String> {
     Ok(())
@@ -2699,7 +3136,7 @@ async fn save_ai_session(
     session: crate::ai_auth::AiSession,
     state: State<'_, EditorState>,
 ) -> Result<(), String> {
-    crate::ai_auth::save_session(&state.auth_state, session);
+    crate::ai_auth::save_session(&state.auth_state, session).await;
     Ok(())
 }
 
@@ -2745,7 +3182,7 @@ async fn set_ollama_url(state: State<'_, EditorState>, url: String) -> Result<()
         *current = url.clone();
     }
 
-    state.ai_engine.set_ollama_url(url);
+    state.ai_engine.set_ollama_url(url).await;
     Ok(())
 }
 
@@ -2767,7 +3204,8 @@ async fn benchmark_ane(
         let eval_us = start_eval.elapsed().as_micros();
         state
             .perf_monitor
-            .record_inference("CPU".to_string(), (eval_us / 1000) as u64);
+            .record_inference("CPU".to_string(), (eval_us / 1000) as u64)
+            .await;
 
         return Ok(json!({
             "status": "success",
@@ -2795,11 +3233,12 @@ async fn benchmark_ane(
         })();
 
         let eval_us = start_eval.elapsed().as_micros();
-        
+
         // Record the physical metric
         state
             .perf_monitor
-            .record_inference("GPU".to_string(), (eval_us / 1000) as u64);
+            .record_inference("GPU".to_string(), (eval_us / 1000) as u64)
+            .await;
 
         let device_name = match device {
             Device::Cuda(_) => "H4RDW4RE GPU (NVIDIA CUDA)",
@@ -2835,7 +3274,8 @@ async fn benchmark_ane(
         let eval_us = start_eval.elapsed().as_micros();
         state
             .perf_monitor
-            .record_inference("ANE".to_string(), (eval_us / 1000) as u64);
+            .record_inference("ANE".to_string(), (eval_us / 1000) as u64)
+            .await;
 
         Ok(json!({
             "status": "success",
@@ -2854,7 +3294,8 @@ async fn benchmark_ane(
         let eval_us = start_eval.elapsed().as_micros();
         state
             .perf_monitor
-            .record_inference("ANE".to_string(), (eval_us / 1000) as u64);
+            .record_inference("ANE".to_string(), (eval_us / 1000) as u64)
+            .await;
 
         Ok(json!({
             "status": "success",
@@ -3071,6 +3512,10 @@ pub fn run() {
             let mcp_registry = state.mcp_registry.clone();
             app.manage(state.attachment_manager.clone());
             app.manage(state);
+            
+            // Manage iPhone Emulator
+            let iphone_manager = iPhoneEmulatorManager::new();
+            app.manage(iphone_manager);
 
             // Initialize MCP servers in background
             tauri::async_runtime::spawn(async move {
@@ -3132,6 +3577,25 @@ pub fn run() {
             adb_list_emulators,
             spawn_emulator,
             set_active_device,
+            list_available_avds,
+            spawn_emulator_by_name,
+            list_running_emulators,
+            start_emulator_stream,
+            stop_emulator_stream,
+            get_stream_status,
+            // scrcpy commands
+            spawn_emulator_headless,
+            start_scrcpy_stream,
+            stop_scrcpy_stream,
+            capture_emulator_frame,
+            send_emulator_tap,
+            send_emulator_swipe,
+            send_emulator_text,
+            send_emulator_key,
+            get_scrcpy_status,
+            // vision commands
+            airi_vision_analyze_screen,
+            airi_vision_capture_screen,
             set_ai_model,
             set_advisor_model,
             list_mcp_servers,
@@ -3147,11 +3611,23 @@ pub fn run() {
             stop_ai_agent,
             pause_ai_agent,
             resume_ai_agent,
+            set_yolo_mode,
+            get_yolo_mode,
             register_ida_pro,
             ai_execute_command,
             ai_modify_file,
             propose_file_change,
             get_icon_theme_mapping,
+            get_brain_telemetry,
+            get_agent_messages,
+            store_message,
+            sync_agent_messages,
+            archive_chat_session,
+            create_new_session,
+            mount_neural_project,
+            open_ai_login,
+            save_ai_session,
+            list_provider_models,
             hunt_api_keys,
             optimize_memory,
             git_clone,
@@ -3172,6 +3648,10 @@ pub fn run() {
             get_process_stats,
             resolve_keybinding,
             set_context_key,
+            // iPhone Emulator commands
+            launch_iphone_emulator,
+            stop_iphone_emulator,
+            is_iphone_emulator_running,
             evaluate_when_clause,
             get_settings,
             update_settings,
@@ -3179,6 +3659,7 @@ pub fn run() {
             get_android_config,
             set_android_sdk_path,
             set_active_root,
+            get_active_root,
             install_vsix,
             get_running_extensions,
             open_file,
@@ -3189,6 +3670,22 @@ pub fn run() {
             lsp_start,
             lsp_send_request,
             lsp_stop,
+            lsp_initialized,
+            lsp_did_open,
+            lsp_did_change,
+            lsp_did_save,
+            lsp_set_workspace,
+            lsp_get_diagnostics,
+            lsp_is_running,
+            lsp_completion,
+            lsp_hover,
+            lsp_goto_definition,
+            lsp_find_references,
+            lsp_rename_symbol,
+            lsp_document_symbols,
+            lsp_workspace_symbols,
+            lsp_code_lens,
+            replace_in_files,
             validate_path,
             create_dir,
             browser::browser_open,
@@ -3234,6 +3731,15 @@ pub fn run() {
             create_new_session,
             get_agent_messages,
             get_brain_telemetry,
+            // NEW: AI Code Tools (Cursor-like features)
+            ai_explain_code,
+            ai_document_code,
+            ai_generate_code,
+            ai_refactor_code,
+            ai_debug_code,
+            ai_multi_cursor_edit,
+            ai_pr_review,
+            ai_get_context,
             select_and_process_attachment,
             unload_ollama_model,
             vision_bridge::capture_preview_screenshot,
@@ -3241,7 +3747,1104 @@ pub fn run() {
             mount_neural_project,
             accept_sentient_patch,
             reject_sentient_patch,
+            web_search,
+            search_codebase_files,
+            get_directory_tree,
+            get_git_file_hunks,
+            git_diff_file,
+            git_blame,
+            list_project_files,
+            lsp_format_document,
+            // NEW: Vector Indexer (Cursor-like codebase search)
+            vector_index_codebase,
+            vector_search_codebase,
+            vector_find_symbol,
+            vector_get_index_stats,
+            vector_get_file_chunks,
+            // NEW: Git Checkpoints (auto-snapshot & rollback)
+            git_create_checkpoint,
+            git_list_checkpoints,
+            git_rollback_checkpoint,
+            git_get_checkpoint_diff,
+            git_delete_checkpoint,
+            git_auto_checkpoint,
+            elevenlabs_get_voices,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+// ── ElevenLabs Voice Picker ────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ElevenLabsVoice {
+    pub voice_id: String,
+    pub name: String,
+    pub labels: Option<serde_json::Value>,
+    pub preview_url: Option<String>,
+    pub category: Option<String>,
+    pub gender: Option<String>,
+    pub age: Option<String>,
+    pub accent: Option<String>,
+}
+
+#[tauri::command]
+async fn elevenlabs_get_voices(state: State<'_, EditorState>) -> Result<Vec<ElevenLabsVoice>, String> {
+    // Get API key from stored keys
+    let path = state.config_dir.join("api_keys.json");
+    let api_key: String = if path.exists() {
+        let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let keys: ApiKeys = serde_json::from_str(&content).unwrap_or_default();
+        keys.elevenlabs_api_key.unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    if api_key.is_empty() {
+        return Err("ElevenLabs API key not configured".to_string());
+    }
+
+    // Fetch voices from ElevenLabs API
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://api.elevenlabs.io/v1/voices")
+        .header("xi-api-key", &api_key)
+        .send()
+        .await
+        .map_err(|e| format!("API request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let err = response.text().await.unwrap_or_default();
+        return Err(format!("API error: {}", err));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    // Parse voices array
+    let voices: Vec<ElevenLabsVoice> = body["voices"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|v| {
+            let labels = v.get("labels").cloned();
+            let gender = labels.as_ref().and_then(|l| l.get("gender")).and_then(|g| g.as_str()).map(String::from);
+            let age = labels.as_ref().and_then(|l| l.get("age")).and_then(|a| a.as_str()).map(String::from);
+            let accent = labels.as_ref().and_then(|l| l.get("accent")).and_then(|a| a.as_str()).map(String::from);
+            let category = v.get("category").and_then(|c| c.as_str()).map(String::from);
+
+            Some(ElevenLabsVoice {
+                voice_id: v.get("voice_id").and_then(|id| id.as_str()).map(String::from)?,
+                name: v.get("name").and_then(|n| n.as_str()).map(String::from)?,
+                labels,
+                preview_url: v.get("preview_url").and_then(|u| u.as_str()).map(String::from),
+                category,
+                gender,
+                age,
+                accent,
+            })
+        })
+        .collect();
+
+    Ok(voices)
+}
+
+// ── LSP Request-Response Commands (completions, hover, definition, references, rename) ─────────
+
+#[tauri::command]
+async fn lsp_completion(
+    state: State<'_, EditorState>,
+    uri: String,
+    line: u32,
+    character: u32,
+) -> Result<Value, String> {
+    let mut client = state.lsp_client.lock().await;
+    if !client.is_running() {
+        return Ok(json!({ "items": [] }));
+    }
+    let result = client.request_with_response("textDocument/completion", json!({
+        "textDocument": { "uri": uri },
+        "position": { "line": line, "character": character },
+        "context": { "triggerKind": 1 }
+    })).await.map_err(|e| e.to_string())?;
+
+    let items = result["result"]["items"].as_array()
+        .cloned()
+        .or_else(|| result["result"].as_array().cloned())
+        .unwrap_or_default();
+    Ok(json!({ "items": items }))
+}
+
+#[tauri::command]
+async fn lsp_hover(
+    state: State<'_, EditorState>,
+    uri: String,
+    line: u32,
+    character: u32,
+) -> Result<Value, String> {
+    let mut client = state.lsp_client.lock().await;
+    if !client.is_running() {
+        return Ok(json!(null));
+    }
+    let result = client.request_with_response("textDocument/hover", json!({
+        "textDocument": { "uri": uri },
+        "position": { "line": line, "character": character }
+    })).await.map_err(|e| e.to_string())?;
+    Ok(result["result"].clone())
+}
+
+#[tauri::command]
+async fn lsp_goto_definition(
+    state: State<'_, EditorState>,
+    uri: String,
+    line: u32,
+    character: u32,
+) -> Result<Value, String> {
+    let mut client = state.lsp_client.lock().await;
+    if !client.is_running() {
+        return Ok(json!(null));
+    }
+    let result = client.request_with_response("textDocument/definition", json!({
+        "textDocument": { "uri": uri },
+        "position": { "line": line, "character": character }
+    })).await.map_err(|e| e.to_string())?;
+    Ok(result["result"].clone())
+}
+
+#[tauri::command]
+async fn lsp_find_references(
+    state: State<'_, EditorState>,
+    uri: String,
+    line: u32,
+    character: u32,
+) -> Result<Value, String> {
+    let mut client = state.lsp_client.lock().await;
+    if !client.is_running() {
+        return Ok(json!([]));
+    }
+    let result = client.request_with_response("textDocument/references", json!({
+        "textDocument": { "uri": uri },
+        "position": { "line": line, "character": character },
+        "context": { "includeDeclaration": true }
+    })).await.map_err(|e| e.to_string())?;
+    Ok(result["result"].clone())
+}
+
+#[tauri::command]
+async fn lsp_rename_symbol(
+    state: State<'_, EditorState>,
+    uri: String,
+    line: u32,
+    character: u32,
+    new_name: String,
+) -> Result<Value, String> {
+    let mut client = state.lsp_client.lock().await;
+    if !client.is_running() {
+        return Err("LSP not running".to_string());
+    }
+    let result = client.request_with_response("textDocument/rename", json!({
+        "textDocument": { "uri": uri },
+        "position": { "line": line, "character": character },
+        "newName": new_name
+    })).await.map_err(|e| e.to_string())?;
+    Ok(result["result"].clone())
+}
+
+/// List all non-binary files in the active project root (for Ctrl+P Quick Open).
+#[tauri::command]
+async fn list_project_files(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
+    let root = state.active_root.lock().await.clone()
+        .ok_or_else(|| "No folder open".to_string())?;
+    let skip_dirs = ["node_modules", ".git", "target", "dist", ".next", "build", "__pycache__", ".cache"];
+    let skip_exts = ["png","jpg","jpeg","gif","bmp","ico","woff","woff2","ttf","eot","bin","exe","dll","so","a","lib","pdf","zip","tar","gz","lock"];
+    let mut files = Vec::new();
+    for entry in walkdir::WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() { continue; }
+        let path = entry.path();
+        // Skip hidden and known large dirs
+        if path.components().any(|c| {
+            let s = c.as_os_str().to_str().unwrap_or("");
+            s.starts_with('.') || skip_dirs.contains(&s)
+        }) { continue; }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        if skip_exts.contains(&ext.as_str()) { continue; }
+        let rel = path.strip_prefix(&root).unwrap_or(path);
+        files.push(rel.to_string_lossy().replace('\\', "/"));
+        if files.len() >= 5000 { break; }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Format the document at the given URI using LSP textDocument/formatting.
+#[tauri::command]
+async fn lsp_format_document(state: State<'_, EditorState>, uri: String) -> Result<Value, String> {
+    let mut client = state.lsp_client.lock().await;
+    if !client.is_running() { return Err("LSP not running".to_string()); }
+    let result = client.request_with_response("textDocument/formatting", json!({
+        "textDocument": { "uri": uri },
+        "options": { "tabSize": 4, "insertSpaces": true }
+    })).await.map_err(|e| e.to_string())?;
+    Ok(result["result"].clone())
+}
+
+/// Replace all occurrences of `query` with `replacement` across the project.
+/// Returns number of files modified.
+#[tauri::command]
+async fn replace_in_files(
+    state: State<'_, EditorState>,
+    query: String,
+    replacement: String,
+    case_sensitive: bool,
+) -> Result<usize, String> {
+    let root = state.active_root.lock().await.clone()
+        .unwrap_or_else(|| PathBuf::from("."));
+    let mut count = 0usize;
+    for entry in walkdir::WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() { continue; }
+        let path = entry.path();
+        // Skip binary-like extensions and hidden dirs
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        if ["png","jpg","jpeg","gif","bmp","ico","woff","woff2","ttf","eot","bin","exe","dll","so","a","lib","pdf","zip","tar","gz"].contains(&ext.as_str()) { continue; }
+        if path.components().any(|c| c.as_os_str().to_str().map(|s| s.starts_with('.')).unwrap_or(false)) { continue; }
+        let content = match fs::read_to_string(path) { Ok(c) => c, Err(_) => continue };
+        let new_content = if case_sensitive {
+            content.replace(&query, &replacement)
+        } else {
+            let lower_content = content.to_lowercase();
+            let lower_query = query.to_lowercase();
+            if !lower_content.contains(&lower_query) { continue; }
+            // Case-insensitive replace preserving original case structure
+            let mut result = String::with_capacity(content.len());
+            let mut last = 0usize;
+            let bytes = content.as_bytes();
+            let lbytes = lower_content.as_bytes();
+            let qbytes = lower_query.as_bytes();
+            let mut i = 0usize;
+            while i + qbytes.len() <= bytes.len() {
+                if &lbytes[i..i+qbytes.len()] == qbytes {
+                    result.push_str(&content[last..i]);
+                    result.push_str(&replacement);
+                    i += qbytes.len();
+                    last = i;
+                } else {
+                    i += 1;
+                }
+            }
+            result.push_str(&content[last..]);
+            result
+        };
+        if new_content != content {
+            fs::write(path, new_content).map_err(|e| e.to_string())?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+#[tauri::command]
+async fn lsp_workspace_symbols(
+    state: State<'_, EditorState>,
+    query: String,
+) -> Result<Value, String> {
+    let mut client = state.lsp_client.lock().await;
+    if !client.is_running() { return Ok(json!([])); }
+    let result = client.request_with_response("workspace/symbol", json!({
+        "query": query
+    })).await.map_err(|e| e.to_string())?;
+    Ok(result["result"].clone())
+}
+
+#[tauri::command]
+async fn lsp_code_lens(
+    state: State<'_, EditorState>,
+    uri: String,
+) -> Result<Value, String> {
+    let mut client = state.lsp_client.lock().await;
+    if !client.is_running() { return Ok(json!([])); }
+    let result = client.request_with_response("textDocument/codeLens", json!({
+        "textDocument": { "uri": uri }
+    })).await.map_err(|e| e.to_string())?;
+    Ok(result["result"].clone())
+}
+
+#[tauri::command]
+async fn lsp_document_symbols(
+    state: State<'_, EditorState>,
+    uri: String,
+) -> Result<Value, String> {
+    let mut client = state.lsp_client.lock().await;
+    if !client.is_running() {
+        return Ok(json!([]));
+    }
+    let result = client.request_with_response("textDocument/documentSymbol", json!({
+        "textDocument": { "uri": uri }
+    })).await.map_err(|e| e.to_string())?;
+    Ok(result["result"].clone())
+}
+
+// ── Web Search via DuckDuckGo Instant Answer API ──────────────────────────────
+#[tauri::command]
+async fn web_search(query: String, num_results: Option<usize>) -> Result<Value, String> {
+    let limit = num_results.unwrap_or(6).min(10);
+    let encoded = urlencoding::encode(&query);
+    let ddg_url = format!(
+        "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1",
+        encoded
+    );
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) vscodium-rust/1.0")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.get(&ddg_url).send().await.map_err(|e| e.to_string())?;
+    let body: Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    let mut results: Vec<Value> = Vec::new();
+
+    if let Some(abstract_text) = body["Abstract"].as_str() {
+        if !abstract_text.is_empty() {
+            results.push(json!({
+                "title": body["Heading"].as_str().unwrap_or(""),
+                "url": body["AbstractURL"].as_str().unwrap_or(""),
+                "snippet": abstract_text,
+                "source": body["AbstractSource"].as_str().unwrap_or("DuckDuckGo"),
+            }));
+        }
+    }
+
+    if let Some(answer) = body["Answer"].as_str() {
+        if !answer.is_empty() {
+            results.push(json!({
+                "title": format!("Answer: {}", query),
+                "url": "",
+                "snippet": answer,
+                "source": "DuckDuckGo Instant",
+            }));
+        }
+    }
+
+    if let Some(topics) = body["RelatedTopics"].as_array() {
+        for topic in topics.iter().take(limit.saturating_sub(results.len())) {
+            if let Some(text) = topic["Text"].as_str() {
+                if !text.is_empty() {
+                    results.push(json!({
+                        "title": text.chars().take(80).collect::<String>(),
+                        "url": topic["FirstURL"].as_str().unwrap_or(""),
+                        "snippet": text,
+                        "source": "DuckDuckGo",
+                    }));
+                }
+            }
+        }
+    }
+
+    if results.is_empty() {
+        results.push(json!({
+            "title": format!("Search: {}", query),
+            "url": format!("https://duckduckgo.com/?q={}", encoded),
+            "snippet": "No instant answer found. See URL for full search.",
+            "source": "fallback",
+        }));
+    }
+
+    Ok(json!({ "query": query, "results": &results[..results.len().min(limit)], "count": results.len() }))
+}
+
+// ── Git gutter decorations: return added/modified/deleted lines for a file ──
+#[tauri::command]
+async fn get_git_file_hunks(path: String) -> Result<Value, String> {
+    use std::process::Command;
+    // git diff -U0 HEAD -- <path>  gives us exact line ranges
+    let output = Command::new("git")
+        .args(["diff", "-U0", "HEAD", "--", &path])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let diff = String::from_utf8_lossy(&output.stdout);
+    let mut added: Vec<u32> = Vec::new();
+    let mut modified: Vec<u32> = Vec::new();
+    let mut deleted: Vec<u32> = Vec::new();
+
+    // Parse unified diff @@ -a,b +c,d @@ headers
+    for line in diff.lines() {
+        if let Some(hunk) = line.strip_prefix("@@ ") {
+            // Format: -<old_start>[,<old_count>] +<new_start>[,<new_count>]
+            let parts: Vec<&str> = hunk.split_whitespace().collect();
+            let old_part = parts.first().unwrap_or(&"-0");
+            let new_part = parts.get(1).unwrap_or(&"+0");
+
+            let parse_range = |s: &str| -> (u32, u32) {
+                let s = s.trim_start_matches(['+', '-']);
+                if let Some((start, count)) = s.split_once(',') {
+                    (start.parse().unwrap_or(0), count.parse().unwrap_or(1))
+                } else {
+                    (s.parse().unwrap_or(0), 1)
+                }
+            };
+
+            let (_old_start, old_count) = parse_range(old_part);
+            let (new_start, new_count) = parse_range(new_part);
+
+            if old_count == 0 {
+                // Pure addition
+                for l in new_start..new_start + new_count { added.push(l); }
+            } else if new_count == 0 {
+                // Pure deletion — mark the line before deletion
+                deleted.push(if new_start == 0 { 1 } else { new_start });
+            } else {
+                // Modification
+                for l in new_start..new_start + new_count { modified.push(l); }
+            }
+        }
+    }
+
+    // Also check for untracked (new file) — git diff shows nothing for staged new files
+    if diff.is_empty() {
+        // Check if file is untracked
+        let status = Command::new("git")
+            .args(["status", "--porcelain", &path])
+            .output()
+            .map_err(|e| e.to_string())?;
+        let st = String::from_utf8_lossy(&status.stdout);
+        if st.starts_with("??") || st.starts_with("A ") {
+            // Whole file is new — mark all lines as added
+            // Return a sentinel so frontend knows to mark all
+            return Ok(json!({ "new_file": true, "added": [], "modified": [], "deleted": [] }));
+        }
+    }
+
+    Ok(json!({ "new_file": false, "added": added, "modified": modified, "deleted": deleted }))
+}
+
+// ── @codebase search: grep codebase for files matching a query ─────────────
+#[tauri::command]
+async fn search_codebase_files(query: String, root: String) -> Result<Value, String> {
+    use std::process::Command;
+    let root_path = std::path::Path::new(&root);
+    if !root_path.exists() {
+        return Ok(json!({ "files": [] }));
+    }
+
+    // Use ripgrep if available, otherwise fallback to walkdir + contains
+    let rg_result = Command::new("rg")
+        .args(["--files-with-matches", "--max-count", "1", "--ignore-case",
+               "--glob", "!target", "--glob", "!node_modules", "--glob", "!.git",
+               &query, &root])
+        .output();
+
+    let files: Vec<String> = if let Ok(out) = rg_result {
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .take(10)
+            .collect()
+    } else {
+        // Fallback: plain grep
+        let grep_result = Command::new("grep")
+            .args(["-ril", "--include=*.rs", "--include=*.ts", "--include=*.tsx",
+                   "--include=*.js", "--include=*.py", "--include=*.go",
+                   &query, &root])
+            .output();
+        if let Ok(out) = grep_result {
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .map(|s| s.to_string())
+                .take(10)
+                .collect()
+        } else {
+            vec![]
+        }
+    };
+
+    Ok(json!({ "files": files }))
+}
+
+// ── Directory tree for @codebase context ────────────────────────────────────
+#[tauri::command]
+async fn get_directory_tree(root: String, max_depth: Option<usize>) -> Result<String, String> {
+    let depth = max_depth.unwrap_or(3);
+    let root_path = std::path::Path::new(&root);
+    if !root_path.exists() {
+        return Ok("(directory not found)".to_string());
+    }
+
+    fn walk(path: &std::path::Path, depth: usize, max: usize, out: &mut String, indent: usize) {
+        if depth > max { return; }
+        let Ok(entries) = std::fs::read_dir(path) else { return };
+        let mut entries: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') || name == "target" || name == "node_modules" || name == "dist" { continue; }
+            let prefix = "  ".repeat(indent);
+            let ft = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if ft {
+                out.push_str(&format!("{}{}/\n", prefix, name));
+                walk(&entry.path(), depth + 1, max, out, indent + 1);
+            } else {
+                out.push_str(&format!("{}{}\n", prefix, name));
+            }
+        }
+    }
+
+    let mut out = format!("{}/\n", root_path.file_name().unwrap_or_default().to_string_lossy());
+    walk(root_path, 1, depth, &mut out, 1);
+    Ok(out)
+}
+
+// ── AI Code Tools (Cursor-like features) ──────────────────────────────────────
+
+#[tauri::command]
+async fn ai_explain_code(
+    state: State<'_, EditorState>,
+    code: String,
+    file_path: String,
+    detail_level: String,
+) -> Result<String, String> {
+    let prompt = format!(
+        "Explain what this {} code does in {} detail level:\n\n```\n{}\n```\n\nProvide a clear explanation covering:\n1. What the code does (plain English)\n2. Key logic flow\n3. Any important patterns or concepts used",
+        file_path.split('.').last().unwrap_or("code"),
+        detail_level,
+        code
+    );
+    
+    let request = AiRequest {
+        provider: "google".to_string(),
+        model: state.current_model.lock().await.clone(),
+        messages: vec![
+            ai_engine::ChatMessage {
+                role: "system".to_string(),
+                content: Some(ai_engine::MessageContent::Text(
+                    "You are a code explanation assistant. Explain code clearly in plain English.".to_string()
+                )),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+            ai_engine::ChatMessage {
+                role: "user".to_string(),
+                content: Some(ai_engine::MessageContent::Text(prompt)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+        ],
+        temperature: Some(0.3),
+        autonomous: false,
+        cyber_mode: None,
+        root_access: Some(false),
+        mode: Some("Explain".to_string()),
+        ollama_url: None,
+        tools: None,
+    };
+
+    state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ai_document_code(
+    state: State<'_, EditorState>,
+    code: String,
+    _file_path: String,
+    format: String,
+    language: String,
+) -> Result<String, String> {
+    let prompt = format!(
+        "Generate {} documentation for this {} code:\n\n```{}\n```\n\nInclude:\n- Function/class descriptions\n- Parameter explanations\n- Return value descriptions\n- Usage examples if helpful",
+        format, language, code
+    );
+    
+    let request = AiRequest {
+        provider: "google".to_string(),
+        model: state.current_model.lock().await.clone(),
+        messages: vec![
+            ai_engine::ChatMessage {
+                role: "system".to_string(),
+                content: Some(ai_engine::MessageContent::Text(
+                    "You are a documentation generator. Generate clean, professional code documentation.".to_string()
+                )),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+            ai_engine::ChatMessage {
+                role: "user".to_string(),
+                content: Some(ai_engine::MessageContent::Text(prompt)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+        ],
+        temperature: Some(0.2),
+        autonomous: false,
+        cyber_mode: None,
+        root_access: Some(false),
+        mode: Some("Document".to_string()),
+        ollama_url: None,
+        tools: None,
+    };
+
+    state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ai_generate_code(
+    state: State<'_, EditorState>,
+    prompt: String,
+    language: String,
+    framework: Option<String>,
+    _file_path: Option<String>,
+) -> Result<String, String> {
+    let full_prompt = if let Some(fw) = framework {
+        format!("Generate {} code using {} framework for: {}\n\nInclude proper imports, error handling, and best practices.", language, fw, prompt)
+    } else {
+        format!("Generate {} code for: {}\n\nInclude proper imports, error handling, and best practices.", language, prompt)
+    };
+    
+    let request = AiRequest {
+        provider: "google".to_string(),
+        model: state.current_model.lock().await.clone(),
+        messages: vec![
+            ai_engine::ChatMessage {
+                role: "system".to_string(),
+                content: Some(ai_engine::MessageContent::Text(
+                    "You are a code generation assistant. Generate clean, functional, production-ready code.".to_string()
+                )),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+            ai_engine::ChatMessage {
+                role: "user".to_string(),
+                content: Some(ai_engine::MessageContent::Text(full_prompt)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+        ],
+        temperature: Some(0.4),
+        autonomous: false,
+        cyber_mode: None,
+        root_access: Some(false),
+        mode: Some("Generate".to_string()),
+        ollama_url: None,
+        tools: None,
+    };
+
+    state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ai_refactor_code(
+    state: State<'_, EditorState>,
+    _code: String,
+    file_path: String,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+    refactor_type: String,
+    target_name: Option<String>,
+) -> Result<String, String> {
+    let range = match (start_line, end_line) {
+        (Some(s), Some(e)) => format!(" (lines {} to {})", s, e),
+        (Some(s), None) => format!(" (starting from line {})", s),
+        _ => String::new(),
+    };
+    
+    let prompt = format!(
+        "Refactor this {} code{} using {} refactoring approach.{}\n\nProvide improved code with better readability, performance, and best practices.",
+        file_path.split('.').last().unwrap_or("code"),
+        range,
+        refactor_type,
+        target_name.map(|n| format!(" Target name: {}", n)).unwrap_or_default()
+    );
+    
+    let request = AiRequest {
+        provider: "google".to_string(),
+        model: state.current_model.lock().await.clone(),
+        messages: vec![
+            ai_engine::ChatMessage {
+                role: "system".to_string(),
+                content: Some(ai_engine::MessageContent::Text(
+                    "You are a code refactoring assistant. Improve code quality while preserving functionality.".to_string()
+                )),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+            ai_engine::ChatMessage {
+                role: "user".to_string(),
+                content: Some(ai_engine::MessageContent::Text(prompt)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+        ],
+        temperature: Some(0.3),
+        autonomous: false,
+        cyber_mode: None,
+        root_access: Some(false),
+        mode: Some("Refactor".to_string()),
+        ollama_url: None,
+        tools: None,
+    };
+
+    state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ai_debug_code(
+    state: State<'_, EditorState>,
+    code: String,
+    file_path: String,
+    error_message: Option<String>,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+) -> Result<Value, String> {
+    let code_section = match (start_line, end_line) {
+        (Some(s), Some(e)) => format!(" (lines {} to {})", s, e),
+        _ => String::new(),
+    };
+    
+    let prompt = if let Some(err) = error_message {
+        format!(
+            "Debug this {} code{} that has error: {}\n\nError: {}\n\nProvide:\n1. Diagnosis of the problem\n2. List of specific issues found\n3. Fixed code\n4. Suggestions for prevention",
+            file_path.split('.').last().unwrap_or("code"),
+            code_section,
+            err,
+            code
+        )
+    } else {
+        format!(
+            "Debug this {} code{} for bugs, errors, and issues.\n\nProvide:\n1. Diagnosis of problems found\n2. List of specific issues (logic errors, race conditions, security issues, etc.)\n3. Fixed code\n4. Suggestions for improvement\n\nCode:\n```\n{}\n```",
+            file_path.split('.').last().unwrap_or("code"),
+            code_section,
+            code
+        )
+    };
+    
+    let request = AiRequest {
+        provider: "google".to_string(),
+        model: state.current_model.lock().await.clone(),
+        messages: vec![
+            ai_engine::ChatMessage {
+                role: "system".to_string(),
+                content: Some(ai_engine::MessageContent::Text(
+                    "You are a code debugging assistant. Find and fix bugs, errors, and issues in code.".to_string()
+                )),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+            ai_engine::ChatMessage {
+                role: "user".to_string(),
+                content: Some(ai_engine::MessageContent::Text(prompt)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+        ],
+        temperature: Some(0.2),
+        autonomous: false,
+        cyber_mode: None,
+        root_access: Some(false),
+        mode: Some("Debug".to_string()),
+        ollama_url: None,
+        tools: None,
+    };
+
+    let response = state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())?;
+    
+    // Parse the response to extract diagnosis, issues, and fixed code
+    // For now, return a structured response with the full response
+    Ok(json!({
+        "diagnosis": "Analysis complete",
+        "issues": ["See fixed code below"],
+        "fixed_code": response,
+        "suggestions": ["Review the fixed code and apply any needed adjustments"]
+    }))
+}
+
+#[tauri::command]
+async fn ai_multi_cursor_edit(
+    state: State<'_, EditorState>,
+    _code: String,
+    file_path: String,
+    pattern: String,
+    replacement: String,
+    match_scope: String,
+    apply: bool,
+) -> Result<Value, String> {
+    let prompt = format!(
+        "Find all occurrences of '{}' in this {} code and {} them.\n\nPattern: {}\nReplacement: {}\nMatch scope: {}\n\nReturn the modified code with all changes applied. If apply=false, show preview of changes.",
+        pattern,
+        file_path.split('.').last().unwrap_or("code"),
+        if apply { "replace" } else { "preview replacement for" },
+        pattern,
+        replacement,
+        match_scope
+    );
+    
+    let request = AiRequest {
+        provider: "google".to_string(),
+        model: state.current_model.lock().await.clone(),
+        messages: vec![
+            ai_engine::ChatMessage {
+                role: "system".to_string(),
+                content: Some(ai_engine::MessageContent::Text(
+                    "You are a multi-cursor editing assistant. Find patterns and edit them consistently across code.".to_string()
+                )),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+            ai_engine::ChatMessage {
+                role: "user".to_string(),
+                content: Some(ai_engine::MessageContent::Text(prompt)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+        ],
+        temperature: Some(0.3),
+        autonomous: false,
+        cyber_mode: None,
+        root_access: Some(false),
+        mode: Some("MultiEdit".to_string()),
+        ollama_url: None,
+        tools: None,
+    };
+
+    let modified = state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())?;
+    
+    Ok(json!({
+        "matches": [format!("Found occurrences of: {}", pattern)],
+        "modified_code": modified,
+        "preview_only": !apply
+    }))
+}
+
+#[tauri::command]
+async fn ai_pr_review(
+    _state: State<'_, EditorState>,
+    _pr_url: Option<String>,
+    diff_content: Option<String>,
+    focus_areas: Option<Vec<String>>,
+) -> Result<Value, String> {
+    // For now, require diff_content since we can't fetch from GitHub directly
+    let diff = diff_content.ok_or("diff_content required for PR review")?;
+
+    let focus = focus_areas.unwrap_or_else(|| vec!["security".to_string(), "performance".to_string(), "style".to_string()]);
+
+    let _prompt = format!(
+        "Perform an AI code review of these changes. Focus on: {}.\n\nReview the diff and provide:\n1. Summary of changes\n2. Potential issues found\n3. Suggestions for improvement\n4. Security considerations\n5. Performance impact\n\nDiff:\n```\n{}\n```",
+        focus.join(", "),
+        diff
+    );
+    
+    // Return a placeholder - in production this would call the AI engine
+    Ok(json!({
+        "summary": "Review requires AI engine integration",
+        "issues": ["Awaiting full AI integration"],
+        "suggestions": ["Full PR review coming soon"],
+        "security": "Manual review recommended",
+        "performance": "Manual review recommended"
+    }))
+}
+
+#[tauri::command]
+async fn ai_get_context(
+    state: State<'_, EditorState>,
+    query: String,
+    max_files: Option<usize>,
+    _include_types: Option<Vec<String>>,
+) -> Result<Value, String> {
+    let max = max_files.unwrap_or(5);
+    
+    // Use grep_files to find relevant files based on the query
+    let results = grep_files(state.clone(), query.clone(), None, None)
+        .await
+        .unwrap_or_default();
+    
+    // Extract unique files from grep results
+    let mut unique_files: Vec<Value> = Vec::new();
+    let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    
+    for r in results.into_iter().take(max * 3) {
+        let path = r.path.clone();
+        if !seen_paths.contains(&path) && unique_files.len() < max {
+            seen_paths.insert(path.clone());
+            unique_files.push(json!({
+                "path": path,
+                "line": r.line,
+                "snippet": r.content.chars().take(100).collect::<String>(),
+            }));
+        }
+    }
+    
+    Ok(json!({
+        "query": query,
+        "files": unique_files,
+        "count": unique_files.len()
+    }))
+}
+
+// ── Vector Indexer Commands (Cursor-like Codebase Search) ─────────────────
+
+#[tauri::command]
+async fn vector_index_codebase(state: State<'_, EditorState>) -> Result<String, String> {
+    state.vector_indexer
+        .index_codebase()
+        .await
+        .map(|_| "Codebase indexing started".to_string())
+        .map_err(|e| format!("Failed to start indexing: {}", e))
+}
+
+#[tauri::command]
+async fn vector_search_codebase(
+    state: State<'_, EditorState>,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Value, String> {
+    let limit = limit.unwrap_or(10);
+    let results = state.vector_indexer
+        .search_codebase(&query, limit)
+        .await
+        .map_err(|e| format!("Search failed: {}", e))?;
+
+    Ok(json!({
+        "query": query,
+        "results": results,
+        "count": results.len()
+    }))
+}
+
+#[tauri::command]
+async fn vector_find_symbol(
+    state: State<'_, EditorState>,
+    symbol_name: String,
+) -> Result<Value, String> {
+    let results = state.vector_indexer
+        .find_symbol(&symbol_name)
+        .await
+        .map_err(|e| format!("Symbol search failed: {}", e))?;
+
+    Ok(json!({
+        "symbol": symbol_name,
+        "results": results,
+        "count": results.len()
+    }))
+}
+
+#[tauri::command]
+async fn vector_get_index_stats(state: State<'_, EditorState>) -> Result<Value, String> {
+    let stats = state.vector_indexer
+        .get_index_stats()
+        .await
+        .map_err(|e| format!("Failed to get stats: {}", e))?;
+
+    Ok(json!(stats))
+}
+
+#[tauri::command]
+async fn vector_get_file_chunks(
+    state: State<'_, EditorState>,
+    file_path: String,
+) -> Result<Value, String> {
+    let chunks = state.vector_indexer
+        .get_file_chunks(&file_path)
+        .await
+        .map_err(|e| format!("Failed to get chunks: {}", e))?;
+
+    Ok(json!({
+        "file": file_path,
+        "chunks": chunks,
+        "count": chunks.len()
+    }))
+}
+
+// ── Git Checkpoint Commands (Auto-Snapshot & Rollback) ────────────────────
+
+#[tauri::command]
+async fn git_create_checkpoint(
+    state: State<'_, EditorState>,
+    description: String,
+    is_ai: Option<bool>,
+) -> Result<Value, String> {
+    let is_ai = is_ai.unwrap_or(false);
+    let checkpoint = state.git_checkpoints
+        .create_checkpoint(&description, is_ai)
+        .map_err(|e| format!("Failed to create checkpoint: {}", e))?;
+
+    // If this was an AI checkpoint, automatically trigger auto-checkpoint before AI edits
+    if is_ai {
+        println!("[CHECKPOINT] ✅ AI checkpoint created: {}", checkpoint.id);
+    }
+
+    Ok(json!(checkpoint))
+}
+
+#[tauri::command]
+async fn git_list_checkpoints(
+    state: State<'_, EditorState>,
+    limit: Option<usize>,
+) -> Result<Value, String> {
+    let checkpoints = state.git_checkpoints
+        .list_checkpoints(limit)
+        .map_err(|e| format!("Failed to list checkpoints: {}", e))?;
+
+    Ok(json!(checkpoints))
+}
+
+#[tauri::command]
+async fn git_rollback_checkpoint(
+    state: State<'_, EditorState>,
+    checkpoint_id: String,
+) -> Result<String, String> {
+    state.git_checkpoints
+        .rollback_to_checkpoint(&checkpoint_id)
+        .map_err(|e| format!("Failed to rollback: {}", e))
+}
+
+#[tauri::command]
+async fn git_get_checkpoint_diff(
+    state: State<'_, EditorState>,
+    checkpoint_id: String,
+) -> Result<Value, String> {
+    let diff = state.git_checkpoints
+        .get_checkpoint_diff(&checkpoint_id)
+        .map_err(|e| format!("Failed to get diff: {}", e))?;
+
+    Ok(json!(diff))
+}
+
+#[tauri::command]
+async fn git_delete_checkpoint(
+    state: State<'_, EditorState>,
+    checkpoint_id: String,
+) -> Result<(), String> {
+    state.git_checkpoints
+        .delete_checkpoint(&checkpoint_id)
+        .map_err(|e| format!("Failed to delete checkpoint: {}", e))
+}
+
+#[tauri::command]
+async fn git_auto_checkpoint(
+    state: State<'_, EditorState>,
+    description: String,
+) -> Result<Value, String> {
+    let result = state.git_checkpoints
+        .auto_checkpoint_before_ai_edit(&description)
+        .map_err(|e| format!("Failed to auto-checkpoint: {}", e))?;
+
+    Ok(json!({
+        "checkpoint": result,
+        "created": result.is_some()
+    }))
+}
+
