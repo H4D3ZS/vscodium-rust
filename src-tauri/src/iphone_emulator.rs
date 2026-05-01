@@ -1,9 +1,10 @@
 //! iPhone Emulator Integration
-//! Launches Flutter Windows app as separate native window
-//! Controlled and monitored by IDE
+//! Launches Flutter Windows app
+//! Window embedding requires separate native window management
 
 use std::process::{Command, Stdio, Child};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::State;
 
 /// Manages the iPhone emulator process
@@ -18,7 +19,7 @@ impl iPhoneEmulatorManager {
         }
     }
 
-    /// Launch the Flutter iPhone Emulator as native Windows app
+    /// Launch the Flutter iPhone Emulator
     pub fn launch(&self, project_path: String) -> Result<String, String> {
         let mut process_lock = self.process.lock().map_err(|e| e.to_string())?;
 
@@ -33,27 +34,7 @@ impl iPhoneEmulatorManager {
         }
 
         // Find Flutter executable
-        let flutter_exe = std::env::var("FLUTTER_ROOT")
-            .map(|root| format!("{}\\bin\\flutter.exe", root))
-            .unwrap_or_else(|_| {
-                // Try common locations
-                let common_paths = vec![
-                    r"C:\Program Files\flutter\bin\flutter.bat".to_string(),
-                    r"C:\src\flutter\bin\flutter.bat".to_string(),
-                    r"C:\flutter\bin\flutter.bat".to_string(),
-                    "flutter".to_string(), // Fallback to PATH
-                ];
-                
-                // Check which one exists
-                for path in common_paths {
-                    if path == "flutter" || std::path::Path::new(&path).exists() {
-                        return path;
-                    }
-                }
-                
-                "flutter".to_string()
-            });
-
+        let flutter_exe = self.find_flutter_executable()?;
         println!("[iPhone] Using Flutter: {}", flutter_exe);
 
         // Launch Flutter as native Windows app
@@ -67,7 +48,39 @@ impl iPhoneEmulatorManager {
 
         *process_lock = Some(child);
 
-        Ok("iPhone emulator launched (native Windows app)".to_string())
+        // Wait for Flutter window to be created
+        std::thread::sleep(Duration::from_secs(3));
+
+        // Window embedding requires native window management
+        // Flutter Windows app creates its own window
+        // For IDE integration, we show status in panel
+        // User sees native Flutter window on taskbar
+
+        Ok("iPhone emulator launched".to_string())
+    }
+
+    /// Find Flutter executable
+    fn find_flutter_executable(&self) -> Result<String, String> {
+        // Try FLUTTER_ROOT
+        if let Ok(root) = std::env::var("FLUTTER_ROOT") {
+            return Ok(format!("{}\\bin\\flutter.bat", root));
+        }
+
+        // Try common paths
+        let paths = vec![
+            r"C:\Program Files\flutter\bin\flutter.bat",
+            r"C:\src\flutter\bin\flutter.bat",
+            r"C:\flutter\bin\flutter.bat",
+        ];
+
+        for path in paths {
+            if std::path::Path::new(path).exists() {
+                return Ok(path.to_string());
+            }
+        }
+
+        // Fallback to PATH
+        Ok("flutter".to_string())
     }
 
     /// Stop the iPhone emulator
@@ -88,7 +101,7 @@ impl iPhoneEmulatorManager {
     }
 }
 
-/// Tauri command: Launch iPhone emulator (native window)
+/// Tauri command: Launch iPhone emulator
 #[tauri::command]
 pub fn launch_iphone_emulator(
     manager: State<'_, iPhoneEmulatorManager>,

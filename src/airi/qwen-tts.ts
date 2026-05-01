@@ -43,7 +43,6 @@ export class Qwen3TTS {
             await this.stop();
         }
 
-        console.log(`[Qwen3-TTS] Speaking: "${text.substring(0, 50)}..."`);
 
         return new Promise((resolve) => {
             const utterance = new SpeechSynthesisUtterance(text);
@@ -93,7 +92,6 @@ export class Qwen3TTS {
 
             utterance.onend = () => {
                 this.isSpeaking = false;
-                console.log('[Qwen3-TTS] ✅ Speech complete');
                 resolve();
             };
 
@@ -106,7 +104,6 @@ export class Qwen3TTS {
             this.isSpeaking = true;
             window.speechSynthesis.speak(utterance);
             
-            console.log('[Qwen3-TTS] 🔊 Speaking with voice:', preferredVoice?.name || 'default');
         });
     }
 
@@ -116,7 +113,6 @@ export class Qwen3TTS {
     async stop(): Promise<void> {
         window.speechSynthesis.cancel();
         this.isSpeaking = false;
-        console.log('[Qwen3-TTS] ⏹️ Stopped');
     }
 
     /**
@@ -138,7 +134,6 @@ export class Qwen3TTS {
      */
     configure(config: Partial<QwenTTSConfig>): void {
         this.config = { ...this.config, ...config };
-        console.log('[Qwen3-TTS] ⚙️ Config updated:', this.config);
     }
 }
 

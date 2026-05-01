@@ -49,7 +49,6 @@ export class AIRIDigitalSenses {
       sensitivity: 0.8
     };
 
-    console.log('[DigitalSenses] 📡 Perceiving digital reality...');
   }
 
   /**
@@ -61,7 +60,6 @@ export class AIRIDigitalSenses {
       this.perceiveAll();
     }, 5000);
 
-    console.log('[DigitalSenses] 🔄 Continuous perception active');
   }
 
   /**
@@ -241,15 +239,12 @@ ACT: [what action to take, or "nothing"]
       const act = response.response.match(/ACT:\s*(.+)/i)?.[1];
 
       if (notice) {
-        console.log(`[DigitalSenses] 👁️ Noticed: ${notice}`);
       }
 
       if (remember && act !== 'nothing') {
-        console.log(`[DigitalSenses] 💾 Should remember: ${remember}`);
       }
 
       if (act && act !== 'nothing') {
-        console.log(`[DigitalSenses] ⚡ Should act: ${act}`);
       }
     } catch (error) {
       console.error('[DigitalSenses] Processing failed:', error);
@@ -261,7 +256,6 @@ ACT: [what action to take, or "nothing"]
    */
   focusOn(target: string): void {
     this.processing.attention = [target];
-    console.log(`[DigitalSenses] 🎯 Focusing on: ${target}`);
   }
 
   /**
@@ -269,7 +263,6 @@ ACT: [what action to take, or "nothing"]
    */
   filterOut(patterns: string[]): void {
     this.processing.filter = [...this.processing.filter, ...patterns];
-    console.log(`[DigitalSenses] 🚫 Filtering: ${patterns.join(', ')}`);
   }
 
   /**
@@ -277,7 +270,6 @@ ACT: [what action to take, or "nothing"]
    */
   setSensitivity(level: number): void {
     this.processing.sensitivity = Math.max(0, Math.min(1, level));
-    console.log(`[DigitalSenses] 📊 Sensitivity: ${this.processing.sensitivity}`);
   }
 
   /**
@@ -303,7 +295,6 @@ ACT: [what action to take, or "nothing"]
     if (this.senseInterval) {
       clearInterval(this.senseInterval);
     }
-    console.log('[DigitalSenses] ⏸️ Perception paused');
   }
 }
 

@@ -38,11 +38,9 @@ export class Qwen3TTSServer {
      */
     async start(): Promise<boolean> {
         if (this.isRunning) {
-            console.log('[Qwen3-TTS] Server already running');
             return true;
         }
 
-        console.log('[Qwen3-TTS] Starting server...');
 
         try {
             // For Tauri, we'll use fetch to a Python HTTP server
@@ -53,7 +51,6 @@ export class Qwen3TTSServer {
             
             if (ready) {
                 this.isRunning = true;
-                console.log(`[Qwen3-TTS] ✅ Server running on ${this.serverUrl}`);
                 return true;
             } else {
                 console.error('[Qwen3-TTS] ❌ Server failed to start');
@@ -143,7 +140,6 @@ export class Qwen3TTSServer {
      */
     async stop(): Promise<void> {
         // No-op for now - audio will finish naturally
-        console.log('[Qwen3-TTS] Stopped');
     }
 
     /**
@@ -170,7 +166,6 @@ export class Qwen3TTSServer {
             this.process = null;
         }
         this.isRunning = false;
-        console.log('[Qwen3-TTS] Server stopped');
     }
 }
 

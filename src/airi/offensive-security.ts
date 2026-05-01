@@ -134,21 +134,12 @@ export class AIRIOffensiveSecurity {
      * Start offensive security monitoring
      */
     start(): void {
-        console.log('🔴 Capabilities:');
-        console.log('   - OWASP Top 10 vulnerability scanning');
-        console.log('   - Penetration testing automation');
-        console.log('   - Bug bounty hunting');
-        console.log('   - Security code review');
-        console.log('   - Exploit analysis (defensive)');
-        console.log('   - Red team operations');
-        console.log('\n⚠️  ETHICAL USE ONLY - Authorized testing only!\n');
     }
 
     /**
      * Scan URL/Domain for vulnerabilities
      */
     async scanTarget(target: string, config?: Partial<PenTestConfig>): Promise<VulnerabilityReport[]> {
-        console.log(`\n🔍 Starting security scan: ${target}`);
         
         const vulnerabilities: VulnerabilityReport[] = [];
 
@@ -178,12 +169,9 @@ export class AIRIOffensiveSecurity {
 
         // Report findings
         if (vulnerabilities.length > 0) {
-            console.log(`\n🚨 Found ${vulnerabilities.length} vulnerabilities!`);
             vulnerabilities.forEach(v => {
-                console.log(`   [${v.severity.toUpperCase()}] ${v.type}: ${v.description}`);
             });
         } else {
-            console.log(`\n✅ No vulnerabilities found (or limited scan depth)`);
         }
 
         return vulnerabilities;
@@ -257,7 +245,6 @@ export class AIRIOffensiveSecurity {
                 const testUrl = `${url}${payload}`;
                 // In real implementation, would make actual HTTP requests
                 // For now, simulate detection
-                console.log(`[Red Team] Testing SQLi: ${payload}`);
             } catch (error) {
                 // Error might indicate SQLi
             }
@@ -283,7 +270,6 @@ export class AIRIOffensiveSecurity {
             try {
                 // Test reflected XSS
                 const testUrl = `${url}?input=${encodeURIComponent(payload)}`;
-                console.log(`[Red Team] Testing XSS: ${payload}`);
             } catch (error) {
                 // Error might indicate XSS
             }
@@ -304,7 +290,6 @@ export class AIRIOffensiveSecurity {
         ];
 
         // Check if sequential IDs are accessible without auth
-        console.log('[Red Team] Testing IDOR vulnerabilities...');
 
         return null;
     }
@@ -325,7 +310,6 @@ export class AIRIOffensiveSecurity {
 
         try {
             // In real implementation, would fetch and check headers
-            console.log(`[Red Team] Checking security headers for: ${url}`);
             
             // Simulate missing headers detection
             missingHeaders.push('Content-Security-Policy');
@@ -372,7 +356,6 @@ export class AIRIOffensiveSecurity {
         }
 
         // Check for SSL vulnerabilities
-        console.log(`[Red Team] Checking SSL config: ${url}`);
 
         return null;
     }
@@ -386,7 +369,6 @@ export class AIRIOffensiveSecurity {
             'api', 'app', 'blog', 'shop', 'support', 'help'
         ];
 
-        console.log(`[Red Team] Checking subdomain takeover: ${domain}`);
 
         // Check for CNAME records pointing to non-existent services
         // This would require DNS lookup capabilities
@@ -398,7 +380,6 @@ export class AIRIOffensiveSecurity {
      * Check CORS misconfiguration
      */
     private async checkCORS(url: string): Promise<VulnerabilityReport | null> {
-        console.log(`[Red Team] Checking CORS: ${url}`);
 
         // Test for overly permissive CORS
         // Access-Control-Allow-Origin: *
@@ -476,7 +457,6 @@ export class AIRIOffensiveSecurity {
             0.9
         );
 
-        console.log(`[Red Team] 📚 Learned from scan of ${target}`);
     }
 
     /**

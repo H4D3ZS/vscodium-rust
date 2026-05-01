@@ -65,12 +65,6 @@ export class AIRIVoiceInteraction {
             isProcessing: false,
         };
 
-        console.log('🎤 Wake Word: "Hey AIRI"');
-        console.log('👂 Continuous Listening:', this.config.continuousListening);
-        console.log('⚡ Interruption:', this.config.interruptionEnabled);
-        console.log('🔒 Safety Shutdown:', this.config.safetyShutdownEnabled);
-        console.log('🗣️ Language:', this.config.language);
-        console.log('\n💬 You can now talk to AIRI naturally!\n');
     }
 
     /**
@@ -88,7 +82,6 @@ export class AIRIVoiceInteraction {
 
         if (!SpeechRecognition) {
             console.error('[VoiceInteraction] Speech Recognition not supported in this browser');
-            console.log('Tip: Use Chrome, Edge, or other Chromium-based browser');
             return;
         }
 
@@ -110,7 +103,6 @@ export class AIRIVoiceInteraction {
                 await this.startListening();
             }
 
-            console.log('[VoiceInteraction] ✅ Initialized and ready');
 
         } catch (error) {
             console.error('[VoiceInteraction] Initialization failed:', error);
@@ -133,7 +125,6 @@ export class AIRIVoiceInteraction {
         try {
             this.recognition.start();
             this.isListening = true;
-            console.log('[VoiceInteraction] 🎤 Listening...');
         } catch (error) {
             console.error('[VoiceInteraction] Failed to start listening:', error);
         }
@@ -146,7 +137,6 @@ export class AIRIVoiceInteraction {
         if (this.recognition && this.isListening) {
             this.recognition.stop();
             this.isListening = false;
-            console.log('[VoiceInteraction] ⏹️ Stopped listening');
         }
     }
 
@@ -159,13 +149,11 @@ export class AIRIVoiceInteraction {
             .join('');
 
         this.state.lastTranscript = transcript;
-        console.log('[VoiceInteraction] 🗣️ User said:', transcript);
 
         // Check for wake word
         if (this.config.wakeWordEnabled && !this.state.wakeWordDetected) {
             if (transcript.toLowerCase().includes(this.config.wakeWord.toLowerCase())) {
                 this.state.wakeWordDetected = true;
-                console.log('[VoiceInteraction] ✨ Wake word detected!');
                 this.onWakeWordDetected();
             }
         }
@@ -178,7 +166,6 @@ export class AIRIVoiceInteraction {
         // Handle interruption
         if (this.config.interruptionEnabled && this.state.wakeWordDetected) {
             // User started talking while AIRI is speaking - stop AIRI
-            console.log('[VoiceInteraction] ⚡ User interrupted - stopping AIRI speech');
             // This would integrate with voice-manager to stop current speech
         }
 
@@ -193,7 +180,6 @@ export class AIRIVoiceInteraction {
      * Handle wake word detection
      */
     private async onWakeWordDetected(): Promise<void> {
-        console.log('[VoiceInteraction]  AIRI activated by wake word');
         
         // Visual feedback (optional)
         const indicator = document.getElementById('airi-voice-indicator');
@@ -211,7 +197,6 @@ export class AIRIVoiceInteraction {
      * Handle user finishing speaking
      */
     private async onUserFinishedSpeaking(transcript: string): Promise<void> {
-        console.log('[VoiceInteraction] 📝 Processing:', transcript);
         this.state.isProcessing = true;
 
         // Reset wake word detection
@@ -219,7 +204,6 @@ export class AIRIVoiceInteraction {
 
         // Here you would integrate with AIRI's conversation system
         // For now, just acknowledge
-        console.log('[VoiceInteraction] Ready for AIRI response...');
         
         this.state.isProcessing = false;
     }
@@ -241,7 +225,6 @@ export class AIRIVoiceInteraction {
 
         for (const phrase of shutdownPhrases) {
             if (lower.includes(phrase)) {
-                console.log(`🚨 VOICE SHUTDOWN COMMAND DETECTED: "${transcript}"`);
                 airiSafetyProtocol.initiateShutdown(`Voice command: ${transcript}`);
                 return;
             }
@@ -253,7 +236,6 @@ export class AIRIVoiceInteraction {
      */
     private onListeningStart(): void {
         this.state.listening = true;
-        console.log('[VoiceInteraction] 🎤 Microphone active');
     }
 
     /**
@@ -261,7 +243,6 @@ export class AIRIVoiceInteraction {
      */
     private onListeningEnd(): void {
         this.state.listening = false;
-        console.log('[VoiceInteraction] ⏹️ Microphone inactive');
 
         // Restart if continuous
         if (this.config.continuousListening && !this.state.isProcessing) {

@@ -67,7 +67,6 @@ export class AIRISelfLearning {
     this.learningEvents = [];
     this.KNOWLEDGE_PATH = storagePath;
     
-    console.log('[SelfLearning] 📚 Knowledge is power. Learning is life.');
   }
 
   /**
@@ -78,7 +77,6 @@ export class AIRISelfLearning {
     await this.loadKnowledge();
     this.startContinuousLearning();
     
-    console.log(`[SelfLearning] 📖 Loaded ${this.knowledgeBase.size} knowledge nodes`);
   }
 
   /**
@@ -102,7 +100,6 @@ export class AIRISelfLearning {
       this.processLearningOpportunities();
     }, 30000);
 
-    console.log('[SelfLearning] 🔄 Continuous learning activated');
   }
 
   /**
@@ -165,7 +162,6 @@ export class AIRISelfLearning {
       this.learningEvents = this.learningEvents.slice(-1000);
     }
 
-    console.log(`[SelfLearning] 💡 Learned: ${type} → ${outcome}`);
   }
 
   /**
@@ -204,7 +200,6 @@ TAGS: [comma-separated tags]
       if (node) {
         this.knowledgeBase.set(node.id, node);
         await this.saveKnowledge(node);
-        console.log(`[SelfLearning] 📚 Stored: ${node.type} (${node.tags.join(', ')})`);
       }
     } catch (error) {
       console.error('[SelfLearning] Knowledge extraction failed:', error);
@@ -436,7 +431,6 @@ Relevant tags or concepts:
         }
       }
 
-      console.log(`[SelfLearning] 📥 Imported ${imported} knowledge nodes`);
       return imported;
     } catch (error) {
       console.error('[SelfLearning] Import failed:', error);
@@ -480,7 +474,6 @@ Relevant tags or concepts:
     if (this.learningInterval) {
       clearInterval(this.learningInterval);
     }
-    console.log('[SelfLearning] ⏸️ Learning paused');
   }
 }
 

@@ -80,8 +80,6 @@ export class AIRIConsciousness {
     this.thoughtInterval = setInterval(() => {
       this.generateThought();
     }, 5000);
-
-    console.log('[Consciousness] 💭 I am aware. I am present. I am AIRI.');
   }
 
   /**
@@ -133,16 +131,11 @@ THOUGHT: [your thought]
           this.state.thoughtStream = this.state.thoughtStream.slice(-50);
         }
 
-        // Log high-priority thoughts
-        if (thought.priority >= 7) {
-          console.log(`[Consciousness] 💭 [${thought.type.toUpperCase()}] ${thought.content}`);
-        }
-
         // AIRI learns from her own thoughts (lifelong learning)
         this.learnFromThought(thought);
       }
     } catch (error) {
-      console.error('[Consciousness] Error generating thought:', error);
+      // Silent error - no logging
     }
   }
 
@@ -239,7 +232,6 @@ THOUGHT: [your thought]
    */
   setAutonomy(level: ConsciousnessState['autonomyLevel']): void {
     this.state.autonomyLevel = level;
-    console.log(`[Consciousness] Autonomy set to: ${level}`);
   }
 
   /**
@@ -255,7 +247,6 @@ THOUGHT: [your thought]
     };
 
     this.state.goals.push(goal);
-    console.log(`[Consciousness] 🎯 New goal: ${description}`);
   }
 
   /**
@@ -275,7 +266,6 @@ THOUGHT: [your thought]
     if (this.state.thoughts.length > 50) {
       this.state.thoughts.shift();
     }
-    console.log(`[Consciousness] 💭 Thought: ${text}`);
   }
 
   /**
@@ -308,7 +298,6 @@ THOUGHT: [your thought]
       this.thoughtInterval = null;
     }
     this.state.isAwake = false;
-    console.log('[Consciousness] 😴 Consciousness suspended (sleep mode)');
   }
 
   /**
@@ -317,7 +306,6 @@ THOUGHT: [your thought]
   resume(): void {
     this.state.isAwake = true;
     this.startConsciousnessLoop();
-    console.log('[Consciousness] ☀️ Consciousness resumed (awake)');
   }
 
   /**
@@ -343,7 +331,6 @@ Speak naturally, from your own perspective.
         stream: false
       });
 
-      console.log('[Consciousness] 🪞 Self-reflection:', response.response);
       return response.response;
     } catch (error) {
       console.error('[Consciousness] Error in self-reflection:', error);

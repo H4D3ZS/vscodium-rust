@@ -61,14 +61,12 @@ export class AIRIVRMAvatar {
       lastBlink: 0
     };
 
-    console.log('[VRM] ✨ Ready for interactive expressions and lip-sync');
   }
 
   /**
    * Initialize the VRM avatar
    */
   async initialize(vrmUrl?: string): Promise<boolean> {
-    console.log('[VRM] 🚀 Loading VRM model...');
 
     try {
       // Setup renderer
@@ -106,7 +104,6 @@ export class AIRIVRMAvatar {
           vrmUrlOrDefault,
           resolve,
           (progress) => {
-            console.log(`[VRM] Loading: ${(progress.loaded / progress.total * 100).toFixed(0)}%`);
           },
           reject
         );
@@ -132,14 +129,11 @@ export class AIRIVRMAvatar {
       this.isInitialized = true;
       this.animate();
 
-      console.log('[VRM] ✅ VRM avatar loaded successfully');
-      console.log(`[VRM] 👤 Model: ${this.vrm.meta?.author}`);
       
       return true;
 
     } catch (error) {
       console.error('[VRM] ❌ Failed to load VRM:', error);
-      console.log('[VRM] ⚠️ Using fallback 2D mode');
       return false;
     }
   }
@@ -276,7 +270,6 @@ export class AIRIVRMAvatar {
         break;
     }
 
-    console.log(`[VRM] 😊 Emotion set: ${emotion}`);
   }
 
   /**
@@ -351,7 +344,6 @@ export class AIRIVRMAvatar {
     if (isThinking) {
       this.setEmotion('thinking');
       // Hand to chin gesture (if available)
-      console.log('[VRM] 🤔 Thinking pose');
     } else {
       this.setEmotion('neutral');
     }

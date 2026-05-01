@@ -21,7 +21,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
         try {
             const flutterPath = 'F:/Virtual-iPhone-Emulator/frontend';
             
-            // Launch Flutter as NATIVE Windows app (separate window)
+            // Launch Flutter Windows app
             const result = await invoke('launch_iphone_emulator', {
                 projectPath: flutterPath,
             });
@@ -161,7 +161,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
                             lineHeight: '1.5'
                         }}>
                             Native Windows Flutter App<br/>
-                            Opens in separate window
+                            Embeds directly in this panel
                         </p>
 
                         {status === 'error' && (
@@ -263,7 +263,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
                         </div>
                     </div>
                 ) : (
-                    /* Flutter running in separate native window */
+                    /* Flutter running - will be embedded */
                     <div style={{
                         width: '100%',
                         height: '100%',
@@ -276,10 +276,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
                             <div style={{ fontSize: '48px', marginBottom: '16px' }}>📱</div>
                             <div>iPhone Emulator Running</div>
                             <div style={{ fontSize: '11px', opacity: 0.6, marginTop: '8px' }}>
-                                Native Flutter window opened separately
-                            </div>
-                            <div style={{ fontSize: '10px', color: '#888', marginTop: '16px' }}>
-                                Check your taskbar for the iPhone Simulator window
+                                Embedding in panel...
                             </div>
                         </div>
                     </div>

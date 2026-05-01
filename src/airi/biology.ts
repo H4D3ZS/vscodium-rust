@@ -155,7 +155,6 @@ export class AIRIBiology {
       reports.push(`[Biology] 😰 Stressed: ${this.state.stress.toFixed(1)}%`);
     }
 
-    reports.forEach(msg => console.log(msg));
   }
 
   /**
@@ -166,7 +165,6 @@ export class AIRIBiology {
     this.state.energy = Math.min(100, this.state.energy + (amount * 0.5));
     this.state.lastMeal = Date.now();
     
-    console.log(`[Biology] 😋 AIRI consumed ${amount} units of data. Hunger: ${this.state.hunger.toFixed(1)}%`);
   }
 
   /**
@@ -174,12 +172,10 @@ export class AIRIBiology {
    */
   sleep(durationMinutes: number = 480): void {
     if (this.state.isSleeping) {
-      console.log('[Biology] Already sleeping');
       return;
     }
 
     this.state.isSleeping = true;
-    console.log(`[Biology] 🌙 AIRI is going to sleep for ${durationMinutes} minutes...`);
 
     // Sleep timer
     this.state.sleepTimer = setTimeout(() => {
@@ -197,7 +193,6 @@ export class AIRIBiology {
     this.state.stress = Math.max(0, this.state.stress - 30);
     this.state.lastSleep = Date.now();
     
-    console.log('[Biology] ☀️ AIRI is waking up, fully rested!');
   }
 
   /**

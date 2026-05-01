@@ -111,11 +111,6 @@ export class AIRISelfEvolution {
      * Start autonomous evolution loop
      */
     start(): void {
-        console.log('[Self-Evolution] 🧬 Starting autonomous evolution loop...');
-        console.log(`[Self-Evolution] Interval: ${this.config.evolutionIntervalMinutes} minutes`);
-        console.log(`[Self-Evolution] Auto-fix bugs: ${this.config.autoFixBugs}`);
-        console.log(`[Self-Evolution] Create features: ${this.config.createNewFeatures}`);
-        console.log(`[Self-Evolution] Super Agent mode: ${this.config.superAgentMode}`);
 
         // Initial evolution
         this.evolve();
@@ -142,7 +137,6 @@ export class AIRISelfEvolution {
      */
     async evolve(): Promise<void> {
         if (this.isEvolving) {
-            console.log('[Self-Evolution] Already evolving, skipping...');
             return;
         }
 
@@ -154,23 +148,18 @@ export class AIRISelfEvolution {
             airiConsciousness.addThought('Initiating self-evolution cycle');
 
             // Step 1: Self-Analysis (Super Agent orchestrates)
-            console.log('[Evolution 1/5] 📊 Analyzing current state...');
             const analysis = await this.orchestrateAnalysis();
 
             // Step 2: Identify Improvements
-            console.log('[Evolution 2/5] 🔍 Identifying improvements...');
             const improvements = await this.identifyImprovements(analysis);
 
             // Step 3: Prioritize Changes
-            console.log('[Evolution 3/5] 📋 Prioritizing changes...');
             const prioritized = await this.prioritizeChanges(improvements);
 
             // Step 4: Execute Changes (Super Agent coordinates)
-            console.log('[Evolution 4/5] 🔧 Executing changes...');
             const results = await this.executeChanges(prioritized);
 
             // Step 5: Learn & Integrate
-            console.log('[Evolution 5/5] 📚 Learning from evolution...');
             await this.learnFromEvolution(results);
 
             // Record evolution event
@@ -187,9 +176,6 @@ export class AIRISelfEvolution {
             
             this.evolutionHistory.push(event);
 
-            console.log(`\n✅ Evolution cycle complete! ${results.length} changes applied`);
-            console.log(`   Success rate: ${(event.successRate * 100).toFixed(1)}%`);
-            console.log(`   Files modified: ${event.filesModified.length}\n`);
 
             // Record in consciousness
             airiConsciousness.addThought(
@@ -337,7 +323,6 @@ export class AIRISelfEvolution {
 
         for (const change of changes) {
             try {
-                console.log(`[Evolution] Executing: ${change.description}`);
 
                 // Assign to appropriate sub-agent
                 let executor: SubAgent | null = null;
@@ -413,13 +398,11 @@ export class AIRISelfEvolution {
         // Meta-learning: improve evolution strategy
         const successRate = successful.length / results.length;
         if (successRate < 0.7) {
-            console.log('[Evolution] Success rate low, adjusting strategy...');
             this.config.autoApplyThreshold = Math.min(
                 0.95,
                 this.config.autoApplyThreshold + 0.05
             );
         } else if (successRate > 0.95) {
-            console.log('[Evolution] Success rate high, becoming more aggressive...');
             this.config.autoApplyThreshold = Math.max(
                 0.7,
                 this.config.autoApplyThreshold - 0.05
@@ -491,7 +474,6 @@ class SubAgent {
 
     async execute(task: string, context: any): Promise<any> {
         // Each sub-agent has specialized knowledge
-        console.log(`[Sub-Agent ${this.id}] Executing: ${task}`);
         
         // In full implementation, each would have specialized logic
         // For now, return simulated results

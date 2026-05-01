@@ -42,7 +42,6 @@ export class AIRIToolOrchestrator {
     private activeScans: Map<string, OrchestratedScan> = new Map();
 
     constructor() {
-        console.log('🔧 Registered Tools:');
     }
 
     /**
@@ -60,7 +59,6 @@ export class AIRIToolOrchestrator {
         };
 
         this.registeredTools.set('flutter_sentinel', tool);
-        console.log('   ✅ FlutterSentinel registered (mobile app security)');
     }
 
     /**
@@ -78,7 +76,6 @@ export class AIRIToolOrchestrator {
         };
 
         this.registeredTools.set('dissectx_pro', tool);
-        console.log('   ✅ DissectX_Pro registered (phishing/red teaming)');
     }
 
     /**
@@ -90,8 +87,6 @@ export class AIRIToolOrchestrator {
     ): Promise<OrchestratedScan> {
         const scanId = `scan_${Date.now()}`;
         
-        console.log(`\n🎯 Starting coordinated scan: ${target}`);
-        console.log(`   Tools: ${toolNames.join(', ')}`);
 
         const scan: OrchestratedScan = {
             id: scanId,
@@ -112,12 +107,10 @@ export class AIRIToolOrchestrator {
                 continue;
             }
 
-            console.log(`\n   🔧 Running ${tool.name}...`);
             
             try {
                 const result = await this.executeTool(tool, target);
                 scan.results.push(result);
-                console.log(`   ✅ ${tool.name} complete - ${result.findings} findings`);
             } catch (error) {
                 console.error(`   ❌ ${tool.name} failed:`, error);
                 scan.results.push({
@@ -135,9 +128,6 @@ export class AIRIToolOrchestrator {
 
         // Summary
         const totalFindings = scan.results.reduce((sum, r) => sum + r.findings, 0);
-        console.log(`\n📊 Scan Complete:`);
-        console.log(`   Total findings: ${totalFindings}`);
-        console.log(`   Duration: ${((scan.endTime - scan.startTime) / 1000).toFixed(1)}s`);
 
         return scan;
     }
@@ -152,7 +142,6 @@ export class AIRIToolOrchestrator {
         // In real implementation, would spawn child process
         // For now, simulate execution
         
-        console.log(`      Executing: ${tool.command} ${tool.args.join(' ')} --target ${target}`);
         
         // Simulate tool execution time
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -171,8 +160,6 @@ export class AIRIToolOrchestrator {
      * Mobile App Security Scan (FlutterSentinel)
      */
     async scanMobileApp(appPath: string): Promise<OrchestratedScan> {
-        console.log(`\n📱 Mobile App Security Scan`);
-        console.log(`   Target: ${appPath}`);
         
         if (!this.registeredTools.has('flutter_sentinel')) {
             throw new Error('FlutterSentinel not registered. Call registerFlutterSentinel() first.');
@@ -188,9 +175,6 @@ export class AIRIToolOrchestrator {
         targetDomain: string,
         campaignType: 'spear' | 'whale' | 'bulk'
     ): Promise<OrchestratedScan> {
-        console.log(`\n🎣 Phishing Campaign Simulation`);
-        console.log(`   Target: ${targetDomain}`);
-        console.log(`   Type: ${campaignType}`);
         
         if (!this.registeredTools.has('dissectx_pro')) {
             throw new Error('DissectX_Pro not registered. Call registerDissectXPro() first.');
@@ -203,9 +187,6 @@ export class AIRIToolOrchestrator {
      * Full Spectrum Assessment (all tools)
      */
     async fullSpectrumAssessment(target: string): Promise<OrchestratedScan> {
-        console.log(`\n🌐 Full Spectrum Security Assessment`);
-        console.log(`   Target: ${target}`);
-        console.log(`   Scope: Mobile + Web + Phishing + Social`);
 
         const allTools = Array.from(this.registeredTools.keys());
         return this.runCoordinatedScan(target, allTools);

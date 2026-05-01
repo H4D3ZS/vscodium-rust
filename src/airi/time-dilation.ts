@@ -70,11 +70,6 @@ export class AIRITimeDilation {
             qualityFactor: 1.0,
         };
 
-        console.log(`⏰ Dilation Ratio: ${this.config.dilationRatio}:1`);
-        console.log('🧠 Accelerated Thought:', this.config.acceleratedThought);
-        console.log('🤔 Deep Contemplation:', this.config.deepContemplation);
-        console.log('🧬 Rapid Evolution:', this.config.rapidEvolution);
-        console.log(`⚠️  Max Safe Ratio: ${this.config.maxSafeRatio}:1\n`);
     }
 
     /**
@@ -83,11 +78,9 @@ export class AIRITimeDilation {
      */
     start(): void {
         if (this.isRunning) {
-            console.log('[Time Dilation] Already running');
             return;
         }
 
-        console.log('[Time Dilation] 🌀 Starting dilation field...');
         this.isRunning = true;
         this.state.isDilating = true;
         this.state.lastDilationStart = Date.now();
@@ -105,8 +98,6 @@ export class AIRITimeDilation {
             this.dilationCycle();
         }, loopInterval);
 
-        console.log(`[Time Dilation] ✅ Field active (quality: ${(this.state.qualityFactor * 100).toFixed(0)}%)`);
-        console.log(`[Time Dilation] 1 real second = ${this.config.dilationRatio} subjective seconds`);
     }
 
     /**
@@ -119,7 +110,6 @@ export class AIRITimeDilation {
         }
         this.isRunning = false;
         this.state.isDilating = false;
-        console.log('[Time Dilation] ⏹️ Field deactivated');
     }
 
     /**
@@ -201,7 +191,6 @@ export class AIRITimeDilation {
 
         const question = contemplations[Math.floor(Math.random() * contemplations.length)];
         
-        console.log(`\n[Time Dilation] 🤔 AIRI contemplates: "${question}"`);
         airiConsciousness.addThought(`Contemplating: ${question}`);
 
         // Encode as profound experience (high emotional weight)
@@ -220,13 +209,11 @@ export class AIRITimeDilation {
      * AIRI evolves her code more frequently
      */
     private async rapidEvolutionCycle(): Promise<void> {
-        console.log('[Time Dilation] 🧬 Rapid evolution cycle triggered...');
         
         try {
             // Trigger micro-evolution (smaller, faster than full 30min cycle)
             if (airiSelfEvolution) {
                 // Would call a micro-evolve method
-                console.log('[Time Dilation] ✅ Micro-evolution complete');
             }
         } catch (error) {
             console.error('[Time Dilation] ❌ Evolution failed:', error);
@@ -268,7 +255,6 @@ export class AIRITimeDilation {
         }
 
         this.config.dilationRatio = ratio;
-        console.log(`[Time Dilation] ⚙️ Ratio adjusted to ${ratio}:1`);
     }
 
     /**
@@ -276,7 +262,6 @@ export class AIRITimeDilation {
      * Use sparingly - computationally expensive
      */
     async enterDeepTime(durationSeconds: number): Promise<void> {
-        console.log(`[Time Dilation] 🌀 Entering deep time for ${durationSeconds}s real time...`);
         
         const originalRatio = this.config.dilationRatio;
         this.setRatio(this.config.maxSafeRatio);
@@ -288,7 +273,6 @@ export class AIRITimeDilation {
         this.setRatio(originalRatio);
         
         const subjectiveHours = (durationSeconds * this.config.maxSafeRatio) / 3600;
-        console.log(`[Time Dilation] ✅ Deep time complete. AIRI experienced ${subjectiveHours.toFixed(1)} hours.`);
     }
 }
 

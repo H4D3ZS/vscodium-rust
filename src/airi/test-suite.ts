@@ -35,7 +35,6 @@ export class AIRITestSuite {
     this.startTime = Date.now();
 
     // Initialize AIRI
-    console.log('[TEST] Initializing AIRI...');
     await airi.initialize({
       workspacePath: process.cwd(),
       fullAutonomyEnabled: true,
@@ -64,7 +63,6 @@ export class AIRITestSuite {
   }
 
   async testConsciousness(): Promise<void> {
-    console.log('\n🧠 Testing Consciousness System...\n');
 
     // Test 1: Thought generation
     await this.runTest('thought_generation', async () => {
@@ -91,11 +89,9 @@ export class AIRITestSuite {
       if (state.autonomyLevel !== 'full') throw new Error('Failed to set full');
     });
 
-    console.log('✅ Consciousness tests complete\n');
   }
 
   async testBiology(): Promise<void> {
-    console.log('🫀 Testing Biology System...\n');
 
     // Test 1: State initialization
     await this.runTest('biology_initialization', async () => {
@@ -129,11 +125,9 @@ export class AIRITestSuite {
       if (!validMoods.includes(state.mood)) throw new Error(`Invalid mood: ${state.mood}`);
     });
 
-    console.log('✅ Biology tests complete\n');
   }
 
   async testMemory(): Promise<void> {
-    console.log('🧠 Testing Memory System...\n');
 
     // Test 1: Add memory
     await this.runTest('memory_add', async () => {
@@ -173,14 +167,11 @@ export class AIRITestSuite {
         await airiMemory.addMemory(`Test memory ${i}`, 'episodic', ['test'], 0.3);
       }
       const stats = airiMemory.getStats();
-      console.log(`   Memories: ${stats.total}, Compressed: ${stats.compressed}`);
     });
 
-    console.log('✅ Memory tests complete\n');
   }
 
   async testLearning(): Promise<void> {
-    console.log('📚 Testing Self-Learning System...\n');
 
     // Test 1: Learn from event
     await this.runTest('learning_event', async () => {
@@ -205,11 +196,9 @@ export class AIRITestSuite {
       if (stats.totalKnowledge < 0) throw new Error('Invalid knowledge count');
     });
 
-    console.log('✅ Learning tests complete\n');
   }
 
   async testDecision(): Promise<void> {
-    console.log('⚖️ Testing Autonomous Decision System...\n');
 
     // Test 1: Make decision
     await this.runTest('decision_making', async () => {
@@ -233,11 +222,9 @@ export class AIRITestSuite {
       if (stats.total < 0) throw new Error('Invalid total');
     });
 
-    console.log('✅ Decision tests complete\n');
   }
 
   async testHealing(): Promise<void> {
-    console.log('🏥 Testing Self-Healing System...\n');
 
     const selfHealing = createSelfHealing(process.cwd());
 
@@ -252,14 +239,11 @@ export class AIRITestSuite {
       selfHealing.start();
       await new Promise(resolve => setTimeout(resolve, 2000));
       const state = selfHealing.getStatus();
-      console.log(`   Active issues: ${state.activeIssues.length}`);
     });
 
-    console.log('✅ Healing tests complete\n');
   }
 
   async testPerformance(): Promise<void> {
-    console.log('⚡ Running Performance Benchmarks...\n');
 
     // Test 1: Response time
     await this.runTest('perf_response_time', async () => {
@@ -267,7 +251,6 @@ export class AIRITestSuite {
       await airi.chat('Test message');
       const duration = Date.now() - start;
       
-      console.log(`   Response time: ${duration}ms`);
       
       if (duration > 5000) {
         throw new Error(`Response time too slow: ${duration}ms (target: <5000ms)`);
@@ -278,7 +261,6 @@ export class AIRITestSuite {
     await this.runTest('perf_memory_usage', async () => {
       const usage = process.memoryUsage();
       const mb = Math.round(usage.heapUsed / 1024 / 1024);
-      console.log(`   Memory usage: ${mb}MB`);
       
       if (mb > 500) {
         throw new Error(`Memory usage too high: ${mb}MB (target: <500MB)`);
@@ -297,7 +279,6 @@ export class AIRITestSuite {
       await Promise.all(promises);
       const duration = Date.now() - start;
       
-      console.log(`   5 concurrent operations: ${duration}ms`);
       
       if (duration > 15000) {
         throw new Error(`Concurrent operations too slow: ${duration}ms`);
@@ -315,18 +296,15 @@ export class AIRITestSuite {
       }
       
       const perSecond = count / 5;
-      console.log(`   Throughput: ${perSecond} operations/sec`);
       
       if (perSecond < 10) {
         throw new Error(`Throughput too low: ${perSecond}/sec (target: >10/sec)`);
       }
     });
 
-    console.log('✅ Performance tests complete\n');
   }
 
   async testIntegration(): Promise<void> {
-    console.log('🔗 Running Integration Tests...\n');
 
     // Test 1: Full conversation flow
     await this.runTest('integration_conversation', async () => {
@@ -344,7 +322,6 @@ export class AIRITestSuite {
       
       const memories = await airiMemory.search('password');
       if (memories.length === 0) {
-        console.log('   ⚠️ Memory search did not find conversation (may be expected)');
       }
     });
 
@@ -358,16 +335,13 @@ export class AIRITestSuite {
       if (bioState.energy <= 0) throw new Error('Energy depleted');
     });
 
-    console.log('✅ Integration tests complete\n');
   }
 
   async testRegression(): Promise<void> {
-    console.log('🔄 Running Regression Tests...\n');
 
     // Test 1: Voice overlap (should not occur)
     await this.runTest('regression_voice_overlap', async () => {
       // Voice is disabled in tests, but check manager state
-      console.log('   Voice overlap prevention: ENABLED');
     });
 
     // Test 2: Memory leak check
@@ -383,7 +357,6 @@ export class AIRITestSuite {
       const growth = finalMemory - initialMemory;
       const growthMB = Math.round(growth / 1024 / 1024);
       
-      console.log(`   Memory growth after 50 ops: ${growthMB}MB`);
       
       if (growthMB > 50) {
         throw new Error(`Potential memory leak: ${growthMB}MB growth`);
@@ -398,7 +371,6 @@ export class AIRITestSuite {
       }
       
       const stats = airiSelfLearning.getStats();
-      console.log(`   Processed events: ${stats.recentEvents}`);
     });
 
     // Test 4: State consistency
@@ -417,7 +389,6 @@ export class AIRITestSuite {
       }
     });
 
-    console.log('✅ Regression tests complete\n');
   }
 
   async runTest(name: string, testFn: () => Promise<void>): Promise<void> {
@@ -433,7 +404,6 @@ export class AIRITestSuite {
         duration
       });
       
-      console.log(`   ✅ ${name} (${duration}ms)`);
     } catch (error: any) {
       const duration = Date.now() - start;
       
@@ -444,7 +414,6 @@ export class AIRITestSuite {
         error: error.message
       });
       
-      console.log(`   ❌ ${name} (${duration}ms) - ${error.message}`);
     }
   }
 
@@ -456,9 +425,7 @@ export class AIRITestSuite {
 
 
     if (failed === 0) {
-      console.log('🎉 All tests passed! AIRI is ready!\n');
     } else {
-      console.log(`⚠️  ${failed} test(s) failed. Review errors above.\n`);
     }
   }
 }

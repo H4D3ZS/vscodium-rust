@@ -67,7 +67,6 @@ export class AIRIVoiceActivation {
       this.recognition.start();
       this.isListening = true;
 
-      console.log('✅ [VoiceActivation] Wake word detection active');
     } else {
       console.warn('[VoiceActivation] Web Speech API not supported');
     }
@@ -77,7 +76,6 @@ export class AIRIVoiceActivation {
    * Wake word detected - AIRI responds
    */
   private async onWakeWordDetected(): Promise<void> {
-    console.log('🎤 [VoiceActivation] Wake word detected!');
 
     // Visual feedback
     useStore.getState().setIsAgentThinking(true);
@@ -119,7 +117,6 @@ export class AIRIVoiceActivation {
     if (this.recognition) {
       this.recognition.start();
       this.isListening = true;
-      console.log('🎤 [VoiceActivation] Listening started');
     }
   }
 
@@ -130,7 +127,6 @@ export class AIRIVoiceActivation {
     if (this.recognition) {
       this.recognition.stop();
       this.isListening = false;
-      console.log('🔇 [VoiceActivation] Listening stopped');
     }
   }
 
@@ -147,7 +143,6 @@ export class AIRIVoiceActivation {
 
     try {
       await speak(text, preset);
-      console.log(`🔊 [VoiceActivation] Spoke: "${text}" (${preset})`);
     } catch (e) {
       console.error('[VoiceActivation] Speak error:', e);
     }
@@ -177,7 +172,6 @@ export class AIRIVoiceActivation {
    * Start conversation mode
    */
   public async startConversation(): Promise<void> {
-    console.log('💬 [VoiceActivation] Starting conversation mode...');
 
     // Greet user
     await this.speak("Yes? I'm listening.", 'friendly');

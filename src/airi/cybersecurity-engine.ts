@@ -55,12 +55,6 @@ export class AIRICybersecurityEngine {
      * Start cybersecurity monitoring
      */
     start(): void {
-        console.log('🛡️  Monitoring for:');
-        console.log('   - Port scans (Nmap, etc.)');
-        console.log('   - Phishing attempts');
-        console.log('   - Malicious URLs');
-        console.log('   - Network intrusions');
-        console.log('   - Social engineering\n');
 
         // Monitor network connections (if APIs available)
         this.startNetworkMonitoring();
@@ -88,7 +82,6 @@ export class AIRICybersecurityEngine {
             if (typeof window !== 'undefined' && navigator.platform.includes('Win')) {
                 // This would require backend integration
                 // For now, log that monitoring is active
-                console.log('[Cybersecurity] 📡 Scanning for port scan activity...');
             }
 
             // TODO: Integrate with Rust backend for actual network monitoring
@@ -337,7 +330,6 @@ export class AIRICybersecurityEngine {
                 blocked: true,
             });
         } else {
-            console.log(`[Cybersecurity] ✅ URL appears safe: ${url} (Risk: ${analysis.riskScore}/100)`);
         }
     }
 
@@ -357,7 +349,6 @@ export class AIRICybersecurityEngine {
                 blocked: false,
             });
         } else {
-            console.log(`[Cybersecurity] ✅ Content appears safe (Confidence: ${analysis.confidence}/100)`);
         }
     }
 }

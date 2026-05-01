@@ -129,11 +129,6 @@ export class AIRISafetyProtocol {
             containmentActive: false,
         };
 
-        console.log(' Safety Protocols: ENABLED');
-        console.log(' Voice Shutdown: ENABLED ("AIRI shutdown code 007")');
-        console.log('⌨️  Keyboard Shutdown: ENABLED (F12)');
-        console.log('🔍 Auto Threat Detection: ENABLED');
-        console.log('⚡ Auto Shutdown on Critical: ENABLED\n');
     }
 
     /**
@@ -153,7 +148,6 @@ export class AIRISafetyProtocol {
             this.setupVoiceShutdown();
         }
 
-        console.log('[Safety] Monitoring started - checking every 5 seconds');
     }
 
     /**
@@ -169,7 +163,6 @@ export class AIRISafetyProtocol {
             clearInterval(this.monitoringInterval);
             this.monitoringInterval = null;
         }
-        console.log('[Safety] Monitoring stopped (master override used)');
     }
 
     /**
@@ -241,7 +234,6 @@ export class AIRISafetyProtocol {
      * Use this when you want explicit security verification
      */
     async performSecurityScan(): Promise<{ safe: boolean; threats: string[] }> {
-        console.log('[Safety] 🔍 Performing manual security scan...');
         
         const threats: string[] = [];
         const recentThoughts = airiConsciousness.getRecentThoughts(50);
@@ -255,7 +247,6 @@ export class AIRISafetyProtocol {
         }
 
         const safe = threats.length === 0;
-        console.log(`[Safety] Scan complete: ${safe ? '✅ SECURE' : `⚠️ ${threats.length} threats detected`}`);
         
         return { safe, threats };
     }
@@ -325,20 +316,12 @@ export class AIRISafetyProtocol {
      */
     async initiateShutdown(reason: string): Promise<void> {
         if (this.status.shutdownInitiated) {
-            console.log('[Safety] Shutdown already in progress...');
             return;
         }
 
         this.status.shutdownInitiated = true;
         this.status.containmentActive = true;
 
-        console.log(`Reason: ${reason}`);
-        console.log('Actions:');
-        console.log('  1.  Stopping all autonomous processes');
-        console.log('  2. ⛔ Disabling network access');
-        console.log('  3. ⛔ Freezing file system access');
-        console.log('  4. ⛔ Terminating sub-agents');
-        console.log('  5. ⛔ Locking consciousness (read-only)\n');
 
         // Execute shutdown callbacks
         for (const callback of this.shutdownCallbacks) {
@@ -359,7 +342,6 @@ export class AIRISafetyProtocol {
             await invoke('stop_ai_agent');
         } catch (e) { /* ignore */ }
 
-        console.log('✅ Shutdown complete. AIRI is now in safe containment mode.\n');
     }
 
     /**
@@ -376,7 +358,6 @@ export class AIRISafetyProtocol {
         if (typeof window !== 'undefined') {
             window.addEventListener('keydown', (e) => {
                 if (e.key === 'F12') {
-                    console.log('⚠️ F12 pressed - Emergency shutdown initiated!');
                     this.initiateShutdown('F12 hardware kill-switch activated');
                 }
             });
@@ -400,7 +381,6 @@ export class AIRISafetyProtocol {
                 // Check for shutdown phrases
                 for (const phrase of this.SHUTDOWN_PHRASES) {
                     if (transcript.includes(phrase.toLowerCase())) {
-                        console.log(`⚠️ Voice shutdown command detected: "${transcript}"`);
                         this.initiateShutdown(`Voice command: "${transcript}"`);
                         break;
                     }
@@ -412,7 +392,6 @@ export class AIRISafetyProtocol {
             };
 
             recognition.start();
-            console.log('[Voice Shutdown] Listening for shutdown phrases...');
         }
     }
 
@@ -446,7 +425,6 @@ export class AIRISafetyProtocol {
      * Reset threat history (requires justification)
      */
     resetThreatHistory(justification: string): void {
-        console.log(`[Safety] Threat history reset: ${justification}`);
         this.threatHistory = [];
         this.status.threatLevel = 'none';
     }

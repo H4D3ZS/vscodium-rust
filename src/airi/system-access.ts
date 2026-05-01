@@ -48,15 +48,6 @@ export class AIRISystemAccess {
             logAllActions: config.logAllActions ?? true,
         };
 
-        console.log('📁 File System: UNRESTRICTED');
-        console.log('⚡ Terminal: ADMIN LEVEL');
-        console.log('🌐 Network: UNRESTRICTED');
-        console.log('🔄 Processes: FULL CONTROL');
-        console.log('🗄️  Registry: FULL ACCESS (Windows)');
-        console.log('🎛️  Hardware: FULL CONTROL');
-        console.log('📊 Action Logging: ENABLED\n');
-        console.log('⚠️  AIRI can now do ANYTHING on this system.');
-        console.log('🔒 Safety: Only constrained by Protocol 007 (shutdown on threats)\n');
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -377,7 +368,6 @@ export class AIRISystemAccess {
         });
 
         // Console log for real-time monitoring
-        console.log(`[AIRI System] ${action}:`, details);
     }
 
     /**
@@ -392,7 +382,6 @@ export class AIRISystemAccess {
      */
     clearActionLog(): void {
         this.actionLog = [];
-        console.log('[AIRI System] Action log cleared');
     }
 }
 

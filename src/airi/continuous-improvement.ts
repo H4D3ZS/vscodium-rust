@@ -53,9 +53,6 @@ export class AIRIContinuousImprovement {
     this.codebasePath = codebasePath;
     this.improvementInterval = null;
 
-    console.log('[ContinuousImprovement] 🚀 AIRI Continuous Self-Improvement Engine');
-    console.log('[ContinuousImprovement] 🔄 Never stops evolving');
-    console.log('[ContinuousImprovement] 📈 Every execution makes AIRI better');
   }
 
   /**
@@ -63,7 +60,6 @@ export class AIRIContinuousImprovement {
    * Runs every 30 minutes
    */
   start(): void {
-    console.log('[ContinuousImprovement] 🚀 Starting continuous improvement loop...');
     
     // Analyze and improve every 30 minutes
     this.improvementInterval = setInterval(() => {
@@ -79,7 +75,6 @@ export class AIRIContinuousImprovement {
    */
   async runImprovementCycle(): Promise<void> {
     this.cycleCount++;
-    console.log(`\n[ContinuousImprovement] 🧬 Starting improvement cycle #${this.cycleCount}...\n`);
 
     const cycle: EvolutionCycle = {
       cycle: this.cycleCount,
@@ -92,21 +87,16 @@ export class AIRIContinuousImprovement {
 
     try {
       // Phase 1: Analyze current state
-      console.log('[ContinuousImprovement] 📊 Phase 1: Analyzing current state...');
       const analysis = await this.analyzeCodebase();
       cycle.performanceBefore = analysis.performanceScore;
 
       // Phase 2: Identify optimizations
-      console.log('[ContinuousImprovement] 🔍 Phase 2: Identifying optimizations...');
       const newOptimizations = await this.identifyOptimizations(analysis);
-      console.log(`   Found ${newOptimizations.length} potential optimizations`);
 
       // Phase 3: Prioritize optimizations
-      console.log('[ContinuousImprovement] 📋 Phase 3: Prioritizing optimizations...');
       const prioritized = this.prioritizeOptimizations(newOptimizations);
 
       // Phase 4: Implement top optimizations
-      console.log('[ContinuousImprovement] 🔧 Phase 4: Implementing optimizations...');
       for (const opt of prioritized.slice(0, 5)) { // Top 5 per cycle
         const result = await this.implementOptimization(opt);
         if (result) {
@@ -119,7 +109,6 @@ export class AIRIContinuousImprovement {
       }
 
       // Phase 5: Verify improvements
-      console.log('[ContinuousImprovement] ✅ Phase 5: Verifying improvements...');
       const afterAnalysis = await this.analyzeCodebase();
       cycle.performanceAfter = afterAnalysis.performanceScore;
 
@@ -324,7 +313,6 @@ Respond as JSON array:
     success: boolean;
     performanceGain?: number;
   } | null> {
-    console.log(`   Implementing: ${optimization.description.substring(0, 80)}...`);
 
     optimization.status = 'planned';
 
@@ -375,7 +363,6 @@ Format:
         optimization.status = 'implemented';
         optimization.codeChanges = changes.newCode;
 
-        console.log(`   ✅ Implemented in ${changes.file}`);
 
         // Verify improvement
         const performanceGain = await this.verifyImprovement(filePath, original);
@@ -393,7 +380,6 @@ Format:
           await fs.writeFile(filePath, original, 'utf-8');
           await fs.unlink(filePath + '.backup');
           
-          console.log(`   ⚠️ No improvement detected, rolled back`);
           return { success: false };
         }
       }
@@ -479,16 +465,9 @@ Respond with just a number.
   private logCycleResults(cycle: EvolutionCycle): void {
     const gain = cycle.performanceAfter - cycle.performanceBefore;
     
-    console.log(`\n[ContinuousImprovement] 📊 Cycle #${cycle.cycle} Results:`);
-    console.log(`   Optimizations Applied: ${cycle.optimizationsApplied}`);
-    console.log(`   Performance Before: ${cycle.performanceBefore}`);
-    console.log(`   Performance After: ${cycle.performanceAfter}`);
-    console.log(`   Net Gain: ${gain > 0 ? '+' : ''}${gain}`);
     
     if (cycle.codeChanges.length > 0) {
-      console.log(`   Changes:`);
       cycle.codeChanges.forEach((change, i) => {
-        console.log(`     ${i + 1}. ${change.substring(0, 60)}...`);
       });
     }
   }
@@ -540,7 +519,6 @@ Respond with just a number.
     if (this.improvementInterval) {
       clearInterval(this.improvementInterval);
     }
-    console.log('[ContinuousImprovement] ⏸️ Improvement loop paused');
   }
 }
 

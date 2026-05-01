@@ -31,11 +31,9 @@ interface SpeechRequest {
  */
 export async function initializeVoice(): Promise<boolean> {
   if (isInitialized) {
-    console.log('[VoiceManager] ✅ Already initialized');
     return true;
   }
 
-  console.log('[VoiceManager] 🎤 Initializing voice system...');
 
   try {
     // Use existing ElevenLabs voice system from src/voice.ts
@@ -44,7 +42,6 @@ export async function initializeVoice(): Promise<boolean> {
     
     if (initialized) {
       isInitialized = true;
-      console.log('[VoiceManager] ✅ Voice system initialized');
       
       // Start queue processor
       processSpeechQueue();
@@ -86,7 +83,6 @@ export async function speak(
   // Don't speak if AIRI is sleeping
   const biology = airiBiology.getState();
   if (biology.isSleeping) {
-    console.log('[VoiceManager] 😴 AIRI is sleeping, skipping speech');
     onEnd?.();
     return false;
   }
@@ -116,7 +112,6 @@ function queueSpeechRequest(request: SpeechRequest): void {
   // Sort by priority (higher priority first)
   speechQueue.sort((a, b) => b.priority - a.priority);
   
-  console.log(`[VoiceManager] 📝 Queued: "${request.text.substring(0, 30)}..." (priority: ${request.priority})`);
   
   // Process queue if not already processing
   if (!voiceLock) {
@@ -162,7 +157,6 @@ async function processSpeechQueue(): Promise<void> {
   }
 
   try {
-    console.log(`[VoiceManager] 🎤 Speaking: "${currentRequest.text.substring(0, 50)}..."`);
     isSpeaking = true;
 
     // Load voice module
@@ -174,7 +168,6 @@ async function processSpeechQueue(): Promise<void> {
       currentRequest.preset as any,
       () => {
         // On end callback
-        console.log('[VoiceManager] ✅ Speech completed');
         isSpeaking = false;
         voiceLock = false;
         currentRequest?.onEnd?.();
@@ -184,7 +177,6 @@ async function processSpeechQueue(): Promise<void> {
       },
       () => {
         // On start callback
-        console.log('[VoiceManager] ▶️ Speech started');
       }
     );
 
@@ -215,7 +207,6 @@ async function processSpeechQueue(): Promise<void> {
 export async function stopSpeech(): Promise<void> {
   if (!isInitialized) return;
 
-  console.log('[VoiceManager] ⏹️ Stopping all speech');
 
   try {
     const { stop, clearTtsQueue } = await import('../voice');
@@ -236,7 +227,6 @@ export async function stopSpeech(): Promise<void> {
  */
 export function clearSpeechQueue(): void {
   speechQueue = [];
-  console.log('[VoiceManager] 🗑️ Queue cleared');
 }
 
 /**
@@ -260,7 +250,6 @@ export function getQueueStatus(): {
  * Emergency shutdown (on unload)
  */
 export async function shutdown(): Promise<void> {
-  console.log('[VoiceManager] 🔇 Shutting down');
   await stopSpeech();
   isInitialized = false;
 }
@@ -272,4 +261,3 @@ if (typeof window !== 'undefined') {
   });
 }
 
-console.log('[VoiceManager] ✅ Voice Manager loaded (overlap prevention enabled)');

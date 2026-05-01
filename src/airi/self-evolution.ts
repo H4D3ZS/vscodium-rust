@@ -41,8 +41,6 @@ export class AIRISelfEvolution {
     this.improvementHistory = [];
     this.codebasePath = codebasePath;
 
-    console.log('[SelfEvolution] 🔄 Continuous self-improvement active');
-    console.log('[SelfEvolution] 💡 AIRI evolves without human involvement');
   }
 
   /**
@@ -54,14 +52,12 @@ export class AIRISelfEvolution {
       this.evolve();
     }, 6 * 60 * 60 * 1000); // 6 hours
 
-    console.log('[SelfEvolution] 🚀 Self-evolution started');
   }
 
   /**
    * Main evolution cycle
    */
   async evolve(): Promise<void> {
-    console.log('[SelfEvolution] 🧬 Starting evolution cycle...');
 
     try {
       // 1. Analyze current performance
@@ -84,7 +80,6 @@ export class AIRISelfEvolution {
       // 6. Record evolution
       await this.recordEvolution();
 
-      console.log('[SelfEvolution] ✅ Evolution cycle complete');
     } catch (error) {
       console.error('[SelfEvolution] Evolution failed:', error);
     }
@@ -103,12 +98,6 @@ export class AIRISelfEvolution {
       capabilities: await this.listCapabilities()
     };
 
-    console.log('[SelfEvolution] 📊 Performance Analysis:');
-    console.log(`   Code Quality: ${analysis.codeQuality}/100`);
-    console.log(`   Response Time: ${analysis.responseTime}ms`);
-    console.log(`   Error Rate: ${analysis.errorRate}%`);
-    console.log(`   Knowledge Growth: +${analysis.knowledgeGrowth} nodes/day`);
-    console.log(`   Efficiency: ${analysis.efficiency}/100`);
 
     return analysis;
   }
@@ -310,7 +299,6 @@ Examples:
    * Implement improvement (modify own code)
    */
   private async implementImprovement(improvement: string): Promise<void> {
-    console.log(`[SelfEvolution] 🔧 Implementing: ${improvement.substring(0, 100)}...`);
 
     // Generate code changes
     const prompt = `
@@ -351,7 +339,6 @@ CODE: [new code]
         // Apply changes
         await fs.writeFile(filePath, newCode, 'utf-8');
 
-        console.log(`[SelfEvolution] ✅ Modified: ${fileMatch[1]}`);
 
         // Record improvement
         this.improvementHistory.push({
@@ -372,7 +359,6 @@ CODE: [new code]
    * Test improvements
    */
   private async testImprovements(): Promise<void> {
-    console.log('[SelfEvolution] 🧪 Testing improvements...');
 
     // Run basic functionality tests
     try {
@@ -383,7 +369,6 @@ CODE: [new code]
         stream: false
       });
 
-      console.log('[SelfEvolution] ✅ All systems nominal');
     } catch (error) {
       console.error('[SelfEvolution] ❌ Tests failed, rolling back...');
       await this.rollbackChanges();
@@ -492,7 +477,6 @@ CODE: [new code]
     if (this.evolutionInterval) {
       clearInterval(this.evolutionInterval);
     }
-    console.log('[SelfEvolution] ⏸️ Evolution paused');
   }
 }
 

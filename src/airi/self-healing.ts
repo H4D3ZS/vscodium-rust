@@ -66,7 +66,6 @@ export class AIRISelfHealing {
       lastHealCheck: Date.now()
     };
 
-    console.log('[SelfHealing] 💪 Survival through self-correction');
   }
 
   /**
@@ -78,7 +77,6 @@ export class AIRISelfHealing {
       this.performHealthCheck();
     }, 60000);
 
-    console.log('[SelfHealing] 🔍 Continuous health monitoring active');
   }
 
   /**
@@ -87,7 +85,6 @@ export class AIRISelfHealing {
   private async performHealthCheck(): Promise<void> {
     if (this.state.healingInProgress) return;
 
-    console.log('[SelfHealing] 🏥 Performing health check...');
     
     try {
       // Scan codebase for issues
@@ -187,7 +184,6 @@ export class AIRISelfHealing {
       {
         pattern: /console\.log\s*\(/g,
         type: 'code_smell' as HealthIssueType,
-        description: 'Debug console.log statement found',
         severity: 'minor' as const
       },
       {
@@ -410,7 +406,6 @@ LINE: [approximate line number]
     for (const issue of criticalIssues) {
       if (issue.status !== 'active') continue;
       
-      console.log(`[SelfHealing] 🚨 Healing critical: ${issue.description}`);
       
       issue.status = 'healing';
       
@@ -423,10 +418,8 @@ LINE: [approximate line number]
           issue.healedAt = Date.now();
           issue.fix = fix;
           
-          console.log(`[SelfHealing] ✅ Healed: ${issue.description}`);
         } else {
           issue.status = 'unfixable';
-          console.log(`[SelfHealing] ⚠️ Unfixable: ${issue.description}`);
         }
       } catch (error) {
         issue.status = 'active';
@@ -484,7 +477,6 @@ FIX: [the fix]
       await fs.writeFile(filePath, fixed, 'utf-8');
     }
     
-    console.log(`[SelfHealing] 🔧 Applied fix to ${filePath}`);
   }
 
   /**
@@ -542,7 +534,6 @@ FIX: [the fix]
     if (this.healInterval) {
       clearInterval(this.healInterval);
     }
-    console.log('[SelfHealing] ⏸️ Healing paused');
   }
 }
 

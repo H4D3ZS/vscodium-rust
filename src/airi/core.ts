@@ -128,7 +128,6 @@ export class AIRICore {
     this.development = createAIRIDevelopmentAssistant(this.config.workspacePath);
     this.autonomousDev = createAIRIAutonomousDevelopment(this.config.workspacePath);
 
-    console.log('');
   }
 
   /**
@@ -300,7 +299,6 @@ export class AIRICore {
     // Initialize VRM avatar
     
 
-    console.log('');
     
     
     
@@ -332,7 +330,6 @@ export class AIRICore {
       if (qwenModels.length > 0) {
         
         qwenModels.forEach(m => {
-          console.log(`   - ${m.name} (${(m.size / 1e9).toFixed(1)} GB)`);
         });
       } else {
         
@@ -388,46 +385,6 @@ export class AIRICore {
 
     
     
-    console.log('');
-    console.log('   🗣️  CONVERSATION:');
-    console.log('   /chat [message]        - Talk to AIRI (natural conversation)');
-    console.log('   /talk [message]        - Same as /chat');
-    console.log('   /ask [question]        - Ask AIRI anything');
-    console.log('');
-    console.log('   📊 STATUS:');
-    console.log('   /status                - Full system status');
-    console.log('   /memory                - Get memory stats');
-    console.log('   /voice                 - Get voice status');
-    console.log('   /avatar                - Get avatar status');
-    console.log('   /learn                 - Get learning stats');
-    console.log('   /heal                  - Get health status');
-    console.log('   /decisions             - View decision history');
-    console.log('   /improve               - Get improvement stats');
-    console.log('   /interaction           - View interaction history');
-    console.log('');
-    console.log('   ⚙️  CONTROL:');
-    console.log('   /autonomy [level]      - Set autonomy level');
-    console.log('   /security [mode]       - Set security mode');
-    console.log('   /feed [amount]         - Feed AIRI data');
-    console.log('   /sleep [minutes]       - Put AIRI to sleep');
-    console.log('   /wake                  - Wake AIRI up');
-    console.log('');
-    console.log('   💻 DEVELOPMENT:');
-    console.log('   /dev write             - Write new code');
-    console.log('   /dev fix               - Fix a bug');
-    console.log('   /dev refactor          - Refactor code');
-    console.log('   /dev test              - Write tests');
-    console.log('   /dev review            - Code review');
-    console.log('   /build [goal]          - AIRI builds complete system autonomously');
-    console.log('');
-    console.log('   🧪 SYSTEM:');
-    console.log('   /test                  - Run test suite');
-    console.log('   /stop                  - Stop AIRI');
-    console.log('');
-    console.log('   🎭 AVATAR:');
-    console.log('   /avatar emotion [type] - Set avatar emotion');
-    console.log('   /avatar energy [0-100] - Set avatar energy');
-    console.log('');
   }
 
   /**
@@ -536,18 +493,12 @@ export class AIRICore {
    */
   getLearningStats(): void {
     const stats = airiSelfLearning.getStats();
-    console.log('\n📚 Self-Learning Stats:');
-    console.log(`   Total Knowledge: ${stats.totalKnowledge}`);
-    console.log(`   By Type:`, stats.byType);
-    console.log(`   Recent Events (1hr): ${stats.recentEvents}`);
-    console.log(`   Avg Confidence: ${(stats.avgConfidence * 100).toFixed(1)}%\n`);
   }
 
   /**
    * Get health status
    */
   getHealthStatus(): void {
-    console.log('\n' + this.selfHealing.getReport() + '\n');
   }
 
   /**
@@ -557,20 +508,10 @@ export class AIRICore {
     const decisions = airiAutonomousDecision.getHistory(limit);
     const stats = airiAutonomousDecision.getStats();
     
-    console.log('\n⚖️  Autonomous Decision History:');
-    console.log(`   Total: ${stats.total}`);
-    console.log(`   Ethical: ${stats.ethical}`);
-    console.log(`   Unethical: ${stats.unethical}`);
-    console.log(`   Neutral: ${stats.neutral}`);
-    console.log(`   Pragmatic: ${stats.pragmatic}`);
-    console.log(`   Executed: ${stats.executed}\n`);
     
     if (decisions.length > 0) {
-      console.log('   Recent Decisions:');
       decisions.forEach(d => {
-        console.log(`   - ${d.chosen.action} (${d.ethicalAlignment})`);
       });
-      console.log('');
     }
   }
 
@@ -579,11 +520,6 @@ export class AIRICore {
    */
   getMemoryStats(): void {
     const stats = airiMemory.getStats();
-    console.log('\n🧠 Memory System Stats:');
-    console.log(`   Total Memories: ${stats.total}`);
-    console.log(`   By Type:`, stats.byType);
-    console.log(`   Compressed (.aim): ${stats.compressed}`);
-    console.log(`   Avg Importance: ${(stats.avgImportance * 100).toFixed(1)}%\n`);
   }
 
   /**
@@ -593,17 +529,12 @@ export class AIRICore {
     const ready = isVoiceReady();
     const queueStatus = (window as any).airiTts ? (window as any).airiTts.getQueueStatus() : { queueLength: 0, isSpeaking: false };
     
-    console.log('\n🎤 Voice System Status:');
-    console.log(`   Initialized: ${ready ? '✅' : '❌'}`);
-    console.log(`   Speaking: ${queueStatus.isSpeaking ? 'Yes' : 'No'}`);
-    console.log(`   Queue Length: ${queueStatus.queueLength}\n`);
   }
 
   /**
    * Run comprehensive test suite
    */
   async runTests(): Promise<void> {
-    console.log('\n🧪 Running Comprehensive Test Suite...\n');
     await runTests();
   }
 
@@ -612,12 +543,6 @@ export class AIRICore {
    */
   getImprovementStats(): void {
     const stats = this.continuousImprovement.getStats();
-    console.log('\n🔄 Continuous Improvement Stats:');
-    console.log(`   Total Cycles: ${stats.totalCycles}`);
-    console.log(`   Total Optimizations: ${stats.totalOptimizations}`);
-    console.log(`   Average Gain: ${stats.averageGain}`);
-    console.log(`   Current Version: ${stats.currentVersion}`);
-    console.log(`   Evolution Trend: ${stats.evolutionTrend}\n`);
   }
 
   /**

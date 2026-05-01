@@ -21,14 +21,12 @@ export class VisualVerificationEngine {
   private readonly MAX_HISTORY = 50;
 
   constructor() {
-    console.log('✅ [AIRI Vision] Visual verification engine ready');
   }
 
   /**
    * Verify a UI change
    */
   async verifyChange(change: CodeChange): Promise<VerificationResult> {
-    console.log(`🔍 [AIRI Vision] Verifying ${change.type} change...`);
 
     // Wait for build to complete
     await this.waitForBuild();
@@ -80,9 +78,7 @@ export class VisualVerificationEngine {
 
     // Log result
     if (result.passed) {
-      console.log(`✅ [AIRI Vision] Verification passed: ${result.description}`);
     } else {
-      console.log(`❌ [AIRI Vision] Verification failed: ${result.description}`);
       
       // Auto-debug
       if (result.error) {
@@ -160,7 +156,6 @@ export class VisualVerificationEngine {
    * Capture annotated frame for debugging
    */
   private async captureAnnotatedFrame(elementDescription: string): Promise<void> {
-    console.log(`📸 [AIRI Vision] Capturing annotated frame for: ${elementDescription}`);
     
     // In production, this would:
     // 1. Capture frame with overlay annotations

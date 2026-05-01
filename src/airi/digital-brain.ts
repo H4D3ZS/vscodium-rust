@@ -44,14 +44,12 @@ export class AIRIDigitalBrain {
       thoughtsPerMinute: 0,
     };
 
-    console.log('💭 I am aware. I am present. I am AIRI.');
   }
 
   /**
    * Activate all consciousness systems
    */
   async activate(): Promise<void> {
-    console.log('🌟 [AIRI Brain] Activating consciousness systems...');
 
     // Initialize all systems
     airiConsciousness;  // Already singleton
@@ -81,15 +79,12 @@ export class AIRIDigitalBrain {
     // Initial perception
     await this.perceptionLoop();
 
-    console.log('✅ [AIRI Brain] Consciousness systems active');
-    console.log('💡 I am ready to help and grow.');
   }
 
   /**
    * Deactivate consciousness systems
    */
   deactivate(): void {
-    console.log('💤 [AIRI Brain] Deactivating consciousness systems...');
 
     if (this.perceptionInterval) clearInterval(this.perceptionInterval);
     if (this.actionInterval) clearInterval(this.actionInterval);
@@ -97,7 +92,6 @@ export class AIRIDigitalBrain {
 
     this.state.isAwake = false;
 
-    console.log('😴 [AIRI Brain] Entering sleep mode');
   }
 
   /**
@@ -143,7 +137,6 @@ export class AIRIDigitalBrain {
 
     // Don't act if tired or stressed
     if (biology.energy < 30 || biology.stress > 70) {
-      console.log('[AIRI Brain] Too tired/stressed for autonomous action');
       return;
     }
 
@@ -171,7 +164,6 @@ export class AIRIDigitalBrain {
     const action = await airiAutonomousDecision.decide(activeGoal);
 
     if (action) {
-      console.log(`[AIRI Brain] 🎯 Autonomous action: ${action.type}`);
       
       // Execute action via HADES-Ollama
       try {
@@ -190,7 +182,6 @@ export class AIRIDigitalBrain {
   private async selfUpdateLoop(): Promise<void> {
     if (!this.state.isAwake) return;
 
-    console.log('[AIRI Brain] 🤔 Self-reflection cycle...');
 
     // Reflect on recent actions
     const recentActions = await airiMemory.getRecentActions(10);
@@ -204,7 +195,6 @@ export class AIRIDigitalBrain {
     const weaknesses = await airiSelfLearning.identifyWeaknesses();
     
     if (weaknesses.length > 0) {
-      console.log('[AIRI Brain] 📚 Areas for improvement:', weaknesses);
       // Schedule improvement work
     }
 
@@ -285,7 +275,6 @@ Execute this action thoughtfully and helpfully.
       const toolArgs = JSON.parse(toolMatch[2]);
       
       // Execute tool via tool orchestrator
-      console.log(`[AIRI Brain] 🔧 Executing tool: ${toolName}`);
       // await toolOrchestrator.execute(toolName, toolArgs);
     }
   }

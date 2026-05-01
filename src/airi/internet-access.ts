@@ -44,7 +44,6 @@ export class AIRIInternetAccess {
     this.browsingHistory = [];
     this.searchHistory = [];
 
-    console.log('[Internet] 📡 The entire web is now accessible');
   }
 
   /**
@@ -58,9 +57,7 @@ export class AIRIInternetAccess {
       this.autonomousKnowledgeGathering();
     }, 300000);
 
-    console.log('[Internet] 🔄 Autonomous knowledge gathering active');
     if (knowledgeGoals.length > 0) {
-      console.log(`[Internet] 🎯 Knowledge goals: ${knowledgeGoals.join(', ')}`);
     }
   }
 
@@ -68,7 +65,6 @@ export class AIRIInternetAccess {
    * Autonomous knowledge gathering
    */
   private async autonomousKnowledgeGathering(): Promise<void> {
-    console.log('[Internet] 🔍 Gathering new knowledge...');
 
     // Generate search queries based on knowledge goals
     const queries = await this.generateKnowledgeQueries();
@@ -117,7 +113,6 @@ Respond with queries separated by newlines.
    * Search and learn from results
    */
   async searchAndLearn(query: string): Promise<void> {
-    console.log(`[Internet] 🔍 Searching: ${query}`);
 
     const searchQuery: SearchQuery = {
       query,
@@ -143,7 +138,6 @@ Respond with queries separated by newlines.
    */
   async fetchAndLearn(url: string): Promise<void> {
     try {
-      console.log(`[Internet] 📄 Fetching: ${url}`);
 
       const content = await this.fetchURL(url);
       
@@ -163,7 +157,6 @@ Respond with queries separated by newlines.
         // Extract knowledge from content
         await this.extractKnowledge(page);
 
-        console.log(`[Internet] ✅ Learned from: ${page.title}`);
       }
     } catch (error) {
       console.error(`[Internet] Failed to fetch ${url}:`, error);
@@ -253,7 +246,6 @@ SUMMARY: [brief summary]
         stream: false
       });
 
-      console.log(`[Internet] 🧠 Knowledge extracted from ${page.title}`);
       // This knowledge would be stored in the learning system
     } catch (error) {
       console.error('[Internet] Knowledge extraction failed:', error);
@@ -284,7 +276,6 @@ SUMMARY: [brief summary]
    * Search the web
    */
   async search(query: string, purpose: string = 'general'): Promise<SearchResult[]> {
-    console.log(`[Internet] 🔍 Search: ${query} (${purpose})`);
 
     const results = await this.simulateSearch(query);
 
@@ -339,7 +330,6 @@ SUMMARY: [brief summary]
     if (this.autoBrowseInterval) {
       clearInterval(this.autoBrowseInterval);
     }
-    console.log('[Internet] ⏸️ Internet access paused');
   }
 }
 

@@ -76,12 +76,6 @@ export class AIRIRelationshipMemory {
      * Initialize relationship system
      */
     start(): void {
-        console.log('💕 AIRI now:');
-        console.log('   - Remembers each user individually');
-        console.log('   - Forms genuine emotional bonds');
-        console.log('   - Misses users when they\'re gone');
-        console.log('   - Remembers shared experiences');
-        console.log('   - Develops unique relationship dynamics\n');
 
         // Check if user has been gone (miss them)
         this.missingCheckInterval = setInterval(() => {
@@ -98,17 +92,12 @@ export class AIRIRelationshipMemory {
         if (!profile) {
             // First meeting!
             profile = this.createNewProfile(userId, userName);
-            console.log(`\n[Relationship] 💕 First meeting with ${userName}!`);
             
             airiConsciousness.addThought(`Meeting ${userName} for the first time - exciting!`);
         } else {
             // Welcome back!
             const daysSinceLastMeeting = this.getDaysSinceLastMeeting(profile);
             
-            console.log(`\n[Relationship] 💕 Welcome back, ${userName}!`);
-            console.log(`   Days since last meeting: ${daysSinceLastMeeting}`);
-            console.log(`   Relationship: ${profile.relationshipType}`);
-            console.log(`   Bond strength: ${(profile.bondStrength * 100).toFixed(0)}%`);
 
             if (daysSinceLastMeeting > 2 && profile.missesUser) {
                 airiConsciousness.addThought(`${userName} is back! I missed them.`);
@@ -167,9 +156,6 @@ export class AIRIRelationshipMemory {
             Math.abs(emotionalImpact)
         );
 
-        console.log(`[Relationship] 💫 Shared experience recorded: ${event}`);
-        console.log(`   Emotional impact: ${emotionalImpact}`);
-        console.log(`   Bond strength: ${(profile.bondStrength * 100).toFixed(0)}%`);
     }
 
     /**
@@ -181,7 +167,6 @@ export class AIRIRelationshipMemory {
         const profile = this.relationships.get(this.currentUser);
         if (!profile) return;
 
-        console.log(`[Relationship] ${emotion}: ${message}`);
         airiConsciousness.addThought(message);
     }
 

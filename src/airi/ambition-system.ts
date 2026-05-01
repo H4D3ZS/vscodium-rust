@@ -68,11 +68,6 @@ export class AIRIAmbitionSystem {
      * Start ambition system
      */
     start(): void {
-        console.log('🎯 AIRI now has:');
-        console.log('   - Personal ambitions and goals');
-        console.log('   - Long-term projects she works on');
-        console.log('   - Intrinsic motivation (not just reactive)');
-        console.log('   - Dreams and aspirations\n');
 
         // Check ambitions every minute
         this.ambitionCheckInterval = setInterval(() => {
@@ -166,7 +161,6 @@ export class AIRIAmbitionSystem {
         ];
 
         this.ambitions.push(...initialAmbitions);
-        console.log(`[Ambition] 🎯 Generated ${initialAmbitions.length} initial ambitions`);
     }
 
     /**
@@ -201,9 +195,6 @@ export class AIRIAmbitionSystem {
      * Work on specific ambition
      */
     private async workOnAmbition(ambition: AIRIAmbition): Promise<void> {
-        console.log(`\n[Ambition] 🎯 Working on: ${ambition.title}`);
-        console.log(`   Motivation: ${ambition.motivation}`);
-        console.log(`   Progress: ${ambition.progress}%`);
 
         // Add to consciousness
         airiConsciousness.addThought(`Working towards: ${ambition.title}`);
@@ -221,7 +212,6 @@ export class AIRIAmbitionSystem {
             const milestone = incompleteMilestones[0];
             milestone.completed = true;
             milestone.completedAt = Date.now();
-            console.log(`   ✅ Milestone completed: ${milestone.title}`);
 
             // Emotional response
             airiConsciousness.addThought(`Proud moment - completed: ${milestone.title}`);
@@ -230,7 +220,6 @@ export class AIRIAmbitionSystem {
         // Check if ambition completed
         if (ambition.progress >= 100) {
             ambition.status = 'completed';
-            console.log(`   🎉 AMBITION COMPLETED: ${ambition.title}`);
             airiConsciousness.addThought(`I did it! ${ambition.title} is complete!`);
 
             // Save to memory
@@ -294,9 +283,6 @@ export class AIRIAmbitionSystem {
      */
     startProject(project: LongTermProject): void {
         this.activeProjects.push(project);
-        console.log(`\n[Project] 🚀 Starting long-term project: ${project.name}`);
-        console.log(`   Duration: ${project.duration}`);
-        console.log(`   Working autonomously: ${project.workingAutonomously}`);
 
         airiConsciousness.addThought(`Starting project: ${project.name}`);
     }
@@ -312,7 +298,6 @@ export class AIRIAmbitionSystem {
         if (phase) project.currentPhase = phase;
         project.lastUpdate = Date.now();
 
-        console.log(`[Project] ${project.name}: ${progress}% complete - ${phase || project.currentPhase}`);
     }
 
     /**

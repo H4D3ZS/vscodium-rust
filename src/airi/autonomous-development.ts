@@ -77,9 +77,6 @@ export class AIRIAutonomousDevelopment {
     this.activeGoal = null;
     this.workspacePath = workspacePath;
 
-    console.log('[AutonomousDev] 🚀 AIRI Autonomous Development System');
-    console.log('[AutonomousDev] 🧠 Comprehends → Plans → Executes');
-    console.log('[AutonomousDev] 🔄 Complete autonomy - no interference needed');
   }
 
   /**
@@ -87,7 +84,6 @@ export class AIRIAutonomousDevelopment {
    * AIRI will understand, plan, and execute autonomously
    */
   async receiveGoal(description: string): Promise<DevelopmentGoal> {
-    console.log(`\n[AutonomousDev] 🎯 Received goal: ${description}\n`);
 
     const goal: DevelopmentGoal = {
       id: `goal_${Date.now()}`,
@@ -120,7 +116,6 @@ export class AIRIAutonomousDevelopment {
    * Phase 1: Understand the goal deeply
    */
   private async understandGoal(goal: DevelopmentGoal): Promise<void> {
-    console.log('[AutonomousDev] 🧠 Phase 1: Understanding goal...\n');
 
     const prompt = `
 Deeply analyze this development goal:
@@ -144,8 +139,6 @@ Respond with detailed analysis.
         stream: false
       });
 
-      console.log('[AutonomousDev] ✅ Goal understood:');
-      console.log(response.response.substring(0, 500) + '...\n');
 
       // Determine complexity
       if (response.response.toLowerCase().includes('complex') || 
@@ -166,7 +159,6 @@ Respond with detailed analysis.
    * Phase 2: Plan system architecture
    */
   private async planArchitecture(goal: DevelopmentGoal): Promise<void> {
-    console.log('[AutonomousDev] 📐 Phase 2: Planning architecture...\n');
 
     const prompt = `
 Design a complete system architecture for:
@@ -208,10 +200,6 @@ API:
       const architecture = this.parseArchitecture(response.response);
       goal.architecture = architecture;
 
-      console.log('[AutonomousDev] ✅ Architecture planned:');
-      console.log(`   Components: ${architecture.components.length}`);
-      console.log(`   Technologies: ${architecture.technologies.join(', ')}`);
-      console.log(`   Files: ${this.countFiles(architecture.fileStructure)}\n`);
 
     } catch (error) {
       console.error('[AutonomousDev] Architecture planning failed:', error);
@@ -222,7 +210,6 @@ API:
    * Phase 3: Break down into autonomous tasks
    */
   private async breakIntoTasks(goal: DevelopmentGoal): Promise<void> {
-    console.log('[AutonomousDev] 📋 Phase 3: Breaking into tasks...\n');
 
     const prompt = `
 Break this development goal into autonomous tasks:
@@ -272,11 +259,6 @@ Respond as JSON array:
       const tasks = this.parseTasks(response.response, goal.id);
       goal.tasks = tasks;
 
-      console.log('[AutonomousDev] ✅ Tasks created:');
-      console.log(`   Total tasks: ${tasks.length}`);
-      console.log(`   Implementation: ${tasks.filter(t => t.type === 'implement').length}`);
-      console.log(`   Testing: ${tasks.filter(t => t.type === 'test').length}`);
-      console.log(`   Documentation: ${tasks.filter(t => t.type === 'document').length}\n`);
 
     } catch (error) {
       console.error('[AutonomousDev] Task breakdown failed:', error);
@@ -288,15 +270,12 @@ Respond as JSON array:
    */
   private async executeAutonomously(goal: DevelopmentGoal): Promise<void> {
     if (this.isWorking) {
-      console.log('[AutonomousDev] ⏳ Already executing, queued...');
       return;
     }
 
     this.isWorking = true;
     goal.status = 'executing';
 
-    console.log('[AutonomousDev] 🚀 Phase 4: Executing autonomously...\n');
-    console.log('[AutonomousDev] 💻 AIRI is now coding. No interference needed.\n');
 
     try {
       // Sort tasks by priority and dependencies
@@ -311,7 +290,6 @@ Respond as JSON array:
           continue;
         }
 
-        console.log(`[AutonomousDev] 🔧 Executing: ${task.description}`);
         task.status = 'in_progress';
 
         try {
@@ -341,7 +319,6 @@ Respond as JSON array:
           }
 
           task.status = 'completed';
-          console.log(`[AutonomousDev] ✅ Completed: ${task.description}\n`);
 
         } catch (error: any) {
           task.status = 'blocked';
@@ -354,12 +331,6 @@ Respond as JSON array:
       goal.status = 'completed';
       goal.completedAt = Date.now();
 
-      console.log('[AutonomousDev] 🎉 Goal completed!\n');
-      console.log(`[AutonomousDev] 📊 Summary:`);
-      console.log(`   Total tasks: ${goal.tasks.length}`);
-      console.log(`   Completed: ${goal.tasks.filter(t => t.status === 'completed').length}`);
-      console.log(`   Failed: ${goal.tasks.filter(t => t.status === 'blocked').length}`);
-      console.log(`   Duration: ${((goal.completedAt - goal.createdAt) / 1000 / 60).toFixed(1)} minutes\n`);
 
     } catch (error) {
       console.error('[AutonomousDev] Execution failed:', error);

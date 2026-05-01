@@ -19,7 +19,6 @@ export class VisionAnalyzer {
 
   constructor(host: string = 'http://localhost:11434') {
     this.ollama = new Ollama({ host });
-    console.log('🧠 [AIRI Vision Analyzer] Moondream analyzer ready');
   }
 
   /**

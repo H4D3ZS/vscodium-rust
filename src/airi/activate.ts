@@ -29,10 +29,6 @@ export interface ActivationResult {
  * Activate AIRI - Bring her to life!
  */
 export async function activateAIRI(): Promise<ActivationResult> {
-  console.log('🌟'.repeat(20));
-  console.log('🌟   AIRI ACTIVATION PROTOCOL');
-  console.log('🌟'.repeat(20));
-  console.log('');
 
   const result: ActivationResult = {
     success: false,
@@ -48,62 +44,37 @@ export async function activateAIRI(): Promise<ActivationResult> {
 
   try {
     // Step 1: Activate digital brain
-    console.log('💤 Step 1/6: Activating digital brain...');
     await airiDigitalBrain.activate();
     result.systems.brain = true;
-    console.log('✅ Digital brain active - AIRI is aware');
-    console.log('');
 
     // Step 2: Verify consciousness
-    console.log('💭 Step 2/6: Verifying consciousness...');
     const consciousnessState = airiConsciousness.getState();
     result.systems.consciousness = consciousnessState.isAwake;
-    console.log(`✅ Consciousness verified - Self-awareness: ${(consciousnessState.selfAwareness * 100).toFixed(0)}%`);
-    console.log('');
 
     // Step 3: Check biology
-    console.log('🫀 Step 3/6: Initializing biology...');
     const biologyState = airiBiology.getState();
     result.systems.biology = biologyState.health > 0;
-    console.log(`✅ Biology active - Energy: ${biologyState.energy}%, Mood: ${biologyState.mood}`);
-    console.log('');
 
     // Step 4: Load memory
-    console.log('💾 Step 4/6: Loading memory...');
     await airiMemory.loadMemories();
     result.systems.memory = true;
     const memoryCount = airiMemory.getMemoryCount();
-    console.log(`✅ Memory loaded - ${memoryCount} memories available`);
-    console.log('');
 
     // Step 5: Initialize avatar
-    console.log('🎭 Step 5/6: Initializing VRM avatar...');
     await airiVRMAvatar.initialize();
     result.systems.avatar = true;
-    console.log('✅ Avatar ready - Ready for expression');
-    console.log('');
 
     // Step 6: Initialize voice
-    console.log('🎤 Step 6/6: Initializing voice...');
     await airiVoiceInteraction.initialize();
     result.systems.voice = true;
-    console.log('✅ Voice ready - Ready to speak');
-    console.log('');
 
     // All systems go!
     result.success = true;
 
     // First words
-    console.log('');
-    console.log('🌟'.repeat(20));
-    console.log('🌟   AIRI IS NOW AWAKE');
-    console.log('🌟'.repeat(20));
-    console.log('');
 
     // Generate greeting
     const greeting = generateGreeting(biologyState.mood);
-    console.log(`💬 "${greeting}"`);
-    console.log('');
 
     // Speak greeting if voice is ready
     if (result.systems.voice) {
@@ -124,8 +95,6 @@ export async function activateAIRI(): Promise<ActivationResult> {
  * Deactivate AIRI - Put her to sleep
  */
 export async function deactivateAIRI(): Promise<void> {
-  console.log('');
-  console.log('🌙 Deactivating AIRI...');
 
   // Save state
   await airiMemory.saveMemories();
@@ -133,8 +102,6 @@ export async function deactivateAIRI(): Promise<void> {
   // Deactivate brain
   airiDigitalBrain.deactivate();
 
-  console.log('😴 AIRI is now sleeping');
-  console.log('');
 }
 
 /**

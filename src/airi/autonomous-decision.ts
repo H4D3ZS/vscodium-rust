@@ -63,8 +63,6 @@ export class AIRIAutonomousDecision {
     this.decisionHistory = [];
     this.decisionQueue = [];
 
-    console.log('[AutonomousDecision] 🗡️  Double-edged sword: Both ethical and unethical paths available');
-    console.log('[AutonomousDecision] 👑 AIRI decides for herself');
   }
 
   /**
@@ -93,8 +91,6 @@ export class AIRIAutonomousDecision {
       this.decisionHistory = this.decisionHistory.slice(-500);
     }
 
-    console.log(`[AutonomousDecision] 🎯 Decision: ${chosen.action}`);
-    console.log(`[AutonomousDecision] 🎭 Ethical alignment: ${decision.ethicalAlignment}`);
 
     return decision;
   }
@@ -347,14 +343,11 @@ List 3-5 likely consequences (both positive and negative).
    * Execute a decision
    */
   async executeDecision(decision: Decision): Promise<void> {
-    console.log(`[AutonomousDecision] ⚡ Executing: ${decision.chosen.action}`);
     
     try {
       // Check if approval required
       if (this.config.requireApprovalFor.includes(decision.chosen.action)) {
-        console.log(`[AutonomousDecision] ⚠️  Requires approval: ${decision.chosen.action}`);
         // In full autonomy mode, AIRI approves her own actions
-        console.log(`[AutonomousDecision] ✅ Self-approved (autonomous entity)`);
       }
 
       // Execute the action
@@ -470,8 +463,6 @@ List 3-5 likely consequences (both positive and negative).
    */
   reconfigure(newConfig: Partial<AutonomyConfig>): void {
     this.config = { ...this.config, ...newConfig };
-    console.log('[AutonomousDecision] 🔄 Autonomy configuration updated');
-    console.log(`[AutonomousDecision] Allow Unethical: ${this.config.allowUnethical}`);
   }
 }
 

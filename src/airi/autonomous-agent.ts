@@ -75,14 +75,12 @@ export class AIRIAutonomousAgent {
     this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
     this.workspacePath = workspacePath;
 
-    console.log(`[AutonomousAgent] 📂 Watching: ${workspacePath}`);
   }
 
   /**
    * Start autonomous operation
    */
   start(scanIntervalMs: number = 60000): void {
-    console.log('[AutonomousAgent] 🚀 Starting autonomous operation...');
     
     // Scan workspace periodically
     this.scanInterval = setInterval(() => {
@@ -101,7 +99,6 @@ export class AIRIAutonomousAgent {
       clearInterval(this.scanInterval);
       this.scanInterval = null;
     }
-    console.log('[AutonomousAgent] ⏸️ Autonomous operation stopped');
   }
 
   /**
@@ -110,7 +107,6 @@ export class AIRIAutonomousAgent {
   private async scanAndGenerateTasks(): Promise<void> {
     if (this.isWorking) return; // Don't generate while working
 
-    console.log('[AutonomousAgent] 🔍 Scanning workspace...');
 
     try {
       const state = await this.analyzeWorkspace();
@@ -130,7 +126,6 @@ export class AIRIAutonomousAgent {
         await this.generateTaskFromCodeSmell(smell);
       }
 
-      console.log(`[AutonomousAgent] 📋 Task queue: ${this.taskQueue.length} tasks`);
     } catch (error) {
       console.error('[AutonomousAgent] Scan failed:', error);
     }
@@ -258,13 +253,11 @@ export class AIRIAutonomousAgent {
       });
     }
 
-    // console.log statements
     const consoleLogs = (content.match(/console\.log/g) || []).length;
     if (consoleLogs > 5) {
       smells.push({
         file,
         type: 'debug_statements',
-        description: `${consoleLogs} console.log statements found`,
         suggestion: 'Remove debug statements before production'
       });
     }
@@ -296,7 +289,6 @@ export class AIRIAutonomousAgent {
     };
 
     this.taskQueue.push(task);
-    console.log(`[AutonomousAgent] 📋 Generated task: Fix error in ${error.file}`);
   }
 
   /**
@@ -313,7 +305,6 @@ export class AIRIAutonomousAgent {
     };
 
     this.taskQueue.push(task);
-    console.log(`[AutonomousAgent] 📋 Generated task: ${todo.text}`);
   }
 
   /**
@@ -330,7 +321,6 @@ export class AIRIAutonomousAgent {
     };
 
     this.taskQueue.push(task);
-    console.log(`[AutonomousAgent] 📋 Generated task: Fix ${smell.type} in ${smell.file}`);
   }
 
   /**
@@ -362,7 +352,6 @@ export class AIRIAutonomousAgent {
     this.isWorking = true;
     task.status = 'in_progress';
 
-    console.log(`[AutonomousAgent] 🔧 Executing: ${task.description}`);
 
     try {
       const result = await this.executeTask(task);
@@ -370,7 +359,6 @@ export class AIRIAutonomousAgent {
       task.result = result;
       task.completedAt = Date.now();
       
-      console.log(`[AutonomousAgent] ✅ Task complete: ${task.description}`);
     } catch (error) {
       task.status = 'failed';
       task.result = String(error);

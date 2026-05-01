@@ -53,8 +53,6 @@ export class AIRIMemorySystem {
       compressedCount: 0
     };
 
-    console.log('[Memory] 📁 Memory path:', memoryPath);
-    console.log('[Memory] 🗄️  AIM cache path:', aimCachePath);
   }
 
   /**
@@ -66,7 +64,6 @@ export class AIRIMemorySystem {
     await this.loadAimCache();
     
     this.isInitialized = true;
-    console.log(`[Memory] ✅ Loaded ${this.memoryIndex.memories.length} memories`);
   }
 
   /**
@@ -90,7 +87,6 @@ export class AIRIMemorySystem {
       this.memoryIndex.memories = memories;
       this.memoryIndex.totalMemories = memories.length;
     } catch (error) {
-      console.log('[Memory] 📄 Creating new MEMORY.md');
       await this.createMemoryFile();
     }
   }
@@ -159,7 +155,6 @@ export class AIRIMemorySystem {
         }
       }
     } catch (error) {
-      console.log('[Memory] No AIM cache found, will create as needed');
     }
   }
 
@@ -239,7 +234,6 @@ For compressed memories, see \`.hades/.aim_cache/\`
    * Compress old memories using .aim kortex format
    */
   private async compressOldMemories(): Promise<void> {
-    console.log('[Memory] 🗜️  Compressing old memories...');
 
     // Get old, low-importance memories
     const oldMemories = this.memoryIndex.memories
@@ -252,7 +246,6 @@ For compressed memories, see \`.hades/.aim_cache/\`
     }
 
     this.memoryIndex.lastOptimized = Date.now();
-    console.log(`[Memory] ✅ Compressed ${oldMemories.length} memories`);
   }
 
   /**
@@ -435,7 +428,6 @@ For compressed memories, see \`.hades/.aim_cache/\`
       !toRemove.some(r => r.id === m.id)
     );
 
-    console.log(`[Memory] 🗑️  Cleared ${toRemove.length} old memories`);
     return toRemove.length;
   }
 }

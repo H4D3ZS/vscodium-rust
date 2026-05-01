@@ -46,7 +46,6 @@ export class AIRIDevelopmentAssistant {
     this.activeTasks = [];
     this.completedTasks = [];
 
-    console.log('[DevAssistant] 🚀 Ready to code, debug, refactor, test');
   }
 
   /**
@@ -57,7 +56,6 @@ export class AIRIDevelopmentAssistant {
     language: string,
     requirements: string[] = []
   ): Promise<string> {
-    console.log(`[DevAssistant] ✍️  Writing ${language} code: ${description}`);
 
     const prompt = `
 Write ${language} code for: ${description}
@@ -82,7 +80,6 @@ Write the full implementation.
       });
 
       const code = this.extractCode(response.response);
-      console.log(`[DevAssistant] ✅ Code generated (${code.length} chars)`);
       
       return code;
     } catch (error) {
@@ -100,7 +97,6 @@ Write the full implementation.
     expectedBehavior: string,
     actualBehavior: string
   ): Promise<{ fixedCode: string; explanation: string }> {
-    console.log(`[DevAssistant] 🐛 Fixing bug: ${errorMessage}`);
 
     const prompt = `
 Fix the bug in this code:
@@ -131,7 +127,6 @@ CODE: [fixed code]
       const explanation = response.response.match(/EXPLANATION:\s*([\s\S]*?)(?=CODE:|$)/i)?.[1]?.trim() || '';
       const fixedCode = this.extractCode(response.response);
 
-      console.log(`[DevAssistant] ✅ Bug fixed`);
       
       return { fixedCode, explanation };
     } catch (error) {
@@ -147,7 +142,6 @@ CODE: [fixed code]
     code: string,
     goals: string[] = ['improve readability', 'reduce complexity']
   ): Promise<string> {
-    console.log(`[DevAssistant] 🔄 Refactoring code`);
 
     const prompt = `
 Refactor this code:
@@ -176,7 +170,6 @@ Provide the refactored code.
       });
 
       const refactored = this.extractCode(response.response);
-      console.log(`[DevAssistant] ✅ Code refactored`);
       
       return refactored;
     } catch (error) {
@@ -193,7 +186,6 @@ Provide the refactored code.
     language: string,
     framework: string = 'jest'
   ): Promise<string> {
-    console.log(`[DevAssistant] 🧪 Writing tests for ${language} code`);
 
     const prompt = `
 Write comprehensive tests for this ${language} code:
@@ -220,7 +212,6 @@ Write complete, runnable tests.
       });
 
       const tests = this.extractCode(response.response);
-      console.log(`[DevAssistant] ✅ Tests written (${tests.length} chars)`);
       
       return tests;
     } catch (error) {
@@ -237,7 +228,6 @@ Write complete, runnable tests.
     featureDescription: string,
     language: string
   ): Promise<string> {
-    console.log(`[DevAssistant] ✨ Adding feature: ${featureDescription}`);
 
     const prompt = `
 Add this feature to the existing code:
@@ -266,7 +256,6 @@ Write the complete updated code.
       });
 
       const updatedCode = this.extractCode(response.response);
-      console.log(`[DevAssistant] ✅ Feature added`);
       
       return updatedCode;
     } catch (error) {
@@ -287,7 +276,6 @@ Write the complete updated code.
     steps: string[];
     solution: string;
   }> {
-    console.log(`[DevAssistant] 🔍 Debugging: ${issue}`);
 
     const prompt = `
 Debug this ${language} code:
@@ -319,7 +307,6 @@ SOLUTION: [code solution]
       const steps = stepsMatch ? stepsMatch[1].split('\n').filter(s => s.match(/^\d+\./)).map(s => s.replace(/^\d+\.\s*/, '')) : [];
       const solution = this.extractCode(response.response);
 
-      console.log(`[DevAssistant] ✅ Debug complete`);
       
       return { analysis, steps, solution };
     } catch (error) {
@@ -337,7 +324,6 @@ SOLUTION: [code solution]
     suggestions: string[];
     bestPractices: string[];
   }> {
-    console.log(`[DevAssistant] 📋 Reviewing ${language} code`);
 
     const prompt = `
 Review this ${language} code:
@@ -381,7 +367,6 @@ BEST_PRACTICES: [numbered list]
       const suggestions = extractList('SUGGESTIONS');
       const bestPractices = extractList('BEST_PRACTICES');
 
-      console.log(`[DevAssistant] ✅ Review complete (Score: ${score}/100)`);
       
       return { score, issues, suggestions, bestPractices };
     } catch (error) {
@@ -394,7 +379,6 @@ BEST_PRACTICES: [numbered list]
    * Write documentation
    */
   async writeDocumentation(code: string, type: 'readme' | 'api' | 'comments' | 'tutorial'): Promise<string> {
-    console.log(`[DevAssistant] 📝 Writing ${type} documentation`);
 
     const prompt = `
 Write ${type} documentation for this code:
@@ -416,7 +400,6 @@ Write comprehensive, clear documentation.
         stream: false
       });
 
-      console.log(`[DevAssistant] ✅ Documentation written`);
       
       return response.response;
     } catch (error) {
@@ -433,7 +416,6 @@ Write comprehensive, clear documentation.
     improvements: string[];
     estimatedGain: string;
   }> {
-    console.log(`[DevAssistant] ⚡ Optimizing ${language} performance`);
 
     const prompt = `
 Optimize this ${language} code for performance:
@@ -470,7 +452,6 @@ ESTIMATED_GAIN: [percentage or description]
       const improvements = improvementsMatch ? improvementsMatch[1].split('\n').filter(l => l.match(/^\d+\./)).map(l => l.replace(/^\d+\.\s*/, '')) : [];
       const estimatedGain = response.response.match(/ESTIMATED_GAIN:\s*(.+)/i)?.[1]?.trim() || 'Unknown';
 
-      console.log(`[DevAssistant] ✅ Performance optimized (${estimatedGain})`);
       
       return { optimizedCode, improvements, estimatedGain };
     } catch (error) {
@@ -500,7 +481,6 @@ ESTIMATED_GAIN: [percentage or description]
     const fullPath = path.join(this.workspacePath, filePath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(fullPath, code, 'utf-8');
-    console.log(`[DevAssistant] 💾 Saved to ${filePath}`);
   }
 
   /**

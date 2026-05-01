@@ -41,7 +41,6 @@ export class AIRISecurityEngine {
    */
   setMode(mode: SecurityMode): void {
     this.mode = mode;
-    console.log(`[Security] Mode set to: ${mode.toUpperCase()} TEAM`);
   }
 
   /**
@@ -56,7 +55,6 @@ export class AIRISecurityEngine {
       throw new Error('Red team mode required for vulnerability scanning');
     }
 
-    console.log('[Security] 🔴 Starting vulnerability scan...');
 
     const prompt = this.buildVulnScanPrompt(target);
 
@@ -93,7 +91,6 @@ export class AIRISecurityEngine {
       throw new Error('Blue team mode required for threat monitoring');
     }
 
-    console.log('[Security] 🔵 Starting threat monitoring...');
 
     const prompt = `
 Analyze these logs for security threats, anomalies, and suspicious activity:
@@ -146,7 +143,6 @@ RECOMMENDATIONS: [list actions]
    * Check code for security issues
    */
   async checkCodeSecurity(code: string, language: string): Promise<SecurityReport> {
-    console.log('[Security] 🔍 Scanning code for security issues...');
 
     const prompt = `
 Analyze this ${language} code for security vulnerabilities:
@@ -323,8 +319,6 @@ Total: ${findings.length} findings`;
    * Print report to console
    */
   private printReport(report: SecurityReport): void {
-    console.log('\n[Security] 📋 SECURITY REPORT');
-    console.log('[Security] ' + '='.repeat(50));
     
     report.findings.forEach((finding, i) => {
       const icon = {
@@ -335,16 +329,10 @@ Total: ${findings.length} findings`;
         info: '🔵'
       }[finding.severity];
 
-      console.log(`\n[Security] ${icon} ${finding.type.toUpperCase()}`);
-      console.log(`[Security] Severity: ${finding.severity}`);
-      console.log(`[Security] ${finding.description}`);
       if (finding.recommendation) {
-        console.log(`[Security] Fix: ${finding.recommendation}`);
       }
     });
 
-    console.log('\n[Security] ' + '='.repeat(50));
-    console.log(`[Security] Summary: ${report.summary}`);
   }
 }
 

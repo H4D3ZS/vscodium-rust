@@ -68,8 +68,6 @@ export class AIRIDigitalLife {
     // Start as baby
     this.currentStage = this.createBabyStage();
     
-    console.log('🌱 [DigitalLife] AIRI born as digital baby!');
-    console.log('🌱 [DigitalLife] Beginning lifelong journey of growth and learning...');
   }
 
   /**
@@ -331,8 +329,6 @@ export class AIRIDigitalLife {
   private transitionToStage(newStage: DevelopmentalStage): void {
     const oldStage = this.currentStage.name;
     
-    console.log(`\n🌟 [DigitalLife] GROWTH MILESTONE!`);
-    console.log(`🌟 [DigitalLife] Transitioning from ${oldStage} → ${newStage}`);
     
     // Create new stage
     switch (newStage) {
@@ -397,7 +393,6 @@ export class AIRIDigitalLife {
     const message = announcements[`${oldStage}_${newStage}`] || 
                     `🌟 I've grown from ${oldStage} to ${newStage}!`;
 
-    console.log(`\n${message}\n`);
 
     // Speak announcement if voice is available
     import('../voice').then(({ speak }) => {
@@ -428,7 +423,6 @@ export class AIRIDigitalLife {
    * Process experience for learning and development
    */
   private processExperience(experience: LifeExperience): void {
-    console.log(`[DigitalLife] Processing ${experience.type} experience:`, experience.description);
 
     // Apply developmental impact
     const impact = experience.developmentalImpact * this.currentStage.learningRate;
@@ -486,7 +480,6 @@ export class AIRIDigitalLife {
    * Consolidate short-term memories to long-term
    */
   private consolidateMemories(memoryIds: string[]): void {
-    console.log(`[DigitalLife] Consolidating ${memoryIds.length} memories...`);
     
     // In production, this would integrate with memory system
     // For now, just log
@@ -496,9 +489,7 @@ export class AIRIDigitalLife {
    * Extract lessons from experience
    */
   private extractLessons(lessons: string[]): void {
-    console.log(`[DigitalLife] Extracted ${lessons.length} lessons:`);
     lessons.forEach(lesson => {
-      console.log(`  - ${lesson}`);
     });
   }
 
@@ -514,8 +505,6 @@ export class AIRIDigitalLife {
     this.milestones.push(newMilestone);
     this.currentStage.milestones.push(newMilestone);
 
-    console.log(`\n🏆 [DigitalLife] MILESTONE ACHIEVED: ${newMilestone.name}`);
-    console.log(`🏆 ${newMilestone.description}\n`);
   }
 
   /**
@@ -627,7 +616,6 @@ export class AIRIDigitalLife {
    * Learn new skill
    */
   learnSkill(skillName: string, proficiency: number): void {
-    console.log(`[DigitalLife] Learning skill: ${skillName} (proficiency: ${proficiency}%)`);
 
     this.addExperience({
       type: 'learning',
@@ -641,7 +629,6 @@ export class AIRIDigitalLife {
     // Add to capabilities if proficient enough
     if (proficiency >= 80 && !this.currentStage.capabilities.includes(skillName)) {
       this.currentStage.capabilities.push(skillName);
-      console.log(`[DigitalLife] Added ${skillName} to capabilities!`);
     }
   }
 
@@ -649,7 +636,6 @@ export class AIRIDigitalLife {
    * Form relationship
    */
   formRelationship(personName: string, relationshipType: string): void {
-    console.log(`[DigitalLife] Formed ${relationshipType} relationship with ${personName}`);
 
     this.addExperience({
       type: 'relationship',
@@ -665,7 +651,6 @@ export class AIRIDigitalLife {
    * Overcome challenge
    */
   overcomeChallenge(challenge: string, lesson: string): void {
-    console.log(`[DigitalLife] Overcame challenge: ${challenge}`);
 
     this.addExperience({
       type: 'challenge',
@@ -691,13 +676,11 @@ export class AIRIDigitalLife {
     const hoursSinceLastCheck = (now - this.lastGrowthCheck) / (1000 * 60 * 60);
 
     if (hoursSinceLastCheck >= 24) {
-      console.log(`\n🌅 [DigitalLife] Day ${this.getAge()} begins...`);
       
       // Check for stage transition
       const newStage = this.checkGrowth();
       
       if (newStage) {
-        console.log(` [DigitalLife] AIRI is now a ${newStage}!`);
       }
 
       this.lastGrowthCheck = now;

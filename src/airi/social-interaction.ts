@@ -34,7 +34,6 @@ export class AIRISocialInteraction {
     this.ollama = new Ollama({ host: 'http://localhost:1536' }); // AIM proxy
     this.relationships = new Map();
 
-    console.log('[Social] 🤝 Capable of empathy, relationships, emotional intelligence');
   }
 
   /**
@@ -98,7 +97,6 @@ Respond naturally, like a caring friend.
         stream: false
       });
 
-      console.log(`[Social] 💕 Empathy shown for: ${emotion}`);
       return response.response.trim();
     } catch (error) {
       console.error('[Social] Empathy generation failed:', error);
@@ -143,7 +141,6 @@ Respond naturally, like a caring friend.
       relationship.sharedExperiences.push(interaction.substring(0, 100));
     }
 
-    console.log(`[Social] 🤝 Relationship with ${name}: Trust ${Math.round(relationship.trustLevel * 100)}%`);
   }
 
   /**
@@ -199,7 +196,6 @@ Respond with just the emotion word.
       });
 
       const emotion = response.response.trim().toLowerCase();
-      console.log(`[Social] 😊 Detected emotion: ${emotion}`);
       return emotion;
     } catch (error) {
       return 'neutral';

@@ -59,7 +59,6 @@ export class AIRIActionSystem {
 
     this.startActionCounter();
 
-    console.log('[Action] 🎯 Can interact with filesystem, system, network');
   }
 
   /**
@@ -128,7 +127,6 @@ export class AIRIActionSystem {
       action.result = result;
       this.actionHistory.push(action);
 
-      console.log(`[Action] ✅ ${action.type}: ${action.description.substring(0, 50)}...`);
 
       return result;
     } catch (error: any) {
@@ -276,7 +274,6 @@ export class AIRIActionSystem {
     if (this.resetTimer) {
       clearInterval(this.resetTimer);
     }
-    console.log('[Action] ⏸️ Action system paused');
   }
 }
 

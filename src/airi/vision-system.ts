@@ -69,7 +69,6 @@ export class AIRIVisionSystem extends EventEmitter {
       return;
     }
 
-    console.log('🎥 [AIRI Vision] Starting emulator capture...');
 
     // Start scrcpy stream
     this.scrcpy = spawn('scrcpy', [
@@ -90,7 +89,6 @@ export class AIRIVisionSystem extends EventEmitter {
     });
 
     this.scrcpy.on('close', (code) => {
-      console.log(`[AIRI Vision] scrcpy exited with code ${code}`);
       this.isRunning = false;
     });
 
@@ -98,7 +96,6 @@ export class AIRIVisionSystem extends EventEmitter {
     this.startThermalManagement();
 
     this.isRunning = true;
-    console.log('✅ [AIRI Vision] Capture started');
   }
 
   /**
@@ -116,7 +113,6 @@ export class AIRIVisionSystem extends EventEmitter {
     }
 
     this.isRunning = false;
-    console.log('⏹️ [AIRI Vision] Capture stopped');
   }
 
   /**
@@ -219,7 +215,6 @@ export class AIRIVisionSystem extends EventEmitter {
       } else if (temp >= 72) {
         // Throttle to 1fps
         this.currentFps = 1;
-        console.log(`[AIRI Vision] 🟡 Thermal throttle - reduced to ${this.currentFps}fps`);
       } else if (temp >= 65) {
         // Reduce to 5fps
         this.currentFps = 5;

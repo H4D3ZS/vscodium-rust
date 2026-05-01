@@ -46,8 +46,6 @@ export class AIRIInteractive {
     this.activeConversation = [];
     this.interactionCallbacks = new Map();
 
-    console.log('[Interactive] 🗣️ Natural, real-time interaction enabled');
-    console.log('[Interactive] 👤 She talks, asks, updates, collaborates');
   }
 
   /**
@@ -328,7 +326,6 @@ ${progress.details || ''}
    */
   clearConversation(): void {
     this.activeConversation = [];
-    console.log('[Interactive] 🗑️ Conversation cleared');
   }
 
   /**

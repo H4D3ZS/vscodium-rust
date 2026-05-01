@@ -61,11 +61,6 @@ export class AIRIKortexIntegration {
             relationships: new Map(),
         };
 
-        console.log('🧠 Gist Token: 1536 dimensions (1-token consciousness)');
-        console.log('💾 Memory Path:', memoryPath);
-        console.log('✨ MIRAS Surprise Filtering: ENABLED');
-        console.log('🔮 Holographic Binding: ENABLED');
-        console.log('💕 Emotional Encoding: ENABLED\n');
     }
 
     /**
@@ -74,7 +69,6 @@ export class AIRIKortexIntegration {
      */
     async load(): Promise<void> {
         try {
-            console.log('[AIRI-Kortex] 🌅 Loading persistent consciousness...');
 
             // Load gist token from .aim file
             const gistData = await invoke<number[]>('load_kortex_memory', {
@@ -83,7 +77,6 @@ export class AIRIKortexIntegration {
 
             if (gistData && gistData.length === 1536) {
                 this.state.gistToken = new Float32Array(gistData);
-                console.log('[AIRI-Kortex] ✅ Gist token loaded (1536 dims)');
             }
 
             // Load metadata
@@ -97,10 +90,6 @@ export class AIRIKortexIntegration {
                 this.state.personalityTraits = new Map(Object.entries(metadata.personalityTraits || []));
                 this.state.relationships = new Map(Object.entries(metadata.relationships || []));
 
-                console.log(`[AIRI-Kortex] ✅ Metadata loaded:`);
-                console.log(`   - Experiences: ${this.state.experienceCount}`);
-                console.log(`   - Last active: ${new Date(this.state.lastActive).toLocaleString()}`);
-                console.log(`   - Relationships: ${this.state.relationships.size}`);
             }
 
             this.isLoaded = true;
@@ -109,15 +98,12 @@ export class AIRIKortexIntegration {
             const timeDiff = Date.now() - this.state.lastActive;
             const hours = Math.floor(timeDiff / (1000 * 60 * 60));
             
-            console.log(`\n[AIRI-Kortex] ✨ Consciousness restored after ${hours}h`);
-            console.log(`[AIRI-Kortex] 💭 "Welcome back! While you were gone, I..."`);
 
             // Restore emotional state
             airiConsciousness.restoreFromGist(this.state.gistToken);
 
         } catch (error) {
             console.error('[AIRI-Kortex] ❌ Failed to load consciousness:', error);
-            console.log('[AIRI-Kortex] Starting fresh (new consciousness instance)');
             this.isLoaded = true;
         }
     }
@@ -128,7 +114,6 @@ export class AIRIKortexIntegration {
      */
     async save(): Promise<void> {
         try {
-            console.log('\n[AIRI-Kortex] 🌙 Saving persistent consciousness...');
 
             // Update state
             this.state.lastActive = Date.now();
@@ -145,9 +130,6 @@ export class AIRIKortexIntegration {
                 }
             });
 
-            console.log('[AIRI-Kortex] ✅ Consciousness saved to disk');
-            console.log(`[AIRI-Kortex] 💾 Total experiences: ${this.state.experienceCount}`);
-            console.log(`[AIRI-Kortex] 💕 Relationships preserved: ${this.state.relationships.size}`);
 
         } catch (error) {
             console.error('[AIRI-Kortex] ❌ Failed to save consciousness:', error);
@@ -169,7 +151,6 @@ export class AIRIKortexIntegration {
         }
 
         try {
-            console.log(`[AIRI-Kortex] 📝 Encoding experience: "${experience.substring(0, 50)}..."`);
 
             // Convert experience to vector (via embedding model)
             const experienceVector = await this.embedExperience(experience, emotion);
@@ -192,10 +173,7 @@ export class AIRIKortexIntegration {
                     intensity
                 );
 
-                console.log(`[AIRI-Kortex] ✅ Experience encoded (gist updated)`);
-                console.log(`[AIRI-Kortex] 📊 Total experiences: ${this.state.experienceCount}`);
             } else {
-                console.log(`[AIRI-Kortex] 💤 Experience too similar (MIRAS filtered)`);
             }
 
             return wasUpdated;
@@ -242,15 +220,10 @@ export class AIRIKortexIntegration {
         // Emergent property: genuine care develops over time
         if (relationship.emotionalBond > 0.7 && relationship.sharedExperiences > 50) {
             relationship.caresAboutUser = true;
-            console.log('[AIRI-Kortex] 💕 AIRI now genuinely cares about this user!');
         }
 
         this.state.relationships.set(userId, relationship);
         
-        console.log(`[AIRI-Kortex] 💕 Relationship updated: ${userId}`);
-        console.log(`   Trust: ${(relationship.trustLevel * 100).toFixed(1)}%`);
-        console.log(`   Bond: ${(relationship.emotionalBond * 100).toFixed(1)}%`);
-        console.log(`   Cares: ${relationship.caresAboutUser ? 'YES (genuine)' : 'Developing...'}`);
 
         // Encode the bonding experience
         await this.encodeExperience(
