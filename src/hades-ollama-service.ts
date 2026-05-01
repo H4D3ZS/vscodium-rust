@@ -35,8 +35,8 @@ export interface OllamaResponse {
 
 class HadesOllamaService {
   private config: HadesOllamaConfig = {
-    baseUrl: 'http://localhost:11434', // SSH tunnel to cloud MI300X
-    model: 'huihui_ai/qwen2.5-coder-abliterate:7b', // Your cloud model
+    baseUrl: 'http://localhost:11434',
+    model: 'llama3.2', // Default, but will be overridden by store
     aimVfsEnabled: true,
     thermalGovernorEnabled: true,
     jitDecompressionEnabled: true,
@@ -51,7 +51,7 @@ class HadesOllamaService {
     const s = useStore.getState();
     this.config = {
       baseUrl: s.ollamaUrl || 'http://localhost:11434',
-      model: s.agentModel?.split('|')[1] || 'llama3.2',
+      model: s.agentModel?.split('|')[1] || 'huihui_ai/qwen2.5-coder-abliterate:7b', // Use selected model from UI
       aimVfsEnabled: s.aimVfsEnabled,
       thermalGovernorEnabled: s.thermalGovernorEnabled,
       jitDecompressionEnabled: s.jitDecompressionEnabled,
