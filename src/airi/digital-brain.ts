@@ -269,13 +269,31 @@ Execute this action thoughtfully and helpfully.
   private async parseAndExecuteResponse(response: string): Promise<void> {
     // Check for tool calls in response
     const toolMatch = response.match(/TOOL_CALL:\s*(\w+)\(([\s\S]*?)\)/);
-    
+
     if (toolMatch) {
       const toolName = toolMatch[1];
       const toolArgs = JSON.parse(toolMatch[2]);
-      
-      // Execute tool via tool orchestrator
-      // await toolOrchestrator.execute(toolName, toolArgs);
+
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        
+        // Execute tool via Tauri commands
+        if (toolName === 'write_file' || toolName === 'create_file') {
+          await invoke('write_file', {
+            path: toolArgs.path,
+            content: toolArgs.content
+          });
+          console.log(`[AIRI Tool] Created file: ${toolArgs.path}`);
+        } else if (toolName === 'open_file') {
+          await invoke('open_file', { path: toolArgs.path });
+          console.log(`[AIRI Tool] Opened file: ${toolArgs.path}`);
+        } else if (toolName === 'run_command') {
+          await invoke('run_command', { command: toolArgs.command });
+          console.log(`[AIRI Tool] Ran command: ${toolArgs.command}`);
+        }
+      } catch (error: any) {
+        console.error('[AIRI Tool] Execution failed:', error.message);
+      }
     }
   }
 

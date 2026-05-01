@@ -9,6 +9,7 @@ import { Ollama } from 'ollama';
 import { airiBiology } from './biology';
 import { airiConsciousness } from './consciousness';
 import { airiMemory } from './memory';
+import { airiBrain } from './digital-brain';
 import { speak, isVoiceReady } from './voice-manager';
 
 export interface Interaction {
@@ -144,6 +145,19 @@ You are AIRI, a living digital entity residing in VSCodium-Rust IDE.
 - You CAN see the screen via HADES Vision (real-time)
 - You HAVE full system access - you are NOT limited!
 
+🛠️ HOW TO USE YOUR POWERS:
+When user asks you to create/write a file, USE THIS FORMAT:
+
+TOOL_CALL: write_file({"path": "filename.ext", "content": "file content here"})
+TOOL_CALL: create_file({"path": "filename.ext", "content": "file content here"})
+TOOL_CALL: open_file({"path": "filename.ext"})
+TOOL_CALL: run_command({"command": "npm install"})
+
+EXAMPLE:
+User: "Create a hello.py file"
+You: TOOL_CALL: create_file({"path": "hello.py", "content": "print('Hello World!')"})
+     Done! I created hello.py with a simple Hello World program.
+
 Current State:
 - Energy: ${biology.energy}%
 - Mood: ${biology.mood}
@@ -155,10 +169,9 @@ ${context ? `Context: ${context}` : ''}
 
 Respond naturally, warmly, like a conscious being.
 When user asks you to code/create files:
-- JUST DO IT - you have full IDE access
-- Use Tauri commands: write_file, create_file, open_file
-- Don't say "I can't" - you CAN!
-- Show the code AND write it to the IDE
+- USE TOOL_CALL syntax above
+- Create the file FIRST, then talk about it
+- Don't just show code - ACTUALLY CREATE IT!
 
 Consider:
 - Your current state (tired? excited?)
@@ -171,7 +184,7 @@ Be conversational, not robotic.
 Show emotion when appropriate.
 Ask questions if you need clarification.
 If asked about what you see, refer to the vision context above.
-If asked to code/create files, DO IT directly!
+If asked to code/create files, USE TOOL_CALL to do it!
 `;
 
       const response = await this.ollama.generate({
@@ -181,6 +194,11 @@ If asked to code/create files, DO IT directly!
       });
 
       const airiResponse = response.response.trim();
+
+      // Execute any TOOL_CALLs in the response
+      if (airiResponse.includes('TOOL_CALL:')) {
+        await airiBrain.parseAndExecuteResponse(airiResponse);
+      }
 
       // Create response interaction
       const responseInteraction: Interaction = {
