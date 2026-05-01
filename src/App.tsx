@@ -114,6 +114,10 @@ const App: React.FC = () => {
                 console.trace(`[DIAG] isRightSidebarOpen changed: ${prev.isRightSidebarOpen} → ${state.isRightSidebarOpen}`);
             }
         });
+        
+        // Expose store to window for global access
+        (window as any).useStore = useStore;
+        
         return () => unsubDiag();
     }, []);
 
