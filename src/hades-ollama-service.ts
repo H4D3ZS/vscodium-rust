@@ -21,7 +21,10 @@ export interface HadesOllamaConfig {
 
 export interface OllamaResponse {
   model: string;
-  response: string;
+  response?: string;  // For /api/generate
+  message?: {         // For /api/chat
+    content: string;
+  };
   done: boolean;
   total_duration: number;
   load_duration: number;
@@ -114,6 +117,11 @@ class HadesOllamaService {
     }
 
     const data = await response.json() as OllamaResponse;
+    
+    // Normalize chat response to have 'response' field
+    if (data.message && data.message.content) {
+      data.response = data.message.content;
+    }
 
     // Step 5: Update .aim VFS with new context
     if (this.config.aimVfsEnabled) {
@@ -173,7 +181,14 @@ class HadesOllamaService {
       throw new Error(`Ollama error: ${response.statusText}`);
     }
 
-    return response.json() as Promise<OllamaResponse>;
+    const data = await response.json() as OllamaResponse;
+    
+    // Normalize chat response to have 'response' field
+    if (data.message && data.message.content) {
+      data.response = data.message.content;
+    }
+    
+    return data;
   }
 
   /**
