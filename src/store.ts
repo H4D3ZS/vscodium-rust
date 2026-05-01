@@ -168,7 +168,7 @@ interface AppState {
     isRightSidebarOpen: boolean;  // Master toggle
     isAiriPanelOpen: boolean;
     isEmulatorPanelOpen: boolean;
-    emulatorPanelPosition: 'android' | 'iphone' | 'vision';
+    emulatorPanelPosition: 'android' | 'iphone';
     
     // Inference Backend Configuration
     inferenceBackend: 'ollama' | 'llama-cpp' | 'openai';

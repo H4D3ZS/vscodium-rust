@@ -167,6 +167,15 @@ pub fn stop_scrcpy_stream() -> Result<String, String> {
 /// Capture single frame from emulator
 #[tauri::command]
 pub async fn capture_emulator_frame(device_id: String) -> Result<String, String> {
+    // Check if adb is available
+    let adb_check = Command::new("adb")
+        .args(&["version"])
+        .output();
+    
+    if adb_check.is_err() {
+        return Err("ADB not found in PATH. Install Android SDK Platform-Tools.".to_string());
+    }
+
     // Use adb screencap
     let output = Command::new("adb")
         .args(&["-s", &device_id, "shell", "screencap", "-p"])
@@ -174,7 +183,16 @@ pub async fn capture_emulator_frame(device_id: String) -> Result<String, String>
         .map_err(|e| format!("Failed to run adb: {}", e))?;
 
     if !output.status.success() {
-        return Err(format!("screencap failed: {}", String::from_utf8_lossy(&output.stderr)));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("device") {
+            return Err(format!("Emulator {} not found. Start an Android emulator first.", device_id));
+        }
+        return Err(format!("screencap failed: {}", stderr));
+    }
+
+    // Check if we got actual image data
+    if output.stdout.is_empty() || output.stdout.len() < 100 {
+        return Err("Emulator screen is black or not ready yet. Wait for boot to complete.".to_string());
     }
 
     // Convert to base64

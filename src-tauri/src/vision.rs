@@ -186,28 +186,26 @@ fn parse_vision_result(json_content: &str, raw_content: &str) -> VisionAnalysisR
 pub fn capture_screen() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     #[cfg(target_os = "windows")]
     {
-        let captures = screenshots::Screen::all()?;
-        for (_, capture) in captures {
-            let buffer = capture.buffer();
-            let img = image::RgbaImage::from_raw(
-                capture.width(),
-                capture.height(),
-                buffer.to_vec(),
-            ).ok_or("Failed to create image from buffer")?;
-            
-            let mut png_bytes = Vec::new();
-            img.write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)?;
-            return Ok(png_bytes);
-        }
+        let screen = screenshots::Screen::from_point(0, 0)?;
+        let buffer = screen.capture()?;
+        
+        let img = image::RgbaImage::from_raw(
+            buffer.width(),
+            buffer.height(),
+            buffer.into_raw(),
+        ).ok_or("Failed to create image from buffer")?;
+        
+        let mut png_bytes = Vec::new();
+        img.write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)?;
+        return Ok(png_bytes);
     }
     
     Err("Screen capture not supported on this platform".into())
 }
 
-/// Capture specific window by title
-pub fn capture_window(window_title: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+/// Capture specific window by title (not implemented yet)
+pub fn capture_window(_window_title: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     // For now, capture full screen
-    // TODO: Implement window-specific capture using winapi on Windows
     capture_screen()
 }
 

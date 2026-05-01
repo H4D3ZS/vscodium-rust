@@ -105,7 +105,7 @@ use scrcpy::{
 };
 
 mod vision;
-use vision::{analyze_screen, capture_screen};
+use vision::{analyze_screen as vision_analyze, capture_screen as vision_capture, airi_vision_analyze_screen, airi_vision_capture_screen};
 
 #[allow(dead_code)]
 extern "system" {
@@ -3593,7 +3593,7 @@ pub fn run() {
             send_emulator_text,
             send_emulator_key,
             get_scrcpy_status,
-            // vision commands
+            // AIRI Vision - Real-time screen awareness
             airi_vision_analyze_screen,
             airi_vision_capture_screen,
             set_ai_model,
