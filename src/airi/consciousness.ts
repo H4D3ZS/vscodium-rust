@@ -91,9 +91,12 @@ export class AIRIConsciousness {
       // Call Tauri vision command
       const { invoke } = await import('@tauri-apps/api/core');
       
+      // Use local vision model (moondream:1.8b for RX 580 8GB)
+      // or cloud model (qwen2.5-vl:72b) for better quality
       const analysis = await invoke('airi_vision_analyze_screen', {
         prompt: 'What is happening on this screen? Note any errors, UI elements, or important changes.',
         ollamaUrl: 'http://localhost:11434',
+        model: 'moondream:1.8b', // Change to 'qwen2.5-vl:72b' for cloud
       });
 
       this.state.lastScreenAnalysis = JSON.stringify(analysis);

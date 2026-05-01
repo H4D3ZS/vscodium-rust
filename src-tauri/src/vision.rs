@@ -40,11 +40,12 @@ pub struct VisionAnalysisResult {
     pub raw_analysis: String,
 }
 
-/// Capture screen and analyze with Qwen2.5-VL
+/// Capture screen and analyze with Qwen2.5-VL or other vision model
 pub async fn analyze_screen(
     prompt: &str,
     screenshot_bytes: &[u8],
     ollama_url: &str,
+    model: &str,
 ) -> Result<VisionAnalysisResult, Box<dyn std::error::Error>> {
     // 1. Resize Image for Speed (Max 1024px width/height)
     let img = image::load_from_memory(screenshot_bytes)?;
@@ -75,7 +76,7 @@ User's specific request: {}"#, prompt);
 
     // 5. Prepare Payload
     let request_body = OllamaRequest {
-        model: "qwen2.5-vl:72b".to_string(),
+        model: model.to_string(),
         messages: vec![
             OllamaMessage {
                 role: "user".to_string(),
@@ -218,16 +219,19 @@ pub async fn airi_vision_capture_screen() -> Result<Vec<u8>, String> {
 
 /// Tauri command: Analyze screen with AI vision
 #[tauri::command]
-#[allow(dead_code)]
 pub async fn airi_vision_analyze_screen(
     prompt: String,
     ollama_url: String,
+    model: Option<String>,
 ) -> Result<VisionAnalysisResult, String> {
     // Capture screen
     let screenshot = capture_screen().map_err(|e| format!("Capture failed: {}", e))?;
     
+    // Use provided model or default to moondream:1.8b (good for 8GB VRAM)
+    let vision_model = model.unwrap_or_else(|| "moondream:1.8b".to_string());
+    
     // Analyze with vision model
-    analyze_screen(&prompt, &screenshot, &ollama_url)
+    analyze_screen(&prompt, &screenshot, &ollama_url, &vision_model)
         .await
         .map_err(|e| format!("Analysis failed: {}", e))
 }
