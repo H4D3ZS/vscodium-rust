@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { terminalManager, getVSCodeTheme, registerTerminalShortcuts } from '../../terminal';
-import { SearchAddon, ISearchOptions } from '@xterm/addon-search';
-import TerminalFindWidget from './TerminalFindWidget';
+import { SearchAddon } from '@xterm/addon-search';
+import TerminalFindWidget, { ISearchOptions } from './TerminalFindWidget';
 import { useStore } from '../../store';
 
 interface TerminalInstanceProps {

@@ -1,14 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { SearchAddon, ISearchOptions } from '@xterm/addon-search';
+import { SearchAddon } from '@xterm/addon-search';
+
+export interface ISearchOptions {
+  regex?: boolean;
+  wholeWord?: boolean;
+  caseSensitive?: boolean;
+  incremental?: boolean;
+}
 
 interface TerminalFindWidgetProps {
-    searchAddon: SearchAddon | null;
-    visible: boolean;
-    options?: ISearchOptions;
-    onOptionsChange?: (options: ISearchOptions) => void;
-    onClose: () => void;
-    onFindNext?: (term: string) => void;
-    onFindPrevious?: (term: string) => void;
+  searchAddon: SearchAddon | null;
+  visible: boolean;
+  options?: ISearchOptions;
+  onOptionsChange?: (options: ISearchOptions) => void;
+  onClose: () => void;
+  onFindNext?: (term: string) => void;
+  onFindPrevious?: (term: string) => void;
 }
 
 const TerminalFindWidget: React.FC<TerminalFindWidgetProps> = ({ 
