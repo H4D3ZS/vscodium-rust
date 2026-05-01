@@ -165,7 +165,6 @@ interface AppState {
     commandPaletteQuery: string;
 
     // Right sidebar panels (independent toggles)
-    isRightSidebarOpen: boolean;  // Master toggle
     isAiriPanelOpen: boolean;
     isEmulatorPanelOpen: boolean;
     emulatorPanelPosition: 'android' | 'iphone';
@@ -515,9 +514,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     avatar3dConfig: JSON.parse(localStorage.getItem('avatar3dConfig') || '{}'),
     ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
     ollamaMode: (localStorage.getItem('ollamaMode') as 'local' | 'cloud' | 'auto') || 'auto',
-    
+
     // Right sidebar panels
-    isRightSidebarOpen: true,  // Master toggle - sidebar open by default
     isAiriPanelOpen: true,  // AIRI open by default
     isEmulatorPanelOpen: false,  // Emulator closed by default
     emulatorPanelPosition: 'android',
