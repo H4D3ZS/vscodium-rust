@@ -88,15 +88,52 @@ const EmulatorPanel: React.FC = () => {
     const handleSpawnAndEmbed = async (avdName: string) => {
         setIsLoading(true);
         setSpawnStatus(`Spawning "${avdName}" and embedding in IDE...`);
-        
+
         try {
-            // Spawn emulator headless and start scrcpy stream
-            const result = await invoke<string>('spawn_emulator_headless', { 
-                avdName,
-                port: 8989
-            });
+            // First check if any emulator is already running
+            const emulators = await invoke<RunningEmulator[]>('list_running_emulators');
             
-            setSpawnStatus(result);
+            let deviceId: string;
+            
+            if (emulators.length > 0) {
+                // Use existing running emulator
+                deviceId = emulators[0].device_id;
+                setSpawnStatus(`Using existing emulator: ${deviceId}`);
+                setActiveDevice(deviceId);
+            } else {
+                // Spawn new emulator
+                const result = await invoke<string>('spawn_emulator_headless', {
+                    avdName,
+                    port: 8989
+                });
+
+                setSpawnStatus(result);
+                
+                // Wait for emulator to boot
+                setSpawnStatus('Waiting for emulator to boot (30-60 seconds)...');
+                await new Promise(resolve => setTimeout(resolve, 30000));
+                
+                // Reload running emulators
+                await loadRunningEmulators();
+                
+                if (activeDevice) {
+                    deviceId = activeDevice;
+                } else {
+                    const updated = await invoke<RunningEmulator[]>('list_running_emulators');
+                    deviceId = updated.length > 0 ? updated[0].device_id : 'emulator-5554';
+                }
+                
+                setActiveDevice(deviceId);
+            }
+
+            setIsLoading(false);
+            setSpawnStatus('Emulator ready!');
+            
+        } catch (err: any) {
+            setSpawnStatus(`Error: ${err.message || err}`);
+            setIsLoading(false);
+        }
+    };
             
             // Wait a bit for emulator to boot
             setTimeout(async () => {
@@ -146,18 +183,39 @@ const EmulatorPanel: React.FC = () => {
     const handleLaunchEmulator = async (avdName: string) => {
         setIsLoading(true);
         setSpawnStatus(`Launching "${avdName}"...`);
-        
+
         try {
-            const result = await invoke<string>('spawn_emulator_by_name', { avdName });
-            setSpawnStatus(result);
+            // First check if emulator is already running
+            const emulators = await invoke<RunningEmulator[]>('list_running_emulators');
             
-            // Wait for emulator to boot, then auto-connect
-            setTimeout(async () => {
+            if (emulators.length === 0) {
+                // Spawn emulator
+                const result = await invoke<string>('spawn_emulator_by_name', { avdName });
+                setSpawnStatus(result);
+                
+                // Wait for boot
+                setSpawnStatus('Waiting for emulator to boot (30-60 seconds)...');
+                await new Promise(resolve => setTimeout(resolve, 30000));
+                
+                // Reload running emulators
                 await loadRunningEmulators();
-            }, 10000); // Wait 10 seconds for boot
-        } catch (err) {
-            setSpawnStatus(`Error: ${err}`);
-        } finally {
+            }
+            
+            // Get device ID
+            const updated = await invoke<RunningEmulator[]>('list_running_emulators');
+            const deviceId = updated.length > 0 ? updated[0].device_id : 'emulator-5554';
+            
+            setSpawnStatus(`Starting screen capture: ${deviceId}...`);
+            setActiveDevice(deviceId);
+            
+            // Start scrcpy stream
+            await handleStartStream(deviceId);
+            
+            setIsLoading(false);
+            setSpawnStatus('Emulator screen active!');
+            
+        } catch (err: any) {
+            setSpawnStatus(`Error: ${err.message || err}`);
             setIsLoading(false);
         }
     };

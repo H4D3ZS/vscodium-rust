@@ -108,7 +108,7 @@ export class ScrcpyEmbed {
             ctx.fillText('Waiting for emulator to boot...', this.canvasElement.width / 2, this.canvasElement.height / 2);
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         // Silently fail - emulator might not be ready yet
         if (frameCount === 0 && Date.now() - lastSuccessfulFrame > 5000) {
           // Show error after 5 seconds of no frames
@@ -117,10 +117,15 @@ export class ScrcpyEmbed {
           ctx.fillStyle = '#f44';
           ctx.font = '14px Arial';
           ctx.textAlign = 'center';
-          ctx.fillText('Emulator not connected', this.canvasElement.width / 2, this.canvasElement.height / 2 - 20);
-          ctx.fillStyle = '#888';
+          ctx.fillText('No screen data from emulator', this.canvasElement.width / 2, this.canvasElement.height / 2 - 30);
+          ctx.fillStyle = '#f88';
           ctx.font = '12px Arial';
-          ctx.fillText('Start an Android emulator first', this.canvasElement.width / 2, this.canvasElement.height / 2 + 10);
+          ctx.fillText('Possible issues:', this.canvasElement.width / 2, this.canvasElement.height / 2 - 10);
+          ctx.fillStyle = '#888';
+          ctx.font = '11px Arial';
+          ctx.fillText('1. Emulator not running - click "Launch & Embed"', this.canvasElement.width / 2, this.canvasElement.height / 2 + 10);
+          ctx.fillText('2. ADB not found - install Android SDK', this.canvasElement.width / 2, this.canvasElement.height / 2 + 30);
+          ctx.fillText('3. Emulator still booting - wait 30-60 seconds', this.canvasElement.width / 2, this.canvasElement.height / 2 + 50);
         }
       }
 
