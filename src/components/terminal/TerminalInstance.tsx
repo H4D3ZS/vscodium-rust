@@ -1,8 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { terminalManager, getVSCodeTheme, registerTerminalShortcuts } from '../../terminal';
 import { SearchAddon } from '@xterm/addon-search';
-import TerminalFindWidget, { ISearchOptions } from './TerminalFindWidget';
+import TerminalFindWidget from './TerminalFindWidget';
 import { useStore } from '../../store';
+
+interface ISearchOptions {
+  regex?: boolean;
+  wholeWord?: boolean;
+  caseSensitive?: boolean;
+  incremental?: boolean;
+}
 
 interface TerminalInstanceProps {
     id: string;
