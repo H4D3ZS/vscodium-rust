@@ -44,6 +44,7 @@ impl HadesVision {
     pub async fn capture_and_analyze(&self) -> Result<String, String> {
         use std::ffi::CString;
         use tokio::time::{Duration, Instant};
+        use windows::core::PCSTR;
         
         let start = Instant::now();
         
@@ -53,8 +54,8 @@ impl HadesVision {
         for title in emulator_titles {
             if let Ok(c_title) = CString::new(title) {
                 unsafe {
-                    let hwnd = FindWindowA(None, c_title.as_ptr());
-                    if hwnd.0 != 0 {
+                    let result = FindWindowA(PCSTR::null(), PCSTR::from_raw(c_title.as_ptr() as *const u8));
+                    if let Ok(hwnd) = result {
                         hwnd_opt = Some(hwnd);
                         break;
                     }
@@ -64,14 +65,16 @@ impl HadesVision {
 
         let (x, y, w, h) = if let Some(hwnd) = hwnd_opt {
             let mut rect = RECT::default();
-            unsafe { GetWindowRect(hwnd, &mut rect).ok(); }
+            unsafe { 
+                let _ = GetWindowRect(hwnd, &mut rect);
+            }
             (rect.left, rect.top, (rect.right - rect.left) as u32, (rect.bottom - rect.top) as u32)
         } else {
             (0, 0, 1024, 1024)
         };
 
         let frame_data = unsafe {
-            let hdc_screen = GetDC(HWND(0));
+            let hdc_screen = GetDC(HWND(std::ptr::null_mut()));
             let hdc_mem = CreateCompatibleDC(hdc_screen);
             
             let mut bmi = BITMAPINFO {
@@ -92,39 +95,42 @@ impl HadesVision {
             };
 
             let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
-            let hbitmap = CreateDIBSection(hdc_screen, &bmi, DIB_RGB_COLORS, &mut bits, None, 0).ok();
+            let hbitmap = CreateDIBSection(hdc_screen, &bmi, DIB_RGB_COLORS, &mut bits, None, 0);
             
             if let Ok(hbitmap) = hbitmap {
-                SelectObject(hdc_mem, hbitmap);
-                BitBlt(hdc_mem, 0, 0, w as i32, h as i32, hdc_screen, x, y, SRCCOPY).ok();
+                let _ = SelectObject(hdc_mem, hbitmap);
+                let _ = BitBlt(hdc_mem, 0, 0, w as i32, h as i32, hdc_screen, x, y, SRCCOPY);
                 
                 let size = (w * h * 4) as usize;
                 let mut rgba = Vec::with_capacity(size);
                 std::ptr::copy_nonoverlapping(bits, rgba.as_mut_ptr() as *mut _, size);
                 rgba.set_len(size);
                 
-                DeleteObject(hbitmap);
-                DeleteDC(hdc_mem);
-                ReleaseDC(HWND(0), hdc_screen);
+                let _ = DeleteObject(hbitmap);
+                let _ = DeleteDC(hdc_mem);
+                let _ = ReleaseDC(HWND(std::ptr::null_mut()), hdc_screen);
                 
                 Some(rgba)
             } else {
-                DeleteDC(hdc_mem);
-                ReleaseDC(HWND(0), hdc_screen);
+                let _ = DeleteDC(hdc_mem);
+                let _ = ReleaseDC(HWND(std::ptr::null_mut()), hdc_screen);
                 None
             }
         };
 
         if let Some(data) = frame_data {
             let target_size = if *self.use_cloud.read().await { 1024 } else { 512 };
-            let resized = if let Ok(img) = ImageBuffer::<Rgba<u8>, _>::from_raw(w, h, data) {
-                let dyn_img = DynamicImage::ImageRgba8(img);
-                dyn_img.resize_exact(target_size, target_size, image::imageops::FilterType::Triangle).into_rgba8().into_raw()
-            } else {
-                data
-            };
+            let resized = ImageBuffer::<Rgba<u8>, _>::from_raw(w, h, data.clone())
+                .map(|img| {
+                    let dyn_img = DynamicImage::ImageRgba8(img);
+                    dyn_img.resize_exact(target_size, target_size, image::imageops::FilterType::Triangle).into_rgba8().into_raw()
+                })
+                .unwrap_or(data);
 
+            // Use deprecated but working base64::encode
+            #[allow(deprecated)]
             let base64_image = base64::encode(&resized);
+            
             let model = if *self.use_cloud.read().await { self.cloud_model.clone() } else { self.local_model.clone() };
 
             let response = reqwest::Client::new()
@@ -183,8 +189,12 @@ pub fn init_hades_vision(_target_fps: u32, ollama_url: &str, local_model: &str, 
 #[tauri::command]
 pub async fn hades_vision_get_current_view() -> Result<String, String> {
     if let Some(vision) = HADES_VISION.get() {
-        #[cfg(target_os = "windows")] { vision.capture_and_analyze().await }
-        #[cfg(not(target_os = "windows"))] { Ok("Vision only on Windows".to_string()) }
+        #[cfg(target_os = "windows")] { 
+            vision.capture_and_analyze().await 
+        }
+        #[cfg(not(target_os = "windows"))] { 
+            Ok("Vision only on Windows".to_string()) 
+        }
     } else {
         Err("Vision not initialized".to_string())
     }
@@ -201,10 +211,14 @@ pub async fn hades_vision_get_temporal_analysis(_frame_count: usize) -> Result<S
 
 #[tauri::command]
 pub async fn hades_vision_switch_to_cloud() {
-    if let Some(v) = HADES_VISION.get() { v.switch_to_cloud().await; }
+    if let Some(v) = HADES_VISION.get() { 
+        v.switch_to_cloud().await; 
+    }
 }
 
 #[tauri::command]
 pub async fn hades_vision_switch_to_local() {
-    if let Some(v) = HADES_VISION.get() { v.switch_to_local().await; }
+    if let Some(v) = HADES_VISION.get() { 
+        v.switch_to_local().await; 
+    }
 }

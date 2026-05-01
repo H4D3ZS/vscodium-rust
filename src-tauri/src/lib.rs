@@ -106,7 +106,8 @@ use scrcpy::{
 };
 
 mod vision;
-use vision::{analyze_screen as vision_analyze, capture_screen as vision_capture, airi_vision_analyze_screen, airi_vision_capture_screen};
+use vision::{airi_vision_analyze_screen, airi_vision_capture_screen};
+use hades_vision::{hades_vision_get_current_view, hades_vision_get_temporal_analysis, hades_vision_switch_to_cloud, hades_vision_switch_to_local};
 
 #[allow(dead_code)]
 extern "system" {
