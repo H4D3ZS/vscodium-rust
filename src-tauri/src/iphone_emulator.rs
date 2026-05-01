@@ -1,5 +1,6 @@
 //! iPhone Emulator Integration
-//! Launches and manages the Virtual iPhone Emulator (Flutter)
+//! Launches Flutter Windows app as separate native window
+//! Controlled and monitored by IDE
 
 use std::process::{Command, Stdio, Child};
 use std::sync::Mutex;
@@ -17,25 +18,24 @@ impl iPhoneEmulatorManager {
         }
     }
 
-    /// Launch the Flutter iPhone Emulator
+    /// Launch the Flutter iPhone Emulator as native Windows app
     pub fn launch(&self, project_path: String) -> Result<String, String> {
         let mut process_lock = self.process.lock().map_err(|e| e.to_string())?;
 
-        // Check if already running
         if process_lock.is_some() {
             return Ok("iPhone emulator already running".to_string());
         }
 
-        // Launch Flutter web server
         let flutter_path = std::path::Path::new(&project_path);
         
         if !flutter_path.exists() {
             return Err(format!("Project path not found: {}", project_path));
         }
 
-        // Start Flutter web server
+        // Launch Flutter as native Windows app
+        // This creates a REAL native window (not web, not iframe)
         let child = Command::new("flutter")
-            .args(&["run", "-d", "web-server", "--web-port", "5175", "--web-hostname", "localhost"])
+            .args(&["run", "-d", "windows"])
             .current_dir(flutter_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -44,7 +44,7 @@ impl iPhoneEmulatorManager {
 
         *process_lock = Some(child);
 
-        Ok(format!("iPhone emulator launched at http://localhost:5175"))
+        Ok("iPhone emulator launched (native Windows app)".to_string())
     }
 
     /// Stop the iPhone emulator
@@ -52,7 +52,6 @@ impl iPhoneEmulatorManager {
         let mut process_lock = self.process.lock().map_err(|e| e.to_string())?;
 
         if let Some(mut child) = process_lock.take() {
-            // Kill the process
             child.kill().map_err(|e| format!("Failed to stop emulator: {}", e))?;
             Ok("iPhone emulator stopped".to_string())
         } else {
@@ -62,15 +61,11 @@ impl iPhoneEmulatorManager {
 
     /// Check if emulator is running
     pub fn is_running(&self) -> bool {
-        if let Ok(process_lock) = self.process.lock() {
-            process_lock.is_some()
-        } else {
-            false
-        }
+        self.process.lock().map(|p| p.is_some()).unwrap_or(false)
     }
 }
 
-/// Tauri command: Launch iPhone emulator
+/// Tauri command: Launch iPhone emulator (native window)
 #[tauri::command]
 pub fn launch_iphone_emulator(
     manager: State<'_, iPhoneEmulatorManager>,

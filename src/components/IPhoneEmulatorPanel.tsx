@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 /**
- * iPhone Emulator Panel
- * Integrates with Virtual iPhone Emulator (Flutter)
- * Shows iPhone VM screen in IDE
+ * iPhone Emulator Panel - NATIVE WINDOWS APP
+ * Launches Flutter Windows app as separate native window
+ * REAL iPhone emulator for mobile developers
  */
 const IPhoneEmulatorPanel: React.FC = () => {
     const [isRunning, setIsRunning] = useState(false);
@@ -12,7 +12,6 @@ const IPhoneEmulatorPanel: React.FC = () => {
     const [status, setStatus] = useState<'disconnected' | 'connecting' | 'booting' | 'connected' | 'error'>('disconnected');
     const [errorMessage, setErrorMessage] = useState('');
     const [bootProgress, setBootProgress] = useState(0);
-    const iframeRef = useRef<HTMLIFrameElement>(null);
 
     const handleLaunchIPhone = async () => {
         setIsLoading(true);
@@ -20,10 +19,9 @@ const IPhoneEmulatorPanel: React.FC = () => {
         setBootProgress(0);
         
         try {
-            // Launch Flutter iPhone Emulator
             const flutterPath = 'F:/Virtual-iPhone-Emulator/frontend';
             
-            // Call Tauri command to launch Flutter
+            // Launch Flutter as NATIVE Windows app (separate window)
             const result = await invoke('launch_iphone_emulator', {
                 projectPath: flutterPath,
             });
@@ -31,7 +29,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
             console.log('[iPhone] Launch result:', result);
             setStatus('booting');
             
-            // Simulate realistic boot progress
+            // Boot animation
             const bootInterval = setInterval(() => {
                 setBootProgress(prev => {
                     if (prev >= 100) {
@@ -42,7 +40,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
                     }
                     return prev + 2;
                 });
-            }, 300);
+            }, 250);
             
         } catch (error) {
             setStatus('error');
@@ -145,12 +143,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
                         padding: '20px',
                         maxWidth: '400px'
                     }}>
-                        <div style={{
-                            fontSize: '64px',
-                            marginBottom: '20px'
-                        }}>
-                            🍎
-                        </div>
+                        <div style={{ fontSize: '64px', marginBottom: '20px' }}>🍎</div>
                         
                         <h3 style={{
                             fontSize: '16px',
@@ -167,8 +160,8 @@ const IPhoneEmulatorPanel: React.FC = () => {
                             marginBottom: '20px',
                             lineHeight: '1.5'
                         }}>
-                            Flutter-based iOS simulator<br/>
-                            Full iOS experience in your IDE
+                            Native Windows Flutter App<br/>
+                            Opens in separate window
                         </p>
 
                         {status === 'error' && (
@@ -207,14 +200,13 @@ const IPhoneEmulatorPanel: React.FC = () => {
                         >
                             {isLoading ? (
                                 <>
-                                    <span className="codicon codicon-loading codicon-modifier-spin" 
-                                          style={{ display: 'inline-block' }}></span>
+                                    <span className="codicon codicon-loading codicon-modifier-spin"></span>
                                     Launching...
                                 </>
                             ) : (
                                 <>
                                     <span>🚀</span>
-                                    Launch iPhone
+                                    Launch iPhone (Native)
                                 </>
                             )}
                         </button>
@@ -225,15 +217,11 @@ const IPhoneEmulatorPanel: React.FC = () => {
                             color: 'var(--vscode-descriptionForeground)',
                             opacity: 0.6
                         }}>
-                            Source: F:/Virtual-iPhone-Emulator/frontend
+                            Target: F:/Virtual-iPhone-Emulator/frontend
                         </div>
                     </div>
                 ) : status === 'booting' ? (
-                    <div style={{
-                        textAlign: 'center',
-                        padding: '20px'
-                    }}>
-                        {/* Apple logo animation */}
+                    <div style={{ textAlign: 'center', padding: '20px' }}>
                         <div style={{
                             fontSize: '80px',
                             marginBottom: '30px',
@@ -243,7 +231,6 @@ const IPhoneEmulatorPanel: React.FC = () => {
                             🍎
                         </div>
                         
-                        {/* Add CSS animation */}
                         <style>{`
                             @keyframes pulse {
                                 0%, 100% { opacity: 0.6; transform: scale(0.95); }
@@ -251,7 +238,6 @@ const IPhoneEmulatorPanel: React.FC = () => {
                             }
                         `}</style>
                         
-                        {/* Progress bar */}
                         <div style={{
                             width: '200px',
                             height: '4px',
@@ -268,11 +254,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
                             }}></div>
                         </div>
                         
-                        <div style={{
-                            marginTop: '16px',
-                            fontSize: '12px',
-                            color: '#888'
-                        }}>
+                        <div style={{ marginTop: '16px', fontSize: '12px', color: '#888' }}>
                             {bootProgress < 30 && 'Starting iOS...'}
                             {bootProgress >= 30 && bootProgress < 60 && 'Loading system...'}
                             {bootProgress >= 60 && bootProgress < 80 && 'Initializing services...'}
@@ -281,28 +263,25 @@ const IPhoneEmulatorPanel: React.FC = () => {
                         </div>
                     </div>
                 ) : (
-                    /* Running - show Flutter web app */
+                    /* Flutter running in separate native window */
                     <div style={{
                         width: '100%',
                         height: '100%',
                         display: 'flex',
-                        flexDirection: 'column',
-                        background: '#000'
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#666'
                     }}>
-                        {/* Flutter web app loads here after boot */}
-                        <iframe
-                            ref={iframeRef}
-                            src="http://localhost:5173"
-                            style={{
-                                flex: 1,
-                                border: 'none',
-                                background: '#000',
-                                width: '100%',
-                                height: '100%'
-                            }}
-                            title="iPhone Emulator"
-                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                        />
+                        <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📱</div>
+                            <div>iPhone Emulator Running</div>
+                            <div style={{ fontSize: '11px', opacity: 0.6, marginTop: '8px' }}>
+                                Native Flutter window opened separately
+                            </div>
+                            <div style={{ fontSize: '10px', color: '#888', marginTop: '16px' }}>
+                                Check your taskbar for the iPhone Simulator window
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
