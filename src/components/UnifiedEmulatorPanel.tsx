@@ -2,6 +2,7 @@ import React from 'react';
 import { useStore } from '../store';
 import EmulatorPanel from './EmulatorPanel';
 import IPhoneEmulatorPanel from './IPhoneEmulatorPanel';
+import VisionPanel from './VisionPanel';
 
 /**
  * Unified Emulator Panel
@@ -81,12 +82,39 @@ const UnifiedEmulatorPanel: React.FC = () => {
                 >
                     🍎 iPhone
                 </button>
+                <button
+                    onClick={() => useStore.getState().setEmulatorPanelPosition('vision')}
+                    style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        background: activeEmulator === 'vision'
+                            ? 'var(--vscode-button-background)'
+                            : 'transparent',
+                        color: activeEmulator === 'vision'
+                            ? 'var(--vscode-button-foreground)'
+                            : 'var(--vscode-descriptionForeground)',
+                        border: 'none',
+                        borderBottom: activeEmulator === 'vision'
+                            ? '2px solid var(--vscode-button-background)'
+                            : '2px solid transparent',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px'
+                    }}
+                >
+                    👁️ Vision
+                </button>
             </div>
 
             {/* Emulator content */}
             <div style={{ flex: 1, overflow: 'hidden' }}>
                 {activeEmulator === 'android' && <EmulatorPanel />}
                 {activeEmulator === 'iphone' && <IPhoneEmulatorPanel />}
+                {activeEmulator === 'vision' && <VisionPanel />}
             </div>
         </div>
     );

@@ -104,6 +104,9 @@ use scrcpy::{
     spawn_emulator_headless,
 };
 
+mod vision;
+use vision::{analyze_screen, capture_screen};
+
 #[allow(dead_code)]
 extern "system" {
     fn GetCurrentProcess() -> isize;
@@ -3590,6 +3593,9 @@ pub fn run() {
             send_emulator_text,
             send_emulator_key,
             get_scrcpy_status,
+            // vision commands
+            airi_vision_analyze_screen,
+            airi_vision_capture_screen,
             set_ai_model,
             set_advisor_model,
             list_mcp_servers,

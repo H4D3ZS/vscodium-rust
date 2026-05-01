@@ -61,11 +61,12 @@ tracing-chrome = "0.7.2"
 warp = "0.3"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = "0.4"
+image = "0.24"
+screenshots = "0.8"
 libaim = { path = "../kortex/libaim" }
 daemon = { path = "../kortex/daemon" }
 candle-core = "=0.7.1"
 half = { version = "=2.3.1", default-features = false, features = ["num-traits", "rand_distr"] }
-image = "0.24"
 which = "6.0"
 diffy = "0.3"
 notify = "6.1"
