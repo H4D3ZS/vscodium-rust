@@ -930,12 +930,12 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
             ]);
 
             // Update UI with response
-            store.setIsAgentThinking(false);
-            store.updateLastAgentMessage(response.response || '');
+            store.getState().setIsAgentThinking(false);
+            store.getState().updateLastAgentMessage(response.response || '');
             return;
         } catch (error: any) {
             console.error('[HADES-Ollama] Error:', error);
-            store.setIsAgentThinking(false);
+            store.getState().setIsAgentThinking(false);
             
             // Better error messages
             let errorMsg = `**HADES-Ollama Error:** ${error.message}`;
@@ -945,7 +945,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
                 errorMsg += `\n\n**Cannot connect to Ollama!**\n\nMake sure SSH tunnel is running:\n\`\`\`bash\nssh -L 11434:localhost:11434 root@your-cloud-ip\n\`\`\``;
             }
             
-            store.updateLastAgentMessage(errorMsg);
+            store.getState().updateLastAgentMessage(errorMsg);
             return;
         }
     }
