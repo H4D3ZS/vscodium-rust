@@ -113,6 +113,7 @@ import {
 } from './relationship-memory';
 import { airiSafetyProtocol, AIRISafetyProtocol } from './safety-protocol';
 import { airiVoiceInteraction, AIRIVoiceInteraction } from './voice-interaction';
+import { initializeVoice } from './voice-manager';
 import { airiSystemAccess, AIRISystemAccess } from './system-access';
 import { Ollama } from 'ollama';
 import { invoke } from '../tauri_bridge';

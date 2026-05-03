@@ -50,21 +50,51 @@ fn get_emulator_cmd() -> Command {
     Command::new(format!("{}\\emulator\\emulator.exe", get_android_sdk_path()))
 }
 
-/// Minimize emulator window by title
+/// Minimize emulator window by title or class
 fn minimize_emulator_window() {
     #[cfg(target_os = "windows")] {
         use std::ffi::CString;
-        use windows::Win32::UI::WindowsAndMessaging::{FindWindowA, ShowWindow, SW_MINIMIZE, SW_SHOWMINIMIZED};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            FindWindowA, GetWindowTextA, GetWindowTextLengthA, ShowWindow, SW_HIDE, SW_MINIMIZE
+        };
         use windows::Win32::Foundation::HWND;
         use windows::core::PCSTR;
-        let titles = ["Android Emulator", "Emulator", "Pixel", "Nexus"];
-        for title in &titles {
+
+        let target_titles = [
+            "Android Emulator", "Emulator", "Pixel", "Nexus",
+            "emu", "Emulator", "QEMU", "Virtual Device"
+        ];
+
+        // First try FindWindowA with class names (more reliable than titles)
+        let classes = ["Qt5QWindowIcon", "Qt5QWindow", "AndroidEmulator", "emulator"];
+        for cls in &classes {
+            if let Ok(c_cls) = CString::new(*cls) {
+                unsafe {
+                    if let Ok(hwnd) = FindWindowA(
+                        PCSTR::from_raw(c_cls.as_ptr() as *const u8),
+                        PCSTR::null()
+                    ) {
+                        if hwnd != HWND::default() {
+                            let _ = ShowWindow(hwnd, SW_HIDE);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: try title match
+        for title in &target_titles {
             if let Ok(c_title) = CString::new(*title) {
                 unsafe {
-                    if let Ok(hwnd) = FindWindowA(PCSTR::null(), PCSTR::from_raw(c_title.as_ptr() as *const u8)) {
+                    if let Ok(hwnd) = FindWindowA(
+                        PCSTR::null(),
+                        PCSTR::from_raw(c_title.as_ptr() as *const u8)
+                    ) {
                         if hwnd != HWND::default() {
                             let _ = ShowWindow(hwnd, SW_MINIMIZE);
-                            break;
+                            return;
                         }
                     }
                 }
@@ -166,7 +196,8 @@ pub async fn spawn_emulator_by_name(avd_name: String) -> Result<String, String> 
         "-netdelay", "none",
         "-netspeed", "full",
         "-no-audio",
-        "-no-window",  // KEY: headless mode, no separate window
+        "-port", "5554",
+        "-ports", "5554,5555",
     ]).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
         Ok(child) => {
             EMULATOR_RUNNING.store(true, Ordering::SeqCst);
@@ -259,38 +290,56 @@ pub async fn start_emulator_stream(app: AppHandle, _device_id: String) -> Result
                 continue;
             }
 
+            // Periodically re-hide any emulator window (runs every ~5s)
+            if FRAME_COUNT.load(Ordering::SeqCst) % 50 == 0 {
+                minimize_emulator_window();
+            }
+
             // Capture via ADB screencap (built into Android SDK, no external deps)
             let mut adb = get_adb_cmd();
             adb.args(&["-s", device, "exec-out", "screencap", "-p"]);
             
-            if let Ok(output) = adb.output() {
-                if output.status.success() && !output.stdout.is_empty() {
-                    let b64 = BASE64.encode(&output.stdout);
-                    last_frame = std::time::Instant::now();
+            match adb.output() {
+                Ok(output) => {
+                    if output.status.success() && !output.stdout.is_empty() {
+                        consecutive_failures = 0;
+                        let b64 = BASE64.encode(&output.stdout);
+                        last_frame = std::time::Instant::now();
 
-                    // Parse width/height from PNG header (first 24 bytes)
-                    let (w, h) = if output.stdout.len() > 24 {
-                        // PNG IHDR chunk: bytes 16-19 = width, 20-23 = height (big-endian)
-                        let w = u32::from_be_bytes([output.stdout[16], output.stdout[17], output.stdout[18], output.stdout[19]]);
-                        let h = u32::from_be_bytes([output.stdout[20], output.stdout[21], output.stdout[22], output.stdout[23]]);
-                        (w, h)
-                    } else { (1080u32, 1920u32) };
+                        let (w, h) = if output.stdout.len() > 24 {
+                            let w = u32::from_be_bytes([output.stdout[16], output.stdout[17], output.stdout[18], output.stdout[19]]);
+                            let h = u32::from_be_bytes([output.stdout[20], output.stdout[21], output.stdout[22], output.stdout[23]]);
+                            (w, h)
+                        } else { (1080u32, 1920u32) };
 
-                    let _ = app_clone.emit("emulator:frame", serde_json::json!({
-                        "base64": b64,
-                        "width": w,
-                        "height": h,
-                        "format": "png",
-                        "frame": FRAME_COUNT.fetch_add(1, Ordering::SeqCst),
-                        "timestamp": std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
-                    }));
-                    continue;
+                        let _ = app_clone.emit("emulator:frame", serde_json::json!({
+                            "base64": b64,
+                            "width": w,
+                            "height": h,
+                            "format": "png",
+                            "frame": FRAME_COUNT.fetch_add(1, Ordering::SeqCst),
+                            "timestamp": std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+                        }));
+                        continue;
+                    }
+                    consecutive_failures += 1;
+                    if consecutive_failures == 1 || consecutive_failures % 20 == 0 {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        println!("[EmulatorStream] ADB screencap attempt {}: status={}, stderr='{}'",
+                            consecutive_failures, output.status, stderr.trim());
+                    }
+                }
+                Err(e) => {
+                    consecutive_failures += 1;
+                    if consecutive_failures == 1 || consecutive_failures % 20 == 0 {
+                        println!("[EmulatorStream] ADB connection failed (attempt {}): {}", consecutive_failures, e);
+                    }
                 }
             }
 
-            // If adb fails (emulator not ready), wait and retry
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let delay = std::cmp::min(500 * (1 + consecutive_failures / 10), 2000);
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
         }
     });
 
