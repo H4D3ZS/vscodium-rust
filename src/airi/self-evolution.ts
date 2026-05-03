@@ -154,7 +154,7 @@ Respond with just a number 0-100.
     
     try {
       await this.ollama.generate({
-        model: 'airi-personality',
+        model: 'llama3.2:3b',
         prompt: 'Test',
         stream: false
       });
@@ -364,7 +364,7 @@ CODE: [new code]
     try {
       // Test core systems
       await this.ollama.generate({
-        model: 'airi-personality',
+        model: 'llama3.2:3b',
         prompt: 'System self-test. Respond with "OK" if systems nominal.',
         stream: false
       });

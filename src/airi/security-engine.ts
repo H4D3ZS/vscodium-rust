@@ -30,10 +30,25 @@ export interface SecurityFinding {
 export class AIRISecurityEngine {
   private ollama: Ollama;
   private mode: SecurityMode = 'passive';
+  private running = false;
   private readonly MODEL = 'qwen3.6:14b-q4_K_M';
 
   constructor() {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'http://localhost:11434' });
+  }
+
+  start(): void {
+    if (this.running) return;
+    this.running = true;
+    console.log('[Security] ✅ AIRI Security Engine started');
+  }
+
+  stop(): void {
+    this.running = false;
+  }
+
+  isRunning(): boolean {
+    return this.running;
   }
 
   /**

@@ -37,7 +37,7 @@ export class AIRIInteractive {
   private ollama: Ollama;
   private interactionHistory: Interaction[];
   private activeConversation: Interaction[];
-  private readonly MODEL = 'airi-personality';
+  private readonly MODEL = 'llama3.2:3b';
   private isResponding: boolean = false;
   private interactionCallbacks: Map<string, (response: string) => void>;
 

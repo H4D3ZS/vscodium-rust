@@ -89,6 +89,7 @@ export const AiriOverlay: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        const subs: (() => void)[] = [];
         // Listen to Rust AIRI events (new unified event bus)
         listen<any>('airi:vision_frame', (e) => {
             const { analysis } = e.payload;

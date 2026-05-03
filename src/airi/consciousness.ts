@@ -52,7 +52,7 @@ export class AIRIConsciousness {
   private ollama: Ollama;
   private state: ConsciousnessState;
   private thoughtInterval: NodeJS.Timeout | null = null;
-  private readonly MODEL = 'airi-personality';
+  private readonly MODEL = 'llama3.2:3b'; // Change to your pulled model; use `ollama pull llama3.2:3b`
 
   constructor() {
     this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
