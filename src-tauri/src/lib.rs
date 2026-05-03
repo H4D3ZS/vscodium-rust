@@ -399,7 +399,7 @@ impl EditorState {
             activation_manager: Arc::new(tokio::sync::Mutex::new(ActivationManager::new())),
             perf_monitor: Arc::new(PerformanceMonitor::new()),
             ai_engine: sentient.clone(),
-            ollama_url: tokio::sync::Mutex::new("http://127.0.0.1:1536".to_string()),
+            ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
             config_dir: config_dir.clone(),
             active_root: tokio::sync::Mutex::new(Some(root)),
             current_model: tokio::sync::Mutex::new("gpt-4o".to_string()),
