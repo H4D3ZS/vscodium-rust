@@ -18,13 +18,39 @@ static FRAME_COUNT: AtomicUsize = AtomicUsize::new(0);
 static CAPTURE_TASK: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new(None);
 
 fn get_android_sdk_path() -> String {
+    // Try environment variables first
     if let Ok(sdk_home) = std::env::var("ANDROID_HOME") {
-        return sdk_home;
+        if std::path::Path::new(&sdk_home).exists() {
+            return sdk_home;
+        }
     }
     if let Ok(sdk_root) = std::env::var("ANDROID_SDK_ROOT") {
-        return sdk_root;
+        if std::path::Path::new(&sdk_root).exists() {
+            return sdk_root;
+        }
     }
-    "C:\\Users\\HADES\\AppData\\Local\\Android\\Sdk".to_string()
+
+    // Try common locations
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+
+    let locations = vec![
+        format!("{}\\AppData\\Local\\Android\\Sdk", home),
+        format!("{}\\Android\\Sdk", home),
+        "C:\\Android\\Sdk".to_string(),
+        "C:\\Program Files\\Android\\Sdk".to_string(),
+        "C:\\Program Files (x86)\\Android\\Sdk".to_string(),
+    ];
+
+    for loc in &locations {
+        if std::path::Path::new(loc).exists() {
+            return loc.clone();
+        }
+    }
+
+    // Fallback
+    locations[0].clone()
 }
 
 fn get_avdmanager_cmd() -> Command {
@@ -97,23 +123,165 @@ pub async fn list_available_avds() -> Result<Vec<AndroidVirtualDevice>, String> 
     Ok(avds)
 }
 
+/// Create a new Android Virtual Device
+#[tauri::command]
+pub async fn create_avd(
+    name: String,
+    device: Option<String>,
+    image: Option<String>,
+) -> Result<String, String> {
+    let device = device.unwrap_or_else(|| "pixel_4".to_string());
+    let image = image.unwrap_or_else(|| "system-images;android-34;google_apis_playstore;x86_64".to_string());
+
+    let mut cmd = get_avdmanager_cmd();
+    cmd.args(&[
+        "create", "avd",
+        "-n", &name,
+        "-k", &image,
+        "-d", &device,
+        "-f",
+    ]);
+
+    let output = cmd.output()
+        .map_err(|e| format!("Failed to run avdmanager: {}", e))?;
+
+    if output.status.success() {
+        Ok(format!("AVD '{}' created successfully! (device: {}, image: {})", name, device, image))
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Err(format!(
+            "Failed to create AVD: {}\n{}\n\nMake sure the system image exists:\n  sdkmanager \"{}\"",
+            stderr, stdout, image
+        ))
+    }
+}
+
 #[tauri::command]
 pub async fn spawn_emulator_by_name(avd_name: String) -> Result<String, String> {
-    let mut cmd = get_emulator_cmd();
-    cmd.args(&["-avd", &avd_name, "-no-audio", "-gpu", "host"]);
-    cmd.stdout(Stdio::null()).stderr(Stdio::null())
-        .spawn().map_err(|e| format!("Failed to spawn emulator: {}", e))?;
-    EMULATOR_RUNNING.store(true, Ordering::SeqCst);
-    for _ in 0..30 {
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        let mut adb = get_adb_cmd(); adb.arg("devices");
-        if let Ok(out) = adb.output() {
-            if String::from_utf8_lossy(&out.stdout).contains("emulator-") {
-                return Ok(format!("Emulator '{}' started successfully!", avd_name));
+    if EMULATOR_RUNNING.load(Ordering::SeqCst) {
+        return Ok("Emulator already running".to_string());
+    }
+
+    // Check ADB is available
+    let adb_path = get_adb_cmd()
+        .get_program()
+        .to_string_lossy()
+        .to_string();
+    if !std::path::Path::new(&adb_path).exists() {
+        return Err(format!(
+            "ADB not found at '{}'. Make sure Android SDK is installed and ANDROID_HOME is set.",
+            adb_path
+        ));
+    }
+
+    // Check AVD exists
+    let avds = list_available_avds().await?;
+    if !avds.iter().any(|a| a.name == avd_name) {
+        return Err(format!(
+            "AVD '{}' not found. Available: {}. Create one with: avdmanager create avd -n \"{}\" -k \"system-images;android-34;google_apis_playstore;x86_64\" -d \"pixel_4\"",
+            avd_name,
+            avds.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", "),
+            avd_name
+        ));
+    }
+
+    let emulator_path = format!("{}\\emulator\\emulator.exe", get_android_sdk_path());
+    if !std::path::Path::new(&emulator_path).exists() {
+        return Err(format!("Emulator not found at '{}'", emulator_path));
+    }
+
+    // Start emulator with MAXIMUM compatibility:
+    // - NO -no-window (we NEED the window for BitBlt capture)
+    // - swiftshader_indirect GPU for AMD/Intel/NVIDIA compatibility
+    // - No snapshot to force clean boot
+    // - Show kernel boot for debugging
+    println!("[Emulator] Starting AVD '{}'...", avd_name);
+    let mut cmd = Command::new(&emulator_path);
+    cmd.args(&[
+        "-avd", &avd_name,
+        "-no-audio",
+        "-gpu", "swiftshader_indirect",
+        "-no-snapshot",
+        "-show-kernel",
+        "-memory", "2048",
+        "-cores", "4",
+        "-wipe-data",
+        "-netdelay", "none",
+        "-netspeed", "full",
+        "-no-boot-anim",
+        "-screen", "touch",
+    ]);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+
+    match cmd.spawn() {
+        Ok(child) => {
+            EMULATOR_RUNNING.store(true, Ordering::SeqCst);
+            println!("[Emulator] AVD '{}' spawned (PID: {})", avd_name, child.id());
+
+            // Wait for emulator to boot - poll adb for 'device' state (not just 'emulator-')
+            let start_time = std::time::Instant::now();
+            let max_wait = std::time::Duration::from_secs(180); // 3 minutes max
+            let device_id = format!("emulator-5554");
+
+            while start_time.elapsed() < max_wait {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+                let mut adb = get_adb_cmd();
+                adb.args(&["-s", &device_id, "get-state"]);
+                if let Ok(out) = adb.output() {
+                    let state = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if state == "device" {
+                        let elapsed = start_time.elapsed().as_secs();
+                        println!("[Emulator] AVD '{}' booted in {}s!", avd_name, elapsed);
+                        return Ok(format!(
+                            "Emulator '{}' booted in {}s! Device ID: {}",
+                            avd_name, elapsed, device_id
+                        ));
+                    }
+                }
+
+                // Also check if adb devices shows it
+                let mut adb2 = get_adb_cmd();
+                adb2.arg("devices");
+                if let Ok(out) = adb2.output() {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    if stdout.contains(&device_id) && stdout.contains("device") {
+                        let elapsed = start_time.elapsed().as_secs();
+                        println!("[Emulator] AVD '{}' online in {}s", avd_name, elapsed);
+                        return Ok(format!(
+                            "Emulator '{}' online in {}s! Device ID: {}",
+                            avd_name, elapsed, device_id
+                        ));
+                    }
+                }
+            }
+
+            // If we get here, emulator is running but not fully booted
+            Ok(format!(
+                "Emulator '{}' is starting (may take longer to boot). Check AVD Manager for status.",
+                avd_name
+            ))
+        }
+        Err(e) => {
+            EMULATOR_RUNNING.store(false, Ordering::SeqCst);
+            let error_detail = format!("{}", e);
+
+            // Provide helpful error messages
+            if error_detail.contains("2") || error_detail.contains("No such file") {
+                Err(format!(
+                    "Emulator executable not found at '{}'. Check Android SDK installation.",
+                    emulator_path
+                ))
+            } else if error_detail.contains("Access is denied") {
+                Err(format!(
+                    "Access denied running emulator. Try running as Administrator, or check if another emulator instance is running (taskkill /F /IM emulator.exe)."
+                ))
+            } else {
+                Err(format!("Failed to spawn emulator: {}", e))
             }
         }
     }
-    Ok(format!("Emulator '{}' is starting (may take longer to boot)", avd_name))
 }
 
 #[tauri::command]

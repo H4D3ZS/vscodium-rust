@@ -84,6 +84,7 @@ use debug_adapter::DebugManager;
 
 mod emulator_stream;
 use emulator_stream::{
+    create_avd,
     list_available_avds,
     spawn_emulator_by_name,
     list_running_emulators,
@@ -3587,8 +3588,9 @@ pub fn run() {
             adb_list_devices,
             adb_list_emulators,
             spawn_emulator,
-            set_active_device,
-            list_available_avds,
+             set_active_device,
+             create_avd,
+             list_available_avds,
             spawn_emulator_by_name,
             list_running_emulators,
             start_emulator_stream,
