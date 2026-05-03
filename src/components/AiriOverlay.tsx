@@ -101,7 +101,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 4000
                 });
             }
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('airi:phase_wrap', (e) => {
             const reports = e.payload?.reports || [];
@@ -113,7 +113,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('airi:edit_proposed', (e) => {
             const { file, description } = e.payload;
@@ -123,7 +123,7 @@ export const AiriOverlay: React.FC = () => {
                 type: 'suggestion',
                 ttl: 5000
             });
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('airi:edit_committed', (e) => {
             const { file, success } = e.payload;
@@ -136,7 +136,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('airi:error_detected', (e) => {
             const { errors } = e.payload;
@@ -153,7 +153,7 @@ export const AiriOverlay: React.FC = () => {
                     }
                 });
             }
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('airi:thought', (e) => {
             // Dedupe frequent thoughts — only show significant ones
@@ -168,7 +168,7 @@ export const AiriOverlay: React.FC = () => {
                 type: t.type === 'warning' ? 'warning' : 'action',
                 ttl: 4000
             });
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('ai-tool-result', (e) => {
             const name = e.payload?.name;
@@ -177,7 +177,7 @@ export const AiriOverlay: React.FC = () => {
                     ? { ...a, status: 'done' }
                     : a
             ));
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('hades://verity', (e) => {
             const score = e.payload?.score ?? 1.0;
@@ -194,7 +194,7 @@ export const AiriOverlay: React.FC = () => {
                 setMood(prev => prev === 'coding' ? 'success' : prev);
                 setTimeout(() => setMood('idle'), 2000);
             }
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('ai-content', (e) => {
             const content: string = e.payload?.content || '';
@@ -211,7 +211,7 @@ export const AiriOverlay: React.FC = () => {
                     setLiveActions([]);
                 }, 3000);
             }
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('task-phase-update', (e) => {
             const phase = e.payload?.phase;
@@ -224,7 +224,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('memory-update', (e) => {
             const slots = e.payload?.slots ?? 0;
@@ -236,7 +236,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         // Capture streaming text for the thought bubble
         let streamBuf = '';
@@ -253,12 +253,12 @@ export const AiriOverlay: React.FC = () => {
                     .trim();
                 setThinkingText(cleaned.slice(-90));
             }
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('ai-content', () => {
             streamBuf = '';
             setThinkingText('');
-        }).then(u => subs.push(u));
+        }).then(u => subs.push(u)).catch(() => {});
 
         return () => subs.forEach(u => u());
     }, [addThought]);

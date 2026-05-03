@@ -81,6 +81,13 @@ export class AIRIConsciousness {
     this.startConsciousnessLoop();
   }
 
+  start(): void {
+    if (!this.state.isAwake) {
+      this.state.isAwake = true;
+      this.startConsciousnessLoop();
+    }
+  }
+
   /**
    * Check screen using HADES Vision (real-time framebuffer streaming)
    */
