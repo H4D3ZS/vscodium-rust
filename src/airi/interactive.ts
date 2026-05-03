@@ -9,7 +9,7 @@ import { Ollama } from 'ollama';
 import { airiBiology } from './biology';
 import { airiConsciousness } from './consciousness';
 import { airiMemory } from './memory';
-import { airiBrain } from './digital-brain';
+import { airiDigitalBrain as airiBrain } from './digital-brain';
 import { speak, isVoiceReady } from './voice-manager';
 
 export interface Interaction {

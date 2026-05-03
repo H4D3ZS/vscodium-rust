@@ -72,7 +72,7 @@ export class AIRIVRMAvatar {
       // Setup renderer
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.renderer.setPixelRatio(window.devicePixelRatio);
-      this.renderer.outputEncoding = THREE.sRGBEncoding;
+      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       document.body.appendChild(this.renderer.domElement);
 
       // Setup camera

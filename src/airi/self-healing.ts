@@ -541,3 +541,6 @@ FIX: [the fix]
 export function createSelfHealing(workspacePath: string): AIRISelfHealing {
   return new AIRISelfHealing(workspacePath);
 }
+
+// Export singleton instance (uses current working directory)
+export const airiSelfHealing = createSelfHealing(process.cwd());

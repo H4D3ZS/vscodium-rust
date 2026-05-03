@@ -88,27 +88,86 @@ export const AiriOverlay: React.FC = () => {
         if (timer) { clearTimeout(timer); thoughtTimers.current.delete(id); }
     }, []);
 
-    // Listen to Rust events
     useEffect(() => {
-        const subs: (() => void)[] = [];
+        // Listen to Rust AIRI events (new unified event bus)
+        listen<any>('airi:vision_frame', (e) => {
+            const { analysis } = e.payload;
+            if (analysis?.code?.errors?.length) {
+                setMood('error');
+                addThought({
+                    id: `vision-err-${Date.now()}`,
+                    text: `👁️ Vision: ${analysis.code.errors[0].substring(0, 60)}`,
+                    type: 'warning',
+                    ttl: 4000
+                });
+            }
+        }).then(u => subs.push(u));
 
-        listen<any>('ai-tool-call', (e) => {
-            const name = e.payload?.name || 'unknown';
-            const label = TOOL_LABELS[name] || name.replace(/_/g, ' ');
-            const icon = TOOL_ICONS[name] || '⚙️';
-            const id = `action-${Date.now()}`;
-            setLiveActions(prev => [{
-                id, tool: name,
-                label: `${icon} ${label}`,
-                status: 'running' as const,
-                detail: e.payload?.args ? (
-                    typeof e.payload.args === 'string'
-                        ? e.payload.args.slice(0, 60)
-                        : JSON.stringify(e.payload.args).slice(0, 60)
-                ) : undefined
-            }, ...prev].slice(0, 6));
-            setMood('coding');
-            setPulseCount(n => n + 1);
+        listen<any>('airi:phase_wrap', (e) => {
+            const reports = e.payload?.reports || [];
+            if (reports.length > 0) {
+                addThought({
+                    id: `phase-${Date.now()}`,
+                    text: `💭 Phase-Wrap: ${reports[0].summary?.substring(0, 60) || 'Reflection complete'}`,
+                    type: 'action',
+                    ttl: 3000
+                });
+            }
+        }).then(u => subs.push(u));
+
+        listen<any>('airi:edit_proposed', (e) => {
+            const { file, description } = e.payload;
+            addThought({
+                id: `edit-prop-${Date.now()}`,
+                text: `✏️ Edit proposed: ${description?.substring(0, 50)}`,
+                type: 'suggestion',
+                ttl: 5000
+            });
+        }).then(u => subs.push(u));
+
+        listen<any>('airi:edit_committed', (e) => {
+            const { file, success } = e.payload;
+            if (success) {
+                setMood('success');
+                addThought({
+                    id: `edit-ok-${Date.now()}`,
+                    text: `✅ Edit applied to ${file?.split('/').pop()}`,
+                    type: 'success',
+                    ttl: 3000
+                });
+            }
+        }).then(u => subs.push(u));
+
+        listen<any>('airi:error_detected', (e) => {
+            const { errors } = e.payload;
+            if (errors?.length) {
+                setMood('error');
+                addThought({
+                    id: `err-${Date.now()}`,
+                    text: `⚠️ Detected: ${errors[0].substring(0, 60)}`,
+                    type: 'warning',
+                    ttl: 5000,
+                    actionLabel: 'Fix',
+                    action: () => {
+                        // Trigger self-healing
+                    }
+                });
+            }
+        }).then(u => subs.push(u));
+
+        listen<any>('airi:thought', (e) => {
+            // Dedupe frequent thoughts — only show significant ones
+            const t = e.payload;
+            if (t?.type === 'observation' && t.content?.includes('👁️ Vision:')) {
+                // Low-priority visual observation, don't clutter overlay
+                return;
+            }
+            addThought({
+                id: `thought-${Date.now()}`,
+                text: t.content?.substring(0, 80) || 'Thinking...',
+                type: t.type === 'warning' ? 'warning' : 'action',
+                ttl: 4000
+            });
         }).then(u => subs.push(u));
 
         listen<any>('ai-tool-result', (e) => {

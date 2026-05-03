@@ -3604,10 +3604,13 @@ pub fn run() {
             send_emulator_text,
             send_emulator_key,
             get_scrcpy_status,
-            // AIRI Vision - Real-time screen awareness
-            airi_vision_analyze_screen,
-            airi_vision_capture_screen,
-            // HADES Vision - Continuous framebuffer streaming
+             // AIRI Vision - Real-time screen awareness
+             airi_vision_analyze_screen,
+             airi_vision_capture_screen,
+             // AIRI Event Broadcast
+             airi_broadcast,
+             call_tool,
+             // HADES Vision - Continuous framebuffer streaming
             hades_vision_get_current_view,
             hades_vision_get_temporal_analysis,
             hades_vision_switch_to_cloud,
@@ -4862,5 +4865,31 @@ async fn git_auto_checkpoint(
         "checkpoint": result,
         "created": result.is_some()
     }))
+}
+
+/// Broadcast an event to the frontend HUD
+#[tauri::command]
+async fn airi_broadcast(
+    app: tauri::AppHandle,
+    event: String,
+    payload: Option<Value>,
+) -> Result<(), String> {
+    let payload = payload.unwrap_or(serde_json::json!({}));
+    app.emit(&event, &payload)
+        .map_err(|e| format!("Failed to broadcast: {}", e))?;
+    Ok(())
+}
+
+/// Execute an AI tool by name with arguments (used by frontend invoke('call_tool', ...))
+#[tauri::command]
+async fn call_tool(
+    state: State<'_, EditorState>,
+    name: String,
+    arguments: Value,
+) -> Result<Value, String> {
+    state.ai_tools
+        .call_tool(&name, arguments.clone())
+        .await
+        .map_err(|e| e.to_string())
 }
 

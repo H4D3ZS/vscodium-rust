@@ -38,7 +38,7 @@ export interface RelationshipProfile {
         name: string;
         workingStyle: string;
         communicationPreferences: string[];
-        pet peeves: string[];
+        "pet peeves": string[];
     };
     
     // AIRI's feelings

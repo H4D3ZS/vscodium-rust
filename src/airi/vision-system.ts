@@ -1,260 +1,216 @@
 /**
  * AIRI Vision System
- * 
- * Real-time emulator capture, Moondream vision analysis,
- * and visual verification with thermal integration.
+ * Real-time desktop capture with Qwen2.5-VL analysis for error detection
  */
 
-import { spawn, ChildProcess } from 'child_process';
-import { EventEmitter } from 'events';
 import { invoke } from '@tauri-apps/api/core';
+import { VisionAnalyzer } from './vision-analysis';
 
 export interface VisionConfig {
-  emulatorPort: number;
   captureFps: number;
   diffThreshold: number;
   thermalThrottleTemp: number;
-  model: string;  // 'moondream'
+  enableStreaming: boolean;
+  maxBufferSize: number;
+  ollamaHost: string;
 }
 
 export interface FrameData {
-  buffer: Buffer;
+  buffer: string; // base64 PNG
   timestamp: number;
   width: number;
   height: number;
-  format: 'yuv' | 'rgb';
+  format: 'png' | 'jpeg';
+  analysis?: any;
 }
 
-export interface VisionResponse {
-  answer: string;
-  description: string;
-  confidence: number;
-  timestamp: number;
+export interface VisionAnalysis {
+  code?: { language: string | null; function: string | null; snippet: string | null; errors: string[] };
+  ui?: { panels: string[]; activeFile: string | null; lineNumbers: { start: number; end: number } | null };
+  attention?: { focus: string; reason: string };
 }
 
-export interface VerificationResult {
-  passed: boolean;
-  description: string;
-  confidence: number;
-  error?: string;
-}
-
-export class AIRIVisionSystem extends EventEmitter {
+export class AIRIVisionSystem {
   private config: VisionConfig;
-  private scrcpy: ChildProcess | null = null;
   private frameBuffer: FrameData[] = [];
-  private currentFps: number = 10;
   private isRunning: boolean = false;
-  private captureInterval: NodeJS.Timeout | null = null;
+  private captureTimer: NodeJS.Timeout | null = null;
+  private analysisQueue: FrameData[] = [];
+  private isAnalyzing: boolean = false;
+  private lastAnalysisTime: number = 0;
+  private readonly ANALYSIS_INTERVAL_MS = 150;
+  private listeners = new Map<string, Array<(data: any) => void>>();
+  private regionsOfInterest: Array<{ name: string; x: number; y: number; w: number; h: number; priority: number }> = [
+    { name: 'editor', x: 0, y: 0, w: 1920, h: 1080, priority: 10 },
+  ];
 
-  constructor(config: Partial<VisionConfig> = {}) {
-    super();
-    
-    this.config = {
-      emulatorPort: config.emulatorPort || 5555,
+  on(event: string, callback: (data: any) => void): void {
+    if (!this.listeners.has(event)) this.listeners.set(event, []);
+    this.listeners.get(event)!.push(callback);
+  }
+
+  private emit(event: string, data: any): void {
+    this.listeners.get(event)?.forEach(fn => fn(data));
+  }
+
+   constructor(config: Partial<VisionConfig> = {}) {
+     this.config = {
       captureFps: config.captureFps || 10,
-      diffThreshold: config.diffThreshold || 0.05,
+      diffThreshold: config.diffThreshold || 0.02,
       thermalThrottleTemp: config.thermalThrottleTemp || 72,
-      model: config.model || 'moondream',
+      enableStreaming: config.enableStreaming ?? true,
+      maxBufferSize: config.maxBufferSize || 30,
+      ollamaHost: config.ollamaHost || 'http://localhost:11434',
     };
-
   }
 
-  /**
-   * Start vision capture
-   */
   async start(): Promise<void> {
-    if (this.isRunning) {
-      console.warn('[AIRI Vision] Already running');
-      return;
+    if (this.isRunning) return;
+    try {
+      // Test capture capability by attempting a single capture
+      await invoke<number[]>('airi_vision_capture_screen');
+      this.isRunning = true;
+      this.startCaptureLoop();
+      console.log(`[AIRI Vision] ✅ Started (${this.config.captureFps} FPS)`);
+    } catch (error: any) {
+      console.error('[AIRI Vision] ❌ Failed:', error.message);
+      throw error;
     }
-
-
-    // Start scrcpy stream
-    this.scrcpy = spawn('scrcpy', [
-      '--no-display',
-      '--no-control',
-      '--no-audio',
-      '--bit-rate', '2M',
-      '--max-fps', this.config.captureFps.toString(),
-      '--tcpip=5555',
-    ]);
-
-    this.scrcpy.stdout.on('data', (data: Buffer) => {
-      this.onFrameReceived(data);
-    });
-
-    this.scrcpy.stderr.on('data', (data: Buffer) => {
-      console.error('[AIRI Vision] scrcpy error:', data.toString());
-    });
-
-    this.scrcpy.on('close', (code) => {
-      this.isRunning = false;
-    });
-
-    // Start thermal management loop
-    this.startThermalManagement();
-
-    this.isRunning = true;
   }
 
-  /**
-   * Stop vision capture
-   */
-  stop(): void {
-    if (this.scrcpy) {
-      this.scrcpy.kill();
-      this.scrcpy = null;
-    }
-
-    if (this.captureInterval) {
-      clearInterval(this.captureInterval);
-      this.captureInterval = null;
-    }
-
-    this.isRunning = false;
+  private startCaptureLoop(): void {
+    const intervalMs = 1000 / this.config.captureFps;
+    this.captureTimer = setInterval(async () => {
+      try { await this.captureAndProcessFrame(); } catch (error) { console.error('[AIRI Vision] Capture error:', error); }
+    }, intervalMs);
   }
 
-  /**
-   * Handle incoming frame
-   */
-  private onFrameReceived(data: Buffer): void {
-    const frame: FrameData = {
-      buffer: data,
-      timestamp: Date.now(),
-      width: 1080,  // Default, can be detected
-      height: 1920,
-      format: 'yuv',
-    };
+  private async captureAndProcessFrame(): Promise<void> {
+    try {
+      const pngBytes = await invoke<number[]>('airi_vision_capture_screen');
+      const buffer = Buffer.from(pngBytes);
+      const base64 = buffer.toString('base64');
+      const frame: FrameData = { buffer: base64, timestamp: Date.now(), width: 1920, height: 1080, format: 'png' };
 
-    this.frameBuffer.push(frame);
+      if (!this.shouldProcessFrame(frame)) {
+        this.frameBuffer.push(frame);
+        if (this.frameBuffer.length > this.config.maxBufferSize) this.frameBuffer.shift();
+        return;
+      }
 
-    // Keep only last 5 frames
-    if (this.frameBuffer.length > 5) {
-      this.frameBuffer.shift();
+      this.frameBuffer.push(frame);
+      if (this.frameBuffer.length > this.config.maxBufferSize) this.frameBuffer.shift();
+      this.analysisQueue.push(frame);
+      this.emit('frame', frame);
+      
+      if (!this.isAnalyzing) this.processAnalysisQueue();
+    } catch (error) {
+      console.error('[AIRI Vision] Capture failed:', error);
     }
-
-    // Emit frame event
-    this.emit('frame', frame);
   }
 
-  /**
-   * Get latest frame
-   */
+  private shouldProcessFrame(current: FrameData): boolean {
+    const previous = this.frameBuffer[this.frameBuffer.length - 1];
+    if (!previous) return true;
+    const diff = this.hammingDistance(current.buffer, previous.buffer);
+    const maxLen = Math.max(current.buffer.length, previous.buffer.length);
+    const changeRatio = diff / (maxLen / 100);
+    return changeRatio > this.config.diffThreshold * 100;
+  }
+
+  private hammingDistance(a: string, b: string): number {
+    let diff = 0;
+    const step = 100;
+    const len = Math.min(a.length, b.length);
+    for (let i = 0; i < len; i += step) if (a[i] !== b[i]) diff++;
+    return diff;
+  }
+
+  private async processAnalysisQueue(): Promise<void> {
+    this.isAnalyzing = true;
+    while (this.analysisQueue.length > 0) {
+      const frame = this.analysisQueue.shift()!;
+      this.lastAnalysisTime = Date.now();
+      try {
+        const { visionAnalyzer } = await import('./vision-analysis');
+        const [codeCtx, errors] = await Promise.all([
+          this.analyzeForCode(frame, visionAnalyzer),
+          this.analyzeForErrors(frame, visionAnalyzer),
+        ]);
+
+        const analysis: VisionAnalysis = {
+          code: {
+            language: this.parseAnswer(codeCtx.answer, 'LANGUAGE'),
+            function: this.parseAnswer(codeCtx.answer, 'FUNCTION'),
+            snippet: this.parseAnswer(codeCtx.answer, 'CODE_SNIPPET'),
+            errors: this.parseErrors(errors.answer),
+          },
+          ui: {
+            panels: ['editor'],
+            activeFile: null,
+            lineNumbers: null,
+          },
+          attention: { focus: null, reason: null },
+        };
+
+        frame.analysis = analysis;
+        this.emit('analysis', { frame, analysis });
+
+        if (analysis.code?.errors?.length > 0) {
+          this.emit('error_detected', { analysis });
+        }
+      } catch (error) {
+        console.error('[AIRI Vision] Analysis failed:', error);
+      }
+    }
+    this.isAnalyzing = false;
+  }
+
+  private async analyzeForCode(frame: FrameData, analyzer: any): Promise<any> {
+    return await analyzer.analyzeFrame(frame, `Code visible? Return:\nLANGUAGE: [lang]\nFUNCTION: [name]\nCODE_SNIPPET: [5 lines]\nERRORS: [list]\nCARET: [cursor pos]`);
+  }
+
+  private async analyzeForErrors(frame: FrameData, analyzer: any): Promise<any> {
+    return await analyzer.analyzeFrame(frame, `Errors/stack traces visible? "YES" + describe or "NO".`);
+  }
+
+  private parseAnswer(text: string, key: string): string | null {
+    const m = text.match(new RegExp(`${key}:\\s*([^\\n]+)`, 'i'));
+    return m ? m[1].trim() : null;
+  }
+
+   private parseErrors(text: string): string[] {
+     if (!text) return [];
+     const lower = text.toLowerCase();
+     // If explicitly says no error, return empty
+     if (lower.includes('no') && lower.length < 20) return [];
+     
+     // Strip leading YES/no confirmation to isolate error description
+     let cleaned = text.trim();
+     if (lower.startsWith('yes')) {
+       // Remove leading YES and any punctuation/whitespace after it
+       cleaned = cleaned.replace(/^yes\s*[:\-]?\s*/i, '');
+     }
+     
+     // If after stripping it's empty, return empty
+     if (!cleaned.trim()) return [];
+     
+     // Return single error message (first non-empty line)
+     const lines = cleaned.split('\n').filter(l => l.trim().length > 0);
+     return [lines[0].trim()].slice(0, 3);
+   }
+
   getLatestFrame(): FrameData | null {
     if (this.frameBuffer.length === 0) return null;
     return this.frameBuffer[this.frameBuffer.length - 1];
   }
 
-  /**
-   * Get previous frame (for diffing)
-   */
-  getPreviousFrame(): FrameData | null {
-    if (this.frameBuffer.length < 2) return null;
-    return this.frameBuffer[this.frameBuffer.length - 2];
-  }
-
-  /**
-   * Check if frame should be processed (diff > threshold)
-   */
-  shouldProcessFrame(current: FrameData, previous: FrameData): boolean {
-    if (!previous) return true;  // No previous frame, always process
-
-    const diff = this.calculateFrameDiff(current.buffer, previous.buffer);
-    const changeRatio = diff / current.buffer.length;
-
-    return changeRatio > this.config.diffThreshold;
-  }
-
-  /**
-   * Calculate pixel diff between two frames
-   */
-  private calculateFrameDiff(a: Buffer, b: Buffer): number {
-    let diffPixels = 0;
-    const sampleRate = 10;  // Check every 10th pixel for speed
-
-    const minLength = Math.min(a.length, b.length);
-
-    for (let i = 0; i < minLength; i += sampleRate) {
-      if (a[i] !== b[i]) {
-        diffPixels++;
-      }
-    }
-
-    return diffPixels;
-  }
-
-  /**
-   * Start thermal management loop
-   */
-  private startThermalManagement(): void {
-    this.captureInterval = setInterval(async () => {
-      await this.updateCaptureRate();
-    }, 2000);  // Check every 2 seconds
-  }
-
-  /**
-   * Update capture rate based on GPU temperature
-   */
-  private async updateCaptureRate(): Promise<void> {
-    try {
-      // Get GPU temperature via Tauri command
-      let temp = 0;
-      try {
-        const telemetry = await invoke<any>('get_gpu_telemetry');
-        temp = telemetry.temperature_c || 0;
-      } catch (e) {
-        // Fallback if command not available
-        console.warn('[AIRI Vision] Could not get GPU telemetry');
-      }
-
-      if (temp >= 80) {
-        // Emergency - stop capture
-        this.currentFps = 0;
-        console.warn('[AIRI Vision] 🔴 Thermal emergency - stopping capture');
-      } else if (temp >= 72) {
-        // Throttle to 1fps
-        this.currentFps = 1;
-      } else if (temp >= 65) {
-        // Reduce to 5fps
-        this.currentFps = 5;
-      } else {
-        // Normal operation
-        this.currentFps = this.config.captureFps;
-      }
-
-      // Update scrcpy FPS (would need to restart stream with new FPS)
-      // For now, just track internally
-      this.emit('fps-change', this.currentFps);
-
-    } catch (error) {
-      console.error('[AIRI Vision] Thermal management error:', error);
-    }
-  }
-
-  /**
-   * Get current FPS
-   */
-  getCurrentFps(): number {
-    return this.currentFps;
-  }
-
-  /**
-   * Get vision system state
-   */
-  getState(): {
-    isRunning: boolean;
-    fps: number;
-    frameCount: number;
-    lastFrameTime: number | null;
-  } {
+  getState(): { isRunning: boolean; fps: number; frameCount: number; lastFrameTime: number | null } {
     return {
       isRunning: this.isRunning,
-      fps: this.currentFps,
+      fps: this.config.captureFps,
       frameCount: this.frameBuffer.length,
-      lastFrameTime: this.frameBuffer.length > 0 
-        ? this.frameBuffer[this.frameBuffer.length - 1].timestamp 
-        : null,
+      lastFrameTime: this.frameBuffer.length > 0 ? this.frameBuffer[this.frameBuffer.length - 1].timestamp : null,
     };
   }
 }
