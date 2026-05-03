@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 static EMULATOR_RUNNING: AtomicBool = AtomicBool::new(false);
+static STREAM_RUNNING: AtomicBool = AtomicBool::new(false);
 static FRAME_COUNT: AtomicUsize = AtomicUsize::new(0);
 static CAPTURE_TASK: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new(None);
 
@@ -242,14 +243,16 @@ pub async fn start_emulator_stream(app: AppHandle, _device_id: String) -> Result
     if CAPTURE_TASK.lock().unwrap().is_some() {
         return Err("Stream already running".to_string());
     }
+    STREAM_RUNNING.store(true, Ordering::SeqCst);
 
     let app_clone = app.clone();
     let handle = tokio::spawn(async move {
         let device = "emulator-5554";
         let mut last_frame = std::time::Instant::now();
         let min_interval = std::time::Duration::from_millis(100); // ~10fps max
+        let mut consecutive_failures = 0;
 
-        while EMULATOR_RUNNING.load(Ordering::SeqCst) {
+        while STREAM_RUNNING.load(Ordering::SeqCst) {
             let now = std::time::Instant::now();
             if now.duration_since(last_frame) < min_interval {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -298,15 +301,20 @@ pub async fn start_emulator_stream(app: AppHandle, _device_id: String) -> Result
 #[tauri::command]
 pub async fn stop_emulator_stream() -> Result<String, String> {
     EMULATOR_RUNNING.store(false, Ordering::SeqCst);
+    STREAM_RUNNING.store(false, Ordering::SeqCst);
     let mut task = CAPTURE_TASK.lock().unwrap();
     if let Some(h) = task.take() { h.abort(); }
     Ok("Stream stopped".to_string())
 }
 
 #[derive(Serialize)]
-pub struct StreamStatus { pub running: bool, pub frame_count: usize }
+pub struct StreamStatus { pub running: bool, pub stream_running: bool, pub frame_count: usize }
 
 #[tauri::command]
 pub fn get_stream_status() -> StreamStatus {
-    StreamStatus { running: EMULATOR_RUNNING.load(Ordering::SeqCst), frame_count: FRAME_COUNT.load(Ordering::SeqCst) }
+    StreamStatus {
+        running: EMULATOR_RUNNING.load(Ordering::SeqCst),
+        stream_running: STREAM_RUNNING.load(Ordering::SeqCst),
+        frame_count: FRAME_COUNT.load(Ordering::SeqCst),
+    }
 }
