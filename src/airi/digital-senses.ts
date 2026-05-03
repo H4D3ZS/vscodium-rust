@@ -148,10 +148,20 @@ export class AIRIDigitalSenses {
    * System perception - CPU, memory, processes
    */
   private async perceiveSystem(): Promise<void> {
-    const systemInfo = {
-      cpu: process.cpuUsage(),
-      memory: process.memoryUsage(),
-      uptime: process.uptime()
+    const startTime = Date.now();
+    const systemInfo: Record<string, any> = {
+      cpu: (performance as any)?.memory ? { user: 0, system: 0 } : { user: 0, system: 0 },
+      memory: typeof process !== 'undefined' && process.memoryUsage
+        ? process.memoryUsage()
+        : { rss: 0, heapTotal: 0, heapUsed: 0, external: 0 },
+      uptime: typeof process !== 'undefined' && process.uptime
+        ? process.uptime()
+        : (Date.now() - startTime) / 1000,
+      performance: {
+        cpuCores: navigator.hardwareConcurrency || 4,
+        memory: (performance as any)?.memory?.usedJSHeapSize || 0,
+        totalJSHeapSize: (performance as any)?.memory?.totalJSHeapSize || 0,
+      }
     };
 
     const systemInput: SensoryInput = {
