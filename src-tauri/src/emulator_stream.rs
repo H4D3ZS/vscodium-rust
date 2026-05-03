@@ -187,7 +187,8 @@ pub async fn spawn_emulator_by_name(avd_name: String) -> Result<String, String> 
     match Command::new(&emu).args(&[
         "-avd", &avd_name,
         "-no-audio",
-        "-gpu", "swiftshader_indirect",
+        "-no-window",              // KEY: NO external window (Android Studio style)
+        "-gpu", "swiftshader_indirect",  // Works on ALL GPUs including AMD
         "-no-snapshot",
         "-memory", "2048",
         "-cores", "4",
@@ -195,7 +196,6 @@ pub async fn spawn_emulator_by_name(avd_name: String) -> Result<String, String> 
         "-screen", "touch",
         "-netdelay", "none",
         "-netspeed", "full",
-        "-no-audio",
         "-port", "5554",
         "-ports", "5554,5555",
     ]).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
