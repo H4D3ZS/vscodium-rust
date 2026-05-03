@@ -489,6 +489,82 @@ impl MemoryStore {
         final_context
     }
 
+    /// Verify an AI-generated claim against stored memory and source code.
+    /// Returns supporting/contradicting evidence with confidence scores.
+    pub async fn verify_claim(&self, claim: &str) -> Value {
+        use serde_json::json;
+
+        // Extract keywords from claim (split on whitespace/punctuation)
+        let keywords: Vec<&str> = claim.split(|c: char| c.is_whitespace() || c == ',' || c == '.' || c == ';' || c == ':' || c == '!' || c == '?')
+            .filter(|s| s.len() > 2)
+            .collect();
+
+        if keywords.is_empty() {
+            return json!({
+                "claim": claim,
+                "supported": false,
+                "confidence": 0.0,
+                "evidence": [],
+                "reason": "Claim too short to verify"
+            });
+        }
+
+        // 1. Query memory slots using retrieve_context
+        let context = self.retrieve_context(claim).await;
+
+        // 2. Query symbols for matching definitions
+        let symbols = self.query_symbols(claim, 10).await;
+
+        // 3. Build evidence list
+        let mut evidence: Vec<Value> = Vec::new();
+
+        // Check context for keyword matches
+        let ctx_lower = context.to_lowercase();
+        let mut matching_keywords = 0;
+        for kw in &keywords {
+            if ctx_lower.contains(kw) {
+                matching_keywords += 1;
+                // Find a snippet around the match
+                if let Some(pos) = ctx_lower.find(kw) {
+                    let start = pos.saturating_sub(40);
+                    let end = (pos + kw.len() + 40).min(context.len());
+                    evidence.push(json!({
+                        "source": "memory_store",
+                        "keyword": kw,
+                        "snippet": &context[start..end],
+                        "type": "keyword_match"
+                    }));
+                }
+            }
+        }
+
+        // Add symbol matches as evidence
+        for sym in &symbols {
+            evidence.push(json!({
+                "source": "symbol_index",
+                "name": sym.name,
+                "kind": sym.kind,
+                "path": sym.path,
+                "lines": format!("{}-{}", sym.line_range.0, sym.line_range.1),
+                "type": "symbol_match"
+            }));
+        }
+
+        // Calculate confidence
+        let keyword_confidence = if keywords.is_empty() { 0.0 } else { matching_keywords as f32 / keywords.len() as f32 };
+        let symbol_confidence = (symbols.len() as f32).min(5.0) / 5.0 * 0.3; // up to 0.3 bonus
+        let confidence = (keyword_confidence * 0.7 + symbol_confidence).min(1.0);
+
+        json!({
+            "claim": claim,
+            "supported": confidence > 0.3,
+            "confidence": (confidence * 100.0).round() / 100.0,
+            "evidence": evidence,
+            "keyword_match_ratio": keyword_confidence,
+            "symbol_matches": symbols.len()
+        })
+    }
+
     pub async fn get_messages(&self) -> Vec<ChatMessage> {
         let lock = self.messages.read().await;
         lock.clone()

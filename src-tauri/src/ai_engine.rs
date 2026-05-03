@@ -3139,63 +3139,43 @@ impl Sentient {
             }
         }
 
+        // Build context from ACTUAL memory store content, not raw bytes
+        let gist = self.memory_store.build_compact_gist().await;
+        let summary = self.memory_store.get_knowledge_summary().await;
+
+        let mut ctx = String::from("\n\n### [ACTIVE MEMORY]:\n");
+
+        if !gist.is_empty() {
+            ctx.push_str(&format!("### PRIORITY KNOWLEDGE:\n{}\n", gist));
+        }
+        if !summary.is_empty() {
+            ctx.push_str(&summary);
+        }
+
+        // Add symbol definitions from the current project
         let root = self.ai_tools.get_root_path();
         let aim_path = root.join(".aim").join("memory.aim");
-        
-        if let Ok(bytes) = std::fs::read(&aim_path) {
-            let is_titans = bytes.starts_with(b"AIMTTT");
-            let mode_str = if is_titans { "Titan-TTT Active" } else { "Legacy Matrix Active" };
-            
-            println!("🧠 [ANTIGRAVITY-CORE] Native AIM context localized! Mode: {} | {} bytes", mode_str, bytes.len());
-            
-            // Notify frontend that Neural VFS is officially active for this workspace
-            self.emit_event("aim-active", json!({ 
-                "active": true, 
+
+        if aim_path.exists() {
+            let slot_count = self.memory_store.get_all_slots().await.len();
+            let symbols = self.memory_store.query_symbols("", usize::MAX).await;
+            println!("🧠 [ANTIGRAVITY-CORE] AIM context loaded from memory store ({} slots, {} symbols)",
+                slot_count,
+                symbols.len(),
+            );
+
+            self.emit_event("aim-active", json!({
+                "active": true,
                 "path": aim_path.to_string_lossy(),
-                "size": bytes.len(),
-                "mode": mode_str
+                "slots": slot_count,
+                "symbols": symbols.len(),
             }));
-
-            let header = if is_titans {
-                format!("\n\n[TITANS-MEMORY-MODULE-ACTIVE]: The Antigravity Sentient Kernel has synchronized this session with a {} byte weight-map using Test-Time Training (TTT). You possess the unified Holographic representation of {} workspace concepts.", bytes.len(), mode_str)
-            } else {
-                format!("\n\n[AIM-VFS-CONTEXT-INJECTED]: The Antigravity Native Engine localized {} exact bytes of parametric project tensors.", bytes.len())
-            };
-
-            // Aggressively build a high-fidelity project map to supplement the binary context
-            let mut project_map = format!("{}\n### PROJECT MAP (High-Fidelity Virtual File System):\n", header);
-            let root = self.ai_tools.get_root_path();
-            
-            // Limit to 50 files for the prompt to avoid overwhelming the window while still being smart
-            let mut entries_count = 0;
-            if let Ok(entries) = std::fs::read_dir(&root) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file() {
-                        let name = path.file_name().unwrap_or_default().to_string_lossy();
-                        if !name.starts_with('.') {
-                            if let Ok(metadata) = path.metadata() {
-                                project_map.push_str(&format!("- {} ({} bytes)\n", name, metadata.len()));
-                                entries_count += 1;
-                            }
-                        }
-                    } else if path.is_dir() {
-                        let name = path.file_name().unwrap_or_default().to_string_lossy();
-                        if !name.starts_with('.') {
-                            project_map.push_str(&format!("- {}/ [Directory]\n", name));
-                            entries_count += 1;
-                        }
-                    }
-                    if entries_count >= 50 { break; }
-                }
-            }
-
-            let mut cache = self.memory_aim_cache.lock().await;
-            *cache = Some(project_map.clone());
-            project_map
-        } else {
-            String::new()
         }
+
+        // Cache the result
+        let mut cache = self.memory_aim_cache.lock().await;
+        *cache = Some(ctx.clone());
+        ctx
     }
 
     /// Intercept `run_command` shell file-write patterns and convert to `write_to_file` args.

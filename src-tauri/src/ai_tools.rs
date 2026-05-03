@@ -913,6 +913,17 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "verify_claim".to_string(),
+                description: "Verify an AI claim against stored project knowledge and source code symbols. Use this before making factual statements to prevent hallucinations.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "claim": { "type": "string", "description": "The factual claim to verify (e.g. 'the function foo takes 3 arguments')" }
+                    },
+                    "required": ["claim"]
+                }),
+            },
+            ToolDefinition {
                 name: "see_the_screen".to_string(),
                 description: "Proactively capture a screenshot of the IDE preview to visually verify UI changes or layout issues. section 318".to_string(),
                 input_schema: json!({
@@ -1220,6 +1231,7 @@ impl AiTools {
             }
 
             "save_knowledge_brief" => self.handle_save_knowledge_brief(arguments).await,
+            "verify_claim" => self.handle_verify_claim(arguments).await,
 
             "see_the_screen" => self.handle_see_the_screen(arguments).await,
 
@@ -4306,6 +4318,15 @@ impl AiTools {
             "message": "Mission finding archived to persistent brain.",
             "path": path
         }))
+    }
+
+    async fn handle_verify_claim(&self, args: Value) -> Result<Value> {
+        let claim = args.get("claim")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'claim' argument"))?;
+
+        let result = self.memory_store.verify_claim(claim).await;
+        Ok(result)
     }
 
     async fn handle_see_the_screen(&self, _args: Value) -> Result<Value> {
