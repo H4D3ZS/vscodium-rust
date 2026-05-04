@@ -1,0 +1,7 @@
+# Ignore memory and logs to prevent restarts
+MEMORY.md
+.aim/
+.hades/
+dist/
+**/node_modules/
+**/.git/

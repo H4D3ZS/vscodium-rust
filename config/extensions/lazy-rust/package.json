@@ -1,0 +1,14 @@
+{
+    "name": "lazy-rust",
+    "displayName": "Lazy Rust",
+    "version": "0.1.0",
+    "publisher": "vscode-rust",
+    "description": "A test extension for lazy activation",
+    "main": "./index.js",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "activationEvents": [
+        "onLanguage:rust"
+    ]
+}

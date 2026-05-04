@@ -1,0 +1,47 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+kortex/
+
+antigravity-workflows/
+open-antigravity/
+vscodium/
+antigravity/
+claude-code-fork/
+
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+apikeys.txt
+
+# API Keys — NEVER commit
+api_keys.json
+**/api_keys.json
+.kortex/
+**/.kortex/
+
+# Rust
+src-tauri/target/
+src-tauri/zed/
+native/
+"config/api_keys.json"  
+"src-tauri/config/api_keys.json"  
+"*.env"  

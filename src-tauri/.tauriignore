@@ -1,0 +1,11 @@
+*.log
+*.json
+target/
+*.db
+trace-*.json
+cargo_check.log
+cargo_errors.txt
+vscodium_crash.log
+crash.log
+ai_chat.log
+critical_crash.log

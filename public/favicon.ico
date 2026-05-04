@@ -1,0 +1,5 @@
+<!-- Placeholder favicon -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <circle cx="50" cy="50" r="45" fill="#0078D4"/>
+  <text x="50" y="70" font-size="60" text-anchor="middle" fill="white">A</text>
+</svg>
