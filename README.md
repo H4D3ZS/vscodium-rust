@@ -4,7 +4,6 @@ A groundbreaking, high-performance implementation of the VS Code architecture, r
 
 VSCodium-Rust is more than an editor — it is a **full-scale, ultra-lightweight agentic development environment** designed for **Data Sovereignty, Speed, and "Parallel Mind" Engineering.**
 
-![VSCodium-Rust Agentic View](pics/1.png)
 
 ---
 
