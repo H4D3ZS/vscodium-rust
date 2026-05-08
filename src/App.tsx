@@ -52,6 +52,7 @@ const ContextMenu: React.FC = () => {
 
 const App: React.FC = () => {
     const isDebugToolbarOpen = useStore(state => state.isDebugToolbarOpen);
+    const isWebDemo = !(window as any).__TAURI__;
 
     useEffect(() => {
         (window as any).useStore = useStore;
@@ -141,6 +142,11 @@ const App: React.FC = () => {
 
             <div className="body-backdrop"></div>
             <TitleBar />
+            {isWebDemo && (
+                <div className="web-demo-notice" role="status" aria-live="polite">
+                    Running in web demo mode. Desktop-only features (native filesystem, terminal process control, emulators, and Tauri integrations) are limited or unavailable in GitHub Pages.
+                </div>
+            )}
             <Workbench />
             <StatusBar />
 

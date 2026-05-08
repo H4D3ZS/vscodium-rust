@@ -62,3 +62,11 @@ Built by a researcher for researchers. VSCodium-Rust is an elite tool for **Secu
 **VSCodium-Rust is for any developer who demands speed, privacy, and full architectural sovereignty.**
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/H4D3ZS)
+
+## GitHub Pages Demo
+
+This repository includes a GitHub Pages deployment workflow at `.github/workflows/deploy-pages.yml`.
+
+- Push to the `main` branch to trigger deployment.
+- The static site is built with `npx vite build` and published from `dist/`.
+- The website is a **limited demo**: many desktop-native features do not work in browser mode because the full product is a Tauri desktop application running on PC.
