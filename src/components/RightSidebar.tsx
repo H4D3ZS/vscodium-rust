@@ -224,9 +224,9 @@ const RightSidebar: React.FC = () => {
                     setTimeout(async () => {
                         const { speak } = await import('../voice');
                         const greetings = [
-                            "Hey! I'm AIRI! I live here now! 👋",
-                            "Hi there! Ready to work together?",
-                            "Hello! I'm your AI companion!",
+                            "Welcome judges. I am AIRI, your AI coding companion for this demo.",
+                            "Hello judges, AIRI online. Ask by typing or using the microphone.",
+                            "Welcome to VSCodium Rust IDE demo. I can explain features and answer feedback in real time.",
                         ];
                         const greeting = greetings[Math.floor(Math.random() * greetings.length)];
                         await speak(greeting, 'airi');

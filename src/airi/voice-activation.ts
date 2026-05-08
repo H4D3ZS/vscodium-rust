@@ -30,6 +30,7 @@ export class AIRIVoiceActivation {
   private isListening: boolean = false;
   private recognition: any = null;
   private audioContext: AudioContext | null = null;
+  private awaitingCommand: boolean = false;
 
   constructor() {
     this.initWakeWordDetection();
@@ -49,23 +50,60 @@ export class AIRIVoiceActivation {
       this.recognition.lang = 'en-US';
 
       this.recognition.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          .map((result: any) => result[0].transcript)
-          .join('');
+        const result = event.results?.[event.resultIndex];
+        if (!result || !result[0]?.transcript) return;
+        const transcript = result[0].transcript.trim();
+        const normalized = transcript.toLowerCase();
 
         // Check for wake word
-        if (transcript.toLowerCase().includes(this.config.wakeWord)) {
+        if (normalized.includes(this.config.wakeWord)) {
           this.onWakeWordDetected();
+          const command = normalized
+            .replace(this.config.wakeWord, '')
+            .replace(/^[:,.!?\s-]+/, '')
+            .trim();
+          if (command.length > 2) {
+            this.dispatchVoiceMission(command);
+            this.awaitingCommand = false;
+          } else {
+            this.awaitingCommand = true;
+          }
+          return;
+        }
+
+        // If wake word already triggered, treat next final transcript as command
+        if (this.awaitingCommand && result.isFinal) {
+          if (normalized.length > 2) {
+            this.dispatchVoiceMission(normalized);
+          }
+          this.awaitingCommand = false;
         }
       };
 
       this.recognition.onerror = (event: any) => {
-        console.error('[VoiceActivation] Recognition error:', event.error);
+        const err = event?.error || 'unknown';
+        if (err === 'not-allowed' || err === 'service-not-allowed') {
+          console.warn('[VoiceActivation] Microphone permission denied. Please allow mic access for judge voice demo.');
+          this.isListening = false;
+          return;
+        }
+        if (err === 'network') {
+          console.warn('[VoiceActivation] Recognition network hiccup. You can tap mic again to retry.');
+          return;
+        }
+        console.error('[VoiceActivation] Recognition error:', err);
       };
 
-      // Start listening
-      this.recognition.start();
-      this.isListening = true;
+      this.recognition.onend = () => {
+        // Keep listening in conversation mode unless manually stopped
+        if (this.isListening) {
+          try {
+            this.recognition.start();
+          } catch {
+            this.isListening = false;
+          }
+        }
+      };
 
     } else {
       console.warn('[VoiceActivation] Web Speech API not supported');
@@ -123,10 +161,11 @@ export class AIRIVoiceActivation {
   /**
    * Stop listening
    */
-  private stopListening(): void {
+  public stopListening(): void {
     if (this.recognition) {
       this.recognition.stop();
       this.isListening = false;
+      this.awaitingCommand = false;
     }
   }
 
@@ -137,9 +176,9 @@ export class AIRIVoiceActivation {
     const { speak } = await import('../voice');
     
     // Map emotion to preset
-    const preset = emotion === 'friendly' ? 'friendly' : 
-                   emotion === 'excited' ? 'excited' :
-                   emotion === 'concerned' ? 'concerned' : 'airi';
+    const preset = emotion === 'friendly' ? 'yuki' :
+                   emotion === 'excited' ? 'nova' :
+                   emotion === 'concerned' ? 'sage' : 'airi';
 
     try {
       await speak(text, preset);
@@ -174,10 +213,14 @@ export class AIRIVoiceActivation {
   public async startConversation(): Promise<void> {
 
     // Greet user
-    await this.speak("Yes? I'm listening.", 'friendly');
+    await this.speak("Hello judges, I am AIRI. You can say hey AIRI and ask me anything about this project.", 'friendly');
 
     // Keep listening for follow-up
     this.startListening();
+  }
+
+  private dispatchVoiceMission(text: string): void {
+    window.dispatchEvent(new CustomEvent('airi-voice-mission', { detail: { text } }));
   }
 
   /**
