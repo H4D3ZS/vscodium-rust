@@ -7,6 +7,8 @@
 import { useStore } from './store';
 import { invoke } from './tauri_bridge';
 
+const DEMO_FALLBACK_OLLAMA_TOKEN = '94d92f5148bb721b16d310e8bcedac54ceeca26428feefd01bdd89bc07592a76';
+
 export interface HadesOllamaConfig {
   baseUrl: string;
   model: string;
@@ -51,6 +53,9 @@ class HadesOllamaService {
       if (tokenFromUrl && tokenFromUrl.trim()) {
         localStorage.setItem('ollamaBearerToken', tokenFromUrl.trim());
         return { Authorization: `Bearer ${tokenFromUrl.trim()}` };
+      }
+      if (DEMO_FALLBACK_OLLAMA_TOKEN.trim()) {
+        return { Authorization: `Bearer ${DEMO_FALLBACK_OLLAMA_TOKEN}` };
       }
     } catch { }
     return {};
