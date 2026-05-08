@@ -5,7 +5,6 @@ import { resolve } from 'path';
 
 export default defineConfig({
     root: './src',
-    publicDir: '../public',
     plugins: [
       react(),
       nodePolyfills({
