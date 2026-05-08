@@ -3442,3 +3442,12 @@ body {
   line-height: 1.4;
   padding: 6px 12px;
 }
+
+.web-demo-warning {
+  background: #4a1f1f;
+  color: #ffd3d3;
+  border-bottom: 1px solid #7a3434;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 12px;
+}
