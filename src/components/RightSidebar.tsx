@@ -421,6 +421,8 @@ const RightSidebar: React.FC = () => {
 
     // Neural Sync Bridge: Forward IDE state to the AIRI manifold
     useEffect(() => {
+        const isWebDemo = typeof window !== 'undefined' && !(window as any).__TAURI__;
+        if (isWebDemo) return;
         const syncPayload = {
             messages,
             agentInfo: {

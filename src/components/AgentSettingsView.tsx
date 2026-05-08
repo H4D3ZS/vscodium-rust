@@ -31,6 +31,27 @@ const AgentSettingsView: React.FC = () => {
     const [pullInput, setPullInput] = useState('');
     const [ollamaBearerToken, setOllamaBearerToken] = useState(localStorage.getItem('ollamaBearerToken') || '');
 
+    const normalizeOllamaUrlInput = (rawInput: string): string => {
+        try {
+            const parsed = new URL(rawInput);
+            const tokenFromUrl =
+                parsed.searchParams.get('token') ||
+                parsed.searchParams.get('api_key') ||
+                parsed.searchParams.get('bearer');
+            if (tokenFromUrl && tokenFromUrl.trim()) {
+                localStorage.setItem('ollamaBearerToken', tokenFromUrl.trim());
+                setOllamaBearerToken(tokenFromUrl.trim());
+                parsed.searchParams.delete('token');
+                parsed.searchParams.delete('api_key');
+                parsed.searchParams.delete('bearer');
+                return parsed.toString().replace(/\/$/, '');
+            }
+        } catch {
+            // Keep original value if it's not a valid URL yet.
+        }
+        return rawInput;
+    };
+
     // AI Avatar Characters
     const avatarCharacters = [
         { id: 'airi', name: 'AIRI', desc: 'Primary avatar - energetic anime AI', color: '#c084fc' },
@@ -864,7 +885,7 @@ const AgentSettingsView: React.FC = () => {
                         <input
                             type="text"
                             value={ollamaUrl}
-                            onChange={(e) => setOllamaUrl(e.target.value)}
+                            onChange={(e) => setOllamaUrl(normalizeOllamaUrlInput(e.target.value))}
                             style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
                             placeholder="https://ai.cyberifrit.xyz/v1"
                         />

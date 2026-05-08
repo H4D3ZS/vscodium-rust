@@ -282,7 +282,7 @@ const Workbench: React.FC = () => {
                                                 marginTop: 0
                                             }}>
                                                 <div className="hero-section-beside" style={{ maxWidth: '900px', marginBottom: '2vh', width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '24px' }}>
-                                                    <img src={`${import.meta.env.BASE_URL}favicon.ico`} alt="Project Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
+                                                    <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="Project Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
                                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                                                         <h1 style={{ fontSize: 'min(5vw, 42px)', fontWeight: 800, marginBottom: '2px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)', lineHeight: 1, margin: 0 }}>
                                                             PROJECT HADES <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>AIRI-CORE v0.2.0</span>

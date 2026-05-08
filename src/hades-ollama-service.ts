@@ -42,6 +42,16 @@ class HadesOllamaService {
       if (token.trim()) {
         return { Authorization: `Bearer ${token.trim()}` };
       }
+      const rawUrl = useStore.getState().ollamaUrl || '';
+      const parsed = new URL(rawUrl);
+      const tokenFromUrl =
+        parsed.searchParams.get('token') ||
+        parsed.searchParams.get('api_key') ||
+        parsed.searchParams.get('bearer');
+      if (tokenFromUrl && tokenFromUrl.trim()) {
+        localStorage.setItem('ollamaBearerToken', tokenFromUrl.trim());
+        return { Authorization: `Bearer ${tokenFromUrl.trim()}` };
+      }
     } catch { }
     return {};
   }
@@ -50,8 +60,15 @@ class HadesOllamaService {
     const s = useStore.getState();
     const rawModel = s.agentModel || '';
     const resolvedModel = rawModel.includes('|') ? rawModel.split('|')[1] : rawModel;
+    let normalizedBaseUrl = s.ollamaUrl || 'http://localhost:11434';
+    try {
+      const parsed = new URL(normalizedBaseUrl);
+      parsed.search = '';
+      parsed.hash = '';
+      normalizedBaseUrl = parsed.toString().replace(/\/$/, '');
+    } catch { }
     this.config = {
-      baseUrl: s.ollamaUrl || 'http://localhost:11434',
+      baseUrl: normalizedBaseUrl,
       model: resolvedModel || 'llama3.2',
       aimVfsEnabled: true,
     };

@@ -9,11 +9,22 @@ const DEFAULT_REMOTE_OLLAMA_URL = 'https://ai.cyberifrit.xyz/v1';
 const LOCAL_PROXY_URL = 'http://localhost:1536';
 const LOCAL_DIRECT_URL = 'http://localhost:11434';
 
-function getOllamaAuthHeader(): Record<string, string> {
+function getOllamaAuthHeader(baseUrl?: string): Record<string, string> {
     try {
         const token = localStorage.getItem('ollamaBearerToken') || '';
         if (token.trim()) {
             return { Authorization: `Bearer ${token.trim()}` };
+        }
+        if (baseUrl) {
+            const parsed = new URL(baseUrl);
+            const tokenFromUrl =
+                parsed.searchParams.get('token') ||
+                parsed.searchParams.get('api_key') ||
+                parsed.searchParams.get('bearer');
+            if (tokenFromUrl && tokenFromUrl.trim()) {
+                localStorage.setItem('ollamaBearerToken', tokenFromUrl.trim());
+                return { Authorization: `Bearer ${tokenFromUrl.trim()}` };
+            }
         }
     } catch { }
     return {};
@@ -1093,9 +1104,7 @@ const storeImplementation: any = (set: any, get: any) => ({
                             try {
                                 const response = await fetch(`${probeUrl}/api/tags`, {
                                     signal: controller.signal,
-                                    headers: {
-                                        ...getOllamaAuthHeader(),
-                                    },
+                                    headers: { ...getOllamaAuthHeader(candidate) },
                                 });
                                 clearTimeout(timeout);
                                 if (response.ok) {
