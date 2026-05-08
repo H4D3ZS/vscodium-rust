@@ -9,6 +9,15 @@ const DEFAULT_REMOTE_OLLAMA_URL = 'https://ai.cyberifrit.xyz/v1';
 const LOCAL_PROXY_URL = 'http://localhost:1536';
 const LOCAL_DIRECT_URL = 'http://localhost:11434';
 
+function getInitialOllamaUrl(): string {
+    const saved = localStorage.getItem('ollamaUrl');
+    const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    if (saved && !(isHttpsPage && saved.startsWith('http://'))) {
+        return saved;
+    }
+    return DEFAULT_REMOTE_OLLAMA_URL;
+}
+
 interface EditorTab {
     id: string;
     filename: string;
@@ -560,7 +569,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     currentDevProject: null,
     emulatorPlatform: 'ios',
 
-    ollamaUrl: localStorage.getItem('ollamaUrl') || DEFAULT_REMOTE_OLLAMA_URL,
+    ollamaUrl: getInitialOllamaUrl(),
     isPullingModel: false,
     pullProgress: 0,
     pendingChanges: [],
