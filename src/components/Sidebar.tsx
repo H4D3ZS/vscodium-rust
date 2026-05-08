@@ -10,8 +10,8 @@ import DebugView from './DebugView';
 import EmulatorPanel from './EmulatorPanel';
 import AgentSettingsView from './AgentSettingsView';
 import ProjectSpecsSidebar from './ProjectSpecsSidebar';
-import CheckpointsPanel from './CheckpointsPanel';
-import VectorSearchPanel from './VectorSearchPanel';
+import CheckpointsPanel from './checkpointsPanel';
+import VectorSearchPanel from './vectorSearchPanel';
 import { EmulatorPreview } from './EmulatorPreview';
 import { airiMobileDev } from '../airi/mobile-dev-workflow';
 
