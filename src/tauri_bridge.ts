@@ -17,9 +17,21 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
 
     console.warn(`[Tauri Bridge] MOCK INVOKE: ${cmd}`, args);
 
-    // Provide some basic mock responses for common commands to help UI testing
+    // Provide mock responses for browser demo mode to avoid hard failures.
     if (cmd === 'open_folder') return Promise.resolve(null as any);
+    if (cmd === 'get_available_shells') return Promise.resolve(['bash', 'sh'] as any);
+    if (cmd === 'get_api_keys') return Promise.resolve({} as any);
     if (cmd === 'list_directory') return Promise.resolve([] as any);
+    if (cmd === 'get_file_tree') return Promise.resolve([] as any);
+    if (cmd === 'list_provider_models') return Promise.resolve([] as any);
+    if (cmd === 'list_mcp_servers') return Promise.resolve([] as any);
+    if (cmd === 'get_running_extensions') return Promise.resolve([] as any);
+    if (cmd === 'get_popular_extensions') return Promise.resolve([] as any);
+    if (cmd === 'search_extensions') return Promise.resolve([] as any);
+    if (cmd === 'get_android_config') return Promise.resolve({} as any);
+    if (cmd === 'adb_list_devices') return Promise.resolve([] as any);
+    if (cmd === 'adb_list_emulators') return Promise.resolve([] as any);
+    if (cmd === 'check_ollama_status') return Promise.resolve(false as any);
     if (cmd === 'get_settings') return Promise.resolve({ theme: 'vs-dark', font_size: 14 } as any);
     if (cmd === 'get_config_path') return Promise.resolve('/mock/config.json' as any);
     if (cmd === 'ai_chat') return Promise.resolve("Hello! I am your VSCODE AI assistant. How can I help you today?") as any;

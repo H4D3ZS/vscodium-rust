@@ -1065,6 +1065,10 @@ const storeImplementation: any = (set: any, get: any) => ({
 
                         for (const candidate of candidates) {
                             const probeUrl = candidate.replace(/\/$/, '');
+                            if (typeof window !== 'undefined' && window.location.protocol === 'https:' && probeUrl.startsWith('http://')) {
+                                // Browser security: HTTPS pages cannot call insecure HTTP model endpoints.
+                                continue;
+                            }
                             const controller = new AbortController();
                             const timeout = setTimeout(() => controller.abort(), 2500);
                             try {
