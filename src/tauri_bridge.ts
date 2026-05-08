@@ -5,6 +5,7 @@
 
 const warnedCommands = new Set<string>();
 const warnedEvents = new Set<string>();
+const mockLogEnabled = Boolean((import.meta as any).env?.DEV || (window as any).__TAURI_MOCK_LOGS__);
 
 export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     const tauri = (window as any).__TAURI__;
@@ -18,7 +19,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         }
     }
 
-    if (!warnedCommands.has(cmd)) {
+    if (mockLogEnabled && !warnedCommands.has(cmd)) {
         console.warn(`[Tauri Bridge] MOCK INVOKE: ${cmd}`, args);
         warnedCommands.add(cmd);
     }
@@ -80,7 +81,7 @@ export async function listen(event: string, handler: (event: any) => void): Prom
         }
     }
 
-    if (!warnedEvents.has(event)) {
+    if (mockLogEnabled && !warnedEvents.has(event)) {
         console.warn(`[Tauri Bridge] MOCK LISTEN: ${event}`);
         warnedEvents.add(event);
     }

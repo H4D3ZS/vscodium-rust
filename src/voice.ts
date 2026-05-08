@@ -202,6 +202,12 @@ let isAudioQueuePlaying = false;
 
 export async function initTTS(): Promise<boolean> {
     // // console.log('[TTS] 🎤 Initializing voice system...');
+    const isWebDemo = typeof window !== 'undefined' && !(window as any).__TAURI__;
+    if (isWebDemo) {
+        // Keep judge demo voice reliable in browser and avoid external quota/auth errors.
+        ttsProvider = 'browser';
+        return true;
+    }
 
     // Check for session fallback (if ElevenLabs already failed with quota error)
     const prevFallback = localStorage.getItem('ttsProvider_fallback');
@@ -470,7 +476,7 @@ function speakBrowser(text: string, preset: VoicePreset): SpeechSynthesisUtteran
     const synth = window.speechSynthesis;
     const utterance = new SpeechSynthesisUtterance(text);
 
-    const browserPresets = {
+    const browserPresets: Record<VoicePreset, { rate: number; pitch: number }> = {
         airi: { rate: 1.15, pitch: 1.2 },
         sage: { rate: 0.9, pitch: 0.95 },
         nova: { rate: 1.25, pitch: 1.3 },
@@ -483,6 +489,7 @@ function speakBrowser(text: string, preset: VoicePreset): SpeechSynthesisUtteran
         sora: { rate: 0.9, pitch: 1.15 },
         zero: { rate: 0.85, pitch: 0.8 },
         aria: { rate: 1.0, pitch: 1.25 },
+        filipino: { rate: 1.0, pitch: 1.1 },
     };
 
     const config = browserPresets[preset];

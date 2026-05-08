@@ -291,6 +291,16 @@ export class AIRICore {
   }
 
   private async checkOllama(): Promise<void> {
+    const isWebDemo = typeof window !== 'undefined' && !(window as any).__TAURI__;
+    const mixedContentBlocked =
+      isWebDemo &&
+      window.location.protocol === 'https:' &&
+      this.config.ollamaHost?.startsWith('http://');
+    if (mixedContentBlocked) {
+      // Browser blocks HTTP inference endpoints on HTTPS pages.
+      return;
+    }
+
     try {
       const models = await hadesOllama.list();
       const qwenModels = models.models.filter((m: any) => m.name.includes('qwen'));
