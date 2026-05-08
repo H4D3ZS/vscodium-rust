@@ -5,6 +5,10 @@ import { computeDiffBlocks, patchContentSelective } from './services/DiffService
 import { terminalManager, getVSCodeTheme } from './terminal';
 import { initTheme } from './theme_engine';
 
+const DEFAULT_REMOTE_OLLAMA_URL = 'http://129.212.185.15:11434/v1';
+const LOCAL_PROXY_URL = 'http://localhost:1536';
+const LOCAL_DIRECT_URL = 'http://localhost:11434';
+
 interface EditorTab {
     id: string;
     filename: string;
@@ -556,7 +560,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     currentDevProject: null,
     emulatorPlatform: 'ios',
 
-    ollamaUrl: 'http://localhost:11434', // Default to direct Ollama (AIM proxy on 1536 is optional)
+    ollamaUrl: localStorage.getItem('ollamaUrl') || DEFAULT_REMOTE_OLLAMA_URL,
     isPullingModel: false,
     pullProgress: 0,
     pendingChanges: [],
@@ -791,11 +795,17 @@ const storeImplementation: any = (set: any, get: any) => ({
     },
     setOllamaUrl: (url: string) => {
         set({ ollamaUrl: url });
+        localStorage.setItem('ollamaUrl', url);
+        if (url !== LOCAL_PROXY_URL) {
+            localStorage.setItem('preferredDirectOllamaUrl', url);
+        }
         invoke('set_ollama_url', { url }).catch(console.error);
     },
     setOllamaConnectionMode: (mode: 'proxy' | 'direct') => {
-        const url = mode === 'proxy' ? 'http://localhost:1536' : 'http://localhost:11434';
+        const preferredDirectUrl = localStorage.getItem('preferredDirectOllamaUrl') || DEFAULT_REMOTE_OLLAMA_URL;
+        const url = mode === 'proxy' ? LOCAL_PROXY_URL : preferredDirectUrl;
         set({ ollamaConnectionMode: mode, ollamaUrl: url });
+        localStorage.setItem('ollamaUrl', url);
         invoke('set_ollama_url', { url }).catch(console.error);
         // Persist mode to localStorage
         localStorage.setItem('ollamaConnectionMode', mode);
@@ -1046,27 +1056,45 @@ const storeImplementation: any = (set: any, get: any) => ({
             for (const p of activeProviders) {
                 try {
                     if (p.toLowerCase() === 'ollama') {
-                        // Standardize on Direct Ollama (11434) - Silence Registry logs
-                        const ollamaToUse = await (async () => {
-                            const controller = new AbortController();
-                            const timeout = setTimeout(() => controller.abort(), 2000);
+                        // Prefer user-configured endpoint first (supports remote VPS), then local fallbacks.
+                        const candidates = [ollamaUrl, LOCAL_DIRECT_URL, LOCAL_PROXY_URL].filter(
+                            (value, index, self) => Boolean(value) && self.indexOf(value) === index
+                        );
+                        let ollamaToUse = ollamaUrl;
+                        let connected = false;
 
+                        for (const candidate of candidates) {
+                            const probeUrl = candidate.replace(/\/$/, '');
+                            const controller = new AbortController();
+                            const timeout = setTimeout(() => controller.abort(), 2500);
                             try {
-                                const r = await fetch('http://localhost:11434/api/tags', { signal: controller.signal });
+                                const response = await fetch(`${probeUrl}/api/tags`, { signal: controller.signal });
                                 clearTimeout(timeout);
-                                if (r.ok) {
-                                    set({ ollamaConnectionMode: 'direct', ollamaMode: 'local' });
-                                    return 'http://localhost:11434';
+                                if (response.ok) {
+                                    ollamaToUse = candidate;
+                                    connected = true;
+                                    break;
                                 }
-                                throw new Error('Not found');
-                            } catch (e) {
+                            } catch {
                                 clearTimeout(timeout);
-                                // Fallback to 11434 anyway - most common
-                                set({ ollamaStatus: 'error', ollamaMode: 'local' });
-                                return 'http://localhost:11434';
                             }
-                        })();
+                        }
+
+                        if (!connected) {
+                            set({ ollamaStatus: 'error', ollamaMode: 'local' });
+                        } else {
+                            const usesProxy = ollamaToUse === LOCAL_PROXY_URL;
+                            set({
+                                ollamaConnectionMode: usesProxy ? 'proxy' : 'direct',
+                                ollamaMode: usesProxy ? 'auto' : 'cloud'
+                            });
+                        }
+
                         await invoke('set_ollama_url', { url: ollamaToUse });
+                        localStorage.setItem('ollamaUrl', ollamaToUse);
+                        if (ollamaToUse !== LOCAL_PROXY_URL) {
+                            localStorage.setItem('preferredDirectOllamaUrl', ollamaToUse);
+                        }
                         set({ ollamaUrl: ollamaToUse });
                     }
                     const models = await invoke<string[]>('list_provider_models', { provider: p });

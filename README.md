@@ -54,7 +54,7 @@ Built by a researcher for researchers. VSCodium-Rust is an elite tool for **Secu
 ---
 
 ## 📝 License & Credits
-- **Credits:** Standing on the shoulders of giants: Zed Industries (GPUI), VSCodium Team, and Palinuro.
+- **Credits:** Standing on the shoulders of giants: Zed Industries (GPUI), VSCodium Team, Palinuro, and [moeru-ai/airi](https://github.com/moeru-ai/airi) for the AIRI AI foundations used in this product.
 - **License:** MIT
 
 ---
@@ -70,3 +70,11 @@ This repository includes a GitHub Pages deployment workflow at `.github/workflow
 - Push to the `main` branch to trigger deployment.
 - The static site is built with `npx vite build` and published from `dist/`.
 - The website is a **limited demo**: many desktop-native features do not work in browser mode because the full product is a Tauri desktop application running on PC.
+
+### Judge Setup (AI Endpoint)
+
+To run AI features in judge environments, set Ollama URL in settings to:
+
+`http://129.212.185.15:11434/v1`
+
+The IDE now keeps custom/remote Ollama endpoints and will not auto-reset to localhost during model refresh.
