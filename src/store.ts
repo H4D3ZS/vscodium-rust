@@ -5,7 +5,7 @@ import { computeDiffBlocks, patchContentSelective } from './services/DiffService
 import { terminalManager, getVSCodeTheme } from './terminal';
 import { initTheme } from './theme_engine';
 
-const DEFAULT_REMOTE_OLLAMA_URL = 'http://129.212.185.15:11434/v1';
+const DEFAULT_REMOTE_OLLAMA_URL = 'https://ai.cyberifrit.xyz/v1';
 const LOCAL_PROXY_URL = 'http://localhost:1536';
 const LOCAL_DIRECT_URL = 'http://localhost:11434';
 
