@@ -52,11 +52,7 @@ const ContextMenu: React.FC = () => {
 
 const App: React.FC = () => {
     const isDebugToolbarOpen = useStore(state => state.isDebugToolbarOpen);
-    const ollamaUrl = useStore(state => state.ollamaUrl);
     const isWebDemo = !(window as any).__TAURI__;
-    const isMixedContentBlocked = isWebDemo
-        && window.location.protocol === 'https:'
-        && ollamaUrl?.startsWith('http://');
 
     useEffect(() => {
         (window as any).useStore = useStore;
@@ -149,11 +145,6 @@ const App: React.FC = () => {
             {isWebDemo && (
                 <div className="web-demo-notice" role="status" aria-live="polite">
                     Running in web demo mode. Desktop-only features (native filesystem, terminal process control, emulators, and Tauri integrations) are limited or unavailable in GitHub Pages.
-                </div>
-            )}
-            {isMixedContentBlocked && (
-                <div className="web-demo-warning" role="alert">
-                    AI calls are blocked in browser mode because this site is HTTPS but Ollama is set to HTTP (`{ollamaUrl}`). Use an HTTPS proxy endpoint or run the desktop app.
                 </div>
             )}
             <Workbench />
