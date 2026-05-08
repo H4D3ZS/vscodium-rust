@@ -39,5 +39,5 @@ export default defineConfig({
     },
     clearScreen: false,
     envPrefix: ['VITE_', 'TAURI_'],
-    base: './',
+    base: '/vscodium-rust-ide-amd/',
 });
