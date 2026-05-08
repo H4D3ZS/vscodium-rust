@@ -29,6 +29,7 @@ const AgentSettingsView: React.FC = () => {
     const avatar3dConfig = useStore(state => state.avatar3dConfig);
     const setAvatar3dConfig = useStore(state => state.setAvatar3dConfig);
     const [pullInput, setPullInput] = useState('');
+    const [ollamaBearerToken, setOllamaBearerToken] = useState(localStorage.getItem('ollamaBearerToken') || '');
 
     // AI Avatar Characters
     const avatarCharacters = [
@@ -866,6 +867,21 @@ const AgentSettingsView: React.FC = () => {
                             onChange={(e) => setOllamaUrl(e.target.value)}
                             style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
                             placeholder="https://ai.cyberifrit.xyz/v1"
+                        />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: '11px', opacity: 0.8 }}>Ollama Bearer Token</label>
+                        <input
+                            type="password"
+                            value={ollamaBearerToken}
+                            onChange={(e) => {
+                                const token = e.target.value;
+                                setOllamaBearerToken(token);
+                                localStorage.setItem('ollamaBearerToken', token);
+                            }}
+                            style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
+                            placeholder="Bearer token for protected Ollama proxy"
                         />
                     </div>
 

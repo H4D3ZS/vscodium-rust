@@ -36,6 +36,16 @@ class HadesOllamaService {
     this.loadConfig();
   }
 
+  private getAuthHeader(): Record<string, string> {
+    try {
+      const token = localStorage.getItem('ollamaBearerToken') || '';
+      if (token.trim()) {
+        return { Authorization: `Bearer ${token.trim()}` };
+      }
+    } catch { }
+    return {};
+  }
+
   private loadConfig() {
     const s = useStore.getState();
     const rawModel = s.agentModel || '';
@@ -68,7 +78,7 @@ class HadesOllamaService {
 
       const response = await fetch(`${this.config.baseUrl}/api/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...this.getAuthHeader() },
         signal: controller.signal,
         body: JSON.stringify({
           model: targetModel,
@@ -97,7 +107,7 @@ class HadesOllamaService {
       const targetModel = options?.model || this.config.model;
       const response = await fetch(`${this.config.baseUrl}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...this.getAuthHeader() },
         body: JSON.stringify({
           model: targetModel,
           messages,
@@ -122,7 +132,7 @@ class HadesOllamaService {
       const targetModel = options?.model || this.config.model;
       const response = await fetch(`${this.config.baseUrl}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...this.getAuthHeader() },
         body: JSON.stringify({
           model: targetModel,
           messages,
@@ -168,7 +178,7 @@ class HadesOllamaService {
     }
     this.loadConfig();
     try {
-      const response = await fetch(`${this.config.baseUrl}/api/tags`);
+      const response = await fetch(`${this.config.baseUrl}/api/tags`, { headers: { ...this.getAuthHeader() } });
       if (response.ok) {
         this.modelCache = await response.json();
         this.lastCacheTime = Date.now();

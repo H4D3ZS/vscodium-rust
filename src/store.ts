@@ -9,6 +9,16 @@ const DEFAULT_REMOTE_OLLAMA_URL = 'https://ai.cyberifrit.xyz/v1';
 const LOCAL_PROXY_URL = 'http://localhost:1536';
 const LOCAL_DIRECT_URL = 'http://localhost:11434';
 
+function getOllamaAuthHeader(): Record<string, string> {
+    try {
+        const token = localStorage.getItem('ollamaBearerToken') || '';
+        if (token.trim()) {
+            return { Authorization: `Bearer ${token.trim()}` };
+        }
+    } catch { }
+    return {};
+}
+
 function getInitialOllamaUrl(): string {
     const saved = localStorage.getItem('ollamaUrl');
     const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
@@ -1081,7 +1091,12 @@ const storeImplementation: any = (set: any, get: any) => ({
                             const controller = new AbortController();
                             const timeout = setTimeout(() => controller.abort(), 2500);
                             try {
-                                const response = await fetch(`${probeUrl}/api/tags`, { signal: controller.signal });
+                                const response = await fetch(`${probeUrl}/api/tags`, {
+                                    signal: controller.signal,
+                                    headers: {
+                                        ...getOllamaAuthHeader(),
+                                    },
+                                });
                                 clearTimeout(timeout);
                                 if (response.ok) {
                                     ollamaToUse = candidate;
