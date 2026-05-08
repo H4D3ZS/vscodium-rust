@@ -111,7 +111,9 @@ export class AIRIVRMAvatar {
         });
       });
 
-      const vrmUrlOrDefault = vrmUrl || '/models/airi.vrm';
+      const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/');
+      const defaultVrmUrl = `${baseUrl}models/airi.vrm`;
+      const vrmUrlOrDefault = vrmUrl || defaultVrmUrl;
 
       try {
         const gltf = await new Promise<any>((resolve, reject) => {
@@ -132,7 +134,7 @@ export class AIRIVRMAvatar {
         }
         // // console.log('[VRMAvatar] ✅ Model loaded successfully:', vrmUrlOrDefault);
       } catch (err) {
-        console.warn('[VRMAvatar] ⚠️ Model load failed (404/parse error). AIRI will remain formless but conscious:', err);
+        console.warn('[VRMAvatar] ⚠️ Model load failed (404/parse error). AIRI will remain formless but conscious. Set a valid VRM URL in Agent Settings > 3D Avatar Model:', err);
         // Don't throw, just continue without a model
       }
 
