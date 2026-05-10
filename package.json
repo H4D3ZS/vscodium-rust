@@ -10,13 +10,16 @@
     "build": "node --stack-size=10000 node_modules/typescript/bin/tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "start-mitm": "node tools/mitmserver/server.js"
+    "start-mitm": "node tools/mitmserver/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.6",
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
-    "vite-plugin-node-polyfills": "^0.26.0"
+    "vite-plugin-node-polyfills": "^0.26.0",
+    "vitest": "^4.1.5"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

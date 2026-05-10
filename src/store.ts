@@ -216,6 +216,42 @@ interface AppState {
     ollamaConnectionMode: 'proxy' | 'direct';  // proxy=1536 (AIM), direct=11434
     ollamaMode: 'local' | 'cloud' | 'auto';  // Hybrid backend mode
 
+    // ═══ Kortex GAC: geometry-aware tier-placement scheduler ═══
+    /** Use GAC profile + tier planner when launching llama-server. */
+    kortexGacEnabled: boolean;
+    /** Total physical VRAM in MB (e.g. 8192 for RX 580 8GB). */
+    kortexVramTotalMb: number;
+    /** Retrieval threshold theta from the GAC paper. Default 0.85. */
+    kortexTheta: number;
+    /** GPU backend selector for llama-server's --override-tensor flags. */
+    kortexBackend: 'cuda' | 'rocm' | 'vulkan' | 'metal' | 'sycl';
+    /** Optional explicit path to llama-server binary. */
+    kortexServerBinary: string;
+
+    // ═══ Kortex Disk KV Cache: ds4-style prefix reuse ═══
+    /** Boot the prefix-cache proxy in front of llama-server. */
+    kvCacheEnabled: boolean;
+    /** Filesystem base for the proxy's `index/` and `slots/` directories. */
+    kvCacheBaseDir: string;
+    /** LRU byte budget for slot binaries on disk. */
+    kvCacheMaxBytes: number;
+    /** Bind port for the proxy. The IDE auto-routes inference here when up. */
+    kvCacheProxyPort: number;
+    /** Live stats sampled by the UI. Refreshed on a polling interval. */
+    kvCacheStats: { entries: number; total_bytes: number; hits: number; misses: number; saves: number; evictions: number; tokens_skipped: number } | null;
+
+    // ═══ Kortex CCET: context-compute efficiency router ═══
+    /** Apply heuristic token routing before sending prompts to llama / ollama. */
+    ccetEnabled: boolean;
+    /** Score threshold below which a segment is dropped. Default 0.05. */
+    ccetTauSkip: number;
+    /** Score threshold above which a segment is kept verbatim. Default 0.30. */
+    ccetTauCompress: number;
+    /** Cap on total fraction the router is allowed to drop. Default 0.40. */
+    ccetMaxSkipFraction: number;
+    /** Cached recent η statistic ({sample_size, avg_eta, avg_saved_fraction, total_skipped_segments}). */
+    ccetEfficiency: { sample_size: number; avg_eta: number; avg_saved_fraction: number; total_skipped_segments: number } | null;
+
     // Dev Workflow State
     isDevWorkflowActive: boolean;
     currentDevProject: DevWorkflowProject | null;
@@ -374,6 +410,27 @@ interface AppState {
     checkLlamaCppStatus: () => Promise<void>;
     openSettings: () => void;
     setProjectMemory: (content: string, files?: string[]) => void;
+
+    // Kortex GAC actions
+    setKortexGacEnabled: (enabled: boolean) => void;
+    setKortexVramTotalMb: (mb: number) => void;
+    setKortexTheta: (theta: number) => void;
+    setKortexBackend: (b: 'cuda' | 'rocm' | 'vulkan' | 'metal' | 'sycl') => void;
+    setKortexServerBinary: (path: string) => void;
+
+    // Kortex KV cache actions
+    setKvCacheEnabled: (enabled: boolean) => void;
+    setKvCacheBaseDir: (dir: string) => void;
+    setKvCacheMaxBytes: (b: number) => void;
+    setKvCacheProxyPort: (p: number) => void;
+    refreshKvCacheStats: () => Promise<void>;
+
+    // CCET actions
+    setCcetEnabled: (enabled: boolean) => void;
+    setCcetTauSkip: (v: number) => void;
+    setCcetTauCompress: (v: number) => void;
+    setCcetMaxSkipFraction: (v: number) => void;
+    refreshCcetEfficiency: () => void;
 
     // Dev Workflow Actions
     setDevWorkflowActive: (active: boolean) => void;
@@ -574,6 +631,27 @@ const storeImplementation: any = (set: any, get: any) => ({
     llamaCppModelPath: localStorage.getItem('llamaCppModelPath') || '',
     llamaCppNgl: parseInt(localStorage.getItem('llamaCppNgl') || '99'),
     llamaCppHadesEnabled: localStorage.getItem('llamaCppHadesEnabled') !== 'false',
+
+    // Kortex GAC defaults — RX 580 8GB / Vulkan optimised.
+    kortexGacEnabled: localStorage.getItem('kortexGacEnabled') !== 'false',
+    kortexVramTotalMb: parseInt(localStorage.getItem('kortexVramTotalMb') || '8192'),
+    kortexTheta: parseFloat(localStorage.getItem('kortexTheta') || '0.85'),
+    kortexBackend: (localStorage.getItem('kortexBackend') as 'cuda' | 'rocm' | 'vulkan' | 'metal' | 'sycl') || 'vulkan',
+    kortexServerBinary: localStorage.getItem('kortexServerBinary') || '',
+
+    // Kortex KV Cache defaults
+    kvCacheEnabled: localStorage.getItem('kvCacheEnabled') !== 'false',
+    kvCacheBaseDir: localStorage.getItem('kvCacheBaseDir') || '',
+    kvCacheMaxBytes: parseInt(localStorage.getItem('kvCacheMaxBytes') || `${16 * 1024 * 1024 * 1024}`),
+    kvCacheProxyPort: parseInt(localStorage.getItem('kvCacheProxyPort') || '8090'),
+    kvCacheStats: null,
+
+    // CCET defaults
+    ccetEnabled: localStorage.getItem('ccetEnabled') === 'true',
+    ccetTauSkip: parseFloat(localStorage.getItem('ccetTauSkip') || '0.05'),
+    ccetTauCompress: parseFloat(localStorage.getItem('ccetTauCompress') || '0.30'),
+    ccetMaxSkipFraction: parseFloat(localStorage.getItem('ccetMaxSkipFraction') || '0.40'),
+    ccetEfficiency: null,
 
     // HADES Intelligence Layer (works with any backend)
     aimVfsEnabled: localStorage.getItem('aimVfsEnabled') !== 'false',  // .aim VFS context injection
@@ -896,6 +974,80 @@ const storeImplementation: any = (set: any, get: any) => ({
     setLlamaCppHadesEnabled: (enabled: boolean) => {
         localStorage.setItem('llamaCppHadesEnabled', enabled.toString());
         set({ llamaCppHadesEnabled: enabled });
+    },
+
+    // ─── Kortex GAC ───────────────────────────────────────────────────────
+    setKortexGacEnabled: (enabled: boolean) => {
+        localStorage.setItem('kortexGacEnabled', enabled.toString());
+        set({ kortexGacEnabled: enabled });
+    },
+    setKortexVramTotalMb: (mb: number) => {
+        localStorage.setItem('kortexVramTotalMb', mb.toString());
+        set({ kortexVramTotalMb: mb });
+    },
+    setKortexTheta: (theta: number) => {
+        localStorage.setItem('kortexTheta', theta.toString());
+        set({ kortexTheta: theta });
+    },
+    setKortexBackend: (b) => {
+        localStorage.setItem('kortexBackend', b);
+        set({ kortexBackend: b });
+    },
+    setKortexServerBinary: (path: string) => {
+        localStorage.setItem('kortexServerBinary', path);
+        set({ kortexServerBinary: path });
+    },
+
+    // ─── Kortex KV cache ──────────────────────────────────────────────────
+    setKvCacheEnabled: (enabled: boolean) => {
+        localStorage.setItem('kvCacheEnabled', enabled.toString());
+        set({ kvCacheEnabled: enabled });
+    },
+    setKvCacheBaseDir: (dir: string) => {
+        localStorage.setItem('kvCacheBaseDir', dir);
+        set({ kvCacheBaseDir: dir });
+    },
+    setKvCacheMaxBytes: (b: number) => {
+        localStorage.setItem('kvCacheMaxBytes', b.toString());
+        set({ kvCacheMaxBytes: b });
+    },
+    setKvCacheProxyPort: (p: number) => {
+        localStorage.setItem('kvCacheProxyPort', p.toString());
+        set({ kvCacheProxyPort: p });
+    },
+    refreshKvCacheStats: async () => {
+        try {
+            const { getKvCacheStats } = await import('./kortex/kvcache-orchestrator');
+            const stats = await getKvCacheStats();
+            set({ kvCacheStats: stats });
+        } catch {
+            // Backend may not be up yet; leave stats untouched.
+        }
+    },
+
+    // ─── CCET ─────────────────────────────────────────────────────────────
+    setCcetEnabled: (enabled: boolean) => {
+        localStorage.setItem('ccetEnabled', enabled.toString());
+        set({ ccetEnabled: enabled });
+    },
+    setCcetTauSkip: (v: number) => {
+        localStorage.setItem('ccetTauSkip', v.toString());
+        set({ ccetTauSkip: v });
+    },
+    setCcetTauCompress: (v: number) => {
+        localStorage.setItem('ccetTauCompress', v.toString());
+        set({ ccetTauCompress: v });
+    },
+    setCcetMaxSkipFraction: (v: number) => {
+        localStorage.setItem('ccetMaxSkipFraction', v.toString());
+        set({ ccetMaxSkipFraction: v });
+    },
+    refreshCcetEfficiency: () => {
+        // Best-effort: importing here makes the kortex tree-shakable when CCET
+        // is never enabled, but we have to fall back gracefully if it fails.
+        import('./kortex/ccet')
+            .then((mod) => set({ ccetEfficiency: mod.summarizeEfficiency(50) }))
+            .catch(() => set({ ccetEfficiency: null }));
     },
     // Right sidebar panel toggles
     toggleAiriPanel: () => set((state) => ({

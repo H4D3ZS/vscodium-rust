@@ -6,6 +6,9 @@
 
 import { useStore } from './store';
 import { invoke } from './tauri_bridge';
+import { routePrompt, recordRequest, type RoutingResult } from './kortex/ccet';
+
+const DEMO_FALLBACK_OLLAMA_TOKEN = '94d92f5148bb721b16d310e8bcedac54ceeca26428feefd01bdd89bc07592a76';
 
 const DEMO_FALLBACK_OLLAMA_TOKEN = '94d92f5148bb721b16d310e8bcedac54ceeca26428feefd01bdd89bc07592a76';
 
@@ -150,14 +153,48 @@ class HadesOllamaService {
       await new Promise(r => setTimeout(r, 100));
     }
     this.activeRequests++;
+    const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    let inputChars = 0;
+    let activeChars = 0;
+    let outputChars = 0;
+    let route: RoutingResult | null = null;
+
     try {
       const targetModel = options?.model || this.config.model;
+
+      // Apply CCET token routing if the user has it enabled. We only touch
+      // the trailing user turn — the assistant/system turns are preserved
+      // exactly so the model's role conditioning isn't broken. The shipped
+      // routing is a heuristic v1 (see src/kortex/ccet.ts).
+      let routedMessages = messages;
+      try {
+        const s = useStore.getState();
+        if (s.ccetEnabled && Array.isArray(messages) && messages.length > 0) {
+          const last = messages[messages.length - 1];
+          if (last && typeof last.content === 'string' && last.content.length > 800) {
+            inputChars = last.content.length;
+            route = routePrompt(last.content, {
+              tau_skip: s.ccetTauSkip,
+              tau_compress: s.ccetTauCompress,
+              max_skip_fraction: s.ccetMaxSkipFraction,
+            });
+            activeChars = route.output_text.length;
+            routedMessages = [
+              ...messages.slice(0, -1),
+              { ...last, content: route.output_text },
+            ];
+          }
+        }
+      } catch {
+        // CCET is best-effort; routing failures fall through to the original prompt.
+      }
+
       const response = await fetch(`${this.config.baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...this.getAuthHeader() },
         body: JSON.stringify({
           model: targetModel,
-          messages,
+          messages: routedMessages,
           stream: true,
           keep_alive: -1
         }),
@@ -181,6 +218,7 @@ class HadesOllamaService {
           try {
             const json = JSON.parse(line);
             if (json.message?.content) {
+              outputChars += json.message.content.length;
               yield json.message.content;
             }
             if (json.done) return;
@@ -191,6 +229,24 @@ class HadesOllamaService {
       }
     } finally {
       this.activeRequests--;
+      // Record an η sample if CCET routing actually applied to this request.
+      if (route) {
+        const t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        try {
+          recordRequest({
+            request_id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+            model: options?.model || this.config.model,
+            input_chars: inputChars,
+            active_chars: activeChars,
+            output_chars: outputChars,
+            wall_clock_ms: Math.max(1, Math.round(t1 - t0)),
+            routing_counts: route.counts,
+            saved_fraction: route.saved_fraction,
+          });
+        } catch {
+          // Don't let metric bookkeeping leak into the chat result.
+        }
+      }
     }
   }
 

@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import { getThemes, applyTheme } from '../theme_engine';
 import type { VscodeTheme } from '../theme_engine';
 import ElevenLabsVoicePicker from './ElevenLabsVoicePicker';
+import KortexInferencePanel from './KortexInferencePanel';
 
 const AgentSettingsView: React.FC = () => {
     const ollamaUrl = useStore(state => state.ollamaUrl);
@@ -1111,6 +1112,13 @@ const AgentSettingsView: React.FC = () => {
                     </div>
                 </div>
             </section >
+
+            <section>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
+                    Local Inference (Kortex)
+                </div>
+                <KortexInferencePanel />
+            </section>
 
             <section>
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -11,13 +11,20 @@ node_modules
 dist
 dist-ssr
 *.local
-kortex/
+# Anchored to the repo root so it ignores the legacy top-level kortex/ workspace
+# but does NOT touch src/kortex/ (the new Kortex inference frontend orchestrators).
+/kortex/
 
 antigravity-workflows/
 open-antigravity/
 vscodium/
 antigravity/
 claude-code-fork/
+
+# External reference repositories cloned in for Kortex inference research.
+# These ship as separate upstream projects and must NOT be committed here.
+ds4/
+geometry-of-consolidation/
 
 
 # Editor directories and files

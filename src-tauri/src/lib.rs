@@ -47,6 +47,8 @@ mod airi_bridge;
 mod security_distiller;
 mod binary_analyzer;
 mod kortex_commands;
+pub mod kortex_gac;
+pub mod kortex_kvcache;
 mod extensions_commands;
 mod mcp_commands;
 mod apex_commands;
@@ -403,6 +405,24 @@ pub fn run() {
             kortex_commands::save_kortex_memory,
             kortex_commands::load_kortex_memory,
             kortex_commands::load_kortex_metadata,
+
+            // ═══ Kortex GAC: geometry-aware inference scheduling ═══
+            kortex_gac::kortex_gac_profile,
+            kortex_gac::kortex_gac_load_profile,
+            kortex_gac::kortex_gac_plan,
+            kortex_gac::kortex_gac_render_args,
+            kortex_gac::kortex_gac_quickplan,
+            kortex_gac::kortex_gac_launch,
+            kortex_gac::kortex_gac_stop,
+            kortex_gac::kortex_gac_status,
+            kortex_gac::kortex_gac_default_profile_path,
+
+            // ═══ Kortex KV Cache: ds4-style disk-persistent prefix reuse ═══
+            kortex_kvcache::kortex_kvcache_start,
+            kortex_kvcache::kortex_kvcache_stop,
+            kortex_kvcache::kortex_kvcache_stats,
+            kortex_kvcache::kortex_kvcache_status,
+            kortex_kvcache::kortex_kvcache_clear,
 
             
             // ═══ Browser ═══
