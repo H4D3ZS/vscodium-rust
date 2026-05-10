@@ -1,0 +1,54 @@
+allow-visible-on-all-workspaces:
+  title: Межпространственная видимость
+  description: Позволяет окну быть видимым на всех рабочих столах, только для macOS.
+pages:
+  modules:
+    mcp-server:
+      description: Возможность подключения и управления MCP сервером с инструментами
+      title: MCP Сервер
+  system:
+    sections:
+      section:
+        window-shortcuts:
+          title: Клавиши навигации окна
+    window-shortcuts:
+      description: Редактирование горячих клавиш для управления окном
+      title: Горячие клавиши управления окном
+      toggle-move:
+        label: Перемещение окна
+      toggle-resize:
+        label: Масштабирование окна
+      toggle-ignore-mouse-event:
+        label: Игнорировать курсор мыши
+      press-keys: Нажмите любую клавишу...
+    developer:
+      sections:
+        section:
+          use-window-mouse:
+            title: Инструмент useWindowMouse
+            description: Тест положения курсора окна Electron
+devtools:
+  title: Разработчик
+  pages:
+    context-flow:
+      title: Контекст потока
+    lag-visualizer:
+      title: Лаг визуализатор
+    performance-visualizer:
+      title: Производительность визуализации
+      description: Вкл/выкл FPS/долгую Задачу / оверлей памяти
+    markdown-stress:
+      title: Нагрузочное тестирование обработки Markdown
+      description: Напряжение парсинг и рендеринга с тяжелыми чатами
+    widgets-calling:
+      title: Вызов виджета
+screen-capture:
+  permissions-prompt:
+    title: Захват экрана
+    description: Для захвата экранов или окон, требуется разрешение на запись с экрана и системы.
+    open-preferences: Открыть «Системные настройки»
+    dismiss: Отменить
+    instructions:
+      step-1: Откройте «Системные настройки», выберите «Конфиденциальность и безопасность» в боковой панели.
+      step-2: В разделах "Запись аудио и экрана в системе" и "Только для системной аудиозаписи" включите переключатель для AIRI.
+      step-2-note: Если AIRI отсутствует в списке, пожалуйста, добавьте его вручную, нажав кнопку "+" и выбрав AIRI из папки "Приложения".
