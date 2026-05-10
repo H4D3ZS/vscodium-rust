@@ -126,4 +126,7 @@ windows = { version = "0.58", features = [
     "Win32_Graphics_Gdi",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
+    # Required for FreeConsole() in the `#[cfg(not(debug_assertions))]` path of
+    # lib.rs setup — debug builds skip it, release builds need the feature gate.
+    "Win32_System_Console",
 ] }
