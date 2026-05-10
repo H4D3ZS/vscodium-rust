@@ -1,0 +1,39 @@
+[package]
+name = "claurst-commands"
+version.workspace = true
+edition.workspace = true
+
+[features]
+# Pass-through features from cc-core
+ultraplan = ["claurst-core/ultraplan"]
+
+[dependencies]
+claurst-core = { workspace = true }
+claurst-api = { workspace = true }
+claurst-tools = { workspace = true }
+claurst-query = { workspace = true }
+claurst-mcp = { workspace = true }
+claurst-tui = { workspace = true }
+claurst-plugins = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+arboard = { version = "3", default-features = false }
+urlencoding = { workspace = true }
+open = { workspace = true }
+qrcode = { workspace = true }
+claurst-bridge = { workspace = true }
+hostname = "0.4"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+base64 = { workspace = true }
+tempfile = { workspace = true }

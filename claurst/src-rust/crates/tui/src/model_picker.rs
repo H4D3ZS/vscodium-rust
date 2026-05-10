@@ -1,0 +1,1183 @@
+//! Model picker overlay (/model command).
+//! Mirrors src/components/ModelPicker.tsx — including effort levels and
+//! fast-mode notice.
+
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+
+use crate::overlays::{centered_rect, modal_search_line, CLAURST_PANEL_BG};
+
+// ---------------------------------------------------------------------------
+// Effort level
+// ---------------------------------------------------------------------------
+
+/// Mirrors the TS `EffortLevel` enum and `effortLevelToSymbol()` helper.
+///
+/// Effort controls the extended-thinking `budget_tokens` parameter sent to the
+/// API. Only models that support extended thinking honour this; for others it
+/// is silently ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EffortLevel {
+    Low,
+    Normal,
+    High,
+    Max,
+}
+
+impl EffortLevel {
+    /// Unicode quarter-circle symbol used in the TS UI.
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Low    => "\u{25cb}", // ○  empty circle
+            Self::Normal => "\u{25d0}", // ◐  half
+            Self::High   => "\u{25d5}", // ◕  three-quarter
+            Self::Max    => "\u{25cf}", // ●  full
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Low    => "low",
+            Self::Normal => "normal",
+            Self::High   => "high",
+            Self::Max    => "max",
+        }
+    }
+
+    /// Returns the budget_tokens value to pass to the API, or `None` for the
+    /// default (no extended thinking).
+    pub fn budget_tokens(self) -> Option<u32> {
+        match self {
+            Self::Low    => Some(1_024),
+            Self::Normal => None,
+            Self::High   => Some(16_000),
+            Self::Max    => Some(32_000),
+        }
+    }
+
+    /// Cycle to next level; skips `Max` when the selected model does not
+    /// support it.
+    pub fn next(self, supports_max: bool) -> Self {
+        match self {
+            Self::Low    => Self::Normal,
+            Self::Normal => Self::High,
+            Self::High   => if supports_max { Self::Max } else { Self::Low },
+            Self::Max    => Self::Low,
+        }
+    }
+
+    /// Cycle to previous level.
+    pub fn prev(self, supports_max: bool) -> Self {
+        match self {
+            Self::Low    => if supports_max { Self::Max } else { Self::High },
+            Self::Normal => Self::Low,
+            Self::High   => Self::Normal,
+            Self::Max    => Self::High,
+        }
+    }
+}
+
+impl Default for EffortLevel {
+    fn default() -> Self { Self::Normal }
+}
+
+// ---------------------------------------------------------------------------
+// Model capability helpers
+// ---------------------------------------------------------------------------
+
+/// Returns `true` for models that support extended thinking / effort levels.
+pub fn model_supports_effort(id: &str) -> bool {
+    id.starts_with("claude-3-7")
+        || id.starts_with("claude-opus-4")
+        || id.starts_with("claude-sonnet-4")
+}
+
+/// Returns `true` for models that support the maximum effort tier.
+pub fn model_supports_max_effort(id: &str) -> bool {
+    id.starts_with("claude-opus-4")
+}
+
+/// The model ID that fast-mode locks to.
+pub const FAST_MODE_MODEL: &str = "claude-haiku-4-5";
+
+pub fn is_fast_mode_model(id: &str) -> bool {
+    id == FAST_MODE_MODEL || id.starts_with("claude-haiku-4-5")
+}
+
+/// Returns a short description string based on the model family inferred from
+/// the model ID.  Used when converting API model entries to `ModelEntry`.
+pub fn model_family_description(id: &str) -> String {
+    let lower = id.to_lowercase();
+    if lower.contains("opus") {
+        "Most capable — best for complex reasoning and analysis".to_string()
+    } else if lower.contains("sonnet") {
+        "Balanced performance and speed — great for coding tasks".to_string()
+    } else if lower.contains("haiku") {
+        "Fast and efficient — ideal for quick completions".to_string()
+    } else {
+        "AI model".to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Provider grouping helpers
+// ---------------------------------------------------------------------------
+
+/// Format a model display line with optional context window and cost info.
+///
+/// Example: `"gpt-4o  128K ctx  $5.00/M"`
+pub fn format_model_line(model_str: &str, context_window: Option<u32>, cost_per_1m: Option<f64>) -> String {
+    let mut parts = vec![model_str.to_string()];
+    if let Some(ctx) = context_window {
+        parts.push(format!("{}K ctx", ctx / 1000));
+    }
+    if let Some(cost) = cost_per_1m {
+        if cost == 0.0 {
+            parts.push("free".to_string());
+        } else {
+            parts.push(format!("${:.2}/M", cost));
+        }
+    }
+    parts.join("  ")
+}
+
+/// A group of models belonging to the same provider, for structured display.
+pub struct ProviderSection {
+    pub provider_name: String,
+    pub models: Vec<String>, // model ID strings in "provider/model" format
+}
+
+impl ModelPickerState {
+    /// Build grouped model sections from a flat list of model strings.
+    ///
+    /// Models with a `"provider/model"` slash format are grouped by their
+    /// provider prefix.  Bare model names are heuristically assigned to a
+    /// provider based on the model name pattern.
+    pub fn build_provider_sections(models: &[String]) -> Vec<ProviderSection> {
+        use std::collections::HashMap;
+        let mut by_provider: HashMap<String, Vec<String>> = HashMap::new();
+
+        for m in models {
+            let provider = if let Some((p, _)) = m.split_once('/') {
+                p.to_string()
+            } else {
+                // Bare model name — detect provider from model name
+                if m.contains("claude") {
+                    "anthropic".to_string()
+                } else if m.starts_with("gpt") || m.starts_with("o3") || m.starts_with("o4") {
+                    "openai".to_string()
+                } else if m.contains("gemini") {
+                    "google".to_string()
+                } else if m.contains("minimax") {
+                    "minimax".to_string()
+                } else {
+                    "other".to_string()
+                }
+            };
+            by_provider.entry(provider).or_default().push(m.clone());
+        }
+
+        // Define display order
+        let order = ["anthropic", "openai", "google", "ollama", "other"];
+        let mut sections = Vec::new();
+        for provider in order {
+            if let Some(models) = by_provider.remove(provider) {
+                sections.push(ProviderSection {
+                    provider_name: match provider {
+                        "anthropic" => "ANTHROPIC".to_string(),
+                        "openai" => "OPENAI".to_string(),
+                        "google" => "GOOGLE".to_string(),
+                        "ollama" => "OLLAMA (local)".to_string(),
+                        _ => provider.to_uppercase(),
+                    },
+                    models,
+                });
+            }
+        }
+        // Add any remaining providers not in the order list
+        for (provider, models) in by_provider {
+            sections.push(ProviderSection {
+                provider_name: provider.to_uppercase(),
+                models,
+            });
+        }
+        sections
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/// A single model entry shown in the picker.
+#[derive(Debug, Clone)]
+pub struct ModelEntry {
+    pub id: String,
+    pub display_name: String,
+    pub description: String,
+    /// Whether this is the currently active model.
+    pub is_current: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Provider-aware model lists
+// ---------------------------------------------------------------------------
+
+/// Helper to build a `ModelEntry` with `is_current = false`.
+fn model_entry(id: &str, name: &str, desc: &str) -> ModelEntry {
+    ModelEntry {
+        id: id.to_string(),
+        display_name: name.to_string(),
+        description: desc.to_string(),
+        is_current: false,
+    }
+}
+
+/// Get models for a provider from the model registry (models.dev data).
+///
+/// Falls back to the hardcoded `models_for_provider()` list when the registry
+/// has no entries for this provider.  This makes models.dev the single source
+/// of truth once the background fetch completes, while still providing a good
+/// experience before the fetch finishes.
+pub fn models_for_provider_from_registry(
+    provider_id: &str,
+    registry: &claurst_api::ModelRegistry,
+) -> Vec<ModelEntry> {
+    let entries = registry.list_by_provider(provider_id);
+    if !entries.is_empty() {
+        entries
+            .iter()
+            .map(|e| {
+                let ctx_k = e.info.context_window / 1000;
+                let cost_str = match (e.cost_input, e.cost_output) {
+                    (Some(ci), Some(co)) => format!("{}K ctx | ${:.2}/${:.2} per M", ctx_k, ci, co),
+                    _ => format!("{}K ctx", ctx_k),
+                };
+                ModelEntry {
+                    id: e.info.id.to_string(),
+                    display_name: e.info.name.clone(),
+                    description: cost_str,
+                    is_current: false,
+                }
+            })
+            .collect()
+    } else {
+        // Fall back to hardcoded
+        models_for_provider(provider_id)
+    }
+}
+
+/// Build the model list for a given provider.
+///
+/// Returns a curated set of well-known models for major providers so the
+/// `/model` picker shows relevant choices regardless of whether the API
+/// returned a live model list.
+pub fn models_for_provider(provider_id: &str) -> Vec<ModelEntry> {
+    match provider_id {
+        "anthropic" => vec![
+            model_entry("claude-opus-4-6", "Claude Opus 4.6", "Most capable — best for complex reasoning and analysis"),
+            model_entry("claude-sonnet-4-6", "Claude Sonnet 4.6", "Balanced performance and speed — great for coding tasks"),
+            model_entry("claude-haiku-4-5-20251001", "Claude Haiku 4.5", "Fast and efficient — ideal for quick completions"),
+        ],
+        "openai" => vec![
+            model_entry("gpt-4o", "GPT-4o", "128K context"),
+            model_entry("gpt-4o-mini", "GPT-4o mini", "128K context"),
+            model_entry("gpt-4.1", "GPT-4.1", "1M context"),
+            model_entry("gpt-4.1-mini", "GPT-4.1 mini", "1M context"),
+            model_entry("gpt-4.1-nano", "GPT-4.1 nano", "1M context"),
+            model_entry("o3", "o3", "200K context"),
+            model_entry("o3-mini", "o3 mini", "200K context"),
+            model_entry("o4-mini", "o4 mini", "200K context"),
+            model_entry("gpt-4-turbo", "GPT-4 Turbo", "128K context"),
+        ],
+        "google" => vec![
+            model_entry("gemini-2.5-pro", "Gemini 2.5 Pro", "1M context"),
+            model_entry("gemini-2.5-flash", "Gemini 2.5 Flash", "1M context"),
+            model_entry("gemini-2.0-flash", "Gemini 2.0 Flash", "1M context"),
+        ],
+        "minimax" => vec![
+            model_entry("MiniMax-M2.7", "MiniMax M2.7", "Anthropic-compatible (128K context)"),
+        ],
+        "groq" => vec![
+            model_entry("llama-3.3-70b-versatile", "Llama 3.3 70B", "128K context"),
+            model_entry("llama-3.1-8b-instant", "Llama 3.1 8B", "128K context"),
+            model_entry("mixtral-8x7b-32768", "Mixtral 8x7B", "32K context"),
+            model_entry("gemma2-9b-it", "Gemma 2 9B", "8K context"),
+        ],
+        "cerebras" => vec![
+            model_entry("llama-3.3-70b", "Llama 3.3 70B", "128K context"),
+            model_entry("llama-3.1-8b", "Llama 3.1 8B", "128K context"),
+        ],
+        "deepseek" => vec![
+            model_entry("deepseek-chat", "DeepSeek V3", "64K context"),
+            model_entry("deepseek-reasoner", "DeepSeek R1", "64K context"),
+        ],
+        "mistral" => vec![
+            model_entry("mistral-large-latest", "Mistral Large", "128K context"),
+            model_entry("mistral-small-latest", "Mistral Small", "128K context"),
+            model_entry("codestral-latest", "Codestral", "32K context"),
+        ],
+        "xai" => vec![
+            model_entry("grok-2", "Grok 2", "128K context"),
+            model_entry("grok-3", "Grok 3", "128K context"),
+            model_entry("grok-3-mini", "Grok 3 mini", "128K context"),
+        ],
+        "openrouter" => vec![
+            model_entry("anthropic/claude-sonnet-4", "Claude Sonnet 4", "via OpenRouter"),
+            model_entry("openai/gpt-4o", "GPT-4o", "via OpenRouter"),
+            model_entry("google/gemini-2.5-pro", "Gemini 2.5 Pro", "via OpenRouter"),
+            model_entry("meta-llama/llama-3.3-70b-instruct", "Llama 3.3 70B", "via OpenRouter"),
+        ],
+        "github-copilot" => vec![
+            model_entry("claude-sonnet-4.6", "Claude Sonnet 4.6", "via Copilot"),
+            model_entry("claude-sonnet-4.5", "Claude Sonnet 4.5", "via Copilot"),
+            model_entry("claude-haiku-4.5", "Claude Haiku 4.5", "via Copilot"),
+            model_entry("gpt-4.1", "GPT-4.1", "via Copilot"),
+            model_entry("gpt-4o", "GPT-4o", "via Copilot"),
+            model_entry("gpt-4o-mini", "GPT-4o mini", "via Copilot"),
+            model_entry("gpt-5.4", "GPT-5.4", "via Copilot"),
+            model_entry("gpt-5-mini", "GPT-5 mini", "via Copilot"),
+            model_entry("o3-mini", "o3 mini", "via Copilot"),
+            model_entry("o4-mini", "o4 mini", "via Copilot"),
+            model_entry("gemini-3-flash-preview", "Gemini 3 Flash", "via Copilot"),
+        ],
+        "cohere" => vec![
+            model_entry("command-r-plus", "Command R+", "128K context"),
+            model_entry("command-r", "Command R", "128K context"),
+        ],
+        "perplexity" => vec![
+            model_entry("sonar-pro", "Sonar Pro", "search-augmented"),
+            model_entry("sonar", "Sonar", "search-augmented"),
+        ],
+        "togetherai" | "together-ai" => vec![
+            model_entry("meta-llama/Llama-3.3-70B-Instruct-Turbo", "Llama 3.3 70B Turbo", "128K context"),
+            model_entry("meta-llama/Llama-3.1-8B-Instruct-Turbo", "Llama 3.1 8B Turbo", "128K context"),
+            model_entry("Qwen/Qwen2.5-72B-Instruct-Turbo", "Qwen 2.5 72B Turbo", "128K context"),
+        ],
+        "deepinfra" => vec![
+            model_entry("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3 70B", "128K context"),
+            model_entry("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1 8B", "128K context"),
+        ],
+        "venice" => vec![
+            model_entry("llama-3.3-70b", "Llama 3.3 70B", "128K context"),
+        ],
+        "ollama" => vec![
+            model_entry("llama3.2", "Llama 3.2", "local"),
+            model_entry("mistral", "Mistral", "local"),
+            model_entry("codellama", "Code Llama", "local"),
+            model_entry("gemma2", "Gemma 2", "local"),
+            model_entry("phi3", "Phi-3", "local"),
+            model_entry("qwen2.5", "Qwen 2.5", "local"),
+        ],
+        "azure" => vec![
+            model_entry("gpt-4o", "GPT-4o (Azure)", "128K context"),
+            model_entry("gpt-4o-mini", "GPT-4o mini (Azure)", "128K context"),
+        ],
+        "amazon-bedrock" => vec![
+            model_entry("anthropic.claude-sonnet-4-6-v1", "Claude Sonnet 4.6 (Bedrock)", "200K context"),
+            model_entry("anthropic.claude-haiku-4-5-20251001-v1", "Claude Haiku 4.5 (Bedrock)", "200K context"),
+        ],
+        "lmstudio" => vec![
+            model_entry("default", "Default model", "local"),
+        ],
+        "llamacpp" => vec![
+            model_entry("default", "Default model", "local"),
+        ],
+        _ => vec![
+            model_entry("default", "Default model", ""),
+        ],
+    }
+}
+
+/// Return the provider-prefixed default model name for a given provider.
+///
+/// This is used when connecting to a new provider so the status bar
+/// immediately shows the right model.
+pub fn default_model_for_provider(provider_id: &str) -> String {
+    match provider_id {
+        "anthropic" => "claude-opus-4-6".to_string(),
+        "openai" => "openai/gpt-4o".to_string(),
+        "google" => "google/gemini-2.5-flash".to_string(),
+        "minimax" => "minimax/MiniMax-M2.7".to_string(),
+        "groq" => "groq/llama-3.3-70b-versatile".to_string(),
+        "cerebras" => "cerebras/llama-3.3-70b".to_string(),
+        "deepseek" => "deepseek/deepseek-chat".to_string(),
+        "mistral" => "mistral/mistral-large-latest".to_string(),
+        "xai" => "xai/grok-2".to_string(),
+        "openrouter" => "openrouter/anthropic/claude-sonnet-4".to_string(),
+        "github-copilot" => "github-copilot/gpt-4o".to_string(),
+        "cohere" => "cohere/command-r-plus".to_string(),
+        "perplexity" => "perplexity/sonar-pro".to_string(),
+        "togetherai" | "together-ai" => "togetherai/meta-llama/Llama-3.3-70B-Instruct-Turbo".to_string(),
+        "deepinfra" => "deepinfra/meta-llama/Llama-3.3-70B-Instruct".to_string(),
+        "venice" => "venice/llama-3.3-70b".to_string(),
+        "ollama" => "ollama/llama3.2".to_string(),
+        "lmstudio" => "lmstudio/default".to_string(),
+        "llamacpp" => "llamacpp/default".to_string(),
+        "azure" => "azure/gpt-4o".to_string(),
+        "amazon-bedrock" => "amazon-bedrock/anthropic.claude-sonnet-4-6-v1".to_string(),
+        other => format!("{}/default", other),
+    }
+}
+
+/// State for the /model picker overlay.
+pub struct ModelPickerState {
+    pub visible: bool,
+    pub selected_idx: usize,
+    pub models: Vec<ModelEntry>,
+    pub title: String,
+    /// Live filter typed by the user.
+    pub filter: String,
+    /// Current effort level for models that support extended thinking.
+    pub effort_level: EffortLevel,
+    /// Whether fast mode is currently active (locks model to FAST_MODE_MODEL).
+    pub fast_mode: bool,
+    /// `true` once the dynamic model list has been loaded from the API.
+    pub models_loaded: bool,
+    /// `true` while the background fetch is in flight.
+    pub loading_models: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Implementation
+// ---------------------------------------------------------------------------
+
+impl ModelPickerState {
+    /// Create a new picker with the default model list (not yet visible).
+    pub fn new() -> Self {
+        Self {
+            visible: false,
+            selected_idx: 0,
+            models: Self::default_models(),
+            title: "Select model".to_string(),
+            filter: String::new(),
+            effort_level: EffortLevel::Normal,
+            fast_mode: false,
+            models_loaded: false,
+            loading_models: false,
+        }
+    }
+
+    /// Open the overlay.
+    ///
+    /// `current_model` is highlighted as active; `current_effort` and
+    /// `fast_mode` are carried over from app state so the user sees the live
+    /// values.
+    pub fn open(&mut self, current_model: &str) {
+        self.open_with_state(current_model, EffortLevel::Normal, false);
+    }
+
+    /// Open the overlay with full state context.
+    pub fn open_with_state(&mut self, current_model: &str, effort: EffortLevel, fast_mode: bool) {
+        self.open_with_title("Select model", current_model, effort, fast_mode);
+    }
+
+    pub fn open_with_title(
+        &mut self,
+        title: impl Into<String>,
+        current_model: &str,
+        effort: EffortLevel,
+        fast_mode: bool,
+    ) {
+        for m in &mut self.models {
+            m.is_current = m.id == current_model;
+        }
+        self.selected_idx = self
+            .models
+            .iter()
+            .position(|m| m.is_current)
+            .unwrap_or(0);
+        self.title = title.into();
+        self.filter.clear();
+        self.effort_level = effort;
+        self.fast_mode = fast_mode;
+        self.visible = true;
+    }
+
+    /// Close the overlay without selecting.
+    pub fn close(&mut self) {
+        self.visible = false;
+        self.filter.clear();
+    }
+
+    /// Move selection up one row (wraps to last if at top).
+    pub fn select_prev(&mut self) {
+        let count = self.filtered_models().len();
+        if count == 0 { return; }
+        if self.selected_idx == 0 {
+            self.selected_idx = count - 1;
+        } else {
+            self.selected_idx -= 1;
+        }
+    }
+
+    /// Move selection down one row (wraps to first if at bottom).
+    pub fn select_next(&mut self) {
+        let count = self.filtered_models().len();
+        if count == 0 { return; }
+        self.selected_idx = (self.selected_idx + 1) % count;
+    }
+
+    pub fn select_first(&mut self) {
+        self.selected_idx = 0;
+    }
+
+    pub fn select_last(&mut self) {
+        let count = self.filtered_models().len();
+        self.selected_idx = count.saturating_sub(1);
+    }
+
+    /// Cycle effort level forward (→ key).
+    pub fn effort_next(&mut self) {
+        let filtered = self.filtered_models();
+        let id = filtered.get(self.selected_idx).map(|m| m.id.as_str()).unwrap_or("");
+        let supports_max = model_supports_max_effort(id);
+        self.effort_level = self.effort_level.next(supports_max);
+    }
+
+    /// Cycle effort level backward (← key).
+    pub fn effort_prev(&mut self) {
+        let filtered = self.filtered_models();
+        let id = filtered.get(self.selected_idx).map(|m| m.id.as_str()).unwrap_or("");
+        let supports_max = model_supports_max_effort(id);
+        self.effort_level = self.effort_level.prev(supports_max);
+    }
+
+    /// Returns the effective effort for the currently highlighted model:
+    /// `None` if the model does not support extended thinking.
+    pub fn effective_effort(&self) -> Option<EffortLevel> {
+        let filtered = self.filtered_models();
+        let id = filtered.get(self.selected_idx).map(|m| m.id.as_str()).unwrap_or("");
+        if model_supports_effort(id) {
+            Some(self.effort_level)
+        } else {
+            None
+        }
+    }
+
+    /// Confirm the current selection.
+    ///
+    /// Returns `(model_id, effort)` where `effort` is `None` for models that
+    /// do not support extended thinking.  Closes the picker.
+    ///
+    /// Returns the selected model; the caller is responsible for persisting it
+    /// in the correct provider-aware format.
+    pub fn confirm(&mut self) -> Option<(String, Option<EffortLevel>)> {
+        let filtered = self.filtered_models();
+        let entry = filtered.get(self.selected_idx)?;
+        let id = entry.id.clone();
+        let effort = if model_supports_effort(&id) { Some(self.effort_level) } else { None };
+        // If user chose a model other than the fast-mode model while fast mode is
+        // active, the caller should turn off fast mode (mirrors TS behaviour).
+        self.close();
+        Some((id, effort))
+    }
+
+    /// Append a character to the filter string and reset the selection.
+    pub fn push_filter_char(&mut self, c: char) {
+        self.filter.push(c);
+        self.selected_idx = 0;
+    }
+
+    /// Remove the last character from the filter string.
+    pub fn pop_filter_char(&mut self) {
+        self.filter.pop();
+        self.selected_idx = 0;
+    }
+
+    /// Return models that match the current filter (case-insensitive).
+    pub fn filtered_models(&self) -> Vec<&ModelEntry> {
+        if self.filter.is_empty() {
+            return self.models.iter().collect();
+        }
+        let needle = self.filter.to_lowercase();
+        self.models
+            .iter()
+            .filter(|m| {
+                m.id.to_lowercase().contains(needle.as_str())
+                    || m.display_name.to_lowercase().contains(needle.as_str())
+                    || m.description.to_lowercase().contains(needle.as_str())
+            })
+            .collect()
+    }
+
+    /// Replace the model list with dynamically loaded entries.
+    ///
+    /// Called by the app event loop when the background fetch completes.
+    /// Resets `loading_models` and sets `models_loaded`.
+    pub fn set_models(&mut self, entries: Vec<ModelEntry>) {
+        self.models = entries;
+        self.loading_models = false;
+        self.models_loaded = true;
+        // Keep selected_idx in bounds.
+        let count = self.filtered_models().len();
+        if count > 0 && self.selected_idx >= count {
+            self.selected_idx = count - 1;
+        }
+    }
+
+    /// Fetch the list of available models from the Anthropic API and convert
+    /// them to `ModelEntry` values.
+    ///
+    /// On success, models are sorted newest-first (by `created_at` descending).
+    /// On any error, returns `default_models()` as a fallback so the picker is
+    /// never left empty.
+    pub async fn fetch_models(client: &claurst_api::AnthropicClient) -> Vec<ModelEntry> {
+        match client.fetch_available_models().await {
+            Ok(available) => {
+                if available.is_empty() {
+                    return Self::default_models();
+                }
+
+                let mut entries: Vec<(i64, ModelEntry)> = available
+                    .into_iter()
+                    .map(|m| {
+                        let display = m
+                            .display_name
+                            .clone()
+                            .unwrap_or_else(|| m.id.clone());
+                        let description = model_family_description(&m.id);
+                        let ts = m.created_at.unwrap_or(0);
+                        (ts, ModelEntry {
+                            id: m.id,
+                            display_name: display,
+                            description,
+                            is_current: false,
+                        })
+                    })
+                    .collect();
+
+                // Sort newest-first.
+                entries.sort_by(|a, b| b.0.cmp(&a.0));
+                entries.into_iter().map(|(_, e)| e).collect()
+            }
+            Err(_) => Self::default_models(),
+        }
+    }
+
+    /// Hardcoded list of Claude models available as of 2025.
+    pub fn default_models() -> Vec<ModelEntry> {
+        vec![
+            ModelEntry {
+                id: "claude-opus-4-6".to_string(),
+                display_name: "Claude Opus 4.6".to_string(),
+                description: "Most capable model — best for complex reasoning and analysis".to_string(),
+                is_current: false,
+            },
+            ModelEntry {
+                id: "claude-sonnet-4-6".to_string(),
+                display_name: "Claude Sonnet 4.6".to_string(),
+                description: "Balanced performance and speed — great for coding tasks".to_string(),
+                is_current: false,
+            },
+            ModelEntry {
+                id: "claude-haiku-4-5-20251001".to_string(),
+                display_name: "Claude Haiku 4.5 (2025-10-01)".to_string(),
+                description: "Fast and efficient — ideal for quick completions".to_string(),
+                is_current: false,
+            },
+            ModelEntry {
+                id: "claude-opus-4-5".to_string(),
+                display_name: "Claude Opus 4.5".to_string(),
+                description: "Previous Opus generation — powerful multimodal reasoning".to_string(),
+                is_current: false,
+            },
+            ModelEntry {
+                id: "claude-sonnet-4-5".to_string(),
+                display_name: "Claude Sonnet 4.5".to_string(),
+                description: "Previous Sonnet generation — solid coding and writing".to_string(),
+                is_current: false,
+            },
+            ModelEntry {
+                id: "claude-haiku-4-5".to_string(),
+                display_name: "Claude Haiku 4.5".to_string(),
+                description: "Previous Haiku generation — lightweight and responsive".to_string(),
+                is_current: false,
+            },
+            ModelEntry {
+                id: "claude-3-7-sonnet-20250219".to_string(),
+                display_name: "Claude 3.7 Sonnet (2025-02-19)".to_string(),
+                description: "Sonnet 3.7 with enhanced instruction following".to_string(),
+                is_current: false,
+            },
+            ModelEntry {
+                id: "claude-3-5-sonnet-20241022".to_string(),
+                display_name: "Claude 3.5 Sonnet (2024-10-22)".to_string(),
+                description: "Highly capable 3.5 Sonnet — reliable and well-tested".to_string(),
+                is_current: false,
+            },
+            ModelEntry {
+                id: "claude-3-5-haiku-20241022".to_string(),
+                display_name: "Claude 3.5 Haiku (2024-10-22)".to_string(),
+                description: "Fast 3.5 Haiku — great for high-throughput pipelines".to_string(),
+                is_current: false,
+            },
+        ]
+    }
+}
+
+impl Default for ModelPickerState {
+    fn default() -> Self { Self::new() }
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+/// Render the model picker overlay directly into `buf`.
+///
+/// Draws a centred modal (≈70 wide × ≈22 tall) with:
+/// - Fast-mode notice when fast mode is active
+/// - A filter line when the user is typing
+/// - A scrollable list of models with effort indicator for supporting models
+/// - Selection highlight on the focused row
+/// - Bottom hint bar with ←/→ keys for effort adjustment
+pub fn render_model_picker(state: &ModelPickerState, area: Rect, buf: &mut Buffer) {
+    if !state.visible {
+        return;
+    }
+
+    use ratatui::prelude::Stylize;
+    use ratatui::widgets::Widget;
+
+    let _pink = Color::Rgb(233, 30, 99);
+    let dim = Color::Rgb(90, 90, 90);
+    let dialog_bg = CLAURST_PANEL_BG;
+    let highlight_bg = Color::Rgb(233, 30, 99);
+    let highlight_fg = Color::White;
+
+    // ── Dark overlay ──
+    for y in area.y..area.y + area.height {
+        for x in area.x..area.x + area.width {
+            if let Some(cell) = buf.cell_mut((x, y)) {
+                cell.set_bg(Color::Rgb(10, 10, 14));
+                cell.set_fg(Color::Rgb(40, 40, 45));
+            }
+        }
+    }
+
+    // ── Dialog size ──
+    let width = 65u16.min(area.width.saturating_sub(6));
+    let max_height = (area.height as f32 * 0.75) as u16;
+    let filtered = state.filtered_models();
+    let content_h = (filtered.len() as u16 + 6).min(max_height).max(8);
+    let dialog_area = centered_rect(width, content_h, area);
+
+    // ── Fill dialog bg (no border) ──
+    for y in dialog_area.y..dialog_area.y + dialog_area.height {
+        for x in dialog_area.x..dialog_area.x + dialog_area.width {
+            if let Some(cell) = buf.cell_mut((x, y)) {
+                cell.set_char(' ');
+                cell.set_bg(dialog_bg);
+                cell.set_fg(Color::White);
+            }
+        }
+    }
+
+    let inner = Rect {
+        x: dialog_area.x + 1,
+        y: dialog_area.y + 1,
+        width: dialog_area.width.saturating_sub(2),
+        height: dialog_area.height.saturating_sub(2),
+    };
+
+    let footer_height = 1u16.min(inner.height);
+    let header_height = 3u16.min(inner.height.saturating_sub(footer_height));
+    let header_area = Rect {
+        x: inner.x,
+        y: inner.y,
+        width: inner.width,
+        height: header_height,
+    };
+    let body_area = Rect {
+        x: inner.x,
+        y: inner.y.saturating_add(header_height),
+        width: inner.width,
+        height: inner.height.saturating_sub(header_height + footer_height),
+    };
+    let footer_area = Rect {
+        x: inner.x,
+        y: inner.y + inner.height.saturating_sub(footer_height),
+        width: inner.width,
+        height: footer_height,
+    };
+
+    // ── Fixed header ──
+    let mut header_lines: Vec<Line> = Vec::new();
+
+    // Title row: "Select model" left, "esc" right
+    let title_pad = inner.width.saturating_sub(state.title.len() as u16 + 5) as usize;
+    header_lines.push(Line::from(vec![
+        Span::styled(format!(" {}", state.title), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{:>w$}", "esc ", w = title_pad), Style::default().fg(dim)),
+    ]));
+
+    // Search field
+    header_lines.push(Line::from(""));
+    header_lines.push(modal_search_line(&state.filter, "Search", dim, Color::White));
+
+    let header_para = Paragraph::new(header_lines).bg(dialog_bg);
+    header_para.render(header_area, buf);
+
+    if body_area.height == 0 {
+        return;
+    }
+
+    // ── Model items ──
+    let mut lines: Vec<Line> = Vec::new();
+    let mut selected_line_idx: u16 = 0;
+
+    if state.fast_mode {
+        lines.push(Line::from(vec![Span::styled(
+            format!(" \u{26a1} Fast mode ON ({})", FAST_MODE_MODEL),
+            Style::default().fg(Color::Yellow),
+        )]));
+    }
+
+    if state.loading_models {
+        lines.push(Line::from(vec![Span::styled(
+            " Loading models\u{2026}",
+            Style::default().fg(dim),
+        )]));
+    }
+
+    if !lines.is_empty() {
+        lines.push(Line::from(""));
+    }
+
+    if filtered.is_empty() {
+        lines.push(Line::from(vec![Span::styled(" No results found", Style::default().fg(dim))]));
+    } else {
+        for (i, model) in filtered.iter().enumerate() {
+            let is_selected = i == state.selected_idx;
+            let supports_effort = model_supports_effort(&model.id);
+
+            if is_selected {
+                selected_line_idx = lines.len() as u16;
+            }
+
+            let (fg, bg) = if is_selected {
+                (highlight_fg, highlight_bg)
+            } else {
+                (Color::White, dialog_bg)
+            };
+
+            let mut spans: Vec<Span<'static>> = Vec::new();
+
+            // Current model indicator
+            if model.is_current {
+                spans.push(Span::styled(" \u{25cf} ", Style::default().fg(Color::Green).bg(bg)));
+            } else {
+                spans.push(Span::styled("   ", Style::default().bg(bg)));
+            }
+
+            spans.push(Span::styled(model.display_name.clone(), Style::default().fg(fg).bg(bg)));
+
+            // Effort indicator
+            if supports_effort && is_selected {
+                spans.push(Span::styled(
+                    format!("  {} {}", state.effort_level.symbol(), state.effort_level.label()),
+                    Style::default().fg(Color::Rgb(200, 255, 200)).bg(bg),
+                ));
+            }
+
+            // Description
+            if !model.description.is_empty() {
+                let desc_fg = if is_selected { Color::Rgb(200, 200, 200) } else { dim };
+                spans.push(Span::styled(
+                    format!("  {}", model.description),
+                    Style::default().fg(desc_fg).bg(bg),
+                ));
+            }
+
+            // Pad for full-width highlight
+            if is_selected {
+                let text_len: usize = spans.iter().map(|s| s.content.len()).sum();
+                let pad = inner.width.saturating_sub(text_len as u16) as usize;
+                if pad > 0 {
+                    spans.push(Span::styled(" ".repeat(pad), Style::default().bg(highlight_bg)));
+                }
+            }
+
+            lines.push(Line::from(spans));
+        }
+    }
+
+    // ── Scroll ──
+    let total_lines = lines.len() as u16;
+    let visible = body_area.height;
+    let scroll_y = if total_lines <= visible {
+        0u16
+    } else if selected_line_idx + 3 >= visible {
+        (selected_line_idx + 3).saturating_sub(visible)
+    } else {
+        0
+    };
+
+    let para = Paragraph::new(lines).bg(dialog_bg).scroll((scroll_y, 0));
+
+    para.render(body_area, buf);
+
+    let mut footer_spans = vec![
+        Span::styled(" enter", Style::default().fg(dim)),
+        Span::styled(" select", Style::default().fg(dim)),
+    ];
+    if let Some(model) = filtered.get(state.selected_idx) {
+        if model_supports_effort(&model.id) {
+            footer_spans.push(Span::raw("  "));
+            footer_spans.push(Span::styled("\u{2190}/\u{2192}", Style::default().fg(dim)));
+            footer_spans.push(Span::styled(" effort", Style::default().fg(dim)));
+        }
+    }
+    footer_spans.push(Span::raw("  "));
+    footer_spans.push(Span::styled(" /connect", Style::default().fg(Color::Rgb(233, 30, 99))));
+    footer_spans.push(Span::styled(" providers", Style::default().fg(dim)));
+    Paragraph::new(Line::from(footer_spans)).bg(dialog_bg).render(footer_area, buf);
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_picker_with_current(current: &str) -> ModelPickerState {
+        let mut p = ModelPickerState::new();
+        p.open(current);
+        p
+    }
+
+    // 1. Default model list is non-empty and contains expected IDs.
+    #[test]
+    fn default_models_are_populated() {
+        let models = ModelPickerState::default_models();
+        assert!(!models.is_empty(), "default model list must not be empty");
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"claude-sonnet-4-6"));
+        assert!(ids.contains(&"claude-opus-4-6"));
+        assert!(ids.contains(&"claude-3-5-haiku-20241022"));
+    }
+
+    // 2. open() marks exactly one model as current.
+    #[test]
+    fn open_marks_current_model() {
+        let mut p = ModelPickerState::new();
+        p.open("claude-sonnet-4-6");
+        let current_count = p.models.iter().filter(|m| m.is_current).count();
+        assert_eq!(current_count, 1);
+        assert!(p.models.iter().find(|m| m.id == "claude-sonnet-4-6").unwrap().is_current);
+    }
+
+    #[test]
+    fn open_with_title_updates_dialog_title() {
+        let mut p = ModelPickerState::new();
+        p.open_with_title("Anthropic", "claude-sonnet-4-6", EffortLevel::Normal, false);
+        assert_eq!(p.title, "Anthropic");
+    }
+
+    #[test]
+    fn fast_mode_aliases_include_dated_haiku() {
+        assert!(is_fast_mode_model("claude-haiku-4-5"));
+        assert!(is_fast_mode_model("claude-haiku-4-5-20251001"));
+    }
+
+    // 3. open() with an unknown model ID marks none as current and sets idx=0.
+    #[test]
+    fn open_unknown_model_selects_first() {
+        let mut p = ModelPickerState::new();
+        p.open("unknown-model");
+        assert_eq!(p.selected_idx, 0);
+        assert!(p.models.iter().all(|m| !m.is_current));
+    }
+
+    // 4. select_next() wraps around to 0 after the last entry.
+    #[test]
+    fn select_next_wraps() {
+        let mut p = make_picker_with_current("claude-opus-4-6");
+        let total = p.filtered_models().len();
+        p.selected_idx = total - 1;
+        p.select_next();
+        assert_eq!(p.selected_idx, 0);
+    }
+
+    // 5. select_prev() wraps around to last after idx 0.
+    #[test]
+    fn select_prev_wraps() {
+        let mut p = make_picker_with_current("claude-opus-4-6");
+        p.selected_idx = 0;
+        p.select_prev();
+        let total = p.filtered_models().len();
+        assert_eq!(p.selected_idx, total - 1);
+    }
+
+    // 6. filter reduces visible entries.
+    #[test]
+    fn filter_reduces_results() {
+        let mut p = make_picker_with_current("claude-opus-4-6");
+        for c in "sonnet".chars() { p.push_filter_char(c); }
+        let all = p.models.len();
+        let filtered = p.filtered_models();
+        assert!(filtered.len() < all, "filter should reduce the result count");
+        assert!(!filtered.is_empty(), "at least one sonnet model must match");
+        for m in &filtered {
+            let haystack = format!("{} {} {}", m.id, m.display_name, m.description).to_lowercase();
+            assert!(haystack.contains("sonnet"), "model '{}' does not match filter", m.id);
+        }
+    }
+
+    // 7. pop_filter_char removes last char.
+    #[test]
+    fn pop_filter_char_removes_last() {
+        let mut p = make_picker_with_current("claude-opus-4-6");
+        p.push_filter_char('h'); p.push_filter_char('a'); p.push_filter_char('i');
+        assert_eq!(p.filter, "hai");
+        p.pop_filter_char();
+        assert_eq!(p.filter, "ha");
+    }
+
+    // 8. confirm() returns selected model ID and closes the picker.
+    #[test]
+    fn confirm_returns_id_and_closes() {
+        let mut p = make_picker_with_current("claude-opus-4-6");
+        p.selected_idx = 0;
+        let first_id = p.filtered_models()[0].id.clone();
+        let result = p.confirm();
+        assert_eq!(result.map(|(id, _)| id), Some(first_id));
+        assert!(!p.visible, "picker should be closed after confirm");
+    }
+
+    // 9. confirm() on empty filter list returns None.
+    #[test]
+    fn confirm_empty_filter_returns_none() {
+        let mut p = make_picker_with_current("claude-opus-4-6");
+        p.filter = "zzznomatch999".to_string();
+        p.selected_idx = 0;
+        let result = p.confirm();
+        assert!(result.is_none());
+    }
+
+    // 10. close() clears filter and hides overlay.
+    #[test]
+    fn close_clears_state() {
+        let mut p = make_picker_with_current("claude-opus-4-6");
+        p.push_filter_char('x');
+        p.close();
+        assert!(!p.visible);
+        assert!(p.filter.is_empty());
+    }
+
+    // 11. effort cycling works for effort-supporting models.
+    #[test]
+    fn effort_cycles_correctly() {
+        let mut p = make_picker_with_current("claude-sonnet-4-6");
+        // sonnet-4-6 supports effort but not max
+        assert_eq!(p.effort_level, EffortLevel::Normal);
+        p.effort_next();
+        assert_eq!(p.effort_level, EffortLevel::High);
+        p.effort_next();
+        // no max for sonnet → wraps to Low
+        assert_eq!(p.effort_level, EffortLevel::Low);
+    }
+
+    // 12. Opus supports max effort.
+    #[test]
+    fn opus_supports_max_effort() {
+        assert!(model_supports_max_effort("claude-opus-4-6"));
+        assert!(!model_supports_max_effort("claude-sonnet-4-6"));
+        assert!(!model_supports_max_effort("claude-haiku-4-5"));
+    }
+
+    // 13. Non-effort models return None from effective_effort.
+    #[test]
+    fn haiku_has_no_effort() {
+        let mut p = make_picker_with_current("claude-haiku-4-5");
+        p.selected_idx = p.models.iter().position(|m| m.id == "claude-haiku-4-5").unwrap();
+        assert!(!model_supports_effort("claude-haiku-4-5"));
+        let effort = p.confirm();
+        assert!(effort.is_some_and(|(_, e)| e.is_none()));
+    }
+
+    // 14. render_model_picker does not panic for a default-area call.
+    #[test]
+    fn render_does_not_panic() {
+        let mut p = ModelPickerState::new();
+        p.open("claude-sonnet-4-6");
+        let area = Rect::new(0, 0, 120, 40);
+        let mut buf = Buffer::empty(area);
+        render_model_picker(&p, area, &mut buf);
+    }
+
+    // 15. render does nothing when not visible.
+    #[test]
+    fn render_noop_when_hidden() {
+        let p = ModelPickerState::new();
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        render_model_picker(&p, area, &mut buf);
+        for cell in buf.content() {
+            assert_eq!(cell.symbol(), " ", "buffer should be empty when picker is hidden");
+        }
+    }
+
+    // 16. models_for_provider returns correct models for each provider.
+    #[test]
+    fn models_for_provider_anthropic() {
+        let models = models_for_provider("anthropic");
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"claude-opus-4-6"));
+        assert!(ids.contains(&"claude-sonnet-4-6"));
+    }
+
+    #[test]
+    fn models_for_provider_openai() {
+        let models = models_for_provider("openai");
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"gpt-4o"));
+        assert!(ids.contains(&"gpt-4o-mini"));
+        // Must NOT contain Claude models
+        assert!(!ids.iter().any(|id| id.contains("claude")));
+    }
+
+    #[test]
+    fn models_for_provider_ollama() {
+        let models = models_for_provider("ollama");
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"llama3.2"));
+    }
+
+    #[test]
+    fn models_for_provider_unknown_returns_default() {
+        let models = models_for_provider("some-unknown-provider");
+        assert!(!models.is_empty());
+        assert_eq!(models[0].id, "default");
+    }
+
+    // 17. default_model_for_provider returns prefixed models for non-anthropic.
+    #[test]
+    fn default_model_for_provider_openai() {
+        assert_eq!(default_model_for_provider("openai"), "openai/gpt-4o");
+    }
+
+    #[test]
+    fn default_model_for_provider_anthropic_bare() {
+        // Anthropic models are bare (no prefix) for backwards compat.
+        assert_eq!(default_model_for_provider("anthropic"), "claude-opus-4-6");
+    }
+
+    // 18. set_models replaces the model list.
+    #[test]
+    fn set_models_replaces_list() {
+        let mut p = ModelPickerState::new();
+        let openai_models = models_for_provider("openai");
+        p.set_models(openai_models);
+        let ids: Vec<&str> = p.models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"gpt-4o"));
+        assert!(!ids.iter().any(|id| id.contains("claude")));
+    }
+}

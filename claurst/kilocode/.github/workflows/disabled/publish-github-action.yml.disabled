@@ -1,0 +1,34 @@
+name: publish-github-action
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "github-v*.*.*"
+      - "!github-v1"
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - run: git fetch --force --tags
+
+      - name: Setup Git Committer
+        id: committer
+        uses: ./.github/actions/setup-git-committer
+        with:
+          kilo-maintainer-app-id: ${{ secrets.KILO_MAINTAINER_APP_ID }}
+          kilo-maintainer-app-secret: ${{ secrets.KILO_MAINTAINER_APP_SECRET }}
+
+      - name: Publish
+        run: ./script/publish
+        working-directory: ./github

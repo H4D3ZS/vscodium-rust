@@ -1,0 +1,83 @@
+[package]
+name = "claurst-tui"
+version.workspace = true
+edition.workspace = true
+
+[features]
+# Enable real microphone capture for voice PTT mode.
+voice = ["claurst-core/voice", "dep:cpal", "dep:hound"]
+
+# UI & Interaction features (pass-through from cc-core)
+token_budget = ["claurst-core/token_budget"]
+ultraplan = ["claurst-core/ultraplan"]
+ultrathink = ["claurst-core/ultrathink"]
+history_picker = ["claurst-core/history_picker"]
+message_actions = ["claurst-core/message_actions"]
+quick_search = ["claurst-core/quick_search"]
+away_summary = ["claurst-core/away_summary"]
+hook_prompts = ["claurst-core/hook_prompts"]
+kairos_brief = ["claurst-core/kairos_brief"]
+kairos_channels = ["claurst-core/kairos_channels"]
+lodestone = ["claurst-core/lodestone"]
+
+# Agents & Memory features (pass-through from cc-core)
+agent_triggers = ["claurst-core/agent_triggers"]
+agent_triggers_remote = ["claurst-core/agent_triggers_remote"]
+extract_memories = ["claurst-core/extract_memories"]
+verification_agent = ["claurst-core/verification_agent"]
+builtin_explore_plan_agents = ["claurst-core/builtin_explore_plan_agents"]
+cached_microcompact = ["claurst-core/cached_microcompact"]
+compaction_reminders = ["claurst-core/compaction_reminders"]
+agent_memory_snapshot = ["claurst-core/agent_memory_snapshot"]
+teammem = ["claurst-core/teammem"]
+
+# Tools & Infrastructure features (pass-through from cc-core)
+bash_classifier = ["claurst-core/bash_classifier"]
+bridge_mode = ["claurst-core/bridge_mode"]
+mcp_rich_output = ["claurst-core/mcp_rich_output"]
+connector_text = ["claurst-core/connector_text"]
+unattended_retry = ["claurst-core/unattended_retry"]
+new_init = ["claurst-core/new_init"]
+powershell_auto_mode = ["claurst-core/powershell_auto_mode"]
+shot_stats = ["claurst-core/shot_stats"]
+tree_sitter_bash = ["claurst-core/tree_sitter_bash"]
+tree_sitter_bash_shadow = ["claurst-core/tree_sitter_bash_shadow"]
+native_clipboard_image = ["claurst-core/native_clipboard_image"]
+prompt_cache_break_detection = ["claurst-core/prompt_cache_break_detection"]
+ccr_auto_connect = ["claurst-core/ccr_auto_connect"]
+ccr_mirror = ["claurst-core/ccr_mirror"]
+ccr_remote_setup = ["claurst-core/ccr_remote_setup"]
+
+[dependencies]
+claurst-core = { workspace = true }
+claurst-api = { workspace = true }
+claurst-tools = { workspace = true }
+claurst-query = { workspace = true }
+claurst-mcp = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+unicode-width = { workspace = true }
+chrono = { workspace = true }
+parking_lot = { workspace = true }
+dirs = { workspace = true }
+similar = { workspace = true }
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
+once_cell = { workspace = true }
+base64 = { workspace = true }
+reqwest = { workspace = true }
+dashmap = { workspace = true }
+icy_sixel = { workspace = true }
+image = { workspace = true }
+regex = { workspace = true }
+# Optional audio capture for voice PTT (gated behind the `voice` feature)
+cpal = { version = "0.15", optional = true }
+hound = { version = "3.5", optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

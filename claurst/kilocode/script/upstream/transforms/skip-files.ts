@@ -1,0 +1,208 @@
+#!/usr/bin/env bun
+/**
+ * Skip files transform - handles files that should be completely skipped during merge
+ *
+ * These are files that exist in upstream but should NOT exist in Kilo fork.
+ * Examples: README.*.md (translated READMEs), STATS.md, etc.
+ *
+ * During merge, these files will be:
+ * - Removed if they were added from upstream
+ * - Kept deleted if they don't exist in Kilo
+ */
+
+import { $ } from "bun"
+import { info, success, warn, debug } from "../utils/logger"
+import { defaultConfig } from "../utils/config"
+
+export interface SkipResult {
+  file: string
+  action: "removed" | "skipped" | "not-found"
+  dryRun: boolean
+}
+
+export interface SkipOptions {
+  dryRun?: boolean
+  verbose?: boolean
+  patterns?: string[]
+}
+
+/**
+ * Check if a file matches any skip patterns
+ */
+export function shouldSkip(filePath: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => {
+    // Exact match
+    if (filePath === pattern) return true
+
+    // Regex pattern (e.g., README\.[a-z]+\.md)
+    if (pattern.startsWith("^") || pattern.includes("\\")) {
+      const regex = new RegExp(pattern)
+      return regex.test(filePath)
+    }
+
+    // Glob-style pattern
+    if (pattern.includes("*")) {
+      const regex = new RegExp("^" + pattern.replace(/\./g, "\\.").replace(/\*/g, ".*") + "$")
+      return regex.test(filePath)
+    }
+
+    return false
+  })
+}
+
+/**
+ * Get list of files that were added/modified from upstream during merge
+ */
+async function getUpstreamFiles(): Promise<string[]> {
+  // Get files that are staged (after merge)
+  const result = await $`git diff --cached --name-only`.quiet().nothrow()
+
+  if (result.exitCode !== 0) return []
+
+  return result.stdout
+    .toString()
+    .trim()
+    .split("\n")
+    .filter((f) => f.length > 0)
+}
+
+/**
+ * Get list of unmerged (conflicted) files
+ */
+async function getUnmergedFiles(): Promise<string[]> {
+  const result = await $`git diff --name-only --diff-filter=U`.quiet().nothrow()
+
+  if (result.exitCode !== 0) return []
+
+  return result.stdout
+    .toString()
+    .trim()
+    .split("\n")
+    .filter((f) => f.length > 0)
+}
+
+/**
+ * Check if a file exists in a specific git ref
+ */
+async function fileExistsInRef(file: string, ref: string): Promise<boolean> {
+  const result = await $`git cat-file -e ${ref}:${file}`.quiet().nothrow()
+  return result.exitCode === 0
+}
+
+/**
+ * Remove a file from the merge (git rm)
+ */
+async function removeFile(file: string): Promise<boolean> {
+  const result = await $`git rm -f ${file}`.quiet().nothrow()
+  return result.exitCode === 0
+}
+
+/**
+ * Skip files that shouldn't exist in Kilo fork
+ *
+ * This function handles files that:
+ * 1. Match skip patterns (like README.*.md)
+ * 2. Were added from upstream during merge
+ * 3. Don't exist in Kilo's version (HEAD before merge)
+ */
+export async function skipFiles(options: SkipOptions = {}): Promise<SkipResult[]> {
+  const results: SkipResult[] = []
+  const patterns = options.patterns || defaultConfig.skipFiles
+
+  if (!patterns || patterns.length === 0) {
+    info("No skip patterns configured")
+    return results
+  }
+
+  // Get all files involved in the merge
+  const stagedFiles = await getUpstreamFiles()
+  const unmergedFiles = await getUnmergedFiles()
+  const allFiles = [...new Set([...stagedFiles, ...unmergedFiles])]
+
+  if (allFiles.length === 0) {
+    info("No files to process")
+    return results
+  }
+
+  debug(`Checking ${allFiles.length} files against ${patterns.length} skip patterns`)
+
+  for (const file of allFiles) {
+    if (!shouldSkip(file, patterns)) continue
+
+    // Check if file existed in Kilo before merge (HEAD~1 or the merge base)
+    const existedInKilo = await fileExistsInRef(file, "HEAD")
+
+    if (existedInKilo) {
+      debug(`Skipping ${file} - exists in Kilo, not removing`)
+      results.push({ file, action: "skipped", dryRun: options.dryRun ?? false })
+      continue
+    }
+
+    // File doesn't exist in Kilo - should be removed
+    if (options.dryRun) {
+      info(`[DRY-RUN] Would remove: ${file}`)
+      results.push({ file, action: "removed", dryRun: true })
+    } else {
+      const removed = await removeFile(file)
+      if (removed) {
+        success(`Removed: ${file}`)
+        results.push({ file, action: "removed", dryRun: false })
+      } else {
+        warn(`Failed to remove: ${file}`)
+        results.push({ file, action: "not-found", dryRun: false })
+      }
+    }
+  }
+
+  return results
+}
+
+/**
+ * Skip files from a specific list (used during conflict resolution)
+ */
+export async function skipSpecificFiles(files: string[], options: SkipOptions = {}): Promise<SkipResult[]> {
+  const results: SkipResult[] = []
+
+  for (const file of files) {
+    if (options.dryRun) {
+      info(`[DRY-RUN] Would remove: ${file}`)
+      results.push({ file, action: "removed", dryRun: true })
+    } else {
+      const removed = await removeFile(file)
+      if (removed) {
+        success(`Removed: ${file}`)
+        results.push({ file, action: "removed", dryRun: false })
+      } else {
+        warn(`Failed to remove: ${file}`)
+        results.push({ file, action: "not-found", dryRun: false })
+      }
+    }
+  }
+
+  return results
+}
+
+// CLI entry point
+if (import.meta.main) {
+  const args = process.argv.slice(2)
+  const dryRun = args.includes("--dry-run")
+  const verbose = args.includes("--verbose")
+
+  // Get specific files if provided
+  const files = args.filter((a) => !a.startsWith("--"))
+
+  if (dryRun) {
+    info("Running in dry-run mode (no files will be modified)")
+  }
+
+  const results =
+    files.length > 0 ? await skipSpecificFiles(files, { dryRun, verbose }) : await skipFiles({ dryRun, verbose })
+
+  const removed = results.filter((r) => r.action === "removed")
+  console.log()
+  success(`Removed ${removed.length} files`)
+
+  if (dryRun) {
+    info("Run without --dry-run to apply changes")
+  }
+}

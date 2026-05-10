@@ -1,0 +1,33 @@
+import { Bus } from "@/bus"
+import { Config } from "@/config/config"
+import { Flag } from "@/flag/flag"
+import { Installation } from "@/installation"
+
+export async function upgrade() {
+  const config = await Config.getGlobal()
+  const method = await Installation.method()
+  // kilocode_change start - only auto-upgrade for npm/pnpm/bun (we only publish @kilocode/cli via npm registry)
+  if (method !== "npm" && method !== "pnpm" && method !== "bun") return
+  // kilocode_change end
+  const latest = await Installation.latest(method).catch(() => {})
+  if (!latest) return
+
+  if (Flag.KILO_ALWAYS_NOTIFY_UPDATE) {
+    await Bus.publish(Installation.Event.UpdateAvailable, { version: latest })
+    return
+  }
+
+  if (Installation.VERSION === latest) return
+  if (config.autoupdate === false || Flag.KILO_DISABLE_AUTOUPDATE) return
+
+  const kind = Installation.getReleaseType(Installation.VERSION, latest)
+
+  if (config.autoupdate === "notify" || kind !== "patch") {
+    await Bus.publish(Installation.Event.UpdateAvailable, { version: latest })
+    return
+  }
+
+  await Installation.upgrade(method, latest)
+    .then(() => Bus.publish(Installation.Event.Updated, { version: latest }))
+    .catch(() => {})
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://v2-8-13.turborepo.dev/schema.json",
+  "globalEnv": ["CI", "KILO_DISABLE_SHARE"],
+  "globalPassThroughEnv": ["CI", "KILO_DISABLE_SHARE"],
+  "tasks": {
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "build": {
+      "dependsOn": [],
+      "outputs": ["dist/**"]
+    },
+    "@kilocode/cli#test": {
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "passThroughEnv": ["*"]
+    },
+    "@kilocode/cli#test:ci": {
+      "dependsOn": ["^build"],
+      "outputs": [".artifacts/unit/junit.xml"],
+      "passThroughEnv": ["*"]
+    },
+    "@opencode-ai/app#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@kilocode/kilo-docs#build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**"],
+      "env": ["POSTHOG_API_KEY", "FREE_TIER_AMOUNT", "NEXT_PUBLIC_POSTHOG_KEY", "NEXT_PUBLIC_POSTHOG_HOST"]
+    },
+    "@kilocode/kilo-jetbrains#build": {
+      "dependsOn": ["@kilocode/cli#build"],
+      "outputs": ["build/distributions/**"]
+    },
+    "@opencode-ai/app#test:ci": {
+      "dependsOn": ["^build"],
+      "outputs": [".artifacts/unit/junit.xml"],
+      "passThroughEnv": ["*"]
+    }
+  }
+}
