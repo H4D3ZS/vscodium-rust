@@ -21,6 +21,41 @@ dist-ssr
 /kortex/**/dist/
 /kortex/**/build/
 
+# Inlined upstream workspaces (formerly nested git clones / orphan
+# submodule gitlinks). We track the source so a fresh clone is complete,
+# but every reproducible-from-source artifact is rebuilt locally.
+/airi/node_modules/
+/airi/**/node_modules/
+/airi/dist/
+/airi/**/dist/
+/airi/dist-ssr/
+/airi/**/dist-ssr/
+/airi/.turbo/
+/airi/**/.turbo/
+/airi/.cache/
+/airi/**/.cache/
+/airi/.next/
+/airi/**/.next/
+/airi/.nuxt/
+/airi/**/.nuxt/
+/airi/**/target/
+
+/claurst/**/node_modules/
+/claurst/**/dist/
+/claurst/**/dist-ssr/
+/claurst/**/.turbo/
+/claurst/**/.cache/
+/claurst/**/.next/
+/claurst/**/.nuxt/
+/claurst/**/target/
+/claurst/**/build/
+
+/Qwen3-TTS/**/__pycache__/
+/Qwen3-TTS/**/*.egg-info/
+/Qwen3-TTS/**/.venv/
+/Qwen3-TTS/**/build/
+/Qwen3-TTS/**/dist/
+
 antigravity-workflows/
 open-antigravity/
 vscodium/

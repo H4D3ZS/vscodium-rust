@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qwen-tts"
+version = "0.1.1"
+description = "Qwen-TTS python package"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+license = { text = "Apache-2.0" }
+authors = [{ name = "Alibaba Qwen Team" }]
+
+dependencies = [
+  "transformers==4.57.3",
+  "accelerate==1.12.0",
+  "gradio",
+  "librosa",
+  "torchaudio",
+  "soundfile",
+  "sox",
+  "onnxruntime",
+  "einops",
+]
+
+[project.urls]
+Homepage = "https://github.com/Qwen/Qwen3-TTS"
+Repository = "https://github.com/Qwen/Qwen3-TTS"
+
+[project.scripts]
+qwen-tts-demo = "qwen_tts.cli.demo:main"
+
+[tool.setuptools]
+packages = { find = { where = ["."] , include = ["qwen_tts*"] } }
+include-package-data = true
+
+[tool.setuptools.package-data]
+qwen_tts = ["py.typed", "**/*.npz"]
