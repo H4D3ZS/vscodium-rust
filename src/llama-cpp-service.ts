@@ -5,8 +5,6 @@
  * Integrates with Kortex GAC for geometry-aware 8GB VRAM scheduling.
  */
 
-import { get } from 'svelte/store';
-import { store } from './store';
 import {
   startKortexInference,
   stopServer as stopKortexServer,
@@ -124,7 +122,7 @@ class LlamaCppService {
    */
   async checkStatus(): Promise<LlamaCppStatus> {
     this.status = { status: 'connecting' };
-    store.setOllamaStatus('checking');
+    useStore.setState({ llamaCppStatus: 'checking' });
 
     try {
       const response = await fetch(`${this.baseUrl}/health`, {
@@ -137,7 +135,7 @@ class LlamaCppService {
           status: 'connected',
           model: 'llama.cpp',
         };
-        store.setOllamaStatus('running');
+        useStore.setState({ llamaCppStatus: 'running' });
       } else {
         throw new Error('Server returned unhealthy status');
       }
@@ -146,7 +144,7 @@ class LlamaCppService {
         status: 'error',
         error: error instanceof Error ? error.message : 'Connection failed',
       };
-      store.setOllamaStatus('error');
+      useStore.setState({ llamaCppStatus: 'error' });
     }
 
     return this.status;
@@ -400,7 +398,7 @@ class LlamaCppService {
       status: 'connected',
       model: this.config.modelPath.split(/[/\\]/).pop() ?? 'llama.cpp',
     };
-    store.setOllamaStatus('running');
+    useStore.setState({ llamaCppStatus: 'running' });
     console.log('[llama-cpp] Kortex GAC plan:', summarizePlan(result.plan));
     return result;
   }
