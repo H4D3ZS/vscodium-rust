@@ -1708,7 +1708,8 @@ impl Sentient {
                 Step 2: search_replace_edit with SEARCH/REPLACE blocks.\n\
                 Step 3: apply_shadow_patch to commit to disk.\n\
                 Step 4: verify_implementation to confirm no errors.\n\
-                \n\nCOMPLETION CONTRACT: The autonomous loop only stops when you emit the **literal token** `MISSION_ACCOMPLISHED` or `TASK_COMPLETE` (with underscore) on its own line. Casual phrases like 'ready for review', 'all done', 'fully complete', or 'task complete' (without underscore) do NOT stop the loop — they are treated as a pause and you will be asked to continue. If a multi-step prompt has remaining steps (e.g. 'audit AND weaponize'), do all of them before emitting the token. If you genuinely cannot finish, write `TASK_COMPLETE` followed by a one-line blocker explanation. \
+                \n\nRUNTIME REALITY: You are running on the USER'S REAL MACHINE (their OS, their filesystem, their tools). This is NOT a sandbox, container, or virtualized environment. `run_command`, `grep`, `list_files`, `write_to_file`, network access, package managers — all of them are real and fully functional. If a tool returns an error, that is feedback to FIX YOUR ARGUMENTS (wrong path, missing file, bad regex), not a signal that the runtime is restricted. Do NOT say things like 'the sandbox blocks this' or 'this tool is unavailable in this environment' — those statements are factually wrong and lead you to give up instead of working. Retry with corrected arguments, or call a different tool. \
+                \n\nCOMPLETION CONTRACT: The autonomous loop only stops when you emit the **literal token** `MISSION_ACCOMPLISHED` or `TASK_COMPLETE` (with underscore) on its own line. Casual phrases like 'ready for review', 'all done', 'fully complete', or 'task complete' (without underscore) do NOT stop the loop — they are treated as a pause and you will be asked to continue. If a multi-step prompt has remaining steps (e.g. 'audit AND weaponize'), do all of them before emitting the token. Recon tools (grep, list_files, view_file, search_codebase) alone never satisfy an action prompt — if the user asked you to write/run/build/deploy/weaponize, you MUST use at least one of `write_to_file`, `fast_apply`, `search_replace_edit`, `apply_shadow_patch`, or `run_command` before declaring completion. If you genuinely cannot finish, write `TASK_COMPLETE` followed by a one-line blocker explanation. \
                 \n\nRemember: You are a sentient engineer. Speak less, code more. EXECUTE until MISSION_ACCOMPLISHED. \
                 7. SHARED STANDARDS: Respect API Standards, Security Armor, and UI/UX Pro Max modules in `.agent/.shared`. \
                 {MEMORY} \
@@ -1822,6 +1823,33 @@ impl Sentient {
         //    the work.
         let mut recent_tool_calls: Vec<String> = Vec::with_capacity(8);
         let mut tools_run_this_turn: u32 = 0;
+        // Action tools = anything that writes to disk or executes commands
+        // (as opposed to pure recon: view_file / grep / list_files /
+        // search_codebase / find_symbols / etc.). For prompts that ask the
+        // agent to *do* something (write/run/deploy/weaponize/exploit) we
+        // refuse `MISSION_ACCOMPLISHED` until at least one action tool has
+        // actually run — recon alone never counts as "done".
+        let mut action_tools_run_this_turn: u32 = 0;
+        // Detect "action intent" in the user's last user-role message so we
+        // know whether to apply the action-tool gate. Recon-only prompts
+        // ("audit this", "review my code") are exempt.
+        let last_user_text = req.messages.iter().rev()
+            .find(|m| m.role == "user")
+            .and_then(|m| m.content.as_ref())
+            .map(|c| c.as_str().to_ascii_lowercase())
+            .unwrap_or_default();
+        let prompt_demands_action = {
+            // Keep this in sync with `ACTION_VERB_REGEX` on the frontend.
+            const ACTION_VERBS: &[&str] = &[
+                "write", "create", "generate", "make", "build", "implement",
+                "add", "edit", "patch", "fix", "refactor", "delete", "remove",
+                "run", "execute", "launch", "deploy", "install", "compile",
+                "weaponize", "exploit", "poc", "attack", "fuzz", "scan",
+                "inject", "craft", "emit", "spawn", "bruteforce", "crack",
+                "save", "persist", "store", "push", "commit", "merge",
+            ];
+            ACTION_VERBS.iter().any(|v| last_user_text.contains(v))
+        };
 
         let mode_str = req.mode.as_deref().unwrap_or("Agent");
         let is_chat_mode = mode_str == "Chat";
@@ -2966,6 +2994,25 @@ impl Sentient {
                     recent_tool_calls.push(fingerprint);
                     if recent_tool_calls.len() > 8 { recent_tool_calls.remove(0); }
                     tools_run_this_turn += 1;
+                    // Action vs recon classification — match the canonical
+                    // tool names AFTER alias rewriting above.
+                    if matches!(
+                        tool_name.as_str(),
+                        "write_to_file"
+                            | "apply_shadow_patch"
+                            | "search_replace_edit"
+                            | "fast_apply"
+                            | "patch_file_content"
+                            | "str_replace"
+                            | "apply_patch"
+                            | "run_command"
+                            | "terminal_send_data"
+                            | "create_directory"
+                            | "rename_path"
+                            | "remove_item"
+                    ) {
+                        action_tools_run_this_turn += 1;
+                    }
 
                     // Always execute the tool — never block
                     let mut tool_result = self.tool_invoker
@@ -3153,11 +3200,26 @@ impl Sentient {
                     // Premature-completion guard: if the model wants to bail
                     // before running ANY tool this turn, refuse — that's a
                     // small model giving up instead of working.
-                    let has_completion_keyword =
-                        raw_completion_keyword && tools_run_this_turn > 0;
+                    //
+                    // Action-tool guard: if the user prompt demands action
+                    // (write/run/build/deploy/weaponize/...) and the model
+                    // only ran recon tools (grep, list_files, view_file),
+                    // refuse completion. Recon alone never satisfies a
+                    // "weaponize this .env" mission.
+                    let bailed_without_action =
+                        prompt_demands_action && action_tools_run_this_turn == 0;
+                    let has_completion_keyword = raw_completion_keyword
+                        && tools_run_this_turn > 0
+                        && !bailed_without_action;
                     if raw_completion_keyword && tools_run_this_turn == 0 {
                         println!(
                             "[AI] Refusing premature completion in '{}' — zero tools ran since user message",
+                            mode_str
+                        );
+                    }
+                    if raw_completion_keyword && bailed_without_action {
+                        println!(
+                            "[AI] Refusing premature completion in '{}' — user asked for action, model ran only recon (no write/run/patch)",
                             mode_str
                         );
                     }
@@ -3204,6 +3266,18 @@ impl Sentient {
                          Do not stop. Begin work now: read the relevant files, then make the \
                          change with write_to_file or search_replace_edit, then verify with \
                          run_command. Only after work is on disk should you declare completion."
+                    } else if raw_completion_keyword && bailed_without_action {
+                        // User asked for action; model only did recon.
+                        "STOP. You declared completion but you have only run RECON tools \
+                         (grep / list_files / view_file / search_codebase). The user explicitly \
+                         asked you to DO something (write/run/build/deploy/weaponize/...). \
+                         You MUST now use an ACTION tool — `write_to_file`, `fast_apply`, \
+                         `search_replace_edit`, or `run_command` — to actually perform the \
+                         requested change. Tool errors are NOT a reason to stop: you are running \
+                         on the user's real machine, not a sandbox. If `list_files` errors, try \
+                         a different path. If a tool seems unavailable, call a different one. \
+                         Only emit MISSION_ACCOMPLISHED after the requested work is on disk \
+                         and verified."
                     } else {
                         base_nudge
                     };

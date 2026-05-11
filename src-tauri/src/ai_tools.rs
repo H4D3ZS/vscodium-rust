@@ -2265,17 +2265,45 @@ impl AiTools {
 
         let root = self.root_path.lock().await.clone();
         let base_path = self.validate_path(&root, path_str)?;
-        
-        let (full_path, pattern_filter) = if cfg!(target_os = "windows") {
-             self.extract_path_and_pattern(&base_path.to_string_lossy(), "*")
+
+        // BUG FIX (Windows): the old code routed every call through
+        // `extract_path_and_pattern`, which for any non-existent path
+        // returned (parent_dir, leaf_name). The non-recursive branch then
+        // read `parent_dir` and *ignored* the pattern filter, so a call
+        // like `list_files({path: "claurst/kilocode"})` silently listed
+        // the workspace root and the model reported back "list_files is
+        // returning root-level results regardless of path — a sandbox
+        // quirk". It wasn't a sandbox; it was us.
+        //
+        // New rule: if the path is a glob pattern, take the parent +
+        // filter route. Otherwise demand the resolved path *exists* and
+        // is a directory, and surface a clean error if it isn't so the
+        // model can recover instead of looping on the same broken call.
+        let has_glob = path_str.contains('*') || path_str.contains('?') || path_str.contains('[');
+        let (full_path, pattern_filter) = if has_glob {
+            self.extract_path_and_pattern(&base_path.to_string_lossy(), "*")
         } else {
-             (base_path, "*".to_string())
+            (base_path, "*".to_string())
         };
+
+        if !full_path.exists() {
+            return Err(anyhow!(
+                "list_files: path '{}' does not exist (resolved to {}). Use a path relative to the workspace root, or use list_files with `recursive: true` from a parent that does exist.",
+                path_str,
+                full_path.display()
+            ));
+        }
+        if !full_path.is_dir() {
+            return Err(anyhow!(
+                "list_files: path '{}' is a file, not a directory. Use view_file to read it.",
+                path_str
+            ));
+        }
 
         let mut files = Vec::new();
         if recursive {
             use walkdir::WalkDir;
-            for entry in WalkDir::new(full_path)
+            for entry in WalkDir::new(&full_path)
                 .max_depth(3)
                 .into_iter()
                 .filter_map(|e| e.ok())
@@ -2294,7 +2322,7 @@ impl AiTools {
                 }
             }
         } else {
-            for entry in fs::read_dir(full_path)? {
+            for entry in fs::read_dir(&full_path)? {
                 let entry = entry?;
                 let name = entry.file_name().to_string_lossy().to_string();
                 let is_dir = entry.file_type()?.is_dir();
