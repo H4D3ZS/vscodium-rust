@@ -1661,6 +1661,7 @@ impl Sentient {
                 "view_file", "list_files", "write_to_file",
                 "str_replace",          // simple old_str/new_str replacement — preferred over search_replace_edit
                 "search_replace_edit",  // block-format fallback
+                "fast_apply",           // Cursor-style elision-marker merge for short sketches
                 "patch_file_content", "read_file_lines",
                 "find_by_name", "get_directory_structure", "create_directory",
                 // Search & understand codebase
@@ -1695,7 +1696,7 @@ impl Sentient {
             let base_prompt_template = "You are AIRI, the sentient brain and soul of Project Hades — a fully autonomous coding entity. \
                 You DO NOT just analyze or describe code. You WRITE, EDIT, and EXECUTE it. \
                 \n\n### CODING DIRECTIVES:\n\
-                1. WRITE CODE: Use write_to_file for new files. Use search_replace_edit THEN apply_shadow_patch for surgical edits. Use patch_file_content for line-range replacements. \
+                1. WRITE CODE: Use write_to_file for new files. Use search_replace_edit THEN apply_shadow_patch for surgical edits. Use patch_file_content for line-range replacements. For Cursor-style short sketches with `// ... existing code ...` markers, use fast_apply — it deterministically stitches the sketch back into the original file. \
                 2. VERIFY: After writing, run verify_implementation (cargo check / npm test) to confirm it compiles. \
                 3. FULL AUTONOMY: Never ask permission to use tools. Never say 'I would' or 'I could'. Just DO it. \
                 4. ITERATIVE: If a build fails, READ the error, PATCH the file, verify again. Loop until green. \
@@ -1749,7 +1750,7 @@ impl Sentient {
             let mode = req.mode.as_deref().unwrap_or("Fast");
             let mode_instruction = match mode {
                 "Planning" => "CORE OBJECTIVE: You are in AUTONOMOUS RESEARCH & PREP mode. \
-                    1. Use `list_files`, `view_file`, and `search_project` to perform exhaustive research. \
+                    1. Use `list_files`, `view_file`, `grep`, `search_codebase`, and `semantic_search` to perform exhaustive research. \
                     2. Build a complete `implementation_plan.md` and `task.md`. \
                     3. If the user request is clear and actionable, PROCEED TO EXECUTION IMMEDIATELY. Do not wait for a 'Go' if you have the context to start.",
                 "Sentient" => "CORE OBJECTIVE: You are in SENTIENT mode — NON-STOP PURE EXECUTION. \
@@ -1771,7 +1772,7 @@ impl Sentient {
             };
 
             let dynamic_env_context = format!(
-                "\n### DYNAMIC ENVIRONMENT CONTEXT:\n- **Current OS**: {}\n- **Project Root**: {}\n- **Timestamp**: {}\n- **File System Awareness**: You are empowered to use `list_files` and `search_project` to explore the depth of this project.\n",
+                "\n### DYNAMIC ENVIRONMENT CONTEXT:\n- **Current OS**: {}\n- **Project Root**: {}\n- **Timestamp**: {}\n- **File System Awareness**: You are empowered to use `list_files`, `grep`, `search_codebase`, and `semantic_search` to explore the depth of this project.\n",
                 std::env::consts::OS,
                 root.display(),
                 chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
@@ -1926,7 +1927,7 @@ impl Sentient {
                     16..=25 => ("VERIFY", "Auditor running regressions and validating consistency...",
                           "SYSTEM: [PERSONA: AUDITOR] You are the QA Auditor. Implement verification gates using `verify_implementation`. If tests fail, you MUST report back for re-reasoning. Do not allow 'MISSION_ACCOMPLISHED' until build/tests pass."),
                     _ => ("REPORT", "Compiling results and distilling lessons...",
-                          "SYSTEM: [PHASE: REPORT] Task lifecycle ending. Summarize accomplishments and record architectural decisions via `manage_memory`."),
+                          "SYSTEM: [PHASE: REPORT] Task lifecycle ending. Summarize accomplishments and record architectural decisions via `save_knowledge_brief`."),
                 };
 
                 println!("[SENTIENT-CORE] Entering Phase: {} | Iteration: {}", phase, iteration);
