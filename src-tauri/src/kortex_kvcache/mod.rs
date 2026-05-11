@@ -21,10 +21,11 @@ pub mod types;
 use std::sync::{Arc, Mutex};
 use tauri::command;
 
-pub use llamacpp::LlamaCppClient;
+pub use llamacpp::{LlamaCppClient, ServerProps};
 pub use store::{align_save_count, sha256_tokens_hex, slotbin_path, CacheStore};
 pub use types::{
-    KvCacheEntry, KvCacheOptions, KvCacheStats, PrefixMatch, RoutingTrace,
+    KvCacheEntry, KvCacheOptions, KvCacheStats, ModelIdentity, ModelMatchPolicy,
+    PrefixMatch, RoutingTrace, SaveReason,
 };
 
 /// Single global proxy slot. We hold a sync Mutex<Option<Arc<...>>> so we can
@@ -43,9 +44,34 @@ fn set_proxy(state: Option<Arc<proxy::ProxyState>>) {
 }
 
 #[command]
-pub async fn kortex_kvcache_start(opts: KvCacheOptions) -> Result<u16, String> {
+pub async fn kortex_kvcache_start(mut opts: KvCacheOptions) -> Result<u16, String> {
     if current_proxy().is_some() {
         return Err("kvcache proxy already running; stop it first".into());
+    }
+    // If the caller didn't pre-stamp the model identity, derive it from the
+    // upstream server's /props now. This is the load-time gate that prevents
+    // a cache populated by model A from being served back to model B.
+    if opts.model.model_id.is_empty() {
+        let probe = LlamaCppClient::new(opts.upstream_url.clone(), opts.slot_id);
+        match probe.props().await {
+            Ok(props) => {
+                opts.model = props.derive_identity();
+            }
+            Err(e) => {
+                // /props isn't catastrophic — older llama.cpp builds may not
+                // ship it. Fall back to upstream URL as a soft identity so we
+                // at least segregate caches by server endpoint.
+                eprintln!(
+                    "[kortex_kvcache] /props probe failed ({}); falling back to upstream URL as model_id",
+                    e
+                );
+                opts.model = ModelIdentity {
+                    model_id: opts.upstream_url.clone(),
+                    tokenizer_hash: String::new(),
+                    quant_signature: String::new(),
+                };
+            }
+        }
     }
     let store = CacheStore::open(opts.clone()).map_err(|e| e.to_string())?;
     let port = opts.proxy_port;
@@ -67,6 +93,13 @@ pub async fn kortex_kvcache_start(opts: KvCacheOptions) -> Result<u16, String> {
 #[command]
 pub async fn kortex_kvcache_stop() -> Result<(), String> {
     if let Some(state) = current_proxy() {
+        // Flush a shutdown checkpoint of the live in-memory session before
+        // we tear down the proxy. ds4 calls this `KV_REASON_SHUTDOWN`; it's
+        // the reason a clean stop survives a server restart with full cache
+        // continuity. Failures are non-fatal — we still tear down.
+        if let Err(e) = proxy::flush_shutdown_checkpoint(&state).await {
+            eprintln!("[kortex_kvcache] shutdown flush failed: {}", e);
+        }
         proxy::shutdown(&state).await;
         set_proxy(None);
     }
@@ -91,6 +124,9 @@ pub async fn kortex_kvcache_status() -> Result<Option<RunningCacheInfo>, String>
         slot_dir: state.opts.slot_dir.to_string_lossy().into_owned(),
         max_bytes: state.opts.max_bytes,
         slot_id: state.opts.slot_id,
+        model_id: state.opts.model.model_id.clone(),
+        quant_signature: state.opts.model.quant_signature.clone(),
+        tokenizer_hash: state.opts.model.tokenizer_hash.clone(),
     }))
 }
 
@@ -122,4 +158,9 @@ pub struct RunningCacheInfo {
     pub slot_dir: String,
     pub max_bytes: u64,
     pub slot_id: u32,
+    /// Model identity the proxy currently binds saved entries to. Surfaced so
+    /// the IDE can show a "cache bound to <model>" indicator.
+    pub model_id: String,
+    pub quant_signature: String,
+    pub tokenizer_hash: String,
 }

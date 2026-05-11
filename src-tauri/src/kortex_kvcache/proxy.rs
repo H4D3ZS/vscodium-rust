@@ -27,7 +27,16 @@ use tokio::sync::Mutex;
 
 use super::llamacpp::LlamaCppClient;
 use super::store::{align_save_count, sha256_tokens_hex, slotbin_path, CacheStore};
-use super::types::{KvCacheEntry, KvCacheOptions, KvCacheStats};
+use super::types::{KvCacheEntry, KvCacheOptions, KvCacheStats, SaveReason};
+
+/// Snapshot of the most recent successful request, used by the shutdown flush
+/// to persist whatever the live session ended up at. Mirrors ds4's "we always
+/// know which prefix is live so we can save it on KV_REASON_SHUTDOWN" pattern.
+#[derive(Debug, Clone, Default)]
+pub struct LiveSession {
+    pub tokens: Vec<u32>,
+    pub prefix_text: String,
+}
 
 /// Shared proxy state. One per running proxy.
 pub struct ProxyState {
@@ -36,6 +45,10 @@ pub struct ProxyState {
     pub store: Mutex<CacheStore>,
     pub http: reqwest::Client,
     pub shutdown_tx: tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    /// Most recent (tokens, prefix_text) that flowed through a successful
+    /// chat/completion. `flush_shutdown_checkpoint` reads this to persist a
+    /// final snapshot on clean shutdown.
+    pub live_session: Mutex<Option<LiveSession>>,
 }
 
 impl ProxyState {
@@ -53,12 +66,23 @@ impl ProxyState {
             store: Mutex::new(store),
             http,
             shutdown_tx: tokio::sync::Mutex::new(None),
+            live_session: Mutex::new(None),
         }
     }
 
     pub async fn current_stats(&self) -> KvCacheStats {
         let s = self.store.lock().await;
         s.stats()
+    }
+
+    /// Remember the token stream the most recent request operated on. The
+    /// shutdown flush uses this to persist a final snapshot before exit.
+    pub async fn note_live_session(&self, tokens: Vec<u32>, prefix_text: String) {
+        let mut g = self.live_session.lock().await;
+        *g = Some(LiveSession {
+            tokens,
+            prefix_text,
+        });
     }
 }
 
@@ -100,6 +124,64 @@ pub async fn shutdown(state: &SharedProxy) {
     if let Some(tx) = state.shutdown_tx.lock().await.take() {
         let _ = tx.send(());
     }
+}
+
+/// Persist the live session as `SaveReason::Shutdown` if one exists. Called
+/// from `kortex_kvcache_stop` before the proxy is torn down, so a clean
+/// restart can resume the latest in-flight conversation rather than starting
+/// cold. Idempotent: if the live prefix is already cached we skip the save.
+pub async fn flush_shutdown_checkpoint(state: &SharedProxy) -> Result<()> {
+    let snapshot = {
+        let g = state.live_session.lock().await;
+        g.clone()
+    };
+    let Some(LiveSession { tokens, prefix_text }) = snapshot else {
+        return Ok(());
+    };
+    let n = tokens.len() as u32;
+    if n < state.opts.min_tokens {
+        return Ok(());
+    }
+    // Use the same align/trim policy as the normal save path so a shutdown
+    // entry is interchangeable with the cold/continued ones.
+    let save_count = align_save_count(&state.opts, n);
+    if save_count < state.opts.min_tokens {
+        return Ok(());
+    }
+    let save_tokens = &tokens[..save_count as usize];
+    let sha = sha256_tokens_hex(save_tokens);
+
+    if state.store.lock().await.contains(&sha) {
+        return Ok(());
+    }
+    let filename = format!("{}.slotbin", sha);
+    if let Err(e) = state.client.save_slot(&filename).await {
+        return Err(anyhow::anyhow!("shutdown save_slot failed: {}", e));
+    }
+    let slotbin = slotbin_path(&state.opts, &sha);
+    let slotbin_size = std::fs::metadata(&slotbin).map(|m| m.len()).unwrap_or(0);
+    let entry = KvCacheEntry {
+        sha: sha.clone(),
+        prefix_token_count: save_count,
+        ctx_size: 0,
+        created_at: KvCacheEntry::now_unix(),
+        last_used_at: KvCacheEntry::now_unix(),
+        hit_count: 0,
+        slotbin_path: slotbin.to_string_lossy().into_owned(),
+        slotbin_size,
+        rendered_text: prefix_text.chars().take(2048).collect(),
+        model: state.opts.model.clone(),
+        save_reason: SaveReason::Shutdown,
+    };
+    let mut s = state.store.lock().await;
+    s.put_with_reason(entry, SaveReason::Shutdown)
+        .map_err(|e| anyhow::anyhow!("shutdown put failed: {}", e))?;
+    tracing::info!(
+        "[kortex-kvcache] SHUTDOWN flushed sha={} ({} tokens)",
+        &sha[..8],
+        save_count
+    );
+    Ok(())
 }
 
 // ─────────────────────── handlers ───────────────────────────────────────────
@@ -311,6 +393,14 @@ async fn forward_raw_with_callback(
 async fn spawn_save_after(state: SharedProxy, save: SaveAfterStream) {
     let SaveAfterStream { tokens, prefix_text } = save;
 
+    // Record this as the live session so a clean shutdown can flush it even
+    // if min/max token gates below cause us to skip the regular save. The
+    // shutdown flush re-applies the same gates, so this is just bookkeeping
+    // for "what was the most recent thing the proxy saw?".
+    state
+        .note_live_session((*tokens).clone(), (*prefix_text).clone())
+        .await;
+
     let n = tokens.len() as u32;
     if n < state.opts.min_tokens || n > state.opts.cold_max_tokens {
         return;
@@ -351,10 +441,12 @@ async fn spawn_save_after(state: SharedProxy, save: SaveAfterStream) {
         slotbin_path: slotbin.to_string_lossy().into_owned(),
         slotbin_size,
         rendered_text: prefix_text.chars().take(2048).collect(),
+        model: state.opts.model.clone(),
+        save_reason: SaveReason::Cold,
     };
 
     let mut s = state.store.lock().await;
-    if let Err(e) = s.put(entry) {
+    if let Err(e) = s.put_with_reason(entry, SaveReason::Cold) {
         tracing::warn!("[kortex-kvcache] put failed: {}", e);
     } else {
         tracing::info!(

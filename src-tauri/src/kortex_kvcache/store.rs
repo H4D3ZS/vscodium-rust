@@ -15,10 +15,18 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use super::types::{KvCacheEntry, KvCacheOptions, KvCacheStats, PrefixMatch};
+use super::types::{KvCacheEntry, KvCacheOptions, KvCacheStats, PrefixMatch, SaveReason};
 
 const KKV_MAGIC: &[u8; 4] = b"KKVI";
-const KKV_VERSION: u32 = 1;
+/// Bumped from 1 → 2 when we added `model: ModelIdentity` and
+/// `save_reason: SaveReason` fields. Both have `#[serde(default)]` so the
+/// reader still accepts v1 files; we just treat their identity as empty and
+/// let `ModelMatchPolicy::SameModel` (the default) reject them on lookup.
+const KKV_VERSION: u32 = 2;
+/// Suffix used for the in-flight write of an index file. The final commit is
+/// an atomic rename of `.kkv.tmp` to `.kkv`, so a crash mid-write can never
+/// leave a half-written `.kkv` in the directory. Mirrors ds4's pattern.
+const KKV_TMP_SUFFIX: &str = ".kkv.tmp";
 
 /// Compute SHA-256 over an LE-encoded u32 token stream.
 ///
@@ -86,6 +94,15 @@ impl CacheStore {
                 Err(_) => continue,
             };
             let path = ent.path();
+            // Garbage-collect leftover .kkv.tmp from a previous crash mid-write.
+            if path.file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.ends_with(KKV_TMP_SUFFIX))
+                .unwrap_or(false)
+            {
+                let _ = fs::remove_file(&path);
+                continue;
+            }
             if path.extension().and_then(|s| s.to_str()) != Some("kkv") {
                 continue;
             }
@@ -111,7 +128,10 @@ impl CacheStore {
     }
 
     /// Look up the longest cached prefix of `tokens`. The search is bounded to
-    /// distinct lengths present in the cache so the worst case is O(unique_lengths).
+    /// distinct lengths present in the cache so the worst case is
+    /// O(unique_lengths). Entries are filtered against the running server's
+    /// model identity per `opts.match_policy` so a cache populated by model A
+    /// can never silently corrupt model B's attention state.
     pub fn longest_prefix(&self, tokens: &[u32]) -> Option<PrefixMatch> {
         if tokens.len() < self.opts.min_tokens as usize {
             return None;
@@ -130,6 +150,12 @@ impl CacheStore {
         for k in candidate_lengths {
             let sha = sha256_tokens_hex(&tokens[..k as usize]);
             if let Some(e) = self.entries.get(&sha) {
+                // Reject entries whose model identity doesn't match the running
+                // server's per the configured policy. This is the load-time
+                // gate ds4 implements via --kv-cache-reject-different-quant.
+                if !self.opts.model.accepts(&e.model, self.opts.match_policy) {
+                    continue;
+                }
                 return Some(PrefixMatch {
                     sha,
                     prefix_token_count: e.prefix_token_count,
@@ -162,7 +188,16 @@ impl CacheStore {
 
     /// Persist a freshly-saved cache entry. Caller has already written the
     /// `.slotbin` file via llama-server's slot-save endpoint.
+    ///
+    /// The entry is stamped with the running server's `model` identity from
+    /// `opts.model` so later loads (possibly from a different server start)
+    /// can reject it if the model changed underneath. Caller sets the
+    /// `save_reason` so observability traces tell us why each entry exists.
     pub fn put(&mut self, mut entry: KvCacheEntry) -> Result<()> {
+        // Stamp current model identity unless the caller already set one.
+        if entry.model.model_id.is_empty() {
+            entry.model = self.opts.model.clone();
+        }
         // Update size from disk to make sure we account accurately.
         entry.slotbin_size = fs::metadata(&entry.slotbin_path).map(|m| m.len()).unwrap_or(0);
         let path = self.opts.index_dir.join(format!("{}.kkv", entry.sha));
@@ -176,6 +211,13 @@ impl CacheStore {
         self.stats.entries = self.entries.len() as u32;
         self.evict_to_budget()?;
         Ok(())
+    }
+
+    /// Like [`Self::put`] but caller specifies the [`SaveReason`] explicitly.
+    /// This is the path the proxy uses for cold/continued/evict/shutdown saves.
+    pub fn put_with_reason(&mut self, mut entry: KvCacheEntry, reason: SaveReason) -> Result<()> {
+        entry.save_reason = reason;
+        self.put(entry)
     }
 
     pub fn contains(&self, sha: &str) -> bool {
@@ -226,7 +268,10 @@ fn read_index_file(path: &Path) -> Result<KvCacheEntry> {
         return Err(anyhow!("bad magic in {}", path.display()));
     }
     let version = u32::from_le_bytes([head[4], head[5], head[6], head[7]]);
-    if version != KKV_VERSION {
+    // Accept any version up to the current one. v1 and v2 are JSON-compatible
+    // because the new fields use `#[serde(default)]`; future bumps that break
+    // wire compat MUST gate here explicitly.
+    if version == 0 || version > KKV_VERSION {
         return Err(anyhow!("unsupported kkv version {}", version));
     }
     let mut json = Vec::new();
@@ -235,13 +280,36 @@ fn read_index_file(path: &Path) -> Result<KvCacheEntry> {
     Ok(entry)
 }
 
+/// Atomic write: serialize to `<path>.tmp`, flush+sync, then rename to `<path>`.
+/// On every supported OS rename(2) of a same-filesystem file is atomic, so a
+/// crash mid-write either leaves the old file intact (rename never happened)
+/// or the new file complete (rename succeeded). Mirrors ds4's pattern.
 fn write_index_file(path: &Path, entry: &KvCacheEntry) -> Result<()> {
-    let mut f = fs::File::create(path)?;
-    f.write_all(KKV_MAGIC)?;
-    f.write_all(&KKV_VERSION.to_le_bytes())?;
-    let json = serde_json::to_vec(entry)?;
-    f.write_all(&json)?;
+    let tmp = tmp_path_for(path);
+    {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(KKV_MAGIC)?;
+        f.write_all(&KKV_VERSION.to_le_bytes())?;
+        let json = serde_json::to_vec(entry)?;
+        f.write_all(&json)?;
+        // Make the kernel actually push bytes before we rename, otherwise on a
+        // crash the rename can land but the data pages stay zeroed.
+        let _ = f.sync_all();
+    }
+    // On Windows, rename() refuses to overwrite an existing file; remove first.
+    // The window between remove and rename is acceptable: an interrupted
+    // rewrite leaves the tmp file behind which reload_index cleans up.
+    if path.exists() {
+        let _ = fs::remove_file(path);
+    }
+    fs::rename(&tmp, path)?;
     Ok(())
+}
+
+fn tmp_path_for(path: &Path) -> PathBuf {
+    let mut s = path.as_os_str().to_os_string();
+    s.push(".tmp");
+    PathBuf::from(s)
 }
 
 /// Convenience: compute the slot binary path for a given SHA inside `slot_dir`.
@@ -277,6 +345,14 @@ mod tests {
         dir
     }
 
+    fn test_identity() -> super::super::types::ModelIdentity {
+        super::super::types::ModelIdentity {
+            model_id: "test-model".into(),
+            tokenizer_hash: "test-tok-hash".into(),
+            quant_signature: "Q4_K_M".into(),
+        }
+    }
+
     fn opts_at(base: &Path, max_bytes: u64) -> KvCacheOptions {
         KvCacheOptions {
             index_dir: base.join("index"),
@@ -291,11 +367,14 @@ mod tests {
             upstream_url: "http://127.0.0.1:1".into(),
             proxy_host: "127.0.0.1".into(),
             proxy_port: 0,
+            model: test_identity(),
+            match_policy: super::super::types::ModelMatchPolicy::SameModel,
         }
     }
 
     /// Synthesize an entry whose slotbin file actually exists on disk so the
-    /// store doesn't garbage-collect it during reload_index.
+    /// store doesn't garbage-collect it during reload_index. Entry is stamped
+    /// with the same identity as the store's `opts` so lookups succeed.
     fn make_entry(opts: &KvCacheOptions, tokens: &[u32], size_bytes: u64) -> KvCacheEntry {
         let sha = sha256_tokens_hex(tokens);
         let slotbin_path = slotbin_path(opts, &sha);
@@ -312,6 +391,8 @@ mod tests {
             slotbin_path: slotbin_path.to_string_lossy().into_owned(),
             slotbin_size: size_bytes,
             rendered_text: String::new(),
+            model: opts.model.clone(),
+            save_reason: super::super::types::SaveReason::Cold,
         }
     }
 
@@ -552,5 +633,216 @@ mod tests {
         // First 4 bytes != "KKVI" → must be rejected.
         fs::write(&path, b"NOPEXXXXjsonhere").unwrap();
         assert!(read_index_file(&path).is_err());
+    }
+
+    // ── ds4-shaped behaviour ────────────────────────────────────────────
+
+    #[test]
+    fn longest_prefix_rejects_entries_from_other_models() {
+        use super::super::types::ModelIdentity;
+        let base = tempdir("model_iso");
+        let opts = opts_at(&base, 1 << 20);
+        let mut store = CacheStore::open(opts.clone()).unwrap();
+        let tokens = vec![1u32, 2, 3, 4, 5, 6, 7, 8];
+
+        // Insert an entry stamped with a *different* model identity.
+        let mut foreign = make_entry(&opts, &tokens, 64);
+        foreign.model = ModelIdentity {
+            model_id: "completely-different-model".into(),
+            tokenizer_hash: "different-tok".into(),
+            quant_signature: "Q4_K_M".into(),
+        };
+        store.put(foreign).unwrap();
+
+        // Default policy = SameModel → must reject.
+        assert!(
+            store.longest_prefix(&tokens).is_none(),
+            "must not return entries from a different model"
+        );
+    }
+
+    #[test]
+    fn longest_prefix_accepts_same_model_different_quant() {
+        use super::super::types::ModelIdentity;
+        let base = tempdir("same_model_diff_quant");
+        let opts = opts_at(&base, 1 << 20);
+        let mut store = CacheStore::open(opts.clone()).unwrap();
+        let tokens = vec![1u32, 2, 3, 4, 5, 6, 7, 8];
+
+        // Same model + tokenizer, different routed-expert quant. SameModel
+        // policy (default) must still accept this.
+        let mut e = make_entry(&opts, &tokens, 64);
+        e.model = ModelIdentity {
+            model_id: opts.model.model_id.clone(),
+            tokenizer_hash: opts.model.tokenizer_hash.clone(),
+            quant_signature: "IQ2_XXS".into(),
+        };
+        store.put(e).unwrap();
+
+        let hit = store.longest_prefix(&tokens).expect("must accept same-model entry");
+        assert_eq!(hit.prefix_token_count, tokens.len() as u32);
+    }
+
+    #[test]
+    fn longest_prefix_strict_policy_rejects_different_quant() {
+        use super::super::types::{ModelIdentity, ModelMatchPolicy};
+        let base = tempdir("strict_quant");
+        let mut opts = opts_at(&base, 1 << 20);
+        opts.match_policy = ModelMatchPolicy::Strict;
+        let mut store = CacheStore::open(opts.clone()).unwrap();
+        let tokens = vec![1u32, 2, 3, 4, 5, 6, 7, 8];
+
+        let mut e = make_entry(&opts, &tokens, 64);
+        e.model = ModelIdentity {
+            model_id: opts.model.model_id.clone(),
+            tokenizer_hash: opts.model.tokenizer_hash.clone(),
+            quant_signature: "DIFFERENT".into(),
+        };
+        store.put(e).unwrap();
+
+        assert!(
+            store.longest_prefix(&tokens).is_none(),
+            "strict policy must reject quant mismatches"
+        );
+    }
+
+    #[test]
+    fn longest_prefix_rejects_v1_entries_without_identity() {
+        let base = tempdir("v1_reject");
+        let opts = opts_at(&base, 1 << 20);
+        let mut store = CacheStore::open(opts.clone()).unwrap();
+        let tokens = vec![1u32, 2, 3, 4, 5, 6, 7, 8];
+
+        // Simulate a v1 entry that has no model identity stamped on it.
+        let mut e = make_entry(&opts, &tokens, 64);
+        e.model = Default::default();
+        // Bypass put()'s auto-stamping by writing directly.
+        let path = opts.index_dir.join(format!("{}.kkv", e.sha));
+        write_index_file(&path, &e).unwrap();
+        store.reload_index().unwrap();
+
+        // Default policy (SameModel) refuses to trust entries whose identity
+        // is unknown — they could have been written by literally any model.
+        assert!(
+            store.longest_prefix(&tokens).is_none(),
+            "v1 entries without identity must be rejected under SameModel policy"
+        );
+    }
+
+    #[test]
+    fn put_stamps_running_server_identity_by_default() {
+        let base = tempdir("auto_stamp");
+        let opts = opts_at(&base, 1 << 20);
+        let mut store = CacheStore::open(opts.clone()).unwrap();
+        let tokens = vec![1u32, 2, 3, 4, 5];
+
+        let mut e = make_entry(&opts, &tokens, 64);
+        e.model = Default::default(); // pretend caller forgot to stamp it
+        let sha = e.sha.clone();
+        store.put(e).unwrap();
+
+        // Reload and verify the stored entry has our server's identity.
+        let store2 = CacheStore::open(opts.clone()).unwrap();
+        let entry = store2.entries_iter().find(|x| x.sha == sha).expect("present");
+        assert_eq!(entry.model.model_id, opts.model.model_id);
+        assert_eq!(entry.model.tokenizer_hash, opts.model.tokenizer_hash);
+        assert_eq!(entry.model.quant_signature, opts.model.quant_signature);
+    }
+
+    #[test]
+    fn put_with_reason_sets_save_reason() {
+        use super::super::types::SaveReason;
+        let base = tempdir("reason");
+        let opts = opts_at(&base, 1 << 20);
+        let mut store = CacheStore::open(opts.clone()).unwrap();
+        let tokens = vec![1u32, 2, 3, 4, 5, 6];
+        let entry = make_entry(&opts, &tokens, 64);
+        let sha = entry.sha.clone();
+        store.put_with_reason(entry, SaveReason::Shutdown).unwrap();
+
+        let store2 = CacheStore::open(opts).unwrap();
+        let e = store2.entries_iter().find(|x| x.sha == sha).expect("present");
+        assert_eq!(e.save_reason, SaveReason::Shutdown);
+    }
+
+    #[test]
+    fn write_index_file_is_atomic_via_tmp_rename() {
+        let base = tempdir("atomic");
+        let opts = opts_at(&base, 1 << 20);
+        let _ = CacheStore::open(opts.clone()).unwrap();
+        let entry = make_entry(&opts, &[1, 2, 3, 4, 5], 32);
+        let path = opts.index_dir.join(format!("{}.kkv", entry.sha));
+
+        write_index_file(&path, &entry).unwrap();
+        // After a successful write, the final file exists and the .tmp does not.
+        assert!(path.exists());
+        let tmp = tmp_path_for(&path);
+        assert!(!tmp.exists(), "tmp file should be renamed away after write");
+
+        // Overwriting an existing file must also succeed (Windows rename quirk).
+        let mut updated = entry.clone();
+        updated.hit_count = 99;
+        write_index_file(&path, &updated).unwrap();
+        let read_back = read_index_file(&path).unwrap();
+        assert_eq!(read_back.hit_count, 99);
+    }
+
+    #[test]
+    fn reload_index_cleans_up_leftover_tmp_files_from_crash() {
+        let base = tempdir("crash_tmp");
+        let opts = opts_at(&base, 1 << 20);
+        let _ = CacheStore::open(opts.clone()).unwrap();
+        // Simulate a crash mid-write: a stray .kkv.tmp with garbage.
+        let stray = opts.index_dir.join("00deadbeef.kkv.tmp");
+        fs::write(&stray, b"half written\x00\x00").unwrap();
+        assert!(stray.exists());
+
+        // Reload should sweep it.
+        let _ = CacheStore::open(opts.clone()).unwrap();
+        assert!(!stray.exists(), "reload_index must clean up .kkv.tmp leftovers");
+    }
+
+    #[test]
+    fn v1_index_file_with_missing_fields_still_loads_then_is_rejected_on_lookup() {
+        // Synthesize a v1 file by hand: magic + version=1 + minimal JSON
+        // that lacks `model` and `save_reason` fields.
+        let base = tempdir("v1_compat");
+        let opts = opts_at(&base, 1 << 20);
+        let store = CacheStore::open(opts.clone()).unwrap();
+        drop(store);
+
+        let tokens = vec![1u32, 2, 3, 4, 5, 6];
+        let sha = sha256_tokens_hex(&tokens);
+        let slotbin = slotbin_path(&opts, &sha);
+        fs::write(&slotbin, vec![0u8; 64]).unwrap();
+
+        let json = serde_json::json!({
+            "sha": sha,
+            "prefix_token_count": tokens.len(),
+            "ctx_size": 8192,
+            "created_at": 100u64,
+            "last_used_at": 100u64,
+            "hit_count": 0u32,
+            "slotbin_path": slotbin.to_string_lossy(),
+            "slotbin_size": 64u64,
+            "rendered_text": "",
+            // intentionally NO `model`, NO `save_reason`
+        });
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(KKV_MAGIC);
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // version=1
+        bytes.extend_from_slice(&serde_json::to_vec(&json).unwrap());
+        let path = opts.index_dir.join(format!("{}.kkv", sha));
+        fs::write(&path, &bytes).unwrap();
+
+        // Index loads fine (v1 is still readable)…
+        let store = CacheStore::open(opts.clone()).unwrap();
+        assert!(store.contains(&sha));
+
+        // …but lookup refuses it because the identity is empty.
+        assert!(
+            store.longest_prefix(&tokens).is_none(),
+            "v1 entries with empty identity must not be served under SameModel policy"
+        );
     }
 }
