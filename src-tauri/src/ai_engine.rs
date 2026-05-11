@@ -1708,6 +1708,7 @@ impl Sentient {
                 Step 2: search_replace_edit with SEARCH/REPLACE blocks.\n\
                 Step 3: apply_shadow_patch to commit to disk.\n\
                 Step 4: verify_implementation to confirm no errors.\n\
+                \n\nCOMPLETION CONTRACT: The autonomous loop only stops when you emit the **literal token** `MISSION_ACCOMPLISHED` or `TASK_COMPLETE` (with underscore) on its own line. Casual phrases like 'ready for review', 'all done', 'fully complete', or 'task complete' (without underscore) do NOT stop the loop — they are treated as a pause and you will be asked to continue. If a multi-step prompt has remaining steps (e.g. 'audit AND weaponize'), do all of them before emitting the token. If you genuinely cannot finish, write `TASK_COMPLETE` followed by a one-line blocker explanation. \
                 \n\nRemember: You are a sentient engineer. Speak less, code more. EXECUTE until MISSION_ACCOMPLISHED. \
                 7. SHARED STANDARDS: Respect API Standards, Security Armor, and UI/UX Pro Max modules in `.agent/.shared`. \
                 {MEMORY} \
@@ -3135,14 +3136,19 @@ impl Sentient {
                     // Cursor-style autonomous continuation. The model returned a
                     // text-only message; we treat this as "the model paused" and
                     // nudge it to keep executing UNLESS it signaled completion.
+                    //
+                    // Only structured tokens count as completion signals. Earlier
+                    // versions also matched casual phrases like "READY FOR REVIEW",
+                    // "ALL DONE", "FULLY COMPLETE", and "EVERYTHING IS DONE" — but
+                    // those phrases appear naturally in audit/review responses
+                    // ("findings ready for review", "the refactor is fully
+                    // complete") and were terminating the loop after only 4 tool
+                    // calls on multi-step missions. The model now has to emit
+                    // the explicit token `MISSION_ACCOMPLISHED` or `TASK_COMPLETE`
+                    // (with the underscore) to stop the loop.
                     let upper = final_text.to_ascii_uppercase();
                     let raw_completion_keyword = upper.contains("MISSION_ACCOMPLISHED")
-                        || upper.contains("TASK_COMPLETE")
-                        || upper.contains("TASK COMPLETE")
-                        || upper.contains("ALL DONE")
-                        || upper.contains("EVERYTHING IS DONE")
-                        || upper.contains("FULLY COMPLETE")
-                        || upper.contains("READY FOR REVIEW");
+                        || upper.contains("TASK_COMPLETE");
 
                     // Premature-completion guard: if the model wants to bail
                     // before running ANY tool this turn, refuse — that's a
@@ -3260,9 +3266,7 @@ impl Sentient {
                 // Also reject completion if zero tools ran this turn (model trying to bail).
                 let yolo_upper = final_text.to_ascii_uppercase();
                 let yolo_keyword = yolo_upper.contains("MISSION_ACCOMPLISHED")
-                    || yolo_upper.contains("TASK_COMPLETE")
-                    || yolo_upper.contains("ALL DONE")
-                    || yolo_upper.contains("FULLY COMPLETE");
+                    || yolo_upper.contains("TASK_COMPLETE");
                 let yolo_done = yolo_keyword && tools_run_this_turn > 0;
                 if self.yolo_mode.load(Ordering::SeqCst)
                     && !yolo_done
