@@ -746,10 +746,43 @@ export class TerminalManager {
       if (chunk) term.write(chunk);
     };
 
+    // ── Live `run_command` streaming ─────────────────────────────────────
+    // Backend now emits `ai-tool-stdout-start` / `ai-tool-stdout` (per
+    // line) / `ai-tool-stdout-end` so we can paint long-running command
+    // output as it happens instead of waiting for the final tool_result.
+    const writeStdoutStart = (payload: any) => {
+      const cmd = String(payload?.command ?? '').trim();
+      if (cmd) {
+        term.writeln(
+          `${ts()} \x1b[1;36m$\x1b[0m \x1b[1m${cmd}\x1b[0m`,
+        );
+      }
+    };
+    const writeStdoutLine = (payload: any) => {
+      const line = String(payload?.line ?? '');
+      const isErr = payload?.stream === 'stderr';
+      if (isErr) {
+        term.writeln(`  \x1b[31m${line}\x1b[0m`);
+      } else {
+        term.writeln(`  ${line}`);
+      }
+    };
+    const writeStdoutEnd = (payload: any) => {
+      const code = payload?.exit_code ?? null;
+      const ok = !!payload?.success;
+      const marker = ok ? '\x1b[1;32m✔\x1b[0m' : '\x1b[1;31m✖\x1b[0m';
+      term.writeln(
+        `${ts()} ${marker} \x1b[2mexit ${code === null ? '?' : code}\x1b[0m`,
+      );
+    };
+
     Promise.all([
       listen('ai-tool-call', (e: any) => writeToolCall(e?.payload ?? e)),
       listen('ai-tool-result', (e: any) => writeToolResult(e?.payload ?? e)),
       listen('ai-action', (e: any) => writeAction(e?.payload ?? e)),
+      listen('ai-tool-stdout-start', (e: any) => writeStdoutStart(e?.payload ?? e)),
+      listen('ai-tool-stdout', (e: any) => writeStdoutLine(e?.payload ?? e)),
+      listen('ai-tool-stdout-end', (e: any) => writeStdoutEnd(e?.payload ?? e)),
     ]).then((handles) => {
       for (const h of handles) {
         if (typeof h === 'function') unsubs.push(h as () => void);

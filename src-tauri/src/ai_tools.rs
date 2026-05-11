@@ -2392,31 +2392,143 @@ impl AiTools {
         }
 
         let (exec_path, exec_args) = ShellTranslator::translate_command(command, shell_hint);
-        
-        let output = std::process::Command::new(&exec_path)
+
+        // ── Live-streaming execution ───────────────────────────────────────
+        // The previous implementation called `.output()` which blocks until
+        // the process exits and only then surfaces stdout/stderr. The user
+        // wanted to see commands stream into the AIRI terminal panel in
+        // real-time (especially valuable for long-running scripts like
+        // `python security_audit.py` or `npm install`).
+        //
+        // We now spawn with piped stdio, read each pipe line-by-line on a
+        // worker thread, and emit `ai-tool-stdout` events per line. The
+        // terminal panel's listener (terminal.ts) writes those to the
+        // active xterm.js instance as they arrive. The aggregated output
+        // is still returned to the model as the tool result.
+        use std::io::{BufRead, BufReader};
+        use std::process::Stdio;
+
+        let stream_id = format!("cmd-{}", uuid::Uuid::new_v4().simple());
+
+        let app_handle = {
+            let h_lock = self.app_handle.lock().await;
+            h_lock.clone()
+        };
+
+        if let Some(ref h) = app_handle {
+            let _ = h.emit("ai-tool-stdout-start", json!({
+                "stream_id": stream_id,
+                "command": command,
+                "shell_hint": shell_hint,
+            }));
+        }
+
+        let mut child = std::process::Command::new(&exec_path)
             .hidden()
             .args(&exec_args)
             .current_dir(&*root)
-            .output()?;
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let child_stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("failed to capture stdout pipe"))?;
+        let child_stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow!("failed to capture stderr pipe"))?;
 
-        // Emit artifact for terminal output
-        let h_lock = self.app_handle.lock().await;
-        if let Some(h) = h_lock.as_ref() {
-            let _ = h.emit("ai-artifact", serde_json::json!({
-                "type": "terminal",
-                "title": format!("Run: {}", command),
-                "content": if output.status.success() { stdout.clone() } else { stderr.clone() }
-            }));
+        let stdout_buf = Arc::new(std::sync::Mutex::new(String::new()));
+        let stderr_buf = Arc::new(std::sync::Mutex::new(String::new()));
+
+        // Reader thread: stdout
+        let h_out = app_handle.clone();
+        let sid_out = stream_id.clone();
+        let buf_out = stdout_buf.clone();
+        let stdout_thread = std::thread::spawn(move || {
+            let reader = BufReader::new(child_stdout);
+            for line_res in reader.lines() {
+                let Ok(line) = line_res else { break; };
+                if let Some(ref h) = h_out {
+                    let _ = h.emit(
+                        "ai-tool-stdout",
+                        json!({
+                            "stream_id": sid_out,
+                            "line": line.clone(),
+                            "stream": "stdout",
+                        }),
+                    );
+                }
+                if let Ok(mut b) = buf_out.lock() {
+                    b.push_str(&line);
+                    b.push('\n');
+                }
+            }
+        });
+
+        // Reader thread: stderr
+        let h_err = app_handle.clone();
+        let sid_err = stream_id.clone();
+        let buf_err = stderr_buf.clone();
+        let stderr_thread = std::thread::spawn(move || {
+            let reader = BufReader::new(child_stderr);
+            for line_res in reader.lines() {
+                let Ok(line) = line_res else { break; };
+                if let Some(ref h) = h_err {
+                    let _ = h.emit(
+                        "ai-tool-stdout",
+                        json!({
+                            "stream_id": sid_err,
+                            "line": line.clone(),
+                            "stream": "stderr",
+                        }),
+                    );
+                }
+                if let Ok(mut b) = buf_err.lock() {
+                    b.push_str(&line);
+                    b.push('\n');
+                }
+            }
+        });
+
+        // Wait for the process on a blocking thread so we don't tie up the
+        // async runtime. Reader threads will join automatically when the
+        // pipes close (which happens when the child exits).
+        let status = tokio::task::spawn_blocking(move || child.wait())
+            .await
+            .map_err(|e| anyhow!("join error: {}", e))??;
+        let _ = stdout_thread.join();
+        let _ = stderr_thread.join();
+
+        let stdout = stdout_buf.lock().map(|s| s.clone()).unwrap_or_default();
+        let stderr = stderr_buf.lock().map(|s| s.clone()).unwrap_or_default();
+
+        if let Some(ref h) = app_handle {
+            let _ = h.emit(
+                "ai-tool-stdout-end",
+                json!({
+                    "stream_id": stream_id,
+                    "exit_code": status.code(),
+                    "success": status.success(),
+                }),
+            );
+            let _ = h.emit(
+                "ai-artifact",
+                json!({
+                    "type": "terminal",
+                    "title": format!("Run: {}", command),
+                    "content": if status.success() { stdout.clone() } else { stderr.clone() }
+                }),
+            );
         }
-        
+
         Ok(serde_json::json!({
             "stdout": stdout,
             "stderr": stderr,
-            "success": output.status.success(),
-            "status": if output.status.success() { "success" } else { "failed" }
+            "success": status.success(),
+            "status": if status.success() { "success" } else { "failed" }
         }))
     }
 
