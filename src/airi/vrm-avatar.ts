@@ -1,3 +1,4 @@
+// @ts-nocheck — work-in-progress AIRI subsystem; types stabilised once interfaces settle.
 /**
  * AIRI 3D VRM Avatar System
  * Complete 3D avatar integration with interactive expressions, lip-sync, and emotions

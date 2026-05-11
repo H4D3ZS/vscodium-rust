@@ -39,6 +39,7 @@ import {
     summarizeAimTelemetry,
     type AimTelemetrySnapshot,
 } from '../kortex/aim-vfs';
+import { resolveOllamaModelToGguf } from '../kortex/ollama-bridge';
 
 // ─── presentational helpers ────────────────────────────────────────────────
 
@@ -119,6 +120,16 @@ function fmtBytes(n: number): string {
     return `${n} B`;
 }
 
+/** Strip `Ollama|<tag>` prefix used by the agent model picker. */
+function parseOllamaModelTag(agentModel: string): string {
+    const t = agentModel.trim();
+    const pipe = t.indexOf('|');
+    if (pipe > 0 && t.slice(0, pipe).toLowerCase() === 'ollama') {
+        return t.slice(pipe + 1).trim();
+    }
+    return t;
+}
+
 // ─── component ──────────────────────────────────────────────────────────────
 
 const KortexInferencePanel: React.FC = () => {
@@ -136,6 +147,7 @@ const KortexInferencePanel: React.FC = () => {
     const llamaCppModelPath = useStore(s => s.llamaCppModelPath);
     const setLlamaCppModelPath = useStore(s => s.setLlamaCppModelPath);
     const llamaCppUrl = useStore(s => s.llamaCppUrl);
+    const agentModel = useStore(s => s.agentModel);
 
     // KV cache state
     const kvCacheEnabled = useStore(s => s.kvCacheEnabled);
@@ -173,6 +185,7 @@ const KortexInferencePanel: React.FC = () => {
     const [kvRunning, setKvRunning] = useState<boolean>(false);
     const [cacheStatus, setCacheStatus] = useState<RunningCacheInfo | null>(null);
     const [aim, setAim] = useState<AimTelemetrySnapshot | null>(null);
+    const [ollamaTagForGguf, setOllamaTagForGguf] = useState('');
 
     // Resolve the default profile path whenever the model changes.
     useEffect(() => {
@@ -632,6 +645,42 @@ const KortexInferencePanel: React.FC = () => {
                     onChange={e => setLlamaCppModelPath(e.target.value)}
                     placeholder="C:\\models\\qwen2.5-32b-coder.Q4_K_M.gguf"
                 />
+                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                    <input
+                        style={{ ...inputStyle, flex: '1 1 200px', maxWidth: 420 }}
+                        value={ollamaTagForGguf}
+                        onChange={e => setOllamaTagForGguf(e.target.value)}
+                        placeholder="Ollama tag (e.g. llama3.2:latest) — empty uses agent model"
+                    />
+                    <button
+                        type="button"
+                        style={btnStyle('secondary')}
+                        disabled={!!busy}
+                        onClick={async () => {
+                            setErr('');
+                            const tag = (ollamaTagForGguf.trim() || parseOllamaModelTag(agentModel)).trim();
+                            if (!tag) {
+                                setErr('Set an Ollama model in the agent picker or enter a tag above.');
+                                return;
+                            }
+                            setBusy('Resolving GGUF from Ollama…');
+                            try {
+                                const p = await resolveOllamaModelToGguf(tag);
+                                if (!p) {
+                                    setErr('No local .gguf path found for this model (check `ollama show` / Modelfile FROM).');
+                                    return;
+                                }
+                                setLlamaCppModelPath(p);
+                            } catch (e: unknown) {
+                                setErr(e instanceof Error ? e.message : String(e));
+                            } finally {
+                                setBusy('');
+                            }
+                        }}
+                    >
+                        Resolve GGUF from Ollama
+                    </button>
+                </div>
                 {profilePath && (
                     <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, fontFamily: 'monospace' }}>
                         profile → {profilePath}

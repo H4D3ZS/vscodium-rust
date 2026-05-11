@@ -856,9 +856,9 @@ async function buildIdeContext(): Promise<string> {
                         const rawContent = await invoke<string>("read_file", { path: fullPath });
                         if (rawContent) {
                             const lines = rawContent.split('\n');
-                            const store = (window as any).useStore?.getState();
-                            const isOllama = store?.agentModel?.toLowerCase().includes('ollama');
-                            const limit = isOllama ? 300 : 1500;
+                            const zs = (window as any).useStore;
+                            const isLocal = zs && isLocalInferenceRoute(zs);
+                            const limit = isLocal ? 300 : 1500;
                             content = lines.slice(0, limit).join('\n');
                             if (lines.length > limit) content += `\n... (truncated, ${lines.length - limit} more lines — use file_read with offset to read more)`;
                         }
@@ -906,7 +906,13 @@ async function buildIdeContext(): Promise<string> {
     return parts.join('\n');
 }
 
-import { hadesOllama } from './hades-ollama-service';
+/** True when the active inference backend is a local OpenAI-compatible server
+ *  (Ollama or llama-server/KDKVC) — use smaller history windows and stricter
+ *  attachment limits. */
+function isLocalInferenceRoute(store: { getState: () => any }): boolean {
+    const b = store.getState().inferenceBackend;
+    return b === 'ollama' || b === 'llama-cpp';
+}
 
 export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: string) => void, context?: any[]): Promise<void> {
     const store = (window as any).useStore;
@@ -918,40 +924,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
         if (handled) return;
     }
 
-    const { agentModel, inferenceBackend } = store.getState();
-
-    // === HADES-Ollama Integration ===
-    // If backend is Ollama, use HADES intelligence layer
-    if (inferenceBackend === 'ollama') {
-        try {
-            // Use HADES-Ollama service with JIT decompression, thermal governor, .aim VFS
-            const response = await hadesOllama.chat([
-                { role: 'user', content: userPrompt }
-            ]);
-
-            // Update UI with response
-            store.getState().setIsAgentThinking(false);
-            store.getState().updateLastAgentMessage(response.response || '');
-            return;
-        } catch (error: any) {
-            console.error('[HADES-Ollama] Error:', error);
-            store.getState().setIsAgentThinking(false);
-            
-            // Better error messages
-            let errorMsg = `**HADES-Ollama Error:** ${error.message}`;
-            if (error.message.includes('model') || error.message.includes('not found')) {
-                errorMsg += `\n\n**Model not found in Ollama!**\n\nPull a model first:\n\`\`\`bash\nssh root@your-cloud-ip\nollama pull qwen2.5-coder:7b\n\`\`\``;
-            } else if (error.message.includes('fetch') || error.message.includes('ECONNREFUSED')) {
-                errorMsg += `\n\n**Cannot connect to Ollama!**\n\nMake sure SSH tunnel is running:\n\`\`\`bash\nssh -L 11434:localhost:11434 root@your-cloud-ip\n\`\`\``;
-            }
-            
-            store.getState().updateLastAgentMessage(errorMsg);
-            return;
-        }
-    }
-
-    // === Legacy Backend Flow (OpenAI, Google, Anthropic, etc.) ===
-    const { agentMessages, setAiStatus, availableModels } = store.getState();
+    // === Legacy Backend Flow (Ollama, llama.cpp/Kortex, OpenAI, Google, Anthropic, etc.) ===
+    // Local inference uses Rust `ai_chat` with full tools — never bypass via HTTP-only helpers.
+    const { agentMessages, setAiStatus, availableModels, agentModel, inferenceBackend } = store.getState();
 
     // Determine provider and model
     let provider = "OpenAI";
@@ -975,6 +950,33 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
     }
 
     const normalizedProvider = provider.toLowerCase() === 'apiradar' ? 'apiradar' : provider.toLowerCase();
+
+    // Route full Kortex (llama-server + KDKVC) through the same OpenAI-compatible
+    // stack in `ai_engine` that Ollama uses: `get_endpoint("ollama")` →
+    // `{base}/v1/chat/completions`.  The only difference is which base URL we
+    // pass — Ollama Desktop vs llama.cpp URL from settings.
+    let routingProvider = normalizedProvider;
+    let routingModel = model;
+    let routingOllamaUrl = store.getState().ollamaUrl;
+    if (inferenceBackend === 'llama-cpp') {
+        routingProvider = 'ollama';
+        routingOllamaUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
+        const gguf = store.getState().llamaCppModelPath?.trim();
+        if (gguf) {
+            const seg = gguf.replace(/^.*[\\/]/, '').replace(/\.gguf$/i, '');
+            if (seg) routingModel = seg;
+        }
+    } else if (inferenceBackend === 'ollama') {
+        routingProvider = 'ollama';
+        routingOllamaUrl = store.getState().ollamaUrl || '';
+        const am = store.getState().agentModel || '';
+        if (am.includes('|')) {
+            const [prov, id] = am.split('|');
+            if (prov.toLowerCase() === 'ollama' && id.trim()) {
+                routingModel = id.trim();
+            }
+        }
+    }
 
     // --- Build enhanced system prompt with Claude Code-style context ---
     const storeState = store.getState();
@@ -1006,18 +1008,22 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
 
     // --- Get tool schemas for the provider ---
     let toolSchemas: any[] = [];
-    if (normalizedProvider === 'anthropic') {
+    if (routingProvider === 'anthropic') {
         toolSchemas = getToolSchemasAnthropic();
-    } else if (normalizedProvider === 'google') {
+    } else if (routingProvider === 'google') {
         toolSchemas = getToolSchemasGoogle();
     } else {
         toolSchemas = getToolSchemas();
     }
 
     // Cap history sent to model — keeps UI display full but limits context window.
-    // Ollama/local: keep 16 (slow, small context). Cloud/large models: keep 40.
-    const isOllama = normalizedProvider === 'ollama';
-    const MAX_HISTORY = isOllama ? 16 : 40;
+    // Local servers (Ollama + llama.cpp/Kortex): keep 16. Cloud: 40.
+    const isLocalRoute =
+        inferenceBackend === 'llama-cpp' ||
+        inferenceBackend === 'ollama' ||
+        normalizedProvider === 'ollama' ||
+        normalizedProvider === 'antigravity';
+    const MAX_HISTORY = isLocalRoute ? 16 : 40;
     const cappedMessages: typeof agentMessages = agentMessages.length > MAX_HISTORY
         ? [
             ...agentMessages.slice(0, 2),
@@ -1086,18 +1092,45 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
 
     setAiStatus('alive');
 
+    // Fast failure when a local endpoint is completely unreachable — better UX
+    // than a generic Rust transport error.
+    if (inferenceBackend === 'ollama' || inferenceBackend === 'llama-cpp') {
+        const base = (inferenceBackend === 'llama-cpp' ? routingOllamaUrl : store.getState().ollamaUrl || '').replace(/\/$/, '');
+        if (base) {
+            const probes = inferenceBackend === 'llama-cpp'
+                ? [`${base}/health`, `${base}/v1/models`]
+                : [`${base}/api/tags`];
+            let ok = false;
+            for (const u of probes) {
+                try {
+                    const r = await fetch(u, { signal: AbortSignal.timeout(4000) });
+                    if (r.ok) { ok = true; break; }
+                } catch { /* try next */ }
+            }
+            if (!ok) {
+                const hint = inferenceBackend === 'llama-cpp'
+                    ? `Cannot reach llama-server/Kortex at ${base}. Open **Settings → Local Inference (Kortex)** and click **Start Kortex stack**, or set **llama.cpp URL** to a running server (include KDKVC proxy port if you use disk KV cache).`
+                    : `Cannot reach Ollama at ${base}. Start **Ollama Desktop** or fix the URL under **Settings → Ollama Integration**.`;
+                store.getState().setIsAgentThinking(false);
+                store.getState().updateLastAgentMessage(`**Inference endpoint offline**\n\n${hint}`);
+                setAiStatus('dead');
+                return;
+            }
+        }
+    }
+
     try {
         await invoke<string>("ai_chat", {
             request: {
-                provider: normalizedProvider,
-                model: model,
+                provider: routingProvider,
+                model: routingModel,
                 messages: messages,
                 temperature: 0.7,
                 autonomous: true,
                 root_access: true,
                 mode: store.getState().agentMode,
-                ollama_url: store.getState().ollamaUrl,
-                // NEW: Send structured tool definitions to the backend
+                ollama_url: routingOllamaUrl,
+                // Structured tool definitions — same catalog as cloud agents.
                 tools: toolSchemas,
             }
         });

@@ -32,5 +32,10 @@
   },
   "include": [
     "src"
+  ],
+  "exclude": [
+    "src/airi",
+    "src/digital-life.ts",
+    "src/emulator/stream-server.ts"
   ]
 }

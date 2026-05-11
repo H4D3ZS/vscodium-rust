@@ -23,6 +23,7 @@ pub struct HadesVision {
     local_model: String,
     cloud_model: String,
     use_cloud: Arc<RwLock<bool>>,
+    client: reqwest::Client,
 }
 
 impl HadesVision {
@@ -37,6 +38,10 @@ impl HadesVision {
             local_model: local_model.to_string(),
             cloud_model: cloud_model.to_string(),
             use_cloud: Arc::new(RwLock::new(use_cloud)),
+            client: reqwest::Client::builder()
+                .tcp_keepalive(std::time::Duration::from_secs(60))
+                .build()
+                .unwrap_or_default(),
         }
     }
 
@@ -77,7 +82,7 @@ impl HadesVision {
             let hdc_screen = GetDC(HWND(std::ptr::null_mut()));
             let hdc_mem = CreateCompatibleDC(hdc_screen);
             
-            let mut bmi = BITMAPINFO {
+            let bmi = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
                     biWidth: w as i32,
@@ -102,15 +107,18 @@ impl HadesVision {
                 let _ = BitBlt(hdc_mem, 0, 0, w as i32, h as i32, hdc_screen, x, y, SRCCOPY);
                 
                 let size = (w * h * 4) as usize;
-                let mut rgba = Vec::with_capacity(size);
-                std::ptr::copy_nonoverlapping(bits, rgba.as_mut_ptr() as *mut _, size);
-                rgba.set_len(size);
+                let rgba = if !bits.is_null() {
+                    let slice = std::slice::from_raw_parts(bits as *const u8, size);
+                    slice.to_vec()
+                } else {
+                    Vec::new()
+                };
                 
                 let _ = DeleteObject(hbitmap);
                 let _ = DeleteDC(hdc_mem);
                 let _ = ReleaseDC(HWND(std::ptr::null_mut()), hdc_screen);
                 
-                Some(rgba)
+                if rgba.is_empty() { None } else { Some(rgba) }
             } else {
                 let _ = DeleteDC(hdc_mem);
                 let _ = ReleaseDC(HWND(std::ptr::null_mut()), hdc_screen);
@@ -119,7 +127,7 @@ impl HadesVision {
         };
 
         if let Some(data) = frame_data {
-            let target_size = if *self.use_cloud.read().await { 1024 } else { 512 };
+            let target_size = 1024;
             let resized = ImageBuffer::<Rgba<u8>, _>::from_raw(w, h, data.clone())
                 .map(|img| {
                     let dyn_img = DynamicImage::ImageRgba8(img);
@@ -133,7 +141,7 @@ impl HadesVision {
             
             let model = if *self.use_cloud.read().await { self.cloud_model.clone() } else { self.local_model.clone() };
 
-            let response = reqwest::Client::new()
+            let response = self.client
                 .post(&format!("{}/api/generate", self.ollama_url))
                 .json(&serde_json::json!({
                     "model": model,
@@ -141,7 +149,7 @@ impl HadesVision {
                     "images": [base64_image],
                     "stream": false
                 }))
-                .timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(60))
                 .send()
                 .await
                 .map_err(|e| format!("Request failed: {}", e))?

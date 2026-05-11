@@ -22,7 +22,7 @@ const Composer: React.FC = () => {
     const pendingChanges = useStore(state => state.pendingChanges);
     const acceptChange = useStore(state => state.acceptPendingChange);
     const rejectChange = useStore(state => state.rejectPendingChange);
-    const workspacePath = useStore(state => state.workspacePath);
+    const workspacePath = useStore(state => state.activeRoot ?? '');
 
     // Multi-pane workflow state
     const [activePane, setActivePane] = useState<'chat' | 'files' | 'diff' | 'preview'>('chat');

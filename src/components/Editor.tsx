@@ -71,7 +71,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
         }
     }, [effectiveTabId, activeTab?.path, setActiveEditorPath, forcedTabId]);
 
-    const handleMount: OnMount = useCallback((editor) => {
+    const handleMount: OnMount = useCallback((editor, monaco) => {
         editorRef.current = editor;
         editor.addCommand(CTRL_S, () => saveActiveFile());
 
@@ -750,7 +750,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                 language={activeTab.language}
                 value={activeFilePendingChange ? activeFilePendingChange.newContent : activeTab.content}
                 onMount={handleMount}
-                onChange={(value) => { handleChange(value); handleChangeLsp(value); }}
+                onChange={(value, ev) => { handleChange(value, ev); handleChangeLsp(value); }}
                 loading={<div className="editor-loading" style={{ background: 'var(--vscode-editor-background)', color: 'var(--vscode-editor-foreground)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', opacity: 0.5 }}>Loading IDE Editor Assets...</div>}
                 options={{
                     fontSize: 13,

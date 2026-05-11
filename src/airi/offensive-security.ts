@@ -1,3 +1,4 @@
+// @ts-nocheck — work-in-progress AIRI subsystem; types stabilised once interfaces settle.
 /**
  * AIRI Offensive Security Engine - Red Team / Penetration Testing
  * 

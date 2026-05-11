@@ -5,13 +5,13 @@ use anyhow::{Result, anyhow};
 use std::time::Duration;
 use std::path::Path;
 
-const ALLOWED_EXTENSIONS: &[&str] = &[
+const _ALLOWED_EXTENSIONS: &[&str] = &[
     "xml", "json", "properties", "sql", "txt", "log", "tmp", "backup", "bak", "enc",
     "yml", "yaml", "toml", "ini", "config", "conf", "cfg", "env", "envrc", "prod",
     "secret", "private", "key"
 ];
 
-const KEYNAME_INDICATORS: &[&str] = &[
+const _KEYNAME_INDICATORS: &[&str] = &[
     "access_key", "secret_key", "access_token", "api_key", "apikey", "api_secret",
     "apiSecret", "app_secret", "application_key", "app_key", "appkey", "auth_token",
     "authsecret", "bearer", "token", "secret", "credentials"
@@ -47,7 +47,7 @@ struct LeaksResponse {
 
 pub struct ApiRadarHunter {
     client: Client,
-    branches: Vec<&'static str>,
+    _branches: Vec<&'static str>,
 }
 
 impl ApiRadarHunter {
@@ -58,7 +58,7 @@ impl ApiRadarHunter {
                 .user_agent("AIRI-Hunter/1.0")
                 .build()
                 .unwrap_or_default(),
-            branches: vec!["main", "master", "dev", "prod", "develop", "staging", "v1"],
+            _branches: vec!["main", "master", "dev", "prod", "develop", "staging", "v1"],
         }
     }
 
@@ -78,9 +78,9 @@ impl ApiRadarHunter {
         }
     }
 
-    pub async fn fetch_raw_content(&self, repo_path: &str, file_path: &str) -> Option<String> {
+    pub async fn _fetch_raw_content(&self, repo_path: &str, file_path: &str) -> Option<String> {
         let clean_repo = repo_path.replace("https://github.com/", "");
-        for branch in &self.branches {
+        for branch in &self._branches {
             let url = format!("https://raw.githubusercontent.com/{}/{}/{}", clean_repo, branch, file_path);
             if let Ok(resp) = self.client.get(&url).send().await {
                 if resp.status().is_success() {
@@ -93,21 +93,21 @@ impl ApiRadarHunter {
         None
     }
 
-    pub fn is_relevant_file(&self, file_path: &str) -> bool {
+    pub fn _is_relevant_file(&self, file_path: &str) -> bool {
         let path = Path::new(file_path);
         if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
             let lower_ext = ext.to_lowercase();
-            return ALLOWED_EXTENSIONS.iter().any(|&e| e == lower_ext);
+            return _ALLOWED_EXTENSIONS.iter().any(|&e| e == lower_ext);
         }
         false
     }
 
-    pub fn contains_key_indicator(&self, content: &str) -> bool {
+    pub fn _contains_key_indicator(&self, content: &str) -> bool {
         let lower_content = content.to_lowercase();
-        KEYNAME_INDICATORS.iter().any(|&indicator| lower_content.contains(indicator))
+        _KEYNAME_INDICATORS.iter().any(|&indicator| lower_content.contains(indicator))
     }
 
-    pub fn extract_keys(&self, content: &str) -> Vec<(String, String)> {
+    pub fn _extract_keys(&self, content: &str) -> Vec<(String, String)> {
         // Evaluate all regexes directly without premature keyword optimization
 
         let patterns: Vec<(&str, &str, Vec<&str>, bool)> = vec![
@@ -148,7 +148,7 @@ impl ApiRadarHunter {
         results
     }
 
-    pub async fn validate_key(&self, key_type: &str, key: &str) -> (bool, String) {
+    pub async fn _validate_key(&self, key_type: &str, key: &str) -> (bool, String) {
         match key_type {
             "openai_key" | "openrouter_key" | "xai_key" | "groq_key" | "cerebras_key" | "mistral_api_key" => {
                 let url = match key_type {

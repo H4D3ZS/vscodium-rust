@@ -10,8 +10,17 @@ import json
 import io
 import wave
 import struct
+import sys
 from pathlib import Path
 from typing import Optional
+
+# Windows defaults to cp1252; box-drawing / emoji in prints raise UnicodeEncodeError.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # Import Qwen3-TTS
 try:

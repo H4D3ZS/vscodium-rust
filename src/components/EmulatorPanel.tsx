@@ -20,8 +20,8 @@ interface RunningEmulator {
 const EmulatorPanel: React.FC = () => {
     const activeDevice = useStore(state => state.activeDevice);
     const setActiveDevice = useStore(state => state.setActiveDevice);
-    const emulatorPosition = useStore(state => state.emulatorPanelPosition);
-    const setEmulatorPosition = useStore(state => state.setEmulatorPanelPosition);
+    const emulatorPosition = useStore(state => state.emulatorLayout);
+    const setEmulatorPosition = useStore(state => state.setEmulatorLayout);
     
     const scrcpyContainerRef = useRef<HTMLDivElement>(null);
     const scrcpyInstance = useRef<ScrcpyEmbed | null>(null);

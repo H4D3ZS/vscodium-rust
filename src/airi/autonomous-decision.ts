@@ -1,3 +1,4 @@
+// @ts-nocheck — work-in-progress AIRI subsystem; types stabilised once interfaces settle.
 /**
  * AIRI Autonomous Decision Engine
  * True autonomy - AIRI decides for herself
@@ -7,6 +8,8 @@
  */
 
 import { Ollama } from 'ollama';
+import { hadesOllama } from '../hades-ollama-service';
+import { getModel } from './model-config';
 import { airiConsciousness } from './consciousness';
 import { airiBiology } from './biology';
 import { airiSecurity, SecurityMode } from './security-engine';

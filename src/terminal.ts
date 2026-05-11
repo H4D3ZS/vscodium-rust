@@ -279,7 +279,6 @@ export class TerminalManager {
       minimumContrastRatio: 1,
       drawBoldTextInBrightColors: true,
       convertEol: false,
-      termName: 'xterm-256color',
       allowTransparency: false,
       disableStdin: false,
       screenReaderMode: false
@@ -620,21 +619,21 @@ export class TerminalManager {
     setTimeout(() => document.addEventListener('click', closeMenu), 100);
   }
 
-  private copySelection(instance: TerminalInstance) {
+  copySelection(instance: TerminalInstance) {
     const selectedText = instance.term.getSelection();
     if (selectedText) {
       navigator.clipboard.writeText(selectedText);
     }
   }
 
-  private async paste(instance: TerminalInstance) {
+  async paste(instance: TerminalInstance) {
     try {
       const text = await navigator.clipboard.readText();
       instance.term.paste(text);
     } catch (e) {}
   }
 
-  private selectAll(instance: TerminalInstance) {
+  selectAll(instance: TerminalInstance) {
     instance.term.selectAll();
   }
 

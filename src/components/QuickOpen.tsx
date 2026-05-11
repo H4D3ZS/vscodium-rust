@@ -22,7 +22,7 @@ function fuzzyScore(str: string, query: string): number {
 function HighlightMatch({ text, query }: { text: string; query: string }) {
     if (!query) return <span>{text}</span>;
     const q = query.toLowerCase();
-    const chars: JSX.Element[] = [];
+    const chars: React.JSX.Element[] = [];
     let qi = 0;
     for (let i = 0; i < text.length; i++) {
         const match = qi < q.length && text[i].toLowerCase() === q[qi];

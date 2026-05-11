@@ -400,6 +400,69 @@ impl Serialize for TelemetryState {
     }
 }
 
+/// Resolve a locally-installed Ollama model tag to the backing `.gguf` path via `ollama show`.
+#[tauri::command]
+pub async fn kortex_resolve_ollama_gguf(model: String) -> Result<Option<String>, String> {
+    let model = model.trim().to_string();
+    if model.is_empty() {
+        return Ok(None);
+    }
+
+    let output = tokio::process::Command::new("ollama")
+        .args(["show", &model, "--modelfile"])
+        .output()
+        .await
+        .map_err(|e| {
+            format!(
+                "Could not run `ollama show` — is Ollama installed and on PATH? ({})",
+                e
+            )
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "`ollama show {} --modelfile` failed: {}",
+            model,
+            stderr.trim().chars().take(400).collect::<String>()
+        ));
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if line.len() < 6 {
+            continue;
+        }
+        let upper = line.to_uppercase();
+        if upper.starts_with("FROM ") {
+            let rest = line[5..].trim().trim_matches('"').trim_matches('\'');
+            if rest.to_lowercase().ends_with(".gguf") {
+                let p = PathBuf::from(rest);
+                if p.exists() {
+                    return Ok(Some(p.to_string_lossy().into_owned()));
+                }
+                let home = std::env::var("USERPROFILE")
+                    .or_else(|_| std::env::var("HOME"))
+                    .unwrap_or_else(|_| ".".to_string());
+                let candidates = [
+                    PathBuf::from(rest),
+                    Path::new(&home).join(".ollama/models").join(rest),
+                    Path::new(&home).join(".ollama/models/blobs").join(rest),
+                ];
+                for c in candidates {
+                    if c.exists() {
+                        return Ok(Some(c.to_string_lossy().into_owned()));
+                    }
+                }
+                return Ok(Some(rest.to_string()));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

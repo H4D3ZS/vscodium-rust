@@ -33,34 +33,40 @@ impl ContextIndexer {
 
         // Start real-time incremental indexing
         let (tx, mut rx) = mpsc::channel(100);
-        let mut watcher = RecommendedWatcher::new(move |res: notify::Result<Event>| {
+        let watcher_res = RecommendedWatcher::new(move |res: notify::Result<Event>| {
             if let Ok(event) = res {
                 let _ = tx.blocking_send(event);
             }
-        }, notify::Config::default()).expect("Failed to create watcher");
+        }, notify::Config::default());
 
-        watcher.watch(&root, RecursiveMode::Recursive).expect("Failed to start watching");
-
-        tauri::async_runtime::spawn(async move {
-            println!("[CONTEXT] Starting incremental indexing loop for: {:?}", root);
-            // Keep watcher alive in this thread
-            let _watcher = watcher;
-            
-            while let Some(event) = rx.recv().await {
-                match event.kind {
-                    EventKind::Modify(_) | EventKind::Create(_) => {
-                        for path in event.paths {
-                            if Self::is_indexable(&path) {
-                                if let Err(e) = Self::index_single_file(&ms, &root, &path).await {
-                                    eprintln!("[CONTEXT] Error indexing file {:?}: {:?}", path, e);
+        if let Ok(mut watcher) = watcher_res {
+            if let Err(e) = watcher.watch(&root, RecursiveMode::Recursive) {
+                eprintln!("[CONTEXT] ❌ Failed to start watcher: {:?}", e);
+            } else {
+                tauri::async_runtime::spawn(async move {
+                    println!("[CONTEXT] Starting incremental indexing loop for: {:?}", root);
+                    // Keep watcher alive in this thread
+                    let _watcher = watcher;
+                    
+                    while let Some(event) = rx.recv().await {
+                        match event.kind {
+                            EventKind::Modify(_) | EventKind::Create(_) => {
+                                for path in event.paths {
+                                    if Self::is_indexable(&path) {
+                                        if let Err(e) = Self::index_single_file(&ms, &root, &path).await {
+                                            eprintln!("[CONTEXT] Error indexing file {:?}: {:?}", path, e);
+                                        }
+                                    }
                                 }
                             }
+                            _ => {}
                         }
                     }
-                    _ => {}
-                }
+                });
             }
-        });
+        } else {
+            eprintln!("[CONTEXT] ❌ Failed to create file watcher.");
+        }
 
         // Also run a full cycle periodically to ensure consistency
         let ms_full = self.memory_store.clone();
@@ -98,6 +104,8 @@ impl ContextIndexer {
 
         println!("[CONTEXT] Found {} indexable files. Dispatching to Rayon threadpool.", paths.len());
 
+        let embedder = hades_harness::PythagoreanEmbedder::new(1536);
+
         // 2. Process in parallel using Rayon
         paths.par_iter().for_each(|path: &PathBuf| {
             let relative_path = path.strip_prefix(root).unwrap_or(path).to_string_lossy().to_string();
@@ -107,16 +115,18 @@ impl ContextIndexer {
                 // Hashing Check
                 let current_hash = Self::compute_hash(&content);
                 {
-                    let h_lock = hashes.read().unwrap();
-                    if h_lock.get(path) == Some(&current_hash) {
-                        return; // Skip unchanged file
+                    if let Ok(h_lock) = hashes.read() {
+                        if h_lock.get(path) == Some(&current_hash) {
+                            return; // Skip unchanged file
+                        }
                     }
                 }
                 
                 // Update Hash
                 {
-                    let mut h_lock = hashes.write().unwrap();
-                    h_lock.insert(path.clone(), current_hash);
+                    if let Ok(mut h_lock) = hashes.write() {
+                        h_lock.insert(path.clone(), current_hash);
+                    }
                 }
 
                 let extension = path.extension().and_then(|e: &std::ffi::OsStr| e.to_str()).unwrap_or("");
@@ -124,21 +134,20 @@ impl ContextIndexer {
                 let mut tags = Vec::new();
 
                 // 2.1 Calculate Pythagorean Embedding (Geometric Logic)
-                let embedder = hades_harness::PythagoreanEmbedder::new(1536);
                 let geometry = embedder.embed_path(Path::new(&relative_path));
 
                 if extension == "rs" || extension == "ts" || extension == "tsx" {
                     let symbols = Self::extract_symbols_sync(&content, extension, &relative_path);
                     for sym in symbols {
                         tags.push(format!("symbol:{}", sym.name));
-                        futures::executor::block_on(ms.store_symbol(sym));
+                        ms.store_symbol_sync(sym);
                     }
                 }
 
                 // 2.2 Security Analysis (Distillation)
                 let security_meta = crate::security_distiller::SecurityDistiller::get_security_metadata(&content);
 
-                futures::executor::block_on(ms.store_slot(crate::memory_store::SemanticSlot {
+                ms.store_slot_sync(crate::memory_store::SemanticSlot {
                     id: format!("{}:{}", category, relative_path),
                     category: category.to_string(),
                     content: relative_path,
@@ -149,8 +158,11 @@ impl ContextIndexer {
                         "geometry_map": geometry.get(0..10).map(|s| s.to_vec()),
                         "security": security_meta
                     })),
-                    timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
-                }));
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0),
+                });
             }
         });
 
@@ -189,7 +201,7 @@ impl ContextIndexer {
             "file_map"
         };
 
-        let content = std::fs::read_to_string(path).unwrap_or_default();
+        let content = std::fs::read_to_string(path).unwrap_or_else(|_| String::new());
         let mut tags = Vec::new();
 
         if extension == "rs" || extension == "ts" || extension == "tsx" {
@@ -217,8 +229,9 @@ impl ContextIndexer {
                 "size": std::fs::metadata(path)?.len()
             })),
             timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs(),
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
         })
         .await;
 
@@ -294,7 +307,8 @@ impl ContextIndexer {
         symbols
     }
 
-    fn extract_symbols(content: &str, ext: &str) -> Vec<String> {
+    /// Returns just the symbol names for a file — useful for quick context summaries.
+    pub fn extract_symbols(content: &str, ext: &str) -> Vec<String> {
         Self::extract_symbols_detailed(content, ext, "").into_iter().map(|s| s.name).collect()
     }
  

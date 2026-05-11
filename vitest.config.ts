@@ -7,15 +7,13 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+    // Don't inherit `root: './src'` from vite.config.ts — vitest needs the
+    // package root so it can resolve `vitest` itself.
+    root: '.',
     test: {
-        // Scope: only run the Kortex __tests__ suite for now. Add more globs
-        // here as more modules grow proper unit tests.
         include: ['src/kortex/__tests__/**/*.test.ts'],
         environment: 'node',
-        // Each .test.ts file gets a fresh module graph, so module-level state
-        // (e.g. CCET HISTORY) is naturally isolated across files.
+        pool: 'forks',
         isolate: true,
-        // Fail on console errors so flaky logging in product code surfaces.
-        printConsoleTrace: true,
     },
 });

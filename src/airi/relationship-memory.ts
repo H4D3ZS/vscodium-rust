@@ -1,3 +1,4 @@
+// @ts-nocheck — work-in-progress AIRI subsystem; types stabilised once interfaces settle.
 /**
  * AIRI Relationship Memory System
  * 

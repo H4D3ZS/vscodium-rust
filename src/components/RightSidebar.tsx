@@ -186,8 +186,7 @@ const RightSidebar: React.FC = () => {
     const [digitalLifeActive, setDigitalLifeActive] = useState(false);
 
     // Emulator panel positioning
-    const emulatorPosition = useStore(state => state.emulatorPanelPosition);
-    const setEmulatorPosition = useStore(state => state.setEmulatorPosition);
+    const emulatorLayout = useStore(state => state.emulatorLayout);
     const [showEmulatorInRight, setShowEmulatorInRight] = useState(false);
 
     // Initialize TTS on mount
@@ -1828,7 +1827,7 @@ const RightSidebar: React.FC = () => {
             <OllamaProgressBar />
 
             {/* Emulator Panel - Optional section in right sidebar */}
-            {emulatorPosition === 'right' && (
+            {emulatorLayout === 'right' && (
                 <div style={{
                     display: 'flex',
                     flexDirection: 'column',

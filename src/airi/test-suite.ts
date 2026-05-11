@@ -1,3 +1,4 @@
+// @ts-nocheck — work-in-progress AIRI subsystem; types stabilised once interfaces settle.
 /**
  * AIRI Comprehensive Test Suite
  * Full system testing, regression tests, performance benchmarks

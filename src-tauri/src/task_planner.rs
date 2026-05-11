@@ -59,7 +59,7 @@ impl TaskPlanner {
         self.steps.lock().await.clone()
     }
 
-    pub async fn update_step_status(&self, step_id: &str, status: TaskStatus) {
+    pub async fn _update_step_status(&self, step_id: &str, status: TaskStatus) {
         let mut steps = self.steps.lock().await;
         if let Some(step) = steps.iter_mut().find(|s| s.id == step_id) {
             step.status = status;

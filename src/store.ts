@@ -168,7 +168,8 @@ interface AppState {
     isAiriPanelOpen: boolean;
     isEmulatorPanelOpen: boolean;
     emulatorPanelPosition: 'android' | 'iphone';
-    
+    emulatorLayout: 'left' | 'right' | 'hidden';
+
     // Inference Backend Configuration
     inferenceBackend: 'ollama' | 'llama-cpp' | 'openai';
     llamaCppUrl: string;
@@ -357,6 +358,8 @@ interface AppState {
     addAgentArtifact: (artifact: Omit<Artifact, 'id' | 'timestamp'>) => void;
     setIsAgentThinking: (isThinking: boolean) => void;
     setIsAgentPaused: (paused: boolean) => void;
+    setEmulatorPanelPosition: (pos: 'android' | 'iphone') => void;
+    setEmulatorLayout: (layout: 'left' | 'right' | 'hidden') => void;
     setYoloMode: (enabled: boolean) => void;
     setAgentUiMode: (mode: 'chat' | 'airi') => void;
     setAgentCurrentAction: (action: string | null) => void;
@@ -519,7 +522,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     isAiriPanelOpen: true,  // AIRI open by default
     isEmulatorPanelOpen: false,  // Emulator closed by default
     emulatorPanelPosition: 'android',
-    
+    emulatorLayout: (localStorage.getItem('emulatorLayout') as 'left' | 'right' | 'hidden') || 'left',
+
     // Inference Backend Configuration
     inferenceBackend: (localStorage.getItem('inferenceBackend') as 'ollama' | 'llama-cpp' | 'openai') || 'ollama',  // Default to Ollama (GPU-accelerated via DirectML)
     llamaCppUrl: localStorage.getItem('llamaCppUrl') || 'http://localhost:8081',
@@ -828,10 +832,29 @@ const storeImplementation: any = (set: any, get: any) => ({
     setInferenceBackend: (backend: 'ollama' | 'llama-cpp' | 'openai') => {
         localStorage.setItem('inferenceBackend', backend);
         set({ inferenceBackend: backend });
+        const st = get();
+        // Keep Rust EditorState.ollama_url in sync so `ai_inline_complete` and
+        // other commands that read `state.ollama_url` hit the same endpoint as
+        // the agent chat loop (`ai_chat` passes `ollama_url` in the request,
+        // but inline completion uses the mutex on AiEngine).
+        if (backend === 'llama-cpp') {
+            import('./tauri_bridge').then(({ invoke }) =>
+                invoke('set_ollama_url', { url: st.llamaCppUrl }).catch(() => {})
+            );
+        } else if (backend === 'ollama') {
+            import('./tauri_bridge').then(({ invoke }) =>
+                invoke('set_ollama_url', { url: st.ollamaUrl }).catch(() => {})
+            );
+        }
     },
     setLlamaCppUrl: (url: string) => {
         localStorage.setItem('llamaCppUrl', url);
         set({ llamaCppUrl: url });
+        if (get().inferenceBackend === 'llama-cpp') {
+            import('./tauri_bridge').then(({ invoke }) =>
+                invoke('set_ollama_url', { url }).catch(() => {})
+            );
+        }
     },
     setLlamaCppModelPath: (path: string) => {
         localStorage.setItem('llamaCppModelPath', path);
@@ -857,6 +880,10 @@ const storeImplementation: any = (set: any, get: any) => ({
         isAiriPanelOpen: false  // Close AIRI when opening emulator
     })),
     setEmulatorPanelPosition: (position: 'android' | 'iphone') => set({ emulatorPanelPosition: position }),
+    setEmulatorLayout: (layout: 'left' | 'right' | 'hidden') => {
+        try { localStorage.setItem('emulatorLayout', layout); } catch { /* ignore quota errors */ }
+        set({ emulatorLayout: layout });
+    },
     openAiriPanel: () => set({ isRightSidebarOpen: true, isAiriPanelOpen: true, isEmulatorPanelOpen: false }),
     closeAiriPanel: () => set({ isAiriPanelOpen: false }),
     openEmulatorPanel: () => set({ isRightSidebarOpen: true, isEmulatorPanelOpen: true, isAiriPanelOpen: false }),

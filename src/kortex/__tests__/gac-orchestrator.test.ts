@@ -13,8 +13,8 @@ import { summarizePlan, type TierPlan } from '../gac-orchestrator';
 const samplePlan: TierPlan = {
     n_gpu_layers: 80,
     overrides: [
-        { pattern: '\\.ffn_down_exps', buffer: 'Cpu' },
-        { pattern: '\\.ffn_up_exps', buffer: 'Cpu' },
+        { pattern: '\\.ffn_down_exps', buffer: 'Cpu', bytes: 7_516_192_768 },
+        { pattern: '\\.ffn_up_exps', buffer: 'Cpu', bytes: 7_516_192_768 },
     ],
     total_gpu_bytes: 5_368_709_120, // 5.0 GiB
     total_cpu_bytes: 15_032_385_536, // 14.0 GiB

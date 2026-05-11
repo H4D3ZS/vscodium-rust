@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::AppHandle;
@@ -23,9 +22,6 @@ use crate::task_planner::TaskPlanner;
 use crate::tool_invoker::ToolInvoker;
 use crate::rules_engine::RulesEngine;
 use crate::workflow_engine::WorkflowEngine;
-
-const COMMUNITY_OLLAMA_URL: &str = "https://ai.cyberifrit.xyz";
-const COMMUNITY_OLLAMA_API_KEY: &str = "94d92f5148bb721b16d310e8bcedac54ceeca26428feefd01bdd89bc07592a76";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AiResponse {
@@ -210,6 +206,7 @@ impl Sentient {
             patch_engine.clone(),
             ghost_runtime.clone(),
             shadow_workspace.clone(),
+            None,
         ));
         
         let task_planner = Arc::new(TaskPlanner::new());
@@ -237,7 +234,7 @@ impl Sentient {
             conversation_state: AsyncMutex::new(Vec::new()),
             app_handle: std::sync::RwLock::new(None),
             auth_state,
-            ollama_url: tokio::sync::Mutex::new(COMMUNITY_OLLAMA_URL.to_string()),
+            ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
             _browser_state: browser_state.clone(),
             stop_signal: Arc::new(AtomicBool::new(false)),
             pause_signal: Arc::new(AtomicBool::new(false)),
@@ -269,6 +266,14 @@ impl Sentient {
     pub async fn set_advisor_model(&self, model: Option<String>) {
         let mut m = self.advisor_model.lock().await;
         *m = model;
+    }
+
+    pub fn get_hades_harness(&self) -> Option<Arc<crate::hades_harness::HadesHarness>> {
+        let h_lock = self.app_handle.read().ok()?;
+        h_lock.as_ref().map(|h| {
+            let state: tauri::State<crate::EditorState> = h.state();
+            state.hades_harness.clone()
+        })
     }
 
     /// Verifies if a code modification (patch or write) is valid according to the compiler.
@@ -680,9 +685,9 @@ impl Sentient {
         }
 
         // ── Qwen family ─────────────────────────────────────────────────────
-        // Qwen 3 / Qwen 2.5 — 32k
+        // Qwen 3 / Qwen 2.5 — 128k supported, 64k safe workstation default
         if m.contains("qwen3") || m.contains("qwen2.5") || m.contains("qwen-3") {
-            return 32768;
+            return 65536;
         }
         // Qwen 2 — 32k
         if m.contains("qwen2") || m.contains("qwen-2") || m.contains("qwen:") {
@@ -691,12 +696,12 @@ impl Sentient {
 
         // ── Mistral family ───────────────────────────────────────────────────
         if m.contains("mistral") || m.contains("mixtral") {
-            return 32768;
+            return 65536;
         }
 
         // ── DeepSeek ─────────────────────────────────────────────────────────
         if m.contains("deepseek") {
-            return 32768;
+            return 65536;
         }
 
         // ── Llama 3.x — 128k capable, 32k safe default ──────────────────────
@@ -824,7 +829,6 @@ impl Sentient {
         let resp = self
             .client
             .get(format!("{}/api/tags", url))
-            .bearer_auth(self.get_key_for_provider("ollama"))
             .timeout(std::time::Duration::from_secs(2))
             .send()
             .await;
@@ -835,9 +839,6 @@ impl Sentient {
         }
     }
 
-    async fn execute_tool(&self, name: &str, args: &str) -> Result<Value> {
-        self.tool_invoker.execute_tool(name, args).await
-    }
 
     pub async fn pull_model(&self, name: &str) -> Result<()> {
         let url = {
@@ -849,7 +850,6 @@ impl Sentient {
         let resp = self
             .client
             .post(format!("{}/api/pull", url))
-            .bearer_auth(self.get_key_for_provider("ollama"))
             .json(&payload)
             .send()
             .await?;
@@ -1387,6 +1387,15 @@ impl Sentient {
         for iteration in 0..max_iterations {
             self.wait_if_paused().await; // Wait here if user paused before starting next loop
 
+            // Update TaskPlanner state: we are now executing the current iteration
+            self.task_planner.transition_to(crate::task_planner::TaskState::Executing(iteration)).await;
+            self.emit_event("ai-task-plan-updated", self.task_planner.current_task_metadata().await);
+
+            // HADES SYNERGY: Orchestrate the mission step via the specialized harness
+            if let Some(harness) = self.get_hades_harness() {
+                let _ = harness.execute_agent_step(&format!("Iteration {}", iteration)).await;
+            }
+
             if self.is_stopped() {
                 println!(
                     "[AI] Loop interrupted by stop signal at iteration {}",
@@ -1398,8 +1407,8 @@ impl Sentient {
             // PHASE-WRAP: compress context → .aim every N iterations, keeping context window tiny.
             // This is the "1 gist token" mechanism: AI never goes dumb because .aim IS the brain,
             // the context window is just a scratchpad that gets wiped and refilled from .aim.
-            if iteration > 0 && iteration % phase_wrap_every == 0 {
-                self.auto_phase_wrap(&mut messages, iteration, &phase_files_written).await;
+            if iteration > 0 && iteration % (phase_wrap_every as usize) == 0 {
+                self.auto_phase_wrap(&mut messages, iteration as u32, &phase_files_written).await;
                 phase_files_written.clear();
             }
 
@@ -1723,12 +1732,8 @@ impl Sentient {
                     };
 
                     if let Some(h_arc) = h_arc_opt {
-                        std::thread::spawn(move || {
-                            let rt = tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                                .expect("tokio rt");
-                            let _ = rt.block_on(h_arc.execute_agent_step("Final Mission Review"));
+                        tauri::async_runtime::spawn(async move {
+                            let _ = h_arc.execute_agent_step("Final Mission Review").await;
                         });
                     }
                 }
@@ -1872,10 +1877,10 @@ impl Sentient {
                 }
             }
 
-            let timeout_secs = if active_provider.to_lowercase() == "ollama" {
-                300
+            let timeout_secs = if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
+                600 // Increased to 10 minutes for 72B model initialization
             } else {
-                60
+                120 // Increased to 2 minutes for cloud models to handle peak load
             };
             let mut request = self
                 .client
@@ -1891,9 +1896,7 @@ impl Sentient {
                 // Already handled in URL key param, but some proxies might like the header too
                 request = request.header("x-goog-api-key", &provider_key);
             } else if active_provider.to_lowercase() == "ollama" {
-                if !provider_key.is_empty() {
-                    request = request.bearer_auth(&provider_key);
-                }
+                // No auth for local Ollama
             } else {
                 request = request.bearer_auth(&provider_key);
             }
@@ -1928,9 +1931,20 @@ impl Sentient {
             );
 
             while let Ok(Some(chunk_result)) =
-                tokio::time::timeout(std::time::Duration::from_secs(300), stream.next()).await
+                tokio::time::timeout(std::time::Duration::from_secs(600), stream.next()).await
             {
-                let chunk = chunk_result.map_err(|e| anyhow!("Stream error: {}", e))?;
+                let chunk = match chunk_result {
+                    Ok(c) => c,
+                    Err(e) => {
+                        let err_msg = format!("[{}] STREAM ERROR: {}. Model: {}, Provider: {}", request_id, e, active_model, active_provider);
+                        println!("{}", err_msg);
+                        let _ = std::fs::OpenOptions::new()
+                            .create(true).append(true)
+                            .open("ai_chat.log")
+                            .and_then(|mut f| { use std::io::Write; f.write_all(format!("{}\n", err_msg).as_bytes()) });
+                        return Err(anyhow!("Inference stream interrupted: {}", e));
+                    }
+                };
                 let text = String::from_utf8_lossy(&chunk);
                 line_buffer.push_str(&text);
 
@@ -1970,7 +1984,7 @@ impl Sentient {
                                 
                                 let progress_pct = ((tokens_count as f64 / estimated_total_tokens as f64) * 100.0).min(99.0) as u32;
                                 
-                                if let Some(handle) = self.app_handle.read().unwrap().as_ref() {
+                                if let Some(handle) = self.app_handle.read().ok().as_ref().and_then(|g| g.as_ref()) {
                                     let _ = handle.emit("ollama-progress", serde_json::json!({
                                         "progress": progress_pct,
                                         "tokens_per_sec": tokens_per_sec.round(),
@@ -2002,7 +2016,7 @@ impl Sentient {
                                 
                                 let progress_pct = ((tokens_count as f64 / estimated_total_tokens as f64) * 100.0).min(99.0) as u32;
                                 
-                                if let Some(handle) = self.app_handle.read().unwrap().as_ref() {
+                                if let Some(handle) = self.app_handle.read().ok().as_ref().and_then(|g| g.as_ref()) {
                                     let _ = handle.emit("ollama-progress", serde_json::json!({
                                         "progress": progress_pct,
                                         "tokens_per_sec": tokens_per_sec.round(),
@@ -2145,7 +2159,7 @@ impl Sentient {
                 let total_elapsed = start_time.elapsed().as_secs();
                 let final_tokens_per_sec = if total_elapsed > 0 { tokens_count as f64 / total_elapsed as f64 } else { 0.0 };
                 
-                if let Some(handle) = self.app_handle.read().unwrap().as_ref() {
+                if let Some(handle) = self.app_handle.read().ok().as_ref().and_then(|g| g.as_ref()) {
                     let _ = handle.emit("ollama-progress", serde_json::json!({
                         "progress": 100,
                         "tokens_per_sec": final_tokens_per_sec.round(),
@@ -2223,7 +2237,12 @@ impl Sentient {
                     let action_desc = format!("Executing tool: {}", tool_call.function.name);
                     self.emit_event("ai-action", json!({ "action": action_desc, "tool": tool_call.function.name }));
 
-                    println!("[AI TOOL EXECUTION] Tool: {}, Args: {}", tool_call.function.name, tool_call.function.arguments);
+                    let tool_log = format!("[AI TOOL EXECUTION] Tool: {}, Args: {}\n", tool_call.function.name, tool_call.function.arguments);
+                    println!("{}", tool_log.trim());
+                    let _ = std::fs::OpenOptions::new()
+                        .create(true).append(true)
+                        .open("ai_chat.log")
+                        .and_then(|mut f| { use std::io::Write; f.write_all(tool_log.as_bytes()) });
 
                     self.emit_event("ai-tool-call", json!({ 
                         "name": tool_call.function.name, 
@@ -2420,6 +2439,10 @@ impl Sentient {
                     }
 
                     // 4. SYMBOLIC GATEKEEPER: Verify code changes via Shadow VFS (non-blocking)
+                    // Update planner: verifying this step
+                    self.task_planner.transition_to(crate::task_planner::TaskState::Verifying(iteration)).await;
+                    self.emit_event("ai-task-plan-updated", self.task_planner.current_task_metadata().await);
+
                     // In yolo_mode, skip pre-verification entirely — trust the sentient loop.
                     // Otherwise, run cargo check and feed any errors BACK to the AI as tool
                     // feedback so it can self-correct (never hard-reject in sentient mode).
@@ -2427,7 +2450,13 @@ impl Sentient {
                     let pre_check_warning = if !yolo {
                         match self.verify_code_change(&tool_name, &tool_args_json).await {
                             Ok(Some(errors)) => {
-                                let verity = hades_harness::KatalepsisFilter::evaluate_verity(&errors);
+                                let mut verity = hades_harness::KatalepsisFilter::evaluate_verity(&errors);
+                                
+                                // Proper implementation: Use the specialized HadesHarness if available
+                                if let Some(harness) = self.get_hades_harness() {
+                                    verity = harness.validate_verity(&errors).await;
+                                }
+
                                 let error_summary = errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>().join("\n");
                                 println!("[Harness] Pre-check found errors for {} (verity={:.2}). Feeding back to AI.", tool_name, verity);
                                 let airi_lock = self.airi.lock().await;
@@ -2449,33 +2478,6 @@ impl Sentient {
                     } else {
                         None
                     };
-
-                    // Create lightweight safety checkpoints before destructive edits.
-                    let checkpoint_tools = [
-                        "write_to_file",
-                        "str_replace",
-                        "search_replace_edit",
-                        "patch_file_content",
-                        "apply_shadow_patch",
-                        "remove_item",
-                    ];
-                    if checkpoint_tools.contains(&tool_name.as_str()) {
-                        let repo_root = self.ai_tools.get_root_path();
-                        let _ = Command::new("git")
-                            .arg("add")
-                            .arg("-A")
-                            .current_dir(&repo_root)
-                            .output();
-                        let checkpoint_msg = format!(
-                            "checkpoint: before {} ({})",
-                            tool_name,
-                            chrono::Utc::now().to_rfc3339()
-                        );
-                        let _ = Command::new("git")
-                            .args(["commit", "-m", &checkpoint_msg, "--allow-empty"])
-                            .current_dir(&repo_root)
-                            .output();
-                    }
 
                     // Always execute the tool — never block
                     let mut tool_result = self.tool_invoker
@@ -2668,6 +2670,12 @@ impl Sentient {
                     });
                 }
 
+                // Finalize planner state
+                if final_text.contains("MISSION_ACCOMPLISHED") {
+                    self.task_planner.transition_to(crate::task_planner::TaskState::Complete).await;
+                    self.emit_event("ai-task-plan-updated", self.task_planner.current_task_metadata().await);
+                }
+
                 // Yolo mode: if MISSION_ACCOMPLISHED not declared and iterations remain, keep pushing
                 if self.yolo_mode.load(Ordering::SeqCst)
                     && !final_text.contains("MISSION_ACCOMPLISHED")
@@ -2744,10 +2752,6 @@ impl Sentient {
             if url.contains('?') { url.push_str(&format!("&key={}", key)); }
             else { url.push_str(&format!("?key={}", key)); }
             request = self.client.post(url).header("x-goog-api-key", &key);
-        } else if is_ollama {
-            if !key.is_empty() {
-                request = request.bearer_auth(&key);
-            }
         } else if !is_ollama {
             request = request.bearer_auth(&key);
         }
@@ -2826,12 +2830,7 @@ impl Sentient {
             let base = self.ollama_url.lock().await.clone();
             let base = base.trim_end_matches('/');
             let endpoint = format!("{}/api/tags", base);
-            let resp = self
-                .client
-                .get(endpoint)
-                .bearer_auth(self.get_key_for_provider("ollama"))
-                .send()
-                .await?;
+            let resp = self.client.get(endpoint).send().await?;
             let json: Value = resp.json().await?;
             
             let mut model_names = Vec::new();
@@ -3144,10 +3143,6 @@ impl Sentient {
             }
         }
 
-        if provider_base == "ollama" {
-            return COMMUNITY_OLLAMA_API_KEY.to_string();
-        }
-
         self.api_key.clone()
     }
 
@@ -3171,7 +3166,7 @@ impl Sentient {
                 let base = req
                     .ollama_url
                     .clone()
-                    .unwrap_or_else(|| COMMUNITY_OLLAMA_URL.to_string());
+                    .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
                 let base = base.trim_end_matches('/');
                 format!("{}/v1/chat/completions", base)
             }

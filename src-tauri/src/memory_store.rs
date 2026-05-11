@@ -344,6 +344,15 @@ impl MemoryStore {
         self.is_dirty.store(true, Ordering::SeqCst);
     }
 
+    /// Synchronous version for high-performance bulk operations (e.g. indexing)
+    pub fn store_slot_sync(&self, slot: SemanticSlot) {
+        if let Ok(mut lock) = self.slots.try_write() {
+            lock.retain(|s| s.id != slot.id);
+            lock.push(slot);
+            self.is_dirty.store(true, Ordering::SeqCst);
+        }
+    }
+
     pub async fn add_relationship(&self, tag: &str, id: &str) {
         let mut lock = self.entities.write().await;
         lock.entry(tag.to_string())
@@ -359,6 +368,15 @@ impl MemoryStore {
         lock.definitions.push(symbol);
         drop(lock);
         self.is_dirty.store(true, Ordering::SeqCst);
+    }
+
+    /// Synchronous version for high-performance bulk operations (e.g. indexing)
+    pub fn store_symbol_sync(&self, symbol: SymbolDefinition) {
+        if let Ok(mut lock) = self.symbol_graph.try_write() {
+            lock.definitions.retain(|d| !(d.name == symbol.name && d.path == symbol.path));
+            lock.definitions.push(symbol);
+            self.is_dirty.store(true, Ordering::SeqCst);
+        }
     }
 
     /// Search symbol definitions by name substring (case-insensitive). Returns up to `limit` results.
@@ -827,5 +845,12 @@ impl MemoryStore {
         let lock = self.vfs_cache.read().await;
         lock.get(path).map(|(c, _)| c.clone())
     }
+
+    pub async fn generate_knowledge_graph(&self) -> anyhow::Result<crate::visual_lab::VisualGraph> {
+        let slots = self.slots.read().await;
+        Ok(crate::visual_lab::generate_neural_omni_graph(slots.clone()))
+    }
+
 }
+
 

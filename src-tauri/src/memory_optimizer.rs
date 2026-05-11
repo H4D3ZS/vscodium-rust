@@ -1,5 +1,6 @@
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -143,6 +144,37 @@ impl MemoryOptimizer {
         }
 
         (total_original, total_compressed)
+    }
+
+    pub async fn optimize(&self) -> anyhow::Result<()> {
+        let mut lock = self.cache.lock().await;
+        lock.clear();
+        Ok(())
+    }
+
+    pub async fn update_project_memory(&self, root: PathBuf, content: String) -> anyhow::Result<()> {
+        // STABILITY: Never write into src-tauri/ — Tauri's dev-mode file watcher
+        // monitors that directory and will kill+restart the entire process the moment
+        // any file changes there, causing the IDE to reload mid-session.
+        // Walk up one level if we're accidentally rooted inside src-tauri/.
+        let safe_root = {
+            let s = root.to_string_lossy();
+            if s.ends_with("src-tauri") || s.ends_with("src-tauri\\") || s.ends_with("src-tauri/") {
+                root.parent().map(|p| p.to_path_buf()).unwrap_or(root)
+            } else {
+                root
+            }
+        };
+
+        let memory_path = safe_root.join("MEMORY.md");
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&memory_path)?;
+            
+        use std::io::Write;
+        writeln!(file, "\n{}", content)?;
+        Ok(())
     }
 
     pub async fn clear(&self) {

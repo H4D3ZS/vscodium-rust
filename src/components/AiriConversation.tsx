@@ -29,16 +29,19 @@ const AiriConversation: React.FC = () => {
     const saved = localStorage.getItem('airi_conversations');
     if (saved) {
       const history = JSON.parse(saved);
-      setMessages(history.map((h: any) => ({
-        role: 'user' as const,
-        text: h.user,
-        timestamp: h.timestamp,
-      }, {
-        role: 'airi' as const,
-        text: h.airi,
-        timestamp: h.timestamp,
-        emotion: h.emotion,
-      })).flat());
+      setMessages(history.flatMap((h: any) => [
+        {
+          role: 'user' as const,
+          text: h.user,
+          timestamp: h.timestamp,
+        },
+        {
+          role: 'airi' as const,
+          text: h.airi,
+          timestamp: h.timestamp,
+          emotion: h.emotion,
+        },
+      ]));
     }
 
     // Listen for AIRI ambient speech

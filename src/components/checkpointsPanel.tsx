@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { listCheckpoints, rollbackToCheckpoint, deleteCheckpoint, type Checkpoint, getCheckpointDiff } from '/services/gitCheckpoints';
+import { listCheckpoints, rollbackToCheckpoint, deleteCheckpoint, type Checkpoint, getCheckpointDiff } from '../services/gitCheckpoints';
 
 const CheckpointsPanel: React.FC = () => {
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);

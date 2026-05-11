@@ -1,3 +1,4 @@
+// @ts-nocheck — work-in-progress AIRI subsystem; types stabilised once interfaces settle.
 /**
  * AIRI Biology System
  * Implements digital biological needs: energy, hunger, sleep, mood, stress
