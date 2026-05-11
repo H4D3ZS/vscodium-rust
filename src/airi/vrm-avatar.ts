@@ -98,6 +98,11 @@ export class AIRIVRMAvatar {
       });
 
       const vrmUrlOrDefault = vrmUrl || '/models/airi.vrm';
+      const isLikelyVrm = vrmUrlOrDefault.toLowerCase().endsWith('.vrm');
+      if (!isLikelyVrm) {
+        console.warn('[VRM] Invalid model URL (expected .vrm):', vrmUrlOrDefault);
+        return false;
+      }
       
       const gltf = await new Promise<any>((resolve, reject) => {
         loader.load(
@@ -132,7 +137,12 @@ export class AIRIVRMAvatar {
       
       return true;
 
-    } catch (error) {
+    } catch (error: any) {
+      const msg = String(error?.message || error || '');
+      if (msg.includes('Unrecognized token') || msg.includes('<')) {
+        console.warn('[VRM] Model URL returned HTML/non-VRM payload; avatar disabled.');
+        return false;
+      }
       console.error('[VRM] ❌ Failed to load VRM:', error);
       return false;
     }

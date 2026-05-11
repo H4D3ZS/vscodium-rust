@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Component, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -400,7 +400,7 @@ impl EditorState {
             activation_manager: Arc::new(tokio::sync::Mutex::new(ActivationManager::new())),
             perf_monitor: Arc::new(PerformanceMonitor::new()),
             ai_engine: sentient.clone(),
-            ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
+            ollama_url: tokio::sync::Mutex::new("https://ai.cyberifrit.xyz".to_string()),
             config_dir: config_dir.clone(),
             active_root: tokio::sync::Mutex::new(Some(root)),
             current_model: tokio::sync::Mutex::new("gpt-4o".to_string()),
@@ -1156,6 +1156,24 @@ async fn list_mcp_servers(state: State<'_, EditorState>) -> Result<Value, String
 }
 
 #[tauri::command]
+async fn mcp_call_tool(
+    state: State<'_, EditorState>,
+    server_name: Option<String>,
+    tool_name: String,
+    arguments: Value,
+) -> Result<Value, String> {
+    if let Some(name) = server_name {
+        let _ = name;
+    }
+
+    state
+        .mcp_registry
+        .call_tool(&tool_name, arguments)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn add_mcp_server(
     state: State<'_, EditorState>,
     name: String,
@@ -1368,7 +1386,38 @@ async fn create_directory(path: String) -> Result<(), String> {
 }
 
 async fn is_path_valid(_state: &EditorState, _path: &PathBuf) -> Result<(), String> {
+    // Sovereign mode: no workspace sandbox path restriction.
     Ok(())
+}
+
+fn normalize_path_lossy(path: &PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn path_within_root(root: &PathBuf, candidate: &PathBuf) -> bool {
+    if cfg!(target_os = "windows") {
+        let root_str = root
+            .to_string_lossy()
+            .replace('/', "\\")
+            .to_ascii_lowercase();
+        let candidate_str = candidate
+            .to_string_lossy()
+            .replace('/', "\\")
+            .to_ascii_lowercase();
+        candidate_str == root_str || candidate_str.starts_with(&(root_str + "\\"))
+    } else {
+        candidate.starts_with(root)
+    }
 }
 
 #[tauri::command]
@@ -1930,7 +1979,9 @@ async fn spawn_terminal(
     app: tauri::AppHandle,
     id: String,
     shell: Option<String>,
-) -> Result<(), String> {
+    args: Option<Vec<String>>,
+    cwd: Option<String>,
+) -> Result<Value, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -1961,9 +2012,16 @@ async fn spawn_terminal(
     };
 
     let mut cmd = CommandBuilder::new(shell_exe);
+    if let Some(extra_args) = args {
+        for arg in extra_args {
+            cmd.arg(arg);
+        }
+    }
 
     // Set CWD to active project root if available
-    {
+    if let Some(cwd_override) = cwd {
+        cmd.cwd(cwd_override);
+    } else {
         let root = state.active_root.lock().await;
         if let Some(ref r) = *root {
             let r_owned: String = r.display().to_string();
@@ -2058,8 +2116,11 @@ async fn spawn_terminal(
         .lock()
         .await
         .insert(id.clone(), writer);
-    state.terminal_processes.lock().await.insert(id, child);
-    Ok(())
+    state.terminal_processes.lock().await.insert(id.clone(), child);
+    Ok(json!({
+        "id": id,
+        "status": "spawned"
+    }))
 }
 
 #[tauri::command]
@@ -2150,6 +2211,26 @@ async fn write_to_terminal(
     } else {
         Err("Terminal not found".to_string())
     }
+}
+
+#[tauri::command]
+async fn terminal_send_data(
+    state: State<'_, EditorState>,
+    terminal_id: Option<String>,
+    data: String,
+) -> Result<(), String> {
+    let target_id = if let Some(id) = terminal_id {
+        id
+    } else {
+        let writers = state.terminal_writers.lock().await;
+        writers
+            .keys()
+            .next()
+            .cloned()
+            .ok_or_else(|| "No active terminal found".to_string())?
+    };
+
+    write_to_terminal(state, target_id, data).await
 }
 
 #[tauri::command]
@@ -3063,8 +3144,47 @@ async fn check_activation_event(state: State<'_, EditorState>, event: String) ->
 }
 
 #[tauri::command]
-async fn terminal_read_output(state: State<'_, EditorState>, id: String) -> Result<String, String> {
-    state.terminal_read_output(id).await
+async fn terminal_read_output(state: State<'_, EditorState>, id: Option<String>) -> Result<String, String> {
+    let target_id = if let Some(id) = id {
+        id
+    } else {
+        let buffers = state.terminal_buffers.lock().await;
+        buffers
+            .keys()
+            .next()
+            .cloned()
+            .ok_or_else(|| "No active terminal found".to_string())?
+    };
+
+    state.terminal_read_output(target_id).await
+}
+
+#[tauri::command]
+async fn spawn_subagent(
+    state: State<'_, EditorState>,
+    task: String,
+    working_directory: Option<String>,
+) -> Result<Value, String> {
+    state
+        .ai_tools
+        .call_tool(
+            "spawn_subagent",
+            json!({
+                "task": task,
+                "working_directory": working_directory
+            }),
+        )
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn browser_subagent(state: State<'_, EditorState>, task: String) -> Result<Value, String> {
+    state
+        .ai_tools
+        .call_tool("browser_subagent", json!({ "task": task }))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3567,6 +3687,7 @@ pub fn run() {
             ai_inline_complete,
             spawn_terminal,
             write_to_terminal,
+            terminal_send_data,
             resize_terminal,
             close_terminal,
             get_available_shells,
@@ -3620,6 +3741,7 @@ pub fn run() {
             set_ai_model,
             set_advisor_model,
             list_mcp_servers,
+            mcp_call_tool,
             add_mcp_server,
             remove_mcp_server,
             backend_ping,
@@ -3735,6 +3857,8 @@ pub fn run() {
             specs_commands::cmd_specs_clear_history,
             specs_commands::cmd_specs_delete_task,
             ai_tool_result,
+            spawn_subagent,
+            browser_subagent,
             get_system_health,
             get_visual_graph,
             generate_visual_graph,
@@ -3870,6 +3994,25 @@ async fn elevenlabs_get_voices(state: State<'_, EditorState>) -> Result<Vec<Elev
         .collect();
 
     Ok(voices)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_within_root_allows_child_paths() {
+        let root = PathBuf::from("/workspace/project");
+        let child = PathBuf::from("/workspace/project/src/main.rs");
+        assert!(path_within_root(&root, &child));
+    }
+
+    #[test]
+    fn path_within_root_blocks_parent_escape() {
+        let root = PathBuf::from("/workspace/project");
+        let outside = PathBuf::from("/workspace/other/secret.txt");
+        assert!(!path_within_root(&root, &outside));
+    }
 }
 
 // ── LSP Request-Response Commands (completions, hover, definition, references, rename) ─────────

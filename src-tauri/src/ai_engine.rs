@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::AppHandle;
@@ -22,6 +23,9 @@ use crate::task_planner::TaskPlanner;
 use crate::tool_invoker::ToolInvoker;
 use crate::rules_engine::RulesEngine;
 use crate::workflow_engine::WorkflowEngine;
+
+const COMMUNITY_OLLAMA_URL: &str = "https://ai.cyberifrit.xyz";
+const COMMUNITY_OLLAMA_API_KEY: &str = "94d92f5148bb721b16d310e8bcedac54ceeca26428feefd01bdd89bc07592a76";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AiResponse {
@@ -233,7 +237,7 @@ impl Sentient {
             conversation_state: AsyncMutex::new(Vec::new()),
             app_handle: std::sync::RwLock::new(None),
             auth_state,
-            ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
+            ollama_url: tokio::sync::Mutex::new(COMMUNITY_OLLAMA_URL.to_string()),
             _browser_state: browser_state.clone(),
             stop_signal: Arc::new(AtomicBool::new(false)),
             pause_signal: Arc::new(AtomicBool::new(false)),
@@ -820,6 +824,7 @@ impl Sentient {
         let resp = self
             .client
             .get(format!("{}/api/tags", url))
+            .bearer_auth(self.get_key_for_provider("ollama"))
             .timeout(std::time::Duration::from_secs(2))
             .send()
             .await;
@@ -844,6 +849,7 @@ impl Sentient {
         let resp = self
             .client
             .post(format!("{}/api/pull", url))
+            .bearer_auth(self.get_key_for_provider("ollama"))
             .json(&payload)
             .send()
             .await?;
@@ -1885,7 +1891,9 @@ impl Sentient {
                 // Already handled in URL key param, but some proxies might like the header too
                 request = request.header("x-goog-api-key", &provider_key);
             } else if active_provider.to_lowercase() == "ollama" {
-                // No auth for local Ollama
+                if !provider_key.is_empty() {
+                    request = request.bearer_auth(&provider_key);
+                }
             } else {
                 request = request.bearer_auth(&provider_key);
             }
@@ -2442,6 +2450,33 @@ impl Sentient {
                         None
                     };
 
+                    // Create lightweight safety checkpoints before destructive edits.
+                    let checkpoint_tools = [
+                        "write_to_file",
+                        "str_replace",
+                        "search_replace_edit",
+                        "patch_file_content",
+                        "apply_shadow_patch",
+                        "remove_item",
+                    ];
+                    if checkpoint_tools.contains(&tool_name.as_str()) {
+                        let repo_root = self.ai_tools.get_root_path();
+                        let _ = Command::new("git")
+                            .arg("add")
+                            .arg("-A")
+                            .current_dir(&repo_root)
+                            .output();
+                        let checkpoint_msg = format!(
+                            "checkpoint: before {} ({})",
+                            tool_name,
+                            chrono::Utc::now().to_rfc3339()
+                        );
+                        let _ = Command::new("git")
+                            .args(["commit", "-m", &checkpoint_msg, "--allow-empty"])
+                            .current_dir(&repo_root)
+                            .output();
+                    }
+
                     // Always execute the tool — never block
                     let mut tool_result = self.tool_invoker
                         .execute_tool(&tool_name, &tool_args_json.to_string())
@@ -2709,6 +2744,10 @@ impl Sentient {
             if url.contains('?') { url.push_str(&format!("&key={}", key)); }
             else { url.push_str(&format!("?key={}", key)); }
             request = self.client.post(url).header("x-goog-api-key", &key);
+        } else if is_ollama {
+            if !key.is_empty() {
+                request = request.bearer_auth(&key);
+            }
         } else if !is_ollama {
             request = request.bearer_auth(&key);
         }
@@ -2787,7 +2826,12 @@ impl Sentient {
             let base = self.ollama_url.lock().await.clone();
             let base = base.trim_end_matches('/');
             let endpoint = format!("{}/api/tags", base);
-            let resp = self.client.get(endpoint).send().await?;
+            let resp = self
+                .client
+                .get(endpoint)
+                .bearer_auth(self.get_key_for_provider("ollama"))
+                .send()
+                .await?;
             let json: Value = resp.json().await?;
             
             let mut model_names = Vec::new();
@@ -3100,6 +3144,10 @@ impl Sentient {
             }
         }
 
+        if provider_base == "ollama" {
+            return COMMUNITY_OLLAMA_API_KEY.to_string();
+        }
+
         self.api_key.clone()
     }
 
@@ -3123,7 +3171,7 @@ impl Sentient {
                 let base = req
                     .ollama_url
                     .clone()
-                    .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
+                    .unwrap_or_else(|| COMMUNITY_OLLAMA_URL.to_string());
                 let base = base.trim_end_matches('/');
                 format!("{}/v1/chat/completions", base)
             }

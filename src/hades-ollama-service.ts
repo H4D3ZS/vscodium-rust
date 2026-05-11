@@ -34,9 +34,10 @@ export interface OllamaResponse {
 }
 
 class HadesOllamaService {
+  private readonly apiKey = '94d92f5148bb721b16d310e8bcedac54ceeca26428feefd01bdd89bc07592a76';
   private config: HadesOllamaConfig = {
-    baseUrl: 'http://localhost:11434',
-    model: 'llama3.2', // Default, but will be overridden by store
+    baseUrl: 'https://ai.cyberifrit.xyz',
+    model: 'qwen3:35b', // Default community coding model
     aimVfsEnabled: true,
     thermalGovernorEnabled: true,
     jitDecompressionEnabled: true,
@@ -50,7 +51,7 @@ class HadesOllamaService {
   private loadConfig() {
     const s = useStore.getState();
     this.config = {
-      baseUrl: s.ollamaUrl || 'http://localhost:11434',
+      baseUrl: s.ollamaUrl || 'https://ai.cyberifrit.xyz',
       model: s.agentModel?.split('|')[1] || 'huihui_ai/qwen2.5-coder-abliterate:7b', // Use selected model from UI
       aimVfsEnabled: s.aimVfsEnabled,
       thermalGovernorEnabled: s.thermalGovernorEnabled,
@@ -103,7 +104,10 @@ class HadesOllamaService {
     // Step 4: Call Ollama (GPU-accelerated via DirectML)
     const response = await fetch(`${this.config.baseUrl}/api/generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`,
+      },
       body: JSON.stringify({
         model: this.config.model,
         prompt: enhancedPrompt,
@@ -169,7 +173,10 @@ class HadesOllamaService {
 
     const response = await fetch(`${this.config.baseUrl}/api/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`,
+      },
       body: JSON.stringify({
         model: this.config.model,
         messages: enhancedMessages,

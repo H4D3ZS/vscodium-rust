@@ -157,6 +157,7 @@ export class AIRICore {
   private isRunning: boolean = false;
   private statusInterval: NodeJS.Timeout | null = null;
   private eventListeners: Map<string, Array<(data: any) => void>> = new Map();
+  private initialized = false;
 
   // ... constructor etc.
 
@@ -227,8 +228,14 @@ export class AIRICore {
   public systemAccess = airiSystemAccess;
   
   constructor(config: Partial<AIRIConfig> = {}) {
+    const browserActiveRoot =
+      typeof window !== 'undefined' ? localStorage.getItem('activeRoot') : null;
+    const resolvedWorkspacePath =
+      config.workspacePath ||
+      browserActiveRoot ||
+      (typeof process !== 'undefined' ? process.cwd() : '/');
     this.config = {
-      workspacePath: config.workspacePath || (typeof process !== 'undefined' ? process.cwd() : '/'),
+      workspacePath: resolvedWorkspacePath,
       ollamaHost: config.ollamaHost || 'http://localhost:11434',
       consciousnessEnabled: config.consciousnessEnabled ?? true,
       biologyEnabled: config.biologyEnabled ?? true,
@@ -258,7 +265,30 @@ export class AIRICore {
   /**
    * Initialize all subsystems
    */
-  async initialize(): Promise<void> {
+  async initialize(configOverride: Partial<AIRIConfig> = {}): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+    if (Object.keys(configOverride).length > 0) {
+      const browserActiveRoot =
+        typeof window !== 'undefined' ? localStorage.getItem('activeRoot') : null;
+      const resolvedWorkspacePath =
+        configOverride.workspacePath ||
+        browserActiveRoot ||
+        this.config.workspacePath;
+      this.config = {
+        ...this.config,
+        ...configOverride,
+        workspacePath: resolvedWorkspacePath,
+      } as AIRIConfig;
+      // Recreate path-dependent subsystems after workspace override.
+      this.selfHealing = createSelfHealing(this.config.workspacePath);
+      this.selfEvolution = createSelfEvolution(this.config.workspacePath);
+      this.actionSystem = createAIRIActionSystem([this.config.workspacePath]);
+      this.continuousImprovement = createAIRIContinuousImprovement(this.config.workspacePath);
+      this.development = createAIRIDevelopmentAssistant(this.config.workspacePath);
+      this.autonomousDev = createAIRIAutonomousDevelopment(this.config.workspacePath);
+    }
     
 
     // ═══════════════════════════════════════════════════════════
@@ -552,6 +582,7 @@ export class AIRICore {
 
     // Broadcast initialization complete
     this.emitStatus('initialized');
+    this.initialized = true;
     
     
     
@@ -919,8 +950,10 @@ export class AIRICore {
  * Initialize AIRI for VSCodium
  */
 export async function initializeAIRI(): Promise<AIRICore> {
+  const browserActiveRoot =
+    typeof window !== 'undefined' ? localStorage.getItem('activeRoot') : null;
   const airi = new AIRICore({
-    workspacePath: process.cwd(),
+    workspacePath: browserActiveRoot || process.cwd(),
     consciousnessEnabled: true,
     biologyEnabled: true,
     autonomousWorkEnabled: true,

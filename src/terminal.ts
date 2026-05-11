@@ -205,9 +205,10 @@ export class TerminalManager {
   private nextId = 1;
   private defaultProfileId: string = 'powershell';
   private linkProvider: any = null;
+  private profilesReady: Promise<void>;
 
   constructor() {
-    this.loadProfiles();
+    this.profilesReady = this.loadProfiles();
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -246,6 +247,7 @@ export class TerminalManager {
     groupId?: string,
     cwd?: string
   ): Promise<string> {
+    await this.profilesReady;
     const id = `term-${this.nextId++}`;
     const profile = DEFAULT_PROFILES.find(p => p.id === (profileId || this.defaultProfileId)) 
                   || DEFAULT_PROFILES[0];
@@ -354,7 +356,7 @@ export class TerminalManager {
 
     // Spawn shell
     try {
-      const result = await invoke('spawn_terminal', { 
+      const result = await invoke<{ id?: string; status?: string; pid?: number }>('spawn_terminal', { 
         id, 
         shell: profile.path,
         args: profile.args || [],

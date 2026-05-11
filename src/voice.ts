@@ -41,7 +41,7 @@ export interface VoiceConfig {
 const ELEVENLABS_VOICES: Record<VoicePreset, VoiceConfig> = {
     // === FEMALE VOICES ===
     airi: {
-        voice_id: 'pNInz6obPdDQGk7smAjV', // Free tier friendly voice
+        voice_id: 'EXAVITQu4vr4xnSDxMaL', // Stable public premade voice
         name: 'AIRI',
         description: 'Energetic anime girl - youthful, expressive',
         stability: 0.5,
@@ -272,7 +272,7 @@ async function speakElevenLabs(text: string, preset: VoicePreset): Promise<Array
         if (!currentApiKey) throw new Error('ElevenLabs API key not found');
     }
 
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?optimize_streaming_latency=2`, {
+    const requestVoice = async (id: string) => fetch(`https://api.elevenlabs.io/v1/text-to-speech/${id}?optimize_streaming_latency=2`, {
         method: 'POST',
         headers: {
             'Accept': 'audio/mpeg',
@@ -291,9 +291,20 @@ async function speakElevenLabs(text: string, preset: VoicePreset): Promise<Array
         }),
     });
 
+    let response = await requestVoice(voiceId);
     if (!response.ok) {
         const err = await response.text();
-        throw new Error(`ElevenLabs API error: ${response.status} - ${err}`);
+        // Fallback for deleted/unavailable voice IDs.
+        if (response.status === 404 && err.includes('voice_not_found')) {
+            const fallbackVoiceId = 'EXAVITQu4vr4xnSDxMaL';
+            response = await requestVoice(fallbackVoiceId);
+            if (!response.ok) {
+                const fallbackErr = await response.text();
+                throw new Error(`ElevenLabs API error: ${response.status} - ${fallbackErr}`);
+            }
+        } else {
+            throw new Error(`ElevenLabs API error: ${response.status} - ${err}`);
+        }
     }
 
     return response.arrayBuffer();

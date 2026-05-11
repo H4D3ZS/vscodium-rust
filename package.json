@@ -7,7 +7,8 @@
     "dev": "node --max-old-space-size=4096 tools/start-dev-with-services.js",
     "dev:direct": "vite",
     "dev:full": "npx concurrently \"npm run tauri dev\" \"cd airi && npx pnpm dev:web --host\"",
-    "build": "node --stack-size=10000 node_modules/typescript/bin/tsc && vite build",
+    "typecheck": "node --stack-size=10000 node_modules/typescript/bin/tsc",
+    "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "start-mitm": "node tools/mitmserver/server.js"

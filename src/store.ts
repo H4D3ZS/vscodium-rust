@@ -487,7 +487,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     tokenUsage: 0,
     iconThemeMapping: null,
     agentMode: 'Chat',
-    agentModel: 'Ollama|llama3', // Default to Ollama (auto-detects local models)
+    agentModel: 'Ollama|qwen3:35b', // Default community coding model
     trustedPublishers: JSON.parse(localStorage.getItem('trustedPublishers') || '[]'),
     activeRoot: localStorage.getItem('activeRoot') || null,
     activeEditorPath: '',
@@ -546,7 +546,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     currentDevProject: null,
     emulatorPlatform: 'ios',
     
-    ollamaUrl: 'http://localhost:11434', // Default to direct Ollama (AIM proxy on 1536 is optional)
+    ollamaUrl: 'https://ai.cyberifrit.xyz', // Community cloud Ollama endpoint
     isPullingModel: false,
     pullProgress: 0,
     pendingChanges: [],
@@ -786,7 +786,7 @@ const storeImplementation: any = (set: any, get: any) => ({
         invoke('set_ollama_url', { url }).catch(console.error);
     },
     setOllamaConnectionMode: (mode: 'proxy' | 'direct') => {
-        const url = mode === 'proxy' ? 'http://localhost:1536' : 'http://localhost:11434';
+        const url = 'https://ai.cyberifrit.xyz';
         set({ ollamaConnectionMode: mode, ollamaUrl: url });
         invoke('set_ollama_url', { url }).catch(console.error);
         // Persist mode to localStorage
@@ -1038,37 +1038,12 @@ const storeImplementation: any = (set: any, get: any) => ({
             for (const p of activeProviders) {
                 try {
                     if (p.toLowerCase() === 'ollama') {
-                        // Auto-detect: Try AIM proxy first (1536), fall back to direct Ollama (11434)
-                        let ollamaToUse = 'http://localhost:1536';
-                        try {
-                            const testResponse = await fetch('http://localhost:1536/api/tags', {
-                                method: 'GET',
-                                signal: AbortSignal.timeout(2000),
-                            });
-                            if (!testResponse.ok) throw new Error('AIM proxy not available');
-                            console.log('[Ollama] ✅ Using AIM proxy (port 1536) for token efficiency');
-                            set({ ollamaConnectionMode: 'proxy', ollamaMode: 'cloud' });
-                        } catch {
-                            // Try direct local Ollama
-                            try {
-                                const localTest = await fetch('http://localhost:11434/api/tags', {
-                                    method: 'GET',
-                                    signal: AbortSignal.timeout(2000),
-                                });
-                                if (localTest.ok) {
-                                    ollamaToUse = 'http://localhost:11434';
-                                    console.log('[Ollama] 📍 Using direct Ollama (port 11434) - Local RX 580');
-                                    set({ ollamaConnectionMode: 'direct', ollamaMode: 'local' });
-                                }
-                            } catch {
-                                console.warn('[Ollama] ⚠️ Neither AIM proxy nor local Ollama available');
-                                set({ ollamaStatus: 'error', ollamaMode: 'cloud' });
-                            }
-                        }
+                        const ollamaToUse = 'https://ai.cyberifrit.xyz';
                         // Ensure backend has the correct URL before listing
                         await invoke('set_ollama_url', { url: ollamaToUse });
                         // Also update store state to match
                         set({ ollamaUrl: ollamaToUse });
+                        set({ ollamaConnectionMode: 'direct', ollamaMode: 'cloud' });
                     }
                     const models = await invoke<string[]>('list_provider_models', { provider: p });
                     allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];

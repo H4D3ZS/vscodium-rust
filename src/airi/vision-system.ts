@@ -39,6 +39,7 @@ export class AIRIVisionSystem {
   private isAnalyzing: boolean = false;
   private lastAnalysisTime: number = 0;
   private readonly ANALYSIS_INTERVAL_MS = 150;
+  private unsupportedPlatform = false;
   private listeners = new Map<string, Array<(data: any) => void>>();
   private regionsOfInterest: Array<{ name: string; x: number; y: number; w: number; h: number; priority: number }> = [
     { name: 'editor', x: 0, y: 0, w: 1920, h: 1080, priority: 10 },
@@ -66,6 +67,7 @@ export class AIRIVisionSystem {
 
   async start(): Promise<void> {
     if (this.isRunning) return;
+    if (this.unsupportedPlatform) return;
     try {
       // Test capture capability by attempting a single capture
       await invoke<number[]>('airi_vision_capture_screen');
@@ -73,7 +75,13 @@ export class AIRIVisionSystem {
       this.startCaptureLoop();
       console.log(`[AIRI Vision] ✅ Started (${this.config.captureFps} FPS)`);
     } catch (error: any) {
-      console.error('[AIRI Vision] ❌ Failed:', error.message);
+      const msg = String(error?.message || error || '');
+      if (msg.toLowerCase().includes('screen capture not supported')) {
+        this.unsupportedPlatform = true;
+        console.warn('[AIRI Vision] Screen capture unsupported on this platform; vision disabled.');
+        return;
+      }
+      console.error('[AIRI Vision] ❌ Failed:', msg);
       throw error;
     }
   }

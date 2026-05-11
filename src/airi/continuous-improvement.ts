@@ -42,17 +42,36 @@ export class AIRIContinuousImprovement {
   private optimizations: Optimization[];
   private evolutionHistory: EvolutionCycle[];
   private improvementInterval: NodeJS.Timeout | null;
-  private readonly MODEL = 'qwen3.6:32b-q4_K_M';
+  private readonly MODELS = ['qwen3:35b', 'qwen3:27b', 'gemma3:27b', 'gemma3:12b'];
+  private activeModel = 'qwen3:35b';
   private codebasePath: string;
   private cycleCount: number = 0;
 
   constructor(codebasePath: string) {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+    this.ollama = new Ollama({ host: 'https://ai.cyberifrit.xyz' });
     this.optimizations = [];
     this.evolutionHistory = [];
     this.codebasePath = codebasePath;
     this.improvementInterval = null;
 
+  }
+
+  private async generateWithFallback(prompt: string): Promise<{ response: string }> {
+    let lastError: unknown = null;
+    for (const model of this.MODELS) {
+      try {
+        const response = await this.ollama.generate({
+          model,
+          prompt,
+          stream: false,
+        });
+        this.activeModel = model;
+        return response;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? new Error('No available Ollama model for continuous improvement');
   }
 
   /**
@@ -201,11 +220,7 @@ Respond with JSON:
 `;
 
     try {
-      const response = await this.ollama.generate({
-        model: this.MODEL,
-        prompt,
-        stream: false
-      });
+      const response = await this.generateWithFallback(prompt);
 
       // Parse JSON response
       const jsonMatch = response.response.match(/\{[\s\S]*\}/);
@@ -265,11 +280,7 @@ Respond as JSON array:
 `;
 
     try {
-      const response = await this.ollama.generate({
-        model: this.MODEL,
-        prompt,
-        stream: false
-      });
+      const response = await this.generateWithFallback(prompt);
 
       const jsonMatch = response.response.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
@@ -340,11 +351,7 @@ Format:
 `;
 
     try {
-      const response = await this.ollama.generate({
-        model: this.MODEL,
-        prompt,
-        stream: false
-      });
+      const response = await this.generateWithFallback(prompt);
 
       const jsonMatch = response.response.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -411,11 +418,7 @@ Respond with just a number.
 `;
 
     try {
-      const response = await this.ollama.generate({
-        model: this.MODEL,
-        prompt,
-        stream: false
-      });
+      const response = await this.generateWithFallback(prompt);
 
       const match = response.response.match(/(\d+)/);
       return parseInt(match?.[1] || '0');
