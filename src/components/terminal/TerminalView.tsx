@@ -8,6 +8,7 @@ const TerminalView: React.FC = () => {
     const groups = useStore(state => state.terminalGroups);
     const activeGroupId = useStore(state => state.activeTerminalGroupId);
     const addTerminalGroup = useStore(state => state.addTerminalGroup);
+    const addAiriActivityTerminal = useStore(state => state.addAiriActivityTerminal);
     const closeTerminalGroup = useStore(state => state.closeTerminalGroup);
     const toggleBottomPanel = useStore(state => state.toggleBottomPanel);
 
@@ -20,6 +21,10 @@ const TerminalView: React.FC = () => {
 
     const handleAddTerminal = () => {
         addTerminalGroup(selectedShell);
+    };
+
+    const handleAddAiri = () => {
+        addAiriActivityTerminal();
     };
 
     const handleKillTerminal = () => {
@@ -79,6 +84,22 @@ const TerminalView: React.FC = () => {
                             ))}
                         </select>
                     )}
+                    <div
+                        className="terminal-action-item"
+                        onClick={handleAddAiri}
+                        title="Open AIRI live activity feed"
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '0 6px',
+                            fontSize: 11,
+                            color: 'var(--vscode-terminalCommandDecoration-successBackground, #1a85ff)'
+                        }}
+                    >
+                        <i className="codicon codicon-radio-tower"></i>
+                        <span>AIRI</span>
+                    </div>
                     <div className="terminal-action-item" onClick={handleAddTerminal} title="New Terminal (Ctrl+Shift+`)">
                         <i className="codicon codicon-add"></i>
                     </div>

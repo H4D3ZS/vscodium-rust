@@ -451,6 +451,7 @@ interface AppState {
 
     // Terminal Actions
     addTerminalGroup: (shell?: string) => Promise<string>;
+    addAiriActivityTerminal: () => Promise<string>;
     splitTerminal: (groupId: string, instanceId: string) => Promise<string>;
     closeTerminalInstance: (groupId: string, instanceId: string) => Promise<void>;
     setActiveTerminalGroup: (id: string) => void;
@@ -1855,6 +1856,38 @@ const storeImplementation: any = (set: any, get: any) => ({
         }));
 
         return id;
+    },
+
+    /**
+     * Open the live AIRI activity terminal in the bottom panel. Idempotent —
+     * if one is already open we just focus its group. Lets the user actually
+     * *see* every tool call streaming instead of only the right-sidebar card.
+     */
+    addAiriActivityTerminal: async () => {
+        const existing = get().terminalGroups.find(g => (g as any).name === 'AIRI');
+        if (existing) {
+            set({
+                activeTerminalGroupId: existing.id,
+                activePanelTab: 'TERMINAL',
+                isBottomPanelOpen: true,
+            });
+            return existing.id;
+        }
+        const groupId = `group-airi-${Date.now()}`;
+        const instanceId = await terminalManager.createAiriActivityTerminal(`airi-activity-${Date.now()}`);
+        const newGroup: TerminalGroup = {
+            id: groupId,
+            name: 'AIRI',
+            instances: [instanceId],
+            activeInstanceId: instanceId,
+        };
+        set((state) => ({
+            terminalGroups: [...state.terminalGroups, newGroup],
+            activeTerminalGroupId: groupId,
+            activePanelTab: 'TERMINAL',
+            isBottomPanelOpen: true,
+        }));
+        return groupId;
     },
 
     splitTerminal: async (groupId, instanceId) => {

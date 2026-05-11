@@ -510,14 +510,17 @@ export class TerminalManager {
 
     // Keystrokes — pipe to the backend PTY via terminal_send_data.
     // The previous `write_to_terminal` invocation silently no-op'd because
-    // no such Tauri command was registered.
+    // no such Tauri command was registered. Activity terminals have no PTY,
+    // so swallow input there.
     term.onData((data: string) => {
+      if (this.activityIds.has(id)) return;
       invoke('terminal_send_data', { id, data }).catch((e) => {
         console.warn('[terminal] terminal_send_data failed:', e);
       });
     });
 
     term.onResize(({ cols, rows }) => {
+      if (this.activityIds.has(id)) return;
       invoke('resize_terminal', { id, cols, rows }).catch(() => {});
     });
 
@@ -590,10 +593,202 @@ export class TerminalManager {
     try {
       instance.fitAddon.fit();
       const { cols, rows } = instance.term;
-      invoke('resize_terminal', { id, cols, rows }).catch(() => {});
+      // Activity terminals have no backing PTY, so don't ping the Rust side.
+      if (!this.activityIds.has(id)) {
+        invoke('resize_terminal', { id, cols, rows }).catch(() => {});
+      }
     } catch {
       /* xterm not yet measured */
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // AIRI ACTIVITY TERMINAL
+  //
+  // A virtual terminal (no PTY) that mirrors every AI tool invocation in
+  // real time. Subscribed to the same `ai-tool-call` / `ai-tool-result` /
+  // `ai-action` events the right-sidebar agent panel uses, so the user can
+  // *watch* AIRI work instead of only seeing a finished card in the UI.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private activityIds: Set<string> = new Set();
+  private activityUnsubs: Map<string, Array<() => void>> = new Map();
+  /** Tool calls keyed by call_id, so the result can render on the same block. */
+  private activityCalls: Map<string, Map<string, { name: string; argPreview: string }>> = new Map();
+
+  /**
+   * Create the activity terminal if it does not exist, otherwise return the
+   * existing id. Idempotent — safe to wire to a toolbar button.
+   */
+  async createAiriActivityTerminal(explicitId?: string): Promise<string> {
+    // Reuse the existing activity terminal so the button doesn't spawn many.
+    if (!explicitId) {
+      for (const id of this.activityIds) {
+        if (this.terminals.has(id)) return id;
+      }
+    }
+    const id = explicitId && explicitId.trim().length > 0
+      ? explicitId.trim()
+      : `airi-activity-${Date.now()}`;
+
+    const element = document.createElement('div');
+    element.className = 'terminal-instance-element';
+    element.style.width = '100%';
+    element.style.height = '100%';
+
+    const term = new Terminal({
+      theme: getVSCodeTheme(),
+      fontSize: 13,
+      fontFamily: 'Consolas, "Courier New", monospace',
+      cursorBlink: false,
+      cursorStyle: 'underline',
+      allowProposedApi: true,
+      scrollback: 8000,
+      disableStdin: true,
+      convertEol: true,
+      drawBoldTextInBrightColors: true,
+    });
+
+    const fitAddon = new FitAddon();
+    const searchAddon = new SearchAddon();
+    const webLinksAddon = new WebLinksAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(searchAddon);
+    term.loadAddon(webLinksAddon);
+    try { term.loadAddon(new WebglAddon()); } catch { try { term.loadAddon(new CanvasAddon()); } catch { /* */ } }
+    term.open(element);
+
+    const instance: TerminalInstance = {
+      id,
+      name: 'AIRI',
+      term,
+      fitAddon,
+      searchAddon,
+      webLinksAddon,
+      element,
+      shell: '<virtual:airi>',
+      isBusy: false,
+    };
+    this.terminals.set(id, instance);
+    this.activityIds.add(id);
+    this.activityCalls.set(id, new Map());
+
+    // Banner
+    term.writeln('\x1b[1;36m╔════════════════════════════════════════════════════════════╗\x1b[0m');
+    term.writeln('\x1b[1;36m║  AIRI LIVE ACTIVITY · tool calls + actions stream below   ║\x1b[0m');
+    term.writeln('\x1b[1;36m╚════════════════════════════════════════════════════════════╝\x1b[0m');
+    term.writeln('\x1b[2mNo PTY attached. Read-only feed.\x1b[0m');
+    term.writeln('');
+
+    // Flush any pending writes (none expected for activity, but cheap).
+    const pending = this.pendingWrites.get(id);
+    if (pending && pending.length) {
+      for (const chunk of pending) term.write(chunk);
+      this.pendingWrites.delete(id);
+    }
+
+    // Subscribe to backend events. We hold the unlistens so we can tear
+    // them down when the terminal is closed.
+    const unsubs: Array<() => void> = [];
+
+    const ts = () => {
+      const d = new Date();
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
+      return `\x1b[2m${hh}:${mm}:${ss}\x1b[0m`;
+    };
+
+    const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+
+    const writeToolCall = (payload: any) => {
+      const name = String(payload?.name ?? '');
+      if (!name) return;
+      let argPreview = '';
+      try {
+        const raw = payload?.args;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        argPreview = parsed ? truncate(JSON.stringify(parsed), 240) : '';
+      } catch {
+        argPreview = typeof payload?.args === 'string' ? truncate(payload.args, 240) : '';
+      }
+      const calls = this.activityCalls.get(id);
+      if (calls && payload?.call_id) {
+        calls.set(String(payload.call_id), { name, argPreview });
+      }
+      term.writeln(`${ts()} \x1b[1;33m▶\x1b[0m \x1b[1m${name}\x1b[0m \x1b[2m${argPreview}\x1b[0m`);
+    };
+
+    const writeToolResult = (payload: any) => {
+      const name = String(payload?.name ?? '');
+      const result = String(payload?.result ?? '');
+      const blocked = !!payload?.blocked;
+      const callId = payload?.call_id ? String(payload.call_id) : '';
+      const calls = this.activityCalls.get(id);
+      const prior = callId ? calls?.get(callId) : undefined;
+      const tag = prior?.name || name || 'tool';
+      const lines = result.split(/\r?\n/);
+      const head = truncate(lines[0] ?? '', 320);
+      const extra = lines.length > 1 ? ` \x1b[2m(+${lines.length - 1} more lines)\x1b[0m` : '';
+      const marker = blocked ? '\x1b[1;35m⏸\x1b[0m' : '\x1b[1;32m✔\x1b[0m';
+      term.writeln(`${ts()} ${marker} \x1b[1m${tag}\x1b[0m \x1b[2m→\x1b[0m ${head}${extra}`);
+      if (callId && calls) calls.delete(callId);
+    };
+
+    const writeAction = (payload: any) => {
+      const action = String(payload?.action ?? '').trim();
+      const tool = payload?.tool ? ` \x1b[2m[${payload.tool}]\x1b[0m` : '';
+      if (action) term.writeln(`${ts()} \x1b[1;34m•\x1b[0m ${action}${tool}`);
+    };
+
+    const writeChat = (payload: any) => {
+      const chunk = typeof payload === 'string' ? payload : String(payload?.content ?? '');
+      if (chunk) term.write(chunk);
+    };
+
+    Promise.all([
+      listen('ai-tool-call', (e: any) => writeToolCall(e?.payload ?? e)),
+      listen('ai-tool-result', (e: any) => writeToolResult(e?.payload ?? e)),
+      listen('ai-action', (e: any) => writeAction(e?.payload ?? e)),
+    ]).then((handles) => {
+      for (const h of handles) {
+        if (typeof h === 'function') unsubs.push(h as () => void);
+      }
+      this.activityUnsubs.set(id, unsubs);
+    }).catch((err) => {
+      term.writeln(`\x1b[31m[activity] failed to subscribe to events: ${err}\x1b[0m`);
+    });
+    // `writeChat` is reserved for a future "stream model output" wire-up; reference it
+    // so esbuild doesn't yell about an unused local.
+    void writeChat;
+
+    const group = this.groups.get(this.activeGroupId || '') || null;
+    const actualGroupId = group?.id || this.createGroupId();
+    if (!this.groups.has(actualGroupId)) {
+      this.groups.set(actualGroupId, {
+        id: actualGroupId,
+        instances: [],
+        activeInstanceId: null,
+        layout: 'single',
+      });
+    }
+    const g = this.groups.get(actualGroupId)!;
+    g.instances.push(instance);
+    g.activeInstanceId = id;
+    this.activeGroupId = actualGroupId;
+
+    // Resize on the next paint so xterm actually measures the container.
+    setTimeout(() => { try { fitAddon.fit(); } catch { /* */ } }, 0);
+
+    return id;
+  }
+
+  /**
+   * True if this terminal is an AIRI activity feed (no PTY backing).
+   * Used by keystroke/resize hooks to avoid posting to a non-existent PTY.
+   */
+  isActivityTerminal(id: string): boolean {
+    return this.activityIds.has(id);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -603,15 +798,29 @@ export class TerminalManager {
   async closeTerminal(id: string): Promise<void> {
     const instance = this.terminals.get(id);
     if (instance) {
-      try {
-        await invoke('close_terminal', { id });
-      } catch (e) {}
-      
+      const isActivity = this.activityIds.has(id);
+      if (!isActivity) {
+        try {
+          await invoke('close_terminal', { id });
+        } catch (e) {}
+      }
+
+      // Tear down activity-feed subscriptions before disposing xterm.
+      if (isActivity) {
+        const unsubs = this.activityUnsubs.get(id) || [];
+        for (const u of unsubs) {
+          try { u(); } catch { /* */ }
+        }
+        this.activityUnsubs.delete(id);
+        this.activityCalls.delete(id);
+        this.activityIds.delete(id);
+      }
+
       instance.term.dispose();
       if (instance.element.parentNode) {
         instance.element.parentNode.removeChild(instance.element);
       }
-      
+
       this.terminals.delete(id);
       
       // Remove from group
