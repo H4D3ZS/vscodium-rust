@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
 import ElevenLabsVoicePicker from './ElevenLabsVoicePicker';
+import MemoryPanel from './MemoryPanel';
 
 const AgentSettingsView: React.FC = () => {
     const ollamaUrl = useStore(state => state.ollamaUrl);
@@ -117,6 +118,8 @@ const AgentSettingsView: React.FC = () => {
     const [newMcpCommand, setNewMcpCommand] = useState('');
     const [newMcpArgs, setNewMcpArgs] = useState('');
     const [newMcpUrl, setNewMcpUrl] = useState('');
+    const [newMcpEnv, setNewMcpEnv] = useState('');   // KEY=VALUE per line
+    const [newMcpCwd, setNewMcpCwd] = useState('');
     const [isAddingMcp, setIsAddingMcp] = useState(false);
 
     useEffect(() => {
@@ -1277,6 +1280,13 @@ const AgentSettingsView: React.FC = () => {
             </section>
 
             <section>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
+                    Brain / Memory
+                </div>
+                <MemoryPanel />
+            </section>
+
+            <section>
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     MCP Servers
                     <button
@@ -1317,6 +1327,19 @@ const AgentSettingsView: React.FC = () => {
                                     onChange={e => setNewMcpArgs(e.target.value)}
                                     style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }}
                                 />
+                                <textarea
+                                    placeholder={'Env (one KEY=VALUE per line, optional)\nGITHUB_TOKEN=ghp_...\nNODE_ENV=production'}
+                                    value={newMcpEnv}
+                                    onChange={e => setNewMcpEnv(e.target.value)}
+                                    rows={3}
+                                    style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 8px', fontSize: '11px', borderRadius: '4px', fontFamily: 'var(--font-mono)', resize: 'vertical' }}
+                                />
+                                <input
+                                    placeholder="cwd (optional working directory)"
+                                    value={newMcpCwd}
+                                    onChange={e => setNewMcpCwd(e.target.value)}
+                                    style={{ background: 'rgba(0,0,0,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 8px', fontSize: '11px', borderRadius: '4px' }}
+                                />
                             </>
                         ) : (
                             <input
@@ -1330,13 +1353,32 @@ const AgentSettingsView: React.FC = () => {
                             onClick={async () => {
                                 let config: any = {};
                                 if (newMcpType === 'command') {
-                                    config = { command: newMcpCommand, args: newMcpArgs.split(',').map(a => a.trim()).filter(Boolean) };
+                                    // Parse env block into a plain string-keyed object so it
+                                    // matches the Rust `McpServerConfig::Stdio.env` shape.
+                                    const env: Record<string, string> = {};
+                                    for (const raw of newMcpEnv.split('\n')) {
+                                        const line = raw.trim();
+                                        if (!line || line.startsWith('#')) continue;
+                                        const eq = line.indexOf('=');
+                                        if (eq <= 0) continue;
+                                        env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+                                    }
+                                    config = {
+                                        command: newMcpCommand,
+                                        args: newMcpArgs.split(',').map(a => a.trim()).filter(Boolean),
+                                        env,
+                                    };
+                                    if (newMcpCwd.trim()) config.cwd = newMcpCwd.trim();
                                 } else {
-                                    config = { url: newMcpUrl };
+                                    // Rust enum expects `type: "http"` + `serverUrl`. The previous
+                                    // shape `{ url }` failed serde deserialization silently and
+                                    // every HTTP/SSE MCP add was a no-op.
+                                    config = { type: 'http', serverUrl: newMcpUrl };
                                 }
                                 await addMcpServer(newMcpName, config);
                                 setIsAddingMcp(false);
                                 setNewMcpName(''); setNewMcpCommand(''); setNewMcpArgs(''); setNewMcpUrl('');
+                                setNewMcpEnv(''); setNewMcpCwd('');
                             }}
                             style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '6px', fontSize: '11px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
                         >
@@ -1349,23 +1391,47 @@ const AgentSettingsView: React.FC = () => {
                     {mcpServers.length === 0 && !isAddingMcp && (
                         <div style={{ fontSize: '11px', opacity: 0.4, fontStyle: 'italic', textAlign: 'center', padding: '10px' }}>No MCP servers configured.</div>
                     )}
-                    {mcpServers.map(server => (
-                        <div key={server.name} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '2px' }}>
-                            <i className="codicon codicon-server" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', color: '#89d185', opacity: 0.8 }}></i>
-                            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-                                <span style={{ fontSize: '12px', fontWeight: 600 }}>{server.name}</span>
-                                <span style={{ fontSize: '10px', opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {server.config.command ? `${server.config.command} ${server.config.args.join(' ')}` : server.config.url}
-                                </span>
+                    {mcpServers.map(server => {
+                        const cfg = (server as any).config || {};
+                        const isHttp = !!cfg.serverUrl || cfg.type === 'http';
+                        const argsList: string[] = Array.isArray(cfg.args) ? cfg.args : [];
+                        const subtitle = isHttp
+                            ? cfg.serverUrl
+                            : `${cfg.command || ''} ${argsList.join(' ')}`.trim();
+                        const envCount = cfg.env ? Object.keys(cfg.env).length : 0;
+                        return (
+                            <div key={server.name} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '2px' }}>
+                                <i className="codicon codicon-server" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', color: '#89d185', opacity: 0.8 }}></i>
+                                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                                    <span style={{ fontSize: '12px', fontWeight: 600 }}>
+                                        {server.name}
+                                        <span style={{ marginLeft: 6, padding: '0 4px', fontSize: 9, opacity: 0.55, border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2 }}>
+                                            {isHttp ? 'http' : 'stdio'}
+                                        </span>
+                                        {envCount > 0 && (
+                                            <span style={{ marginLeft: 4, padding: '0 4px', fontSize: 9, opacity: 0.55, border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2 }} title="environment variables set">
+                                                env:{envCount}
+                                            </span>
+                                        )}
+                                        {cfg.cwd && (
+                                            <span style={{ marginLeft: 4, padding: '0 4px', fontSize: 9, opacity: 0.55, border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2 }} title={cfg.cwd}>
+                                                cwd
+                                            </span>
+                                        )}
+                                    </span>
+                                    <span style={{ fontSize: '10px', opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {subtitle}
+                                    </span>
+                                </div>
+                                <i
+                                    className="codicon codicon-trash"
+                                    onClick={() => removeMcpServer(server.name)}
+                                    style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', opacity: 0.4, cursor: 'pointer' }}
+                                    title="Remove Server"
+                                ></i>
                             </div>
-                            <i
-                                className="codicon codicon-trash"
-                                onClick={() => removeMcpServer(server.name)}
-                                style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', opacity: 0.4, cursor: 'pointer' }}
-                                title="Remove Server"
-                            ></i>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </section>
 

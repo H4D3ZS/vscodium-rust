@@ -11,6 +11,107 @@ import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
 import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';  
 import AiriConversation from './AiriConversation';
+
+// ── Restore-checkpoint banner ────────────────────────────────────────────
+// Shows above the chat input whenever an agent turn just auto-snapshotted
+// the workspace, giving the user a one-click "undo the AI's edits" path.
+const RestoreCheckpointBanner: React.FC = () => {
+    const checkpoint = useStore(state => state.lastAgentCheckpoint);
+    const rollback = useStore(state => state.rollbackLastAgentCheckpoint);
+    const dismiss = useStore(state => state.setLastAgentCheckpoint);
+    const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState<string | null>(null);
+    if (!checkpoint) return null;
+    const age = Math.max(1, Math.round((Date.now() - checkpoint.timestamp) / 1000));
+    return (
+        <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 10px', marginBottom: 6,
+            background: 'rgba(168,85,247,0.08)',
+            border: '1px solid rgba(168,85,247,0.25)',
+            borderRadius: 8, fontSize: 11,
+        }}>
+            <i className="codicon codicon-discard" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#c084fc', fontSize: 13 }} />
+            <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)' }}>
+                {msg ?? <>Checkpoint <code style={{ opacity: 0.7 }}>{checkpoint.description}</code> · {age}s ago</>}
+            </span>
+            <button
+                disabled={busy}
+                onClick={async () => {
+                    setBusy(true);
+                    const r = await rollback();
+                    setBusy(false);
+                    setMsg(r.ok ? 'Restored.' : r.message);
+                    if (r.ok) setTimeout(() => setMsg(null), 1800);
+                }}
+                style={{ background: '#c084fc', color: '#000', border: 'none', padding: '2px 8px', fontSize: 10, fontWeight: 600, borderRadius: 4, cursor: busy ? 'wait' : 'pointer' }}
+            >
+                {busy ? '…' : '↶ Restore'}
+            </button>
+            <i
+                className="codicon codicon-close"
+                onClick={() => dismiss(null)}
+                style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', opacity: 0.5, fontSize: 11 }}
+                title="Dismiss"
+            />
+        </div>
+    );
+};
+
+// ── Background agents tray ───────────────────────────────────────────────
+// Compact strip listing any agent runs the user fired with `/bg <prompt>`
+// or via `runBackgroundAgent`. Doesn't block the main chat.
+const BackgroundAgentsTray: React.FC = () => {
+    const bgAgents = useStore(state => state.backgroundAgents);
+    const remove = useStore(state => state.removeBackgroundAgent);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+    if (!bgAgents || bgAgents.length === 0) return null;
+    return (
+        <div style={{
+            marginBottom: 6, padding: 6,
+            background: 'rgba(96,165,250,0.06)',
+            border: '1px solid rgba(96,165,250,0.2)',
+            borderRadius: 8, fontSize: 11,
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, opacity: 0.7 }}>
+                <i className="codicon codicon-cloud" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 12 }} />
+                <span style={{ fontWeight: 600 }}>Background agents</span>
+                <span style={{ opacity: 0.5 }}>({bgAgents.length})</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {bgAgents.map(bg => {
+                    const open = expandedId === bg.id;
+                    const color = bg.status === 'done' ? '#22c55e' : bg.status === 'error' ? '#f87171' : '#60a5fa';
+                    return (
+                        <div key={bg.id} style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 6px', background: 'rgba(0,0,0,0.2)', borderRadius: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={bg.prompt}>{bg.prompt}</span>
+                                <span style={{ opacity: 0.5, fontSize: 9 }}>{bg.status}</span>
+                                <i
+                                    className={`codicon codicon-${open ? 'chevron-up' : 'chevron-down'}`}
+                                    onClick={() => setExpandedId(open ? null : bg.id)}
+                                    style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', fontSize: 11, opacity: 0.6 }}
+                                />
+                                <i
+                                    className="codicon codicon-close"
+                                    onClick={() => remove(bg.id)}
+                                    style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', fontSize: 11, opacity: 0.6 }}
+                                />
+                            </div>
+                            {open && bg.result && (
+                                <pre style={{ margin: 0, marginTop: 2, fontSize: 10, opacity: 0.85, maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+                                    {bg.result.slice(0, 4000)}
+                                </pre>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 import OllamaProgressBar from './OllamaProgressBar';
 import EmulatorPanel from './EmulatorPanel';
 
@@ -1858,6 +1959,8 @@ const RightSidebar: React.FC = () => {
                                 ))}
                             </div>
                         )}
+                        <RestoreCheckpointBanner />
+                        <BackgroundAgentsTray />
                         <div style={{
                             background: 'var(--vscode-input-background)', border: '1px solid var(--vscode-input-border, transparent)',
                             borderRadius: '12px', padding: '8px 12px', display: 'flex', flexDirection: 'column'

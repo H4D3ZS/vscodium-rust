@@ -195,6 +195,10 @@ interface AppState {
     ollamaStatus: 'idle' | 'checking' | 'running' | 'error';
     llamaCppStatus: 'idle' | 'checking' | 'running' | 'error';
     agentMessages: any[];
+    /** Last auto-checkpoint created at the start of an agent turn (Cursor-style restore). */
+    lastAgentCheckpoint: { id: string; description: string; timestamp: number } | null;
+    /** Independent background-agent runs that don't claim the main chat. */
+    backgroundAgents: { id: string; prompt: string; status: 'pending' | 'running' | 'done' | 'error'; result: string; startedAt: number; finishedAt?: number }[];
     isAgentThinking: boolean;
     isAgentPaused: boolean;
     isYoloMode: boolean;
@@ -396,6 +400,11 @@ interface AppState {
     addMcpServer: (name: string, config: any) => Promise<void>;
     removeMcpServer: (name: string) => Promise<void>;
     listMcpServers: () => Promise<void>;
+    setLastAgentCheckpoint: (cp: { id: string; description: string; timestamp: number } | null) => void;
+    rollbackLastAgentCheckpoint: () => Promise<{ ok: boolean; message: string }>;
+    runBackgroundAgent: (prompt: string) => Promise<string>;
+    removeBackgroundAgent: (id: string) => void;
+    clearBackgroundAgents: () => void;
     refreshProcessStats: () => Promise<void>;
     compressSessionData: (key: string, data: string) => Promise<void>;
     refreshMemorySavings: () => Promise<void>;
@@ -567,6 +576,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     ollamaStatus: 'idle',
     llamaCppStatus: 'idle',
     agentMessages: [],
+    lastAgentCheckpoint: null,
+    backgroundAgents: [],
     isAgentThinking: false,
     isAgentPaused: false,
     isYoloMode: false,
@@ -1307,6 +1318,82 @@ const storeImplementation: any = (set: any, get: any) => ({
             console.error('List MCP Servers Error:', e);
         }
     },
+
+    // ── Per-turn restore points ─────────────────────────────────────────
+    setLastAgentCheckpoint: (cp) => set({ lastAgentCheckpoint: cp }),
+    rollbackLastAgentCheckpoint: async () => {
+        const cp = get().lastAgentCheckpoint;
+        if (!cp) return { ok: false, message: 'No checkpoint available to roll back.' };
+        try {
+            const message = await invoke<string>('git_rollback_checkpoint', { checkpointId: cp.id });
+            set({ lastAgentCheckpoint: null });
+            return { ok: true, message };
+        } catch (e: any) {
+            return { ok: false, message: String(e?.message ?? e) };
+        }
+    },
+
+    // ── Background agents ───────────────────────────────────────────────
+    runBackgroundAgent: async (prompt: string) => {
+        const id = `bg-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        set(state => ({
+            backgroundAgents: [
+                ...state.backgroundAgents,
+                { id, prompt, status: 'running', result: '', startedAt: Date.now() },
+            ],
+        }));
+        try {
+            // Background runs use the same backend chat path but in a separate
+            // tauri command (`ai_chat_oneshot`) that does NOT mutate the
+            // foreground `agentMessages` / `isAgentThinking` state. We fall
+            // back to a direct `ai_chat` invocation if `ai_chat_oneshot` is
+            // not registered yet (kept as a soft dependency so this commit
+            // doesn't require a Rust side change).
+            const state = get();
+            const provider = state.agentModel.includes('|')
+                ? state.agentModel.split('|')[0]
+                : 'ollama';
+            const model = state.agentModel.includes('|')
+                ? state.agentModel.split('|')[1]
+                : state.agentModel;
+            // Background runs go straight through the existing `ai_chat`
+            // Tauri command. The foreground chat state (`agentMessages`,
+            // `isAgentThinking`) is mutated by `sendAgentMessage` only, so
+            // calling `ai_chat` directly here leaves it untouched — which
+            // is exactly the "runs in the background" semantic we want.
+            const resultText = await invoke<string>('ai_chat', {
+                request: {
+                    provider,
+                    model,
+                    messages: [{ role: 'user', content: prompt }],
+                    autonomous: false,
+                    mode: 'Agent',
+                },
+            });
+            set(s => ({
+                backgroundAgents: s.backgroundAgents.map(b =>
+                    b.id === id
+                        ? { ...b, status: 'done', result: resultText, finishedAt: Date.now() }
+                        : b,
+                ),
+            }));
+            return id;
+        } catch (e: any) {
+            set(s => ({
+                backgroundAgents: s.backgroundAgents.map(b =>
+                    b.id === id
+                        ? { ...b, status: 'error', result: String(e?.message ?? e), finishedAt: Date.now() }
+                        : b,
+                ),
+            }));
+            return id;
+        }
+    },
+    removeBackgroundAgent: (id: string) => set(s => ({
+        backgroundAgents: s.backgroundAgents.filter(b => b.id !== id),
+    })),
+    clearBackgroundAgents: () => set({ backgroundAgents: [] }),
+
     refreshProcessStats: async () => {
         try {
             const stats = await invoke<any>('get_process_stats');

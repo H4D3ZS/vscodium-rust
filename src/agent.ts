@@ -936,6 +936,26 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
         if (handled) return;
     }
 
+    // --- Auto-checkpoint before any agent turn that could touch the workspace ---
+    // Cursor-style restore points: every time the user kicks off a new turn we
+    // try to snapshot the working tree so the chat can offer a one-click
+    // "↶ Restore" if the next set of edits goes wrong. `git_auto_checkpoint`
+    // returns `created:false` when there's nothing to snapshot, which is fine.
+    try {
+        const mode = store.getState().agentMode;
+        if (mode !== 'Chat') {
+            const description = userPrompt.replace(/\s+/g, ' ').slice(0, 60) || 'agent-turn';
+            const result: any = await invoke('git_auto_checkpoint', { description }).catch(() => null);
+            if (result && result.created && result.checkpoint && result.checkpoint.id) {
+                store.getState().setLastAgentCheckpoint?.({
+                    id: result.checkpoint.id,
+                    description,
+                    timestamp: Date.now(),
+                });
+            }
+        }
+    } catch (_) { /* checkpointing is best-effort; never block the turn */ }
+
     // --- Auto-escalate Chat → Agent when the user wants action ---
     // Chat mode forbids tool calls. If the user is in Chat mode but their prompt
     // clearly asks for code/files/commands, we either silently upgrade (YOLO on)
@@ -1502,6 +1522,18 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             return true;
         }
 
+        case '/bg':
+        case '/background': {
+            const taskPrompt = args.trim();
+            if (!taskPrompt) {
+                addAgentMessage('assistant', '**Usage**: `/bg <prompt>` — fires a parallel agent run that doesn\'t block this chat. Results appear in the **Background Agents** tray above the input.');
+                return true;
+            }
+            const id = await store.getState().runBackgroundAgent(taskPrompt);
+            addAgentMessage('assistant', `🛰 Background agent **${id}** launched. Watch the tray above the input for status; it won't block your chat.`);
+            return true;
+        }
+
         case '/init': {
             if (!activeRoot) {
                 addAgentMessage('assistant', '❌ No project root open — `/init` needs an open workspace.');
@@ -1556,6 +1588,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 - \`/clear\` — Wipe current chat history
 - \`/settings\` — Open AI configuration panel
 - \`/workflows\` — List workflows in \`.agent/workflows/\`
+- \`/bg <prompt>\` — Run an agent task in the background (non-blocking)
 - \`/help\` — Show this list
 
 **Vibe-Coding (spec-kit)**
