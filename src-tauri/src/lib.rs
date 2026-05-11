@@ -142,6 +142,8 @@ pub fn run() {
 
             ai_auth::save_ai_session,
             ai_auth::capture_ai_session,
+            ai_auth::capture_ai_session_now,
+            ai_auth::provider_login_capabilities,
 
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
@@ -405,6 +407,12 @@ pub fn run() {
             kortex_commands::save_kortex_memory,
             kortex_commands::load_kortex_memory,
             kortex_commands::load_kortex_metadata,
+            kortex_commands::aim_load_telemetry,
+            kortex_commands::aim_append_telemetry,
+            kortex_commands::aim_telemetry_snapshot,
+            kortex_commands::aim_flush_telemetry,
+            kortex_commands::aim_clear_telemetry_samples,
+            kortex_commands::aim_set_bound_model,
 
             // ═══ Kortex GAC: geometry-aware inference scheduling ═══
             kortex_gac::kortex_gac_profile,

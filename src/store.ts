@@ -1089,6 +1089,7 @@ const storeImplementation: any = (set: any, get: any) => ({
 
     // ─── Kortex telemetry ────────────────────────────────────────────────
     recordKortexCompletion: (sample) => {
+        const ts_unix_ms = Date.now();
         // Tracker lives module-side so it's shared across the renderer.
         // Lazy import keeps the cold-start of the store snappy.
         import('./kortex/throughput')
@@ -1103,7 +1104,7 @@ const storeImplementation: any = (set: any, get: any) => ({
                         cache_hit: sample.cache_hit,
                         tokens_skipped: sample.tokens_skipped,
                         model_id: sample.model_id,
-                        ts_unix_ms: Date.now(),
+                        ts_unix_ms,
                     });
                     const sum = mod.summarizeThroughput();
                     set({
@@ -1121,7 +1122,7 @@ const storeImplementation: any = (set: any, get: any) => ({
                             last_backend: sum.last?.backend ?? '',
                             last_cache_hit: sum.last?.cache_hit ?? false,
                             last_model_id: sum.last?.model_id ?? '',
-                            last_ts_unix_ms: sum.last?.ts_unix_ms ?? Date.now(),
+                            last_ts_unix_ms: sum.last?.ts_unix_ms ?? ts_unix_ms,
                         },
                     });
                 } catch {
@@ -1131,6 +1132,29 @@ const storeImplementation: any = (set: any, get: any) => ({
             .catch(() => {
                 // Module load failed (e.g. in a non-bundled test env). Drop sample.
             });
+
+        // Persist to the .aim neural VFS so the durable side of Kortex
+        // (telemetry.aim) reflects every inference round. Fire-and-forget;
+        // the Rust side flushes to disk every 16 samples so this is cheap.
+        import('./tauri_bridge')
+            .then(({ invoke }) => {
+                invoke('aim_append_telemetry', {
+                    sample: {
+                        wall_clock_ms: Math.max(1, Math.floor(sample.wall_clock_ms)),
+                        prefill_ms: sample.prefill_ms ? Math.max(1, Math.floor(sample.prefill_ms)) : null,
+                        output_tokens: Math.max(0, Math.floor(sample.output_tokens)),
+                        input_tokens: Math.max(0, Math.floor(sample.input_tokens)),
+                        backend: sample.backend,
+                        cache_hit: sample.cache_hit,
+                        tokens_skipped: Math.max(0, Math.floor(sample.tokens_skipped)),
+                        model_id: sample.model_id || null,
+                        ts_unix_ms,
+                    },
+                }).catch(() => {
+                    // VFS unavailable (e.g. non-Tauri context, or Rust panic). Drop sample.
+                });
+            })
+            .catch(() => {});
     },
     // Right sidebar panel toggles
     toggleAiriPanel: () => set((state) => ({

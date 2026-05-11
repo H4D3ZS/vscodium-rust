@@ -763,13 +763,17 @@ const AgentSettingsView: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {([
-                        { key: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-...' },
-                        { key: 'google', label: 'Google (Gemini)', placeholder: 'AIza...' },
-                        { key: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
-                        { key: 'groq', label: 'Groq', placeholder: 'gsk_...' },
-                        { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
-                        // Removed: elevenlabs - now only in VOICE & TTS section below
-                    ] as { key: string; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
+                        // `loginKey` is the lookup key the Rust side knows
+                        // ("claude" / "gemini" / "openai" / ...). The `key`
+                        // is the storage slot in ApiKeys. They diverge for
+                        // anthropic→claude and google→gemini because the
+                        // login flow targets the user-facing brand pages.
+                        { key: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-...', loginKey: 'claude' },
+                        { key: 'google', label: 'Google (Gemini)', placeholder: 'AIza...', loginKey: 'gemini' },
+                        { key: 'openai', label: 'OpenAI', placeholder: 'sk-...', loginKey: 'openai' },
+                        { key: 'groq', label: 'Groq', placeholder: 'gsk_...', loginKey: 'groq' },
+                        { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...', loginKey: 'openrouter' },
+                    ] as { key: string; label: string; placeholder: string; loginKey: string }[]).map(({ key, label, placeholder, loginKey }) => (
                         <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <label style={{ fontSize: '11px', opacity: 0.8 }}>{label}</label>
@@ -796,6 +800,22 @@ const AgentSettingsView: React.FC = () => {
                                         padding: '4px 8px', fontSize: '11px', borderRadius: '2px', fontFamily: 'monospace'
                                     }}
                                 />
+                                <button
+                                    onClick={() => {
+                                        // Tauri's `open_ai_login` default mode points the user's *default
+                                        // browser* at the provider's API key console (e.g.
+                                        // console.anthropic.com/settings/keys). The user copies the key
+                                        // and pastes it into the input field above; the existing Save
+                                        // & Validate button persists it via save_api_keys.
+                                        invoke('open_ai_login', { provider: loginKey })
+                                            .catch((err: any) => console.error(`open_ai_login(${loginKey}) failed:`, err));
+                                    }}
+                                    style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '4px 8px', fontSize: '11px', cursor: 'pointer', borderRadius: '2px', whiteSpace: 'nowrap', fontWeight: 600 }}
+                                    title={`Open ${label} API key page in your browser`}
+                                >
+                                    <i className="codicon codicon-link-external" style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: 4 }}></i>
+                                    Connect
+                                </button>
                                 <button
                                     onClick={() => setShowKeys(prev => ({ ...prev, [key]: !prev[key] }))}
                                     style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '4px 6px', fontSize: '11px', cursor: 'pointer', borderRadius: '2px' }}

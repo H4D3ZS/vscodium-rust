@@ -86,6 +86,23 @@ pub async fn kortex_kvcache_start(mut opts: KvCacheOptions) -> Result<u16, Strin
     if let Err(e) = proxy::serve(state.clone()).await {
         return Err(e.to_string());
     }
+    // Mirror the bound model into the .aim neural VFS so the durable side
+    // of Kortex knows which model the cache is currently locked to. This is
+    // what `aim_telemetry_snapshot` surfaces in the Kortex panel.
+    let _ = crate::kortex_commands::aim_set_bound_model(
+        state.opts.model.model_id.clone(),
+        if state.opts.model.quant_signature.is_empty() {
+            None
+        } else {
+            Some(state.opts.model.quant_signature.clone())
+        },
+        if state.opts.model.tokenizer_hash.is_empty() {
+            None
+        } else {
+            Some(state.opts.model.tokenizer_hash.clone())
+        },
+    )
+    .await;
     set_proxy(Some(state));
     Ok(port)
 }
@@ -103,6 +120,9 @@ pub async fn kortex_kvcache_stop() -> Result<(), String> {
         proxy::shutdown(&state).await;
         set_proxy(None);
     }
+    // Flush any unsaved telemetry samples to the .aim neural VFS so we don't
+    // lose the last few completions when the stack tears down cleanly.
+    let _ = crate::kortex_commands::aim_flush_telemetry().await;
     Ok(())
 }
 

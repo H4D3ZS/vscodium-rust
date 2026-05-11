@@ -509,9 +509,36 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
         }
         if (val.startsWith("action|login|")) {
             const provider = val.split("|")[2];
-            invoke("open_ai_login", { provider }).catch(err => {
-                console.error("Failed to open login window:", err);
-            });
+            // The Tauri command's default mode opens the provider's API key
+            // console in the user's *default browser* (more reliable than an
+            // embedded WebView for modern OAuth/CAPTCHA flows). Once the URL
+            // resolves we drop a hint into the chat so the user knows to come
+            // back and paste their key in Settings → Cloud API Keys.
+            invoke<string>("open_ai_login", { provider })
+                .then((urlOpened) => {
+                    const store = (window as any).useStore;
+                    if (store && urlOpened) {
+                        const human = provider === 'claude' ? 'Claude (Anthropic)'
+                            : provider === 'gemini' ? 'Gemini (Google AI Studio)'
+                            : provider;
+                        store.getState().addAgentMessage?.({
+                            role: 'system',
+                            content: `Opened ${human} API key page in your browser:\n${urlOpened}\n\nCopy a key and paste it into **Settings → Cloud API Keys → ${provider === 'claude' ? 'Anthropic (Claude)' : provider === 'gemini' ? 'Google (Gemini)' : provider}** to finish.`,
+                        });
+                    }
+                })
+                .catch(err => {
+                    console.error("Failed to open login window:", err);
+                    const store = (window as any).useStore;
+                    store?.getState().addAgentMessage?.({
+                        role: 'system',
+                        content: `Couldn't open the ${provider} API key page automatically. Try opening it manually:\n` +
+                            (provider === 'claude' ? 'https://console.anthropic.com/settings/keys' :
+                             provider === 'gemini' ? 'https://aistudio.google.com/app/apikey' :
+                             '(unknown provider URL)') +
+                            `\n\nError: ${err}`,
+                    });
+                });
             return;
         }
         if (val === "action|settings") {

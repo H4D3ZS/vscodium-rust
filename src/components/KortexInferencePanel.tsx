@@ -31,6 +31,14 @@ import {
     getKvCacheStatus,
     type RunningCacheInfo,
 } from '../kortex/kvcache-orchestrator';
+import {
+    loadAimTelemetry,
+    getAimTelemetrySnapshot,
+    flushAimTelemetry,
+    clearAimTelemetrySamples,
+    summarizeAimTelemetry,
+    type AimTelemetrySnapshot,
+} from '../kortex/aim-vfs';
 
 // ─── presentational helpers ────────────────────────────────────────────────
 
@@ -164,6 +172,7 @@ const KortexInferencePanel: React.FC = () => {
     const [gacRunning, setGacRunning] = useState<boolean>(false);
     const [kvRunning, setKvRunning] = useState<boolean>(false);
     const [cacheStatus, setCacheStatus] = useState<RunningCacheInfo | null>(null);
+    const [aim, setAim] = useState<AimTelemetrySnapshot | null>(null);
 
     // Resolve the default profile path whenever the model changes.
     useEffect(() => {
@@ -191,6 +200,37 @@ const KortexInferencePanel: React.FC = () => {
             .catch(() => { if (!cancelled) setCacheStatus(null); });
         return () => { cancelled = true; };
     }, [kvRunning]);
+
+    // Load the .aim neural VFS once on mount, then poll snapshot every 4 s so
+    // the lifetime tallies stay roughly fresh as new completions roll in.
+    useEffect(() => {
+        let cancelled = false;
+        loadAimTelemetry()
+            .then((snap) => { if (!cancelled) setAim(snap); })
+            .catch(() => { if (!cancelled) setAim(null); });
+        const id = setInterval(() => {
+            getAimTelemetrySnapshot()
+                .then((snap) => { if (!cancelled) setAim(snap); })
+                .catch(() => { /* keep last value */ });
+        }, 4000);
+        return () => { cancelled = true; clearInterval(id); };
+    }, []);
+
+    const onAimFlush = async () => {
+        await wrap('Flushing telemetry.aim', async () => {
+            await flushAimTelemetry();
+            const snap = await getAimTelemetrySnapshot();
+            setAim(snap);
+        });
+    };
+
+    const onAimClearSamples = async () => {
+        await wrap('Clearing telemetry samples', async () => {
+            await clearAimTelemetrySamples();
+            const snap = await getAimTelemetrySnapshot();
+            setAim(snap);
+        });
+    };
 
     // Refresh CCET efficiency on every prop change to keep the UI fresh.
     useEffect(() => { refreshCcetEfficiency(); }, [refreshCcetEfficiency]);
@@ -325,6 +365,127 @@ const KortexInferencePanel: React.FC = () => {
                     </span>
                 )}
             </div>
+
+            {/* ── Backend feature matrix ───────────────────────────────── */}
+            {(() => {
+                // Render-time only, no state — derives what's active right
+                // now from the current Zustand store. This is the honest
+                // "what gains am I actually getting?" panel.
+                const s = useStore.getState();
+                const agentModel: string = s.agentModel || '';
+                const lower = agentModel.toLowerCase();
+                let activeBackend: 'ollama' | 'llama.cpp' | 'anthropic' | 'google' | 'openai' | 'unknown';
+                if (lower.includes('claude') || lower.includes('anthropic')) activeBackend = 'anthropic';
+                else if (lower.includes('gemini') || lower.includes('google')) activeBackend = 'google';
+                else if (lower.startsWith('gpt') || lower.includes('openai')) activeBackend = 'openai';
+                else if (lower.includes('llama.cpp') || s.llamaCppStatus === 'running') activeBackend = 'llama.cpp';
+                else if (lower.includes('ollama') || agentModel.includes(':')) activeBackend = 'ollama';
+                else activeBackend = 'unknown';
+
+                type Row = { label: string; cells: ('on' | 'off' | 'n/a')[] };
+                const ON: 'on' = 'on';
+                const OFF: 'off' = 'off';
+                const NA: 'n/a' = 'n/a';
+                // Columns: Ollama | llama.cpp+KDKVC | Cloud
+                const rows: Row[] = [
+                    { label: 'CCET token routing', cells: [s.ccetEnabled ? ON : OFF, s.ccetEnabled ? ON : OFF, s.ccetEnabled ? ON : OFF] },
+                    { label: 'tok/s telemetry', cells: [ON, ON, OFF] },
+                    { label: '.aim neural VFS gist injection', cells: [ON, ON, NA] },
+                    { label: '.aim durable telemetry', cells: [ON, ON, OFF] },
+                    { label: 'KDKVC disk KV cache', cells: [NA, kvRunning ? ON : OFF, NA] },
+                    { label: 'GAC geometry-aware tier placement', cells: [NA, gacRunning ? ON : OFF, NA] },
+                ];
+                const colIndex = activeBackend === 'ollama' ? 0
+                    : activeBackend === 'llama.cpp' ? 1
+                        : (activeBackend === 'anthropic' || activeBackend === 'google' || activeBackend === 'openai') ? 2
+                            : -1;
+                const cellColor = (v: 'on' | 'off' | 'n/a') =>
+                    v === 'on' ? '#4ade80' : v === 'off' ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.25)';
+                const cellLabel = (v: 'on' | 'off' | 'n/a') => v === 'on' ? '●' : v === 'off' ? '○' : '–';
+
+                return (
+                    <div style={{
+                        marginTop: 12,
+                        padding: 12,
+                        borderRadius: 6,
+                        background: 'rgba(96, 165, 250, 0.04)',
+                        border: '1px solid rgba(96, 165, 250, 0.18)',
+                    }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, marginBottom: 8 }}>
+                            Backend Feature Matrix
+                            <span style={{
+                                marginLeft: 8, fontSize: 10, fontWeight: 600,
+                                padding: '2px 6px', borderRadius: 4,
+                                background: 'rgba(96, 165, 250, 0.18)', color: '#60a5fa',
+                                textTransform: 'uppercase', letterSpacing: 0.5,
+                            }}>
+                                active: {activeBackend}
+                            </span>
+                        </div>
+                        <div style={{ fontSize: 10, opacity: 0.7, marginBottom: 6 }}>
+                            Which Kortex features apply to which inference path. "●" = active for that backend
+                            given current settings; "○" = available but disabled; "–" = N/A.
+                            The currently-active column is highlighted.
+                        </div>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1.6fr 1fr 1fr 1fr',
+                            gap: 4,
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                        }}>
+                            <div style={{ opacity: 0.6, fontWeight: 700 }}>feature</div>
+                            <div style={{
+                                textAlign: 'center', fontWeight: 700, opacity: colIndex === 0 ? 1 : 0.5,
+                                color: colIndex === 0 ? '#60a5fa' : undefined,
+                            }}>Ollama</div>
+                            <div style={{
+                                textAlign: 'center', fontWeight: 700, opacity: colIndex === 1 ? 1 : 0.5,
+                                color: colIndex === 1 ? '#60a5fa' : undefined,
+                            }}>llama.cpp+KDKVC</div>
+                            <div style={{
+                                textAlign: 'center', fontWeight: 700, opacity: colIndex === 2 ? 1 : 0.5,
+                                color: colIndex === 2 ? '#60a5fa' : undefined,
+                            }}>Cloud (Claude/Gemini/OpenAI)</div>
+                            {rows.map((r) => (
+                                <React.Fragment key={r.label}>
+                                    <div style={{ opacity: 0.85 }}>{r.label}</div>
+                                    {r.cells.map((c, i) => (
+                                        <div key={i} style={{
+                                            textAlign: 'center',
+                                            color: cellColor(c),
+                                            opacity: colIndex === i ? 1 : 0.55,
+                                            fontWeight: colIndex === i ? 700 : 400,
+                                        }}>
+                                            {cellLabel(c)}
+                                        </div>
+                                    ))}
+                                </React.Fragment>
+                            ))}
+                        </div>
+                        {activeBackend === 'ollama' && (
+                            <div style={{ fontSize: 10, opacity: 0.75, marginTop: 8, lineHeight: 1.5 }}>
+                                You're on Ollama. CCET, telemetry, and .aim gist injection work today.
+                                For KDKVC + GAC, launch the Kortex stack above and point your agent
+                                model at <code>llama.cpp</code> (e.g. pick a GGUF model in the GAC section).
+                                An Ollama-shaped shim in front of KDKVC is on the roadmap.
+                            </div>
+                        )}
+                        {activeBackend === 'llama.cpp' && (
+                            <div style={{ fontSize: 10, opacity: 0.75, marginTop: 8 }}>
+                                You're on the full Kortex stack: GAC tier placement + KDKVC disk
+                                cache + CCET routing + .aim VFS. Everything applies.
+                            </div>
+                        )}
+                        {(activeBackend === 'anthropic' || activeBackend === 'google' || activeBackend === 'openai') && (
+                            <div style={{ fontSize: 10, opacity: 0.75, marginTop: 8 }}>
+                                You're on a cloud provider. CCET routing still saves you money by
+                                trimming prompts before they go out, but KDKVC/GAC are local-only.
+                            </div>
+                        )}
+                    </div>
+                );
+            })()}
 
             {err && (
                 <div style={{
@@ -722,6 +883,71 @@ const KortexInferencePanel: React.FC = () => {
                         No requests yet. η will populate after the first chat round-trip.
                     </div>
                 )}
+            </div>
+
+            {/* ── Neural .aim VFS ───────────────────────────────────────── */}
+            <div style={sectionStyle}>
+                <div style={sectionTitleStyle}>
+                    Neural VFS (.aim) — durable telemetry + bound-model record
+                </div>
+
+                <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 8 }}>
+                    Every completion is appended to{' '}
+                    <code>~/.kortex/telemetry.aim</code>. Lifetime tallies survive
+                    the rolling window — even after old samples roll off, the
+                    "you've routed 1.4M tokens through Kortex" number keeps growing.
+                    The last KDKVC bound-model stamp is mirrored here so the IDE
+                    can recover the cache identity even when the proxy is down.
+                </div>
+
+                {aim ? (
+                    <>
+                        <div style={{
+                            padding: '8px 10px',
+                            borderRadius: 4,
+                            background: 'rgba(96, 165, 250, 0.06)',
+                            border: '1px solid rgba(96, 165, 250, 0.18)',
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            lineHeight: 1.6,
+                        }}>
+                            {summarizeAimTelemetry(aim)}
+                        </div>
+
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gap: 6,
+                            marginTop: 8,
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            opacity: 0.85,
+                        }}>
+                            <div>schema: {aim.schema}</div>
+                            <div>capacity: {aim.capacity}</div>
+                            <div>in-window: {aim.samples.length}</div>
+                            <div>lifetime out: {aim.lifetime_output_tokens.toLocaleString()}</div>
+                            <div>lifetime in: {aim.lifetime_input_tokens.toLocaleString()}</div>
+                            <div>lifetime skipped: {aim.lifetime_tokens_skipped.toLocaleString()}</div>
+                            <div>cache hits: {aim.lifetime_cache_hits.toLocaleString()}</div>
+                            <div>last quant: {aim.last_quant_signature ?? '—'}</div>
+                            <div>tok-hash: {aim.last_tokenizer_hash ? aim.last_tokenizer_hash.slice(0, 8) : '—'}</div>
+                        </div>
+                    </>
+                ) : (
+                    <div style={{ fontSize: 11, opacity: 0.6 }}>
+                        Loading neural VFS state…
+                    </div>
+                )}
+
+                <div style={{ marginTop: 8 }}>
+                    <button style={btnStyle('secondary')} onClick={onAimFlush} disabled={!!busy}>
+                        Flush to disk
+                    </button>
+                    <button style={btnStyle('danger')} onClick={onAimClearSamples} disabled={!!busy}>
+                        Clear samples (keep lifetime tallies)
+                    </button>
+                </div>
             </div>
         </div>
     );
