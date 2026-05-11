@@ -135,6 +135,19 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "fast_apply".to_string(),
+                description: "Apply a short Cursor-style edit sketch to a file. Provide ONLY the changed regions plus elision markers (`// ... existing code ...`, `# ... existing code ...`, `<!-- ... -->`, or just `... existing code ...` on its own line) for unchanged regions. The tool deterministically stitches the sketch back into the full file using line-anchor matching. Use this when you want to make targeted edits without re-emitting the whole file and the SEARCH/REPLACE format is too verbose.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path":   { "type": "string", "description": "Relative path to the file" },
+                        "edit":   { "type": "string", "description": "Short sketch with new code + elision markers for unchanged regions" },
+                        "dry_run": { "type": "boolean", "description": "If true, return merged result without writing", "default": false }
+                    },
+                    "required": ["path", "edit"]
+                }),
+            },
+            ToolDefinition {
                 name: "search_replace_edit".to_string(),
                 description: "Surgically edit a file using SEARCH/REPLACE blocks. Format:\n<<<< SEARCH\n<exact existing code>\n====\n<new code>\n>>>>".to_string(),
                 input_schema: serde_json::json!({
@@ -1302,6 +1315,7 @@ impl AiTools {
             // Surgical editing — THE coding tools
             | "str_replace"
             | "search_replace_edit"
+            | "fast_apply"
             | "patch_file_content"
             | "ai_propose_edit"
             | "preview_shadow_diff"
@@ -1635,6 +1649,7 @@ impl AiTools {
             "ai_propose_edit" => self.ai_propose_edit(arguments).await,
             "str_replace" => self.str_replace_file(arguments).await,
             "search_replace_edit" => self.search_replace_edit(arguments).await,
+            "fast_apply" => self.fast_apply(arguments).await,
             "patch_file_content" => self.patch_file_content(arguments).await,
             "preview_shadow_diff" => self.preview_shadow_diff(arguments).await,
             "apply_shadow_patch" => self.apply_shadow_patch(arguments).await,
@@ -3848,6 +3863,196 @@ impl AiTools {
         self.memory_store.update_vfs_cache(full_path, new_content).await;
 
         Ok(json!({ "status": "success" }))
+    }
+
+    /// True if `line` (after trimming) is an "elide unchanged code"
+    /// placeholder marker. Recognizes the common comment variants used by
+    /// Cursor and ChatGPT for partial-file edits.
+    fn is_elision_marker(line: &str) -> bool {
+        let t = line.trim();
+        if t.is_empty() { return false; }
+        // Normalize common comment wrappers so we can pattern-match on the body.
+        let inner = t
+            .trim_start_matches("//")
+            .trim_start_matches('#')
+            .trim_start_matches("--")
+            .trim_start_matches("<!--")
+            .trim_end_matches("-->")
+            .trim_start_matches("/*")
+            .trim_end_matches("*/")
+            .trim();
+        if inner.is_empty() { return false; }
+        // "..." or "... existing code ..." (case-insensitive, allow "rest of file")
+        let lower = inner.to_ascii_lowercase();
+        let stripped = lower.trim_matches('.');
+        stripped.is_empty()
+            || lower == "..."
+            || lower.starts_with("... existing")
+            || lower.starts_with("...existing")
+            || lower.starts_with("... rest")
+            || lower.starts_with("...rest")
+            || lower.starts_with("... unchanged")
+            || lower.starts_with("...unchanged")
+    }
+
+    /// Deterministically merge a Cursor-style edit sketch into a full
+    /// file. The sketch contains the changed regions verbatim and
+    /// `... existing code ...` markers everywhere else. We split the
+    /// sketch on those markers and stitch by anchor-matching the head of
+    /// each segment back into the original file.
+    fn merge_fast_apply(original: &str, sketch: &str) -> Result<String> {
+        let orig_lines: Vec<&str> = original.lines().collect();
+        let sketch_lines: Vec<&str> = sketch.lines().collect();
+
+        // Split sketch into [segment, segment, ...] separated by marker lines.
+        // Track whether each *gap* between segments came from a marker.
+        let mut segments: Vec<Vec<&str>> = vec![Vec::new()];
+        let mut markers: Vec<bool> = Vec::new(); // markers[i] separates segments[i] and segments[i+1]
+        for line in &sketch_lines {
+            if Self::is_elision_marker(line) {
+                segments.push(Vec::new());
+                markers.push(true);
+            } else {
+                segments.last_mut().unwrap().push(line);
+            }
+        }
+
+        if markers.is_empty() {
+            return Err(anyhow!(
+                "fast_apply: edit contained no elision markers. Use write_to_file for full rewrites or include `// ... existing code ...` lines to mark unchanged regions."
+            ));
+        }
+
+        // Try to anchor each non-empty segment into the original. We use
+        // the first non-blank line of each segment as the anchor.
+        fn first_nonblank<'a>(seg: &'a [&'a str]) -> Option<&'a str> {
+            seg.iter().find(|l| !l.trim().is_empty()).copied()
+        }
+        fn last_nonblank<'a>(seg: &'a [&'a str]) -> Option<&'a str> {
+            seg.iter().rev().find(|l| !l.trim().is_empty()).copied()
+        }
+        fn norm(s: &str) -> String { s.trim().to_string() }
+
+        let mut out: Vec<String> = Vec::new();
+        let mut cursor: usize = 0; // index into orig_lines
+
+        for (i, seg) in segments.iter().enumerate() {
+            let prev_was_marker = i > 0;
+            if prev_was_marker {
+                // The marker between seg_{i-1} and seg_i preserves the
+                // original content from `cursor` up to wherever seg_i's
+                // first non-blank line appears in the original.
+                if let Some(head) = first_nonblank(seg) {
+                    let needle = norm(head);
+                    if let Some(found) = orig_lines.iter().enumerate().skip(cursor).find_map(|(idx, l)| {
+                        if norm(l) == needle { Some(idx) } else { None }
+                    }) {
+                        for l in &orig_lines[cursor..found] {
+                            out.push((*l).to_string());
+                        }
+                        cursor = found;
+                    } else {
+                        // seg_i's head doesn't exist in the original at or
+                        // past cursor — assume it's brand new and just
+                        // append the remaining original tail before it.
+                        for l in &orig_lines[cursor..] {
+                            out.push((*l).to_string());
+                        }
+                        cursor = orig_lines.len();
+                    }
+                } else {
+                    // Trailing marker with no following content. Append
+                    // the remainder of the original verbatim.
+                    for l in &orig_lines[cursor..] {
+                        out.push((*l).to_string());
+                    }
+                    cursor = orig_lines.len();
+                    continue;
+                }
+            }
+
+            // Emit the segment literally.
+            for l in seg.iter() {
+                out.push((*l).to_string());
+            }
+
+            // Advance the original cursor past whatever portion of the
+            // original this segment overlaps so the next marker resumes
+            // from after the segment.
+            if let Some(tail) = last_nonblank(seg) {
+                let needle = norm(tail);
+                if let Some(found) = orig_lines.iter().enumerate().skip(cursor).find_map(|(idx, l)| {
+                    if norm(l) == needle { Some(idx) } else { None }
+                }) {
+                    cursor = found + 1;
+                }
+                // If not found, the segment is brand new and the cursor
+                // stays put — next marker (if any) will preserve the
+                // original from `cursor` forward.
+            }
+        }
+
+        let mut merged = out.join("\n");
+        // Preserve trailing newline from original when present.
+        if original.ends_with('\n') && !merged.ends_with('\n') {
+            merged.push('\n');
+        }
+        Ok(merged)
+    }
+
+    async fn fast_apply(&self, args: Value) -> Result<Value> {
+        let path_str = args.get("path").and_then(|v| v.as_str()).ok_or(anyhow!("Missing path"))?;
+        let edit = args.get("edit").and_then(|v| v.as_str()).ok_or(anyhow!("Missing edit"))?;
+        let dry_run = args.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+
+        if !full_path.exists() {
+            // No file yet → treat the sketch as the literal new content
+            // (markers in a new file have nothing to expand against).
+            if let Some(parent) = full_path.parent() { fs::create_dir_all(parent)?; }
+            if !dry_run { fs::write(&full_path, edit)?; }
+            return Ok(json!({
+                "status": "success",
+                "path": path_str,
+                "message": "Created new file from sketch (no merge needed).",
+                "merged_bytes": edit.len()
+            }));
+        }
+
+        let original = fs::read_to_string(&full_path)?;
+        let merged = Self::merge_fast_apply(&original, edit)?;
+
+        if dry_run {
+            return Ok(json!({
+                "status": "preview",
+                "path": path_str,
+                "merged": merged
+            }));
+        }
+
+        fs::write(&full_path, &merged)?;
+        self.memory_store.update_vfs_cache(full_path.clone(), merged.clone()).await;
+
+        let h_lock = self.app_handle.lock().await;
+        if let Some(h) = h_lock.as_ref() {
+            let _ = h.emit("file-changed", json!({ "path": full_path.to_string_lossy().to_string() }));
+            let _ = h.emit("ai-artifact", json!({
+                "type": "file",
+                "path": path_str,
+                "title": format!("fast_apply: {}", path_str),
+                "content": "Sketch merged and written."
+            }));
+        }
+
+        Ok(json!({
+            "status": "success",
+            "path": path_str,
+            "message": "Fast-apply merge written to disk.",
+            "merged_bytes": merged.len(),
+            "original_bytes": original.len()
+        }))
     }
 
     async fn search_replace_edit(&self, args: Value) -> Result<Value> {

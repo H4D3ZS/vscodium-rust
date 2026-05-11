@@ -952,6 +952,10 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
                     description,
                     timestamp: Date.now(),
                 });
+                // Stamp the checkpoint id onto the user message that triggered
+                // this turn so the chat can render an inline "Restore to here"
+                // button (Cursor-style per-turn restore points).
+                store.getState().setLastUserMessageCheckpoint?.(result.checkpoint.id, description);
             }
         }
     } catch (_) { /* checkpointing is best-effort; never block the turn */ }

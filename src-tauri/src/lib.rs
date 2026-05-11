@@ -156,6 +156,7 @@ pub fn run() {
 
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
+            ai_commands::ai_chat_oneshot,
             ai_commands::ai_debug_code,
             ai_commands::ai_document_code,
             ai_commands::ai_execute_command,
@@ -377,6 +378,7 @@ pub fn run() {
             mcp_commands::add_mcp_server,
             mcp_commands::remove_mcp_server,
             mcp_commands::list_mcp_servers,
+            mcp_commands::set_mcp_server_enabled,
 
             // ═══ System ═══
             system_commands::backend_ping,

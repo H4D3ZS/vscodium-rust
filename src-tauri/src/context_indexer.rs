@@ -11,25 +11,81 @@ use notify::{Watcher, RecursiveMode, RecommendedWatcher, Event, EventKind};
 use tokio::sync::mpsc;
 use rayon::prelude::*;
 use sha2::{Sha256, Digest};
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
+
+/// Compiled set of ignore rules read from `.cursorignore`,
+/// `.cursorindexignore`, and `.gitignore` at the workspace root. Cached
+/// in `ContextIndexer` so we don't recompile on every file event.
+#[derive(Clone)]
+struct IgnoreSet {
+    root: PathBuf,
+    matchers: Vec<Arc<Gitignore>>,
+}
+
+impl IgnoreSet {
+    fn load(root: &Path) -> Self {
+        let mut matchers = Vec::new();
+        // Cursor IDE's two native ignore files. `.cursorignore` hides files
+        // from both indexing and AI access; `.cursorindexignore` only hides
+        // them from indexing. For our index pipeline both behave the same.
+        for name in [".cursorignore", ".cursorindexignore", ".gitignore"] {
+            let p = root.join(name);
+            if !p.is_file() { continue; }
+            let mut b = GitignoreBuilder::new(root);
+            let _ = b.add(&p);
+            if let Ok(gi) = b.build() {
+                matchers.push(Arc::new(gi));
+            }
+        }
+        IgnoreSet { root: root.to_path_buf(), matchers }
+    }
+
+    fn is_ignored(&self, path: &Path) -> bool {
+        if self.matchers.is_empty() { return false; }
+        let is_dir = path.is_dir();
+        let rel_target = path.strip_prefix(&self.root).unwrap_or(path);
+        for gi in &self.matchers {
+            match gi.matched_path_or_any_parents(rel_target, is_dir) {
+                ignore::Match::Ignore(_) => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+}
 
 pub struct ContextIndexer {
     memory_store: Arc<MemoryStore>,
     root_path: PathBuf,
     hashes: Arc<RwLock<HashMap<PathBuf, String>>>,
+    ignore_set: Arc<RwLock<IgnoreSet>>,
 }
 
 impl ContextIndexer {
     pub fn new(memory_store: Arc<MemoryStore>, root_path: PathBuf) -> Self {
+        let ignore_set = IgnoreSet::load(&root_path);
         Self {
             memory_store,
             root_path,
             hashes: Arc::new(RwLock::new(HashMap::new())),
+            ignore_set: Arc::new(RwLock::new(ignore_set)),
+        }
+    }
+
+    /// Re-read `.cursorignore` / `.cursorindexignore` / `.gitignore`. Called
+    /// at the top of each index cycle so edits to the ignore files take
+    /// effect on the next pass.
+    fn refresh_ignores(&self) {
+        let fresh = IgnoreSet::load(&self.root_path);
+        if let Ok(mut w) = self.ignore_set.write() {
+            *w = fresh;
         }
     }
 
     pub async fn start_background_indexing(&self) {
         let ms = self.memory_store.clone();
         let root = self.root_path.clone();
+        let ignore_set = self.ignore_set.clone();
 
         // Start real-time incremental indexing
         let (tx, mut rx) = mpsc::channel(100);
@@ -51,8 +107,18 @@ impl ContextIndexer {
                     while let Some(event) = rx.recv().await {
                         match event.kind {
                             EventKind::Modify(_) | EventKind::Create(_) => {
+                                // If the user edited `.cursorignore`, refresh
+                                // the cached matcher so subsequent events
+                                // honor the new rules immediately.
+                                if event.paths.iter().any(|p| p.file_name().map(|n| n == ".cursorignore" || n == ".cursorindexignore" || n == ".gitignore").unwrap_or(false)) {
+                                    let fresh = IgnoreSet::load(&root);
+                                    if let Ok(mut w) = ignore_set.write() {
+                                        *w = fresh;
+                                    }
+                                }
+                                let snapshot = ignore_set.read().ok().map(|g| g.clone());
                                 for path in event.paths {
-                                    if Self::is_indexable(&path) {
+                                    if Self::is_indexable_with(&path, snapshot.as_ref()) {
                                         if let Err(e) = Self::index_single_file(&ms, &root, &path).await {
                                             eprintln!("[CONTEXT] Error indexing file {:?}: {:?}", path, e);
                                         }
@@ -72,9 +138,17 @@ impl ContextIndexer {
         let ms_full = self.memory_store.clone();
         let root_full = self.root_path.clone();
         let hashes_full = self.hashes.clone();
+        let ig_full = self.ignore_set.clone();
         tauri::async_runtime::spawn(async move {
             loop {
-                if let Err(e) = Self::run_index_cycle(&ms_full, &root_full, hashes_full.clone()).await {
+                // Re-read the ignore files at the start of each cycle so the
+                // hourly resync picks up edits without an IDE restart.
+                let fresh = IgnoreSet::load(&root_full);
+                if let Ok(mut w) = ig_full.write() {
+                    *w = fresh;
+                }
+                let snapshot = ig_full.read().ok().map(|g| g.clone());
+                if let Err(e) = Self::run_index_cycle(&ms_full, &root_full, hashes_full.clone(), snapshot).await {
                     eprintln!("[CONTEXT] Periodic full indexing error: {:?}", e);
                 }
                 sleep(Duration::from_secs(3600)).await; // Full sync every hour
@@ -83,10 +157,12 @@ impl ContextIndexer {
     }
 
     pub async fn trigger_index_cycle(&self) -> anyhow::Result<()> {
-        Self::run_index_cycle(&self.memory_store, &self.root_path, self.hashes.clone()).await
+        self.refresh_ignores();
+        let snapshot = self.ignore_set.read().ok().map(|g| g.clone());
+        Self::run_index_cycle(&self.memory_store, &self.root_path, self.hashes.clone(), snapshot).await
     }
 
-    async fn run_index_cycle(ms: &MemoryStore, root: &Path, hashes: Arc<RwLock<HashMap<PathBuf, String>>>) -> anyhow::Result<()> {
+    async fn run_index_cycle(ms: &MemoryStore, root: &Path, hashes: Arc<RwLock<HashMap<PathBuf, String>>>, ignore_set: Option<IgnoreSet>) -> anyhow::Result<()> {
         if !root.join(".aim").exists() {
             println!("[CONTEXT] Project is dormant (No .aim detected). Skipping index cycle.");
             return Ok(());
@@ -95,10 +171,18 @@ impl ContextIndexer {
         println!("[CONTEXT] Starting parallel index cycle for: {:?}", root);
 
         // 1. Collect all indexable paths first
+        let ig_ref = ignore_set.as_ref();
         let paths: Vec<PathBuf> = WalkDir::new(root)
             .into_iter()
+            .filter_entry(|e| {
+                // Prune ignored directories so we don't even walk into them.
+                if e.file_type().is_dir() {
+                    if let Some(g) = ig_ref { if g.is_ignored(e.path()) { return false; } }
+                }
+                true
+            })
             .filter_map(|e| e.ok())
-            .filter(|e| Self::is_indexable(e.path()))
+            .filter(|e| Self::is_indexable_with(e.path(), ig_ref))
             .map(|e| e.path().to_path_buf())
             .collect();
 
@@ -181,14 +265,34 @@ impl ContextIndexer {
         Self::extract_symbols_detailed(content, ext, path)
     }
 
+    #[allow(dead_code)]
     fn is_indexable(p: &Path) -> bool {
-        p.is_file()
-            && (p.extension().map_or(false, |ext| {
-                ext == "rs" || ext == "ts" || ext == "tsx" || ext == "json" || ext == "md"
-            }))
-            && !p.to_string_lossy().contains("node_modules")
-            && !p.to_string_lossy().contains("target")
-            && !p.to_string_lossy().contains(".git")
+        Self::is_indexable_with(p, None)
+    }
+
+    /// Indexability gate. Adds Cursor-compatible `.cursorignore` /
+    /// `.cursorindexignore` / `.gitignore` filtering on top of the
+    /// extension allow-list and the legacy hard-coded prunes.
+    fn is_indexable_with(p: &Path, ignore_set: Option<&IgnoreSet>) -> bool {
+        if !p.is_file() {
+            return false;
+        }
+        let ext_ok = p.extension().map_or(false, |ext| {
+            ext == "rs" || ext == "ts" || ext == "tsx" || ext == "json" || ext == "md"
+        });
+        if !ext_ok {
+            return false;
+        }
+        let s = p.to_string_lossy();
+        if s.contains("node_modules") || s.contains("target") || s.contains(".git/") || s.contains("\\.git\\") {
+            return false;
+        }
+        if let Some(ig) = ignore_set {
+            if ig.is_ignored(p) {
+                return false;
+            }
+        }
+        true
     }
 
     async fn index_single_file(ms: &MemoryStore, root: &Path, path: &Path) -> anyhow::Result<()> {
@@ -322,9 +426,10 @@ impl ContextIndexer {
         let rt = tokio::runtime::Handle::current();
         let hashes = self.hashes.clone();
         let root_buf = root.to_path_buf();
-        
+        let snapshot = self.ignore_set.read().ok().map(|g| g.clone());
+
         rt.spawn(async move {
-            let _ = Self::run_index_cycle(&ms, &root_buf, hashes).await;
+            let _ = Self::run_index_cycle(&ms, &root_buf, hashes, snapshot).await;
         });
 
         Ok(())

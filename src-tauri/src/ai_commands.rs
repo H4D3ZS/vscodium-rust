@@ -176,6 +176,43 @@ pub async fn ai_chat(state: State<'_, EditorState>, mut request: AiRequest) -> R
     Ok(result)
 }
 
+/// Background-agent entry point. Same engine, same tool surface as
+/// `ai_chat`, but every `emit_event` is suppressed for the duration of
+/// the run so the foreground chat UI keeps streaming whatever it was
+/// already showing. The frontend `runBackgroundAgent` slice calls this
+/// to dispatch parallel work the user kicked off via `/bg <prompt>` or
+/// the Background Agents tray.
+#[tauri::command]
+pub async fn ai_chat_oneshot(
+    state: State<'_, EditorState>,
+    mut request: AiRequest,
+) -> Result<String, String> {
+    state.kairos.report_activity().await;
+
+    // Same context injection as `ai_chat` — background work still needs
+    // the Hades memory header so the model has consistent grounding.
+    if let Ok(hades_ctx) = state.memory_layer.get_aggregate_context() {
+        if !hades_ctx.trim().is_empty() {
+            request.messages.insert(0, ChatMessage {
+                role: "system".to_string(),
+                content: Some(MessageContent::Text(hades_ctx)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            });
+        }
+    }
+
+    let engine = state.ai_engine.clone();
+    let _silent = engine.enter_silent();
+    let result = engine
+        .autonomous_loop(request, None)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(result)
+}
+
 #[tauri::command]
 pub async fn ai_inline_complete(
     state: State<'_, EditorState>,

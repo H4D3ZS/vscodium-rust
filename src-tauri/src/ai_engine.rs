@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::AppHandle;
@@ -216,6 +216,18 @@ fn ollama_looks_like_loopback_or_lan(lower: &str) -> bool {
     false
 }
 
+/// Decrements `silent_emits` on drop so a `?` early-exit in
+/// `ai_chat_oneshot` can't leave the engine permanently silent.
+pub struct SilentEmitGuard {
+    counter: Arc<AtomicUsize>,
+}
+
+impl Drop for SilentEmitGuard {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 pub struct Sentient {
     client: Client,
     api_key: String,
@@ -243,6 +255,11 @@ pub struct Sentient {
     pub ghost_runtime: Arc<crate::ghost_runtime::GhostRuntime>,
     pub shadow_workspace: Arc<crate::shadow_workspace::ShadowWorkspace>,
     pub yolo_mode: Arc<AtomicBool>,
+    /// While > 0, `emit_event` is a no-op. Used by `ai_chat_oneshot` so
+    /// background agents don't paint over the foreground chat with
+    /// `task-phase-update`, `ai-content-delta`, etc. The counter form lets
+    /// nested oneshot calls (and the inner phase wrappers) compose safely.
+    silent_emits: Arc<AtomicUsize>,
     session_id: String,
     pub ane_engine: Arc<tokio::sync::Mutex<Option<crate::ane::AneEngine>>>,
     pub attachment_manager: Arc<crate::attachment_manager::AttachmentManager>,
@@ -345,6 +362,7 @@ impl Sentient {
             ghost_runtime,
             shadow_workspace,
             yolo_mode: Arc::new(AtomicBool::new(false)),
+            silent_emits: Arc::new(AtomicUsize::new(0)),
             project_files_cache: tokio::sync::Mutex::new(None),
             workspace_memory_cache: tokio::sync::Mutex::new(None),
             global_brain_cache: tokio::sync::Mutex::new(None),
@@ -352,6 +370,13 @@ impl Sentient {
             harness: Arc::new(hades_harness::ReasoningLoop::new(&root_path)),
             airi: Arc::new(tokio::sync::Mutex::new(None)),
         }
+    }
+
+    /// RAII guard for silent-emit mode. Drop the returned guard to restore
+    /// foreground events. See `ai_chat_oneshot`.
+    pub fn enter_silent(self: &Arc<Self>) -> SilentEmitGuard {
+        self.silent_emits.fetch_add(1, Ordering::SeqCst);
+        SilentEmitGuard { counter: self.silent_emits.clone() }
     }
 
     pub async fn set_ollama_url(&self, url: String) {
@@ -4249,6 +4274,12 @@ impl Sentient {
     }
 
     pub fn emit_event(&self, event: &str, payload: Value) {
+        // Suppress all UI events while a `ai_chat_oneshot` (background)
+        // run is in progress. The counter form lets nested or recursive
+        // background calls remain silent until the outermost finishes.
+        if self.silent_emits.load(Ordering::SeqCst) > 0 {
+            return;
+        }
         use tauri::Emitter;
         if let Ok(guard) = self.app_handle.read() {
             if let Some(handle) = guard.as_ref() {

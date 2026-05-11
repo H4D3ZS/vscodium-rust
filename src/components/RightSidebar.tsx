@@ -1661,6 +1661,22 @@ const RightSidebar: React.FC = () => {
                                                                 <i className="codicon codicon-edit" style={{ cursor: 'pointer', fontSize: '11px' }} title="Edit"
                                                                     onClick={() => { setEditingMsgIdx(idx); setEditValue(msg.content); }}></i>
                                                             )}
+                                                            {msg.role === 'user' && msg.checkpointId && !isAgentThinking && (
+                                                                <i
+                                                                    className="codicon codicon-discard"
+                                                                    style={{ cursor: 'pointer', fontSize: '11px', color: '#f59e0b' }}
+                                                                    title={`Restore workspace to this turn${msg.checkpointDescription ? `: ${msg.checkpointDescription}` : ''}`}
+                                                                    onClick={async () => {
+                                                                        const summary = (msg.checkpointDescription || msg.content || '').slice(0, 80);
+                                                                        const ok = window.confirm(`Restore workspace to before this message?\n\n"${summary}"\n\nAll changes since then will be discarded and the chat will be truncated to this turn.`);
+                                                                        if (!ok) return;
+                                                                        const res = await useStore.getState().restoreToMessageCheckpoint(msg.timestamp);
+                                                                        if (!res.ok) {
+                                                                            window.alert('Restore failed: ' + res.message);
+                                                                        }
+                                                                    }}
+                                                                ></i>
+                                                            )}
                                                             {msg.role === 'assistant' && (
                                                                 <>
                                                                     {/* ── Accept/Reject Buttons for AI Code ────────────────────────── */}

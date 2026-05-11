@@ -18,6 +18,7 @@ const AgentSettingsView: React.FC = () => {
     const addMcpServer = useStore(state => state.addMcpServer);
     const removeMcpServer = useStore(state => state.removeMcpServer);
     const listMcpServers = useStore(state => state.listMcpServers);
+    const setMcpServerEnabled = useStore(state => state.setMcpServerEnabled);
     const isPullingModel = useStore(state => state.isPullingModel);
     const pullOllamaModel = useStore(state => state.pullOllamaModel);
     const avatarCharacter = useStore(state => state.avatarCharacter);
@@ -1394,14 +1395,22 @@ const AgentSettingsView: React.FC = () => {
                     {mcpServers.map(server => {
                         const cfg = (server as any).config || {};
                         const isHttp = !!cfg.serverUrl || cfg.type === 'http';
+                        const enabled = cfg.enabled !== false; // default true
                         const argsList: string[] = Array.isArray(cfg.args) ? cfg.args : [];
                         const subtitle = isHttp
                             ? cfg.serverUrl
                             : `${cfg.command || ''} ${argsList.join(' ')}`.trim();
                         const envCount = cfg.env ? Object.keys(cfg.env).length : 0;
                         return (
-                            <div key={server.name} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '2px' }}>
-                                <i className="codicon codicon-server" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', color: '#89d185', opacity: 0.8 }}></i>
+                            <div key={server.name} style={{
+                                display: 'flex', alignItems: 'center', gap: '8px',
+                                padding: '6px 10px',
+                                background: 'var(--vscode-sideBar-background)',
+                                border: '1px solid var(--vscode-panel-border)',
+                                borderRadius: '2px',
+                                opacity: enabled ? 1 : 0.55,
+                            }}>
+                                <i className="codicon codicon-server" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', color: enabled ? '#89d185' : 'rgba(255,255,255,0.4)', opacity: 0.8 }}></i>
                                 <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                                     <span style={{ fontSize: '12px', fontWeight: 600 }}>
                                         {server.name}
@@ -1418,11 +1427,32 @@ const AgentSettingsView: React.FC = () => {
                                                 cwd
                                             </span>
                                         )}
+                                        {!enabled && (
+                                            <span style={{ marginLeft: 4, padding: '0 4px', fontSize: 9, color: '#f87171', border: '1px solid #f87171', borderRadius: 2 }}>
+                                                disabled
+                                            </span>
+                                        )}
                                     </span>
                                     <span style={{ fontSize: '10px', opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {subtitle}
                                     </span>
                                 </div>
+                                <button
+                                    onClick={() => setMcpServerEnabled(server.name, !enabled)}
+                                    title={enabled ? 'Disable server (keeps config, stops the process)' : 'Enable server'}
+                                    style={{
+                                        background: enabled ? '#89d185' : 'transparent',
+                                        color: enabled ? '#000' : '#fff',
+                                        border: '1px solid ' + (enabled ? '#89d185' : 'rgba(255,255,255,0.2)'),
+                                        padding: '1px 8px',
+                                        fontSize: 10,
+                                        borderRadius: 10,
+                                        cursor: 'pointer',
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    {enabled ? 'on' : 'off'}
+                                </button>
                                 <i
                                     className="codicon codicon-trash"
                                     onClick={() => removeMcpServer(server.name)}

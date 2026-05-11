@@ -102,6 +102,14 @@ export interface AgentMessage {
     files?: string[];
     artifacts?: Artifact[];
     context?: AttachedContext[];
+    timestamp?: number;
+    isSubAgentResponse?: boolean;
+    /** Git checkpoint id captured immediately before this turn ran. Present
+     *  only on `role === 'user'` messages. Drives the per-message
+     *  "Restore to here" button in the chat. */
+    checkpointId?: string;
+    /** Short summary shown in the restore button tooltip / confirm dialog. */
+    checkpointDescription?: string;
 }
 
 export interface DevWorkflowProject {
@@ -400,8 +408,17 @@ interface AppState {
     addMcpServer: (name: string, config: any) => Promise<void>;
     removeMcpServer: (name: string) => Promise<void>;
     listMcpServers: () => Promise<void>;
+    setMcpServerEnabled: (name: string, enabled: boolean) => Promise<void>;
     setLastAgentCheckpoint: (cp: { id: string; description: string; timestamp: number } | null) => void;
     rollbackLastAgentCheckpoint: () => Promise<{ ok: boolean; message: string }>;
+    /** Attach a Git checkpoint id to the most-recent `user` message in
+     *  `agentMessages` so the chat can render a per-turn "Restore to here"
+     *  button next to that message. */
+    setLastUserMessageCheckpoint: (checkpointId: string, description?: string) => void;
+    /** Restore the workspace to the checkpoint attached to a specific user
+     *  message and truncate the chat to that turn so the conversation state
+     *  matches the on-disk state. */
+    restoreToMessageCheckpoint: (timestamp: number) => Promise<{ ok: boolean; message: string }>;
     runBackgroundAgent: (prompt: string) => Promise<string>;
     removeBackgroundAgent: (id: string) => void;
     clearBackgroundAgents: () => void;
@@ -1318,9 +1335,51 @@ const storeImplementation: any = (set: any, get: any) => ({
             console.error('List MCP Servers Error:', e);
         }
     },
+    setMcpServerEnabled: async (name: string, enabled: boolean) => {
+        try {
+            await invoke('set_mcp_server_enabled', { name, enabled });
+            await get().listMcpServers();
+        } catch (e) {
+            console.error('Toggle MCP Server Error:', e);
+        }
+    },
 
     // ── Per-turn restore points ─────────────────────────────────────────
     setLastAgentCheckpoint: (cp) => set({ lastAgentCheckpoint: cp }),
+    setLastUserMessageCheckpoint: (checkpointId: string, description?: string) => set((state) => {
+        const messages = [...state.agentMessages];
+        // Walk backwards to find the most recent user message (the one
+        // sendAgentMessage just appended) and stamp the checkpoint id on
+        // it. Idempotent: stamping the same id twice is a no-op.
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === 'user') {
+                if (messages[i].checkpointId === checkpointId) break;
+                messages[i] = { ...messages[i], checkpointId, checkpointDescription: description };
+                break;
+            }
+        }
+        return { agentMessages: messages };
+    }),
+    restoreToMessageCheckpoint: async (timestamp: number) => {
+        const state = get();
+        const idx = state.agentMessages.findIndex((m: any) => m.timestamp === timestamp);
+        if (idx < 0) return { ok: false, message: 'Message not found in chat history.' };
+        const target: any = state.agentMessages[idx];
+        if (!target?.checkpointId) return { ok: false, message: 'This message has no checkpoint attached.' };
+        try {
+            const message = await invoke<string>('git_rollback_checkpoint', { checkpointId: target.checkpointId });
+            // Truncate the chat above and including the restored user
+            // message — anything below it was generated against state we
+            // just rewound, so keeping it would be misleading.
+            set({
+                agentMessages: state.agentMessages.slice(0, idx),
+                lastAgentCheckpoint: null,
+            });
+            return { ok: true, message };
+        } catch (e: any) {
+            return { ok: false, message: String(e?.message ?? e) };
+        }
+    },
     rollbackLastAgentCheckpoint: async () => {
         const cp = get().lastAgentCheckpoint;
         if (!cp) return { ok: false, message: 'No checkpoint available to roll back.' };
@@ -1356,12 +1415,12 @@ const storeImplementation: any = (set: any, get: any) => ({
             const model = state.agentModel.includes('|')
                 ? state.agentModel.split('|')[1]
                 : state.agentModel;
-            // Background runs go straight through the existing `ai_chat`
-            // Tauri command. The foreground chat state (`agentMessages`,
-            // `isAgentThinking`) is mutated by `sendAgentMessage` only, so
-            // calling `ai_chat` directly here leaves it untouched — which
-            // is exactly the "runs in the background" semantic we want.
-            const resultText = await invoke<string>('ai_chat', {
+            // Background runs use the dedicated `ai_chat_oneshot` Tauri
+            // command, which mirrors `ai_chat` except every `emit_event`
+            // call inside the engine is suppressed for the duration of
+            // the run. That way the foreground chat keeps streaming its
+            // own phases/content without any cross-talk.
+            const resultText = await invoke<string>('ai_chat_oneshot', {
                 request: {
                     provider,
                     model,

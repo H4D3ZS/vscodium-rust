@@ -29,3 +29,16 @@ pub async fn remove_mcp_server(state: State<'_, EditorState>, name: String) -> R
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn set_mcp_server_enabled(
+    state: State<'_, EditorState>,
+    name: String,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .mcp_registry
+        .set_server_enabled(&name, enabled)
+        .await
+        .map_err(|e| e.to_string())
+}
