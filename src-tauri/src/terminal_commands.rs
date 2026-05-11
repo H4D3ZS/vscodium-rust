@@ -3,8 +3,36 @@ use tauri::{State, AppHandle, Emitter, Manager};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
 use std::io::Write;
+use std::path::PathBuf;
 
 use serde_json::json as json_serde;
+
+/// Strip any embedded NUL byte. portable_pty hands the raw bytes to
+/// CreateProcessW which rejects strings containing `\0` and turns it into a
+/// noisy "system cannot find the file specified" error. Sanitising here means
+/// a stale value (e.g. from a corrupted localStorage entry) does not bring the
+/// whole terminal down.
+fn sanitize_no_nul(s: &str) -> String {
+    s.split('\0').next().unwrap_or("").trim().to_string()
+}
+
+/// Best-effort fallback cwd when the configured one is missing or invalid.
+fn default_terminal_cwd() -> Option<PathBuf> {
+    if cfg!(target_os = "windows") {
+        if let Ok(p) = std::env::var("USERPROFILE") {
+            let pb = PathBuf::from(p);
+            if pb.is_dir() {
+                return Some(pb);
+            }
+        }
+    } else if let Ok(p) = std::env::var("HOME") {
+        let pb = PathBuf::from(p);
+        if pb.is_dir() {
+            return Some(pb);
+        }
+    }
+    std::env::current_dir().ok()
+}
 
 #[tauri::command]
 pub async fn spawn_terminal(
@@ -23,8 +51,7 @@ pub async fn spawn_terminal(
         })
         .map_err(|e: anyhow::Error| e.to_string())?;
 
-    // Determine the shell
-    let shell_exe = if let Some(s) = shell {
+    let shell_exe_raw = if let Some(s) = shell {
         if s.is_empty() {
             if cfg!(target_os = "windows") {
                 std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
@@ -35,47 +62,82 @@ pub async fn spawn_terminal(
         } else {
             s
         }
+    } else if cfg!(target_os = "windows") {
+        std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
     } else {
+        #[allow(clippy::redundant_closure)]
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+    };
+    let shell_exe = sanitize_no_nul(&shell_exe_raw);
+    let shell_exe = if shell_exe.is_empty() {
         if cfg!(target_os = "windows") {
-            std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
+            "powershell.exe".to_string()
         } else {
-            #[allow(clippy::redundant_closure)]
-            std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+            "/bin/bash".to_string()
         }
+    } else {
+        shell_exe
     };
 
     let mut cmd = CommandBuilder::new(shell_exe.clone());
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
-    // Set CWD to active project root if available
-    {
+    // Resolve a usable cwd: active project root if present and on disk,
+    // otherwise the user home, otherwise the process cwd. Never pass a path
+    // that contains a NUL byte (CreateProcessW rejects it) or that no longer
+    // exists (stale activeRoot in localStorage was the cause of "spawn pwsh.exe
+    // failed: cannot find file" after deleting a project folder).
+    let effective_cwd: Option<PathBuf> = {
         let root = state.active_root.lock().await;
-        if let Some(ref r) = *root {
-            let r_owned: String = r.display().to_string();
-            cmd.cwd(r_owned);
-        }
+        let from_state = root.as_ref().and_then(|r| {
+            let cleaned = sanitize_no_nul(&r.display().to_string());
+            let pb = PathBuf::from(cleaned);
+            if pb.is_dir() {
+                Some(pb)
+            } else {
+                None
+            }
+        });
+        from_state.or_else(default_terminal_cwd)
+    };
+    if let Some(ref cwd) = effective_cwd {
+        cmd.cwd(cwd.as_os_str().to_owned());
     }
 
     let child_result = pair.slave.spawn_command(cmd);
-    
+
     let child = match child_result {
         Ok(c) => c,
         Err(e) => {
-            println!("[Term] Failed to spawn {}: {}. Trying fallback...", shell_exe, e);
-            if cfg!(target_os = "windows") && shell_exe != "powershell.exe" {
+            println!(
+                "[Term] Failed to spawn {} (cwd={:?}): {}. Trying fallback...",
+                shell_exe, effective_cwd, e
+            );
+            if cfg!(target_os = "windows") && shell_exe.to_lowercase() != "powershell.exe" {
                 let mut fallback_cmd = CommandBuilder::new("powershell.exe");
-                {
-                    let root = state.active_root.lock().await;
-                    if let Some(ref r) = *root {
-                        fallback_cmd.cwd(r.display().to_string());
-                    }
+                if let Some(ref cwd) = effective_cwd {
+                    fallback_cmd.cwd(cwd.as_os_str().to_owned());
                 }
-                pair.slave.spawn_command(fallback_cmd).map_err(|e2| format!("Primary shell ({}) failed: {}. Fallback (powershell.exe) failed: {}", shell_exe, e, e2))?
-            } else if cfg!(target_os = "windows") && shell_exe == "powershell.exe" {
-                 let cmd_fallback = CommandBuilder::new("cmd.exe");
-                 pair.slave.spawn_command(cmd_fallback).map_err(|e: anyhow::Error| e.to_string())?
-
+                pair.slave.spawn_command(fallback_cmd).map_err(|e2| {
+                    format!(
+                        "Primary shell ({}) failed: {}. Fallback (powershell.exe) failed: {}",
+                        shell_exe, e, e2
+                    )
+                })?
+            } else if cfg!(target_os = "windows") {
+                let mut cmd_fallback = CommandBuilder::new("cmd.exe");
+                if let Some(ref cwd) = effective_cwd {
+                    cmd_fallback.cwd(cwd.as_os_str().to_owned());
+                }
+                pair.slave
+                    .spawn_command(cmd_fallback)
+                    .map_err(|e2: anyhow::Error| {
+                        format!(
+                            "Primary shell ({}) failed: {}. Fallback (cmd.exe) failed: {}",
+                            shell_exe, e, e2
+                        )
+                    })?
             } else {
                 return Err(e.to_string());
             }

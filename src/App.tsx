@@ -84,21 +84,47 @@ const App: React.FC = () => {
         refreshAvailableModels();
 
         // Restore the active project root on startup.
-        // Priority: 1) localStorage (user's last session), 2) backend's cwd (first launch).
-        if (activeRoot) {
-            // We have a saved root — tell the backend and load the file tree
-            invoke('set_active_root', { path: activeRoot })
-                .then(() => refreshFileTree())
-                .catch(console.error);
-        } else {
-            // No saved root — ask backend what it was initialized with (cwd)
+        // Priority: 1) localStorage (user's last session, if the folder still
+        // exists on disk), 2) backend's cwd (first launch / stale entry).
+        // The path_exists probe is what stops a deleted workspace (e.g.
+        // `manus_source_code`) from leaking into terminal cwd and breaking
+        // every new PTY on launch.
+        const fallbackToBackendRoot = () => {
             invoke<string | null>('get_active_root')
                 .then((backendRoot) => {
-                    if (backendRoot) {
-                        setActiveRoot(backendRoot);
-                    }
+                    if (backendRoot) setActiveRoot(backendRoot);
                 })
                 .catch(console.error);
+        };
+
+        if (activeRoot) {
+            const cleaned = activeRoot.split('\0')[0].trim();
+            invoke<boolean>('path_exists', { path: cleaned })
+                .then((exists) => {
+                    if (!exists) {
+                        console.warn('[App] saved activeRoot no longer exists — clearing:', cleaned);
+                        localStorage.removeItem('activeRoot');
+                        localStorage.removeItem('activeRootName');
+                        useStore.setState({ activeRoot: null, activeRootName: null, fileTree: [] });
+                        fallbackToBackendRoot();
+                        return;
+                    }
+                    invoke('set_active_root', { path: cleaned })
+                        .then(() => refreshFileTree())
+                        .catch((err) => {
+                            console.warn('[App] set_active_root rejected — falling back:', err);
+                            localStorage.removeItem('activeRoot');
+                            localStorage.removeItem('activeRootName');
+                            useStore.setState({ activeRoot: null, activeRootName: null, fileTree: [] });
+                            fallbackToBackendRoot();
+                        });
+                })
+                .catch((err) => {
+                    console.warn('[App] path_exists failed — falling back:', err);
+                    fallbackToBackendRoot();
+                });
+        } else {
+            fallbackToBackendRoot();
         }
 
         // Listen for reload-window from backend

@@ -282,6 +282,7 @@ pub fn run() {
             editor_commands::evaluate_when_clause,
             editor_commands::set_active_root,
             editor_commands::get_active_root,
+            editor_commands::path_exists,
 
             extensions_commands::ext_host_init,
             extensions_commands::ext_host_send,

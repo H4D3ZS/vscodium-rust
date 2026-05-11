@@ -59,22 +59,53 @@ pub fn evaluate_when_clause(state: State<'_, EditorState>, clause: String) -> bo
 }
 
 #[tauri::command]
-pub async fn set_active_root(state: State<'_, EditorState>, path: Option<String>) -> Result<(), String> {
+pub async fn set_active_root(
+    state: State<'_, EditorState>,
+    path: Option<String>,
+) -> Result<Option<String>, String> {
     let mut root = state.active_root.lock().await;
-    if let Some(p) = path {
-        let path_buf = PathBuf::from(p);
-        *root = Some(path_buf.clone());
-        state.ai_engine.set_root_path(path_buf);
-    } else {
-        *root = None;
+    match path {
+        None => {
+            *root = None;
+            Ok(None)
+        }
+        Some(raw) => {
+            // Strip embedded NUL bytes — a corrupted localStorage entry once
+            // smuggled `"…manus_source_code\0"` in here, which then fed
+            // straight into CreateProcessW and broke every new terminal.
+            let cleaned: String = raw.split('\0').next().unwrap_or("").trim().to_string();
+            if cleaned.is_empty() {
+                *root = None;
+                return Ok(None);
+            }
+            let path_buf = PathBuf::from(&cleaned);
+            if !path_buf.is_dir() {
+                // Stale activeRoot from a previous session — drop it so the
+                // frontend can fall back to the backend's cwd instead of
+                // sending CreateProcessW into a non-existent folder.
+                *root = None;
+                return Err(format!("active root does not exist: {}", cleaned));
+            }
+            *root = Some(path_buf.clone());
+            state.ai_engine.set_root_path(path_buf);
+            Ok(Some(cleaned))
+        }
     }
-    Ok(())
 }
 
 #[tauri::command]
 pub async fn get_active_root(state: State<'_, EditorState>) -> Result<Option<String>, String> {
     let root = state.active_root.lock().await;
     Ok(root.as_ref().map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub fn path_exists(path: String) -> bool {
+    let cleaned: String = path.split('\0').next().unwrap_or("").trim().to_string();
+    if cleaned.is_empty() {
+        return false;
+    }
+    std::path::Path::new(&cleaned).exists()
 }
 
 #[tauri::command]

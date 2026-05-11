@@ -764,17 +764,29 @@ const storeImplementation: any = (set: any, get: any) => ({
         set({ agentRootAccess: true });
     },
     setActiveRoot: (path) => {
-        if (path) {
-            const name = path.replace(/\\/g, '/').split('/').pop() || path;
-            // Persist to localStorage so we can restore on next launch
-            localStorage.setItem('activeRoot', path);
+        // Defensive cleanup: a corrupted localStorage entry once stored a
+        // path with a trailing NUL byte, which then poisoned CreateProcessW
+        // and broke every new PTY. Always normalise before persisting.
+        const cleaned = (path ?? '').split('\0')[0].trim();
+        if (cleaned) {
+            const name = cleaned.replace(/\\/g, '/').split('/').pop() || cleaned;
+            localStorage.setItem('activeRoot', cleaned);
             localStorage.setItem('activeRootName', name);
-            set({ activeRoot: path, activeRootName: name });
-            // Sync with backend
-            invoke('set_active_root', { path }).then(() => {
-                get().refreshFileTree();
-                get().fetchActiveProjectSpec();
-            }).catch(console.error);
+            set({ activeRoot: cleaned, activeRootName: name });
+            invoke('set_active_root', { path: cleaned })
+                .then(() => {
+                    get().refreshFileTree();
+                    get().fetchActiveProjectSpec();
+                })
+                .catch((err) => {
+                    // Backend rejected the path (e.g. it no longer exists).
+                    // Surface it instead of leaving a ghost root that the
+                    // terminal subsystem will then choke on.
+                    console.warn('[store] set_active_root rejected:', err);
+                    localStorage.removeItem('activeRoot');
+                    localStorage.removeItem('activeRootName');
+                    set({ activeRoot: null, activeRootName: null, fileTree: [], activeProjectSpec: null });
+                });
         } else {
             localStorage.removeItem('activeRoot');
             localStorage.removeItem('activeRootName');
