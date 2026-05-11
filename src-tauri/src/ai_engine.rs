@@ -1078,6 +1078,107 @@ impl Sentient {
         }
     }
 
+    /// `/api/foo` then `/v1/api/foo` on 404 (nginx rewrite; see `tools/vps-ollama-proxy/bootstrap.sh`).
+    fn ollama_try_urls(base: &str, api_path: &str) -> Vec<String> {
+        let p = api_path.trim();
+        let p = if p.starts_with('/') {
+            p.to_string()
+        } else {
+            format!("/{}", p)
+        };
+        let base = base.trim_end_matches('/');
+        let mut urls = vec![format!("{}{}", base, p)];
+        if let Some(rest) = p.strip_prefix("/api/") {
+            urls.push(format!("{}/v1/api/{}", base, rest));
+        }
+        urls
+    }
+
+    /// Ollama GET from Rust so the webview is not subject to nginx CORS.
+    pub async fn ollama_native_get(&self, path: String) -> Result<Value> {
+        let base = {
+            let u = self.ollama_url.lock().await;
+            normalize_ollama_base_url(&u)
+        };
+        let bearer = self.get_key_for_provider("ollama").trim().to_string();
+        let urls = Self::ollama_try_urls(&base, &path);
+        let mut last: Option<String> = None;
+        for url in &urls {
+            let mut req = self.client.get(url);
+            if !bearer.is_empty() {
+                req = req.bearer_auth(&bearer);
+            }
+            match req.send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let bytes = resp.bytes().await?;
+                    if status.is_success() {
+                        let v: Value = serde_json::from_slice(&bytes).map_err(|e| {
+                            anyhow!("ollama_native_get JSON: {} (status {})", e, status)
+                        })?;
+                        return Ok(v);
+                    }
+                    if status.as_u16() == 404 && urls.len() > 1 && !url.contains("/v1/api/") {
+                        last = Some(format!("GET {} -> 404", url));
+                        continue;
+                    }
+                    let preview: String = String::from_utf8_lossy(&bytes).chars().take(280).collect();
+                    return Err(anyhow!("GET {} -> {}: {}", url, status, preview));
+                }
+                Err(e) => {
+                    last = Some(e.to_string());
+                    continue;
+                }
+            }
+        }
+        Err(anyhow!(
+            "ollama_native_get exhausted fallbacks: {}",
+            last.unwrap_or_default()
+        ))
+    }
+
+    /// Ollama POST from Rust (same CORS bypass + `/v1` fallback as GET).
+    pub async fn ollama_native_post(&self, path: String, body: Value) -> Result<Value> {
+        let base = {
+            let u = self.ollama_url.lock().await;
+            normalize_ollama_base_url(&u)
+        };
+        let bearer = self.get_key_for_provider("ollama").trim().to_string();
+        let urls = Self::ollama_try_urls(&base, &path);
+        let mut last: Option<String> = None;
+        for url in &urls {
+            let mut req = self.client.post(url).json(&body);
+            if !bearer.is_empty() {
+                req = req.bearer_auth(&bearer);
+            }
+            match req.send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let bytes = resp.bytes().await?;
+                    if status.is_success() {
+                        let v: Value = serde_json::from_slice(&bytes).map_err(|e| {
+                            anyhow!("ollama_native_post JSON: {} (status {})", e, status)
+                        })?;
+                        return Ok(v);
+                    }
+                    if status.as_u16() == 404 && urls.len() > 1 && !url.contains("/v1/api/") {
+                        last = Some(format!("POST {} -> 404", url));
+                        continue;
+                    }
+                    let preview: String = String::from_utf8_lossy(&bytes).chars().take(280).collect();
+                    return Err(anyhow!("POST {} -> {}: {}", url, status, preview));
+                }
+                Err(e) => {
+                    last = Some(e.to_string());
+                    continue;
+                }
+            }
+        }
+        Err(anyhow!(
+            "ollama_native_post exhausted fallbacks: {}",
+            last.unwrap_or_default()
+        ))
+    }
 
     pub async fn pull_model(&self, name: &str) -> Result<()> {
         let url = {

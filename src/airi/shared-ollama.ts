@@ -1,15 +1,17 @@
 /**
  * Shared Ollama client for every AIRI subsystem.
  *
- * Each subsystem used to call `new Ollama({ host: 'http://localhost:11434' })`
- * directly, which hard-coded the host and skipped the Bearer token configured
- * for the user's remote proxy (e.g. `https://ai.cyberifrit.xyz`). This module
- * exposes a single proxy-backed client whose `host`/`headers` are recomputed
- * for every method call (`.list`, `.chat`, `.generate`, …), so updating the
- * Ollama URL in Settings or the Ollama API key in API Keys takes effect
- * immediately without restarting AIRI.
+ * When the UI runs from `http://localhost:5173` (Vite) or `tauri://` / `https://`
+ * webview origins, direct `fetch()` to a remote Ollama proxy is often blocked by
+ * nginx CORS (`Access-Control-Allow-Origin` allow-list). Rust has no CORS layer, so
+ * under Tauri we route `/api/tags`, `/api/generate`, and `/api/chat` through
+ * `ollama_native_get` / `ollama_native_post` instead of the browser `Ollama` client.
+ *
+ * Host + optional `Authorization: Bearer …` still come from Settings → Ollama URL
+ * and API Keys; `refreshOllamaConfig` keeps them in sync with the bridge.
  */
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
+import { Ollama as OllamaClient } from 'ollama';
 import { invoke } from '../tauri_bridge';
 
 type Headers = Record<string, string>;
@@ -32,9 +34,12 @@ function readStoredHost(): string {
         const v = localStorage.getItem('ollamaUrl');
         return normalizeHost(v || 'http://localhost:11434');
     } catch {
-        // Tracking Prevention etc.
         return 'http://localhost:11434';
     }
+}
+
+function isTauri(): boolean {
+    return typeof window !== 'undefined' && !!(window as any).__TAURI__;
 }
 
 async function bootstrap(): Promise<void> {
@@ -43,8 +48,7 @@ async function bootstrap(): Promise<void> {
     bootstrapPromise = (async () => {
         try {
             cachedHost = readStoredHost();
-            const tauri = typeof window !== 'undefined' && (window as any).__TAURI__;
-            if (tauri) {
+            if (isTauri()) {
                 try {
                     const keys = await invoke<Record<string, string>>('get_api_keys');
                     const tok = keys?.ollama?.trim();
@@ -79,20 +83,72 @@ export function getOllamaHeaders(): Headers | undefined {
     return cachedHeaders;
 }
 
+async function syncRustOllamaUrl(): Promise<void> {
+    if (!isTauri()) return;
+    try {
+        await invoke('set_ollama_url', { url: getOllamaHost() });
+    } catch {
+        /* best-effort */
+    }
+}
+
+async function tauriList(): Promise<{ models: Array<{ name: string; [k: string]: unknown }> }> {
+    await syncRustOllamaUrl();
+    const data = await invoke<Record<string, unknown>>('ollama_native_get', { path: '/api/tags' });
+    return data as { models: Array<{ name: string; [k: string]: unknown }> };
+}
+
+async function tauriGenerate(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (request.stream === true) {
+        throw new Error(
+            'AIRI: streaming Ollama generate is not supported through the Tauri bridge; use stream: false.',
+        );
+    }
+    await syncRustOllamaUrl();
+    return invoke<Record<string, unknown>>('ollama_native_post', {
+        path: '/api/generate',
+        body: request,
+    });
+}
+
+async function tauriChat(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (request.stream === true) {
+        throw new Error(
+            'AIRI: streaming Ollama chat is not supported through the Tauri bridge; use stream: false.',
+        );
+    }
+    await syncRustOllamaUrl();
+    return invoke<Record<string, unknown>>('ollama_native_post', {
+        path: '/api/chat',
+        body: request,
+    });
+}
+
 function buildClient(): Ollama {
     const host = getOllamaHost();
     const headers = getOllamaHeaders();
-    return new Ollama({ host, ...(headers ? { headers } : {}) } as any);
+    return new OllamaClient({ host, ...(headers ? { headers } : {}) } as any);
 }
 
 /**
- * Proxy-wrapped Ollama client. Each property access yields a fresh `Ollama`
- * instance built from the latest host/headers, then forwards the call. Cheap
- * enough for chat/generate (which are network-bound anyway) and prevents the
- * stale-host problem when subsystems capture the client at construction time.
+ * Proxy-wrapped Ollama client. Under Tauri, `list` / `generate` / `chat` use IPC
+ * (no CORS). Other methods fall back to the browser client (may still hit CORS
+ * on exotic remote-only setups).
  */
 export function createSharedOllama(): Ollama {
     void bootstrap();
+    if (isTauri()) {
+        return new Proxy({} as Record<string, unknown>, {
+            get(_target, prop) {
+                if (prop === 'list') return tauriList.bind(null);
+                if (prop === 'generate') return (req: Record<string, unknown>) => tauriGenerate(req);
+                if (prop === 'chat') return (req: Record<string, unknown>) => tauriChat(req);
+                const client = buildClient();
+                const value = (client as any)[prop];
+                return typeof value === 'function' ? (value as Function).bind(client) : value;
+            },
+        }) as unknown as Ollama;
+    }
     const handler: ProxyHandler<Record<string, unknown>> = {
         get(_target, prop) {
             const client = buildClient();
@@ -104,6 +160,38 @@ export function createSharedOllama(): Ollama {
 }
 
 export async function fetchOllama(path: string, init?: RequestInit): Promise<Response> {
+    void bootstrap();
+    const method = (init?.method || 'GET').toUpperCase();
+    if (isTauri()) {
+        await syncRustOllamaUrl();
+        try {
+            if (method === 'GET') {
+                const data = await invoke<Record<string, unknown>>('ollama_native_get', { path });
+                return new Response(JSON.stringify(data), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            }
+            if (method === 'POST' && init?.body) {
+                const raw = typeof init.body === 'string' ? init.body : JSON.stringify(init.body);
+                const body = JSON.parse(raw) as Record<string, unknown>;
+                const data = await invoke<Record<string, unknown>>('ollama_native_post', {
+                    path,
+                    body,
+                });
+                return new Response(JSON.stringify(data), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            }
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            return new Response(JSON.stringify({ error: msg }), {
+                status: 502,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+    }
     const host = getOllamaHost();
     const headers: Record<string, string> = {
         ...(init?.headers as Record<string, string> | undefined),

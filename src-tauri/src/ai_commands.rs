@@ -848,6 +848,31 @@ pub async fn list_provider_models(
         .await
         .map_err(|e| e.to_string())
 }
+
+/// Native Ollama GET (`/api/tags`, etc.) from Rust — bypasses browser CORS on locked-down proxies.
+#[tauri::command]
+pub async fn ollama_native_get(state: State<'_, EditorState>, path: String) -> Result<Value, String> {
+    state
+        .ai_engine
+        .ollama_native_get(path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Native Ollama POST (`/api/generate`, `/api/chat`, …) from Rust — same CORS bypass as GET.
+#[tauri::command]
+pub async fn ollama_native_post(
+    state: State<'_, EditorState>,
+    path: String,
+    body: Value,
+) -> Result<Value, String> {
+    state
+        .ai_engine
+        .ollama_native_post(path, body)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn get_agent_messages(state: State<'_, EditorState>) -> Result<Value, String> {
     Ok(json!(state.ai_engine.memory_store.get_messages().await))

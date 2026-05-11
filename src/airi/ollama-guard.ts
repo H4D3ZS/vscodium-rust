@@ -20,6 +20,8 @@
  * is idempotent. We call it from `main.tsx` via `kokoro-worker-wrapper`.
  */
 
+import { invoke } from '../tauri_bridge';
+
 const OLLAMA_PATHS = ['/api/generate', '/api/chat'];
 const TAGS_PATH = '/api/tags';
 const STORAGE_FALLBACK_KEYS = [
@@ -83,11 +85,18 @@ async function refreshAvailable(host: string): Promise<void> {
   if (guard.refreshing) return guard.refreshing;
   guard.refreshing = (async () => {
     try {
-      const res = await fetch(`${host}${TAGS_PATH}`);
-      if (!res.ok) return;
-      const data: any = await res.json();
+      let data: { models?: Array<{ name?: string; model?: string }> };
+      const tauri = typeof window !== 'undefined' && (window as any).__TAURI__;
+      if (tauri) {
+        await invoke('set_ollama_url', { url: host }).catch(() => {});
+        data = (await invoke<typeof data>('ollama_native_get', { path: '/api/tags' })) as typeof data;
+      } else {
+        const res = await fetch(`${host}${TAGS_PATH}`);
+        if (!res.ok) return;
+        data = await res.json();
+      }
       const names: string[] = Array.isArray(data?.models)
-        ? data.models.map((m: any) => String(m?.name || m?.model || '')).filter(Boolean)
+        ? data.models!.map((m) => String(m?.name || m?.model || '')).filter(Boolean)
         : [];
       guard.available = new Set(names);
     } catch {

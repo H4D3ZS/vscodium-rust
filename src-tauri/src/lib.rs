@@ -180,6 +180,8 @@ pub fn run() {
             ai_commands::get_ollama_ps,
             ai_commands::diagnose_ollama,
             ai_commands::list_provider_models,
+            ai_commands::ollama_native_get,
+            ai_commands::ollama_native_post,
             ai_commands::set_ai_model,
             ai_commands::set_advisor_model,
             ai_commands::get_agent_messages,

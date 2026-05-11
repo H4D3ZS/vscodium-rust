@@ -8,7 +8,8 @@
  * - Semantic gist enhancement
  */
 
-import { useStore } from './store';
+import { useStore, normalizeOllamaUrl } from './store';
+import { invoke } from './tauri_bridge';
 
 export interface HadesOllamaConfig {
   baseUrl: string;
@@ -34,7 +35,6 @@ export interface OllamaResponse {
 }
 
 class HadesOllamaService {
-  private readonly apiKey = '94d92f5148bb721b16d310e8bcedac54ceeca26428feefd01bdd89bc07592a76';
   private config: HadesOllamaConfig = {
     baseUrl: 'http://localhost:11434',
     model: 'qwen3:35b', // Default community coding model
@@ -53,11 +53,43 @@ class HadesOllamaService {
     this.config = {
       baseUrl: s.ollamaUrl || 'http://localhost:11434',
       model: s.agentModel?.split('|')[1] || 'huihui_ai/qwen2.5-coder-abliterate:7b', // Use selected model from UI
-      aimVfsEnabled: s.aimVfsEnabled,
-      thermalGovernorEnabled: s.thermalGovernorEnabled,
-      jitDecompressionEnabled: s.jitDecompressionEnabled,
-      jitThreshold: s.jitThreshold,
+      aimVfsEnabled: (s as { aimVfsEnabled?: boolean }).aimVfsEnabled ?? true,
+      thermalGovernorEnabled: (s as { thermalGovernorEnabled?: boolean }).thermalGovernorEnabled ?? true,
+      jitDecompressionEnabled: (s as { jitDecompressionEnabled?: boolean }).jitDecompressionEnabled ?? true,
+      jitThreshold: (s as { jitThreshold?: number }).jitThreshold ?? 0.85,
     };
+  }
+
+  private async postOllama(path: '/api/generate' | '/api/chat', body: Record<string, unknown>): Promise<OllamaResponse> {
+    const raw = (this.config.baseUrl || '').trim() || 'http://localhost:11434';
+    let base: string;
+    try {
+      base = normalizeOllamaUrl(raw);
+    } catch {
+      base = 'http://localhost:11434';
+    }
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      await invoke('set_ollama_url', { url: base }).catch(() => {});
+      const data = await invoke<Record<string, unknown>>('ollama_native_post', { path, body });
+      return data as unknown as OllamaResponse;
+    }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    try {
+      const keys = await invoke<Record<string, string>>('get_api_keys');
+      const tok = keys?.ollama?.trim();
+      if (tok) headers.Authorization = `Bearer ${tok}`;
+    } catch {
+      /* no Tauri / no keys */
+    }
+    const response = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`Ollama error: ${response.statusText}`);
+    }
+    return (await response.json()) as OllamaResponse;
   }
 
   /**
@@ -101,26 +133,12 @@ class HadesOllamaService {
       }
     }
 
-    // Step 4: Call Ollama (GPU-accelerated via DirectML)
-    const response = await fetch(`${this.config.baseUrl}/api/generate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.config.model,
-        prompt: enhancedPrompt,
-        stream: options?.stream ?? false,
-        context: options?.context,
-      }),
+    const data = await this.postOllama('/api/generate', {
+      model: this.config.model,
+      prompt: enhancedPrompt,
+      stream: options?.stream ?? false,
+      context: options?.context,
     });
-
-    if (!response.ok) {
-      throw new Error(`Ollama error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as OllamaResponse;
     
     // Normalize chat response to have 'response' field
     if (data.message && data.message.content) {
@@ -171,24 +189,11 @@ class HadesOllamaService {
       }
     }
 
-    const response = await fetch(`${this.config.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.config.model,
-        messages: enhancedMessages,
-        stream: options?.stream ?? false,
-      }),
+    const data = await this.postOllama('/api/chat', {
+      model: this.config.model,
+      messages: enhancedMessages,
+      stream: options?.stream ?? false,
     });
-
-    if (!response.ok) {
-      throw new Error(`Ollama error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as OllamaResponse;
     
     // Normalize chat response to have 'response' field
     if (data.message && data.message.content) {
