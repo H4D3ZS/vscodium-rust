@@ -18,9 +18,11 @@ import type {
   VoiceProviderWithExtraOptions,
 } from 'unspeech'
 
+import type { ProviderOnboardingField } from '../libs/providers/types'
 import type { AliyunRealtimeSpeechExtraOptions } from './providers/aliyun/stream-transcription'
 
 import { isStageTamagotchi, isUrl } from '@proj-airi/stage-shared'
+import { getCachedWebGPUCapabilities, isWebGPUSupported } from '@proj-airi/stage-shared/webgpu'
 import { computedAsync, useIntervalFn, useLocalStorage } from '@vueuse/core'
 import {
   createOpenAI,
@@ -34,7 +36,6 @@ import {
 } from '@xsai-ext/providers/utils'
 import { listModels } from '@xsai/model'
 import { uniqBy } from 'es-toolkit'
-import { isWebGPUSupported } from 'gpuu/webgpu'
 import { defineStore } from 'pinia'
 import {
   createUnAlibabaCloud,
@@ -47,8 +48,8 @@ import {
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { getKokoroAdapter } from '../libs/inference/adapters/kokoro'
 import { getProviderValidationIntervalMs, listProviders as listDefinedProviders, ProviderValidationCheck } from '../libs/providers'
-import { getKokoroWorker } from '../workers/kokoro'
 import { getDefaultKokoroModel, KOKORO_MODELS, kokoroModelsToModelInfo } from '../workers/kokoro/constants'
 import { useAuthStore } from './auth'
 import { createAliyunNLSProvider as createAliyunNlsStreamProvider } from './providers/aliyun/stream-transcription'
@@ -114,6 +115,7 @@ export interface ProviderMetadata {
    */
   iconImage?: string
   defaultOptions?: () => Record<string, unknown>
+  onboardingFields?: ProviderOnboardingField[]
   createProvider: (
     config: Record<string, unknown>,
   ) =>
@@ -173,6 +175,9 @@ export interface ProviderMetadata {
     supportsStreamOutput: boolean
     supportsStreamInput: boolean
   }
+  pricing?: 'free' | 'paid' | 'internal'
+  deployment?: 'local' | 'cloud'
+  beginnerRecommended?: boolean
 }
 
 export interface ModelInfo {
@@ -1386,7 +1391,337 @@ export const useProvidersStore = defineStore('providers', () => {
         },
       },
     },
+    'minimax-speech': {
+      id: 'minimax-speech',
+      category: 'speech',
+      tasks: ['text-to-speech'],
+      nameKey: 'settings.pages.providers.provider.minimax-speech.title',
+      name: 'MiniMax Speech',
+      descriptionKey: 'settings.pages.providers.provider.minimax-speech.description',
+      description: 'minimax.io',
+      icon: 'i-lobe-icons:minimax',
+      iconColor: 'i-lobe-icons:minimax-color',
+      defaultOptions: () => ({
+        apiKey: '',
+        baseUrl: 'https://api.minimax.io',
+      }),
+      createProvider: async (config) => {
+        const apiKey = (config.apiKey as string).trim()
+        const baseUrl = ((config.baseUrl as string) || 'https://api.minimax.io').replace(/\/$/, '')
+
+        const provider: SpeechProvider = {
+          speech: () => ({
+            baseURL: `${baseUrl}/v1/`,
+            model: 'speech-2.8-hd',
+            fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+              if (!init?.body || typeof init.body !== 'string') {
+                throw new Error('Invalid request body')
+              }
+
+              const body = JSON.parse(init.body)
+              const text = body.input as string
+              const voiceId = (body.voice as string) || 'English_Graceful_Lady'
+              const model = (body.model as string) || 'speech-2.8-hd'
+
+              const response = await fetch(`${baseUrl}/v1/t2a_v2`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                  model,
+                  text,
+                  stream: true,
+                  voice_setting: {
+                    voice_id: voiceId,
+                    speed: 1,
+                    vol: 1,
+                    pitch: 0,
+                  },
+                  audio_setting: {
+                    sample_rate: 32000,
+                    bitrate: 128000,
+                    format: 'mp3',
+                    channel: 1,
+                  },
+                }),
+              })
+
+              if (!response.ok || !response.body) {
+                throw new Error(`MiniMax TTS request failed: ${response.status} ${response.statusText}`)
+              }
+
+              // Parse SSE stream and collect hex-encoded audio chunks
+              const reader = response.body.getReader()
+              const decoder = new TextDecoder()
+              const audioChunks: Uint8Array[] = []
+              let buffer = ''
+
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done)
+                  break
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split('\n')
+                buffer = lines.pop() || ''
+                for (const line of lines) {
+                  if (!line.startsWith('data:'))
+                    continue
+                  const jsonStr = line.slice(5).trim()
+                  if (!jsonStr || jsonStr === '[DONE]')
+                    continue
+                  try {
+                    const eventData = JSON.parse(jsonStr)
+                    const audio = eventData?.data?.audio
+                    // status 2 is the final summary chunk; skip it to avoid duplication
+                    if (audio && eventData?.data?.status !== 2) {
+                      const hexStr = audio as string
+                      const bytes = new Uint8Array(hexStr.length / 2)
+                      for (let i = 0; i < hexStr.length; i += 2) {
+                        bytes[i / 2] = Number.parseInt(hexStr.slice(i, i + 2), 16)
+                      }
+                      audioChunks.push(bytes)
+                    }
+                  }
+                  catch {
+                    // ignore malformed SSE events
+                  }
+                }
+              }
+
+              const totalLength = audioChunks.reduce((sum, chunk) => sum + chunk.length, 0)
+              const combined = new Uint8Array(totalLength)
+              let offset = 0
+              for (const chunk of audioChunks) {
+                combined.set(chunk, offset)
+                offset += chunk.length
+              }
+
+              return new Response(combined.buffer, {
+                status: 200,
+                headers: { 'Content-Type': 'audio/mpeg' },
+              })
+            },
+          }),
+        }
+        return provider
+      },
+      capabilities: {
+        listModels: async () => [
+          {
+            id: 'speech-2.8-hd',
+            name: 'Speech 2.8 HD',
+            provider: 'minimax-speech',
+            description: 'High-definition TTS model with natural prosody',
+            contextLength: 0,
+            deprecated: false,
+          },
+          {
+            id: 'speech-2.8-turbo',
+            name: 'Speech 2.8 Turbo',
+            provider: 'minimax-speech',
+            description: 'Fast TTS model for low-latency scenarios',
+            contextLength: 0,
+            deprecated: false,
+          },
+        ],
+        listVoices: async () => [
+          { id: 'English_Graceful_Lady', name: 'Graceful Lady', provider: 'minimax-speech', gender: 'female', languages: [{ code: 'en', title: 'English' }] },
+          { id: 'English_Insightful_Speaker', name: 'Insightful Speaker', provider: 'minimax-speech', gender: 'male', languages: [{ code: 'en', title: 'English' }] },
+          { id: 'English_radiant_girl', name: 'Radiant Girl', provider: 'minimax-speech', gender: 'female', languages: [{ code: 'en', title: 'English' }] },
+          { id: 'English_Persuasive_Man', name: 'Persuasive Man', provider: 'minimax-speech', gender: 'male', languages: [{ code: 'en', title: 'English' }] },
+          { id: 'English_Lucky_Robot', name: 'Lucky Robot', provider: 'minimax-speech', gender: 'neutral', languages: [{ code: 'en', title: 'English' }] },
+          { id: 'English_expressive_narrator', name: 'Expressive Narrator', provider: 'minimax-speech', gender: 'neutral', languages: [{ code: 'en', title: 'English' }] },
+          { id: 'Mandarin_Gentle_Woman', name: 'Gentle Woman', provider: 'minimax-speech', gender: 'female', languages: [{ code: 'zh', title: 'Chinese' }] },
+          { id: 'Mandarin_Steadfast_Man', name: 'Steadfast Man', provider: 'minimax-speech', gender: 'male', languages: [{ code: 'zh', title: 'Chinese' }] },
+          { id: 'Mandarin_Sweet_Girl', name: 'Sweet Girl', provider: 'minimax-speech', gender: 'female', languages: [{ code: 'zh', title: 'Chinese' }] },
+          { id: 'Mandarin_Magnetic_Gentleman', name: 'Magnetic Gentleman', provider: 'minimax-speech', gender: 'male', languages: [{ code: 'zh', title: 'Chinese' }] },
+        ],
+      },
+      validators: {
+        chatPingCheckAvailable: false,
+        validateProviderConfig: (config) => {
+          const errors = [
+            !config.apiKey && new Error('API key is required.'),
+          ].filter(Boolean)
+
+          return {
+            errors,
+            reason: errors.filter(e => e).map(e => String(e)).join(', ') || '',
+            valid: !!config.apiKey,
+          }
+        },
+      },
+    },
     'openrouter-audio-speech': buildOpenRouterAudioSpeechProvider(v => baseUrlValidator.value(v)),
+    'mimo-audio-speech': {
+      id: 'mimo-audio-speech',
+      category: 'speech',
+      tasks: ['text-to-speech'],
+      nameKey: 'settings.pages.providers.provider.mimo.title',
+      name: 'Xiaomi MiMo',
+      descriptionKey: 'settings.pages.providers.provider.mimo.description',
+      description: 'api.xiaomimimo.com',
+      icon: 'i-simple-icons:xiaomi',
+      defaultOptions: () => ({
+        baseUrl: 'https://api.xiaomimimo.com/v1/',
+        model: 'mimo-v2.5-tts',
+        voice: 'mimo_default',
+        format: 'wav',
+      }),
+      createProvider: async (config) => {
+        const apiKey = (config.apiKey as string)?.trim() ?? ''
+        const baseUrl = ((config.baseUrl as string) || 'https://api.xiaomimimo.com/v1/').replace(/\/+$/, '')
+        const defaultModel = (config.model as string) || 'mimo-v2.5-tts'
+        const defaultVoice = (config.voice as string) || 'mimo_default'
+        const defaultFormat = (config.format as string) || 'wav'
+
+        const provider: SpeechProvider = {
+          speech: () => ({
+            baseURL: `${baseUrl}/`,
+            model: defaultModel,
+            fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+              if (!init?.body || typeof init.body !== 'string') {
+                throw new Error('Invalid request body')
+              }
+
+              const body = JSON.parse(init.body)
+              const text = body.input as string
+              const modelId = (body.model as string) || defaultModel
+              const format = (body.response_format as string) || defaultFormat
+              const stylePrompt = typeof body.style_prompt === 'string'
+                ? body.style_prompt.trim()
+                : typeof config.stylePrompt === 'string'
+                  ? config.stylePrompt.trim()
+                  : ''
+              const voiceSample = typeof body.voice_sample === 'string'
+                ? body.voice_sample.trim()
+                : typeof config.voiceSample === 'string'
+                  ? config.voiceSample.trim()
+                  : ''
+
+              const userPrompt = modelId === 'mimo-v2.5-tts-voiceclone'
+                ? stylePrompt
+                : stylePrompt || 'Use a natural, clear speaking style.'
+
+              const audio: Record<string, string> = { format }
+              if (modelId === 'mimo-v2.5-tts-voiceclone') {
+                if (!voiceSample) {
+                  throw new Error('MiMo voice clone requires a base64 audio sample in data URI format.')
+                }
+                audio.voice = voiceSample
+              }
+              else if (modelId === 'mimo-v2.5-tts') {
+                audio.voice = (body.voice as string) || defaultVoice
+              }
+
+              if (modelId === 'mimo-v2.5-tts-voicedesign' && !stylePrompt) {
+                throw new Error('MiMo voice design requires a style prompt in the user message.')
+              }
+
+              const response = await fetch(`${baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'api-key': apiKey,
+                },
+                body: JSON.stringify({
+                  model: modelId,
+                  messages: [
+                    { role: 'user', content: userPrompt },
+                    { role: 'assistant', content: text },
+                  ],
+                  audio,
+                }),
+              })
+
+              if (!response.ok || !response.body) {
+                throw new Error(`MiMo TTS request failed: ${response.status} ${response.statusText}`)
+              }
+
+              const data = await response.json()
+              const audioBase64 = data?.choices?.[0]?.message?.audio?.data
+              if (!audioBase64) {
+                throw new Error('MiMo TTS response missing audio data')
+              }
+
+              const binaryString = atob(audioBase64)
+              const bytes = new Uint8Array(binaryString.length)
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i)
+              }
+
+              const contentType = format === 'wav' ? 'audio/wav' : format === 'mp3' ? 'audio/mpeg' : `audio/${format}`
+              return new Response(bytes.buffer, {
+                status: 200,
+                headers: { 'Content-Type': contentType },
+              })
+            },
+          }),
+        }
+        return provider
+      },
+      capabilities: {
+        listModels: async () => [
+          {
+            id: 'mimo-v2.5-tts',
+            name: 'MiMo v2.5 TTS',
+            provider: 'mimo-audio-speech',
+            description: 'Preset voice synthesis with the built-in MiMo voice list',
+            contextLength: 0,
+            deprecated: false,
+          },
+          {
+            id: 'mimo-v2.5-tts-voicedesign',
+            name: 'MiMo v2.5 TTS Voice Design',
+            provider: 'mimo-audio-speech',
+            description: 'Design a new voice from a natural language description',
+            contextLength: 0,
+            deprecated: false,
+          },
+          {
+            id: 'mimo-v2.5-tts-voiceclone',
+            name: 'MiMo v2.5 TTS Voice Clone',
+            provider: 'mimo-audio-speech',
+            description: 'Clone a voice from a base64-encoded audio sample',
+            contextLength: 0,
+            deprecated: false,
+          },
+        ],
+        listVoices: async () => [
+          { id: 'mimo_default', name: 'MiMo-默认', provider: 'mimo-audio-speech', gender: 'female', languages: [{ code: 'en', title: 'English' }, { code: 'zh', title: 'Chinese' }] },
+          { id: '冰糖', name: '冰糖', provider: 'mimo-audio-speech', gender: 'female', languages: [{ code: 'zh', title: 'Chinese' }] },
+          { id: '茉莉', name: '茉莉', provider: 'mimo-audio-speech', gender: 'female', languages: [{ code: 'zh', title: 'Chinese' }] },
+          { id: '苏打', name: '苏打', provider: 'mimo-audio-speech', gender: 'male', languages: [{ code: 'zh', title: 'Chinese' }] },
+          { id: '白桦', name: '白桦', provider: 'mimo-audio-speech', gender: 'male', languages: [{ code: 'zh', title: 'Chinese' }] },
+          { id: 'Mia', name: 'Mia', provider: 'mimo-audio-speech', gender: 'female', languages: [{ code: 'en', title: 'English' }] },
+          { id: 'Chloe', name: 'Chloe', provider: 'mimo-audio-speech', gender: 'female', languages: [{ code: 'en', title: 'English' }] },
+          { id: 'Milo', name: 'Milo', provider: 'mimo-audio-speech', gender: 'male', languages: [{ code: 'en', title: 'English' }] },
+          { id: 'Dean', name: 'Dean', provider: 'mimo-audio-speech', gender: 'male', languages: [{ code: 'en', title: 'English' }] },
+        ],
+      },
+      validators: {
+        chatPingCheckAvailable: false,
+        validateProviderConfig: (config) => {
+          const errors = [
+            !config.apiKey && new Error('API key is required.'),
+            !config.baseUrl && new Error('Base URL is required.'),
+          ].filter(Boolean)
+
+          const res = baseUrlValidator.value(config.baseUrl)
+          if (res) {
+            return res
+          }
+
+          return {
+            errors,
+            reason: errors.map(e => (e as Error).message).join(', ') || '',
+            valid: !!config.apiKey && !!config.baseUrl,
+          }
+        },
+      },
+    },
     'comet-api-speech': buildOpenAICompatibleProvider({
       id: 'comet-api-speech',
       name: 'CometAPI Speech',
@@ -1419,6 +1754,156 @@ export const useProvidersStore = defineStore('providers', () => {
       ),
       validation: [ProviderValidationCheck.ModelList],
     }),
+    'mimo-audio-transcription': {
+      id: 'mimo-audio-transcription',
+      category: 'transcription',
+      tasks: ['speech-to-text', 'automatic-speech-recognition', 'asr', 'stt'],
+      nameKey: 'settings.pages.providers.provider.mimo.title',
+      name: 'Xiaomi MiMo',
+      descriptionKey: 'settings.pages.providers.provider.mimo.description',
+      description: 'api.xiaomimimo.com',
+      icon: 'i-simple-icons:xiaomi',
+      defaultOptions: () => ({
+        baseUrl: 'https://api.xiaomimimo.com/v1/',
+        model: 'mimo-v2-omni',
+      }),
+      createProvider: async (config) => {
+        const apiKey = (config.apiKey as string)?.trim() ?? ''
+        const rawBaseUrl = `${((config.baseUrl as string) || 'https://api.xiaomimimo.com/v1/').replace(/\/+$/, '')}/`
+        const defaultModel = (config.model as string) || 'mimo-v2-omni'
+
+        const provider: TranscriptionProvider = {
+          transcription: model => ({
+            baseURL: rawBaseUrl,
+            model: model || defaultModel,
+            headers: {},
+            fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+              const formData = init?.body as FormData
+              const file = formData?.get('file') as Blob | null
+              const modelName = (formData?.get('model') as string) || defaultModel
+
+              if (!file) {
+                throw new Error('No audio file provided for transcription.')
+              }
+
+              // Read the file as base64 data URI (works with both Blob and File)
+              const base64DataUri: string = await new Promise((resolve, reject) => {
+                const reader = new FileReader()
+                reader.onload = () => resolve(reader.result as string)
+                reader.onerror = () => reject(new Error('Failed to read audio file'))
+                reader.readAsDataURL(file)
+              })
+
+              // Extract format and base64 data from data URI
+              // data:audio/wav;base64,UklGR...
+              const mimeType = base64DataUri.split(';')[0]?.split(':')[1] || 'audio/wav'
+              const formatFromMime = mimeType.split('/')[1] || 'wav'
+              const base64Data = base64DataUri.split(',')[1]
+
+              // Map MIME sub-type to MiMo supported audio format
+              const audioFormat = formatFromMime === 'webm'
+                ? 'webm'
+                : formatFromMime === 'mp4'
+                  ? 'mp4'
+                  : formatFromMime === 'mpeg' || formatFromMime === 'mp3'
+                    ? 'mp3'
+                    : 'wav'
+
+              // MiMo audio understanding uses chat completions with input_audio,
+              // not a dedicated transcription endpoint
+              const response = await fetch(`${rawBaseUrl}chat/completions`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'api-key': apiKey,
+                },
+                body: JSON.stringify({
+                  model: modelName,
+                  messages: [
+                    {
+                      role: 'user',
+                      content: [
+                        { type: 'text', text: 'Transcribe the audio content.' },
+                        {
+                          type: 'input_audio',
+                          input_audio: {
+                            data: base64Data,
+                            format: audioFormat,
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              })
+
+              if (!response.ok) {
+                const errorBody = await response.text().catch(() => '')
+                throw new Error(
+                  `MiMo transcription failed: ${response.status} ${response.statusText}${errorBody ? ` — ${errorBody}` : ''}`,
+                )
+              }
+
+              const data = await response.json()
+              const text = data?.choices?.[0]?.message?.content || ''
+
+              // Return in OpenAI transcription response format { text: "..." }
+              return new Response(JSON.stringify({ text }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              })
+            },
+          }),
+        }
+
+        return provider
+      },
+      capabilities: {
+        listModels: async () => [
+          {
+            id: 'mimo-v2-omni',
+            name: 'MiMo V2 Omni',
+            provider: 'mimo-audio-transcription',
+            description: 'Omni-modal model with native audio understanding and speech-to-text',
+            contextLength: 256000,
+            deprecated: false,
+          },
+          {
+            id: 'mimo-v2.5',
+            name: 'MiMo V2.5',
+            provider: 'mimo-audio-transcription',
+            description: 'Latest omni-modal model with audio understanding, 1M context',
+            contextLength: 1_000_000,
+            deprecated: false,
+          },
+        ],
+      },
+      transcriptionFeatures: {
+        supportsGenerate: true,
+        supportsStreamOutput: false,
+        supportsStreamInput: false,
+      },
+      validators: {
+        chatPingCheckAvailable: false,
+        validateProviderConfig: (config) => {
+          const errors = [
+            !config.apiKey && new Error('API key is required.'),
+            !config.baseUrl && new Error('Base URL is required.'),
+          ].filter(Boolean)
+
+          const res = baseUrlValidator.value(config.baseUrl)
+          if (res) {
+            return res
+          }
+
+          return {
+            errors,
+            reason: errors.map(e => (e as Error).message).join(', ') || '',
+            valid: !!config.apiKey && !!config.baseUrl,
+          }
+        },
+      },
+    },
     'player2-speech': {
       id: 'player2-speech',
       category: 'speech',
@@ -1551,8 +2036,10 @@ export const useProvidersStore = defineStore('providers', () => {
       icon: 'i-lobe-icons:speaker',
 
       defaultOptions: () => {
-        const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu
-        const model = getDefaultKokoroModel(hasWebGPU)
+        const capabilities = getCachedWebGPUCapabilities()
+        const hasWebGPU = capabilities?.supported ?? (typeof navigator !== 'undefined' && !!navigator.gpu)
+        const fp16Supported = capabilities?.fp16Supported ?? false
+        const model = getDefaultKokoroModel(hasWebGPU, fp16Supported)
         return {
           model,
           voiceId: '',
@@ -1561,7 +2048,7 @@ export const useProvidersStore = defineStore('providers', () => {
 
       createProvider: async (_config) => {
         // Import the worker manager
-        const workerManagerPromise = getKokoroWorker()
+        const workerManagerPromise = getKokoroAdapter()
 
         const provider: SpeechProvider = {
           speech: () => {
@@ -1606,8 +2093,10 @@ export const useProvidersStore = defineStore('providers', () => {
 
       capabilities: {
         listModels: async (_config: Record<string, unknown>) => {
-          const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu
-          return kokoroModelsToModelInfo(hasWebGPU, t)
+          const caps = getCachedWebGPUCapabilities()
+          const hasWebGPU = caps?.supported ?? (typeof navigator !== 'undefined' && !!navigator.gpu)
+          const fp16Supported = caps?.fp16Supported ?? false
+          return kokoroModelsToModelInfo(hasWebGPU, t, fp16Supported)
         },
 
         loadModel: async (config: Record<string, unknown>, _hooks?: { onProgress?: (progress: ProgressInfo) => Promise<void> | void }) => {
@@ -1624,15 +2113,30 @@ export const useProvidersStore = defineStore('providers', () => {
 
           // Validate platform requirements
           if (modelDef.platform === 'webgpu') {
-            const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu
+            const hasWebGPU = getCachedWebGPUCapabilities()?.supported ?? (typeof navigator !== 'undefined' && !!navigator.gpu)
             if (!hasWebGPU) {
               throw new Error('WebGPU is required for this model but is not available in your browser')
             }
           }
 
           try {
-            const workerManager = await getKokoroWorker()
-            await workerManager.loadModel(modelDef.quantization, modelDef.platform, { onProgress: _hooks?.onProgress })
+            const workerManager = await getKokoroAdapter()
+            await workerManager.loadModel(modelDef.quantization, modelDef.platform, {
+              onProgress: _hooks?.onProgress
+                ? (p) => {
+                    // Map unified ProgressPayload back to ProgressInfo shape
+                    // that the provider hooks expect (HuggingFace transformers format)
+                    _hooks.onProgress!({
+                      name: p.file ?? '',
+                      file: p.file ?? '',
+                      progress: p.percent >= 0 ? p.percent : 0,
+                      status: 'progress',
+                      loaded: p.loaded ?? 0,
+                      total: p.total ?? 0,
+                    } as ProgressInfo)
+                  }
+                : undefined,
+            })
           }
           catch (error) {
             console.error('Failed to load Kokoro model:', error)
@@ -1640,64 +2144,67 @@ export const useProvidersStore = defineStore('providers', () => {
           }
         },
 
-        listVoices: async (config: Record<string, unknown>) => {
-          try {
-            // Reload the model before fetching voices
-            const modelId = config.model as string
-            if (modelId) {
-              const modelDef = KOKORO_MODELS.find(m => m.id === modelId)
-              if (modelDef) {
-                // Validate platform requirements
-                if (modelDef.platform === 'webgpu') {
-                  const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu
-                  if (!hasWebGPU) {
-                    throw new Error('WebGPU is required for this model but is not available in your browser')
+        listVoices: (() => {
+          let lastLoadedModelId: string | null = null
+          return async (config: Record<string, unknown>) => {
+            try {
+              const workerManager = await getKokoroAdapter()
+              const modelId = config.model as string
+
+              // Reload the model if it hasn't been loaded yet or if the model ID changed
+              if (workerManager.state !== 'ready' || (modelId && modelId !== lastLoadedModelId)) {
+                if (modelId) {
+                  const modelDef = KOKORO_MODELS.find(m => m.id === modelId)
+                  if (modelDef) {
+                    if (modelDef.platform === 'webgpu') {
+                      const hasWebGPU = getCachedWebGPUCapabilities()?.supported ?? (typeof navigator !== 'undefined' && !!navigator.gpu)
+                      if (!hasWebGPU) {
+                        throw new Error('WebGPU is required for this model but is not available in your browser')
+                      }
+                    }
+
+                    await workerManager.loadModel(modelDef.quantization, modelDef.platform)
+                    lastLoadedModelId = modelId
                   }
                 }
-
-                // Load the model
-                const workerManager = await getKokoroWorker()
-                await workerManager.loadModel(modelDef.quantization, modelDef.platform)
               }
-            }
 
-            // Get worker manager and fetch voices from the model
-            const workerManager = await getKokoroWorker()
-            const modelVoices = workerManager.getVoices()
+              const modelVoices = workerManager.getVoices()
 
-            // Language code mapping
-            const languageMap: Record<string, { code: string, title: string }> = {
-              'en-us': { code: 'en-US', title: 'English (US)' },
-              'en-gb': { code: 'en-GB', title: 'English (UK)' },
-              'ja': { code: 'ja', title: 'Japanese' },
-              'zh-cn': { code: 'zh-CN', title: 'Chinese (Mandarin)' },
-              'es': { code: 'es', title: 'Spanish' },
-              'fr': { code: 'fr', title: 'French' },
-              'hi': { code: 'hi', title: 'Hindi' },
-              'it': { code: 'it', title: 'Italian' },
-              'pt-br': { code: 'pt-BR', title: 'Portuguese (Brazil)' },
-            }
-
-            // Transform the voices object to the expected array format
-            return Object.entries(modelVoices).map(([id, voice]: [string, { language: string, name: string, gender: string }]) => {
-              const languageCode = voice.language.toLowerCase()
-              const languageInfo = languageMap[languageCode] || { code: languageCode, title: voice.language }
-
-              return {
-                id,
-                name: `${voice.name} (${voice.gender}, ${languageInfo.title.split('(')[0].trim()})`,
-                provider: 'kokoro-local',
-                languages: [languageInfo],
-                gender: voice.gender.toLowerCase(),
+              // Language code mapping
+              const languageMap: Record<string, { code: string, title: string }> = {
+                'en-us': { code: 'en-US', title: 'English (US)' },
+                'en-gb': { code: 'en-GB', title: 'English (UK)' },
+                'ja': { code: 'ja', title: 'Japanese' },
+                'zh-cn': { code: 'zh-CN', title: 'Chinese (Mandarin)' },
+                'es': { code: 'es', title: 'Spanish' },
+                'fr': { code: 'fr', title: 'French' },
+                'hi': { code: 'hi', title: 'Hindi' },
+                'it': { code: 'it', title: 'Italian' },
+                'pt-br': { code: 'pt-BR', title: 'Portuguese (Brazil)' },
               }
-            })
+
+              // Transform the voices object to the expected array format
+              return Object.entries(modelVoices).map(([id, voice]: [string, { language: string, name: string, gender: string }]) => {
+                const languageCode = voice.language.toLowerCase()
+                const languageInfo = languageMap[languageCode] || { code: languageCode, title: voice.language }
+
+                return {
+                  id,
+                  name: `${voice.name} (${voice.gender}, ${languageInfo.title.split('(')[0].trim()})`,
+                  provider: 'kokoro-local',
+                  languages: [languageInfo],
+                  gender: voice.gender.toLowerCase(),
+                }
+              })
+            }
+            catch (error) {
+              console.error('Failed to fetch Kokoro voices:', error)
+              // Return empty array if model not loaded yet
+              return []
+            }
           }
-          catch (error) {
-            console.error('Failed to fetch Kokoro voices:', error)
-            // Return empty array if model not loaded yet
-            return []
-          }
-        },
+        })(),
       },
 
       validators: {
@@ -1753,19 +2260,13 @@ export const useProvidersStore = defineStore('providers', () => {
     }
   }
 
-  // Keep only legacy ASR/TTS providers and official providers as hand-written metadata.
-  // All other categories are sourced from unified definitions in libs/providers.
-  for (const [providerId, existing] of Object.entries(providerMetadata)) {
-    if (existing.category !== 'speech' && existing.category !== 'transcription') {
-      delete providerMetadata[providerId]
-    }
-  }
-
-  // Populate non-speech providers from unified registry translation.
+  // Merge unified registry definitions into providerMetadata.
+  // Unified defineProvider() entries always take precedence over legacy hand-written
+  // metadata. Legacy entries are kept only as fallback for providers not yet migrated
+  // to defineProvider().
+  // TODO: progressively migrate legacy speech/transcription providers to defineProvider()
+  // and remove the hand-written metadata above entirely.
   for (const [providerId, translated] of Object.entries(translatedProviderMetadata)) {
-    if (translated.category === 'speech' || translated.category === 'transcription') {
-      continue
-    }
     providerMetadata[providerId] = translated
   }
 
@@ -2101,14 +2602,27 @@ export const useProvidersStore = defineStore('providers', () => {
     }
   }
 
-  // Get all providers metadata (for settings page)
+  // Get all providers metadata (for settings page).
+  // Order: defined providers first (already sorted by order in registry), then legacy-only providers.
+  const definedProviderIds = new Set(definedProviders.map(d => d.id))
+
   const allProvidersMetadata = computed(() => {
-    return Object.values(providerMetadata).map(metadata => ({
+    const localize = (metadata: ProviderMetadata) => ({
       ...metadata,
       localizedName: t(metadata.nameKey, metadata.name),
       localizedDescription: t(metadata.descriptionKey, metadata.description),
       configured: providerRuntimeState.value[metadata.id]?.isConfigured || false,
-    }))
+    })
+
+    const ordered = definedProviders
+      .filter(d => providerMetadata[d.id])
+      .map(d => localize(providerMetadata[d.id]))
+
+    const legacy = Object.values(providerMetadata)
+      .filter(m => !definedProviderIds.has(m.id))
+      .map(localize)
+
+    return [...ordered, ...legacy]
   })
 
   function getTranscriptionFeatures(providerId: string) {

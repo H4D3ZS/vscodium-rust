@@ -32,9 +32,22 @@ export interface Server {
   updateConfig: (newOptions: ServerOptions) => void
 }
 
+/**
+ * Collects local IP addresses that can be used to reach the server from the LAN.
+ *
+ * Use when:
+ * - Building connection hints for `0.0.0.0` listeners
+ * - Showing reachable addresses in logs or UI
+ *
+ * Expects:
+ * - Virtual interfaces should be ignored to reduce noisy or misleading addresses
+ *
+ * Returns:
+ * - A de-duplicated list of valid IP addresses discovered from the host network interfaces
+ */
 export function getLocalIPs(): string[] {
   const interfaces = networkInterfaces()
-  const addresses: string[] = []
+  const addresses = new Set<string>()
 
   const VIRTUAL_INTERFACE_PREFIXES = [
     'vboxnet',
@@ -63,15 +76,28 @@ export function getLocalIPs(): string[] {
 
       const address = rawAddress.includes('%') ? rawAddress.split('%')[0] : rawAddress
       if (isIP(address))
-        addresses.push(address)
+        addresses.add(address)
     }
   }
 
-  return addresses
+  return [...addresses]
 }
 
+/**
+ * Creates the websocket server controller for the AIRI runtime.
+ *
+ * Use when:
+ * - Starting, stopping, or restarting the standalone runtime server
+ * - Updating bind options between restarts
+ *
+ * Expects:
+ * - The returned controller to manage a single active server instance at a time
+ *
+ * Returns:
+ * - Lifecycle helpers for starting, stopping, restarting, and updating server options
+ */
 export function createServer(opts?: ServerOptions): Server {
-  let options = merge<ServerOptions>({ port: 6121, hostname: 'localhost' }, opts)
+  let options = merge<ServerOptions>({ port: 6121, hostname: '127.0.0.1' }, opts)
 
   const { appLogFormat, appLogLevel } = normalizeLoggerConfig(options)
   const log = useLogg('@proj-airi/server-runtime/server').withLogLevelString(appLogLevel).withFormat(appLogFormat)
@@ -140,8 +166,7 @@ export function createServer(opts?: ServerOptions): Server {
       try {
         serverInstance = {
           close: async (closeActiveConnections = false) => {
-            log.log('closing all peers')
-            h3App.closeAllPeers()
+            h3App.dispose()
             log.log('closing server instance')
             await instance.close(closeActiveConnections)
             log.log('server instance closed')
@@ -152,7 +177,7 @@ export function createServer(opts?: ServerOptions): Server {
 
         const protocol = secureEnabled ? 'wss' : 'ws'
         if (hostname === '0.0.0.0') {
-          const ips = getLocalIPs().filter(ip => ip !== 'localhost' && ip !== '::1')
+          const ips = getLocalIPs().filter(ip => ip !== '127.0.0.1' && ip !== '::1')
           const targets = ips.length > 0 ? ips.join(', ') : 'localhost'
           log.log(`@proj-airi/server-runtime started on ${protocol}://0.0.0.0:${port} (reachable via: ${targets})`)
         }
@@ -162,7 +187,7 @@ export function createServer(opts?: ServerOptions): Server {
       }
       catch (error) {
         serverInstance = null
-        h3App.closeAllPeers()
+        h3App.dispose()
         await instance.close(true).catch(() => {})
         log.withError(error).error('failed to start WebSocket server')
         throw error
@@ -183,12 +208,16 @@ export function createServer(opts?: ServerOptions): Server {
     await start()
   }
 
-  async function updateConfig(newOptions: ServerOptions) {
-    options = { ...options, ...newOptions }
+  function updateConfig(newOptions: ServerOptions) {
+    options = merge<ServerOptions>(options, newOptions)
   }
 
   return {
     getConnectionHost: () => {
+      if (options.hostname && options.hostname !== '0.0.0.0' && options.hostname !== '::') {
+        return [options.hostname]
+      }
+
       return getLocalIPs()
     },
     start,

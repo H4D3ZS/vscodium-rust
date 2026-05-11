@@ -686,9 +686,9 @@ export const SpawnSubAgentTool: ToolDef = {
     },
     execute: async (input, ctx) => {
         try {
-            const result = await invoke<string>('spawn_subagent', {
+            const result = await invoke<any>('spawn_subagent', {
                 task: input.task,
-                workingDirectory: input.working_directory || ctx.activeRoot,
+                working_directory: input.working_directory || ctx.activeRoot,
             });
             return ok({ agentResult: result });
         } catch (e: any) {
@@ -715,7 +715,7 @@ export const BrowserSubAgentTool: ToolDef = {
     },
     execute: async (input, _ctx) => {
         try {
-            const result = await invoke<string>('browser_subagent', {
+            const result = await invoke<any>('browser_subagent', {
                 task: input.task,
             });
             return ok({ browserResult: result });
@@ -757,9 +757,11 @@ export const GitStatusTool: ToolDef = {
     description: `Get the current git status including branch, staged/unstaged changes, and recent commits. Uses native backend Git integration.`,
     inputSchema: { type: 'object', properties: {}, required: [] },
     isReadOnly: true,
-    execute: async (_input, _ctx) => {
+    execute: async (_input, ctx) => {
         try {
-            const result = await invoke<string>('git_status');
+            const result = await invoke<any>('git_status', {
+                path: ctx.activeRoot,
+            });
             return ok(result);
         } catch (e: any) {
             return fail(`Git status failed: ${e}`);
@@ -786,11 +788,21 @@ export const GitDiffTool: ToolDef = {
         required: [],
     },
     isReadOnly: true,
-    execute: async (input, _ctx) => {
+    execute: async (input, ctx) => {
         try {
-            const result = await invoke<string>('git_diff', {
-                staged: !!input.staged,
-                path: input.file_path || undefined,
+            if (input.file_path) {
+                const result = await invoke<string>('git_diff_file', {
+                    path: ctx.activeRoot,
+                    file_path: input.file_path,
+                });
+                return ok(result || 'No changes detected.');
+            }
+
+            // Backend git_diff is commit-hash based; use shell command for working-tree diff.
+            const cmd = input.staged ? 'git diff --staged' : 'git diff';
+            const result = await invoke<string>('ai_execute_command', {
+                command: cmd,
+                cwd: ctx.activeRoot,
             });
             return ok(result || 'No changes detected.');
         } catch (e: any) {
@@ -813,10 +825,28 @@ export const GitAddTool: ToolDef = {
         },
         required: ['files'],
     },
-    execute: async (input, _ctx) => {
+    execute: async (input, ctx) => {
         try {
-            const result = await invoke<string>('git_add', { files: input.files });
-            return ok(result);
+            const files: string[] = Array.isArray(input.files) ? input.files : [];
+            if (files.length === 0) {
+                return fail('git_add requires at least one file path.');
+            }
+
+            if (files.includes('.')) {
+                await invoke<string>('ai_execute_command', {
+                    command: 'git add .',
+                    cwd: ctx.activeRoot,
+                });
+                return ok('Staged all changes.');
+            }
+
+            for (const filePath of files) {
+                await invoke('git_stage', {
+                    path: ctx.activeRoot,
+                    file_path: filePath,
+                });
+            }
+            return ok(`Staged ${files.length} file(s).`);
         } catch (e: any) {
             return fail(`Git add failed: ${e}`);
         }
@@ -836,10 +866,13 @@ export const GitCommitTool: ToolDef = {
         },
         required: ['message'],
     },
-    execute: async (input, _ctx) => {
+    execute: async (input, ctx) => {
         try {
-            const result = await invoke<string>('git_commit', { message: input.message });
-            return ok(result);
+            await invoke('git_commit', {
+                path: ctx.activeRoot,
+                message: input.message,
+            });
+            return ok('Commit created successfully.');
         } catch (e: any) {
             return fail(`Git commit failed: ${e}`);
         }
@@ -861,9 +894,14 @@ export const GitLogTool: ToolDef = {
         required: [],
     },
     isReadOnly: true,
-    execute: async (input, _ctx) => {
+    execute: async (input, ctx) => {
         try {
-            const result = await invoke<string>('git_log', { limit: input.limit || 10 });
+            const history = await invoke<any[]>('get_git_history', { path: ctx.activeRoot });
+            const limit = input.limit || 10;
+            const result = (history || [])
+                .slice(0, limit)
+                .map((c: any) => `${c.hash?.slice(0, 7) || 'unknown'} ${c.message || ''} (${c.author || 'unknown'})`)
+                .join('\n');
             return ok(result);
         } catch (e: any) {
             return fail(`Git log failed: ${e}`);
@@ -895,7 +933,7 @@ export const TerminalSendTool: ToolDef = {
         try {
             await invoke('terminal_send_data', {
                 data: input.data,
-                terminalId: input.terminal_id || undefined,
+                terminal_id: input.terminal_id || undefined,
             });
             return ok({ status: 'sent' });
         } catch (e: any) {
@@ -921,7 +959,7 @@ export const TerminalReadTool: ToolDef = {
     execute: async (input, _ctx) => {
         try {
             const result = await invoke<string>('terminal_read_output', {
-                terminalId: input.terminal_id || undefined,
+                id: input.terminal_id,
             });
             return ok(result);
         } catch (e: any) {
@@ -975,8 +1013,8 @@ export const MCPTool: ToolDef = {
     execute: async (input, _ctx) => {
         try {
             const result = await invoke<any>('mcp_call_tool', {
-                serverName: input.server_name,
-                toolName: input.tool_name,
+                server_name: input.server_name,
+                tool_name: input.tool_name,
                 arguments: input.arguments || {},
             });
             return ok(result);

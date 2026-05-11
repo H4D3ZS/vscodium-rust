@@ -1,6 +1,6 @@
 export type ServerChannelExposureMode = 'this-device' | 'all' | 'advanced'
 
-const LOOPBACK_HOSTNAMES = new Set(['', 'localhost', 'localhost', '::1'])
+const LOOPBACK_HOSTNAMES = new Set(['', '127.0.0.1', 'localhost', '::1'])
 const ALL_INTERFACE_HOSTNAMES = new Set(['0.0.0.0', '::'])
 
 export function serverChannelExposureModeFromHostname(hostname?: string): ServerChannelExposureMode {
@@ -21,8 +21,8 @@ export function hostnameFromExposureMode(mode: ServerChannelExposureMode, manual
 
   if (mode === 'advanced') {
     const normalizedHostname = manualHostname?.trim() ?? ''
-    return normalizedHostname || 'localhost'
+    return normalizedHostname || '127.0.0.1'
   }
 
-  return 'localhost'
+  return '127.0.0.1'
 }

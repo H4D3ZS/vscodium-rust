@@ -33,7 +33,7 @@ describe('ensureServerChannelConfigDefaults', () => {
     expect(result.changed).toBe(true)
     expect(result.config).toEqual({
       authToken: 'generated-token',
-      hostname: 'localhost',
+      hostname: '127.0.0.1',
       tlsConfig: null,
     })
     expect(generateToken).toHaveBeenCalledOnce()

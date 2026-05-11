@@ -89,7 +89,7 @@ const DEFAULT_PROFILES: TerminalProfile[] = [
   {
     id: 'powershell',
     name: 'PowerShell',
-    path: 'powershell.exe',
+    path: 'pwsh.exe',
     args: ['-NoLogo'],
     icon: 'terminal-powershell',
     isDefault: true,
@@ -205,9 +205,10 @@ export class TerminalManager {
   private nextId = 1;
   private defaultProfileId: string = 'powershell';
   private linkProvider: any = null;
+  private profilesReady: Promise<void>;
 
   constructor() {
-    this.loadProfiles();
+    this.profilesReady = this.loadProfiles();
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -246,6 +247,7 @@ export class TerminalManager {
     groupId?: string,
     cwd?: string
   ): Promise<string> {
+    await this.profilesReady;
     const id = `term-${this.nextId++}`;
     const profile = DEFAULT_PROFILES.find(p => p.id === (profileId || this.defaultProfileId)) 
                   || DEFAULT_PROFILES[0];
@@ -354,7 +356,7 @@ export class TerminalManager {
 
     // Spawn shell
     try {
-      const result = await invoke('spawn_terminal', { 
+      const result = await invoke<{ id?: string; status?: string; pid?: number }>('spawn_terminal', { 
         id, 
         shell: profile.path,
         args: profile.args || [],
@@ -414,7 +416,7 @@ export class TerminalManager {
     });
 
     // Right-click for context menu
-    instance.element.addEventListener('contextmenu', (event: MouseEvent) => {
+    term.onContextMenu((event: MouseEvent) => {
       event.preventDefault();
       this.showContextMenu(instance, event);
     });
@@ -669,26 +671,6 @@ export class TerminalManager {
     const theme = getVSCodeTheme();
     for (const instance of this.terminals.values()) {
       instance.term.options.theme = theme;
-    }
-  }
-
-  async getAvailableShells(): Promise<string[]> {
-    try {
-      return await invoke<string[]>('get_available_shells');
-    } catch (e) {
-      console.warn('Failed to get shells:', e);
-      return [];
-    }
-  }
-
-  resize(id: string) {
-    const instance = this.terminals.get(id);
-    if (instance) {
-      try {
-        instance.fitAddon.fit();
-        const { cols, rows } = instance.term;
-        invoke('resize_terminal', { id, cols, rows });
-      } catch (e) {}
     }
   }
 }

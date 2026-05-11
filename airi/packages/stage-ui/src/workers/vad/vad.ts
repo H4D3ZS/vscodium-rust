@@ -1,12 +1,8 @@
-import { AutoModel, Tensor, env } from '@huggingface/transformers'
+import type { PreTrainedModel } from '@huggingface/transformers'
 
-// Configure transformers environment for browser/Tauri compatibility
-env.allowLocalModels = false;
-env.allowRemoteModels = true;
-// Disable WASM proxy to avoid worker communication issues in some environments
-if (env.backends.onnx.wasm) {
-  env.backends.onnx.wasm.proxy = false;
-}
+import type { BaseVAD, BaseVADConfig, VADEventCallback, VADEvents } from '../../libs/audio/vad'
+
+import { AutoModel, Tensor } from '@huggingface/transformers'
 
 /**
  * Voice Activity Detection processor
@@ -24,7 +20,6 @@ export class VAD implements BaseVAD {
   private inferenceChain: Promise<any> = Promise.resolve()
   private eventListeners: Partial<Record<keyof VADEvents, VADEventCallback<any>[]>> = {}
   private isReady: boolean = false
-  private isInitializing: boolean = false
 
   constructor(userConfig: Partial<BaseVADConfig> = {}) {
     // Default configuration
@@ -50,33 +45,18 @@ export class VAD implements BaseVAD {
    * Initialize the VAD model
    */
   public async initialize(): Promise<void> {
-    if (this.isReady || this.isInitializing) return;
-    
-    this.isInitializing = true;
     try {
       this.emit('status', { type: 'info', message: 'Loading VAD model...' })
 
       // Full-precision
-      this.model = await AutoModel.from_pretrained('onnx-community/silero-vad', { 
-        config: { model_type: 'custom' } as any, 
-        dtype: 'fp32',
-        // Explicitly set device to cpu to avoid WebGPU issues on Windows in iframes
-        device: 'cpu' 
-      }).catch(err => {
-        console.error('[VAD] Failed to download or load model:', err);
-        throw err;
-      });
-
+      this.model = await AutoModel.from_pretrained('onnx-community/silero-vad', { config: { model_type: 'custom' } as any, dtype: 'fp32' })
       this.isReady = true
+
       this.emit('status', { type: 'info', message: 'VAD model loaded successfully' })
     }
     catch (error) {
-      console.error('[VAD] Initialization error:', error);
       this.emit('status', { type: 'error', message: `Failed to load VAD model: ${error}` })
-      // Don't re-throw to prevent "Uncaught (in promise)" spam if the caller doesn't handle it
-    }
-    finally {
-      this.isInitializing = false;
+      throw error
     }
   }
 

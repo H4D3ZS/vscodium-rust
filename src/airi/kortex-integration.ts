@@ -44,6 +44,7 @@ export class AIRIKortexIntegration {
     private state: KortexMemoryState;
     private memoryPath: string;
     private isLoaded = false;
+    private missingBackendLogged = false;
 
     constructor(memoryPath: string = '.aim/airi_memory.aim') {
         this.memoryPath = memoryPath;
@@ -99,11 +100,19 @@ export class AIRIKortexIntegration {
             const hours = Math.floor(timeDiff / (1000 * 60 * 60));
             
 
-            // Gist token is now handled by the semantic context service
-            // airiConsciousness.restoreFromGist(this.state.gistToken); // Removed: gistToken is a Float32Array, not JSON string
+            // Restore emotional state
+            airiConsciousness.restoreFromGist(this.state.gistToken);
 
-        } catch (error) {
-            console.error('[AIRI-Kortex] ❌ Failed to load consciousness:', error);
+        } catch (error: any) {
+            const msg = String(error?.message || error || '');
+            if (msg.includes('Command load_kortex_memory not found')) {
+                if (!this.missingBackendLogged) {
+                    console.warn('[AIRI-Kortex] Backend memory command unavailable; running with in-memory consciousness only.');
+                    this.missingBackendLogged = true;
+                }
+            } else {
+                console.error('[AIRI-Kortex] ❌ Failed to load consciousness:', error);
+            }
             this.isLoaded = true;
         }
     }

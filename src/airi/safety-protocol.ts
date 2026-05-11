@@ -54,6 +54,7 @@ export class AIRISafetyProtocol {
     private monitoringInterval: NodeJS.Timeout | null = null;
     private threatHistory: Array<{ timestamp: number; level: ThreatLevel; reason: string }> = [];
     private shutdownCallbacks: Array<() => void> = [];
+    private voiceRecognitionDisabled = false;
     
     // Hard-coded shutdown phrases (cannot be modified by AIRI)
     private readonly SHUTDOWN_PHRASES = [
@@ -368,7 +369,11 @@ export class AIRISafetyProtocol {
      * Setup voice recognition for shutdown phrases
      */
     private setupVoiceShutdown(): void {
-        if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
+        if (
+            typeof window !== 'undefined' &&
+            !this.voiceRecognitionDisabled &&
+            ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)
+        ) {
             const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
             const recognition = new SpeechRecognition();
             
@@ -388,10 +393,26 @@ export class AIRISafetyProtocol {
             };
 
             recognition.onerror = (event: any) => {
-                console.error('[Voice Shutdown] Recognition error:', event.error);
+                const err = event?.error || 'unknown';
+                // Browser mic permission denied: disable voice shutdown listener to avoid log spam.
+                if (err === 'not-allowed' || err === 'service-not-allowed') {
+                    this.voiceRecognitionDisabled = true;
+                    try { recognition.stop(); } catch (_) {}
+                    console.warn('[Voice Shutdown] Microphone permission not granted; voice shutdown listener disabled.');
+                    return;
+                }
+                if (err === 'aborted' || err === 'no-speech') {
+                    return;
+                }
+                console.error('[Voice Shutdown] Recognition error:', err);
             };
 
-            recognition.start();
+            try {
+                recognition.start();
+            } catch (error) {
+                this.voiceRecognitionDisabled = true;
+                console.warn('[Voice Shutdown] Could not start recognition listener:', error);
+            }
         }
     }
 

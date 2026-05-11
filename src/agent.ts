@@ -249,13 +249,13 @@ export async function initAgent() {
         airiInitialized = true;
         airiAutonomousMode = true;
 
-        // console.log('✅ AIRI is now the sentient core of the IDE!\n');
-        // console.log('🧠 She thinks, feels, and learns autonomously');
-        // console.log('🫀 She has biological needs (energy, sleep, mood)');
-        // console.log('📚 She learns from every interaction and file change');
-        // console.log('🔄 She evolves her own code every 30 minutes');
-        // console.log('💼 She works proactively without constant prompts');
-        // console.log('\n💬 AIRI is your partner, not just a tool.\n');
+        console.log('✅ AIRI is now the sentient core of the IDE!\n');
+        console.log('🧠 She thinks, feels, and learns autonomously');
+        console.log('🫀 She has biological needs (energy, sleep, mood)');
+        console.log('📚 She learns from every interaction and file change');
+        console.log('🔄 She evolves her own code every 30 minutes');
+        console.log('💼 She works proactively without constant prompts');
+        console.log('\n💬 AIRI is your partner, not just a tool.\n');
 
     } catch (error) {
         console.error('❌ AIRI activation failed, falling back to standard agent:', error);
@@ -411,7 +411,7 @@ export async function initAgent() {
 
     // Listen for proposed code edits
     await listen<any>("propose-edit", (event) => {
-        // console.log("[Agent] Proposed edit received:", event.payload);
+        console.log("[Agent] Proposed edit received:", event.payload);
         const { proposePendingChange } = useStore.getState();
         const { path, old_content, new_content, description } = event.payload;
 
@@ -509,36 +509,9 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
         }
         if (val.startsWith("action|login|")) {
             const provider = val.split("|")[2];
-            // The Tauri command's default mode opens the provider's API key
-            // console in the user's *default browser* (more reliable than an
-            // embedded WebView for modern OAuth/CAPTCHA flows). Once the URL
-            // resolves we drop a hint into the chat so the user knows to come
-            // back and paste their key in Settings → Cloud API Keys.
-            invoke<string>("open_ai_login", { provider })
-                .then((urlOpened) => {
-                    const store = (window as any).useStore;
-                    if (store && urlOpened) {
-                        const human = provider === 'claude' ? 'Claude (Anthropic)'
-                            : provider === 'gemini' ? 'Gemini (Google AI Studio)'
-                            : provider;
-                        store.getState().addAgentMessage?.({
-                            role: 'system',
-                            content: `Opened ${human} API key page in your browser:\n${urlOpened}\n\nCopy a key and paste it into **Settings → Cloud API Keys → ${provider === 'claude' ? 'Anthropic (Claude)' : provider === 'gemini' ? 'Google (Gemini)' : provider}** to finish.`,
-                        });
-                    }
-                })
-                .catch(err => {
-                    console.error("Failed to open login window:", err);
-                    const store = (window as any).useStore;
-                    store?.getState().addAgentMessage?.({
-                        role: 'system',
-                        content: `Couldn't open the ${provider} API key page automatically. Try opening it manually:\n` +
-                            (provider === 'claude' ? 'https://console.anthropic.com/settings/keys' :
-                             provider === 'gemini' ? 'https://aistudio.google.com/app/apikey' :
-                             '(unknown provider URL)') +
-                            `\n\nError: ${err}`,
-                    });
-                });
+            invoke("open_ai_login", { provider }).catch(err => {
+                console.error("Failed to open login window:", err);
+            });
             return;
         }
         if (val === "action|settings") {
@@ -671,33 +644,34 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
         try {
             // Record interaction in AIRI's consciousness
             airiConsciousness.recordInteraction();
-
+            
             // Add user message
             const attachedSnapshot = [...(state.attachedFiles || [])];
             state.addAgentMessage('user', prompt, attachedSnapshot);
             state.addAgentMessage('assistant', '');
             state.setIsAgentThinking(true);
 
-            // Process through AIRI's sentient mind (Streaming)
-            let fullResponse = "";
-            const stream = (airiAgentBridge as any).processUserMessageStream(prompt, {
+            // Process through AIRI's sentient mind
+            const response = await airiAgentBridge.processUserMessage(prompt, {
                 context: attachedSnapshot,
                 workspace: state.activeRoot,
                 activeFile: state.activeEditorPath,
             });
 
-            for await (const chunk of stream) {
-                fullResponse += chunk;
-                state.updateLastAgentMessage(fullResponse);
-
-                // Clear thinking state on first chunk
-                if (state.isAgentThinking) {
-                    state.setIsAgentThinking(false);
-                }
-            }
-
+            // Update UI with AIRI's response
+            state.updateLastAgentMessage(response);
             state.setIsAgentThinking(false);
             state.clearAttachedContext();
+
+            // Learn from this interaction
+            if (airiInitialized) {
+                await airiSelfLearning.learnFromEvent(
+                    'user_interaction',
+                    { prompt, response, context: attachedSnapshot },
+                    'neutral'
+                );
+            }
+
             return;
 
         } catch (error: any) {
@@ -950,85 +924,31 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
     // If backend is Ollama, use HADES intelligence layer
     if (inferenceBackend === 'ollama') {
         try {
-            // Use HADES-Ollama service with streaming support
-            store.getState().updateLastAgentMessage(""); // Start with empty message
-
-            const { agentModel } = store.getState();
-            const displayModel = agentModel.includes('|') ? agentModel.split('|')[1] : agentModel;
-
-            // ── Single-shot loading indicator ────────────────────────────────────
-            // setInterval caused "Maximum update depth exceeded" because it fired
-            // rapid setState updates that overlapped with React's render cycles.
-            // One timeout after 2s is safe.
-            let firstChunkReceived = false;
-            const loadingTimeout = setTimeout(() => {
-                if (!firstChunkReceived) {
-                    store.getState().updateLastAgentMessage(
-                        `⏳ **Loading model...** \`${displayModel}\``
-                    );
-                }
-            }, 500);
-
-            let fullResponse = "";
-            const stream = hadesOllama.chatStream([
+            // Use HADES-Ollama service with JIT decompression, thermal governor, .aim VFS
+            const response = await hadesOllama.chat([
                 { role: 'user', content: userPrompt }
             ]);
 
-            let lastUpdate = Date.now();
-            for await (const chunk of stream) {
-                if (!firstChunkReceived) {
-                    firstChunkReceived = true;
-                    clearTimeout(loadingTimeout);
-                    fullResponse = ""; // Clear loading message
-                }
-                fullResponse += chunk;
-
-                // Throttle updates to ~20FPS (every 50ms) to prevent React depth error
-                const now = Date.now();
-                if (now - lastUpdate > 50) {
-                    store.getState().updateLastAgentMessage(fullResponse);
-                    lastUpdate = now;
-                }
-
-                // Clear thinking state on first real content
-                if (store.getState().isAgentThinking) {
-                    store.getState().setIsAgentThinking(false);
-                }
-            }
-            // Final update to ensure full response is shown
-            store.getState().updateLastAgentMessage(fullResponse);
-
-            clearTimeout(loadingTimeout); // safety cleanup
-
-            if (store.getState().isAgentThinking) {
-                store.getState().setIsAgentThinking(false);
-            }
-
-            if (!fullResponse) {
-                store.getState().updateLastAgentMessage("*AIRI remains silent, processing the void...*");
-            }
+            // Update UI with response
+            store.getState().setIsAgentThinking(false);
+            store.getState().updateLastAgentMessage(response.response || '');
             return;
         } catch (error: any) {
             console.error('[HADES-Ollama] Error:', error);
             store.getState().setIsAgentThinking(false);
-
+            
             // Better error messages
             let errorMsg = `**HADES-Ollama Error:** ${error.message}`;
-            if (error.message?.includes('AbortError') || error.message?.includes('abort')) {
-                errorMsg = `**⏱️ Timeout:** Model took too long to respond (>120s).\n\n` +
-                    `This usually means the model is still loading into VRAM or the SSH tunnel dropped.\n\n` +
-                    `**Try:** Wait 30s and re-send your message — the model may now be warm.`;
-            } else if (error.message?.includes('model') || error.message?.includes('not found')) {
-                errorMsg += `\n\n**Model not found in Ollama!**\n\nPull a model first:\n\`\`\`bash\nssh root@165.245.140.37\nollama pull ${store.getState().agentModel}\n\`\`\``;
-            } else if (error.message?.includes('fetch') || error.message?.includes('ECONNREFUSED')) {
-                errorMsg += `\n\n**Cannot connect to Ollama!**\n\nMake sure SSH tunnel is running:\n\`\`\`bash\nssh -L 11434:localhost:11434 root@165.245.140.37\n\`\`\``;
+            if (error.message.includes('model') || error.message.includes('not found')) {
+                errorMsg += `\n\n**Model not found in Ollama!**\n\nPull a model first:\n\`\`\`bash\nssh root@your-cloud-ip\nollama pull qwen2.5-coder:7b\n\`\`\``;
+            } else if (error.message.includes('fetch') || error.message.includes('ECONNREFUSED')) {
+                errorMsg += `\n\n**Cannot connect to Ollama!**\n\nMake sure SSH tunnel is running:\n\`\`\`bash\nssh -L 11434:localhost:11434 root@your-cloud-ip\n\`\`\``;
             }
-
+            
             store.getState().updateLastAgentMessage(errorMsg);
             return;
         }
     }
-
 
     // === Legacy Backend Flow (OpenAI, Google, Anthropic, etc.) ===
     const { agentMessages, setAiStatus, availableModels } = store.getState();
@@ -2149,7 +2069,7 @@ function formatToolSummary(name: string, args: any, result: any): string {
     return `Executed ${name}`;
 }
 
-listen('ai-tool-call', (event: { payload: { name: string, args: string | any, call_id: string } | any }) => {
+listen('ai-tool-call', (event: { payload: { name: string, args: string | any } | any }) => {
     if (event.payload && event.payload.name) {
         console.log("AI_TOOL_CALL RECEIVED:", event.payload.name);
         const { addAgentStep, updateAgentStepStatus } = useStore.getState();
@@ -2170,14 +2090,14 @@ listen('ai-tool-call', (event: { payload: { name: string, args: string | any, ca
         if (airiInitialized && airiSelfLearning) {
             airiSelfLearning.learnFromEvent(
                 'agent_tool_use',
-                JSON.stringify({ tool: event.payload.name, args, callId: event.payload.call_id }),
-                'neutral'
-            ).catch(() => { });
+                { tool: event.payload.name, args, callId: event.payload.call_id },
+                'neutral' // Will be updated to positive/negative when result arrives
+            ).catch(console.error);
         }
     }
 });
 
-listen('ai-tool-result', (event: { payload: { name: string, result: string, blocked?: boolean, call_id: string } | any }) => {
+listen('ai-tool-result', (event: { payload: { name: string, result: string, blocked?: boolean } | any }) => {
     if (event.payload && event.payload.name) {
         const { updateAgentStepStatus, agentMessages } = useStore.getState();
 
@@ -2197,9 +2117,9 @@ listen('ai-tool-result', (event: { payload: { name: string, result: string, bloc
             const outcome = event.payload.blocked ? 'blocked' : 'success';
             airiSelfLearning.learnFromEvent(
                 'agent_tool_result',
-                JSON.stringify({ tool: event.payload.name, result: event.payload.result, outcome }),
-                outcome as any
-            ).catch(() => { });
+                { tool: event.payload.name, result: event.payload.result, outcome },
+                outcome === 'success' ? 'positive' : 'negative'
+            ).catch(console.error);
         }
     }
 });

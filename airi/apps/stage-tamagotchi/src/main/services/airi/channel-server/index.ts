@@ -48,7 +48,7 @@ const channelServerInvokeConfigSchema = z.object({
 
 const channelServerConfigStore = createConfig('server-channel', 'config.json', channelServerConfigSchema, {
   default: {
-    hostname: 'localhost',
+    hostname: '127.0.0.1',
     authToken: '',
     tlsConfig: null,
   },
@@ -78,7 +78,7 @@ function getServerChannelPort() {
   return env.SERVER_CHANNEL_PORT ? Number.parseInt(env.SERVER_CHANNEL_PORT) : 6121
 }
 
-const LOOPBACK_HOSTS = new Set(['localhost', 'localhost', '::1'])
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1'])
 
 function isLoopbackHost(host: string) {
   return LOOPBACK_HOSTS.has(host)
@@ -123,10 +123,10 @@ function getServerChannelQrPayload(config: ElectronServerChannelConfig, serverCh
 }
 
 async function getChannelServerConfig(): Promise<ElectronServerChannelConfig> {
-  const config = channelServerConfigStore.get() || { hostname: 'localhost', authToken: '', tlsConfig: null }
+  const config = channelServerConfigStore.get() || { hostname: '127.0.0.1', authToken: '', tlsConfig: null }
 
   return {
-    hostname: config.hostname || 'localhost',
+    hostname: config.hostname || '127.0.0.1',
     authToken: config.authToken || '',
     tlsConfig: config.tlsConfig || null,
   }
@@ -135,7 +135,7 @@ async function getChannelServerConfig(): Promise<ElectronServerChannelConfig> {
 function getServerRuntimeBaseOptions() {
   return {
     port: getServerChannelPort(),
-    hostname: 'localhost',
+    hostname: '127.0.0.1',
   }
 }
 
@@ -146,8 +146,8 @@ async function resolveServerRuntimeOptions(config: ServerOptions): Promise<Serve
       token: 'authToken' in config && typeof config.authToken === 'string' ? config.authToken : '',
     },
     hostname: 'hostname' in config && typeof config.hostname === 'string'
-      ? config.hostname || 'localhost'
-      : 'localhost',
+      ? config.hostname || '127.0.0.1'
+      : '127.0.0.1',
     tlsConfig: config.tlsConfig ? await getOrCreateCertificate() : null,
   }
 }
@@ -176,7 +176,7 @@ function getCertificateDomains(): string[] {
   const hostname = channelServerConfigStore.get()?.hostname || env.SERVER_RUNTIME_HOSTNAME
   return Array.from(new Set([
     'localhost',
-    'localhost',
+    '127.0.0.1',
     '::1',
     ...(hostname ? [hostname] : []),
     ...localIPs,

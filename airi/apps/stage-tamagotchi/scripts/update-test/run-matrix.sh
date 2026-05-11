@@ -59,7 +59,7 @@ trap cleanup EXIT
 
 for lane in "${LANES[@]}"; do
   for _ in {1..40}; do
-    if curl -fsS "http://localhost:${PORT}/${lane}/latest-arm64-mac.yml" >/dev/null 2>&1; then
+    if curl -fsS "http://127.0.0.1:${PORT}/${lane}/latest-arm64-mac.yml" >/dev/null 2>&1; then
       break
     fi
     sleep 0.2
@@ -74,7 +74,7 @@ run_case() {
 
   echo "==> Running mode=${mode}, lane=${lane}"
   if [[ "${mode}" == "override" ]]; then
-    UPDATE_SERVER_URL="http://localhost:${PORT}/${lane}" AIRI_UPDATE_CHANNEL="${lane}" "${APP_BIN}" > "${log_file}" 2>&1 &
+    UPDATE_SERVER_URL="http://127.0.0.1:${PORT}/${lane}" AIRI_UPDATE_CHANNEL="${lane}" "${APP_BIN}" > "${log_file}" 2>&1 &
     app_pid=$!
   else
     AIRI_UPDATE_CHANNEL="${lane}" "${APP_BIN}" > "${log_file}" 2>&1 &

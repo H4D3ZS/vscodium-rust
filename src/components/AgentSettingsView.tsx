@@ -4,7 +4,6 @@ import { useStore } from '../store';
 import { getThemes, applyTheme } from '../theme_engine';
 import type { VscodeTheme } from '../theme_engine';
 import ElevenLabsVoicePicker from './ElevenLabsVoicePicker';
-import KortexInferencePanel from './KortexInferencePanel';
 
 const AgentSettingsView: React.FC = () => {
     const ollamaUrl = useStore(state => state.ollamaUrl);
@@ -30,28 +29,6 @@ const AgentSettingsView: React.FC = () => {
     const avatar3dConfig = useStore(state => state.avatar3dConfig);
     const setAvatar3dConfig = useStore(state => state.setAvatar3dConfig);
     const [pullInput, setPullInput] = useState('');
-    const [ollamaBearerToken, setOllamaBearerToken] = useState(localStorage.getItem('ollamaBearerToken') || '');
-
-    const normalizeOllamaUrlInput = (rawInput: string): string => {
-        try {
-            const parsed = new URL(rawInput);
-            const tokenFromUrl =
-                parsed.searchParams.get('token') ||
-                parsed.searchParams.get('api_key') ||
-                parsed.searchParams.get('bearer');
-            if (tokenFromUrl && tokenFromUrl.trim()) {
-                localStorage.setItem('ollamaBearerToken', tokenFromUrl.trim());
-                setOllamaBearerToken(tokenFromUrl.trim());
-                parsed.searchParams.delete('token');
-                parsed.searchParams.delete('api_key');
-                parsed.searchParams.delete('bearer');
-                return parsed.toString().replace(/\/$/, '');
-            }
-        } catch {
-            // Keep original value if it's not a valid URL yet.
-        }
-        return rawInput;
-    };
 
     // AI Avatar Characters
     const avatarCharacters = [
@@ -71,15 +48,15 @@ const AgentSettingsView: React.FC = () => {
     const [savingKeys, setSavingKeys] = useState(false);
     const [keyStatus, setKeyStatus] = useState<Record<string, string>>({});
     const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
-
+    
     // ElevenLabs voice selection state
     const [selectedElevenLabsVoice, setSelectedElevenLabsVoice] = useState<string | undefined>(undefined);
-
+    
     // Custom avatar configuration state
     const [customStickerUrl, setCustomStickerUrl] = useState('');
     const [customWallpaperUrl, setCustomWallpaperUrl] = useState('');
     const [isCustomAvatarEnabled, setIsCustomAvatarEnabled] = useState(false);
-
+    
     // 3D VRM avatar configuration state
     const [vrmModelUrl, setVrmModelUrl] = useState('');
     const [vrmModelId, setVrmModelId] = useState('');
@@ -93,15 +70,19 @@ const AgentSettingsView: React.FC = () => {
     const [isAddingMcp, setIsAddingMcp] = useState(false);
 
     useEffect(() => {
-        // console.log('[Settings] === Loading API keys and voice configuration ===');
-
+        console.log('[Settings] === Loading API keys and voice configuration ===');
+        
         listMcpServers().catch(console.error);
-
+        
         // Load existing saved keys (masked) and voice ID
         invoke<Record<string, string>>('get_api_keys')
             .then(keys => {
-                // console.log('[Settings] ✅ API keys loaded:', Object.keys(keys));
-
+                console.log('[Settings] ✅ API keys loaded:', Object.keys(keys));
+                console.log('[Settings] Keys:', {
+                    elevenlabs_api_key: (keys as any).elevenlabs_api_key ? 'present' : 'missing',
+                    elevenlabs_voice_id: (keys as any).elevenlabs_voice_id || 'NOT SET'
+                });
+                
                 setApiKeys(prev => {
                     const newKeys = {
                         anthropic: keys.anthropic ? '••••••••' + (keys.anthropic.slice(-4)) : '',
@@ -111,37 +92,37 @@ const AgentSettingsView: React.FC = () => {
                         openrouter: (keys as any).openrouter ? '••••••••' + ((keys as any).openrouter.slice(-4)) : '',
                         elevenlabs: (keys as any).elevenlabs_api_key ? '••••••••' + ((keys as any).elevenlabs_api_key.slice(-4)) : '',
                     };
-                    // // console.log('[Settings] Setting apiKeys state:', {
-                    //    elevenlabs: newKeys.elevenlabs ? `${newKeys.elevenlabs.substring(0, 8)}...` : 'EMPTY',
-                    //    elevenlabs_length: newKeys.elevenlabs?.length || 0
-                    // });
-
+                    console.log('[Settings] Setting apiKeys state:', {
+                        elevenlabs: newKeys.elevenlabs ? `${newKeys.elevenlabs.substring(0, 8)}...` : 'EMPTY',
+                        elevenlabs_length: newKeys.elevenlabs?.length || 0
+                    });
+                    
                     // Store REAL key for API calls
                     if ((keys as any).elevenlabs_api_key) {
                         setRealApiKey((keys as any).elevenlabs_api_key);
-                        // console.log('[Settings] ✅ Real API key stored (length:', (keys as any).elevenlabs_api_key.length, ')');
+                        console.log('[Settings] ✅ Real API key stored (length:', (keys as any).elevenlabs_api_key.length, ')');
                     }
-
+                    
                     return newKeys;
                 });
 
                 // Load saved ElevenLabs voice ID
                 const savedVoiceId = (keys as any).elevenlabs_voice_id;
-                // console.log('[Settings] 🎤 Saved voice ID:', savedVoiceId);
-
+                console.log('[Settings] 🎤 Saved voice ID:', savedVoiceId);
+                
                 if (savedVoiceId) {
                     setSelectedElevenLabsVoice(savedVoiceId);
-                    // console.log('[Settings] ✅ Voice ID set in component state:', savedVoiceId);
-
+                    console.log('[Settings] ✅ Voice ID set in component state:', savedVoiceId);
+                    
                     // Also set it in voice.ts module
                     import('../voice').then(({ setSelectedVoice }) => {
                         setSelectedVoice(savedVoiceId);
-                        // console.log('[Settings] ✅ Voice ID set in voice.ts:', savedVoiceId);
+                        console.log('[Settings] ✅ Voice ID set in voice.ts:', savedVoiceId);
                     }).catch(err => {
                         console.error('[Settings] ❌ Failed to set voice in voice.ts:', err);
                     });
                 } else {
-                    // console.log('[Settings] ⚠️ No saved voice ID found in api_keys.json');
+                    console.log('[Settings] ⚠️ No saved voice ID found in api_keys.json');
                 }
             })
             .catch(err => {
@@ -157,7 +138,7 @@ const AgentSettingsView: React.FC = () => {
         if (avatar3dConfig?.modelUrl) setVrmModelUrl(avatar3dConfig.modelUrl);
         if (avatar3dConfig?.modelId) setVrmModelId(avatar3dConfig.modelId);
         if (avatar3dConfig?.customModels) setCustomVrmModels(avatar3dConfig.customModels);
-
+        
         // Load persisted model selection from localStorage
         const savedModel = localStorage.getItem('airi-vrm-model');
         if (savedModel) {
@@ -165,26 +146,26 @@ const AgentSettingsView: React.FC = () => {
                 const { modelId, modelUrl } = JSON.parse(savedModel);
                 if (modelId) setVrmModelId(modelId);
                 if (modelUrl) setVrmModelUrl(modelUrl);
-                // console.log('[Settings] ✅ Loaded VRM model from localStorage:', modelId);
+                console.log('[Settings] ✅ Loaded VRM model from localStorage:', modelId);
             } catch (e) {
                 console.warn('[Settings] Failed to load VRM model from localStorage:', e);
             }
         }
 
-        // console.log('[Settings] === Loading complete ===');
+        console.log('[Settings] === Loading complete ===');
     }, []);
-
+    
     // Force re-render when apiKeys are loaded (fixes input not updating)
     useEffect(() => {
         if (apiKeys.elevenlabs && apiKeys.elevenlabs.length > 0) {
-            // console.log('[Settings] ✅ apiKeys.elevenlabs updated, length:', apiKeys.elevenlabs.length);
+            console.log('[Settings] ✅ apiKeys.elevenlabs updated, length:', apiKeys.elevenlabs.length);
         }
     }, [apiKeys.elevenlabs]);
 
     const handleSaveKeys = async () => {
-        // console.log('[Settings] === handleSaveKeys CALLED ===');
-        // console.log('[Settings] apiKeys.elevenlabs BEFORE save:', apiKeys.elevenlabs ? `${apiKeys.elevenlabs.substring(0, 10)}... (length: ${apiKeys.elevenlabs.length})` : 'EMPTY');
-
+        console.log('[Settings] === handleSaveKeys CALLED ===');
+        console.log('[Settings] apiKeys.elevenlabs BEFORE save:', apiKeys.elevenlabs ? `${apiKeys.elevenlabs.substring(0, 10)}... (length: ${apiKeys.elevenlabs.length})` : 'EMPTY');
+        
         setSavingKeys(true);
         setKeyStatus({});
         try {
@@ -192,62 +173,62 @@ const AgentSettingsView: React.FC = () => {
             const keysToSave: Record<string, string> = {};
             if (apiKeys.anthropic && !apiKeys.anthropic.startsWith('•')) {
                 keysToSave.anthropic = apiKeys.anthropic;
-                // console.log('[Settings] Adding anthropic key to save');
+                console.log('[Settings] Adding anthropic key to save');
             }
             if (apiKeys.google && !apiKeys.google.startsWith('•')) {
                 keysToSave.google = apiKeys.google;
-                // console.log('[Settings] Adding google key to save');
+                console.log('[Settings] Adding google key to save');
             }
             if (apiKeys.openai && !apiKeys.openai.startsWith('•')) {
                 keysToSave.openai = apiKeys.openai;
-                // console.log('[Settings] Adding openai key to save');
+                console.log('[Settings] Adding openai key to save');
             }
             if ((apiKeys as any).groq && !(apiKeys as any).groq.startsWith('•')) {
                 keysToSave.groq = (apiKeys as any).groq;
-                // console.log('[Settings] Adding groq key to save');
+                console.log('[Settings] Adding groq key to save');
             }
             if ((apiKeys as any).openrouter && !(apiKeys as any).openrouter.startsWith('•')) {
                 keysToSave.openrouter = (apiKeys as any).openrouter;
-                // console.log('[Settings] Adding openrouter key to save');
+                console.log('[Settings] Adding openrouter key to save');
             }
             if ((apiKeys as any).elevenlabs && !(apiKeys as any).elevenlabs.startsWith('•')) {
                 keysToSave.elevenlabs_api_key = (apiKeys as any).elevenlabs;
-                // console.log('[Settings] ✅ Adding elevenlabs key to save:', (apiKeys as any).elevenlabs.substring(0, 10) + `... (length: ${(apiKeys as any).elevenlabs.length})`);
+                console.log('[Settings] ✅ Adding elevenlabs key to save:', (apiKeys as any).elevenlabs.substring(0, 10) + `... (length: ${(apiKeys as any).elevenlabs.length})`);
             } else {
-                // // console.log('[Settings] ⚠️ Elevenlabs key NOT added to save:', {
-                //    exists: !!(apiKeys as any).elevenlabs,
-                //    starts_with_bullet: (apiKeys as any).elevenlabs?.startsWith('•'),
-                //    value: (apiKeys as any).elevenlabs
-                // });
+                console.log('[Settings] ⚠️ Elevenlabs key NOT added to save:', {
+                    exists: !!(apiKeys as any).elevenlabs,
+                    starts_with_bullet: (apiKeys as any).elevenlabs?.startsWith('•'),
+                    value: (apiKeys as any).elevenlabs
+                });
             }
 
-            // console.log('[Settings] Keys to save:', Object.keys(keysToSave), 'elevenlabs_api_key in payload:', !!keysToSave.elevenlabs_api_key);
-
+            console.log('[Settings] Keys to save:', Object.keys(keysToSave), 'elevenlabs_api_key in payload:', !!keysToSave.elevenlabs_api_key);
+            
             const results = await invoke<Record<string, string>>('save_api_keys', { keys: keysToSave });
-            // console.log('[Settings] ✅ Save result:', results);
-
+            console.log('[Settings] ✅ Save result:', results);
+            
             setKeyStatus(results);
             // Refresh models after saving
             for (const provider of Object.keys(results)) {
                 if (!results[provider].startsWith('Dead')) {
-                    refreshModels(provider).catch(() => { });
+                    refreshModels(provider).catch(() => {});
                 }
             }
-
+            
             // Reload keys to confirm they were saved
-            // console.log('[Settings] Reloading keys to verify save...');
+            console.log('[Settings] Reloading keys to verify save...');
             const reloadedKeys = await invoke<Record<string, string>>('get_api_keys');
-            // // console.log('[Settings] Reloaded keys:', {
-            //    elevenlabs_api_key: (reloadedKeys as any).elevenlabs_api_key ? `present (length: ${(reloadedKeys as any).elevenlabs_api_key.length})` : 'missing',
-            //    elevenlabs_voice_id: (reloadedKeys as any).elevenlabs_voice_id || 'NOT SET'
-            // });
+            console.log('[Settings] Reloaded keys:', {
+                elevenlabs_api_key: (reloadedKeys as any).elevenlabs_api_key ? `present (length: ${(reloadedKeys as any).elevenlabs_api_key.length})` : 'missing',
+                elevenlabs_voice_id: (reloadedKeys as any).elevenlabs_voice_id || 'NOT SET'
+            });
         } catch (err) {
             console.error('[Settings] ❌ Save error:', err);
             setKeyStatus({ error: String(err) });
         } finally {
             setSavingKeys(false);
         }
-        // console.log('[Settings] === handleSaveKeys COMPLETE ===');
+        console.log('[Settings] === handleSaveKeys COMPLETE ===');
     };
 
     return (
@@ -345,7 +326,7 @@ const AgentSettingsView: React.FC = () => {
                         }}
                     />
                 </div>
-
+                
                 {/* Custom Avatar Configuration */}
                 <div style={{
                     marginTop: '16px',
@@ -372,7 +353,7 @@ const AgentSettingsView: React.FC = () => {
                             Enable Custom
                         </label>
                     </div>
-
+                    
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div>
                             <label style={{ fontSize: '9px', opacity: 0.7, display: 'block', marginBottom: '4px' }}>
@@ -396,7 +377,7 @@ const AgentSettingsView: React.FC = () => {
                                 }}
                             />
                         </div>
-
+                        
                         <div>
                             <label style={{ fontSize: '9px', opacity: 0.7, display: 'block', marginBottom: '4px' }}>
                                 Wallpaper URL (background)
@@ -419,7 +400,7 @@ const AgentSettingsView: React.FC = () => {
                                 }}
                             />
                         </div>
-
+                        
                         <button
                             onClick={() => {
                                 setAvatarCustomConfig({
@@ -447,14 +428,14 @@ const AgentSettingsView: React.FC = () => {
                         >
                             Save Custom Avatar
                         </button>
-
+                        
                         <div style={{ fontSize: '9px', opacity: 0.6, marginTop: '4px' }}>
                             <i className="codicon codicon-info" style={{ marginRight: '4px', fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                             Use PNG URLs for best quality. Avatars persist across reloads.
                         </div>
                     </div>
                 </div>
-
+                
                 {/* 3D VRM Avatar Configuration */}
                 <div style={{
                     marginTop: '16px',
@@ -473,13 +454,13 @@ const AgentSettingsView: React.FC = () => {
                         <button
                             onClick={() => {
                                 // Trigger iframe reload with new model
-                                window.dispatchEvent(new CustomEvent('airi-vrm-model-change', {
-                                    detail: { modelId: vrmModelId, modelUrl: vrmModelUrl }
+                                window.dispatchEvent(new CustomEvent('airi-vrm-model-change', { 
+                                    detail: { modelId: vrmModelId, modelUrl: vrmModelUrl } 
                                 }));
-                                // console.log('[VRM] Model change signal sent:', { modelId: vrmModelId, modelUrl: vrmModelUrl });
+                                console.log('[VRM] Model change signal sent:', { modelId: vrmModelId, modelUrl: vrmModelUrl });
                                 // Persist selection to localStorage
                                 localStorage.setItem('airi-vrm-model', JSON.stringify({ modelId: vrmModelId, modelUrl: vrmModelUrl }));
-                                // console.log('[VRM] Model selection saved to localStorage');
+                                console.log('[VRM] Model selection saved to localStorage');
                             }}
                             style={{
                                 padding: '4px 12px',
@@ -496,11 +477,11 @@ const AgentSettingsView: React.FC = () => {
                             Apply Model
                         </button>
                     </div>
-
+                    
                     <div style={{ fontSize: '9px', opacity: 0.7, marginBottom: '10px', lineHeight: 1.4 }}>
                         Configure the 3D anime avatar that appears in the AIRI panel. Supports VRM 0.x/1.0 models.
                     </div>
-
+                    
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {/* Pre-loaded Models */}
                         <div>
@@ -552,7 +533,7 @@ const AgentSettingsView: React.FC = () => {
                                 These models are already cached locally - no download needed!
                             </div>
                         </div>
-
+                        
                         {/* Custom VRM URL */}
                         <div>
                             <label style={{ fontSize: '9px', opacity: 0.7, display: 'block', marginBottom: '4px' }}>
@@ -577,7 +558,7 @@ const AgentSettingsView: React.FC = () => {
                                 Enter a direct URL to a .vrm file (must be publicly accessible or local server)
                             </div>
                         </div>
-
+                        
                         {/* Custom Models List */}
                         {customVrmModels.length > 0 && (
                             <div>
@@ -650,7 +631,7 @@ const AgentSettingsView: React.FC = () => {
                                 </div>
                             </div>
                         )}
-
+                        
                         {/* Add Custom Model */}
                         <div style={{
                             display: 'flex',
@@ -727,7 +708,7 @@ const AgentSettingsView: React.FC = () => {
                                 Add Model
                             </button>
                         </div>
-
+                        
                         <div style={{ fontSize: '9px', opacity: 0.6 }}>
                             <i className="codicon codicon-info" style={{ marginRight: '4px', fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                             3D avatar requires AIRI panel running at localhost:5174
@@ -763,17 +744,13 @@ const AgentSettingsView: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {([
-                        // `loginKey` is the lookup key the Rust side knows
-                        // ("claude" / "gemini" / "openai" / ...). The `key`
-                        // is the storage slot in ApiKeys. They diverge for
-                        // anthropic→claude and google→gemini because the
-                        // login flow targets the user-facing brand pages.
-                        { key: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-...', loginKey: 'claude' },
-                        { key: 'google', label: 'Google (Gemini)', placeholder: 'AIza...', loginKey: 'gemini' },
-                        { key: 'openai', label: 'OpenAI', placeholder: 'sk-...', loginKey: 'openai' },
-                        { key: 'groq', label: 'Groq', placeholder: 'gsk_...', loginKey: 'groq' },
-                        { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...', loginKey: 'openrouter' },
-                    ] as { key: string; label: string; placeholder: string; loginKey: string }[]).map(({ key, label, placeholder, loginKey }) => (
+                        { key: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-...' },
+                        { key: 'google', label: 'Google (Gemini)', placeholder: 'AIza...' },
+                        { key: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
+                        { key: 'groq', label: 'Groq', placeholder: 'gsk_...' },
+                        { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
+                        // Removed: elevenlabs - now only in VOICE & TTS section below
+                    ] as { key: string; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
                         <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <label style={{ fontSize: '11px', opacity: 0.8 }}>{label}</label>
@@ -800,22 +777,6 @@ const AgentSettingsView: React.FC = () => {
                                         padding: '4px 8px', fontSize: '11px', borderRadius: '2px', fontFamily: 'monospace'
                                     }}
                                 />
-                                <button
-                                    onClick={() => {
-                                        // Tauri's `open_ai_login` default mode points the user's *default
-                                        // browser* at the provider's API key console (e.g.
-                                        // console.anthropic.com/settings/keys). The user copies the key
-                                        // and pastes it into the input field above; the existing Save
-                                        // & Validate button persists it via save_api_keys.
-                                        invoke('open_ai_login', { provider: loginKey })
-                                            .catch((err: any) => console.error(`open_ai_login(${loginKey}) failed:`, err));
-                                    }}
-                                    style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '4px 8px', fontSize: '11px', cursor: 'pointer', borderRadius: '2px', whiteSpace: 'nowrap', fontWeight: 600 }}
-                                    title={`Open ${label} API key page in your browser`}
-                                >
-                                    <i className="codicon codicon-link-external" style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: 4 }}></i>
-                                    Connect
-                                </button>
                                 <button
                                     onClick={() => setShowKeys(prev => ({ ...prev, [key]: !prev[key] }))}
                                     style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '4px 6px', fontSize: '11px', cursor: 'pointer', borderRadius: '2px' }}
@@ -851,11 +812,11 @@ const AgentSettingsView: React.FC = () => {
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
                     Ollama Integration
                 </div>
-
+                
                 {/* Connection Mode Toggle */}
-                <div style={{
-                    display: 'flex',
-                    gap: '8px',
+                <div style={{ 
+                    display: 'flex', 
+                    gap: '8px', 
                     marginBottom: '12px',
                     padding: '10px',
                     background: 'var(--vscode-sideBar-background)',
@@ -906,24 +867,9 @@ const AgentSettingsView: React.FC = () => {
                         <input
                             type="text"
                             value={ollamaUrl}
-                            onChange={(e) => setOllamaUrl(normalizeOllamaUrlInput(e.target.value))}
+                            onChange={(e) => setOllamaUrl(e.target.value)}
                             style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
-                            placeholder="https://ai.cyberifrit.xyz/v1"
-                        />
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <label style={{ fontSize: '11px', opacity: 0.8 }}>Ollama Bearer Token</label>
-                        <input
-                            type="password"
-                            value={ollamaBearerToken}
-                            onChange={(e) => {
-                                const token = e.target.value;
-                                setOllamaBearerToken(token);
-                                localStorage.setItem('ollamaBearerToken', token);
-                            }}
-                            style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
-                            placeholder="Bearer token for protected Ollama proxy"
+                            placeholder="http://localhost:1536"
                         />
                     </div>
 
@@ -1030,33 +976,33 @@ const AgentSettingsView: React.FC = () => {
                             </button>
                             <button
                                 onClick={async () => {
-                                    // console.log('[ElevenLabs] 🔄 Force replacing API key...');
+                                    console.log('[ElevenLabs] 🔄 Force replacing API key...');
                                     const apiKey = (apiKeys as any).elevenlabs;
-                                    // console.log('[ElevenLabs] Current key:', apiKey ? `${apiKey.substring(0, 8)}...` : 'empty', 'length:', apiKey?.length);
-
+                                    console.log('[ElevenLabs] Current key:', apiKey ? `${apiKey.substring(0, 8)}...` : 'empty', 'length:', apiKey?.length);
+                                    
                                     // Always save, even if masked (force replace)
                                     if (apiKey && apiKey.length > 10) {
                                         try {
-                                            const result = await invoke<Record<string, string>>('save_api_keys', {
+                                            const result = await invoke('save_api_keys', {
                                                 keys: { elevenlabs_api_key: apiKey }
                                             });
-                                            // console.log('[ElevenLabs] ✅ Force replace result:', result);
+                                            console.log('[ElevenLabs] ✅ Force replace result:', result);
                                             setKeyStatus(prev => ({ ...prev, ...result }));
-
+                                            
                                             // Verify save
                                             const reloaded = await invoke('get_api_keys');
-                                            // // console.log('[ElevenLabs] 🔍 Verified save:', {
-                                            //    elevenlabs_api_key: (reloaded as any).elevenlabs_api_key ? '✓ REPLACED' : '✗ FAILED',
-                                            //    elevenlabs_voice_id: (reloaded as any).elevenlabs_voice_id || 'NOT SET'
-                                            // });
-
+                                            console.log('[ElevenLabs] 🔍 Verified save:', {
+                                                elevenlabs_api_key: (reloaded as any).elevenlabs_api_key ? '✓ REPLACED' : '✗ FAILED',
+                                                elevenlabs_voice_id: (reloaded as any).elevenlabs_voice_id || 'NOT SET'
+                                            });
+                                            
                                             alert('✅ ElevenLabs API key REPLACED successfully!\n\nOld key has been overwritten with new key.\nCheck console for details.');
                                         } catch (err: any) {
                                             console.error('[ElevenLabs] ❌ Force replace failed:', err);
                                             alert('❌ Failed to replace: ' + (err.message || err));
                                         }
                                     } else {
-                                        // console.log('[ElevenLabs] ⚠️ Key too short');
+                                        console.log('[ElevenLabs] ⚠️ Key too short');
                                         alert('⚠️ Please enter a valid API key (starts with sk_, min 10 chars)');
                                     }
                                 }}
@@ -1085,18 +1031,18 @@ const AgentSettingsView: React.FC = () => {
                         onVoiceSelect={(voiceId) => {
                             // Update local state
                             setSelectedElevenLabsVoice(voiceId);
-
+                            
                             // Import voice module dynamically to set selected voice in voice.ts
                             import('../voice').then(({ setSelectedVoice }) => {
                                 setSelectedVoice(voiceId);
-                                // console.log('[Settings] ElevenLabs voice set:', voiceId);
+                                console.log('[Settings] ElevenLabs voice set:', voiceId);
                             });
-
+                            
                             // Save to persistent storage
-                            invoke('save_api_keys', {
-                                keys: { elevenlabs_voice_id: voiceId }
+                            invoke('save_api_keys', { 
+                                keys: { elevenlabs_voice_id: voiceId } 
                             }).then(() => {
-                                // console.log('[Settings] ElevenLabs voice ID saved');
+                                console.log('[Settings] ElevenLabs voice ID saved');
                             }).catch(err => {
                                 console.error('[Settings] Failed to save voice ID:', err);
                             });
@@ -1131,13 +1077,6 @@ const AgentSettingsView: React.FC = () => {
                         Voice presets: AIRI (energetic), Sage (calm), Nova (young), Kawaii (cute)
                     </div>
                 </div>
-            </section >
-
-            <section>
-                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
-                    Local Inference (Kortex)
-                </div>
-                <KortexInferencePanel />
             </section>
 
             <section>
@@ -1233,7 +1172,7 @@ const AgentSettingsView: React.FC = () => {
                 </div>
             </section>
 
-        </div >
+        </div>
     );
 };
 

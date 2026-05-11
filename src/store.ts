@@ -5,44 +5,6 @@ import { computeDiffBlocks, patchContentSelective } from './services/DiffService
 import { terminalManager, getVSCodeTheme } from './terminal';
 import { initTheme } from './theme_engine';
 
-const DEFAULT_REMOTE_OLLAMA_URL = 'https://ai.cyberifrit.xyz/v1';
-const LOCAL_PROXY_URL = 'http://localhost:1536';
-const LOCAL_DIRECT_URL = 'http://localhost:11434';
-const DEMO_FALLBACK_OLLAMA_TOKEN = '94d92f5148bb721b16d310e8bcedac54ceeca26428feefd01bdd89bc07592a76';
-
-function getOllamaAuthHeader(baseUrl?: string): Record<string, string> {
-    try {
-        const token = localStorage.getItem('ollamaBearerToken') || '';
-        if (token.trim()) {
-            return { Authorization: `Bearer ${token.trim()}` };
-        }
-        if (baseUrl) {
-            const parsed = new URL(baseUrl);
-            const tokenFromUrl =
-                parsed.searchParams.get('token') ||
-                parsed.searchParams.get('api_key') ||
-                parsed.searchParams.get('bearer');
-            if (tokenFromUrl && tokenFromUrl.trim()) {
-                localStorage.setItem('ollamaBearerToken', tokenFromUrl.trim());
-                return { Authorization: `Bearer ${tokenFromUrl.trim()}` };
-            }
-        }
-        if (DEMO_FALLBACK_OLLAMA_TOKEN.trim()) {
-            return { Authorization: `Bearer ${DEMO_FALLBACK_OLLAMA_TOKEN}` };
-        }
-    } catch { }
-    return {};
-}
-
-function getInitialOllamaUrl(): string {
-    const saved = localStorage.getItem('ollamaUrl');
-    const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
-    if (saved && !(isHttpsPage && saved.startsWith('http://'))) {
-        return saved;
-    }
-    return DEFAULT_REMOTE_OLLAMA_URL;
-}
-
 interface EditorTab {
     id: string;
     filename: string;
@@ -206,7 +168,7 @@ interface AppState {
     isAiriPanelOpen: boolean;
     isEmulatorPanelOpen: boolean;
     emulatorPanelPosition: 'android' | 'iphone';
-
+    
     // Inference Backend Configuration
     inferenceBackend: 'ollama' | 'llama-cpp' | 'openai';
     llamaCppUrl: string;
@@ -215,62 +177,6 @@ interface AppState {
     llamaCppHadesEnabled: boolean;
     ollamaConnectionMode: 'proxy' | 'direct';  // proxy=1536 (AIM), direct=11434
     ollamaMode: 'local' | 'cloud' | 'auto';  // Hybrid backend mode
-
-    // ═══ Kortex GAC: geometry-aware tier-placement scheduler ═══
-    /** Use GAC profile + tier planner when launching llama-server. */
-    kortexGacEnabled: boolean;
-    /** Total physical VRAM in MB (e.g. 8192 for RX 580 8GB). */
-    kortexVramTotalMb: number;
-    /** Retrieval threshold theta from the GAC paper. Default 0.85. */
-    kortexTheta: number;
-    /** GPU backend selector for llama-server's --override-tensor flags. */
-    kortexBackend: 'cuda' | 'rocm' | 'vulkan' | 'metal' | 'sycl';
-    /** Optional explicit path to llama-server binary. */
-    kortexServerBinary: string;
-
-    // ═══ Kortex Disk KV Cache: ds4-style prefix reuse ═══
-    /** Boot the prefix-cache proxy in front of llama-server. */
-    kvCacheEnabled: boolean;
-    /** Filesystem base for the proxy's `index/` and `slots/` directories. */
-    kvCacheBaseDir: string;
-    /** LRU byte budget for slot binaries on disk. */
-    kvCacheMaxBytes: number;
-    /** Bind port for the proxy. The IDE auto-routes inference here when up. */
-    kvCacheProxyPort: number;
-    /** Live stats sampled by the UI. Refreshed on a polling interval. */
-    kvCacheStats: { entries: number; total_bytes: number; hits: number; misses: number; saves: number; evictions: number; tokens_skipped: number } | null;
-
-    // ═══ Kortex CCET: context-compute efficiency router ═══
-    /** Apply heuristic token routing before sending prompts to llama / ollama. */
-    ccetEnabled: boolean;
-    /** Score threshold below which a segment is dropped. Default 0.05. */
-    ccetTauSkip: number;
-    /** Score threshold above which a segment is kept verbatim. Default 0.30. */
-    ccetTauCompress: number;
-    /** Cap on total fraction the router is allowed to drop. Default 0.40. */
-    ccetMaxSkipFraction: number;
-    /** Cached recent η statistic ({sample_size, avg_eta, avg_saved_fraction, total_skipped_segments}). */
-    ccetEfficiency: { sample_size: number; avg_eta: number; avg_saved_fraction: number; total_skipped_segments: number } | null;
-
-    // ═══ Kortex live telemetry ═══
-    /** Rolling-window throughput summary updated by inference services after
-     *  every completion. Null until at least one request has finished. */
-    kortexTelemetry: {
-        current_tps: number;
-        avg_tps: number;
-        avg_prefill_tps: number;
-        cache_hit_rate: number;
-        sample_size: number;
-        total_tokens_skipped: number;
-        last_output_tokens: number;
-        last_input_tokens: number;
-        last_wall_clock_ms: number;
-        last_prefill_ms: number;
-        last_backend: string;
-        last_cache_hit: boolean;
-        last_model_id: string;
-        last_ts_unix_ms: number;
-    } | null;
 
     // Dev Workflow State
     isDevWorkflowActive: boolean;
@@ -376,12 +282,6 @@ interface AppState {
     setIsVisualLabSplitView: (isSplit: boolean) => void;
     toggleVisualLab: (open?: boolean) => void;
     toggleAiri: (open?: boolean) => void;
-    openAiriPanel: () => void;
-    closeAiriPanel: () => void;
-    openEmulatorPanel: () => void;
-    closeEmulatorPanel: () => void;
-    toggleAiriPanel: () => void;
-    toggleEmulatorPanel: () => void;
     setLayoutMode: (mode: 'editor' | 'manager' | 'browser') => void;
     setArtifactReviewPolicy: (policy: 'always_proceed' | 'request_review') => void;
     setTerminalAutoExecution: (policy: 'always_proceed' | 'request_review') => void;
@@ -430,42 +330,7 @@ interface AppState {
     checkLlamaCppStatus: () => Promise<void>;
     openSettings: () => void;
     setProjectMemory: (content: string, files?: string[]) => void;
-
-    // Kortex GAC actions
-    setKortexGacEnabled: (enabled: boolean) => void;
-    setKortexVramTotalMb: (mb: number) => void;
-    setKortexTheta: (theta: number) => void;
-    setKortexBackend: (b: 'cuda' | 'rocm' | 'vulkan' | 'metal' | 'sycl') => void;
-    setKortexServerBinary: (path: string) => void;
-
-    // Kortex KV cache actions
-    setKvCacheEnabled: (enabled: boolean) => void;
-    setKvCacheBaseDir: (dir: string) => void;
-    setKvCacheMaxBytes: (b: number) => void;
-    setKvCacheProxyPort: (p: number) => void;
-    refreshKvCacheStats: () => Promise<void>;
-
-    // CCET actions
-    setCcetEnabled: (enabled: boolean) => void;
-    setCcetTauSkip: (v: number) => void;
-    setCcetTauCompress: (v: number) => void;
-    setCcetMaxSkipFraction: (v: number) => void;
-    refreshCcetEfficiency: () => void;
-
-    // Kortex telemetry actions
-    /** Push a single completion sample into the rolling tracker. Safe to call
-     *  from any inference service; failures here never surface. */
-    recordKortexCompletion: (sample: {
-        wall_clock_ms: number;
-        prefill_ms?: number;
-        output_tokens: number;
-        input_tokens: number;
-        backend: string;
-        cache_hit: boolean;
-        tokens_skipped: number;
-        model_id?: string;
-    }) => void;
-
+    
     // Dev Workflow Actions
     setDevWorkflowActive: (active: boolean) => void;
     updateDevProject: (project: Partial<DevWorkflowProject>) => void;
@@ -492,7 +357,6 @@ interface AppState {
     addAgentArtifact: (artifact: Omit<Artifact, 'id' | 'timestamp'>) => void;
     setIsAgentThinking: (isThinking: boolean) => void;
     setIsAgentPaused: (paused: boolean) => void;
-    setEmulatorPosition: (pos: 'android' | 'iphone') => void;
     setYoloMode: (enabled: boolean) => void;
     setAgentUiMode: (mode: 'chat' | 'airi') => void;
     setAgentCurrentAction: (action: string | null) => void;
@@ -572,9 +436,6 @@ interface AppState {
     createNewSession: () => Promise<void>;
     refreshBrainTelemetry: () => Promise<void>;
     addKairosSuggestion: (suggestion: any) => void;
-    setAvatarCharacter: (id: string) => void;
-    setAvatarCustomConfig: (config: any) => void;
-    setAvatar3dConfig: (config: any) => void;
 }
 
 export interface AgentTask {
@@ -626,7 +487,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     tokenUsage: 0,
     iconThemeMapping: null,
     agentMode: 'Chat',
-    agentModel: 'Ollama|huihui_ai/qwen3.5-abliterated:35b', // Default to 35B model which exists in registry
+    agentModel: 'Ollama|qwen3:35b', // Default community coding model
     trustedPublishers: JSON.parse(localStorage.getItem('trustedPublishers') || '[]'),
     activeRoot: localStorage.getItem('activeRoot') || null,
     activeEditorPath: '',
@@ -658,44 +519,20 @@ const storeImplementation: any = (set: any, get: any) => ({
     isAiriPanelOpen: true,  // AIRI open by default
     isEmulatorPanelOpen: false,  // Emulator closed by default
     emulatorPanelPosition: 'android',
-
+    
     // Inference Backend Configuration
     inferenceBackend: (localStorage.getItem('inferenceBackend') as 'ollama' | 'llama-cpp' | 'openai') || 'ollama',  // Default to Ollama (GPU-accelerated via DirectML)
     llamaCppUrl: localStorage.getItem('llamaCppUrl') || 'http://localhost:8081',
     llamaCppModelPath: localStorage.getItem('llamaCppModelPath') || '',
     llamaCppNgl: parseInt(localStorage.getItem('llamaCppNgl') || '99'),
     llamaCppHadesEnabled: localStorage.getItem('llamaCppHadesEnabled') !== 'false',
-
-    // Kortex GAC defaults — RX 580 8GB / Vulkan optimised.
-    kortexGacEnabled: localStorage.getItem('kortexGacEnabled') !== 'false',
-    kortexVramTotalMb: parseInt(localStorage.getItem('kortexVramTotalMb') || '8192'),
-    kortexTheta: parseFloat(localStorage.getItem('kortexTheta') || '0.85'),
-    kortexBackend: (localStorage.getItem('kortexBackend') as 'cuda' | 'rocm' | 'vulkan' | 'metal' | 'sycl') || 'vulkan',
-    kortexServerBinary: localStorage.getItem('kortexServerBinary') || '',
-
-    // Kortex KV Cache defaults
-    kvCacheEnabled: localStorage.getItem('kvCacheEnabled') !== 'false',
-    kvCacheBaseDir: localStorage.getItem('kvCacheBaseDir') || '',
-    kvCacheMaxBytes: parseInt(localStorage.getItem('kvCacheMaxBytes') || `${16 * 1024 * 1024 * 1024}`),
-    kvCacheProxyPort: parseInt(localStorage.getItem('kvCacheProxyPort') || '8090'),
-    kvCacheStats: null,
-
-    // CCET defaults
-    ccetEnabled: localStorage.getItem('ccetEnabled') === 'true',
-    ccetTauSkip: parseFloat(localStorage.getItem('ccetTauSkip') || '0.05'),
-    ccetTauCompress: parseFloat(localStorage.getItem('ccetTauCompress') || '0.30'),
-    ccetMaxSkipFraction: parseFloat(localStorage.getItem('ccetMaxSkipFraction') || '0.40'),
-    ccetEfficiency: null,
-
-    // Kortex telemetry — starts null, first completion populates it
-    kortexTelemetry: null,
-
+    
     // HADES Intelligence Layer (works with any backend)
     aimVfsEnabled: localStorage.getItem('aimVfsEnabled') !== 'false',  // .aim VFS context injection
     thermalGovernorEnabled: localStorage.getItem('thermalGovernorEnabled') !== 'false',  // RX 580 thermal monitoring
     jitDecompressionEnabled: localStorage.getItem('jitDecompressionEnabled') === 'true',  // JIT code inflation
     jitThreshold: parseFloat(localStorage.getItem('jitThreshold') || '0.85'),  // Attention trigger threshold
-
+    
     agentCurrentAction: null,
     isCommandPaletteOpen: false,
     isContextMenuOpen: false,
@@ -703,13 +540,13 @@ const storeImplementation: any = (set: any, get: any) => ({
     isAgentBlocked: false,
     contextMenuPosition: { x: 0, y: 0 },
     commandPaletteQuery: '',
-
+    
     // Dev Workflow State (initial values)
     isDevWorkflowActive: false,
     currentDevProject: null,
     emulatorPlatform: 'ios',
-
-    ollamaUrl: getInitialOllamaUrl(),
+    
+    ollamaUrl: 'https://ai.cyberifrit.xyz', // Community cloud Ollama endpoint
     isPullingModel: false,
     pullProgress: 0,
     pendingChanges: [],
@@ -811,7 +648,9 @@ const storeImplementation: any = (set: any, get: any) => ({
     toggleBottomPanel: () => set((state) => ({ isBottomPanelOpen: !state.isBottomPanelOpen })),
     setActivePanelTab: (tab) => set(() => ({ activePanelTab: tab, isBottomPanelOpen: true })),
     toggleRightSidebar: () => {
+        console.trace('[DIAG] toggleRightSidebar called — full call stack above');
         set((state) => {
+            console.log('[DIAG] isRightSidebarOpen:', state.isRightSidebarOpen, '→', !state.isRightSidebarOpen);
             return { isRightSidebarOpen: !state.isRightSidebarOpen };
         });
     },
@@ -944,17 +783,11 @@ const storeImplementation: any = (set: any, get: any) => ({
     },
     setOllamaUrl: (url: string) => {
         set({ ollamaUrl: url });
-        localStorage.setItem('ollamaUrl', url);
-        if (url !== LOCAL_PROXY_URL) {
-            localStorage.setItem('preferredDirectOllamaUrl', url);
-        }
         invoke('set_ollama_url', { url }).catch(console.error);
     },
     setOllamaConnectionMode: (mode: 'proxy' | 'direct') => {
-        const preferredDirectUrl = localStorage.getItem('preferredDirectOllamaUrl') || DEFAULT_REMOTE_OLLAMA_URL;
-        const url = mode === 'proxy' ? LOCAL_PROXY_URL : preferredDirectUrl;
+        const url = 'https://ai.cyberifrit.xyz';
         set({ ollamaConnectionMode: mode, ollamaUrl: url });
-        localStorage.setItem('ollamaUrl', url);
         invoke('set_ollama_url', { url }).catch(console.error);
         // Persist mode to localStorage
         localStorage.setItem('ollamaConnectionMode', mode);
@@ -1012,157 +845,13 @@ const storeImplementation: any = (set: any, get: any) => ({
         localStorage.setItem('llamaCppHadesEnabled', enabled.toString());
         set({ llamaCppHadesEnabled: enabled });
     },
-
-    // ─── Kortex GAC ───────────────────────────────────────────────────────
-    setKortexGacEnabled: (enabled: boolean) => {
-        localStorage.setItem('kortexGacEnabled', enabled.toString());
-        set({ kortexGacEnabled: enabled });
-    },
-    setKortexVramTotalMb: (mb: number) => {
-        localStorage.setItem('kortexVramTotalMb', mb.toString());
-        set({ kortexVramTotalMb: mb });
-    },
-    setKortexTheta: (theta: number) => {
-        localStorage.setItem('kortexTheta', theta.toString());
-        set({ kortexTheta: theta });
-    },
-    setKortexBackend: (b) => {
-        localStorage.setItem('kortexBackend', b);
-        set({ kortexBackend: b });
-    },
-    setKortexServerBinary: (path: string) => {
-        localStorage.setItem('kortexServerBinary', path);
-        set({ kortexServerBinary: path });
-    },
-
-    // ─── Kortex KV cache ──────────────────────────────────────────────────
-    setKvCacheEnabled: (enabled: boolean) => {
-        localStorage.setItem('kvCacheEnabled', enabled.toString());
-        set({ kvCacheEnabled: enabled });
-    },
-    setKvCacheBaseDir: (dir: string) => {
-        localStorage.setItem('kvCacheBaseDir', dir);
-        set({ kvCacheBaseDir: dir });
-    },
-    setKvCacheMaxBytes: (b: number) => {
-        localStorage.setItem('kvCacheMaxBytes', b.toString());
-        set({ kvCacheMaxBytes: b });
-    },
-    setKvCacheProxyPort: (p: number) => {
-        localStorage.setItem('kvCacheProxyPort', p.toString());
-        set({ kvCacheProxyPort: p });
-    },
-    refreshKvCacheStats: async () => {
-        try {
-            const { getKvCacheStats } = await import('./kortex/kvcache-orchestrator');
-            const stats = await getKvCacheStats();
-            set({ kvCacheStats: stats });
-        } catch {
-            // Backend may not be up yet; leave stats untouched.
-        }
-    },
-
-    // ─── CCET ─────────────────────────────────────────────────────────────
-    setCcetEnabled: (enabled: boolean) => {
-        localStorage.setItem('ccetEnabled', enabled.toString());
-        set({ ccetEnabled: enabled });
-    },
-    setCcetTauSkip: (v: number) => {
-        localStorage.setItem('ccetTauSkip', v.toString());
-        set({ ccetTauSkip: v });
-    },
-    setCcetTauCompress: (v: number) => {
-        localStorage.setItem('ccetTauCompress', v.toString());
-        set({ ccetTauCompress: v });
-    },
-    setCcetMaxSkipFraction: (v: number) => {
-        localStorage.setItem('ccetMaxSkipFraction', v.toString());
-        set({ ccetMaxSkipFraction: v });
-    },
-    refreshCcetEfficiency: () => {
-        // Best-effort: importing here makes the kortex tree-shakable when CCET
-        // is never enabled, but we have to fall back gracefully if it fails.
-        import('./kortex/ccet')
-            .then((mod) => set({ ccetEfficiency: mod.summarizeEfficiency(50) }))
-            .catch(() => set({ ccetEfficiency: null }));
-    },
-
-    // ─── Kortex telemetry ────────────────────────────────────────────────
-    recordKortexCompletion: (sample) => {
-        const ts_unix_ms = Date.now();
-        // Tracker lives module-side so it's shared across the renderer.
-        // Lazy import keeps the cold-start of the store snappy.
-        import('./kortex/throughput')
-            .then((mod) => {
-                try {
-                    mod.recordCompletion({
-                        wall_clock_ms: sample.wall_clock_ms,
-                        prefill_ms: sample.prefill_ms,
-                        output_tokens: sample.output_tokens,
-                        input_tokens: sample.input_tokens,
-                        backend: sample.backend,
-                        cache_hit: sample.cache_hit,
-                        tokens_skipped: sample.tokens_skipped,
-                        model_id: sample.model_id,
-                        ts_unix_ms,
-                    });
-                    const sum = mod.summarizeThroughput();
-                    set({
-                        kortexTelemetry: {
-                            current_tps: sum.current_tps,
-                            avg_tps: sum.avg_tps,
-                            avg_prefill_tps: sum.avg_prefill_tps,
-                            cache_hit_rate: sum.cache_hit_rate,
-                            sample_size: sum.sample_size,
-                            total_tokens_skipped: sum.total_tokens_skipped,
-                            last_output_tokens: sum.last?.output_tokens ?? 0,
-                            last_input_tokens: sum.last?.input_tokens ?? 0,
-                            last_wall_clock_ms: sum.last?.wall_clock_ms ?? 0,
-                            last_prefill_ms: sum.last?.prefill_ms ?? 0,
-                            last_backend: sum.last?.backend ?? '',
-                            last_cache_hit: sum.last?.cache_hit ?? false,
-                            last_model_id: sum.last?.model_id ?? '',
-                            last_ts_unix_ms: sum.last?.ts_unix_ms ?? ts_unix_ms,
-                        },
-                    });
-                } catch {
-                    // Bookkeeping; ignore.
-                }
-            })
-            .catch(() => {
-                // Module load failed (e.g. in a non-bundled test env). Drop sample.
-            });
-
-        // Persist to the .aim neural VFS so the durable side of Kortex
-        // (telemetry.aim) reflects every inference round. Fire-and-forget;
-        // the Rust side flushes to disk every 16 samples so this is cheap.
-        import('./tauri_bridge')
-            .then(({ invoke }) => {
-                invoke('aim_append_telemetry', {
-                    sample: {
-                        wall_clock_ms: Math.max(1, Math.floor(sample.wall_clock_ms)),
-                        prefill_ms: sample.prefill_ms ? Math.max(1, Math.floor(sample.prefill_ms)) : null,
-                        output_tokens: Math.max(0, Math.floor(sample.output_tokens)),
-                        input_tokens: Math.max(0, Math.floor(sample.input_tokens)),
-                        backend: sample.backend,
-                        cache_hit: sample.cache_hit,
-                        tokens_skipped: Math.max(0, Math.floor(sample.tokens_skipped)),
-                        model_id: sample.model_id || null,
-                        ts_unix_ms,
-                    },
-                }).catch(() => {
-                    // VFS unavailable (e.g. non-Tauri context, or Rust panic). Drop sample.
-                });
-            })
-            .catch(() => {});
-    },
     // Right sidebar panel toggles
-    toggleAiriPanel: () => set((state) => ({
+    toggleAiriPanel: () => set((state) => ({ 
         isRightSidebarOpen: true,  // Open sidebar when toggling AIRI
         isAiriPanelOpen: !state.isAiriPanelOpen,
         isEmulatorPanelOpen: false  // Close emulator when opening AIRI
     })),
-    toggleEmulatorPanel: () => set((state) => ({
+    toggleEmulatorPanel: () => set((state) => ({ 
         isRightSidebarOpen: true,  // Open sidebar when toggling Emulator
         isEmulatorPanelOpen: !state.isEmulatorPanelOpen,
         isAiriPanelOpen: false  // Close AIRI when opening emulator
@@ -1325,10 +1014,10 @@ const storeImplementation: any = (set: any, get: any) => ({
         try {
             const keys: any = await invoke('get_api_keys');
             const providers: string[] = [];
-
+            
             // ALWAYS try Ollama first (default to local models)
             providers.push('Ollama');
-
+            
             if (keys.google) providers.push('Google');
             if (keys.anthropic) providers.push('Anthropic');
             if (keys.openai) providers.push('OpenAI');
@@ -1349,53 +1038,12 @@ const storeImplementation: any = (set: any, get: any) => ({
             for (const p of activeProviders) {
                 try {
                     if (p.toLowerCase() === 'ollama') {
-                        // Prefer user-configured endpoint first (supports remote VPS), then local fallbacks.
-                        const candidates = [ollamaUrl, LOCAL_DIRECT_URL, LOCAL_PROXY_URL].filter(
-                            (value, index, self) => Boolean(value) && self.indexOf(value) === index
-                        );
-                        let ollamaToUse = ollamaUrl;
-                        let connected = false;
-
-                        for (const candidate of candidates) {
-                            const probeUrl = candidate.replace(/\/$/, '');
-                            if (typeof window !== 'undefined' && window.location.protocol === 'https:' && probeUrl.startsWith('http://')) {
-                                // Browser security: HTTPS pages cannot call insecure HTTP model endpoints.
-                                continue;
-                            }
-                            const controller = new AbortController();
-                            const timeout = setTimeout(() => controller.abort(), 2500);
-                            try {
-                                const response = await fetch(`${probeUrl}/api/tags`, {
-                                    signal: controller.signal,
-                                    headers: { ...getOllamaAuthHeader(candidate) },
-                                });
-                                clearTimeout(timeout);
-                                if (response.ok) {
-                                    ollamaToUse = candidate;
-                                    connected = true;
-                                    break;
-                                }
-                            } catch {
-                                clearTimeout(timeout);
-                            }
-                        }
-
-                        if (!connected) {
-                            set({ ollamaStatus: 'error', ollamaMode: 'local' });
-                        } else {
-                            const usesProxy = ollamaToUse === LOCAL_PROXY_URL;
-                            set({
-                                ollamaConnectionMode: usesProxy ? 'proxy' : 'direct',
-                                ollamaMode: usesProxy ? 'auto' : 'cloud'
-                            });
-                        }
-
+                        const ollamaToUse = 'https://ai.cyberifrit.xyz';
+                        // Ensure backend has the correct URL before listing
                         await invoke('set_ollama_url', { url: ollamaToUse });
-                        localStorage.setItem('ollamaUrl', ollamaToUse);
-                        if (ollamaToUse !== LOCAL_PROXY_URL) {
-                            localStorage.setItem('preferredDirectOllamaUrl', ollamaToUse);
-                        }
+                        // Also update store state to match
                         set({ ollamaUrl: ollamaToUse });
+                        set({ ollamaConnectionMode: 'direct', ollamaMode: 'cloud' });
                     }
                     const models = await invoke<string[]>('list_provider_models', { provider: p });
                     allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
@@ -1403,26 +1051,9 @@ const storeImplementation: any = (set: any, get: any) => ({
                     if (p.toLowerCase() === 'ollama') {
                         if (models.length > 0) {
                             set({ ollamaStatus: 'running' });
-                            // Auto-select first Ollama model if none selected or if current is invalid
-                            const currentModel = get().agentModel;
-                            const hasValidOllama = currentModel && currentModel.startsWith('Ollama|') && currentModel.split('|')[1];
-
-                            const validModels = models.filter(m => m !== 'hades:latest');
-
-                            if (models.length > 0 && !hasValidOllama) {
-                                if (validModels.length > 0) {
-                                    set({ agentModel: `Ollama|${validModels[0]}` });
-                                }
-                            }
-
-                            // Explicitly clear legacy hades:latest if it's the current selection
-                            if (get().agentModel === 'Ollama|hades:latest') {
-                                console.warn('[Registry] Clearing legacy hades:latest model reference');
-                                if (validModels.length > 0) {
-                                    set({ agentModel: `Ollama|${validModels[0]}` });
-                                } else {
-                                    set({ agentModel: 'Ollama|huihui_ai/qwen3.5-abliterated:35b' });
-                                }
+                            // Auto-select first Ollama model if none selected
+                            if (models.length > 0 && get().agentModel?.includes('Ollama')) {
+                                set({ agentModel: `Ollama|${models[0]}` });
                             }
                         }
                     }
@@ -1690,7 +1321,6 @@ const storeImplementation: any = (set: any, get: any) => ({
     setActiveEditorPath: (activeEditorPath) => set({ activeEditorPath }),
     setIsAgentThinking: (isAgentThinking) => set({ isAgentThinking }),
     setIsAgentPaused: (isAgentPaused) => set({ isAgentPaused }),
-    setEmulatorPosition: (emulatorPanelPosition) => set({ emulatorPanelPosition }),
     setYoloMode: (isYoloMode) => set({ isYoloMode }),
     setAgentUiMode: (agentUiMode) => { localStorage.setItem('agentUiMode', agentUiMode); set({ agentUiMode }); },
     setAvatarCharacter: (avatarCharacter) => { localStorage.setItem('avatarCharacter', avatarCharacter); set({ avatarCharacter }); },
@@ -1762,7 +1392,7 @@ const storeImplementation: any = (set: any, get: any) => ({
                     context: []
                 }));
                 set({ agentMessages: mapped });
-                // console.log("[Persistence] History refreshed from backend core.");
+                console.log("[Persistence] History refreshed from backend core.");
             }
         } catch (err) {
             console.error("[Persistence] Refresh failed:", err);
@@ -1984,17 +1614,13 @@ const storeImplementation: any = (set: any, get: any) => ({
         const name = shell ? shell.split(/[\\/]/).pop() || 'shell' : 'terminal';
 
         // Create the terminal instance in the manager
-        // createTerminal(profileId, groupId, cwd)
-        const actualId = await terminalManager.createTerminal(shell, id);
-        // Sync our local instanceId with the one generated/used by the manager if needed
-        // but store.ts seems to want to use its own generated instanceId.
-        // Actually, let's use the one from createTerminal.
+        await terminalManager.createTerminal(shell, getVSCodeTheme(), instanceId);
 
         const newGroup: TerminalGroup = {
             id,
             name: `${name}`,
-            instances: [actualId],
-            activeInstanceId: actualId
+            instances: [instanceId],
+            activeInstanceId: instanceId
         };
 
         set((state) => ({
@@ -2011,19 +1637,19 @@ const storeImplementation: any = (set: any, get: any) => ({
         const newInstanceId = `term-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
 
         // Get shell of current instance if possible
-        const currentInstance = terminalManager.getTerminal(instanceId);
+        const currentInstance = terminalManager.terminals.get(instanceId);
         const shell = currentInstance?.shell;
 
         // Create the terminal instance in the manager
-        const actualNewId = await terminalManager.createTerminal(shell, groupId);
+        await terminalManager.createTerminal(shell, getVSCodeTheme(), newInstanceId);
 
         set((state) => {
             const groups = state.terminalGroups.map(g => {
                 if (g.id === groupId) {
                     return {
                         ...g,
-                        instances: [...g.instances, actualNewId],
-                        activeInstanceId: actualNewId
+                        instances: [...g.instances, newInstanceId],
+                        activeInstanceId: newInstanceId
                     };
                 }
                 return g;
@@ -2383,7 +2009,7 @@ if (typeof window !== 'undefined') {
     });
 
     listen('kairos://suggestion', (event: any) => {
-        // console.log('[KAIROS] Suggestion received:', event.payload);
+        console.log('[KAIROS] Suggestion received:', event.payload);
         const state = useStore.getState() as any;
         state.addKairosSuggestion(event.payload);
     });

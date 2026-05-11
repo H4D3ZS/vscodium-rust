@@ -6,13 +6,13 @@ export function ensureServerChannelConfigDefaults(
 ) {
   const nextConfig: ElectronServerChannelConfig = {
     authToken: config.authToken?.trim() || generateToken(),
-    hostname: config.hostname?.trim() || 'localhost',
+    hostname: config.hostname?.trim() || '127.0.0.1',
     tlsConfig: config.tlsConfig || null,
   }
 
   const previousConfig: ElectronServerChannelConfig = {
     authToken: config.authToken?.trim() || '',
-    hostname: config.hostname?.trim() || 'localhost',
+    hostname: config.hostname?.trim() || '127.0.0.1',
     tlsConfig: config.tlsConfig || null,
   }
 

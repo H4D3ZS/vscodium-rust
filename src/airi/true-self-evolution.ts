@@ -414,17 +414,25 @@ export class AIRISelfEvolution {
      * Get all AIRI source files
      */
     private async getAIRIFiles(): Promise<string[]> {
-        const airiDir = 'c:/Users/HADES/Desktop/vscodium-rust/src/airi';
-        // // console.log('[SelfEvolution] Scanning AIRI directory:', airiDir);
-        try {
-            const entries = await invoke<any[]>('list_directory', { path: airiDir });
-            return entries
-                .filter(e => !e.is_dir && e.name.endsWith('.ts'))
-                .map(e => `${airiDir}/${e.name}`);
-        } catch (e) {
-            console.error('Failed to list AIRI files:', e);
-            return [];
+        const candidates = [
+            `${this.codebasePath}/src/airi`,
+            `${this.codebasePath}/airi`,
+            `${this.codebasePath}`,
+        ];
+        for (const airiDir of candidates) {
+            try {
+                const entries = await invoke<any[]>('list_directory', { path: airiDir });
+                const files = entries
+                    .filter(e => !e.is_dir && e.name.endsWith('.ts'))
+                    .map(e => `${airiDir}/${e.name}`);
+                if (files.length > 0) {
+                    return files;
+                }
+            } catch (_) {
+                // try next candidate
+            }
         }
+        return [];
     }
 
     /**

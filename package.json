@@ -7,19 +7,17 @@
     "dev": "node --max-old-space-size=4096 tools/start-dev-with-services.js",
     "dev:direct": "vite",
     "dev:full": "npx concurrently \"npm run tauri dev\" \"cd airi && npx pnpm dev:web --host\"",
-    "build": "node --stack-size=10000 node_modules/typescript/bin/tsc && vite build",
+    "typecheck": "node --stack-size=10000 node_modules/typescript/bin/tsc",
+    "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "start-mitm": "node tools/mitmserver/server.js",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "start-mitm": "node tools/mitmserver/server.js"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.6",
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
-    "vite-plugin-node-polyfills": "^0.26.0",
-    "vitest": "^4.1.5"
+    "vite-plugin-node-polyfills": "^0.26.0"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

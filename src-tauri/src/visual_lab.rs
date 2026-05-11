@@ -210,7 +210,7 @@ pub fn parse_sql_to_graph(sql: &str) -> VisualGraph {
     VisualGraph { nodes, edges }
 }
 
-pub fn parse_mongo_to_graph(content: &str) -> VisualGraph {
+pub fn parse_mongodb_to_graph(content: &str) -> VisualGraph {
     let mut clean_content = content.trim().to_string();
 
     // Try to extract data from db.collection.insertMany([...]) or insertOne({...})

@@ -23,7 +23,7 @@ echo "pnpm exec tsx ${SCRIPT_DIR}/start-server.ts --port ${PORT} --root ${SCRIPT
 echo
 echo "Launch AIRI against the mocked update server:"
 echo "cd ${APP_DIR}"
-echo "UPDATE_SERVER_URL=http://localhost:${PORT}/${CHANNEL} pnpm run dev"
+echo "UPDATE_SERVER_URL=http://127.0.0.1:${PORT}/${CHANNEL} pnpm run dev"
 echo
 echo "Verify:"
 echo "1. About page shows an available update."

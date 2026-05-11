@@ -7,10 +7,14 @@ describe('parseEnv', () => {
     const env = parseEnv({
       DATABASE_URL: 'postgres://example',
       REDIS_URL: 'redis://example',
+      BETTER_AUTH_SECRET: 'test-secret-at-least-32-characters-long',
       AUTH_GOOGLE_CLIENT_ID: 'google-client',
       AUTH_GOOGLE_CLIENT_SECRET: 'google-secret',
       AUTH_GITHUB_CLIENT_ID: 'github-client',
       AUTH_GITHUB_CLIENT_SECRET: 'github-secret',
+      GATEWAY_BASE_URL: 'https://gateway.example',
+      DEFAULT_CHAT_MODEL: 'openai/gpt-4o-mini',
+      DEFAULT_TTS_MODEL: 'openai/gpt-4o-mini-tts',
     })
 
     expect(env.DATABASE_URL).toBe('postgres://example')

@@ -7,6 +7,11 @@ describe('origin utils', () => {
     expect(getTrustedOrigin('http://localhost:5173')).toBe('http://localhost:5173')
   })
 
+  it('allows https localhost (mkcert dev)', () => {
+    expect(getTrustedOrigin('https://localhost:5273')).toBe('https://localhost:5273')
+    expect(getTrustedOrigin('https://127.0.0.1:5273')).toBe('https://127.0.0.1:5273')
+  })
+
   it('rejects untrusted origins', () => {
     expect(getTrustedOrigin('https://example.com')).toBe('')
   })
@@ -41,6 +46,8 @@ describe('origin utils', () => {
 
     expect(getAuthTrustedOrigins({ API_SERVER_URL: 'https://api.airi.moeru.ai' } as any, request)).toEqual([
       'https://api.airi.moeru.ai',
+      'http://localhost:*',
+      'http://127.0.0.1:*',
       'http://localhost:5173',
     ])
   })

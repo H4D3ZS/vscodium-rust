@@ -7,6 +7,7 @@ import { computed, ref, watch } from 'vue'
 
 import { client } from '../composables/api'
 import { useBreakpoints } from '../composables/use-breakpoints'
+import { triggerSignIn } from '../libs/auth'
 import { refreshAccessToken } from '../libs/auth-oidc'
 
 /**
@@ -23,6 +24,12 @@ export const useAuthStore = defineStore('auth', () => {
   const session = useLocalStorage<Session | null>('auth/v1/session', null, { serializer: StorageSerializers.object })
   const token = useLocalStorage<string | null>('auth/v1/token', null)
   const refreshToken = useLocalStorage<string | null>('auth/v1/refresh-token', null)
+  // NOTICE:
+  // Persisted to drive `id_token_hint` on RP-Initiated Logout
+  // (`/api/auth/oauth2/end-session`). The `sid` claim inside the ID token is
+  // what lets the OIDC provider locate the server-side session row to delete
+  // — without this we'd be back to relying on cross-site session cookies.
+  const idToken = useLocalStorage<string | null>('auth/v1/oidc-id-token', null)
   const isAuthenticated = computed(() => !!user.value && !!session.value)
   const userId = computed(() => user.value?.id ?? 'local')
 
@@ -33,26 +40,21 @@ export const useAuthStore = defineStore('auth', () => {
 
   const credits = useLocalStorage<number>('user/v1/flux', 0)
 
-  // For controlling the login drawer on mobile
+  // Cross-app "user must log in" flag. Setting this to true triggers an
+  // immediate OIDC redirect on web (mobile + desktop). Electron skips this
+  // path because controls-island-auth-button listens for IPC and handles
+  // sign-in in the main process.
   const needsLogin = ref(false)
   const { isMobile } = useBreakpoints()
 
-  whenever(needsLogin, () => {
-    // On mobile, LoginDrawer handles it via v-model
-    if (isMobile.value)
-      return
-
-    // On Electron, auth is triggered via IPC from controls-island-auth-button.
-    // Setting needsLogin is a no-op in Electron — the button listens directly.
+  whenever(needsLogin, async () => {
     if (isStageTamagotchi())
       return
-
-    // On web desktop, redirect to login page
-    // TODO: type safe, import `useRouter` from router.ts
-    window.location.href = '/auth/sign-in'
+    await triggerSignIn()
   })
 
-  // Reset status when changing the window viewport
+  // Reset the flag if the viewport class flips, so a stale needsLogin from a
+  // previous breakpoint does not surface again on resize.
   watch(isMobile, () => needsLogin.value = false)
 
   // --- Lifecycle hooks ---
@@ -115,13 +117,20 @@ export const useAuthStore = defineStore('auth', () => {
   type TokenRefreshedHook = (accessToken: string) => void | Promise<void>
   const tokenRefreshedHooks: TokenRefreshedHook[] = []
 
-  const { start: startRefreshTimer, stop: stopRefreshTimer } = useTimeoutFn(
-    async () => {
-      if (!refreshToken.value || !oidcClientId.value)
-        return
+  // Single-flight refresh: multiple concurrent callers (timer + 401 retry + restore)
+  // must not trigger multiple token exchanges. All share one in-flight promise.
+  let inflightRefresh: Promise<string | null> | null = null
 
+  async function refreshTokenNow(): Promise<string | null> {
+    if (inflightRefresh)
+      return inflightRefresh
+
+    if (!refreshToken.value || !oidcClientId.value)
+      return null
+
+    inflightRefresh = (async () => {
       try {
-        const tokens = await refreshAccessToken(oidcClientId.value, refreshToken.value)
+        const tokens = await refreshAccessToken(oidcClientId.value!, refreshToken.value!)
         token.value = tokens.access_token
         if (tokens.refresh_token)
           refreshToken.value = tokens.refresh_token
@@ -138,22 +147,34 @@ export const useAuthStore = defineStore('auth', () => {
             console.error('token refresh hook error', e)
           }
         }
+
+        return tokens.access_token
       }
       catch {
-        user.value = null
-        session.value = null
-        token.value = null
-        refreshToken.value = null
-        oidcClientId.value = null
-        tokenExpiry.value = null
+        clearAllAuthState()
+        return null
       }
-    },
+      finally {
+        inflightRefresh = null
+      }
+    })()
+
+    return inflightRefresh
+  }
+
+  const { start: startRefreshTimer, stop: stopRefreshTimer } = useTimeoutFn(
+    () => { refreshTokenNow() },
     refreshDelayMs,
     { immediate: false },
   )
 
   function scheduleTokenRefresh(expiresInSeconds: number): void {
     stopRefreshTimer()
+    // Guard against missing/invalid lifetimes (e.g. token response omitted
+    // expires_in). useTimeoutFn with NaN/<=0 delay would fire immediately
+    // and spin a refresh loop — skip scheduling instead.
+    if (!Number.isFinite(expiresInSeconds) || expiresInSeconds <= 0)
+      return
     // Refresh at 80% of lifetime
     refreshDelayMs.value = expiresInSeconds * 0.8 * 1000
     startRefreshTimer()
@@ -161,8 +182,11 @@ export const useAuthStore = defineStore('auth', () => {
 
   /**
    * Restore refresh scheduling from persisted state after page reload.
+   * Returns a promise that resolves after an immediate refresh completes
+   * (when the persisted token is already expired) so callers can avoid
+   * racing `fetchSession()` against a stale Bearer token.
    */
-  function restoreRefreshSchedule(): void {
+  async function restoreRefreshSchedule(): Promise<void> {
     if (!refreshToken.value || !oidcClientId.value)
       return
 
@@ -174,8 +198,8 @@ export const useAuthStore = defineStore('auth', () => {
       }
     }
 
-    // Token already expired or no expiry info — refresh immediately
-    scheduleTokenRefresh(0)
+    // Already expired — refresh synchronously so subsequent requests use fresh token
+    await refreshTokenNow()
   }
 
   function onTokenRefreshed(hook: TokenRefreshedHook) {
@@ -187,10 +211,26 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  function clearOIDCState(): void {
+  /**
+   * Reset every auth-related field atomically.
+   *
+   * Use when: signing out, refresh fails, session is rejected by server, or
+   * persisted state is detected inconsistent.
+   *
+   * Why atomic: `refreshToken` and `oidcClientId` must either both exist or
+   * both be absent. A "half-cleared" state (one present, one null) makes
+   * `refreshTokenNow()` early-return without attempting refresh, so 401s
+   * loop silently until the user lands on a page that calls fetchSession.
+   */
+  function clearAllAuthState(): void {
     stopRefreshTimer()
+    user.value = null
+    session.value = null
+    token.value = null
+    refreshToken.value = null
     oidcClientId.value = null
     tokenExpiry.value = null
+    idToken.value = null
   }
 
   const updateCredits = async () => {
@@ -220,6 +260,7 @@ export const useAuthStore = defineStore('auth', () => {
     session,
     token,
     refreshToken,
+    idToken,
     isAuthenticated,
     credits,
     updateCredits,
@@ -232,7 +273,8 @@ export const useAuthStore = defineStore('auth', () => {
     tokenExpiry,
     scheduleTokenRefresh,
     restoreRefreshSchedule,
-    clearOIDCState,
+    refreshTokenNow,
+    clearAllAuthState,
     onTokenRefreshed,
   }
 })

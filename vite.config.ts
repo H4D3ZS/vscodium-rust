@@ -18,8 +18,6 @@ export default defineConfig({
             'fs': resolve(__dirname, 'src/airi/fs-stub.ts'),
             'child_process': resolve(__dirname, 'src/airi/fs-stub.ts'),
             'ollama': resolve(__dirname, 'node_modules/ollama/dist/browser.mjs'),
-            '@tauri-apps/api/core': resolve(__dirname, 'src/tauri_api_shim/core.ts'),
-            '@tauri-apps/api/event': resolve(__dirname, 'src/tauri_api_shim/event.ts'),
         },
     },
     build: {
@@ -39,5 +37,5 @@ export default defineConfig({
     },
     clearScreen: false,
     envPrefix: ['VITE_', 'TAURI_'],
-    base: '/vscodium-rust-ide-amd/',
+    base: './',
 });

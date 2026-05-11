@@ -1,16 +1,8 @@
 export { airiConsciousness, AIRIConsciousness } from './consciousness';
 export { airiBiology } from './biology';
-export { airiSecurity, AIRISecurityEngine as AIRISecurity } from './security-engine';
-export * from './types';
+export { airiSecurity } from './security-engine';
 export { airiSelfLearning } from './self-learning';
 export { airiMemory } from './memory';
 export { airiVRMAvatar } from './vrm-avatar';
 export { airiDigitalSenses } from './digital-senses';
 export { airiAutonomousDecision } from './autonomous-decision';
-export { airiSocial, AIRISocialInteraction as AIRISocial } from './social-interaction';
-export { airiInternet, AIRIInternetAccess as AIRIInternet } from './internet-access';
-export { airiKortex, AIRIKortexIntegration as AIRIKortex } from './kortex-integration';
-export { airiCybersecurity, AIRICybersecurityEngine as AIRICybersecurity } from './cybersecurity-engine';
-export { airiOrchestrator, AIRIToolOrchestrator as AIRIOrchestrator } from './tool-orchestrator';
-export { airiMobileDev, AIRIMobileDevelopment as AIRIMobileDev } from './mobile-dev-workflow';
-export { airiSelfHealing } from './self-healing';

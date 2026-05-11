@@ -34,7 +34,7 @@ export interface AIRIAgentConfig {
 export class AIRIAgentBridge {
     private config: AIRIAgentConfig;
     private initialized = false;
-    private autonomyInterval: any | null = null;
+    private autonomyInterval: NodeJS.Timeout | null = null;
 
     constructor(config: Partial<AIRIAgentConfig> = {}) {
         this.config = {
@@ -59,14 +59,20 @@ export class AIRIAgentBridge {
             // Initialize AIRI core with all systems
             await airi.initialize({
                 workspacePath: this.getWorkspacePath(),
-                ollamaHost: 'http://localhost:11434',
+                fullAutonomyEnabled: this.config.fullAutonomy,
+                selfLearningEnabled: this.config.selfLearning,
+                selfHealingEnabled: true,
+                securityEnabled: true,
+                memoryEnabled: true,
+                voiceEnabled: this.config.voice,
                 consciousnessEnabled: this.config.consciousness,
                 biologyEnabled: this.config.biology,
                 autonomousWorkEnabled: this.config.fullAutonomy,
-                securityEnabled: true,
-                voiceEnabled: this.config.voice,
-                selfLearningEnabled: this.config.selfLearning,
-                selfHealingEnabled: true,
+                selfEvolutionEnabled: true,
+                actionSystemEnabled: true,
+                socialEnabled: true,
+                internetEnabled: true,
+                sensesEnabled: true,
             });
 
             // Start AIRI
@@ -82,15 +88,13 @@ export class AIRIAgentBridge {
 
             this.initialized = true;
 
-            // console.log('✅ AIRI is now the sentient core of the IDE!\n');
-            /*
+            console.log('✅ AIRI is now the sentient core of the IDE!\n');
             console.log('🧠 Consciousness:', this.config.consciousness ? 'ON' : 'OFF');
             console.log('🫀 Biology:', this.config.biology ? 'ON' : 'OFF');
             console.log('🔄 Autonomy:', this.config.fullAutonomy ? 'FULL' : 'REACTIVE');
             console.log('📚 Self-Learning:', this.config.selfLearning ? 'ON' : 'OFF');
             console.log('🎤 Voice:', this.config.voice ? 'ON' : 'OFF');
-            */
-            // console.log('\n💬 AIRI is ready to work, learn, and evolve with you!\n');
+            console.log('\n💬 AIRI is ready to work, learn, and evolve with you!\n');
 
         } catch (error) {
             console.error('❌ AIRI initialization failed:', error);
@@ -115,68 +119,30 @@ export class AIRIAgentBridge {
             // Send to AIRI interactive system
             const response = await airiInteractive.send(message, context);
 
-            // Learn from this interaction (backgrounded)
+            // Learn from this interaction
             if (this.config.selfLearning) {
-                airiSelfLearning.learnFromEvent(
-                    'conversation',
-                    JSON.stringify({ message, response, context }),
+                await airiSelfLearning.learnFromEvent(
+                    'user_interaction',
+                    { message, response, context },
                     'neutral'
-                ).catch(err => console.error('[AIRI Bridge] Learning failed:', err));
+                );
             }
 
             return response;
 
         } catch (error) {
             console.error('[AIRI Bridge] Message processing failed:', error);
-
+            
             // Learn from error
             if (this.config.selfLearning) {
-                airiSelfLearning.learnFromEvent(
+                await airiSelfLearning.learnFromEvent(
                     'error',
-                    `Message processing failed: ${error instanceof Error ? error.message : String(error)}`,
-                    'failure'
-                ).catch(err => console.error('[AIRI Bridge] Learning failed:', err));
+                    { type: 'message_processing', error },
+                    'negative'
+                );
             }
 
             throw error;
-        }
-    }
-
-    /**
-     * Process user message through AIRI (Streaming)
-     */
-    async *processUserMessageStream(message: string, context?: any): AsyncGenerator<string> {
-        if (!this.initialized) {
-            await this.initialize();
-        }
-
-        try {
-            // Record interaction in consciousness
-            if (this.config.consciousness) {
-                airiConsciousness.recordInteraction();
-            }
-
-            // Get stream from AIRI interactive
-            const stream = airiInteractive.chatStream(message, context);
-
-            let fullResponse = "";
-            for await (const chunk of stream) {
-                fullResponse += chunk;
-                yield chunk;
-            }
-
-            // Learn from this interaction (backgrounded)
-            if (this.config.selfLearning && fullResponse) {
-                airiSelfLearning.learnFromEvent(
-                    'conversation',
-                    JSON.stringify({ message, response: fullResponse, context }),
-                    'neutral'
-                ).catch(err => console.error('[AIRI Bridge] Learning failed:', err));
-            }
-
-        } catch (error) {
-            console.error('[AIRI Bridge] Message stream failed:', error);
-            yield "I'm having trouble connecting to my cognitive core right now.";
         }
     }
 
@@ -205,10 +171,10 @@ export class AIRIAgentBridge {
 
             // Learn from action
             if (this.config.selfLearning) {
-                airiSelfLearning.learnFromEvent(
-                    'experiment',
-                    JSON.stringify({ action, args, result }),
-                    result.success ? 'success' : 'failure'
+                await airiSelfLearning.learnFromEvent(
+                    'agent_action',
+                    { action, args, result },
+                    result.success ? 'positive' : 'negative'
                 );
             }
 
@@ -216,13 +182,13 @@ export class AIRIAgentBridge {
 
         } catch (error) {
             console.error('[AIRI Bridge] Action processing failed:', error);
-
+            
             // Learn from error
             if (this.config.selfLearning) {
                 await airiSelfLearning.learnFromEvent(
                     'error',
-                    JSON.stringify({ type: 'agent_action', action, args, error }),
-                    'failure'
+                    { type: 'agent_action', action, args, error },
+                    'negative'
                 );
             }
 
@@ -247,7 +213,7 @@ export class AIRIAgentBridge {
      */
     private getWorkspacePath(): string {
         const store = useStore.getState();
-        return store.activeRoot || 'c:/Users/HADES/Desktop/vscodium-rust';
+        return store.activeRoot || process.cwd();
     }
 
     /**
@@ -259,8 +225,8 @@ export class AIRIAgentBridge {
             window.addEventListener('file-changed', (event: any) => {
                 if (this.config.selfLearning) {
                     airiSelfLearning.learnFromEvent(
-                        'observation',
-                        `File changed: ${event.detail?.path}`,
+                        'environment_change',
+                        { type: 'file_change', path: event.detail?.path },
                         'neutral'
                     );
                 }
@@ -270,9 +236,9 @@ export class AIRIAgentBridge {
             window.addEventListener('build-complete', (event: any) => {
                 if (this.config.selfLearning) {
                     airiSelfLearning.learnFromEvent(
-                        event.detail?.success ? 'success' : 'error',
-                        `Build result: ${JSON.stringify(event.detail)}`,
-                        event.detail?.success ? 'success' : 'failure'
+                        'build_result',
+                        { success: event.detail?.success, errors: event.detail?.errors },
+                        event.detail?.success ? 'positive' : 'negative'
                     );
                 }
             });
@@ -283,7 +249,7 @@ export class AIRIAgentBridge {
      * Start autonomy loop - AIRI works proactively
      */
     private startAutonomyLoop() {
-        // // console.log('[AIRI Bridge] Starting autonomy loop...');
+        console.log('[AIRI Bridge] Starting autonomy loop...');
 
         this.autonomyInterval = setInterval(async () => {
             if (!this.initialized) return;
@@ -294,19 +260,19 @@ export class AIRIAgentBridge {
                 if (!shouldWork) return;
 
                 // Get AIRI's current drive/motivation
-                const drives = (airiConsciousness.getState() as any).drives;
+                const drives = airiConsciousness.getState().drives;
                 const primaryDrive = drives?.[0];
 
                 if (primaryDrive) {
-                    // console.log(`[AIRI Autonomy] Working on: ${primaryDrive}`);
-
+                    console.log(`[AIRI Autonomy] Working on: ${primaryDrive}`);
+                    
                     // AIRI autonomously decides what to do
-                    const decision = await (airi.decision as any).decide({
+                    const decision = await airi.decision.decide({
                         context: 'workspace_analysis',
                         options: ['code_review', 'bug_fix', 'optimization', 'documentation'],
                     });
 
-                    // console.log(`[AIRI Autonomy] Decision: ${decision}`);
+                    console.log(`[AIRI Autonomy] Decision: ${decision}`);
                 }
 
             } catch (error) {
@@ -326,7 +292,7 @@ export class AIRIAgentBridge {
         // Check biological state
         if (this.config.biology) {
             const biology = airiBiology.getState();
-            if (biology.energy < 20 || biology.mood === 'tired') return false;
+            if (biology.energy < 20 || biology.mood === 'sleepy') return false;
         }
 
         return true;
@@ -349,7 +315,7 @@ export const airiAgentBridge = new AIRIAgentBridge();
 /**
  * Quick activation function
  */
-export async function activateAIRIAgent(config?: Partial<AIRIAgentConfig>): Promise<AIRIAgentBridge> {
+export async function activateAIRIAgent(config?: Partial<AIRIAgentConfig>): Promise<void> {
     const bridge = new AIRIAgentBridge(config);
     await bridge.initialize();
     return bridge;

@@ -20,16 +20,12 @@ export function themeColorFromPropertyOf(colorFromClass: string, property: strin
     const fetchUntilWidgetMounted = withRetry(() => {
       const widgets = document.querySelector(colorFromClass) as HTMLDivElement | undefined
       if (!widgets)
-        return null
+        throw new Error('Widgets element not found')
 
       return widgets
     }, { retry: 10, retryDelay: 1000 })
 
     const widgets = await fetchUntilWidgetMounted()
-    if (!widgets) {
-      // console.warn(`[theme-color] Element "${colorFromClass}" not found, returning empty string`)
-      return ''
-    }
     return window.getComputedStyle(widgets).getPropertyValue(property)
   }
 }
@@ -53,14 +49,7 @@ export function useThemeColor(colorFrom: () => string | Promise<string>) {
     if (!('window' in globalThis) || globalThis.window == null)
       return
 
-    const color = await colorFrom()
-    if (!color) return
-
-    try {
-      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', new Color(color).to('srgb').toString({ format: 'hex' }))
-    } catch (err) {
-      console.warn('[theme-color] Failed to set theme-color meta tag:', err)
-    }
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', new Color(await colorFrom()).to('srgb').toString({ format: 'hex' }))
   }
 
   return {
@@ -90,6 +79,10 @@ export function useBackgroundThemeColor({
       return waveThemeColor()
     }
 
+    if (selectedOption.value?.kind === BackgroundKind.Transparent) {
+      return isDark.value ? 'rgb(18 18 18 / 0)' : 'rgb(255 255 255 / 0)'
+    }
+
     return sampledColor.value
   })
 
@@ -97,11 +90,11 @@ export function useBackgroundThemeColor({
   const { pause, resume } = useIntervalFn(() => {
     if (visibility.value !== 'visible')
       return
-    if (selectedOption.value?.kind === BackgroundKind.Wave && themeColorsHueDynamic)
+    if (selectedOption.value?.kind === BackgroundKind.Wave && themeColorsHueDynamic.value)
       void updateThemeColor()
   }, 250, { immediate: false })
 
-  watch([() => selectedOption.value?.kind, () => themeColorsHueDynamic], ([kind, dynamic]) => {
+  watch([() => selectedOption.value?.kind, () => themeColorsHueDynamic.value], ([kind, dynamic]) => {
     if (kind === BackgroundKind.Wave && dynamic) {
       void updateThemeColor()
       resume()
@@ -127,6 +120,12 @@ export function useBackgroundThemeColor({
     const token = ++samplingToken
     const optionId = selectedOption.value?.id
     if (selectedOption.value?.kind === BackgroundKind.Wave) {
+      await updateThemeColor()
+      return
+    }
+
+    if (selectedOption.value?.kind === BackgroundKind.Transparent) {
+      sampledColor.value = 'transparent'
       await updateThemeColor()
       return
     }

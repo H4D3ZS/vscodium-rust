@@ -5,7 +5,7 @@ import { nextTick, ref } from 'vue'
 const invokeMocks = vi.hoisted(() => {
   const getConfig = vi.fn(async () => ({
     authToken: 'existing-token',
-    hostname: 'localhost',
+    hostname: '127.0.0.1',
     tlsConfig: null,
   }))
   const applyConfig = vi.fn(async (config: unknown) => config)
@@ -30,7 +30,7 @@ vi.mock('@proj-airi/electron-vueuse', () => ({
 vi.mock('@vueuse/core', () => ({
   useLocalStorage: <T>(key: string, initialValue: T) => {
     if (key === 'settings/server-channel/hostname')
-      return ref('localhost')
+      return ref('127.0.0.1')
     if (key === 'settings/server-channel/auth-token')
       return ref('existing-token')
     if (key === 'settings/server-channel/websocket-tls-config')
@@ -74,7 +74,7 @@ describe('useServerChannelSettingsStore', async () => {
     await nextTick()
 
     await vi.waitFor(() => {
-      expect(store.hostname).toBe('localhost')
+      expect(store.hostname).toBe('127.0.0.1')
       expect(store.authToken).toBe('existing-token')
       expect(store.tlsConfig).toBeNull()
       expect(store.lastApplyError).toBe('apply failed')

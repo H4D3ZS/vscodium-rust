@@ -8,11 +8,11 @@ use std::time::Duration;
 use tauri::State;
 
 /// Manages the iPhone emulator process
-pub struct IPhoneEmulatorManager {
+pub struct iPhoneEmulatorManager {
     process: Mutex<Option<Child>>,
 }
 
-impl IPhoneEmulatorManager {
+impl iPhoneEmulatorManager {
     pub fn new() -> Self {
         Self {
             process: Mutex::new(None),
@@ -104,7 +104,7 @@ impl IPhoneEmulatorManager {
 /// Tauri command: Launch iPhone emulator
 #[tauri::command]
 pub fn launch_iphone_emulator(
-    manager: State<'_, IPhoneEmulatorManager>,
+    manager: State<'_, iPhoneEmulatorManager>,
     project_path: String,
 ) -> Result<String, String> {
     manager.launch(project_path)
@@ -113,7 +113,7 @@ pub fn launch_iphone_emulator(
 /// Tauri command: Stop iPhone emulator
 #[tauri::command]
 pub fn stop_iphone_emulator(
-    manager: State<'_, IPhoneEmulatorManager>,
+    manager: State<'_, iPhoneEmulatorManager>,
 ) -> Result<String, String> {
     manager.stop()
 }
@@ -121,7 +121,7 @@ pub fn stop_iphone_emulator(
 /// Tauri command: Check if iPhone emulator is running
 #[tauri::command]
 pub fn is_iphone_emulator_running(
-    manager: State<'_, IPhoneEmulatorManager>,
+    manager: State<'_, iPhoneEmulatorManager>,
 ) -> bool {
     manager.is_running()
 }

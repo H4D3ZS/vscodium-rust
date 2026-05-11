@@ -41,7 +41,7 @@ export interface VoiceConfig {
 const ELEVENLABS_VOICES: Record<VoicePreset, VoiceConfig> = {
     // === FEMALE VOICES ===
     airi: {
-        voice_id: 'EXAVITQu4vr4xnSDxMaL', // Using Bella - standard premade voice
+        voice_id: 'EXAVITQu4vr4xnSDxMaL', // Stable public premade voice
         name: 'AIRI',
         description: 'Energetic anime girl - youthful, expressive',
         stability: 0.5,
@@ -187,7 +187,7 @@ export function getVoicesByGender(gender: 'male' | 'female'): VoiceConfig[] {
 
 let currentAudio: HTMLAudioElement | null = null;
 let isPlaying = false;
-let ttsProvider: 'elevenlabs' | 'openai' | 'browser' | 'qwen' = 'elevenlabs';
+let ttsProvider: 'elevenlabs' | 'openai' | 'browser' = 'elevenlabs';
 let currentApiKey: string | null = null;
 let openaiApiKey: string | null = null;
 let selectedVoiceId: string | null = null; // User-selected ElevenLabs voice
@@ -201,48 +201,34 @@ let isAudioQueuePlaying = false;
 // ── Initialization ─────────────────────────────────────────────────────────
 
 export async function initTTS(): Promise<boolean> {
-    // // console.log('[TTS] 🎤 Initializing voice system...');
-    const isWebDemo = typeof window !== 'undefined' && !(window as any).__TAURI__;
-    if (isWebDemo) {
-        // Keep judge demo voice reliable in browser and avoid external quota/auth errors.
-        ttsProvider = 'browser';
-        return true;
-    }
-
-    // Check for session fallback (if ElevenLabs already failed with quota error)
-    const prevFallback = localStorage.getItem('ttsProvider_fallback');
-    if (prevFallback === 'browser' || prevFallback === 'qwen') {
-        ttsProvider = prevFallback as any;
-        // console.log(`[TTS] 🔄 Resuming with fallback provider: ${ttsProvider}`);
-        return true;
-    }
-
+    console.log('[TTS] 🎤 Initializing voice system...');
+    
     // ALWAYS load API keys first before any speech
     try {
         const apiKeys = await invoke<any>('get_api_keys');
-        // // // console.log('[TTS] API keys received:', Object.keys(apiKeys || {}));
+        console.log('[TTS] API keys received:', Object.keys(apiKeys || {}));
 
         // Priority: ElevenLabs ALWAYS FIRST
         if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.startsWith('sk_')) {
             currentApiKey = apiKeys.elevenlabs_api_key;
             ttsProvider = 'elevenlabs';
-            // // // console.log('[TTS] ✅ ElevenLabs provider configured (from storage)');
+            console.log('[TTS] ✅ ElevenLabs provider configured (from storage)');
         } else if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.startsWith('sk_')) {
             // Use hardcoded key (will be saved to storage)
             currentApiKey = ELEVENLABS_API_KEY;
             ttsProvider = 'elevenlabs';
-            // // // console.log('[TTS] ✅ ElevenLabs provider configured (from config)');
+            console.log('[TTS] ✅ ElevenLabs provider configured (from config)');
 
             // Save to storage
             try {
                 await invoke('save_api_key', { key: 'elevenlabs_api_key', value: ELEVENLABS_API_KEY });
-                // // // console.log('[TTS] 💾 ElevenLabs API key saved to secure storage');
+                console.log('[TTS] 💾 ElevenLabs API key saved to secure storage');
             } catch (e) {
                 console.warn('[TTS] Could not save API key:', e);
             }
         } else {
             // No ElevenLabs key - use Qwen3-TTS as fallback
-            // // // console.log('[TTS] ⚠️  No ElevenLabs key found, using Qwen3-TTS (local)');
+            console.log('[TTS] ⚠️  No ElevenLabs key found, using Qwen3-TTS (local)');
             ttsProvider = 'qwen';
         }
 
@@ -250,15 +236,15 @@ export async function initTTS(): Promise<boolean> {
         const savedVoiceId = (apiKeys as any).elevenlabs_voice_id;
         if (savedVoiceId) {
             selectedVoiceId = savedVoiceId;
-            // // console.log(`[TTS] ✅ Loaded saved voice ID: ${savedVoiceId}`);
+            console.log(`[TTS] ✅ Loaded saved voice ID: ${savedVoiceId}`);
         }
 
-        // // console.log(`[TTS] 🎯 TTS Provider: ${ttsProvider}`);
+        console.log(`[TTS] 🎯 TTS Provider: ${ttsProvider}`);
         return true;
     } catch (e) {
         console.error('[TTS] ❌ Error initializing TTS:', e);
         ttsProvider = 'qwen'; // Fallback to local
-        // // console.log('[TTS] ⚠️  Using Qwen3-TTS (local) as fallback');
+        console.log('[TTS] ⚠️  Using Qwen3-TTS (local) as fallback');
         return false;
     }
 }
@@ -269,7 +255,7 @@ export function getProvider(): string {
 
 export function setSelectedVoice(voiceId: string): void {
     selectedVoiceId = voiceId;
-    // console.log(`[TTS] Selected ElevenLabs voice: ${voiceId}`);
+    console.log(`[TTS] Selected ElevenLabs voice: ${voiceId}`);
 }
 
 // ── ElevenLabs TTS (HTTP Streaming) ────────────────────────────────────────
@@ -277,8 +263,8 @@ export function setSelectedVoice(voiceId: string): void {
 async function speakElevenLabs(text: string, preset: VoicePreset): Promise<ArrayBuffer> {
     const config = ELEVENLABS_VOICES[preset];
     const voiceId = selectedVoiceId || config.voice_id;
-
-    // console.log(`[TTS] speakElevenLabs: preset=${preset}, selectedVoiceId=${selectedVoiceId}, using voiceId=${voiceId}`);
+    
+    console.log(`[TTS] speakElevenLabs: preset=${preset}, selectedVoiceId=${selectedVoiceId}, using voiceId=${voiceId}`);
 
     if (!currentApiKey) {
         const apiKeys = await invoke<any>('get_api_keys');
@@ -286,7 +272,7 @@ async function speakElevenLabs(text: string, preset: VoicePreset): Promise<Array
         if (!currentApiKey) throw new Error('ElevenLabs API key not found');
     }
 
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?optimize_streaming_latency=2`, {
+    const requestVoice = async (id: string) => fetch(`https://api.elevenlabs.io/v1/text-to-speech/${id}?optimize_streaming_latency=2`, {
         method: 'POST',
         headers: {
             'Accept': 'audio/mpeg',
@@ -305,9 +291,20 @@ async function speakElevenLabs(text: string, preset: VoicePreset): Promise<Array
         }),
     });
 
+    let response = await requestVoice(voiceId);
     if (!response.ok) {
         const err = await response.text();
-        throw new Error(`ElevenLabs API error: ${response.status} - ${err}`);
+        // Fallback for deleted/unavailable voice IDs.
+        if (response.status === 404 && err.includes('voice_not_found')) {
+            const fallbackVoiceId = 'EXAVITQu4vr4xnSDxMaL';
+            response = await requestVoice(fallbackVoiceId);
+            if (!response.ok) {
+                const fallbackErr = await response.text();
+                throw new Error(`ElevenLabs API error: ${response.status} - ${fallbackErr}`);
+            }
+        } else {
+            throw new Error(`ElevenLabs API error: ${response.status} - ${err}`);
+        }
     }
 
     return response.arrayBuffer();
@@ -334,16 +331,16 @@ export async function speakStreamRealtime(
     try {
         // Split text into sentences for natural streaming chunks
         const sentences = splitIntoSentences(text);
-
+        
         for (const sentence of sentences) {
             if (!isStreaming || streamAbortController?.signal.aborted) {
                 break;
             }
 
             onChunkStart?.();
-
+            
             const config = ELEVENLABS_VOICES[preset];
-
+            
             // Stream audio chunks as they arrive
             const response = await fetch(
                 `https://api.elevenlabs.io/v1/text-to-speech/${config.voice_id}?optimize_streaming_latency=2&output_format=mp3_44100_128`,
@@ -395,13 +392,13 @@ export async function speakStreamRealtime(
 
                 // Decode MP3 audio
                 const audioBuffer = await audioContext.decodeAudioData(combined.buffer);
-
+                
                 // Play with WebAudio for zero-latency
                 const source = audioContext.createBufferSource();
                 source.buffer = audioBuffer;
                 source.connect(audioContext.destination);
                 source.start();
-
+                
                 await new Promise<void>(resolve => {
                     source.onended = () => {
                         audioContext.close();
@@ -420,12 +417,12 @@ export async function speakStreamRealtime(
 
     } catch (error: any) {
         if (error.name === 'AbortError') {
-            // // console.log('[TTS] Stream aborted');
+            console.log('[TTS] Stream aborted');
             return false;
         }
         console.error('[TTS] Streaming error:', error);
         isStreaming = false;
-
+        
         // Fallback to regular speak
         return speak(text, preset, onEnd, onChunkStart);
     }
@@ -445,7 +442,6 @@ async function speakOpenAI(text: string, preset: VoicePreset): Promise<ArrayBuff
         airi: 'shimmer', sage: 'alloy', nova: 'fable', kawaii: 'shimmer',
         yamato: 'onyx', hana: 'fable', ren: 'onyx', yuki: 'alloy',
         haru: 'echo', sora: 'nova', zero: 'onyx', aria: 'shimmer',
-        filipino: 'shimmer',
     };
 
     const response = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -476,7 +472,7 @@ function speakBrowser(text: string, preset: VoicePreset): SpeechSynthesisUtteran
     const synth = window.speechSynthesis;
     const utterance = new SpeechSynthesisUtterance(text);
 
-    const browserPresets: Record<VoicePreset, { rate: number; pitch: number }> = {
+    const browserPresets = {
         airi: { rate: 1.15, pitch: 1.2 },
         sage: { rate: 0.9, pitch: 0.95 },
         nova: { rate: 1.25, pitch: 1.3 },
@@ -489,7 +485,6 @@ function speakBrowser(text: string, preset: VoicePreset): SpeechSynthesisUtteran
         sora: { rate: 0.9, pitch: 1.15 },
         zero: { rate: 0.85, pitch: 0.8 },
         aria: { rate: 1.0, pitch: 1.25 },
-        filipino: { rate: 1.0, pitch: 1.1 },
     };
 
     const config = browserPresets[preset];
@@ -518,7 +513,7 @@ export async function speak(
         if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.startsWith('sk_')) {
             currentApiKey = ELEVENLABS_API_KEY;
             ttsProvider = 'elevenlabs';
-            // // console.log('[TTS] ✅ ElevenLabs ACTIVATED (from hardcoded config)');
+            console.log('[TTS] ✅ ElevenLabs ACTIVATED (from hardcoded config)');
         } else {
             // Try to load from storage
             try {
@@ -526,33 +521,33 @@ export async function speak(
                 if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.startsWith('sk_')) {
                     currentApiKey = apiKeys.elevenlabs_api_key;
                     ttsProvider = 'elevenlabs';
-                    // // console.log('[TTS] ✅ ElevenLabs ACTIVATED (from storage)');
+                    console.log('[TTS] ✅ ElevenLabs ACTIVATED (from storage)');
                 }
             } catch (e) {
                 console.warn('[TTS] Could not load API keys:', e);
             }
         }
     }
-
+    
     // Auto-detect Filipino/Tagalog text and switch voice
     const filipinoPatterns = [
         /\b(kumusta|kamusta|salamat|paalam|oo|hindi|baka|nandito|tagalog|filipino|pinoy|pinay)\b/i,
         /\b(na|ng|sa|ang|mga|kay|kay|nina|para|tungkol)\b/,
         /\b(magandang|masayang|malungkot|pagod|gutom|uhaw)\b/i,
     ];
-
+    
     const isFilipino = filipinoPatterns.some(pattern => pattern.test(text));
     if (isFilipino && preset !== 'filipino') {
-        // // console.log('[TTS] 🇵 Filipino/Tagalog detected, switching voice...');
+        console.log('[TTS] 🇵 Filipino/Tagalog detected, switching voice...');
         preset = 'filipino';
     }
-
-    // console.log(`[TTS] speak() called: provider=${ttsProvider}, preset=${preset}, selectedVoiceId=${selectedVoiceId}`);
-
+    
+    console.log(`[TTS] speak() called: provider=${ttsProvider}, preset=${preset}, selectedVoiceId=${selectedVoiceId}`);
+    
     // Prevent overlapping speech - stop any current playback
     stop();
 
-    // Force ElevenLabs if API key is available
+// Force ElevenLabs if API key is available
     if (!currentApiKey) {
         const apiKeys = (window as any).apiKeysForTTS; // Cached if available
         if (!apiKeys?.elevenlabs_api_key?.startsWith('sk_')) {
@@ -561,7 +556,7 @@ export async function speak(
                 if (keys?.elevenlabs_api_key?.startsWith('sk_')) {
                     currentApiKey = keys.elevenlabs_api_key;
                     ttsProvider = 'elevenlabs';
-                    // // console.log('[TTS] ✅ ElevenLabs activated (API key found)');
+                    console.log('[TTS] ✅ ElevenLabs activated (API key found)');
                 }
             } catch (e) {
                 console.warn('[TTS] Could not check API keys');
@@ -570,7 +565,7 @@ export async function speak(
             // API key already in memory
             currentApiKey = apiKeys.elevenlabs_api_key;
             ttsProvider = 'elevenlabs';
-            // // console.log('[TTS] ✅ ElevenLabs activated (from memory)');
+            console.log('[TTS] ✅ ElevenLabs activated (from memory)');
         }
     }
 
@@ -585,79 +580,79 @@ export async function speak(
     window.dispatchEvent(new CustomEvent('airi-tts-start', { detail: { text, preset } }));
 
     try {
-        let audioBuffer: ArrayBuffer | null = null;
+        let audioBuffer: ArrayBuffer;
 
         if (ttsProvider === 'elevenlabs') {
-            try {
-                audioBuffer = await speakElevenLabs(text, preset);
-            } catch (e) {
-                console.warn('[TTS] ElevenLabs failed, falling back to local Qwen:', e);
-                ttsProvider = 'qwen';
-                return speak(text, preset, onEnd, onStart);
-            }
+            audioBuffer = await speakElevenLabs(text, preset);
         } else if (ttsProvider === 'openai') {
-            try {
-                audioBuffer = await speakOpenAI(text, preset);
-            } catch (e) {
-                console.warn('[TTS] OpenAI failed, falling back to local Qwen:', e);
-                ttsProvider = 'qwen';
-                return speak(text, preset, onEnd, onStart);
-            }
-        }
-
-        // Handle providers that return an ArrayBuffer (ElevenLabs, OpenAI)
-        if (audioBuffer) {
-            const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
-            const url = URL.createObjectURL(blob);
-
-            currentAudio = new Audio(url);
-            currentAudio.onended = () => {
-                isPlaying = false;
-                URL.revokeObjectURL(url);
-                onEnd?.();
-                window.dispatchEvent(new CustomEvent('airi-tts-end'));
-                window.dispatchEvent(new CustomEvent('airi-lipsync-stop'));
-            };
-            currentAudio.onerror = (e) => {
-                isPlaying = false;
-                URL.revokeObjectURL(url);
-                console.error('[TTS] Audio playback error:', e);
-                // Last ditch fallback if high-quality audio fails to play
-                speakBrowser(text, preset).onend = () => { onEnd?.(); };
-            };
-
-            currentAudio.onplay = () => {
-                window.dispatchEvent(new CustomEvent('airi-lipsync-start', { detail: { text } }));
-            };
-
-            await currentAudio.play();
-            return true;
-        }
-
-        // Provider: Qwen (local, offline-capable)
-        if (ttsProvider === 'qwen') {
+            audioBuffer = await speakOpenAI(text, preset);
+        } else if (ttsProvider === 'qwen') {
+            // Use Qwen3-TTS (free, local)
             await qwenTTS.speak(text, preset);
             isPlaying = false;
             onEnd?.();
             window.dispatchEvent(new CustomEvent('airi-tts-end'));
             return true;
+        } else {
+            // Browser fallback - play synchronously
+            const utterance = speakBrowser(text, preset);
+            utterance.onend = () => {
+                isPlaying = false;
+                onEnd?.();
+                window.dispatchEvent(new CustomEvent('airi-tts-end'));
+            };
+            utterance.onerror = (e) => {
+                isPlaying = false;
+                console.error('[TTS] Browser error:', e);
+                window.dispatchEvent(new CustomEvent('airi-tts-error', { detail: { error: e } }));
+            };
+            window.speechSynthesis.speak(utterance);
+            return true;
         }
 
-        // Last Fallback: Browser Native
-        const utterance = speakBrowser(text, preset);
-        utterance.onend = () => {
+        // Play ElevenLabs/OpenAI audio
+        const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+
+        currentAudio = new Audio(url);
+        currentAudio.onended = () => {
             isPlaying = false;
+            URL.revokeObjectURL(url);
             onEnd?.();
             window.dispatchEvent(new CustomEvent('airi-tts-end'));
+            
+            // Stop lip sync
+            window.dispatchEvent(new CustomEvent('airi-lipsync-stop'));
         };
-        window.speechSynthesis.speak(utterance);
+        currentAudio.onerror = (e) => {
+            isPlaying = false;
+            URL.revokeObjectURL(url);
+            console.error('[TTS] Audio error:', e);
+            window.dispatchEvent(new CustomEvent('airi-tts-error', { detail: { error: e } }));
+            window.dispatchEvent(new CustomEvent('airi-lipsync-stop'));
+        };
+
+        // Start lip sync when audio starts
+        currentAudio.onplay = () => {
+            window.dispatchEvent(new CustomEvent('airi-lipsync-start', { detail: { text } }));
+        };
+
+        await currentAudio.play();
         return true;
 
     } catch (error) {
-        console.error('[TTS] Critical Speak failure:', error);
+        console.error('[TTS] Speak error:', error);
         isPlaying = false;
-        // Don't leave the UI hanging
-        onEnd?.();
+        window.dispatchEvent(new CustomEvent('airi-tts-error', { detail: { error } }));
+        
+        // Fallback to browser TTS if ElevenLabs fails (quota exceeded, etc.)
+        if (ttsProvider === 'elevenlabs') {
+            console.log('[TTS] ⚠️ ElevenLabs failed, falling back to browser TTS');
+            ttsProvider = 'browser';
+            const utterance = speakBrowser(text, preset);
+            utterance.onend = () => { isPlaying = false; onEnd?.(); };
+            window.speechSynthesis.speak(utterance);
+        }
         return false;
     }
 }
@@ -667,7 +662,7 @@ export async function speak(
 function splitIntoSentences(text: string): string[] {
     // Improved sentence splitting for natural, human-like speech
     // Handles abbreviations, numbers, and preserves speech flow
-
+    
     // First, clean the text while preserving natural speech patterns
     let cleaned = text
         // Remove markdown code blocks
@@ -683,15 +678,15 @@ function splitIntoSentences(text: string): string[] {
         // Normalize whitespace
         .replace(/\s+/g, ' ')
         .trim();
-
+    
     // Protect common abbreviations from being split
     const abbreviations = ['Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Jr', 'vs', 'etc', 'e.g', 'i.e', 'cf', 'al', 'St', 'Ave', 'Blvd', 'Rd', 'Inc', 'Ltd', 'Co'];
     const protectedText = cleaned;
-
+    
     // Split on natural sentence boundaries
     // Matches: sentence-ending punctuation followed by space (or end of string)
     const sentences = protectedText.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g);
-
+    
     if (!sentences || sentences.length === 0) {
         return [cleaned];
     }
@@ -744,10 +739,10 @@ let currentTtsPreset: VoicePreset = 'airi';
 
 export function queueSpeechChunk(text: string, preset: VoicePreset = 'airi'): void {
     if (!text || text.trim().length === 0) return;
-
+    
     currentTtsPreset = preset;
     ttsQueue.push(text.trim());
-
+    
     if (!isProcessingQueue) {
         processTtsQueue();
     }
@@ -767,23 +762,23 @@ export function clearTtsQueue(): void {
 
 async function processTtsQueue(): Promise<void> {
     if (isProcessingQueue || ttsQueue.length === 0) return;
-
+    
     isProcessingQueue = true;
-
+    
     while (ttsQueue.length > 0) {
         const text = ttsQueue.shift()!;
-
+        
         // If streaming is interrupted, stop processing
         if (!isSpeaking()) {
             break;
         }
-
+        
         await speak(text, currentTtsPreset);
-
+        
         // Small delay between chunks for natural pacing
         await new Promise(resolve => setTimeout(resolve, 100));
     }
-
+    
     isProcessingQueue = false;
 }
 
@@ -808,8 +803,6 @@ async function processTtsQueue(): Promise<void> {
     setSelectedVoice,
 };
 
-/*
-// // console.log('[TTS] ✅ AIRI Voice System v2 loaded');
-// // console.log('[TTS] 🎤 Supports real-time streaming via ElevenLabs');
-// // console.log('[TTS] 🎭 12 character voices available');
-*/
+console.log('[TTS] ✅ AIRI Voice System v2 loaded');
+console.log('[TTS] 🎤 Supports real-time streaming via ElevenLabs');
+console.log('[TTS] 🎭 12 character voices available');

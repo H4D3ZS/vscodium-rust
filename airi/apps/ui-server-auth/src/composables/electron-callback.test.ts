@@ -12,7 +12,7 @@ describe('parseElectronCallbackQuery', () => {
     expect(result).toEqual({
       code: 'sample-code',
       port: '43123',
-      relayUrl: 'http://localhost:43123/callback?code=sample-code&state=opaque-original-state',
+      relayUrl: 'http://127.0.0.1:43123/callback?code=sample-code&state=opaque-original-state',
       state: 'opaque-original-state',
       status: 'ready',
     })
@@ -49,6 +49,6 @@ describe('buildElectronLoopbackUrl', () => {
       code: 'code with spaces',
       port: '43123',
       state: 'state/with?chars',
-    })).toBe('http://localhost:43123/callback?code=code%20with%20spaces&state=state%2Fwith%3Fchars')
+    })).toBe('http://127.0.0.1:43123/callback?code=code%20with%20spaces&state=state%2Fwith%3Fchars')
   })
 })

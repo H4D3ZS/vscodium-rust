@@ -1,6 +1,6 @@
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use serde::{Deserialize, Serialize};
-use base64::{engine::general_purpose, Engine as _};
+use base64;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScreenshotResult {
@@ -20,7 +20,7 @@ pub fn capture_main_screenshot<R: Runtime>(_app: &AppHandle<R>) -> Result<Screen
             let (width, height) = (1920, 1080); // Placeholder; actual decode would give real dims
             ScreenshotResult {
                 status: "ok".to_string(),
-                image_base64: general_purpose::STANDARD.encode(&png_bytes),
+                image_base64: base64::encode(&png_bytes),
                 width,
                 height,
             }

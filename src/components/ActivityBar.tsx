@@ -12,8 +12,7 @@ const ActivityBar: React.FC = () => {
     const [installedThemes, setInstalledThemes] = useState<VscodeTheme[]>([]);
     const setTheme = useStore(state => state.setTheme);
 
-    const extensionContributions = useStore(state => state.extensionContributions);
-    const extensionItems = extensionContributions?.viewsContainers?.activitybar || [];
+    const extensionItems = useStore(state => state.extensionContributions?.viewsContainers?.activitybar || []);
 
     const items = [
         { id: 'explorer-view', icon: 'files', title: 'Explorer' },

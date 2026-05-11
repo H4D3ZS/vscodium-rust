@@ -3,14 +3,14 @@
  * Full system testing, regression tests, performance benchmarks
  */
 
-// import { airi } from './core'; // REMOVED for circular dependency
+import { airi } from './core';
 import { airiConsciousness } from './consciousness';
 import { airiBiology } from './biology';
 import { airiSelfLearning } from './self-learning';
 import { airiMemory } from './memory';
 import { airiAutonomousDecision } from './autonomous-decision';
 import { createSelfHealing } from './self-healing';
-import { createSelfEvolution } from './true-self-evolution';
+import { createSelfEvolution } from './self-evolution';
 
 interface TestResult {
   name: string;
@@ -29,21 +29,14 @@ interface PerformanceMetrics {
 export class AIRITestSuite {
   private results: TestResult[] = [];
   private startTime: number = 0;
-  private airi: any;
 
-  constructor(airiInstance?: any) {
-    this.airi = airiInstance;
-  }
-
-  async runAllTests(airiInstance?: any): Promise<void> {
-    if (airiInstance) this.airi = airiInstance;
-    if (!this.airi) throw new Error('AIRI instance required for testing');
+  async runAllTests(): Promise<void> {
 
     this.startTime = Date.now();
 
     // Initialize AIRI
-    await this.airi.initialize({
-      workspacePath: '/',
+    await airi.initialize({
+      workspacePath: process.cwd(),
       fullAutonomyEnabled: true,
       selfLearningEnabled: true,
       selfHealingEnabled: true,
@@ -233,8 +226,7 @@ export class AIRITestSuite {
 
   async testHealing(): Promise<void> {
 
-    const storagePath = '/';
-    const selfHealing = createSelfHealing(storagePath);
+    const selfHealing = createSelfHealing(process.cwd());
 
     // Test 1: Health check
     await this.runTest('healing_initialization', async () => {
@@ -256,10 +248,10 @@ export class AIRITestSuite {
     // Test 1: Response time
     await this.runTest('perf_response_time', async () => {
       const start = Date.now();
-      await this.airi.chat('Test message');
+      await airi.chat('Test message');
       const duration = Date.now() - start;
-
-
+      
+      
       if (duration > 5000) {
         throw new Error(`Response time too slow: ${duration}ms (target: <5000ms)`);
       }
@@ -267,9 +259,9 @@ export class AIRITestSuite {
 
     // Test 2: Memory usage
     await this.runTest('perf_memory_usage', async () => {
-      const usage = { heapUsed: 0 }; // Browser side mock or use performance.memory if available
+      const usage = process.memoryUsage();
       const mb = Math.round(usage.heapUsed / 1024 / 1024);
-
+      
       if (mb > 500) {
         throw new Error(`Memory usage too high: ${mb}MB (target: <500MB)`);
       }
@@ -279,15 +271,15 @@ export class AIRITestSuite {
     await this.runTest('perf_concurrent', async () => {
       const start = Date.now();
       const promises = [];
-
+      
       for (let i = 0; i < 5; i++) {
-        promises.push(this.airi.chat(`Concurrent test ${i}`));
+        promises.push(airi.chat(`Concurrent test ${i}`));
       }
-
+      
       await Promise.all(promises);
       const duration = Date.now() - start;
-
-
+      
+      
       if (duration > 15000) {
         throw new Error(`Concurrent operations too slow: ${duration}ms`);
       }
@@ -297,14 +289,14 @@ export class AIRITestSuite {
     await this.runTest('perf_throughput', async () => {
       const start = Date.now();
       let count = 0;
-
+      
       while (Date.now() - start < 5000) { // 5 seconds
         await airiSelfLearning.learnFromEvent('observation', 'Test', 'neutral');
         count++;
       }
-
+      
       const perSecond = count / 5;
-
+      
       if (perSecond < 10) {
         throw new Error(`Throughput too low: ${perSecond}/sec (target: >10/sec)`);
       }
@@ -316,7 +308,7 @@ export class AIRITestSuite {
 
     // Test 1: Full conversation flow
     await this.runTest('integration_conversation', async () => {
-      const response = await this.airi.chat('Hello! How are you today?');
+      const response = await airi.chat('Hello! How are you today?');
       if (!response || response.length === 0) throw new Error('No response');
       if (response.includes('error') || response.includes('failed')) {
         throw new Error(`Response indicates error: ${response}`);
@@ -325,9 +317,9 @@ export class AIRITestSuite {
 
     // Test 2: Memory + Learning integration
     await this.runTest('integration_memory_learning', async () => {
-      await this.airi.chat('Remember this: the password is test123');
+      await airi.chat('Remember this: the password is test123');
       await new Promise(resolve => setTimeout(resolve, 100));
-
+      
       const memories = await airiMemory.search('password');
       if (memories.length === 0) {
       }
@@ -337,7 +329,7 @@ export class AIRITestSuite {
     await this.runTest('integration_biology_consciousness', async () => {
       const bioState = airiBiology.getState();
       const consciousState = airiConsciousness.getState();
-
+      
       // Both should be active
       if (!consciousState.isAwake) throw new Error('Consciousness not awake');
       if (bioState.energy <= 0) throw new Error('Energy depleted');
@@ -354,18 +346,18 @@ export class AIRITestSuite {
 
     // Test 2: Memory leak check
     await this.runTest('regression_memory_leak', async () => {
-      const initialMemory = 0;
-
+      const initialMemory = process.memoryUsage().heapUsed;
+      
       // Perform many operations
       for (let i = 0; i < 50; i++) {
-        await airiSelfLearning.learnFromEvent('observation', `Test ${i}`, 'neutral');
+        await airiSelfLearning.learnFromEvent('test', `Test ${i}`, 'neutral');
       }
-
-      const finalMemory = 0;
-      const growth = 0;
+      
+      const finalMemory = process.memoryUsage().heapUsed;
+      const growth = finalMemory - initialMemory;
       const growthMB = Math.round(growth / 1024 / 1024);
-
-
+      
+      
       if (growthMB > 50) {
         throw new Error(`Potential memory leak: ${growthMB}MB growth`);
       }
@@ -375,9 +367,9 @@ export class AIRITestSuite {
     await this.runTest('regression_queue_processing', async () => {
       // Add multiple learning events
       for (let i = 0; i < 20; i++) {
-        await airiSelfLearning.learnFromEvent('observation', `Queue test ${i}`, 'neutral');
+        await airiSelfLearning.learnFromEvent('test', `Queue test ${i}`, 'neutral');
       }
-
+      
       const stats = airiSelfLearning.getStats();
     });
 
@@ -388,7 +380,7 @@ export class AIRITestSuite {
         states.push(airiBiology.getState());
         await new Promise(resolve => setTimeout(resolve, 10));
       }
-
+      
       // All states should be valid
       for (const state of states) {
         if (state.energy < 0 || state.energy > 100) {
@@ -401,27 +393,27 @@ export class AIRITestSuite {
 
   async runTest(name: string, testFn: () => Promise<void>): Promise<void> {
     const start = Date.now();
-
+    
     try {
       await testFn();
       const duration = Date.now() - start;
-
+      
       this.results.push({
         name,
         passed: true,
         duration
       });
-
+      
     } catch (error: any) {
       const duration = Date.now() - start;
-
+      
       this.results.push({
         name,
         passed: false,
         duration,
         error: error.message
       });
-
+      
     }
   }
 
@@ -439,14 +431,17 @@ export class AIRITestSuite {
 }
 
 // Run tests
-async function main(airiInstance?: any) {
-  const testSuite = new AIRITestSuite(airiInstance);
+async function main() {
+  const testSuite = new AIRITestSuite();
   await testSuite.runAllTests();
 }
 
-/**
- * Interface-safe version of runTests
- */
-export async function runTests(airiInstance?: any): Promise<void> {
-  await main(airiInstance);
+// Export for CLI (browser-safe)
+if (typeof window === 'undefined' && typeof require !== 'undefined') {
+  // Node.js environment only
+  if (require.main === module) {
+    main().catch(console.error);
+  }
 }
+
+export { main as runTests };

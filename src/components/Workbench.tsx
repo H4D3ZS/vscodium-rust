@@ -52,16 +52,7 @@ const Workbench: React.FC = () => {
     // Panel state (from store)
     const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
     const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
-    const layoutMode = useStore(state => state.layoutMode);
-
-    // Actions
-    const openAiriPanel = useStore(state => state.openAiriPanel);
-    const closeAiriPanel = useStore(state => state.closeAiriPanel);
-    const openEmulatorPanel = useStore(state => state.openEmulatorPanel);
-    const closeEmulatorPanel = useStore(state => state.closeEmulatorPanel);
-    const setSpecsWizardOpen = useStore(state => state.setSpecsWizardOpen);
-    const pendingChanges = useStore(state => state.pendingChanges);
-    const taskPlannerState = useStore(state => state.taskPlannerState);
+    const store = useStore();
 
     const setSidebarWidth = useStore(state => state.setSidebarWidth);
     const setRightSidebarWidth = useStore(state => state.setRightSidebarWidth);
@@ -78,7 +69,7 @@ const Workbench: React.FC = () => {
     const setSplitEditorTab = useStore(state => state.setSplitEditorTab);
     const toggleSplitEditor = useStore(state => state.toggleSplitEditor);
     const [cursorSymbol, setCursorSymbol] = useState<string>('');
-
+    
     // Dev Workflow State
     const isDevWorkflowActive = useStore(state => state.isDevWorkflowActive);
 
@@ -282,7 +273,7 @@ const Workbench: React.FC = () => {
                                                 marginTop: 0
                                             }}>
                                                 <div className="hero-section-beside" style={{ maxWidth: '900px', marginBottom: '2vh', width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '24px' }}>
-                                                    <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="Project Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
+                                                    <img src="/assets/rust-logo.png" alt="Rust Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
                                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                                                         <h1 style={{ fontSize: 'min(5vw, 42px)', fontWeight: 800, marginBottom: '2px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)', lineHeight: 1, margin: 0 }}>
                                                             PROJECT HADES <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>AIRI-CORE v0.2.0</span>
@@ -494,10 +485,10 @@ const Workbench: React.FC = () => {
                         style={{ position: 'absolute', left: 0, height: '100%' }}
                     />
                 )}
-                <div style={{
-                    flex: 1,
-                    minWidth: isRightSidebarOpen ? '350px' : '0',
-                    overflow: 'hidden',
+                <div style={{ 
+                    flex: 1, 
+                    minWidth: isRightSidebarOpen ? '350px' : '0', 
+                    overflow: 'hidden', 
                     height: '100%',
                     display: 'flex',
                     flexDirection: 'column'
@@ -511,8 +502,8 @@ const Workbench: React.FC = () => {
                     }}>
                         <button
                             onClick={() => {
-                                openAiriPanel();
-                                closeEmulatorPanel();
+                                store.openAiriPanel();
+                                store.closeEmulatorPanel();
                             }}
                             style={{
                                 flex: 1,
@@ -520,7 +511,7 @@ const Workbench: React.FC = () => {
                                 fontSize: '11px',
                                 fontWeight: 600,
                                 background: isAiriPanelOpen && !isEmulatorPanelOpen
-                                    ? 'var(--vscode-button-background)'
+                                    ? 'var(--vscode-button-background)' 
                                     : 'transparent',
                                 color: isAiriPanelOpen && !isEmulatorPanelOpen
                                     ? 'var(--vscode-button-foreground)'
@@ -540,8 +531,8 @@ const Workbench: React.FC = () => {
                         </button>
                         <button
                             onClick={() => {
-                                openEmulatorPanel();
-                                closeAiriPanel();
+                                store.openEmulatorPanel();
+                                store.closeAiriPanel();
                             }}
                             style={{
                                 flex: 1,
@@ -549,7 +540,7 @@ const Workbench: React.FC = () => {
                                 fontSize: '11px',
                                 fontWeight: 600,
                                 background: isEmulatorPanelOpen
-                                    ? 'var(--vscode-button-background)'
+                                    ? 'var(--vscode-button-background)' 
                                     : 'transparent',
                                 color: isEmulatorPanelOpen
                                     ? 'var(--vscode-button-foreground)'
@@ -570,8 +561,8 @@ const Workbench: React.FC = () => {
                     </div>
 
                     {/* Panel content - show ONE at a time */}
-                    <div style={{
-                        flex: 1,
+                    <div style={{ 
+                        flex: 1, 
                         overflow: 'hidden',
                         display: 'flex',
                         flexDirection: 'column'
@@ -621,9 +612,9 @@ const Workbench: React.FC = () => {
                         </div>
                     </div>
                 )}
-
-            {/* Ollama Progress Bar */}
-            <OllamaProgressBar />
+                
+                {/* Ollama Progress Bar */}
+                <OllamaProgressBar />
         </div >
     );
 };

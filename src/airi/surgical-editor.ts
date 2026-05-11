@@ -4,7 +4,6 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { hadesOllama } from '../hades-ollama-service';
 
 export interface EditOperation {
   id: string;
@@ -33,7 +32,7 @@ export interface EditResult {
 export class AIRISurgicalEditor {
   private pendingProposals = new Map<string, EditProposal>();
   private appliedEdits: EditResult[] = [];
-  private errorDetectionModel = 'qwen2.5-coder:7b';
+  private errorDetectionModel = 'huihui_ai/qwen3.5-abliterated:35b';
   private listeners = new Map<string, Array<(data: any) => void>>();
 
   constructor() {
@@ -49,14 +48,16 @@ export class AIRISurgicalEditor {
     this.listeners.get(event)?.forEach(fn => fn(data));
   }
 
-  private async setupAutoHeal(): Promise<void> {
+   private async setupAutoHeal(): Promise<void> {
     const { airiVision } = await import('./vision-system');
     airiVision.on('error_detected', async (data: { analysis: any }) => {
       const analysis = data.analysis;
       if (!analysis?.code?.errors?.length) return;
 
       const errorMessage = analysis.code.errors[0];
+      console.log('[SurgicalEditor] Auto-heal triggered:', errorMessage);
 
+      // Broadcast error detection to HUD
       try {
         await invoke('airi_broadcast', {
           event: 'airi:error_detected',
@@ -66,7 +67,10 @@ export class AIRISurgicalEditor {
 
       try {
         const filePath = analysis.ui?.activeFile || await this.getActiveEditorFile();
-        if (!filePath) return;
+        if (!filePath) {
+          console.warn('[SurgicalEditor] No active file');
+          return;
+        }
 
         const fileContent = await this.readFile(filePath);
         if (!fileContent) return;
@@ -74,7 +78,7 @@ export class AIRISurgicalEditor {
         const context = analysis.code.snippet || '';
 
         const fix = await this.generateFix(filePath, fileContent, errorMessage, context);
-        if (!fix.search || !fix.replace) return;
+        if (!fix.search || !fix.replace) throw new Error('Invalid fix output');
 
         const patchContent = `<<<< SEARCH\n${fix.search}\n====\n${fix.replace}\n>>>> REPLACE`;
 
@@ -84,23 +88,55 @@ export class AIRISurgicalEditor {
           arguments: { path: filePath, content: patchContent, direct_apply: true }
         }) as any;
 
-        if (!applyResult || applyResult.status !== 'success') return;
+        if (!applyResult || applyResult.status !== 'success') {
+          throw new Error(applyResult?.message || 'search_replace_edit failed');
+        }
 
         // Verify with cargo check
         const diags = await invoke('call_tool', { name: 'dev_cargo_diagnostics', arguments: {} }) as any;
         if (diags?.error_count === 0) {
           await invoke('call_tool', { name: 'git_add', arguments: { path: filePath } });
+          await invoke('call_tool', { name: 'git_commit', arguments: { message: `Auto-fix: ${errorMessage.substring(0, 30)}...` } });
+          this.emit('edit_committed', { file: filePath, success: true });
           const { airiConsciousness } = await import('./consciousness');
           airiConsciousness.addThought('success', `Fixed ${filePath.split('/').pop()}`);
+          // Broadcast successful edit
+          try {
+            await invoke('airi_broadcast', {
+              event: 'airi:edit_committed',
+              payload: { file: filePath, success: true }
+            });
+          } catch { }
+        } else {
+          try { await invoke('call_tool', { name: 'revert_checkpoint', arguments: { path: filePath } }); } catch {}
+          this.emit('edit_failed', { file: filePath, errors: [diags?.summary || 'Verification failed'] });
+          // Broadcast failure
+          try {
+            await invoke('airi_broadcast', {
+              event: 'airi:edit_failed',
+              payload: { file: filePath, errors: [diags?.summary || 'Verification failed'] }
+            });
+          } catch { }
         }
-      } catch (err: any) { }
+      } catch (err: any) {
+        console.error('[SurgicalEditor] Auto-heal error:', err.message);
+        this.emit('edit_failed', { file: '', errors: [err.message] });
+        try {
+          await invoke('airi_broadcast', {
+            event: 'airi:edit_failed',
+            payload: { file: '', errors: [err.message] }
+          });
+        } catch { }
+      }
     });
   }
 
   private async readFile(path: string): Promise<string> {
     try {
-      return await invoke('call_tool', { name: 'view_file', arguments: { path } }) as string;
-    } catch {
+      const content = await invoke('call_tool', { name: 'view_file', arguments: { path } }) as string;
+      return content;
+    } catch (error: any) {
+      console.error(`[SurgicalEditor] read_file failed (${path}):`, error.message);
       return '';
     }
   }
@@ -109,17 +145,20 @@ export class AIRISurgicalEditor {
     try {
       const result = await invoke('call_tool', { name: 'editor_get_active_file', arguments: {} }) as any;
       return result?.path || null;
-    } catch {
-      return null;
-    }
-  }
+     } catch {
+       return null;
+     }
+   }
 
-  private async generateFix(
+   private async generateFix(
     filePath: string,
     fileContent: string,
     errorMessage: string,
     context: string
   ): Promise<{ search: string; replace: string; description: string }> {
+    const { Ollama } = await import('ollama');
+    const ollama = new Ollama({ host: 'http://localhost:11434' });
+
     const prompt = `Fix the Rust compiler error using EXACT SEARCH/REPLACE.
 
 FILE: ${filePath}
@@ -130,17 +169,19 @@ ${fileContent}
 
 Return ONLY:
 SEARCH:
-<exact code>
+<exact existing code (2-3 lines context)>
 REPLACE:
-<fixed code>
+<fixed code (same line count)>
 DESCRIPTION: <brief explanation>`;
 
-    const response = await hadesOllama.generate(prompt, {
+    const response = await ollama.generate({
       model: this.errorDetectionModel,
-      stream: false
+      messages: [{ role: 'user', content: prompt }],
+      stream: false,
+      options: { temperature: 0.1, num_predict: 1024 },
     });
 
-    const raw = response.response || '';
+    const raw = response.message?.content || response.response || '';
     return this.parseSearchReplace(raw);
   }
 
@@ -164,7 +205,7 @@ DESCRIPTION: <brief explanation>`;
     const modifiedContent = currentContent.replace(operation.search, operation.replace);
 
     try {
-      await invoke('call_tool', {
+      const result = await invoke('call_tool', {
         name: 'search_replace_edit',
         arguments: { path: operation.filePath, content: `<<<< SEARCH\n${operation.search}\n====\n${operation.replace}\n>>>> REPLACE`, direct_apply: false }
       }) as any;
@@ -181,6 +222,14 @@ DESCRIPTION: <brief explanation>`;
 
       this.pendingProposals.set(operation.id, proposal);
       this.emit('edit_proposed', { id: operation.id, file: operation.filePath, description: operation.description, score });
+      // Broadcast to HUD
+      try {
+        await invoke('airi_broadcast', {
+          event: 'airi:edit_proposed',
+          payload: { id: operation.id, file: operation.filePath, description: operation.description, score }
+        });
+      } catch { }
+
       return proposal;
     } catch (error: any) {
       airiConsciousness.addThought('error', `Propose failed: ${error.message}`);
@@ -208,6 +257,13 @@ DESCRIPTION: <brief explanation>`;
       this.pendingProposals.delete(proposalId);
 
       this.emit('edit_committed', { id: proposalId, file: proposal.operation.filePath, success: true });
+      try {
+        await invoke('airi_broadcast', {
+          event: 'airi:edit_committed',
+          payload: { id: proposalId, file: proposal.operation.filePath, success: true }
+        });
+      } catch { }
+
       return result;
     } catch (error: any) {
       const err = error instanceof Error ? error.message : String(error);
@@ -224,4 +280,5 @@ DESCRIPTION: <brief explanation>`;
   }
 }
 
+// Singleton instance
 export const airiSurgicalEditor = new AIRISurgicalEditor();

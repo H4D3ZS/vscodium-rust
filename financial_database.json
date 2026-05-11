@@ -1,0 +1,182 @@
+{
+    "app_metadata": {
+        "name": "Nexus Finance",
+        "version": "1.0.0",
+        "environment": "development",
+        "last_sync": "2026-04-01T23:12:00Z"
+    },
+    "users": [
+        {
+            "id": "u_8829",
+            "profile": {
+                "first_name": "Alexander",
+                "last_name": "Hades",
+                "email": "hades@vscodium.io",
+                "tier": "Premium",
+                "preferences": {
+                    "currency": "USD",
+                    "notifications": {
+                        "email": true,
+                        "push": true,
+                        "sms": false
+                    },
+                    "theme": "Acheron Dark"
+                }
+            },
+            "security": {
+                "mfa_enabled": true,
+                "last_login": "2026-04-01T22:00:00Z",
+                "trusted_devices": [
+                    "MBP-Air-2026",
+                    "iPhone-18-Pro"
+                ]
+            }
+        }
+    ],
+    "accounts": [
+        {
+            "account_id": "acc_001",
+            "type": "Checking",
+            "institution": "Global Bank Corp",
+            "balance": 15420.50,
+            "currency": "USD",
+            "status": "Active",
+            "features": [
+                "Zelle",
+                "Wire",
+                "BillPay"
+            ]
+        },
+        {
+            "account_id": "acc_002",
+            "type": "Savings",
+            "institution": "Global Bank Corp",
+            "balance": 45000.00,
+            "currency": "USD",
+            "interest_rate": 4.5,
+            "status": "Active"
+        },
+        {
+            "account_id": "acc_003",
+            "type": "Credit Card",
+            "institution": "Titanium Card",
+            "limit": 25000.00,
+            "current_spent": 1250.75,
+            "apr": 18.99,
+            "due_date": "2026-04-15"
+        }
+    ],
+    "transactions": [
+        {
+            "tx_id": "tx_99201",
+            "account_id": "acc_001",
+            "date": "2026-04-01",
+            "amount": -85.50,
+            "merchant": "Whole Foods Market",
+            "category": "Groceries",
+            "tags": [
+                "Essential",
+                "Food"
+            ],
+            "verified": true,
+            "location": {
+                "city": "San Francisco",
+                "coords": [
+                    37.7749,
+                    -122.4194
+                ]
+            }
+        },
+        {
+            "tx_id": "tx_99202",
+            "account_id": "acc_003",
+            "date": "2026-03-31",
+            "amount": -12.99,
+            "merchant": "Netflix Inc.",
+            "category": "Subscriptions",
+            "tags": [
+                "Entertainment"
+            ],
+            "is_recurring": true,
+            "period": "Monthly"
+        },
+        {
+            "tx_id": "tx_99203",
+            "account_id": "acc_001",
+            "date": "2026-03-30",
+            "amount": 5200.00,
+            "merchant": "DeepMind Corp",
+            "category": "Income",
+            "tags": [
+                "Salary",
+                "Bonus"
+            ],
+            "metadata": {
+                "invoice_id": "INV-2026-003",
+                "tax_withheld": 1200.00
+            }
+        }
+    ],
+    "investment_portfolio": {
+        "total_value": 125800.00,
+        "holdings": [
+            {
+                "symbol": "AAPL",
+                "shares": 150,
+                "avg_price": 175.50,
+                "current_price": 192.30
+            },
+            {
+                "symbol": "TSLA",
+                "shares": 50,
+                "avg_price": 180.00,
+                "current_price": 175.20
+            },
+            {
+                "symbol": "BTC",
+                "amount": 1.25,
+                "avg_cost": 42500.00,
+                "current_price": 68400.00
+            }
+        ],
+        "allocation": {
+            "Stocks": 65,
+            "Crypto": 25,
+            "Cash": 10
+        }
+    },
+    "budgets": [
+        {
+            "category": "Housing",
+            "limit": 3000,
+            "spent": 3000,
+            "over_budget": false
+        },
+        {
+            "category": "Entertainment",
+            "limit": 500,
+            "spent": 120,
+            "over_budget": false
+        },
+        {
+            "category": "Dining Out",
+            "limit": 400,
+            "spent": 450,
+            "over_budget": true
+        }
+    ],
+    "financial_goals": [
+        {
+            "name": "House Downpayment",
+            "target": 100000,
+            "current": 45000,
+            "deadline": "2028-12-31"
+        },
+        {
+            "name": "Emergency Fund",
+            "target": 20000,
+            "current": 20000,
+            "completed": true
+        }
+    ]
+}

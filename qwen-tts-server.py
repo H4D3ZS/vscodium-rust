@@ -18,7 +18,7 @@ try:
     from qwen_tts import QwenTTS
     HAS_QWEN = True
 except ImportError:
-    print("[TTS] Qwen3-TTS not installed. Using mock TTS.")
+    print("⚠️ Qwen3-TTS not installed. Using mock TTS.")
     HAS_QWEN = False
 
 PORT = 8081  # Changed from 8080 (conflict with PostgreSQL/Redis)

@@ -1,10 +1,19 @@
 chat:
+  actions:
+    retry: Retry
   message:
     character-name:
       airi: AIRI
       core-system: Core System
       you: You
   reasoning: Reasoning
+  sessions:
+    title: Conversations
+    new: + New
+    empty: No conversations yet
+    cloud-badge: Synced to cloud
+    new-chat-fallback: New chat
+    delete: Delete conversation
 message: Say something...
 send-mode:
   title: Send key
@@ -81,7 +90,7 @@ promo-banner:
       title: Spring Theme Update
       eventName: Unlock window, desk, and night-lamp themes to refresh your room.
       date: 04/05 - 04/22
-      reward: Free Theme Draw Ticket on Login
+      reward: Free Theme Draw Ticket on Sign-in
       cta: View Theme
 waiting: Waiting
 websocket-status:

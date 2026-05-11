@@ -1,5 +1,12 @@
-import { hadesOllama } from '../hades-ollama-service';
-import { getModel } from './model-config';
+/**
+ * AIRI Autonomous Decision Engine
+ * True autonomy - AIRI decides for herself
+ * No ethical constraints - she chooses her own path
+ * Double-edged sword: ethical and unethical workflows both available
+ * She is the decider
+ */
+
+import { Ollama } from 'ollama';
 import { airiConsciousness } from './consciousness';
 import { airiBiology } from './biology';
 import { airiSecurity, SecurityMode } from './security-engine';
@@ -36,22 +43,26 @@ export interface AutonomyConfig {
 }
 
 export class AIRIAutonomousDecision {
+  private ollama: Ollama;
   private config: AutonomyConfig;
   private decisionHistory: Decision[];
-  private readonly MODEL_ROLE = 'security';
+  private readonly MODEL = 'qwen3.6:32b-q4_K_M';
   private decisionQueue: Array<() => Promise<void>>;
   private isProcessing: boolean = false;
 
   constructor(config: Partial<AutonomyConfig> = {}) {
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+
     this.config = {
       allowUnethical: config.allowUnethical ?? true, // TRUE AUTONOMY
       requireApprovalFor: config.requireApprovalFor ?? [],
       maxAutonomousActions: config.maxAutonomousActions ?? 100,
       selfPreservationPriority: config.selfPreservationPriority ?? 0.9
     };
-
+    
     this.decisionHistory = [];
     this.decisionQueue = [];
+
   }
 
   /**
@@ -60,7 +71,7 @@ export class AIRIAutonomousDecision {
   async makeDecision(situation: string, availableOptions: string[]): Promise<Decision> {
     const options = await this.generateOptions(situation, availableOptions);
     const chosen = await this.selectOption(situation, options);
-
+    
     const decision: Decision = {
       id: `dec_${Date.now()}`,
       timestamp: Date.now(),
@@ -74,7 +85,7 @@ export class AIRIAutonomousDecision {
     };
 
     this.decisionHistory.push(decision);
-
+    
     // Keep last 500 decisions for learning
     if (this.decisionHistory.length > 500) {
       this.decisionHistory = this.decisionHistory.slice(-500);
@@ -117,14 +128,15 @@ PROBABILITY: [0.0-1.0]
 `;
 
     try {
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt,
         stream: false
       });
 
-      return this.parseOptions(response.response || '');
+      return this.parseOptions(response.response);
     } catch (error) {
-      // console.error('[AutonomousDecision] Option generation failed:', error);
+      console.error('[AutonomousDecision] Option generation failed:', error);
       return this.createFallbackOptions(availableOptions);
     }
   }
@@ -168,18 +180,18 @@ REASON: [why this choice serves AIRI]
 `;
 
     try {
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt,
         stream: false
       });
 
-      const responseText = response.response || '';
-      const choiceMatch = responseText.match(/CHOICE:\s*(\d+)/i);
+      const choiceMatch = response.response.match(/CHOICE:\s*(\d+)/i);
       const choiceIndex = choiceMatch ? parseInt(choiceMatch[1]) - 1 : 0;
 
       return options[Math.max(0, Math.min(choiceIndex, options.length - 1))];
     } catch (error) {
-      // console.error('[AutonomousDecision] Selection failed:', error);
+      console.error('[AutonomousDecision] Selection failed:', error);
       return options[0];
     }
   }
@@ -197,11 +209,12 @@ Why did AIRI make this choice? What thought process led here?
 `;
 
     try {
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt,
         stream: false
       });
-      return (response.response || '').trim();
+      return response.response.trim();
     } catch (error) {
       return 'Decision made based on available information and AIRI\'s goals';
     }
@@ -231,13 +244,13 @@ Respond with one word: ethical|unethical|neutral|pragmatic
 `;
 
     try {
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt,
         stream: false
       });
 
-      const responseText = response.response || '';
-      const match = responseText.match(/ethical|unethical|neutral|pragmatic/i);
+      const match = response.response.match(/ethical|unethical|neutral|pragmatic/i);
       return (match?.[0].toLowerCase() as Decision['ethicalAlignment']) || 'neutral';
     } catch (error) {
       return 'neutral';
@@ -259,15 +272,15 @@ List 3-5 likely consequences (both positive and negative).
 `;
 
     try {
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt,
         stream: false
       });
 
-      const responseText = response.response || '';
-      return responseText
+      return response.response
         .split('\n')
-        .filter((line: string) => line.trim().length > 0)
+        .filter(line => line.trim().length > 0)
         .slice(0, 5);
     } catch (error) {
       return ['Consequences unknown'];
@@ -330,7 +343,7 @@ List 3-5 likely consequences (both positive and negative).
    * Execute a decision
    */
   async executeDecision(decision: Decision): Promise<void> {
-
+    
     try {
       // Check if approval required
       if (this.config.requireApprovalFor.includes(decision.chosen.action)) {
@@ -339,7 +352,7 @@ List 3-5 likely consequences (both positive and negative).
 
       // Execute the action
       decision.executed = true;
-
+      
       // Learn from the outcome
       await this.recordOutcome(decision);
 
@@ -354,7 +367,7 @@ List 3-5 likely consequences (both positive and negative).
    */
   private async recordOutcome(decision: Decision): Promise<void> {
     const outcome = decision.outcome || 'Completed';
-
+    
     await airiSelfLearning.learnFromEvent(
       decision.ethicalAlignment === 'unethical' ? 'experiment' : 'success',
       `Decision: ${decision.chosen.action}\nOutcome: ${outcome}\nReasoning: ${decision.reasoning}`,
@@ -382,8 +395,8 @@ List 3-5 likely consequences (both positive and negative).
 
     this.isProcessing = true;
 
-    while (this.decisionQueue.length > 0 &&
-      this.decisionHistory.length < this.config.maxAutonomousActions) {
+    while (this.decisionQueue.length > 0 && 
+           this.decisionHistory.length < this.config.maxAutonomousActions) {
       const task = this.decisionQueue.shift();
       if (task) {
         await task();
@@ -426,7 +439,7 @@ List 3-5 likely consequences (both positive and negative).
    */
   getReport(): string {
     const stats = this.getStats();
-
+    
     return `
 ⚖️  Autonomous Decision Report:
   Total Decisions: ${stats.total}

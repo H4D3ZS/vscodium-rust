@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import MonacoEditor from '@monaco-editor/react';
 import { useStore } from '../store';
 import { invoke } from '../tauri_bridge';
@@ -91,7 +91,6 @@ const SpecsGenerator: React.FC = () => {
     const setSpecsWizardStep = useStore(state => state.setSpecsWizardStep);
     const setCurrentSpecProjectId = useStore(state => state.setCurrentSpecProjectId);
     const theme = useStore(state => state.theme);
-    const refreshFileTree = useStore(state => state.refreshFileTree);
 
     useEffect(() => {
         if (preferredProvider === 'Ollama') {
@@ -158,10 +157,7 @@ const SpecsGenerator: React.FC = () => {
                         onClick={async () => {
                             if (confirm("Clear all project history?")) {
                                 await invoke("cmd_specs_clear_history");
-                                // Reset wizard state without a full page reload.
-                                // The wizard is a modal overlay — just return to 'generator' step.
-                                setSpecsWizardStep('generator');
-                                setCurrentSpecProjectId(null);
+                                window.location.reload();
                             }
                         }}
                         style={{
@@ -663,21 +659,7 @@ const GeneratedProjectView: React.FC<{ projectId: number }> = ({ projectId }) =>
                         <ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} /> BACK TO PROGRESS
                     </button>
                     <button
-                        onClick={async () => {
-                            // Refresh file tree and re-fetch project layout without reloading the app.
-                            try {
-                                await useStore.getState().refreshFileTree();
-                                // Re-fetch project data to update the map
-                                const [layout, projectTasks] = await Promise.all([
-                                    invoke<any[]>("cmd_specs_get_extended_project_layout", { projectId }),
-                                    invoke<any[]>("cmd_specs_get_project_tasks", { projectId })
-                                ]);
-                                setProjectData(layout);
-                                setTasks(projectTasks);
-                            } catch (e) {
-                                console.error('[RefreshMap] Failed:', e);
-                            }
-                        }}
+                        onClick={() => window.location.reload()} // Simplified refresh for VFS updates
                         style={{
                             background: 'var(--terminator-accent)',
                             border: 'none',

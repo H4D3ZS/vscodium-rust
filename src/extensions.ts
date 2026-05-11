@@ -2,10 +2,10 @@ import { invoke } from './tauri_bridge.ts';
 import { useStore } from './store.ts';
 
 export async function initExtensions() {
-    // console.log("DEBUG: initExtensions called");
+    console.log("DEBUG: initExtensions called");
     try {
         await invoke("ext_host_init");
-        // console.log("Extension host initialized");
+        console.log("Extension host initialized");
     } catch (err) {
         console.error("Failed to initialize extension host:", err);
     }

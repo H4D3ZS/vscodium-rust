@@ -164,7 +164,7 @@ export class AIRIDigitalBrain {
     const action = await airiAutonomousDecision.decide(activeGoal);
 
     if (action) {
-
+      
       // Execute action via HADES-Ollama
       try {
         await this.executeAction(action);
@@ -185,7 +185,7 @@ export class AIRIDigitalBrain {
 
     // Reflect on recent actions
     const recentActions = await airiMemory.getRecentActions(10);
-
+    
     // Learn from successes and failures
     for (const action of recentActions) {
       await airiSelfLearning.learnFromAction(action);
@@ -193,7 +193,7 @@ export class AIRIDigitalBrain {
 
     // Check for needed improvements
     const weaknesses = await airiSelfLearning.identifyWeaknesses();
-
+    
     if (weaknesses.length > 0) {
       // Schedule improvement work
     }
@@ -263,53 +263,36 @@ Execute this action thoughtfully and helpfully.
 `;
   }
 
-  public async parseAndExecuteResponse(response: string): Promise<void> {
-    // Check for tool calls in response (supports multiple calls in one message)
-    const toolRegex = /TOOL_CALL:\s*(\w+)\(([\s\S]*?)\)/g;
-    let match;
+  /**
+   * Parse and execute LLM response
+   */
+  private async parseAndExecuteResponse(response: string): Promise<void> {
+    // Check for tool calls in response
+    const toolMatch = response.match(/TOOL_CALL:\s*(\w+)\(([\s\S]*?)\)/);
 
-    while ((match = toolRegex.exec(response)) !== null) {
-      const toolName = match[1];
-      const toolArgsStr = match[2];
+    if (toolMatch) {
+      const toolName = toolMatch[1];
+      const toolArgs = JSON.parse(toolMatch[2]);
 
       try {
-        const toolArgs = JSON.parse(toolArgsStr);
-        // console.log(`[AIRI Brain] 🧠 Parsing tool call: ${toolName}`, toolArgs);
-
         const { invoke } = await import('@tauri-apps/api/core');
-
-        // Map to Project's Native Tools
-        switch (toolName) {
-          case 'write_to_file':
-          case 'write_file':
-          case 'create_file':
-            await invoke('write_file', {
-              path: toolArgs.path,
-              content: toolArgs.content
-            });
-            break;
-
-          case 'editor_open_file':
-          case 'open_file':
-            await invoke('open_file', { path: toolArgs.path });
-            break;
-
-          case 'run_command':
-            await invoke('ai_execute_command', { command: toolArgs.command });
-            break;
-
-          case 'search_replace_edit':
-            await invoke('ai_modify_file', {
-              path: toolArgs.path,
-              instruction: `Replace "${toolArgs.search}" with "${toolArgs.replace}"`
-            });
-            break;
-
-          default:
-            console.warn(`[AIRI Brain] Unknown tool: ${toolName}`);
+        
+        // Execute tool via Tauri commands
+        if (toolName === 'write_file' || toolName === 'create_file') {
+          await invoke('write_file', {
+            path: toolArgs.path,
+            content: toolArgs.content
+          });
+          console.log(`[AIRI Tool] Created file: ${toolArgs.path}`);
+        } else if (toolName === 'open_file') {
+          await invoke('open_file', { path: toolArgs.path });
+          console.log(`[AIRI Tool] Opened file: ${toolArgs.path}`);
+        } else if (toolName === 'run_command') {
+          await invoke('run_command', { command: toolArgs.command });
+          console.log(`[AIRI Tool] Ran command: ${toolArgs.command}`);
         }
       } catch (error: any) {
-        console.error(`[AIRI Brain] ❌ Tool execution failed [${toolName}]:`, error.message);
+        console.error('[AIRI Tool] Execution failed:', error.message);
       }
     }
   }
@@ -352,7 +335,7 @@ Execute this action thoughtfully and helpfully.
    */
   async speak(text: string, emotion?: string): Promise<void> {
     const biology = airiBiology.getState();
-
+    
     // Add emotional coloring based on biology
     const emotionalText = this.addEmotionalColoring(text, biology.mood);
 

@@ -46,7 +46,7 @@ fn get_avdmanager_cmd() -> Command {
     else { Command::new(format!("{}\\tools\\bin\\avdmanager.bat", get_android_sdk_path())) }
 }
 
-fn _get_emulator_cmd() -> Command {
+fn get_emulator_cmd() -> Command {
     Command::new(format!("{}\\emulator\\emulator.exe", get_android_sdk_path()))
 }
 
@@ -54,8 +54,9 @@ fn _get_emulator_cmd() -> Command {
 fn minimize_emulator_window() {
     #[cfg(target_os = "windows")] {
         use std::ffi::CString;
+        use std::sync::atomic::{AtomicBool, Ordering};
         use windows::Win32::UI::WindowsAndMessaging::{
-            FindWindowA, ShowWindow, SW_HIDE, SW_MINIMIZE
+            FindWindowA, GetWindowTextA, GetWindowTextLengthA, ShowWindow, SW_HIDE, SW_MINIMIZE
         };
         use windows::Win32::Foundation::HWND;
         use windows::core::PCSTR;

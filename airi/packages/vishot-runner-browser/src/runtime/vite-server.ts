@@ -31,7 +31,7 @@ export async function startSceneViteServer(sceneAppRoot: string): Promise<Manage
   const server = await createServer({
     root: sceneAppRoot,
     server: {
-      host: 'localhost',
+      host: '127.0.0.1',
       port: 41731,
       strictPort: false,
     },

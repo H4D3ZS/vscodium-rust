@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { OnboardingDialog, OnboardingStepAnalyticsNotice, ToasterRoot } from '@proj-airi/stage-ui/components'
+import { useInferencePreload } from '@proj-airi/stage-ui/composables'
 import { isPosthogAvailableInBuild, useSharedAnalyticsStore } from '@proj-airi/stage-ui/stores/analytics'
 import { useCharacterOrchestratorStore } from '@proj-airi/stage-ui/stores/character'
 import { useChatSessionStore } from '@proj-airi/stage-ui/stores/chat/session-store'
@@ -9,7 +10,7 @@ import { useContextBridgeStore } from '@proj-airi/stage-ui/stores/mods/api/conte
 import { useAiriCardStore } from '@proj-airi/stage-ui/stores/modules/airi-card'
 import { useOnboardingStore } from '@proj-airi/stage-ui/stores/onboarding'
 import { useSettings, useSettingsAudioDevice } from '@proj-airi/stage-ui/stores/settings'
-import { useTheme } from '@proj-airi/ui'
+import { ErrorBoundary, useTheme } from '@proj-airi/ui'
 import { StageTransitionGroup } from '@proj-airi/ui-transitions'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, watch } from 'vue'
@@ -37,6 +38,7 @@ const { showingSetup } = storeToRefs(onboardingStore)
 const { isDark } = useTheme()
 const cardStore = useAiriCardStore()
 const analyticsStore = useSharedAnalyticsStore()
+const inferencePreload = useInferencePreload()
 
 const primaryColor = computed(() => {
   return isDark.value
@@ -84,27 +86,8 @@ onMounted(async () => {
   await displayModelsStore.initialize()
   cardStore.initialize()
 
-  const urlParams = new URLSearchParams(window.location.search)
-  const isHeadless = urlParams.get('headless') === 'true'
-  const isTransparent = urlParams.get('transparent') === 'true'
-
-  if (isTransparent) {
-    const forceTransparent = () => {
-      document.documentElement.style.background = 'transparent'
-      document.body.style.background = 'transparent'
-      const app = document.getElementById('app')
-      if (app) app.style.background = 'transparent'
-      requestAnimationFrame(forceTransparent)
-    }
-    forceTransparent()
-    document.documentElement.classList.add('is-transparent')
-  }
-
-  if (onboardingStore.needsOnboarding && !isHeadless) {
+  if (onboardingStore.needsOnboarding) {
     onboardingStore.showingSetup = true
-  } else if (isHeadless) {
-    // Force skip onboarding in headless mode so AI is immediately visible
-    onboardingStore.markSetupSkipped()
   }
 
   await chatSessionStore.initialize()
@@ -115,6 +98,9 @@ onMounted(async () => {
   await displayModelsStore.loadDisplayModelsFromIndexedDB()
   await settingsStore.initializeStageModel()
   await settingsAudioDeviceStore.initialize()
+
+  // Preload local inference models (Kokoro TTS, etc.) in background after a delay
+  inferencePreload.triggerPreload()
 })
 
 onUnmounted(() => {
@@ -142,7 +128,12 @@ function handleSetupSkipped() {
     :use-page-specific-transitions="settings.usePageSpecificTransitions.value"
   >
     <RouterView v-slot="{ Component }">
-      <component :is="Component" />
+      <ErrorBoundary
+        title="Something went wrong while rendering this page."
+        @error="(err, _, info) => console.error('[ErrorBoundary]', info, err)"
+      >
+        <component :is="Component" />
+      </ErrorBoundary>
     </RouterView>
   </StageTransitionGroup>
 

@@ -18,7 +18,7 @@ describe('pickServerUrl', () => {
   it('prefers network urls over local urls', () => {
     expect(pickServerUrl({
       resolvedUrls: {
-        local: ['http://localhost:5173/'],
+        local: ['http://127.0.0.1:5173/'],
         network: ['http://192.168.1.10:5173/'],
       },
     } as any).toString()).toBe('http://192.168.1.10:5173/')
@@ -27,9 +27,9 @@ describe('pickServerUrl', () => {
   it('falls back to local urls when no network url exists', () => {
     expect(pickServerUrl({
       resolvedUrls: {
-        local: ['http://localhost:5173/'],
+        local: ['http://127.0.0.1:5173/'],
       },
-    } as any).toString()).toBe('http://localhost:5173/')
+    } as any).toString()).toBe('http://127.0.0.1:5173/')
   })
 
   it('throws when vite did not expose any reachable url', () => {

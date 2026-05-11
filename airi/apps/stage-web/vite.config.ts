@@ -8,12 +8,12 @@ import templateCompilerOptions from '@tresjs/core/template-compiler-options'
 import Vue from '@vitejs/plugin-vue'
 import Unocss from 'unocss/vite'
 import Info from 'unplugin-info/vite'
-import VueRouter from 'unplugin-vue-router/vite'
 import Yaml from 'unplugin-yaml/vite'
 import Mkcert from 'vite-plugin-mkcert'
 import VueDevTools from 'vite-plugin-vue-devtools'
 import Layouts from 'vite-plugin-vue-layouts'
 import VueMacros from 'vue-macros/vite'
+import VueRouter from 'vue-router/vite'
 
 import { tryCatch } from '@moeru/std'
 import { Download } from '@proj-airi/unplugin-fetch/vite'
@@ -83,12 +83,6 @@ export default defineConfig({
       // See: https://vite.dev/config/server-options#server-fs-strict
       strict: false,
     },
-    port: 5174,  // AIRI 3D VRM app port
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Cross-Origin-Embedder-Policy': 'unsafe-none',
-      'Cross-Origin-Opener-Policy': 'same-origin',
-    },
     warmup: {
       clientFiles: [
         `${resolve(join(import.meta.dirname, '..', '..', 'packages', 'stage-ui', 'src'))}/*.vue`,
@@ -99,8 +93,6 @@ export default defineConfig({
   build: {
     sourcemap: true,
   },
-  // Tauri needs relative asset paths for production builds
-  base: './',
   worker: {
     format: 'es',
     rollupOptions: {
@@ -114,12 +106,12 @@ export default defineConfig({
     ...(
       hasFlagEnableMkcert()
         ? [Mkcert((() => {
-          // Workaround: plugin's bundled downloader has a feaxios bug, prefer system mkcert
-          const command = process.platform === 'win32' ? 'where' : 'which'
-          // eslint-disable-next-line e18e/prefer-static-regex
-          const { data } = tryCatch(() => ({ mkcertPath: execSync(`${command} mkcert`, { stdio: 'pipe' }).toString().trim().split(/\r?\n/)[0] }))
-          return data
-        })())]
+            // Workaround: plugin's bundled downloader has a feaxios bug, prefer system mkcert
+            const command = process.platform === 'win32' ? 'where' : 'which'
+
+            const { data } = tryCatch(() => ({ mkcertPath: execSync(`${command} mkcert`, { stdio: 'pipe' }).toString().trim().split(/\r?\n/)[0] }))
+            return data
+          })())]
         : []
     ),
 
@@ -138,7 +130,6 @@ export default defineConfig({
       betterDefine: false,
     }),
 
-    // https://github.com/posva/unplugin-vue-router
     VueRouter({
       extensions: ['.vue', '.md'],
       dts: resolve(import.meta.dirname, 'src/typed-router.d.ts'),
@@ -163,49 +154,61 @@ export default defineConfig({
     Unocss(),
 
     // https://github.com/antfu/vite-plugin-pwa
+    // NOTICE:
+    // The plugin must stay registered in dev — `src/modules/pwa.ts` imports
+    // the `virtual:pwa-register` module the plugin synthesises, and dropping
+    // the plugin breaks Vite's import-analysis with a "Failed to resolve
+    // import" error.
+    // SW generation in dev is already disabled by `devOptions.enabled:
+    // false` (the plugin's own default). So new SWs do NOT register from
+    // `pnpm dev` alone — but a previously-registered SW (e.g. from an
+    // earlier `vite preview` / `vite build`) lives on per-origin in the
+    // browser and keeps intercepting fetches even in dev. To recover from
+    // that state, unregister via DevTools → Application → Storage → Clear
+    // site data.
     ...(env.TARGET_HUGGINGFACE_SPACE
       ? []
       : [VitePWA({
-        registerType: 'prompt',
-        includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
-        manifest: {
-          name: 'AIRI',
-          short_name: 'AIRI',
-          icons: [
-            {
-              src: '/web-app-manifest-192x192.png',
-              sizes: '192x192',
-              type: 'image/png',
-            },
-            {
-              src: '/web-app-manifest-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-            },
-            {
-              purpose: 'maskable',
-              sizes: '192x192',
-              src: '/maskable_icon_x192.png',
-              type: 'image/png',
-            },
-            {
-              purpose: 'maskable',
-              sizes: '512x512',
-              src: '/maskable_icon_x512.png',
-              type: 'image/png',
-            },
-          ],
-        },
-        workbox: {
-          maximumFileSizeToCacheInBytes: 64 * 1024 * 1024,
-          navigateFallbackDenylist: [
-            /^\/docs\//,
-            /^\/ui\//,
-            /^\/remote-assets\//,
-            /^\/api\//,
-          ],
-        },
-      })]),
+          registerType: 'prompt',
+          includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+          manifest: {
+            name: 'AIRI',
+            short_name: 'AIRI',
+            icons: [
+              {
+                src: '/web-app-manifest-192x192.png',
+                sizes: '192x192',
+                type: 'image/png',
+              },
+              {
+                src: '/web-app-manifest-512x512.png',
+                sizes: '512x512',
+                type: 'image/png',
+              },
+              {
+                purpose: 'maskable',
+                sizes: '192x192',
+                src: '/maskable_icon_x192.png',
+                type: 'image/png',
+              },
+              {
+                purpose: 'maskable',
+                sizes: '512x512',
+                src: '/maskable_icon_x512.png',
+                type: 'image/png',
+              },
+            ],
+          },
+          workbox: {
+            maximumFileSizeToCacheInBytes: 64 * 1024 * 1024,
+            navigateFallbackDenylist: [
+              /^\/docs\//,
+              /^\/ui\//,
+              /^\/remote-assets\//,
+              /^\/api\//,
+            ],
+          },
+        })]),
 
     // https://github.com/intlify/bundle-tools/tree/main/packages/unplugin-vue-i18n
     VueI18n({
@@ -224,26 +227,24 @@ export default defineConfig({
     Download('https://dist.ayaka.moe/vrm-models/VRoid-Hub/AvatarSample-B/AvatarSample_B.vrm', 'AvatarSample_B.vrm', 'vrm/models/AvatarSample-B', { parentDir: stageUIAssetsRoot, cacheDir: sharedCacheDir }),
 
     // HuggingFace Spaces
-    LFS({
-      root: cwd(), extraGlobs: [
-        // Scene & Models
-        '*.vrm',
-        '*.vrma',
-        '*.hdr',
-        '*.cmo3',
-        // Images & Fonts
-        '*.png',
-        '*.jpg',
-        '*.jpeg',
-        '*.gif',
-        '*.webp',
-        '*.bmp',
-        '*.ttf',
-        '*.avif',
-        // Tensorflow / MediaPipe task
-        '*.task',
-      ]
-    }),
+    LFS({ root: cwd(), extraGlobs: [
+      // Scene & Models
+      '*.vrm',
+      '*.vrma',
+      '*.hdr',
+      '*.cmo3',
+      // Images & Fonts
+      '*.png',
+      '*.jpg',
+      '*.jpeg',
+      '*.gif',
+      '*.webp',
+      '*.bmp',
+      '*.ttf',
+      '*.avif',
+      // Tensorflow / MediaPipe task
+      '*.task',
+    ] }),
     SpaceCard({
       root: cwd(),
       title: 'AIRI: Virtual Companion',
@@ -274,33 +275,33 @@ export default defineConfig({
     ...((!env.S3_ENDPOINT || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)
       ? []
       : [
-        WarpDrivePlugin({
-          prefix: env.STAGE_WEB_WARP_DRIVE_PREFIX || 'proj-airi/stage-web/main/',
-          include: [/\.wasm$/i, /\.ttf$/i, /\.vrm$/i, /\.zip$/i], // in existing assets, wasm, ttf, vrm files are the largest ones
-          manifest: true,
-          clean: false,
-          contentTypeBy: (filename: string) => {
-            if (filename.endsWith('.wasm')) {
-              return 'application/wasm'
-            }
-            if (filename.endsWith('.ttf')) {
-              return 'font/ttf'
-            }
-            if (filename.endsWith('.vrm')) {
-              return 'application/octet-stream'
-            }
-            if (filename.endsWith('.zip')) {
-              return 'application/zip'
-            }
-          },
-          provider: createS3Provider({
-            endpoint: env.S3_ENDPOINT,
-            accessKeyId: env.S3_ACCESS_KEY_ID,
-            secretAccessKey: env.S3_SECRET_ACCESS_KEY,
-            region: env.S3_REGION,
-            publicBaseUrl: env.WARP_DRIVE_PUBLIC_BASE ?? env.S3_ENDPOINT,
+          WarpDrivePlugin({
+            prefix: env.STAGE_WEB_WARP_DRIVE_PREFIX || 'proj-airi/stage-web/main/',
+            include: [/\.wasm$/i, /\.ttf$/i, /\.vrm$/i, /\.zip$/i], // in existing assets, wasm, ttf, vrm files are the largest ones
+            manifest: true,
+            clean: false,
+            contentTypeBy: (filename: string) => {
+              if (filename.endsWith('.wasm')) {
+                return 'application/wasm'
+              }
+              if (filename.endsWith('.ttf')) {
+                return 'font/ttf'
+              }
+              if (filename.endsWith('.vrm')) {
+                return 'application/octet-stream'
+              }
+              if (filename.endsWith('.zip')) {
+                return 'application/zip'
+              }
+            },
+            provider: createS3Provider({
+              endpoint: env.S3_ENDPOINT,
+              accessKeyId: env.S3_ACCESS_KEY_ID,
+              secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+              region: env.S3_REGION,
+              publicBaseUrl: env.WARP_DRIVE_PUBLIC_BASE ?? env.S3_ENDPOINT,
+            }),
           }),
-        }),
-      ]),
+        ]),
   ],
 })

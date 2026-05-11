@@ -19,7 +19,7 @@ export function buildElectronLoopbackUrl(params: {
   const code = encodeURIComponent(params.code)
   const state = encodeURIComponent(params.state)
 
-  return `http://localhost:${params.port}/callback?code=${code}&state=${state}`
+  return `http://127.0.0.1:${params.port}/callback?code=${code}&state=${state}`
 }
 
 export function parseElectronCallbackQuery(searchParams: URLSearchParams): ElectronCallbackParseResult {

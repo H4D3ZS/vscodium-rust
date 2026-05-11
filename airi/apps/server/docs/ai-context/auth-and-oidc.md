@@ -23,7 +23,7 @@ Server 通过 `better-auth` 同时充当**用户认证后端**和 **OIDC Provide
                ↓                  ↓
         ┌──────────┐       ┌──────────────┐
         │ Stage Web │       │ Stage Electron│
-        │ /auth/    │       │ localhost:   │
+        │ /auth/    │       │ 127.0.0.1:   │
         │ callback  │       │ {port}/      │
         └──────────┘       │ callback     │
                             └──────────────┘
@@ -40,7 +40,7 @@ Server 通过 `better-auth` 同时充当**用户认证后端**和 **OIDC Provide
 | `src/routes/oidc/electron-callback.ts` | Electron 回调中继页：服务端 HTML 页面通过 JS fetch() 将 auth code 转发到 Electron 本地 loopback |
 | `src/routes/oidc/token-auth.ts` | Bearer token 辅助路由：`get-session`、`sign-out`、`list-sessions` |
 | `src/utils/sign-in-page.ts` | 渲染 fallback HTML 登录页（Google/GitHub 按钮） |
-| `src/utils/origin.ts` | 可信来源配置：`localhost`、`localhost`、`airi.moeru.ai`、`capacitor://localhost` |
+| `src/utils/origin.ts` | 可信来源配置：`localhost`、`127.0.0.1`、`airi.moeru.ai`、`capacitor://localhost` |
 | `src/libs/env.ts` | OIDC 相关环境变量定义（Valibot schema） |
 | `src/libs/request-auth.ts` | 统一鉴权解析：优先读 better-auth session，再回退到受信任 OIDC access token |
 
@@ -154,7 +154,7 @@ Client (localhost:5173)                    Server (localhost:3000)              
 
 ### Electron 特殊处理
 
-Electron 不使用自定义协议（`airi://`），而是在 main process 临时启动一个 HTTP server 监听 `localhost:{port}/callback`：
+Electron 不使用自定义协议（`airi://`），而是在 main process 临时启动一个 HTTP server 监听 `127.0.0.1:{port}/callback`：
 - 固定端口范围：19721-19725，按顺序尝试
 - 收到回调后立即关闭 server
 - 5 分钟超时安全机制
@@ -164,11 +164,11 @@ Electron 不使用自定义协议（`airi://`），而是在 main process 临时
 Electron 的 OIDC redirect_uri 不再直接指向 loopback 端口，而是指向服务端的 `/api/auth/oidc/electron-callback`。这个端点返回一个 HTML 页面，页面通过 JS `fetch()` 将 auth code 转发到本地 loopback。
 
 好处：
-- 浏览器不显示 `http://localhost:19721/...` 这样的 URL
+- 浏览器不显示 `http://127.0.0.1:19721/...` 这样的 URL
 - 只需注册一个 redirect_uri（不再需要 5 个端口对应的 URL）
 - Loopback server 需要设置 CORS `Access-Control-Allow-Origin: *`
 
-端口编码方式：loopback 端口编码在 `state` 参数中，格式为 `{port}:{originalState}`。中继页面提取端口后，将 code 和原始 state 通过 fetch 发送到 `http://localhost:{port}/callback`。
+端口编码方式：loopback 端口编码在 `state` 参数中，格式为 `{port}:{originalState}`。中继页面提取端口后，将 code 和原始 state 通过 fetch 发送到 `http://127.0.0.1:{port}/callback`。
 
 ### Bearer 鉴权解析
 

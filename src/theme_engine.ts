@@ -208,7 +208,7 @@ async function applyDokiAssets(themeName: string) {
             root.style.setProperty('--airi-wallpaper', `url('${customConfig.wallpaperUrl}')`);
         }
         document.body.classList.add('has-airi-wallpaper');
-        // console.log('[ThemeEngine] Custom avatar applied');
+        console.log('[ThemeEngine] Custom avatar applied');
         return; // Skip Doki theme assets when using custom avatar
     }
 

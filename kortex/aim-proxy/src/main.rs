@@ -35,7 +35,7 @@ async fn main() {
         .route("/api/generate", post(intercept_ollama))
         .route("/api/chat", post(intercept_ollama))
         .route("/api/manifest", post(api_manifest::handle_manifest))
-        .route("/*path", any(pass_through))
+        .route("/{*path}", any(pass_through))
         .layer(cors)
         .with_state(state);
 

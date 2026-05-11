@@ -25,7 +25,7 @@ function getContentType(pathname: string) {
 export async function startUpdateTestServer(options: { port: number, rootDir: string }) {
   const server = createServer(async (request, response) => {
     const pathname = request.url?.split('?')[0] || '/'
-    // eslint-disable-next-line e18e/prefer-static-regex
+
     const safePath = normalize(pathname).replace(/^(\.\.(\/|\\|$))+/, '')
     const filePath = join(options.rootDir, safePath === '/' ? '/index.html' : safePath)
 
@@ -42,7 +42,7 @@ export async function startUpdateTestServer(options: { port: number, rootDir: st
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
-    server.listen(options.port, 'localhost', () => resolve())
+    server.listen(options.port, '127.0.0.1', () => resolve())
   })
 
   return server
@@ -59,10 +59,10 @@ async function main() {
 
   const server = await startUpdateTestServer({ port, rootDir })
 
-  console.log(`Update test server listening on http://localhost:${port}`)
-  console.log(`stable:  http://localhost:${port}/stable`)
-  console.log(`nightly: http://localhost:${port}/nightly`)
-  console.log(`canary:  http://localhost:${port}/canary`)
+  console.log(`Update test server listening on http://127.0.0.1:${port}`)
+  console.log(`stable:  http://127.0.0.1:${port}/stable`)
+  console.log(`nightly: http://127.0.0.1:${port}/nightly`)
+  console.log(`canary:  http://127.0.0.1:${port}/canary`)
 
   const close = async () => {
     await new Promise<void>((resolve, reject) => {

@@ -34,7 +34,7 @@ export class AIRIVRMAvatar {
   private renderer: THREE.WebGLRenderer;
   private vrm: VRM | null;
   private mixer: THREE.AnimationMixer | null;
-  private lastTime: number = performance.now();
+  private clock: THREE.Clock;
   private state: AvatarState;
   private isInitialized: boolean = false;
 
@@ -49,8 +49,8 @@ export class AIRIVRMAvatar {
     this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     this.vrm = null;
     this.mixer = null;
-    this.lastTime = performance.now();
-
+    this.clock = new THREE.Clock();
+    
     this.state = {
       emotion: 'neutral',
       isSpeaking: false,
@@ -70,24 +70,10 @@ export class AIRIVRMAvatar {
 
     try {
       // Setup renderer
-      THREE.ColorManagement.enabled = true;
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.renderer.setPixelRatio(window.devicePixelRatio);
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-      // Make canvas non-blocking and behind everything
-      const canvas = this.renderer.domElement;
-      canvas.style.position = 'fixed';
-      canvas.style.top = '0';
-      canvas.style.left = '0';
-      canvas.style.width = '100vw';
-      canvas.style.height = '100vh';
-      canvas.style.zIndex = '-1';
-      canvas.style.pointerEvents = 'none';
-      canvas.style.opacity = '0'; // Hidden until model loaded
-      canvas.style.transition = 'opacity 1s ease-in-out';
-
-      document.body.appendChild(canvas);
+      document.body.appendChild(this.renderer.domElement);
 
       // Setup camera
       this.camera.position.set(0, 1.4, 0.7);
@@ -111,56 +97,52 @@ export class AIRIVRMAvatar {
         });
       });
 
-      const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/');
-      const defaultVrmUrl = `${baseUrl}models/airi.vrm`;
-      const vrmUrlOrDefault = vrmUrl || defaultVrmUrl;
-
-      try {
-        const gltf = await new Promise<any>((resolve, reject) => {
-          loader.load(
-            vrmUrlOrDefault,
-            resolve,
-            (progress) => {
-            },
-            reject
-          );
-        });
-
-        this.vrm = gltf.userData.vrm;
-        if (this.vrm) {
-          this.scene.add(this.vrm.scene);
-          // Show canvas now that we have a model
-          this.renderer.domElement.style.opacity = '1';
-        }
-        // // console.log('[VRMAvatar] ✅ Model loaded successfully:', vrmUrlOrDefault);
-      } catch (err) {
-        console.warn('[VRMAvatar] ⚠️ Model load failed (404/parse error). AIRI will remain formless but conscious. Set a valid VRM URL in Agent Settings > 3D Avatar Model:', err);
-        // Don't throw, just continue without a model
+      const vrmUrlOrDefault = vrmUrl || '/models/airi.vrm';
+      const isLikelyVrm = vrmUrlOrDefault.toLowerCase().endsWith('.vrm');
+      if (!isLikelyVrm) {
+        console.warn('[VRM] Invalid model URL (expected .vrm):', vrmUrlOrDefault);
+        return false;
       }
+      
+      const gltf = await new Promise<any>((resolve, reject) => {
+        loader.load(
+          vrmUrlOrDefault,
+          resolve,
+          (progress) => {
+          },
+          reject
+        );
+      });
 
-      // Setup animation mixer if model exists
-      if (this.vrm) {
-        this.mixer = new THREE.AnimationMixer(this.vrm.scene);
+      this.vrm = gltf.userData.vrm;
+      this.scene.add(this.vrm.scene);
 
-        // Look at camera
-        if (this.vrm.meta?.metaVersion === '0' || this.vrm.meta?.metaVersion === '1') {
-          const lookAtTarget = new THREE.Object3D();
-          lookAtTarget.position.set(0, 1.4, 0);
-          this.scene.add(lookAtTarget);
+      // Setup animation mixer
+      this.mixer = new THREE.AnimationMixer(this.vrm.scene);
 
-          if (this.vrm.lookAt) {
-            this.vrm.lookAt.target = lookAtTarget;
-          }
+      // Look at camera
+      if (this.vrm.meta?.metaVersion === '0' || this.vrm.meta?.metaVersion === '1') {
+        const lookAtTarget = new THREE.Object3D();
+        lookAtTarget.position.set(0, 1.4, 0);
+        this.scene.add(lookAtTarget);
+        
+        if (this.vrm.lookAt) {
+          this.vrm.lookAt.target = lookAtTarget;
         }
       }
 
       this.isInitialized = true;
       this.animate();
 
-
+      
       return true;
 
-    } catch (error) {
+    } catch (error: any) {
+      const msg = String(error?.message || error || '');
+      if (msg.includes('Unrecognized token') || msg.includes('<')) {
+        console.warn('[VRM] Model URL returned HTML/non-VRM payload; avatar disabled.');
+        return false;
+      }
       console.error('[VRM] ❌ Failed to load VRM:', error);
       return false;
     }
@@ -172,9 +154,7 @@ export class AIRIVRMAvatar {
   private animate = (): void => {
     requestAnimationFrame(this.animate);
 
-    const now = performance.now();
-    const delta = (now - this.lastTime) / 1000;
-    this.lastTime = now;
+    const delta = this.clock.getDelta();
 
     // Update mixer
     if (this.mixer) {
@@ -424,9 +404,8 @@ export class AIRIVRMAvatar {
   onResize(): void {
     if (!this.isInitialized) return;
 
-    const pCamera = this.camera as THREE.PerspectiveCamera;
-    pCamera.aspect = window.innerWidth / window.innerHeight;
-    pCamera.updateProjectionMatrix();
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
@@ -436,20 +415,15 @@ export class AIRIVRMAvatar {
   dispose(): void {
     if (this.vrm) {
       this.vrm.scene.traverse((obj) => {
-        if ((obj as any).isMesh) {
-          const mesh = obj as THREE.Mesh;
-          mesh.geometry.dispose();
-          if (mesh.material) {
-            if (Array.isArray(mesh.material)) {
-              mesh.material.forEach(m => m.dispose());
-            } else {
-              mesh.material.dispose();
-            }
+        if (obj.isMesh) {
+          obj.geometry.dispose();
+          if (obj.material) {
+            obj.material.dispose();
           }
         }
       });
     }
-
+    
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.isInitialized = false;

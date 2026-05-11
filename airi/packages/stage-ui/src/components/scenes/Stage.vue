@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { DuckDBWasmDrizzleDatabase } from '@proj-airi/drizzle-duckdb-wasm'
 import type { Live2DLipSync, Live2DLipSyncOptions } from '@proj-airi/model-driver-lipsync'
 import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import type { SpeechProviderWithExtraOptions } from '@xsai-ext/providers/utils'
@@ -7,8 +6,6 @@ import type { UnElevenLabsOptions } from 'unspeech'
 
 import type { EmotionPayload } from '../../constants/emotions'
 
-import { drizzle } from '@proj-airi/drizzle-duckdb-wasm'
-import { getImportUrlBundles } from '@proj-airi/drizzle-duckdb-wasm/bundles/import-url-browser'
 import { createLive2DLipSync } from '@proj-airi/model-driver-lipsync'
 import { wlipsyncProfile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import { createPlaybackManager, createSpeechPipeline } from '@proj-airi/pipelines-audio'
@@ -16,6 +13,7 @@ import { Live2DScene, useLive2d } from '@proj-airi/stage-ui-live2d'
 import { ThreeScene } from '@proj-airi/stage-ui-three'
 import { animations } from '@proj-airi/stage-ui-three/assets/vrm'
 import { createQueue } from '@proj-airi/stream-kit'
+import { Callout } from '@proj-airi/ui'
 import { useBroadcastChannel } from '@vueuse/core'
 // import { createTransformers } from '@xsai-transformers/embed'
 // import embedWorkerURL from '@xsai-transformers/embed/worker?worker&url'
@@ -26,30 +24,29 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { useDelayMessageQueue, useEmotionsMessageQueue } from '../../composables/queues'
 import { useAuthProviderSync } from '../../composables/use-auth-provider-sync'
+import { useDuckDb } from '../../composables/use-duck-db'
+import { useIOTraceBridge } from '../../composables/use-io-trace-bridge'
+import { initIOTracer } from '../../composables/use-io-tracer'
 import { llmInferenceEndToken } from '../../constants'
 import { EMOTION_EmotionMotionName_value, EMOTION_VRMExpressionName_value, EmotionThinkMotionName } from '../../constants/emotions'
 import { useAudioContext, useSpeakingStore } from '../../stores/audio'
+import { useBackgroundStore } from '../../stores/background'
 import { useChatOrchestratorStore } from '../../stores/chat'
 import { useAiriCardStore } from '../../stores/modules'
 import { useSpeechStore } from '../../stores/modules/speech'
 import { useProvidersStore } from '../../stores/providers'
 import { useSettings } from '../../stores/settings'
 import { useSpeechRuntimeStore } from '../../stores/speech-runtime'
-import { useHearingSpeechInputPipeline } from '../../stores/modules/hearing'
 import { shouldRunLive2dLipSyncLoop } from './runtime'
 
 const props = withDefaults(defineProps<{
   paused?: boolean
-  headless?: boolean
   focusAt: { x: number, y: number }
-  xOffset?: number | string
-  yOffset?: number | string
-  scale?: number
-}>(), { paused: false, scale: 1, headless: false })
+}>(), { paused: false, scale: 1 })
 
 const componentState = defineModel<'pending' | 'loading' | 'mounted'>('state', { default: 'pending' })
 
-const db = ref<DuckDBWasmDrizzleDatabase>()
+const { getDb } = useDuckDb()
 // const transformersProvider = createTransformers({ embedWorkerURL })
 
 const vrmViewerRef = ref<InstanceType<typeof ThreeScene>>()
@@ -120,6 +117,8 @@ const speechStore = useSpeechStore()
 const { ssmlEnabled, activeSpeechProvider, activeSpeechModel, activeSpeechVoice, pitch } = storeToRefs(speechStore)
 const activeCardId = computed(() => activeCard.value?.name ?? 'default')
 const speechRuntimeStore = useSpeechRuntimeStore()
+const backgroundStore = useBackgroundStore()
+const { activeBackgroundUrl } = storeToRefs(backgroundStore)
 
 const { currentMotion } = storeToRefs(useLive2d())
 
@@ -323,6 +322,8 @@ const speechPipeline = createSpeechPipeline<AudioBuffer>({
   playback: playbackManager,
 })
 
+initIOTracer()
+useIOTraceBridge(speechPipeline)
 void speechRuntimeStore.registerHost(speechPipeline)
 
 speechPipeline.on('onSpecial', (segment) => {
@@ -516,104 +517,23 @@ function resumeAudioContextOnInteraction() {
   })
 }
 
-// ── AIRI Interaction Bridge (React <-> Vue) ──
-const hearingStore = useHearingSpeechInputPipeline()
-const airiMicStream = ref<MediaStream | null>(null)
-let bridgeIntent: ReturnType<typeof speechRuntimeStore.openIntent> | null = null
-
-async function handleAiriInboundMessage(e: MessageEvent) {
-  const data = e.data
-  if (!data || typeof data !== 'object') return
-  
-  const type = data.type
-  const payload = data.payload || {}
-  const text = data.text || payload.text
-  const active = data.active !== undefined ? data.active : payload.active
-  
-  if (type === 'airi-thinking-state') {
-    // Ensure high-quality voice is active for Hades integration
-    if (activeSpeechProvider.value === 'speech-noop' || !activeSpeechProvider.value) {
-      console.log('[BRIDGE] Activating Kokoro-local for AIRI Core')
-      activeSpeechProvider.value = 'kokoro-local'
-      activeSpeechModel.value = 'kokoro'
-      activeSpeechVoiceId.value = 'af_bella'
-    }
-    
-    if (active) {
-      if (!bridgeIntent) {
-        bridgeIntent = speechRuntimeStore.openIntent({
-          ownerId: 'hades-bridge',
-          priority: 'normal',
-          behavior: 'queue',
-        })
-      }
-    } else {
-      bridgeIntent?.end()
-      bridgeIntent = null
-    }
-  }
-
-  if (type === 'airi-speak' && text) {
-    // Force resume audio context if suspended (browser safety)
-    if (audioContext.state === 'suspended') {
-      audioContext.resume().catch(() => {})
-    }
-    
-    if (!bridgeIntent) {
-      bridgeIntent = speechRuntimeStore.openIntent({
-        ownerId: 'hades-bridge',
-        priority: 'normal',
-        behavior: 'queue',
-      })
-    }
-    console.log('[BRIDGE] Streaming to intent:', text)
-    bridgeIntent.writeLiteral(text)
-    bridgeIntent.writeFlush()
-  }
-  
-  if (type === 'airi-listen') {
-    console.log('[BRIDGE] Hearing toggle:', active)
-    if (active) {
-      try {
-        if (!airiMicStream.value) {
-          airiMicStream.value = await navigator.mediaDevices.getUserMedia({ audio: true })
-        }
-        await hearingStore.transcribeForMediaStream(airiMicStream.value, {
-          onSpeechEnd: (finalText) => {
-            if (finalText) {
-              window.postMessage({ 
-                type: 'airi-transcription', 
-                payload: { text: finalText, isFinal: true } 
-              }, '*')
-            }
-          }
-        })
-      } catch (err) {
-        console.error('[BRIDGE] Microphone access failed:', err)
-      }
-    } else {
-      await hearingStore.stopStreamingTranscription()
-    }
-  }
-}
-
 // Add event listeners for user interaction
 if (typeof window !== 'undefined') {
   const events = ['click', 'touchstart', 'keydown']
   events.forEach((event) => {
     window.addEventListener(event, resumeAudioContextOnInteraction, { once: true, passive: true })
   })
-  
-  // Listen for React IDE messages
-  window.addEventListener('message', handleAiriInboundMessage)
 }
 
 onMounted(async () => {
-  db.value = drizzle({ connection: { bundles: getImportUrlBundles() } })
-  await db.value.execute(`CREATE TABLE memory_test (vec FLOAT[768]);`)
+  await getDb() // stub for future update
 })
 
 watch([stageModelRenderer, () => props.paused], ([renderer]) => {
+  if (renderer === 'godot') {
+    componentState.value = 'mounted'
+  }
+
   if (renderer !== 'live2d') {
     resetLive2dLipSync()
     return
@@ -637,43 +557,98 @@ function readRenderTargetRegionAtClientPoint(clientX: number, clientY: number, r
   return vrmViewerRef.value?.readRenderTargetRegionAtClientPoint?.(clientX, clientY, radius) ?? null
 }
 
+async function captureFrame() {
+  const charBlob = await (stageModelRenderer.value === 'live2d'
+    ? live2dSceneRef.value?.captureFrame()
+    : vrmViewerRef.value?.captureFrame())
+
+  if (!activeBackgroundUrl.value || !charBlob)
+    return charBlob
+
+  try {
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx)
+      return charBlob
+
+    // Load background image
+    const bgImg = new Image()
+    bgImg.crossOrigin = 'anonymous'
+    bgImg.src = activeBackgroundUrl.value
+    await new Promise((resolve, reject) => {
+      bgImg.onload = resolve
+      bgImg.onerror = reject
+    })
+
+    // Load character frame
+    const charImg = await createImageBitmap(charBlob)
+
+    // Match canvas size to the captured frame (respects DPI/Render Scale)
+    canvas.width = charImg.width
+    canvas.height = charImg.height
+
+    // Draw background with "cover" logic
+    const scale = Math.max(canvas.width / bgImg.width, canvas.height / bgImg.height)
+    const w = bgImg.width * scale
+    const h = bgImg.height * scale
+    const x = (canvas.width - w) / 2
+    const y = (canvas.height - h) / 2
+
+    ctx.drawImage(bgImg, x, y, w, h)
+
+    // Draw character on top
+    ctx.drawImage(charImg, 0, 0)
+
+    return new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
+  }
+  catch (error) {
+    console.error('[Stage] Failed to composite photo with background:', error)
+    return charBlob // Fallback to character-only
+  }
+}
+
 onUnmounted(() => {
   resetLive2dLipSync()
   chatHookCleanups.forEach(dispose => dispose?.())
   viewUpdateCleanups.forEach(dispose => dispose?.())
-  window.removeEventListener('message', handleAiriInboundMessage)
-  
-  if (airiMicStream.value) {
-    airiMicStream.value.getTracks().forEach(track => track.stop())
-  }
-  
-  if (audioContext && audioContext.state !== 'closed') {
-    audioContext.close().catch(() => {})
-  }
 })
 
 defineExpose({
   canvasElement,
+  captureFrame,
   readRenderTargetRegionAtClientPoint,
 })
 </script>
 
 <template>
-  <div relative h-full w-full :class="{ 'is-transparent': headless }">
-    <div h-full w-full :class="{ 'is-transparent': headless }">
+  <div relative h-full w-full>
+    <!-- Scene Background Layer -->
+    <div
+      v-if="activeBackgroundUrl"
+      :class="[
+        'absolute left-0 top-0 z-0 h-full w-full',
+        'transition-opacity duration-500',
+      ]"
+      :style="{
+        backgroundImage: `url(${activeBackgroundUrl})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      }"
+    />
+
+    <div relative h-full w-full>
       <Live2DScene
         v-if="stageModelRenderer === 'live2d' && showStage"
         ref="live2dSceneRef"
         v-model:state="componentState"
-        h-full w-full
+        min-w="50% <lg:full" min-h="100 sm:100"
+        h-full w-full flex-1
         :model-src="stageModelSelectedUrl"
         :model-id="stageModelSelected"
         :focus-at="focusAt"
         :mouth-open-size="mouthOpenSize"
         :paused="paused"
-        :x-offset="xOffset"
-        :y-offset="yOffset"
-        :scale="scale"
         :disable-focus-at="live2dDisableFocus"
         :theme-colors-hue="themeColorsHue"
         :theme-colors-hue-dynamic="themeColorsHueDynamic"
@@ -697,6 +672,26 @@ defineExpose({
         :current-audio-source="currentAudioSource"
         @error="console.error"
       />
+      <div
+        v-if="stageModelRenderer === 'godot'"
+        :class="[
+          'h-full w-full',
+          'flex items-center justify-center',
+          'px-4 py-6',
+        ]"
+      >
+        <div
+          :class="[
+            'w-96 max-w-full',
+            'min-h-32',
+            'flex items-center justify-center',
+          ]"
+        >
+          <Callout label="Godot Stage (Experimental)">
+            <p>Godot Stage (experimental) is running...</p>
+          </Callout>
+        </div>
+      </div>
     </div>
   </div>
 </template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ChatAssistantMessage, ChatHistoryItem, ContextMessage } from '../../../../types/chat'
+import type { ChatToolCallRendererRegistry } from './tool-call-renderer'
 
 import { computed, provide, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -19,15 +20,19 @@ const props = withDefaults(defineProps<{
   assistantLabel?: string
   userLabel?: string
   errorLabel?: string
+  retryLabel?: string
   variant?: 'desktop' | 'mobile'
+  toolCallRenderers?: ChatToolCallRendererRegistry
 }>(), {
   sending: false,
   variant: 'desktop',
+  toolCallRenderers: () => ({}),
 })
 
 const emit = defineEmits<{
   (e: 'copyMessage', payload: { message: ChatHistoryItem, index: number, key: string | number }): void
   (e: 'deleteMessage', payload: { message: ChatHistoryItem, index: number, key: string | number }): void
+  (e: 'retryMessage', payload: { message: ChatHistoryItem, index: number, key: string | number }): void
 }>()
 
 const chatHistoryRef = ref<HTMLDivElement>()
@@ -38,6 +43,7 @@ const labels = computed(() => ({
   assistant: props.assistantLabel ?? t('stage.chat.message.character-name.airi'),
   user: props.userLabel ?? t('stage.chat.message.character-name.you'),
   error: props.errorLabel ?? t('stage.chat.message.character-name.core-system'),
+  retry: props.retryLabel ?? t('stage.chat.actions.retry'),
 }))
 
 const streaming = computed<ChatAssistantMessage & { context?: ContextMessage } & { createdAt?: number }>(() => props.streamingMessage ?? { role: 'assistant', content: '', slices: [], tool_results: [], createdAt: Date.now() })
@@ -86,6 +92,14 @@ function emitDeleteMessage(message: ChatHistoryItem, index: number) {
     key: getChatHistoryItemKey(message, index),
   })
 }
+
+function emitRetryMessage(message: ChatHistoryItem, index: number) {
+  emit('retryMessage', {
+    message,
+    index,
+    key: getChatHistoryItemKey(message, index),
+  })
+}
 </script>
 
 <template>
@@ -100,9 +114,12 @@ function emitDeleteMessage(message: ChatHistoryItem, index: number) {
           v-if="message.role === 'error'"
           :message="message"
           :label="labels.error"
+          :retry-label="labels.retry"
+          :can-retry="renderMessages[index - 1]?.role === 'user'"
           :show-placeholder="sending && index === renderMessages.length - 1"
           :variant="variant"
           @copy="emitCopyMessage(message, index)"
+          @retry="emitRetryMessage(message, index)"
           @delete="emitDeleteMessage(message, index)"
         />
         <ChatAssistantItem
@@ -111,6 +128,7 @@ function emitDeleteMessage(message: ChatHistoryItem, index: number) {
           :label="labels.assistant"
           :show-placeholder="shouldShowPlaceholder(message) && showStreamingPlaceholder"
           :variant="variant"
+          :tool-call-renderers="toolCallRenderers"
           @copy="emitCopyMessage(message, index)"
           @delete="emitDeleteMessage(message, index)"
         />

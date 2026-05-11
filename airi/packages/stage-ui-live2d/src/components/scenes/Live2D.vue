@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { Screen } from '@proj-airi/ui'
-import { storeToRefs } from 'pinia'
 import { ref, watch } from 'vue'
 
+import SliderControls from '../ViewControls/SliderControls.vue'
 import Live2DCanvas from './live2d/Canvas.vue'
 import Live2DModel from './live2d/Model.vue'
-
-import { useLive2d } from '../../stores/live2d'
 
 import '../../utils/live2d-zip-loader'
 import '../../utils/live2d-opfs-registration'
@@ -19,7 +17,6 @@ withDefaults(defineProps<{
   mouthOpenSize?: number
   focusAt?: { x: number, y: number }
   disableFocusAt?: boolean
-  scale?: number
   themeColorsHue?: number
   themeColorsHueDynamic?: boolean
   live2dIdleAnimationEnabled?: boolean
@@ -33,7 +30,6 @@ withDefaults(defineProps<{
   paused: false,
   focusAt: () => ({ x: 0, y: 0 }),
   mouthOpenSize: 0,
-  scale: 1,
   themeColorsHue: 220.44,
   themeColorsHueDynamic: false,
   live2dIdleAnimationEnabled: true,
@@ -51,9 +47,6 @@ const componentStateModel = defineModel<'pending' | 'loading' | 'mounted'>('mode
 
 const live2dCanvasRef = ref<InstanceType<typeof Live2DCanvas>>()
 
-const live2d = useLive2d()
-const { position } = storeToRefs(live2d)
-
 watch([componentStateModel, componentStateCanvas], () => {
   componentState.value = (componentStateModel.value === 'mounted' && componentStateCanvas.value === 'mounted')
     ? 'mounted'
@@ -64,11 +57,17 @@ defineExpose({
   canvasElement: () => {
     return live2dCanvasRef.value?.canvasElement()
   },
+  captureFrame: () => {
+    return live2dCanvasRef.value?.captureFrame()
+  },
 })
 </script>
 
 <template>
   <Screen v-slot="{ width, height }" relative>
+    <div absolute top-0 z-15 h-full px-3 py="20vh">
+      <SliderControls />
+    </div>
     <Live2DCanvas
       ref="live2dCanvasRef"
       v-slot="{ app }"
@@ -89,9 +88,6 @@ defineExpose({
         :height="height"
         :paused="paused"
         :focus-at="focusAt"
-        :x-offset="position.x"
-        :y-offset="position.y"
-        :scale="scale"
         :disable-focus-at="disableFocusAt"
         :theme-colors-hue="themeColorsHue"
         :theme-colors-hue-dynamic="themeColorsHueDynamic"

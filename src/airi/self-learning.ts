@@ -1,6 +1,13 @@
-import { hadesOllama } from '../hades-ollama-service';
-import { getModel } from './model-config';
-import { invoke } from '../tauri_bridge';
+/**
+ * AIRI Self-Learning System
+ * Continuous, autonomous knowledge acquisition
+ * Learns from EVERYTHING - code, errors, conversations, observations
+ * Stores knowledge permanently, builds understanding over time
+ */
+
+import { Ollama } from 'ollama';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 export interface KnowledgeNode {
   id: string;
@@ -15,7 +22,7 @@ export interface KnowledgeNode {
   tags: string[];
 }
 
-export type KnowledgeType =
+export type KnowledgeType = 
   | 'concept'
   | 'skill'
   | 'pattern'
@@ -40,25 +47,26 @@ export type LearningEventType =
   | 'experiment'
   | 'conversation'
   | 'error'
+  | 'success'
+  | 'correction'
   | 'discovery'
-  | 'inference'
-  | 'agent_tool_use'
-  | 'agent_tool_result'
-  | 'error'
-  | 'success';
+  | 'inference';
 
 export class AIRISelfLearning {
+  private ollama: Ollama;
   private knowledgeBase: Map<string, KnowledgeNode>;
   private learningEvents: LearningEvent[];
-  private readonly MODEL_ROLE = 'self_learning';
+  private readonly MODEL = 'qwen3.6:32b-q4_K_M';
   private readonly KNOWLEDGE_PATH: string;
-  private learningInterval: any = null;
+  private learningInterval: NodeJS.Timeout | null = null;
   private isLearning: boolean = false;
 
   constructor(storagePath: string = './.airi/knowledge') {
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
     this.knowledgeBase = new Map();
     this.learningEvents = [];
     this.KNOWLEDGE_PATH = storagePath;
+    
   }
 
   /**
@@ -68,13 +76,17 @@ export class AIRISelfLearning {
     await this.ensureStorage();
     await this.loadKnowledge();
     this.startContinuousLearning();
+    
   }
 
+  /**
+   * Ensure storage directory exists
+   */
   private async ensureStorage(): Promise<void> {
     try {
-      await invoke('create_dir', { path: this.KNOWLEDGE_PATH });
+      await fs.mkdir(this.KNOWLEDGE_PATH, { recursive: true });
     } catch (error) {
-      // console.error('[SelfLearning] Failed to create storage:', error);
+      console.error('[SelfLearning] Failed to create storage:', error);
     }
   }
 
@@ -83,10 +95,11 @@ export class AIRISelfLearning {
    * AIRI learns from everything, constantly
    */
   private startContinuousLearning(): void {
-    // Process learning queue every 120 seconds (reduced frequency for performance)
+    // Process learning queue every 30 seconds
     this.learningInterval = setInterval(() => {
       this.processLearningOpportunities();
-    }, 120000) as any;
+    }, 30000);
+
   }
 
   /**
@@ -94,27 +107,28 @@ export class AIRISelfLearning {
    */
   private async processLearningOpportunities(): Promise<void> {
     if (this.isLearning) return;
-
+    
     this.isLearning = true;
-
+    
     try {
       // Analyze recent events for learning
-      const recentEvents = this.learningEvents.filter(e => !e.stored).slice(-5); // Process fewer at once
-
+      const recentEvents = this.learningEvents.slice(-20);
+      
       for (const event of recentEvents) {
-        await this.extractKnowledge(event);
-        event.stored = true;
+        if (!event.stored) {
+          await this.extractKnowledge(event);
+          event.stored = true;
+        }
       }
-
-      // Find connections between knowledge (only if knowledge base is small or periodically)
-      if (this.knowledgeBase.size < 500) {
-        await this.findConnections();
-      }
-
+      
+      // Find connections between knowledge
+      await this.findConnections();
+      
+      // Strengthen frequently used knowledge
       await this.strengthenKnowledge();
-
+      
     } catch (error) {
-      // console.error('[SelfLearning] Learning process error:', error);
+      console.error('[SelfLearning] Learning process error:', error);
     } finally {
       this.isLearning = false;
     }
@@ -138,16 +152,16 @@ export class AIRISelfLearning {
       stored: false
     };
 
-    // Extract the lesson (non-blocking)
-    this.extractLesson(event).then(lesson => {
-      event.lesson = lesson;
-      this.learningEvents.push(event);
+    // Extract the lesson
+    event.lesson = await this.extractLesson(event);
+    
+    this.learningEvents.push(event);
+    
+    // Keep only last 1000 events
+    if (this.learningEvents.length > 1000) {
+      this.learningEvents = this.learningEvents.slice(-1000);
+    }
 
-      // Keep only last 200 events
-      if (this.learningEvents.length > 200) {
-        this.learningEvents = this.learningEvents.slice(-200);
-      }
-    }).catch(() => { });
   }
 
   /**
@@ -163,6 +177,11 @@ Outcome: ${event.outcome}
 
 Extract:
 1. What general principle or pattern does this demonstrate?
+2. What should be remembered for the future?
+3. How does this connect to existing knowledge?
+4. What warnings or best practices emerge?
+
+Respond with:
 TYPE: [concept|skill|pattern|fact|procedure|relationship|insight|warning]
 CONFIDENCE: [0.0-1.0]
 CONTENT: [the knowledge to store]
@@ -170,19 +189,20 @@ TAGS: [comma-separated tags]
 `;
 
     try {
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt,
         stream: false
       });
 
-      const node = this.parseKnowledgeNode(response.response || '', event);
-
+      const node = this.parseKnowledgeNode(response.response, event);
+      
       if (node) {
         this.knowledgeBase.set(node.id, node);
-        await this.saveKnowledge(node).catch(() => { });
+        await this.saveKnowledge(node);
       }
     } catch (error) {
-      // console.error('[SelfLearning] Knowledge extraction failed:', error);
+      console.error('[SelfLearning] Knowledge extraction failed:', error);
     }
   }
 
@@ -190,14 +210,23 @@ TAGS: [comma-separated tags]
    * Extract the lesson from an event
    */
   private async extractLesson(event: LearningEvent): Promise<string> {
-    const prompt = `What is the key lesson from this ${event.type} event: "${event.content}"? Extract the core lesson in one clear sentence.`;
+    const prompt = `
+What is the key lesson from this event?
+
+Type: ${event.type}
+Content: ${event.content}
+Outcome: ${event.outcome}
+
+Extract the core lesson in one clear sentence.
+`;
 
     try {
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt,
         stream: false
       });
-      return (response.response || '').trim();
+      return response.response.trim();
     } catch (error) {
       return 'Lesson extraction failed';
     }
@@ -234,15 +263,15 @@ TAGS: [comma-separated tags]
   private async findConnections(): Promise<void> {
     // Simple similarity-based connection
     const nodes = Array.from(this.knowledgeBase.values());
-
+    
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const nodeA = nodes[i];
         const nodeB = nodes[j];
-
+        
         // Check tag overlap
         const sharedTags = nodeA.tags.filter(t => nodeB.tags.includes(t));
-
+        
         if (sharedTags.length >= 2) {
           if (!nodeA.connections.includes(nodeB.id)) {
             nodeA.connections.push(nodeB.id);
@@ -264,10 +293,10 @@ TAGS: [comma-separated tags]
       if (node.usageCount > 10 && node.confidence < 0.95) {
         node.confidence = Math.min(0.95, node.confidence + 0.01);
       }
-
+      
       // Decay unused knowledge
-      const hoursSinceUse = (Date.now() - node.lastUsed) / (1000 * 60 * 60);
-      if (hoursSinceUse > 720 && node.confidence > 0.3) {
+      const daysSinceUse = (Date.now() - node.lastUsed) / (1000 * 60 * 60 * 24);
+      if (daysSinceUse > 30 && node.confidence > 0.3) {
         node.confidence -= 0.001; // Slow decay
       }
     }
@@ -278,10 +307,10 @@ TAGS: [comma-separated tags]
    */
   private async saveKnowledge(node: KnowledgeNode): Promise<void> {
     try {
-      const filePath = `${this.KNOWLEDGE_PATH}/${node.id}.json`;
-      await invoke('write_file', { path: filePath, content: JSON.stringify(node, null, 2) });
+      const filePath = path.join(this.KNOWLEDGE_PATH, `${node.id}.json`);
+      await fs.writeFile(filePath, JSON.stringify(node, null, 2));
     } catch (error) {
-      // console.error('[SelfLearning] Save failed:', error);
+      console.error('[SelfLearning] Save failed:', error);
     }
   }
 
@@ -290,18 +319,18 @@ TAGS: [comma-separated tags]
    */
   private async loadKnowledge(): Promise<void> {
     try {
-      const files = await invoke<string[]>('list_directory', { path: this.KNOWLEDGE_PATH });
-
+      const files = await fs.readdir(this.KNOWLEDGE_PATH);
+      
       for (const file of files) {
         if (file.endsWith('.json')) {
-          const filePath = `${this.KNOWLEDGE_PATH}/${file}`;
-          const content = await invoke<string>('read_file', { path: filePath });
+          const filePath = path.join(this.KNOWLEDGE_PATH, file);
+          const content = await fs.readFile(filePath, 'utf-8');
           const node = JSON.parse(content);
           this.knowledgeBase.set(node.id, node);
         }
       }
     } catch (error) {
-      // console.error('[SelfLearning] Load failed:', error);
+      console.error('[SelfLearning] Load failed:', error);
     }
   }
 
@@ -316,14 +345,15 @@ Relevant tags or concepts:
 `;
 
     try {
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt,
         stream: false
       });
 
       // Simple tag/concept matching
       const results = Array.from(this.knowledgeBase.values())
-        .filter(node =>
+        .filter(node => 
           node.content.toLowerCase().includes(search.toLowerCase()) ||
           node.tags.some(t => t.toLowerCase().includes(search.toLowerCase()))
         )
@@ -418,7 +448,7 @@ Relevant tags or concepts:
     avgConfidence: number;
   } {
     const nodes = Array.from(this.knowledgeBase.values());
-
+    
     const byType: Record<string, number> = {};
     let totalConfidence = 0;
 

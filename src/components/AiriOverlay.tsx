@@ -96,55 +96,55 @@ export const AiriOverlay: React.FC = () => {
             if (analysis?.code?.errors?.length) {
                 setMood('error');
                 addThought({
-                    id: `vision-err-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                    id: `vision-err-${Date.now()}`,
                     text: `👁️ Vision: ${analysis.code.errors[0].substring(0, 60)}`,
                     type: 'warning',
                     ttl: 4000
                 });
             }
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('airi:phase_wrap', (e) => {
             const reports = e.payload?.reports || [];
             if (reports.length > 0) {
                 addThought({
-                    id: `phase-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                    id: `phase-${Date.now()}`,
                     text: `💭 Phase-Wrap: ${reports[0].summary?.substring(0, 60) || 'Reflection complete'}`,
                     type: 'action',
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('airi:edit_proposed', (e) => {
             const { file, description } = e.payload;
             addThought({
-                id: `edit-prop-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                id: `edit-prop-${Date.now()}`,
                 text: `✏️ Edit proposed: ${description?.substring(0, 50)}`,
                 type: 'suggestion',
                 ttl: 5000
             });
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('airi:edit_committed', (e) => {
             const { file, success } = e.payload;
             if (success) {
                 setMood('success');
                 addThought({
-                    id: `edit-ok-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                    id: `edit-ok-${Date.now()}`,
                     text: `✅ Edit applied to ${file?.split('/').pop()}`,
                     type: 'success',
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('airi:error_detected', (e) => {
             const { errors } = e.payload;
             if (errors?.length) {
                 setMood('error');
                 addThought({
-                    id: `err-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                    id: `err-${Date.now()}`,
                     text: `⚠️ Detected: ${errors[0].substring(0, 60)}`,
                     type: 'warning',
                     ttl: 5000,
@@ -154,7 +154,7 @@ export const AiriOverlay: React.FC = () => {
                     }
                 });
             }
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('airi:thought', (e) => {
             // Dedupe frequent thoughts — only show significant ones
@@ -164,12 +164,12 @@ export const AiriOverlay: React.FC = () => {
                 return;
             }
             addThought({
-                id: `thought-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                id: `thought-${Date.now()}`,
                 text: t.content?.substring(0, 80) || 'Thinking...',
                 type: t.type === 'warning' ? 'warning' : 'action',
                 ttl: 4000
             });
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('ai-tool-result', (e) => {
             const name = e.payload?.name;
@@ -178,7 +178,7 @@ export const AiriOverlay: React.FC = () => {
                     ? { ...a, status: 'done' }
                     : a
             ));
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('hades://verity', (e) => {
             const score = e.payload?.score ?? 1.0;
@@ -186,7 +186,7 @@ export const AiriOverlay: React.FC = () => {
             if (score < 1.0) {
                 setMood('error');
                 addThought({
-                    id: `verity-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                    id: `verity-${Date.now()}`,
                     text: `Compiler found issues — I'll self-correct`,
                     type: 'warning',
                     ttl: 4000
@@ -195,14 +195,14 @@ export const AiriOverlay: React.FC = () => {
                 setMood(prev => prev === 'coding' ? 'success' : prev);
                 setTimeout(() => setMood('idle'), 2000);
             }
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('ai-content', (e) => {
             const content: string = e.payload?.content || '';
             if (content.includes('MISSION_ACCOMPLISHED')) {
                 setMood('success');
                 addThought({
-                    id: `done-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                    id: `done-${Date.now()}`,
                     text: 'Mission accomplished ✓',
                     type: 'success',
                     ttl: 5000
@@ -212,32 +212,32 @@ export const AiriOverlay: React.FC = () => {
                     setLiveActions([]);
                 }, 3000);
             }
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('task-phase-update', (e) => {
             const phase = e.payload?.phase;
             const status = e.payload?.status;
             if (phase && status) {
                 addThought({
-                    id: `phase-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                    id: `phase-${Date.now()}`,
                     text: status,
                     type: 'action',
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('memory-update', (e) => {
             const slots = e.payload?.slots ?? 0;
             if (slots > 0 && slots % 5 === 0) {
                 addThought({
-                    id: `mem-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                    id: `mem-${Date.now()}`,
                     text: `Kortex brain: ${slots} knowledge slots stored`,
                     type: 'action',
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         // Capture streaming text for the thought bubble
         let streamBuf = '';
@@ -254,12 +254,12 @@ export const AiriOverlay: React.FC = () => {
                     .trim();
                 setThinkingText(cleaned.slice(-90));
             }
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         listen<any>('ai-content', () => {
             streamBuf = '';
             setThinkingText('');
-        }).then(u => subs.push(u)).catch(() => { });
+        }).then(u => subs.push(u)).catch(() => {});
 
         return () => subs.forEach(u => u());
     }, [addThought]);

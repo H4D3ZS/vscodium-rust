@@ -4,7 +4,7 @@ import { hostnameFromExposureMode, serverChannelExposureModeFromHostname } from 
 
 describe('serverChannelExposureModeFromHostname', () => {
   it('maps loopback hostnames to this-device mode', () => {
-    expect(serverChannelExposureModeFromHostname('localhost')).toBe('this-device')
+    expect(serverChannelExposureModeFromHostname('127.0.0.1')).toBe('this-device')
     expect(serverChannelExposureModeFromHostname('localhost')).toBe('this-device')
     expect(serverChannelExposureModeFromHostname('::1')).toBe('this-device')
     expect(serverChannelExposureModeFromHostname('')).toBe('this-device')
@@ -23,11 +23,11 @@ describe('serverChannelExposureModeFromHostname', () => {
 
 describe('hostnameFromExposureMode', () => {
   it('returns a secure loopback hostname for this-device mode', () => {
-    expect(hostnameFromExposureMode('this-device', '192.168.1.25')).toBe('localhost')
+    expect(hostnameFromExposureMode('this-device', '192.168.1.25')).toBe('127.0.0.1')
   })
 
   it('returns an all-interfaces hostname for all mode', () => {
-    expect(hostnameFromExposureMode('all', 'localhost')).toBe('0.0.0.0')
+    expect(hostnameFromExposureMode('all', '127.0.0.1')).toBe('0.0.0.0')
   })
 
   it('uses the manual hostname for advanced mode and trims whitespace', () => {
@@ -35,6 +35,6 @@ describe('hostnameFromExposureMode', () => {
   })
 
   it('falls back to loopback when advanced mode is empty', () => {
-    expect(hostnameFromExposureMode('advanced', '   ')).toBe('localhost')
+    expect(hostnameFromExposureMode('advanced', '   ')).toBe('127.0.0.1')
   })
 })

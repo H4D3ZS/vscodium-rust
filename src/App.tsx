@@ -52,7 +52,6 @@ const ContextMenu: React.FC = () => {
 
 const App: React.FC = () => {
     const isDebugToolbarOpen = useStore(state => state.isDebugToolbarOpen);
-    const isWebDemo = !(window as any).__TAURI__;
 
     useEffect(() => {
         (window as any).useStore = useStore;
@@ -102,27 +101,20 @@ const App: React.FC = () => {
                 .catch(console.error);
         }
 
-        // Listen for reload-window from backend — but DO NOT actually reload.
-        // A full window.location.reload() destroys all Tauri IPC listeners, Monaco
-        // editor state, and every Zustand subscription. If the backend emits this
-        // event, it is a signal that it wants the frontend to reset, but we handle
-        // that gracefully via store state resets instead of a hard browser reload.
+        // Listen for reload-window from backend
         import('@tauri-apps/api/event').then(({ listen }) => {
             listen('reload-window', () => {
-                console.warn('[STABILITY] Backend emitted reload-window — ignoring hard reload to preserve IPC state.');
-                console.warn('[STABILITY] If you intended a full reset, use store.getState().clearAgentMessages() instead.');
-                // Soft-reset: clear agent messages and refresh file tree
-                const state = useStore.getState();
-                state.clearAgentMessages?.();
-                state.refreshFileTree?.();
+                window.location.reload();
             });
         });
 
         // DIAGNOSTIC: trace every isRightSidebarOpen change to find the auto-close culprit
         const unsubDiag = useStore.subscribe((state, prev) => {
-            // Silenced diagnostic
+            if (state.isRightSidebarOpen !== prev.isRightSidebarOpen) {
+                console.trace(`[DIAG] isRightSidebarOpen changed: ${prev.isRightSidebarOpen} → ${state.isRightSidebarOpen}`);
+            }
         });
-
+        
         // Expose ENTIRE store to window - all state and ALL actions
         (window as any).useStore = {
             getState: () => useStore.getState(),
@@ -131,7 +123,7 @@ const App: React.FC = () => {
             // Proxy to expose ALL store functions dynamically
             ...useStore.getState(),
         };
-
+        
         return () => unsubDiag();
     }, []);
 
@@ -142,11 +134,6 @@ const App: React.FC = () => {
 
             <div className="body-backdrop"></div>
             <TitleBar />
-            {isWebDemo && (
-                <div className="web-demo-notice" role="status" aria-live="polite">
-                    Running in web demo mode. Desktop-only features (native filesystem, terminal process control, emulators, and Tauri integrations) are limited or unavailable in GitHub Pages.
-                </div>
-            )}
             <Workbench />
             <StatusBar />
 

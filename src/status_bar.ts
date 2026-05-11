@@ -12,8 +12,8 @@ export function initStatusBar() {
         deviceSelector.onclick = () => switchDevice();
     }
 
-    // Start stats refresh — DEPRECATED: React StatusBar component handles this now
-    // setInterval(updateStats, 2000);
+    // Start stats refresh
+    setInterval(updateStats, 2000);
 }
 
 async function switchModel() {

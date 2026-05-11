@@ -51,7 +51,7 @@ async function ttsSpeak(iframeRef: React.RefObject<HTMLIFrameElement | null>, te
 
     if (!clean) return;
 
-    // console.log('[AiriPanel] 🎤 Sending lip sync text:', clean.substring(0, 50) + '...');
+    console.log('[AiriPanel] 🎤 Sending lip sync text:', clean.substring(0, 50) + '...');
 
     // Send to iframe for VRM lip sync animation
     if (iframeRef.current?.contentWindow) {
@@ -64,7 +64,7 @@ async function ttsSpeak(iframeRef: React.RefObject<HTMLIFrameElement | null>, te
             }
         }, '*');
         
-        // console.log('[AiriPanel] ✅ Lip sync message sent to VRM');
+        console.log('[AiriPanel] ✅ Lip sync message sent to VRM');
     } else {
         console.warn('[AiriPanel] ⚠️ Iframe not ready for lip sync');
     }
@@ -145,7 +145,6 @@ function useTypewriter(text: string, speed = 18): string {
 export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, yOffset, transparent, character = 'airi' }) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const avatar3dConfig = useStore(state => state.avatar3dConfig);
-    const isWebDemo = typeof window !== 'undefined' && !(window as any).__TAURI__;
     const [isAiriLoading, setAiriLoading] = useState(true);
     const [isHibernating, setIsHibernating] = useState(false);
     const [lastActivityTime, setLastActivityTime] = useState(Date.now());
@@ -158,17 +157,11 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     const selectedCharacter = avatar3dConfig?.modelId || character;
     const selectedModelUrl = avatar3dConfig?.modelUrl;
 
-    useEffect(() => {
-        if (isWebDemo) {
-            setAiriLoading(false);
-        }
-    }, [isWebDemo]);
-
     // Wake up AIRI from hibernation
     const wakeUp = useCallback(() => {
         setLastActivityTime(Date.now());
         if (isHibernating) {
-            // console.log('[PERF] Waking AIRI Core from hibernation');
+            console.log('[PERF] Waking AIRI Core from hibernation');
             setIsHibernating(false);
             setAiriLoading(true);
         }
@@ -187,13 +180,13 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
 
         const iv = setInterval(() => {
             if (Date.now() - lastActivityTime > IDLE_TIMEOUT && !isAgentThinking && !isHibernating) {
-                // console.log('[PERF] Hibernating AIRI Core to save RAM (1.3GB cleanup)');
+                console.log('[PERF] Hibernating AIRI Core to save RAM (1.3GB cleanup)');
                 setIsHibernating(true);
             }
         }, 10000); // Check every 10s
 
         return () => clearInterval(iv);
-    }, [isAgentThinking, isHibernating, wakeUp]); // Removed lastActivityTime to break loop
+    }, [isAgentThinking, lastActivityTime, isHibernating, wakeUp]);
 
     const uiStatus = useStore(s => s.aiStatus);
 
@@ -201,21 +194,20 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     useEffect(() => {
         // Listen for TTS start/stop events
         const handleLipSyncStart = (e: any) => {
-            // console.log('[AiriPanel] 🎭 Lip sync STARTED');
+            console.log('[AiriPanel] 🎭 Lip sync STARTED');
             // Send text to VRM for lip sync
             const text = e.detail?.text || '';
             ttsSpeak(iframeRef, text);
         };
 
         const handleLipSyncStop = () => {
-            // console.log('[AiriPanel] 🎭 Lip sync STOPPED');
+            console.log('[AiriPanel] 🎭 Lip sync STOPPED');
             ttsStop(iframeRef);
         };
 
         // Listen for model change events from settings
         const handleModelChange = (e: any) => {
-            // console.log('[AiriPanel] 🎭 Model change requested:', e.detail);
-            if (isWebDemo) return;
+            console.log('[AiriPanel] 🎭 Model change requested:', e.detail);
             const iframe = iframeRef.current;
             if (iframe?.contentWindow) {
                 setAiriLoading(true);
@@ -228,11 +220,11 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                 
                 if (e.detail.modelId) {
                     params.set('char', e.detail.modelId);
-                    // console.log('[AiriPanel] Setting character:', e.detail.modelId);
+                    console.log('[AiriPanel] Setting character:', e.detail.modelId);
                 }
                 if (e.detail.modelUrl) {
                     params.set('modelUrl', e.detail.modelUrl);
-                    // console.log('[AiriPanel] Setting model URL:', e.detail.modelUrl);
+                    console.log('[AiriPanel] Setting model URL:', e.detail.modelUrl);
                 }
                 
                 // Add cache-busting timestamp
@@ -240,7 +232,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                 
                 // Force complete reload
                 iframe.src = `${baseUrl}?${params.toString()}`;
-                // console.log('[AiriPanel] 🔄 Reloading iframe with new model:', iframe.src);
+                console.log('[AiriPanel] 🔄 Reloading iframe with new model:', iframe.src);
                 
                 // Also send postMessage in case AIRI app supports it
                 try {
@@ -249,7 +241,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         modelId: e.detail.modelId,
                         modelUrl: e.detail.modelUrl,
                     }, '*');
-                    // console.log('[AiriPanel] ✅ Sent postMessage to AIRI app');
+                    console.log('[AiriPanel] ✅ Sent postMessage to AIRI app');
                 } catch (err) {
                     console.warn('[AiriPanel] postMessage failed:', err);
                 }
@@ -267,7 +259,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
             window.removeEventListener('airi-lipsync-stop', handleLipSyncStop);
             window.removeEventListener('airi-vrm-model-change', handleModelChange);
         };
-    }, [isWebDemo]);
+    }, []);
 
     // ── Live tool-call tracking ──────────────────────────────────────────────
     const [currentTool, setCurrentTool] = useState<string | null>(null);
@@ -490,39 +482,14 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                             {isSmall ? '...' : 'Syncing Manifold...'}
                         </div>
                     )}
-                    {isWebDemo ? (
-                        <div
-                            style={{
-                                width: '100%',
-                                height: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '12px',
-                                background: 'radial-gradient(circle at 50% 35%, rgba(192,132,252,0.20), rgba(0,0,0,0.18) 55%, rgba(0,0,0,0.32) 100%)',
-                                border: '1px solid rgba(192,132,252,0.2)',
-                            }}
-                        >
-                            <div style={{ textAlign: 'center', padding: '12px' }}>
-                                <div style={{ fontSize: '56px', marginBottom: '8px' }}>🤖</div>
-                                <div style={{ fontSize: '11px', fontWeight: 700, color: '#c084fc', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                                    AIRI Web Avatar
-                                </div>
-                                <div style={{ fontSize: '10px', opacity: 0.65, marginTop: '6px', maxWidth: '220px', lineHeight: 1.4 }}>
-                                    3D VRM runtime is desktop-only. Voice and chat stay active for the judge demo.
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <iframe
-                            ref={iframeRef}
-                            src={url}
-                            allow="autoplay; microphone; camera"
-                            allowtransparency="true"
-                            style={{ width: '100%', height: '100%', border: 'none', opacity: isAiriLoading ? 0 : 1, background: 'transparent' }}
-                            onLoad={() => setAiriLoading(false)}
-                        />
-                    )}
+                    <iframe
+                        ref={iframeRef}
+                        src={url}
+                        allow="autoplay; microphone; camera"
+                        allowtransparency="true"
+                        style={{ width: '100%', height: '100%', border: 'none', opacity: isAiriLoading ? 0 : 1, background: 'transparent' }}
+                        onLoad={() => setAiriLoading(false)}
+                    />
                 </>
             )}
 

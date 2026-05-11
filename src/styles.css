@@ -3433,21 +3433,3 @@ body {
   border-left: 4px solid var(--airi-accent);
   margin-left: auto;
 }
-
-.web-demo-notice {
-  background: #3a2d00;
-  color: #ffd76a;
-  border-bottom: 1px solid #5f4900;
-  font-size: 12px;
-  line-height: 1.4;
-  padding: 6px 12px;
-}
-
-.web-demo-warning {
-  background: #4a1f1f;
-  color: #ffd3d3;
-  border-bottom: 1px solid #7a3434;
-  font-size: 12px;
-  line-height: 1.4;
-  padding: 6px 12px;
-}

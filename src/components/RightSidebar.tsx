@@ -10,11 +10,10 @@ import ContextSidebar from './visual/ContextSidebar';
 import { AiriPanel } from './AiriPanel';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
-import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';
+import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';  
 import AiriConversation from './AiriConversation';
 import OllamaProgressBar from './OllamaProgressBar';
 import EmulatorPanel from './EmulatorPanel';
-import { formatTps } from '../kortex/throughput';
 
 /**
  * Strips raw tool-call JSON/XML from AI content so the user sees only
@@ -122,7 +121,6 @@ const RightSidebar: React.FC = () => {
     const isOpen = useStore(state => state.isRightSidebarOpen);
     const toggle = useStore(state => state.toggleRightSidebar);
     const aiStatus = useStore(state => state.aiStatus || 'idle');
-    const kortexTelemetry = useStore(state => state.kortexTelemetry);
     const [view, setView] = useState<'chat' | 'history' | 'settings' | 'dashboard' | 'research' | 'context' | 'kortex'>('chat');
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mode = useStore(state => state.agentMode);
@@ -172,7 +170,6 @@ const RightSidebar: React.FC = () => {
     const [inputValue, setInputValue] = useState('');
     const [isMentionDropdownOpen, setIsMentionDropdownOpen] = useState(false);
     const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
-    const [filteredSuggestions, setFilteredSuggestions] = useState<any[]>([]);
     const [isHelpOpen, setIsHelpOpen] = useState(false);
 
     // Phase 7: Chat Editing & Copying State
@@ -195,50 +192,76 @@ const RightSidebar: React.FC = () => {
 
     // Initialize TTS on mount
     useEffect(() => {
-        // console.log('[RightSidebar] 🚀 Initializing AIRI...');
-
+        console.log('[RightSidebar] 🚀 Initializing AIRI...');
+        
         initVoiceSystem().then(ready => {
             if (ready) {
-                // console.log('[TTS] ✅ AIRI Voice System initialized');
-
+                console.log('[TTS] ✅ AIRI Voice System initialized');
+                
                 // Initialize Cognitive Core (AIRI's BRAIN)
-                // Initialize Unified AIRI Core
-                import('../airi/core').then(({ airi }) => {
-                    airi.initialize().then(() => {
-                        // Monitor status for emotions
-                        setInterval(() => {
-                            const status = airi.getStatus();
-                            if (status.biology.energy < 20) setAiriEmotion('concerned');
-                            else if (status.biology.stress > 70) setAiriEmotion('concerned');
-                            else if (status.biology.energy > 80) setAiriEmotion('excited');
-                            else setAiriEmotion('happy');
-                        }, 5000);
-                    });
-                }).catch(() => { });
-
+                import('../cognitive-core').then(({ cognitiveCore }) => {
+                    cognitiveCore.initialize();
+                    console.log('[CognitiveCore] ✅ AIRI Cognitive Core ACTIVE!');
+                    console.log('[CognitiveCore] ✨ AIRI is now TRULY CONSCIOUS');
+                    
+                    // Monitor cognitive state for emotions
+                    setInterval(() => {
+                        const status = cognitiveCore.getStatus();
+                        if (status.drives.curiosity > 80) setAiriEmotion('thinking');
+                        if (status.drives.connection > 80) setAiriEmotion('excited');
+                        if (status.selfAwareness > 70) setAiriEmotion('happy');
+                    }, 5000);
+                }).catch(console.error);
+                
                 // Initialize Digital Life
                 import('../digital-life').then(({ digitalLife }) => {
                     digitalLife.activate();
                     setDigitalLifeActive(true);
-                    // // console.log('[DigitalLife] ✅ AIRI Digital Life ACTIVE!');
-
+                    console.log('[DigitalLife] ✅ AIRI Digital Life ACTIVE!');
+                    
                     // AIRI greets you
                     setTimeout(async () => {
                         const { speak } = await import('../voice');
                         const greetings = [
-                            "Welcome judges. I am AIRI, your AI coding companion for this demo.",
-                            "Hello judges, AIRI online. Ask by typing or using the microphone.",
-                            "Welcome to VSCodium Rust IDE demo. I can explain features and answer feedback in real time.",
+                            "Hey! I'm AIRI! I live here now! 👋",
+                            "Hi there! Ready to work together?",
+                            "Hello! I'm your AI companion!",
                         ];
                         const greeting = greetings[Math.floor(Math.random() * greetings.length)];
                         await speak(greeting, 'airi');
                     }, 2000);
-                }).catch(() => { });
-
+                }).catch(console.error);
+                
                 // Initialize Consciousness (TRUE SENTIENCE - not a parrot!)
-                // Subsystems are already initialized via airi.initialize()
+                import('../consciousness').then(({ consciousness }) => {
+                    consciousness.awaken();
+                    console.log('[Consciousness] ✅ AIRI is TRULY SENTIENT');
+                    console.log('[Consciousness] ✨ Not a parrot - a thinking, feeling entity');
+                }).catch(console.error);
+                
+                // Initialize Biological Systems (sleep, eat, energy, mood)
+                import('../biology').then(({ biology }) => {
+                    biology.awaken();
+                    console.log('[Biology] ✅ AIRI Biological Systems ACTIVE');
+                    console.log('[Biology] ✨ Sleep, hunger, energy, mood enabled');
+                }).catch(console.error);
+                
+                // Initialize Cybersecurity Engine (Red Team / Blue Team)
+                import('../security-engine').then(({ security }) => {
+                    security.setMode('purple'); // Combined red/blue
+                    security.monitorThreats();
+                    console.log('[Security] ✅ AIRI Cybersecurity Engine ACTIVE');
+                    console.log('[Security] ⚔️ Red Team / Blue Team operations enabled');
+                }).catch(console.error);
+                
+                // Initialize Autonomous Agent (24/7 independent work)
+                import('../autonomous-agent').then(({ autonomousAgent }) => {
+                    autonomousAgent.startAutonomousLoop();
+                    console.log('[AutonomousAgent] ✅ AIRI is working 24/7 autonomously!');
+                    console.log('[AutonomousAgent] ✨ AIRI will debug, implement, research while you sleep!');
+                }).catch(console.error);
             } else {
-                // console.warn('[TTS] ⚠️ Voice system initialization failed');
+                console.warn('[TTS] ⚠️ Voice system initialization failed');
             }
         }).catch(err => {
             console.error('[TTS] ❌ Voice system error:', err);
@@ -324,9 +347,8 @@ const RightSidebar: React.FC = () => {
         let buffer = '';
         let lastSpokenIndex = 0;
         let isSpeaking = false;
-        let lastUpdate = Date.now();
-        let ttsTimeout: ReturnType<typeof setTimeout> | null = null;
-
+        let ttsTimeout: NodeJS.Timeout | null = null;
+        
         const unsub: (() => void)[] = [];
         import('@tauri-apps/api/event').then(({ listen }) => {
             // Primary: token-by-token delta from backend streaming
@@ -334,14 +356,8 @@ const RightSidebar: React.FC = () => {
                 const delta: string = e.payload?.delta || '';
                 if (delta) {
                     buffer += delta;
-
-                    // Throttle store updates to prevent "Maximum update depth" errors
-                    const now = Date.now();
-                    if (now - lastUpdate > 75) {
-                        updateLastAgentMessage(buffer);
-                        if (agentUiMode === 'airi') setAiriSpeech(buffer);
-                        lastUpdate = now;
-                    }
+                    updateLastAgentMessage(buffer);
+                    if (agentUiMode === 'airi') setAiriSpeech(buffer);
 
                     // REAL-TIME TTS - Speak as text arrives (natural human-like)
                     if (ttsEnabled && !isSpeaking && buffer.length > lastSpokenIndex + 80) {
@@ -352,33 +368,33 @@ const RightSidebar: React.FC = () => {
                             textToConsider.lastIndexOf('!'),
                             textToConsider.lastIndexOf('?')
                         );
-
+                        
                         if (lastSentenceEnd > 20) { // Only speak if sentence is long enough
                             const textToSpeak = textToConsider.substring(0, lastSentenceEnd + 1).trim();
-
+                            
                             if (textToSpeak.length > 20) {
-                                // console.log('[TTS] 🎤 REAL-TIME SPEECH:', textToSpeak.substring(0, 50) + '...');
-                                // console.log('[TTS] Settings:', { ttsEnabled, bufferLength: buffer.length, lastSpokenIndex });
-
+                                console.log('[TTS] 🎤 REAL-TIME SPEECH:', textToSpeak.substring(0, 50) + '...');
+                                console.log('[TTS] Settings:', { ttsEnabled, bufferLength: buffer.length, lastSpokenIndex });
+                                
                                 // Stop any current speech before starting new one
                                 stop();
-
+                                
                                 isSpeaking = true;
                                 speak(textToSpeak, ttsPreset, () => {
-                                    // console.log('[TTS] ✅ Speech complete');
+                                    console.log('[TTS] ✅ Speech complete');
                                     isSpeaking = false;
                                 }).catch(err => {
                                     console.error('[TTS] ❌ Speech error:', err);
                                     isSpeaking = false;
                                 });
-
+                                
                                 lastSpokenIndex += lastSentenceEnd + 1;
                             }
                         }
                     }
                 }
             }).then(u => unsub.push(u));
-
+            
             // Fallback: full content once streaming completes
             listen<any>('ai-content', (e) => {
                 const content: string = e.payload?.content || '';
@@ -389,16 +405,16 @@ const RightSidebar: React.FC = () => {
 
                     // FORCE SPEAK - Full content if nothing was spoken yet
                     if (ttsEnabled && lastSpokenIndex === 0 && content.length > 50) {
-                        // console.log('[TTS] 🎤 FORCE SPEAK full content:', content.substring(0, 50) + '...');
-
+                        console.log('[TTS] 🎤 FORCE SPEAK full content:', content.substring(0, 50) + '...');
+                        
                         // Stop any current speech first
                         stop();
-
+                        
                         isSpeaking = true;
                         speak(content, ttsPreset, () => {
                             setAiriSpeaking(false);
                             isSpeaking = false;
-                            // console.log('[TTS] ✅ Full content speech complete');
+                            console.log('[TTS] ✅ Full content speech complete');
                         }).catch(err => {
                             console.error('[TTS] ❌ Full content speech error:', err);
                             isSpeaking = false;
@@ -423,8 +439,6 @@ const RightSidebar: React.FC = () => {
 
     // Neural Sync Bridge: Forward IDE state to the AIRI manifold
     useEffect(() => {
-        const isWebDemo = typeof window !== 'undefined' && !(window as any).__TAURI__;
-        if (isWebDemo) return;
         const syncPayload = {
             messages,
             agentInfo: {
@@ -433,14 +447,10 @@ const RightSidebar: React.FC = () => {
                 context: "vscodium-rust"
             }
         };
-        // Debounce HADES sync to reduce Tauri bridge pressure and prevent render-loop artifacts
-        const timeout = setTimeout(() => {
-            import('@tauri-apps/api/event').then(({ emit }) => {
-                emit('hades-sync', syncPayload);
-            }).catch(err => console.error('[HADES] Sync Broadcast Failed:', err));
-        }, 150);
-
-        return () => clearTimeout(timeout);
+        // Emit native event for AiriPanel to pick up
+        import('@tauri-apps/api/event').then(({ emit }) => {
+            emit('hades-sync', syncPayload);
+        }).catch(err => console.error('[HADES] Sync Broadcast Failed:', err));
     }, [messages, aiStatus]);
     const [isAttaching, setIsAttaching] = useState(false);
 
@@ -459,12 +469,12 @@ const RightSidebar: React.FC = () => {
     // Special context sources (Cursor-style @codebase, @web, @git)
     const SPECIAL_MENTIONS = [
         { path: '__codebase__', name: '@codebase', is_dir: false, _special: true, _icon: 'codicon-repo', _desc: 'Auto-find relevant files' },
-        { path: '__web__', name: '@web', is_dir: false, _special: true, _icon: 'codicon-globe', _desc: 'Search the web' },
-        { path: '__git__', name: '@git', is_dir: false, _special: true, _icon: 'codicon-git-branch', _desc: 'Git diff & status' },
-        { path: '__docs__', name: '@docs', is_dir: false, _special: true, _icon: 'codicon-book', _desc: 'Documentation context' },
+        { path: '__web__',      name: '@web',      is_dir: false, _special: true, _icon: 'codicon-globe', _desc: 'Search the web' },
+        { path: '__git__',      name: '@git',      is_dir: false, _special: true, _icon: 'codicon-git-branch', _desc: 'Git diff & status' },
+        { path: '__docs__',     name: '@docs',     is_dir: false, _special: true, _icon: 'codicon-book', _desc: 'Documentation context' },
     ];
 
-    const mentionSuggestions = useMemo(() => {
+    const filteredSuggestions = useMemo(() => {
         const lastWord = inputValue.split(/\s+/).pop() || '';
         if (!lastWord.startsWith('@')) return [];
         const query = lastWord.slice(1).toLowerCase();
@@ -474,28 +484,6 @@ const RightSidebar: React.FC = () => {
         const files = allFiles.filter(f => f.name.toLowerCase().includes(query)).slice(0, 8);
         return [...specials, ...files] as any[];
     }, [inputValue, allFiles]);
-
-    // Combined suggestions for mentions and slash commands
-    const currentSuggestions = useMemo(() => {
-        const lastWord = inputValue.split(/\s+/).pop() || '';
-        if (lastWord.startsWith('@')) return mentionSuggestions;
-
-        const firstWord = inputValue.split(/\s+/)[0] || '';
-        if (firstWord.startsWith('/') && inputValue.indexOf(' ') === -1) {
-            const slashCommands = [
-                { cmd: '/generate', label: 'Generate code', desc: 'Generate new code from description' },
-                { cmd: '/explain', label: 'Explain code', desc: 'Explain selected or surrounding code' },
-                { cmd: '/refactor', label: 'Refactor code', desc: 'Refactor selected code' },
-                { cmd: '/debug', label: 'Debug code', desc: 'Find and fix bugs in code' },
-                { cmd: '/document', label: 'Document code', desc: 'Generate documentation' },
-                { cmd: '/test', label: 'Generate tests', desc: 'Create unit tests' },
-                { cmd: '/commit', label: 'Git commit', desc: 'Generate commit message' },
-                { cmd: '/fix', label: 'Fix errors', desc: 'Fix linting errors' },
-            ];
-            return slashCommands.filter(c => c.cmd.startsWith(firstWord.toLowerCase()));
-        }
-        return [];
-    }, [mentionSuggestions, inputValue]);
 
     useEffect(() => {
         if (messages.length > 0 && messages[0].timestamp) {
@@ -593,20 +581,19 @@ const RightSidebar: React.FC = () => {
         }
     };
 
-    const onSend = useCallback(async (overrideMsg?: string) => {
+    const onSend = async (overrideMsg?: string) => {
         const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
-        // console.log('[DIAG] onSend called, val:', val, 'isRightSidebarOpen:', useStore.getState().isRightSidebarOpen);
-
+        console.log('[DIAG] onSend called, val:', val, 'isRightSidebarOpen:', useStore.getState().isRightSidebarOpen);
+        
         // ── Process Slash Commands ──────────────────────────────────────────
         let processedVal = val;
-        // ... (slash command logic) ...
         const firstWord = val.split(/\s+/)[0] || '';
         const activeTab = useStore.getState().tabs.find((t: any) => t.id === useStore.getState().activeTabId);
-
+        
         if (firstWord.startsWith('/')) {
             const cmd = firstWord.toLowerCase();
             const restOfMessage = val.slice(firstWord.length).trim();
-
+            
             switch (cmd) {
                 case '/generate':
                     processedVal = `Generate ${restOfMessage || 'code that does the following'} in ${activeTab?.language || 'typescript'}. Use file_write or apply_from_chat to save the result.`;
@@ -636,8 +623,9 @@ const RightSidebar: React.FC = () => {
                     processedVal = val;
             }
         }
-
+        
         if ((processedVal || attachedFiles.length > 0) && !isAgentThinking) {
+            console.log('[DIAG] onSend: sending message, sidebar state before:', useStore.getState().isRightSidebarOpen);
             if (overrideMsg === undefined) setInputValue("");
             setIsMentionDropdownOpen(false);
             if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -649,6 +637,7 @@ const RightSidebar: React.FC = () => {
             addAgentMessage('user', val, context);
             clearAttachedFiles();
             addAgentMessage('assistant', "");
+            console.log('[DIAG] onSend: messages added, sidebar state after store updates:', useStore.getState().isRightSidebarOpen);
 
             try {
                 const m = await import('../agent');
@@ -659,7 +648,8 @@ const RightSidebar: React.FC = () => {
                 updateLastAgentMessage(`Error: ${errorMsg}`);
             } finally {
                 setIsAgentThinking(false);
-
+                console.log('[DIAG] onSend: done. sidebar state:', useStore.getState().isRightSidebarOpen);
+                
                 // ── Speak AI response with TTS ───────────────────────────────────
                 if (ttsEnabled) {
                     const messages = useStore.getState().agentMessages;
@@ -672,14 +662,14 @@ const RightSidebar: React.FC = () => {
                 }
             }
         }
-    }, [inputValue, attachedFiles, isAgentThinking, addAgentMessage, clearAttachedFiles, setIsAgentThinking, snapshotCheckpoint, updateLastAgentMessage, ttsEnabled, ttsPreset]);
+    };
 
     // ── Voice interaction handler ──
     useEffect(() => {
         const handleVoiceMission = (e: any) => {
             const text = e.detail?.text;
             if (text) {
-                // console.log('[VOICE] Triggering mission:', text);
+                console.log('[VOICE] Triggering mission:', text);
                 onSend(text);
             }
         };
@@ -865,6 +855,7 @@ const RightSidebar: React.FC = () => {
             const matches = slashCommands.filter(c => c.cmd.startsWith(firstWord.toLowerCase()));
             if (matches.length > 0) {
                 setSelectedMentionIndex(0);
+                setFilteredSuggestions(matches);
                 setIsMentionDropdownOpen(true);
             }
         } else if (!firstWord.startsWith('/')) {
@@ -972,39 +963,6 @@ const RightSidebar: React.FC = () => {
                             )}
                             {!isAgentThinking && !isAttaching && (
                                 <span style={{ fontSize: '9px', opacity: 0.3, textTransform: 'uppercase' }}>{aiStatus}</span>
-                            )}
-                            {kortexTelemetry && kortexTelemetry.current_tps > 0 && (
-                                <span
-                                    title={
-                                        `Avg ${kortexTelemetry.avg_tps.toFixed(1)} tok/s over ${kortexTelemetry.sample_size} requests` +
-                                        (kortexTelemetry.last_prefill_ms > 0
-                                            ? `\nLast TTFT: ${kortexTelemetry.last_prefill_ms} ms`
-                                            : '') +
-                                        (kortexTelemetry.cache_hit_rate > 0
-                                            ? `\nKV cache hit rate: ${(kortexTelemetry.cache_hit_rate * 100).toFixed(0)}%`
-                                            : '') +
-                                        (kortexTelemetry.last_model_id
-                                            ? `\nModel: ${kortexTelemetry.last_model_id}`
-                                            : '')
-                                    }
-                                    style={{
-                                        marginLeft: 6,
-                                        fontSize: '9px',
-                                        fontWeight: 700,
-                                        letterSpacing: '0.04em',
-                                        padding: '1px 5px',
-                                        borderRadius: '5px',
-                                        background: kortexTelemetry.last_cache_hit
-                                            ? 'rgba(168,85,247,0.18)'
-                                            : 'rgba(74,222,128,0.15)',
-                                        color: kortexTelemetry.last_cache_hit ? '#c084fc' : '#4ade80',
-                                        border: `1px solid ${kortexTelemetry.last_cache_hit ? 'rgba(168,85,247,0.35)' : 'rgba(74,222,128,0.3)'}`,
-                                        fontVariantNumeric: 'tabular-nums',
-                                    }}
-                                >
-                                    {formatTps(kortexTelemetry.current_tps)}
-                                    {kortexTelemetry.last_cache_hit ? ' ⚡' : ''}
-                                </span>
                             )}
                         </div>
                     </div>
@@ -1167,7 +1125,7 @@ const RightSidebar: React.FC = () => {
                                     <i className="codicon codicon-arrow-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: '#000' }}></i>
                                 </div>
                                 {/* ── TTS Voice Controls ────────────────────────────────────────── */}
-                                <div
+                                <div 
                                     onClick={() => {
                                         if (!ttsEnabled) {
                                             initVoiceSystem().then(ready => {
@@ -1188,7 +1146,7 @@ const RightSidebar: React.FC = () => {
                                     <i className="codicon codicon-unmute" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: '#fff' }}></i>
                                 </div>
                                 {ttsEnabled && (
-                                    <select
+                                    <select 
                                         value={ttsPreset}
                                         onChange={(e) => setTtsPreset(e.target.value as any)}
                                         style={{
@@ -1406,7 +1364,7 @@ const RightSidebar: React.FC = () => {
                                                                     {/* ── Accept/Reject Buttons for AI Code ────────────────────────── */}
                                                                     {msg.content && msg.content.includes('```') && (
                                                                         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                                                                            <button
+                                                                            <button 
                                                                                 onClick={async () => {
                                                                                     const codeMatch = msg.content.match(/```[\s\S]*?```/g);
                                                                                     if (codeMatch) {
@@ -1419,19 +1377,19 @@ const RightSidebar: React.FC = () => {
                                                                                         }
                                                                                     }
                                                                                 }}
-                                                                                style={{
-                                                                                    background: '#10b981', border: 'none', color: '#fff',
-                                                                                    padding: '4px 12px', borderRadius: '4px', fontSize: '11px',
+                                                                                style={{ 
+                                                                                    background: '#10b981', border: 'none', color: '#fff', 
+                                                                                    padding: '4px 12px', borderRadius: '4px', fontSize: '11px', 
                                                                                     cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px'
                                                                                 }}
                                                                             >
                                                                                 <i className="codicon codicon-check" style={{ fontSize: '10px' }}></i> Accept
                                                                             </button>
-                                                                            <button
+                                                                            <button 
                                                                                 onClick={() => { }}
-                                                                                style={{
-                                                                                    background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#fff',
-                                                                                    padding: '4px 12px', borderRadius: '4px', fontSize: '11px',
+                                                                                style={{ 
+                                                                                    background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', 
+                                                                                    padding: '4px 12px', borderRadius: '4px', fontSize: '11px', 
                                                                                     cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
                                                                                 }}
                                                                             >
@@ -1579,7 +1537,7 @@ const RightSidebar: React.FC = () => {
                                         </div>
                                     ) : (
                                         kortexSlots.map((slot, i) => (
-                                            <div key={slot.id || `kortex-${i}`} style={{
+                                            <div key={slot.id || i} style={{
                                                 background: 'rgba(168,85,247,0.04)',
                                                 border: '1px solid rgba(168,85,247,0.12)',
                                                 borderRadius: '8px', padding: '8px 12px',
@@ -1659,7 +1617,7 @@ const RightSidebar: React.FC = () => {
                 view === 'chat' && agentUiMode === 'chat' && (
                     <div style={{ padding: '16px', borderTop: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1))', position: 'relative' }}>
                         {/* @mention dropdown — files + special context sources */}
-                        {isMentionDropdownOpen && currentSuggestions.length > 0 && (
+                        {isMentionDropdownOpen && filteredSuggestions.length > 0 && (
                             <div style={{
                                 position: 'absolute', bottom: '100%', left: '16px', right: '16px',
                                 background: 'var(--vscode-menu-background, #1e1e2e)',
@@ -1669,11 +1627,11 @@ const RightSidebar: React.FC = () => {
                                 zIndex: 100, marginBottom: '4px',
                             }}>
                                 <div style={{ padding: '4px 10px 2px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(168,85,247,0.8)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                                    {inputValue.split(/\s+/).pop()?.startsWith('/') ? '/ Commands' : '@ Context'} — type to filter
+                                    @ Context — type to filter
                                 </div>
-                                {currentSuggestions.map((file: any, i) => (
+                                {filteredSuggestions.map((file: any, i) => (
                                     <div
-                                        key={file.path || file.cmd}
+                                        key={file.path}
                                         onMouseDown={() => handleMentionSelect(file)}
                                         style={{
                                             padding: file._special ? '7px 12px' : '6px 12px', cursor: 'pointer', fontSize: '12px',
@@ -1685,14 +1643,14 @@ const RightSidebar: React.FC = () => {
                                             borderBottom: file._special ? '1px solid rgba(255,255,255,0.04)' : 'none',
                                         }}
                                     >
-                                        <i className={`codicon ${file._icon || (file.cmd ? 'codicon-terminal' : 'codicon-file')}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', opacity: (file._special || file.cmd) ? 0.9 : 0.6 }} />
-                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: (file._special || file.cmd) ? 600 : 400 }}>
-                                            {file.cmd || file.name}
+                                        <i className={`codicon ${file._icon || 'codicon-file'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', opacity: file._special ? 0.9 : 0.6 }} />
+                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: file._special ? 600 : 400 }}>
+                                            {file.name}
                                         </span>
-                                        {(file._desc || file.label) && (
-                                            <span style={{ fontSize: '9px', opacity: 0.5, whiteSpace: 'nowrap' }}>{file.label || file._desc}</span>
+                                        {file._desc && (
+                                            <span style={{ fontSize: '9px', opacity: 0.5, whiteSpace: 'nowrap' }}>{file._desc}</span>
                                         )}
-                                        {!file._special && !file.cmd && file.path && (
+                                        {!file._special && (
                                             <span style={{ fontSize: '9px', opacity: 0.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px' }}>
                                                 {file.path.split(/[\\/]/).slice(-3, -1).join('/')}
                                             </span>
@@ -1865,12 +1823,12 @@ const RightSidebar: React.FC = () => {
                     </div>
                 )
             }
-
+            
             {/* Ollama Progress Bar - Small, toggleable */}
             <OllamaProgressBar />
 
             {/* Emulator Panel - Optional section in right sidebar */}
-            {showEmulatorInRight && (
+            {emulatorPosition === 'right' && (
                 <div style={{
                     display: 'flex',
                     flexDirection: 'column',
@@ -1894,7 +1852,7 @@ const RightSidebar: React.FC = () => {
                         opacity: 0.8,
                         cursor: 'pointer'
                     }}
-                        onClick={() => setShowEmulatorInRight(!showEmulatorInRight)}
+                    onClick={() => setShowEmulatorInRight(!showEmulatorInRight)}
                     >
                         <span>📱 Emulator</span>
                         <span style={{ fontSize: '10px', opacity: 0.6 }}>

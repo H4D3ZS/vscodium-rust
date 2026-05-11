@@ -36,9 +36,9 @@ Then, in another terminal:
 
 ```bash
 cd apps/stage-tamagotchi
-UPDATE_SERVER_URL=http://localhost:8787/stable pnpm run dev
+UPDATE_SERVER_URL=http://127.0.0.1:8787/stable pnpm run dev
 # optional lane override:
-# AIRI_UPDATE_CHANNEL=beta UPDATE_SERVER_URL=http://localhost:8787/beta pnpm run dev
+# AIRI_UPDATE_CHANNEL=beta UPDATE_SERVER_URL=http://127.0.0.1:8787/beta pnpm run dev
 ```
 
 ## Verification Flow
@@ -53,7 +53,7 @@ UPDATE_SERVER_URL=http://localhost:8787/stable pnpm run dev
 8. Open `Devtools > Updater`.
 9. Confirm:
    - `overrideActive=true`
-   - `feedUrl` points to `http://localhost:8787/stable`
+   - `feedUrl` points to `http://127.0.0.1:8787/stable`
    - `platform`, `arch`, and `channel` match the current runtime
 
 ## Helper Wrapper

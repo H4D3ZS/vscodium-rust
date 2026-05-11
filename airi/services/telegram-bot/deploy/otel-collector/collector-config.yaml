@@ -1,6 +1,6 @@
 extensions:
   health_check:
-    endpoint: localhost:13133
+    endpoint: 127.0.0.1:13133
 
 receivers:
   prometheus:
@@ -9,7 +9,7 @@ receivers:
         - job_name: otel-collector-metrics
           scrape_interval: 10s
           static_configs:
-            - targets: ['localhost:8888']
+            - targets: ['127.0.0.1:8888']
 
   otlp:
     protocols:

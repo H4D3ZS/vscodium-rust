@@ -79,14 +79,17 @@ vi.mock('~build/git', () => ({
 }))
 
 describe('setupAutoUpdater', () => {
+  const expectedChannelByArch = process.arch === 'arm64' ? 'latest-arm64' : 'latest-x64'
+
   const laneReleaseTagMap = {
+    latest: 'v0.9.12-nightly.7',
     stable: 'v0.9.9',
     beta: 'v0.9.10-beta.3',
     alpha: 'v0.9.11-alpha.4',
     nightly: 'v0.9.12-nightly.7',
   } as const
   const bundleVersions = ['0.9.0', '0.9.0-beta.4', '0.9.0-alpha.2'] as const
-  const laneMatrix = ['stable', 'beta', 'alpha', 'nightly'] as const
+  const laneMatrix = ['latest', 'stable', 'beta', 'alpha', 'nightly'] as const
 
   const defaultReleases = [
     { tag_name: 'v0.9.0-beta.6', draft: false, prerelease: true },
@@ -142,7 +145,7 @@ describe('setupAutoUpdater', () => {
       provider: 'generic',
       url: 'https://github.com/moeru-ai/airi/releases/download/v0.9.0-beta.6',
     })
-    expect(updaterState.instance.channel).toBe('latest-arm64')
+    expect(updaterState.instance.channel).toBe(expectedChannelByArch)
   })
 
   it('ignores UPDATE_SERVER_URL in non-dev runtime', async () => {
@@ -233,7 +236,7 @@ describe('setupAutoUpdater', () => {
       appMock.getVersion.mockReturnValue(bundleVersion)
       isDevState.value = true
       process.env.AIRI_UPDATE_CHANNEL = lane
-      process.env.UPDATE_SERVER_URL = `http://localhost:8787/${lane}`
+      process.env.UPDATE_SERVER_URL = `http://127.0.0.1:8787/${lane}`
 
       const fetchSpy = mockGitHubReleasesFetch(matrixReleases)
       const { setupAutoUpdater } = await import('./auto-updater')
@@ -242,7 +245,7 @@ describe('setupAutoUpdater', () => {
 
       expect(updaterState.instance.setFeedURL).toHaveBeenCalledWith({
         provider: 'generic',
-        url: `http://localhost:8787/${lane}`,
+        url: `http://127.0.0.1:8787/${lane}`,
       })
       expect(fetchSpy).not.toHaveBeenCalled()
     },
@@ -255,9 +258,9 @@ describe('setupAutoUpdater', () => {
     expect(service.state.diagnostics).toEqual(expect.objectContaining({
       platform: process.platform,
       arch: process.arch,
-      channel: 'latest-arm64',
+      channel: expectedChannelByArch,
       executablePath: expect.any(String),
-      logFilePath: '/tmp/airi/logs',
+      logFilePath: expect.stringMatching(/stage-tamagotchi-updater[\\/]updater-log\.txt$/),
       isOverrideActive: false,
     }))
     expect(service.state.diagnostics).not.toHaveProperty('updaterCacheDir')

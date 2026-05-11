@@ -78,14 +78,14 @@ export class Qwen3TTS {
 
             // Voice selection - prefer English female voice for AIRI
             const voices = window.speechSynthesis.getVoices();
-            const preferredVoice = voices.find(v =>
-                v.name.includes('Google') ||
+            const preferredVoice = voices.find(v => 
+                v.name.includes('Google') || 
                 v.name.includes('Female') ||
                 v.name.includes('Zira') ||
                 v.name.includes('Hazel') ||
                 v.lang.startsWith('en')
             );
-
+            
             if (preferredVoice) {
                 utterance.voice = preferredVoice;
             }
@@ -97,16 +97,13 @@ export class Qwen3TTS {
 
             utterance.onerror = (event) => {
                 this.isSpeaking = false;
-                // 'interrupted' is expected when we cancel speech for a new message
-                if (event.error !== 'interrupted') {
-                    console.error('[Qwen3-TTS] ❌ Speech error:', event.error);
-                }
+                console.error('[Qwen3-TTS] ❌ Speech error:', event.error);
                 resolve(); // Resolve anyway
             };
 
             this.isSpeaking = true;
             window.speechSynthesis.speak(utterance);
-
+            
         });
     }
 
@@ -116,8 +113,6 @@ export class Qwen3TTS {
     async stop(): Promise<void> {
         window.speechSynthesis.cancel();
         this.isSpeaking = false;
-        // Give the OS a moment to clear the buffer
-        await new Promise(r => setTimeout(r, 50));
     }
 
     /**
@@ -148,7 +143,7 @@ export const qwenTTS = new Qwen3TTS();
 // Make globally accessible
 if (typeof window !== 'undefined') {
     (window as any).__QWEN_TTS__ = qwenTTS;
-
+    
     // Load voices on startup (Chrome needs this)
     if ('speechSynthesis' in window) {
         window.speechSynthesis.getVoices();

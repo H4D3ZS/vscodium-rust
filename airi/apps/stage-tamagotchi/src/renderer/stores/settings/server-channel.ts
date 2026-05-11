@@ -15,7 +15,7 @@ import {
 
 export const useServerChannelSettingsStore = defineStore('tamagotchi-server-channel-settings', () => {
   const tlsConfig = useLocalStorage<{ cert?: string, key?: string, passphrase?: string } | null | undefined>('settings/server-channel/websocket-tls-config', null)
-  const hostname = useLocalStorage<string>('settings/server-channel/hostname', 'localhost')
+  const hostname = useLocalStorage<string>('settings/server-channel/hostname', '127.0.0.1')
   const authToken = useLocalStorage<string>('settings/server-channel/auth-token', '')
   const lastApplyError = ref<string | null>(null)
   const syncingWithServer = ref(false)

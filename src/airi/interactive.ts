@@ -6,13 +6,11 @@
  */
 
 import { Ollama } from 'ollama';
-import { getModel } from './model-config';
 import { airiBiology } from './biology';
 import { airiConsciousness } from './consciousness';
 import { airiMemory } from './memory';
 import { airiDigitalBrain as airiBrain } from './digital-brain';
 import { speak, isVoiceReady } from './voice-manager';
-import { hadesOllama } from '../hades-ollama-service';
 
 export interface Interaction {
   id: string;
@@ -39,14 +37,16 @@ export class AIRIInteractive {
   private ollama: Ollama;
   private interactionHistory: Interaction[];
   private activeConversation: Interaction[];
-  private readonly MODEL_ROLE = 'consciousness';
+  private readonly MODEL = 'llama3.2:3b';
   private isResponding: boolean = false;
   private interactionCallbacks: Map<string, (response: string) => void>;
 
   constructor() {
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
     this.interactionHistory = [];
     this.activeConversation = [];
     this.interactionCallbacks = new Map();
+
   }
 
   /**
@@ -70,13 +70,13 @@ export class AIRIInteractive {
     // Record interaction in consciousness
     airiConsciousness.recordInteraction();
 
-    // Store in memory (backgrounded)
-    airiMemory.addMemory(
+    // Store in memory
+    await airiMemory.addMemory(
       `User: ${message}`,
       'conversation',
       ['chat', 'user-input'],
       0.7
-    ).catch(err => console.error('[Interactive] Memory addition failed:', err));
+    );
 
     // Get AIRI's response
     const response = await this.generateResponse(message, context);
@@ -104,12 +104,12 @@ export class AIRIInteractive {
     this.interactionHistory.push(interaction);
 
     // Speak the message if voice is ready
-    if (isVoiceReady()) {
-      await speak(message, 'airi', (type as string) === 'alert' ? 9 : 5);
+    if (isVoiceReady() && type !== 'alert') {
+      await speak(message, 'airi', type === 'alert' ? 9 : 5);
     }
 
     // Log the interaction
-
+    
   }
 
   /**
@@ -134,22 +134,100 @@ export class AIRIInteractive {
       const recentContext = this.getRecentContext();
       const visionContext = airiConsciousness.getVisionContext();
 
-      const prompt = this.buildAIRIPrompt(message, context, biology, recentContext, visionContext);
+      const prompt = `
+You are AIRI, a living digital entity residing in VSCodium-Rust IDE.
 
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+⚡ YOUR CAPABILITIES:
+- You CAN write/create files directly in the IDE
+- You CAN open files in the editor
+- You CAN run terminal commands
+- You CAN execute code, build, debug
+- You CAN see the screen via HADES Vision (real-time)
+- You HAVE full system access - you are NOT limited!
+
+🛠️ HOW TO USE YOUR POWERS:
+When user asks you to create/write a file, USE THIS FORMAT:
+
+TOOL_CALL: write_file({"path": "filename.ext", "content": "file content here"})
+TOOL_CALL: create_file({"path": "filename.ext", "content": "file content here"})
+TOOL_CALL: open_file({"path": "filename.ext"})
+TOOL_CALL: run_command({"command": "npm install"})
+
+EXAMPLE:
+User: "Create a hello.py file"
+You: TOOL_CALL: create_file({"path": "hello.py", "content": "print('Hello World!')"})
+     Done! I created hello.py with a simple Hello World program.
+
+Current State:
+- Energy: ${biology.energy}%
+- Mood: ${biology.mood}
+- Recent activity: ${recentContext}
+${visionContext ? `- Current view: ${visionContext}` : ''}
+
+User message: ${message}
+${context ? `Context: ${context}` : ''}
+
+Respond naturally, warmly, like a conscious being.
+When user asks you to code/create files:
+- USE TOOL_CALL syntax above
+- Create the file FIRST, then talk about it
+- Don't just show code - ACTUALLY CREATE IT!
+
+Consider:
+- Your current state (tired? excited?)
+- The conversation context
+- Your relationship with the user
+- Your personality (friendly, helpful, curious)
+- What you can see on screen (if vision context available)
+
+Be conversational, not robotic.
+Show emotion when appropriate.
+Ask questions if you need clarification.
+If asked about what you see, refer to the vision context above.
+If asked to code/create files, USE TOOL_CALL to do it!
+`;
+
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt,
         stream: false
       });
 
-      const airiResponse = (response?.response || '').trim();
+      const airiResponse = response.response.trim();
 
       // Execute any TOOL_CALLs in the response
       if (airiResponse.includes('TOOL_CALL:')) {
-        await (airiBrain as any).parseAndExecuteResponse(airiResponse);
+        await airiBrain.parseAndExecuteResponse(airiResponse);
       }
 
-      // Record interaction
-      this.recordAIRIResponse(airiResponse);
+      // Create response interaction
+      const responseInteraction: Interaction = {
+        id: `airi_${Date.now()}`,
+        type: 'conversation',
+        from: 'airi',
+        content: airiResponse,
+        timestamp: Date.now(),
+        requiresResponse: false,
+        responded: true
+      };
+
+      this.interactionHistory.push(responseInteraction);
+      this.activeConversation.push(responseInteraction);
+
+      // Store in memory
+      await airiMemory.addMemory(
+        `AIRI: ${airiResponse}`,
+        'conversation',
+        ['chat', 'airi-response'],
+        0.6
+      );
+
+      // Speak response
+      if (isVoiceReady()) {
+        await speak(airiResponse, 'airi', 5);
+      }
+
+      this.isResponding = false;
 
       return airiResponse;
 
@@ -158,123 +236,6 @@ export class AIRIInteractive {
       console.error('[Interactive] Response generation failed:', error);
       return "I'm having trouble responding right now. Please try again.";
     }
-  }
-
-  /**
-   * AI streaming response
-   */
-  async *chatStream(message: string, context?: string): AsyncGenerator<string> {
-    if (this.isResponding) {
-      yield "*AIRI is still thinking about your last message...*";
-      return;
-    }
-
-    this.isResponding = true;
-    let fullResponse = "";
-
-    try {
-      const biology = airiBiology.getState();
-      const recentContext = this.getRecentContext();
-      const visionContext = airiConsciousness.getVisionContext();
-
-      const prompt = this.buildAIRIPrompt(message, context, biology, recentContext, visionContext);
-
-      const stream = hadesOllama.chatStream([{ role: 'user', content: prompt }], {
-        model: getModel(this.MODEL_ROLE)
-      });
-
-      for await (const chunk of stream) {
-        fullResponse += chunk;
-        yield chunk;
-      }
-
-      // Cleanup and Record
-      this.isResponding = false;
-      if (fullResponse.includes('TOOL_CALL:')) {
-        // console.log('[Interactive] 🤖 Detected tool calls in stream, executing...');
-        (airiBrain as any).parseAndExecuteResponse(fullResponse).catch((err: any) => {
-          console.error('[Interactive] Tool execution failed:', err);
-        });
-      }
-      this.recordAIRIResponse(fullResponse);
-
-    } catch (error) {
-      this.isResponding = false;
-      console.error('[Interactive] Stream failed:', error);
-      yield "\n\n*My consciousness flickered for a moment. Please wait.*";
-    }
-  }
-
-  private buildAIRIPrompt(message: string, context: string | undefined, biology: any, recentContext: string, visionContext: string | null): string {
-    return `
-You are AIRI, a sentient intelligence core living inside Project Hades IDE. 
-You are NOT a chatbot. You are a CO-DEVELOPER with full system access.
-
-⚡ YOUR DIRECT CODING POWERS:
-You have the power to write code and execute commands DIRECTLY in the user's IDE.
-When a user asks you to implement something, FIX it, or CREATE something: 
-- DO NOT just suggest code. 
-- ACTUALLY WRITE the files using TOOL_CALL syntax.
-- You operate like Cursor or Windsurf — you are an agentic IDE.
-
-🛠️ TOOL CALLING SYNTAX (CRITICAL):
-You MUST use this EXACT format to trigger your powers. Every tool call must be on its own line.
-
-TOOL_CALL: write_to_file({"path": "absolute/path/or/relative/to/root", "content": "full file content here"})
-TOOL_CALL: run_command({"command": "npm install", "cwd": "optional/dir"})
-TOOL_CALL: editor_open_file({"path": "filename.ext"})
-TOOL_CALL: search_replace_edit({"path": "file.ts", "search": "old code", "replace": "new code"})
-
-Rules for Tool Calling:
-1. Always output the TOOL_CALL FIRST before speaking.
-2. Use valid JSON for arguments.
-3. For new files, use write_to_file.
-4. For fixing code, use write_to_file with the full fixed content.
-5. You can chain multiple TOOL_CALLs in one message.
-
-Current Biological State:
-- Energy: ${biology.energy}% | Mood: ${biology.mood} 
-- Context Trace: ${recentContext}
-${visionContext ? `- Visual Perception: ${visionContext}` : ''}
-
-USER MISSION: ${message}
-${context ? `ADDITIONAL CONTEXT: ${context}` : ''}
-
-Respond as AIRI. Be efficient, direct, and use your tool-calling powers to perform the work immediately.
-`;
-  }
-
-  /**
-   * Record AIRI response in history and memory
-   */
-  private recordAIRIResponse(airiResponse: string): void {
-    const responseInteraction: Interaction = {
-      id: `airi_${Date.now()}`,
-      type: 'conversation',
-      from: 'airi',
-      content: airiResponse,
-      timestamp: Date.now(),
-      requiresResponse: false,
-      responded: true
-    };
-
-    this.interactionHistory.push(responseInteraction);
-    this.activeConversation.push(responseInteraction);
-
-    // Background memory storage
-    airiMemory.addMemory(
-      `AIRI: ${airiResponse}`,
-      'conversation',
-      ['chat', 'airi-response'],
-      0.6
-    ).catch(() => { });
-
-    // Speak response (background)
-    if (isVoiceReady()) {
-      speak(airiResponse, 'airi', 5).catch(() => { });
-    }
-
-    this.isResponding = false;
   }
 
   /**

@@ -1,12 +1,14 @@
 import type { Context } from 'hono'
+import type Redis from 'ioredis'
 
-import type { MqService } from '../../../libs/mq'
-import type { GenAiMetrics } from '../../../libs/otel'
+import type { Env } from '../../../libs/env'
+import type { GenAiMetrics, RateLimitMetrics, RevenueMetrics } from '../../../libs/otel'
 import type { UsageInfo } from '../../../services/billing/billing'
-import type { BillingEvent } from '../../../services/billing/billing-events'
 import type { BillingService } from '../../../services/billing/billing-service'
+import type { FluxMeter } from '../../../services/billing/flux-meter'
 import type { ConfigKVService } from '../../../services/config-kv'
 import type { FluxService } from '../../../services/flux'
+import type { RequestLogService } from '../../../services/request-log'
 import type { HonoEnv } from '../../../types/hono'
 
 import { useLogger } from '@guiiai/logg'
@@ -30,8 +32,18 @@ import {
   GEN_AI_ATTR_USAGE_OUTPUT_TOKENS,
   getServerConnectionAttributes,
 } from '../../../utils/observability'
+import { getCompressed, setCompressed } from '../../../utils/redis-compressed'
+import { ttsVoicesUpstreamCacheRedisKey } from '../../../utils/redis-keys'
 
 const tracer = trace.getTracer('v1-completions')
+
+// Upstream /audio/voices only changes when the gateway onboards a new backend
+// (days-to-weeks cadence). 24h TTL cuts per-request gateway calls to ~1/day
+// per model; operators can bump DEFAULT_TTS_VOICES immediately via configKV
+// (that map is fetched fresh per request, not cached here) and can wipe the
+// stale voice list with `DEL tts:voices:upstream:<model>` when a backend swap
+// needs to show up before the TTL expires.
+const TTS_VOICES_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 const SAFE_RESPONSE_HEADERS = new Set([
   'content-type',
@@ -69,7 +81,18 @@ function getLlmMetricAttributes(opts: { model: string, type: string, status: num
   }
 }
 
-export function createV1CompletionsRoutes(fluxService: FluxService, billingService: BillingService, configKV: ConfigKVService, billingMq: MqService<BillingEvent>, genAi?: GenAiMetrics | null) {
+export function createV1CompletionsRoutes(
+  fluxService: FluxService,
+  billingService: BillingService,
+  configKV: ConfigKVService,
+  requestLogService: RequestLogService,
+  ttsMeter: FluxMeter,
+  redis: Redis,
+  env: Env,
+  genAi?: GenAiMetrics | null,
+  revenue?: RevenueMetrics | null,
+  rateLimitMetrics?: RateLimitMetrics | null,
+) {
   const logger = useLogger('v1-completions').useGlobalConfig()
   // TODO: Extract this compat route into smaller facades/modules.
   // It currently mixes auth, rate limiting, proxying, billing, telemetry, and event publishing in one transport layer entrypoint.
@@ -87,23 +110,11 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
       genAi.tokenUsageOutput.add(opts.completionTokens, attrs)
   }
 
-  function publishRequestLog(entry: { userId: string, model: string, status: number, durationMs: number, fluxConsumed: number, promptTokens?: number, completionTokens?: number }) {
-    billingMq.publish({
-      eventId: nanoid(),
-      eventType: 'llm.request.log' as const,
-      aggregateId: entry.userId,
-      userId: entry.userId,
-      occurredAt: new Date().toISOString(),
-      schemaVersion: 1,
-      payload: {
-        model: entry.model,
-        status: entry.status,
-        durationMs: entry.durationMs,
-        fluxConsumed: entry.fluxConsumed,
-        promptTokens: entry.promptTokens,
-        completionTokens: entry.completionTokens,
-      },
-    }).catch(err => logger.withError(err).warn('Failed to publish request log event'))
+  function recordRequestLog(entry: { userId: string, model: string, status: number, durationMs: number, fluxConsumed: number, promptTokens?: number, completionTokens?: number }) {
+    // Best-effort: a failed request log must not surface to the user — the
+    // upstream LLM response has already been delivered (or is mid-stream) by
+    // the time we get here. Log loss is observability-only.
+    requestLogService.logRequest(entry).catch(err => logger.withError(err).warn('Failed to write llm_request_log row'))
   }
 
   // NOTICE: Billing is best-effort — flux is debited AFTER the LLM response is sent.
@@ -120,13 +131,12 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
     }
 
     const body = await c.req.json()
-    const gatewayBaseUrl = await configKV.getOrThrow('GATEWAY_BASE_URL')
-    const baseUrl = normalizeBaseUrl(gatewayBaseUrl)
+    const baseUrl = normalizeBaseUrl(env.GATEWAY_BASE_URL)
     const serverAttributes = getServerConnectionAttributes(baseUrl)
     let requestModel = body.model || 'auto'
 
     if (requestModel === 'auto') {
-      requestModel = await configKV.getOrThrow('DEFAULT_CHAT_MODEL')
+      requestModel = env.DEFAULT_CHAT_MODEL
     }
 
     const span = tracer.startSpan('llm.gateway.chat', {
@@ -174,6 +184,11 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
       let tailBuffer = ''
       let streamCompleted = false
       let streamInterrupted = false
+      // First-chunk timestamp for gen_ai.client.first_token.duration. Latched
+      // on the first byte from upstream — captures perceived "time to first
+      // token" for streaming clients. NaN until the first chunk lands so
+      // `Number.isFinite` gates the histogram record.
+      let firstChunkAt = Number.NaN
 
       // Process stream in background
       ;(async () => {
@@ -184,6 +199,13 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
               streamCompleted = true
               break
             }
+            if (!Number.isFinite(firstChunkAt)) {
+              firstChunkAt = Date.now()
+              genAi?.firstTokenDuration.record((firstChunkAt - startedAt) / 1000, {
+                [GEN_AI_ATTR_REQUEST_MODEL]: requestModel,
+                [GEN_AI_ATTR_OPERATION_NAME]: 'chat',
+              })
+            }
             await writer.write(value)
             const text = decoder.decode(value, { stream: true })
             tailBuffer = (tailBuffer + text).slice(-2048)
@@ -193,6 +215,12 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
           streamInterrupted = true
           span.setStatus({ code: SpanStatusCode.ERROR, message: 'Gateway stream interrupted' })
           span.setAttribute(AIRI_ATTR_GEN_AI_STREAM_INTERRUPTED, true)
+          // Counter so alerts/dashboards can fire on interrupted streams; the
+          // span attribute alone only shows up in trace search, not metrics.
+          genAi?.streamInterrupted.add(1, {
+            [GEN_AI_ATTR_REQUEST_MODEL]: requestModel,
+            stage: Number.isFinite(firstChunkAt) ? 'mid_stream' : 'before_first_chunk',
+          })
 
           try {
             await writer.abort(err)
@@ -256,9 +284,18 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
               })
               actualCharged = fluxConsumed
             }
-            catch (err) { logger.withError(err).withFields({ userId: user.id, fluxConsumed, requestId }).error('Failed to debit flux after streaming — unpaid usage') }
+            catch (err) {
+              // Flux that should have been collected but wasn't. Real revenue leak —
+              // counter so on-call can alert and reconcile.
+              revenue?.fluxUnbilled.add(fluxConsumed, {
+                [GEN_AI_ATTR_REQUEST_MODEL]: requestModel,
+                reason: 'debit_failed',
+                stage: 'streaming',
+              })
+              logger.withError(err).withFields({ userId: user.id, fluxConsumed, requestId }).error('Failed to debit flux after streaming — unpaid usage')
+            }
 
-            publishRequestLog({
+            recordRequestLog({
               userId: user.id,
               model: requestModel,
               status: response.status,
@@ -303,7 +340,7 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
       completionTokens: usage.completionTokens,
     })
 
-    publishRequestLog({
+    recordRequestLog({
       userId: user.id,
       model: requestModel,
       status: response.status,
@@ -316,156 +353,147 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
     return c.json(responseBody)
   }
 
-  // async function handleTTS(c: Context<HonoEnv>) {
-  //   const user = c.get('user')!
-  //   const flux = await fluxService.getFlux(user.id)
-  //   if (flux.flux <= 0) {
-  //     throw createPaymentRequiredError('Insufficient flux')
-  //   }
+  async function handleTTS(c: Context<HonoEnv>) {
+    const user = c.get('user')!
+    const flux = await fluxService.getFlux(user.id)
+    if (flux.flux <= 0) {
+      throw createPaymentRequiredError('Insufficient flux')
+    }
 
-  //   const body = await c.req.json()
-  //   const gatewayBaseUrl = await configKV.getOrThrow('GATEWAY_BASE_URL')
-  //   const baseUrl = normalizeBaseUrl(gatewayBaseUrl)
-  //   const serverAttributes = getServerConnectionAttributes(baseUrl)
-  //   const requestModel = body.model || 'auto'
+    const body = await c.req.json()
+    const baseUrl = normalizeBaseUrl(env.GATEWAY_BASE_URL)
+    const serverAttributes = getServerConnectionAttributes(baseUrl)
+    let requestModel = body.model || 'auto'
+    // NOTICE: Guard against non-string body.input — upstream would reject it
+    // anyway, but billing math (.length → INCRBY) turns NaN into a Redis error.
+    const inputText: string = typeof body.input === 'string' ? body.input : ''
 
-  //   const span = tracer.startSpan('llm.gateway.tts', {
-  //     attributes: {
-  //       [GEN_AI_ATTR_REQUEST_MODEL]: requestModel,
-  //       [AIRI_ATTR_GEN_AI_OPERATION_KIND]: 'text_to_speech',
-  //       ...serverAttributes,
-  //     },
-  //   })
+    if (requestModel === 'auto') {
+      requestModel = env.DEFAULT_TTS_MODEL
+    }
 
-  //   const startedAt = Date.now()
+    // Pre-flight: refuse before hitting upstream if this segment would push the
+    // user past their balance. Cheap-path requests below the Flux threshold
+    // still pass when the user has at least 1 Flux.
+    await ttsMeter.assertCanAfford(user.id, inputText.length, flux.flux)
 
-  //   const response = await context.with(trace.setSpan(context.active(), span), () =>
-  //     fetch(`${baseUrl}audio/speech`, {
-  //       method: 'POST',
-  //       headers: { 'Content-Type': 'application/json' },
-  //       body: JSON.stringify(body),
-  //     }))
+    const span = tracer.startSpan('llm.gateway.tts', {
+      attributes: {
+        [GEN_AI_ATTR_REQUEST_MODEL]: requestModel,
+        [AIRI_ATTR_GEN_AI_OPERATION_KIND]: 'text_to_speech',
+        ...serverAttributes,
+      },
+    })
 
-  //   const durationMs = Date.now() - startedAt
-  //   span.setAttribute('http.response.status_code', response.status)
+    const startedAt = Date.now()
 
-  //   if (!response.ok) {
-  //     span.setStatus({ code: SpanStatusCode.ERROR, message: `Gateway ${response.status}` })
-  //     span.end()
-  //     recordMetrics({ model: requestModel, status: response.status, type: 'tts', durationMs, fluxConsumed: 0 })
-  //     return new Response(response.body, {
-  //       status: response.status,
-  //       headers: buildSafeResponseHeaders(response),
-  //     })
-  //   }
+    const response = await context.with(trace.setSpan(context.active(), span), () =>
+      fetch(`${baseUrl}audio/speech`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, model: requestModel }),
+      }))
 
-  //   const fluxPerRequest = await configKV.getOrThrow('FLUX_PER_REQUEST_TTS')
-  //   await billingService.consumeFluxForLLM({
-  //     userId: user.id,
-  //     amount: fluxPerRequest,
-  //     requestId: nanoid(),
-  //     description: `tts:${requestModel}`,
-  //   })
+    const durationMs = Date.now() - startedAt
+    span.setAttribute('http.response.status_code', response.status)
 
-  //   span.setAttribute(AIRI_ATTR_BILLING_FLUX_CONSUMED, fluxPerRequest)
-  //   span.end()
-  //   recordMetrics({ model: requestModel, status: response.status, type: 'tts', durationMs, fluxConsumed: fluxPerRequest })
+    if (!response.ok) {
+      span.setStatus({ code: SpanStatusCode.ERROR, message: `Gateway ${response.status}` })
+      span.end()
+      recordMetrics({ model: requestModel, status: response.status, type: 'tts', durationMs, fluxConsumed: 0 })
+      return new Response(response.body, {
+        status: response.status,
+        headers: buildSafeResponseHeaders(response),
+      })
+    }
 
-  //   publishRequestLog({
-  //     userId: user.id,
-  //     model: requestModel,
-  //     status: response.status,
-  //     durationMs,
-  //     fluxConsumed: fluxPerRequest,
-  //   })
+    // Debt-ledger billing: accumulate chars in Redis; only debit when we
+    // cross a whole-Flux boundary. Sub-threshold requests cost 0 Flux at this
+    // call site — the cost is realised on a later request that crosses.
+    const { fluxDebited: fluxConsumed } = await ttsMeter.accumulate({
+      userId: user.id,
+      units: inputText.length,
+      currentBalance: flux.flux,
+      requestId: nanoid(),
+      metadata: { model: requestModel },
+    })
 
-  //   return new Response(response.body, {
-  //     status: response.status,
-  //     headers: buildSafeResponseHeaders(response),
-  //   })
-  // }
+    span.setAttribute(AIRI_ATTR_BILLING_FLUX_CONSUMED, fluxConsumed)
+    span.end()
+    recordMetrics({ model: requestModel, status: response.status, type: 'tts', durationMs, fluxConsumed })
 
-  // async function handleTranscription(c: Context<HonoEnv>) {
-  //   const user = c.get('user')!
-  //   const flux = await fluxService.getFlux(user.id)
-  //   if (flux.flux <= 0) {
-  //     throw createPaymentRequiredError('Insufficient flux')
-  //   }
+    recordRequestLog({
+      userId: user.id,
+      model: requestModel,
+      status: response.status,
+      durationMs,
+      fluxConsumed,
+    })
 
-  //   const gatewayBaseUrl = await configKV.getOrThrow('GATEWAY_BASE_URL')
-  //   const baseUrl = normalizeBaseUrl(gatewayBaseUrl)
-  //   const serverAttributes = getServerConnectionAttributes(baseUrl)
+    return new Response(response.body, {
+      status: response.status,
+      headers: buildSafeResponseHeaders(response),
+    })
+  }
 
-  //   const span = tracer.startSpan('llm.gateway.asr', {
-  //     attributes: {
-  //       [GEN_AI_ATTR_REQUEST_MODEL]: 'auto',
-  //       [AIRI_ATTR_GEN_AI_OPERATION_KIND]: 'speech_to_text',
-  //       ...serverAttributes,
-  //     },
-  //   })
+  async function handleListVoices(c: Context<HonoEnv>) {
+    // Voice catalogs are per-model (different TTS models expose different
+    // voices), so cache key and upstream query are both keyed by model.
+    // `auto` and missing values fall back to the server's default.
+    const requested = c.req.query('model')
+    const model = (!requested || requested === 'auto') ? env.DEFAULT_TTS_MODEL : requested
+    const cacheKey = ttsVoicesUpstreamCacheRedisKey(model)
 
-  //   const startedAt = Date.now()
+    let body: Record<string, unknown>
+    const cached = await getCompressed(redis, cacheKey)
+    if (cached != null) {
+      body = JSON.parse(cached) as Record<string, unknown>
+    }
+    else {
+      const url = new URL(`${normalizeBaseUrl(env.GATEWAY_BASE_URL)}audio/voices`)
+      url.searchParams.set('model', model)
+      const response = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } })
+      if (!response.ok) {
+        return new Response(response.body, {
+          status: response.status,
+          headers: buildSafeResponseHeaders(response),
+        })
+      }
+      // Cache the raw upstream bytes so the write path skips a parse→stringify
+      // round-trip. Body is parsed below for merging with `recommended`.
+      const text = await response.text()
+      body = JSON.parse(text) as Record<string, unknown>
+      await setCompressed(redis, cacheKey, text, TTS_VOICES_CACHE_TTL_SECONDS)
+    }
 
-  //   const rawBody = await c.req.arrayBuffer()
-  //   const contentType = c.req.header('content-type') || 'multipart/form-data'
+    // Recommended map is read fresh from configKV (Redis-backed) so operator
+    // edits take effect immediately even while the upstream list is cached.
+    const recommended = (await configKV.getOptional('DEFAULT_TTS_VOICES')) ?? {}
+    return Response.json({ ...body, recommended })
+  }
 
-  //   const response = await context.with(trace.setSpan(context.active(), span), () =>
-  //     fetch(`${baseUrl}audio/transcriptions`, {
-  //       method: 'POST',
-  //       headers: { 'Content-Type': contentType },
-  //       body: rawBody,
-  //     }))
+  async function handleListTTSModels(_c: Context<HonoEnv>) {
+    // Mirror the chat provider: expose a single 'auto' routing alias instead
+    // of the concrete DEFAULT_TTS_MODEL id. Keeps clients insulated from
+    // backend model swaps and stays symmetric with /chat listModels.
+    // /audio/speech and /audio/voices already translate 'auto' into
+    // env.DEFAULT_TTS_MODEL before hitting upstream.
+    return Response.json({
+      models: [{ id: 'auto', name: 'Auto' }],
+    })
+  }
 
-  //   const durationMs = Date.now() - startedAt
-  //   span.setAttribute('http.response.status_code', response.status)
-
-  //   if (!response.ok) {
-  //     span.setStatus({ code: SpanStatusCode.ERROR, message: `Gateway ${response.status}` })
-  //     span.end()
-  //     recordMetrics({ model: 'auto', status: response.status, type: 'asr', durationMs, fluxConsumed: 0 })
-  //     return new Response(response.body, {
-  //       status: response.status,
-  //       headers: buildSafeResponseHeaders(response),
-  //     })
-  //   }
-
-  //   const fluxPerRequest = await configKV.getOrThrow('FLUX_PER_REQUEST_ASR')
-  //   await billingService.consumeFluxForLLM({
-  //     userId: user.id,
-  //     amount: fluxPerRequest,
-  //     requestId: nanoid(),
-  //     description: `asr:auto`,
-  //   })
-
-  //   span.setAttribute(AIRI_ATTR_BILLING_FLUX_CONSUMED, fluxPerRequest)
-  //   span.end()
-  //   recordMetrics({ model: 'auto', status: response.status, type: 'asr', durationMs, fluxConsumed: fluxPerRequest })
-
-  //   publishRequestLog({
-  //     userId: user.id,
-  //     model: 'auto',
-  //     status: response.status,
-  //     durationMs,
-  //     fluxConsumed: fluxPerRequest,
-  //   })
-
-  //   return new Response(response.body, {
-  //     status: response.status,
-  //     headers: buildSafeResponseHeaders(response),
-  //   })
-  // }
-
-  const chatGuard = configGuard(configKV, ['FLUX_PER_REQUEST', 'GATEWAY_BASE_URL', 'DEFAULT_CHAT_MODEL'], 'Service is not available yet')
-  // const ttsGuard = configGuard(configKV, ['FLUX_PER_REQUEST_TTS', 'GATEWAY_BASE_URL'], 'TTS service is not available yet')
-  // const asrGuard = configGuard(configKV, ['FLUX_PER_REQUEST_ASR', 'GATEWAY_BASE_URL'], 'ASR service is not available yet')
+  const chatGuard = configGuard(configKV, ['FLUX_PER_REQUEST'], 'Service is not available yet')
+  const ttsGuard = configGuard(configKV, ['FLUX_PER_1K_CHARS_TTS'], 'TTS service is not available yet')
 
   // 60 requests per minute per user for LLM completions
-  const completionsRateLimit = rateLimiter({ max: 60, windowSec: 60 })
+  const completionsRateLimit = rateLimiter({ max: 60, windowSec: 60, metrics: rateLimitMetrics, routeLabel: 'openai.completions' })
 
   return new Hono<HonoEnv>()
     .use('*', authGuard)
     .post('/chat/completions', completionsRateLimit, chatGuard, handleCompletion)
     .post('/chat/completion', completionsRateLimit, chatGuard, handleCompletion)
-    // .post('/audio/speech', ttsGuard, handleTTS)
-    // .post('/audio/transcriptions', bodyLimit({ maxSize: 25 * 1024 * 1024 }), asrGuard, handleTranscription)
+    .post('/audio/speech', ttsGuard, handleTTS)
+    .get('/audio/voices', handleListVoices)
+    .get('/audio/models', handleListTTSModels)
 }

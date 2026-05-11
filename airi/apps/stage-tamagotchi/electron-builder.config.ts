@@ -12,7 +12,7 @@ function hasXcode26OrAbove() {
   try {
     const output = execSync('xcodebuild -version')
       .toString()
-      // eslint-disable-next-line e18e/prefer-static-regex
+
       .match(/Xcode (\d+)/)
     if (!output)
       return false
@@ -96,6 +96,13 @@ export default {
   asar: true,
   asarUnpack: [
     '**/*.node',
+  ],
+  extraResources: [
+    {
+      from: '../../engines/stage-tamagotchi-godot/build/${os}',
+      to: 'godot-stage',
+      filter: ['**/*'],
+    },
   ],
   extraMetadata: {
     name: 'ai.moeru.airi',

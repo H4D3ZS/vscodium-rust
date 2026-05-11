@@ -1,0 +1,357 @@
+react-dom-client.development.js:28004 Download the React DevTools for a better development experience: https://react.dev/link/react-devtools
+voice.ts:462 [TTS] AIRI Voice System loaded - supports 12 character voices via ElevenLabs/OpenAI
+extensions.ts:5 DEBUG: initExtensions called
+extensions.ts:5 DEBUG: initExtensions called
+voice.ts:186 [TTS] Using ElevenLabs for voice synthesis
+RightSidebar.tsx:187 [TTS] AIRI Voice System initialized
+voice.ts:186 [TTS] Using ElevenLabs for voice synthesis
+RightSidebar.tsx:187 [TTS] AIRI Voice System initialized
+extensions.ts:8 Extension host initialized
+extensions.ts:8 Extension host initialized
+store.ts:578 [DIAG] toggleRightSidebar called — full call stack above
+(anonymous) @ store.ts:578
+(anonymous) @ TitleBar.tsx:164
+executeDispatch @ react-dom-client.development.js:19116
+runWithFiberInDEV @ react-dom-client.development.js:871
+processDispatchQueue @ react-dom-client.development.js:19166
+(anonymous) @ react-dom-client.development.js:19767
+batchedUpdates$1 @ react-dom-client.development.js:3255
+dispatchEventForPluginEventSystem @ react-dom-client.development.js:19320
+dispatchEvent @ react-dom-client.development.js:23585
+dispatchDiscreteEvent @ react-dom-client.development.js:23553
+store.ts:580 [DIAG] isRightSidebarOpen: false → true
+App.tsx:113 [DIAG] isRightSidebarOpen changed: false → true
+(anonymous) @ App.tsx:113
+(anonymous) @ vanilla.mjs:9
+(anonymous) @ vanilla.mjs:9
+(anonymous) @ store.ts:579
+(anonymous) @ TitleBar.tsx:164
+executeDispatch @ react-dom-client.development.js:19116
+runWithFiberInDEV @ react-dom-client.development.js:871
+processDispatchQueue @ react-dom-client.development.js:19166
+(anonymous) @ react-dom-client.development.js:19767
+batchedUpdates$1 @ react-dom-client.development.js:3255
+dispatchEventForPluginEventSystem @ react-dom-client.development.js:19320
+dispatchEvent @ react-dom-client.development.js:23585
+dispatchDiscreteEvent @ react-dom-client.development.js:23553
+react-dom-client.development.js:3001 React does not recognize the `allowTransparency` prop on a DOM element. If you intentionally want it to appear in the DOM as a custom attribute, spell it as lowercase `allowtransparency` instead. If you accidentally passed it from a parent component, remove it from the DOM element.
+validateProperty @ react-dom-client.development.js:3001
+agent.ts:223 Initializing Agent global listeners...
+mobile.ts:151 Mobile refresh failed: ADB error (adb): program not found
+(anonymous) @ mobile.ts:151
+agent.ts:223 Initializing Agent global listeners...
+mobile.ts:151 Mobile refresh failed: ADB error (adb): program not found
+(anonymous) @ mobile.ts:151
+devtools-DUDsFuj9.js:13 [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`.
+warn$1 @ devtools-DUDsFuj9.js:13
+ Unable to determine content-length from response headers. Will expand buffer when needed.
+?headless=true&transparent=true&char=kawaii:1 The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127
+:11996/tts/audio/voices:1  Failed to load resource: net::ERR_CONNECTION_REFUSED
+:4315/v1/health:1  Failed to load resource: net::ERR_CONNECTION_REFUSED
+:1234/v1/models:1  Failed to load resource: net::ERR_CONNECTION_REFUSED
+:1234/v1/models:1  Failed to load resource: net::ERR_CONNECTION_REFUSED
+ 2026-04-15 07:12:52.489399 [W:onnxruntime:, session_state.cc:1280 VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.
+ 2026-04-15 07:12:52.489799 [W:onnxruntime:, session_state.cc:1282 VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.
+utils.mjs:625 
+ %c %c %c PixiJS 6.5.10 - ✰ WebGL 2 ✰  %c  %c  http://www.pixijs.com/  %c %c ♥%c♥%c♥ 
+
+ background: #ff66a5; padding:5px 0; background: #ff66a5; padding:5px 0; color: #ff66a5; background: #030307; padding:5px 0; background: #ff66a5; padding:5px 0; background: #ffc3dc; padding:5px 0; background: #ff66a5; padding:5px 0; color: #ff2424; background: #fff; padding:5px 0; color: #ff2424; background: #fff; padding:5px 0; color: #ff2424; background: #fff; padding:5px 0;
+pinia.mjs:290 🍍 "live2d" store installed 🆕
+pinia.mjs:290 🍍 "background" store installed 🆕
+pinia.mjs:290 🍍 "hearing-store" store installed 🆕
+pinia.mjs:290 🍍 "modules:hearing:speech:audio-input-pipeline" store installed 🆕
+pinia.mjs:290 🍍 "character-speaking" store installed 🆕
+pinia.mjs:290 🍍 "audio-context" store installed 🆕
+pinia.mjs:290 🍍 "live2d-expressions" store installed 🆕
+cubism4.es.js:860 [CSM][I]Live2D Cubism Core version: 05.00.0000 (83886080)
+
+cubism4.es.js:860 [CSM][I]CubismFramework.startUp() is complete.
+
+cubism4.es.js:860 [CSM][I]CubismFramework.initialize() is complete.
+
+live2dcubismcore.min.js:9 Live2D Cubism SDK Core Version 5.0.0
+client.ts:359 WebSocket connection to 'ws://localhost:6121/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+(anonymous) @ client.ts:359
+channel-server.ts:135 WebSocket server connection error: [object Object]
+client.ts:359 WebSocket connection to 'ws://localhost:6121/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+(anonymous) @ client.ts:359
+channel-server.ts:135 WebSocket server connection error: [object Object]
+devtools-DUDsFuj9.js:13 [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`.
+warn$1 @ devtools-DUDsFuj9.js:13
+pinia.mjs:290 🍍 "live2d" store installed 🆕
+pinia.mjs:290 🍍 "background" store installed 🆕
+pinia.mjs:290 🍍 "hearing-store" store installed 🆕
+pinia.mjs:290 🍍 "modules:hearing:speech:audio-input-pipeline" store installed 🆕
+pinia.mjs:290 🍍 "character-speaking" store installed 🆕
+pinia.mjs:290 🍍 "audio-context" store installed 🆕
+utils.mjs:625 
+    PixiJS 6.5.10 - ✰ WebGL 2 ✰      http://www.pixijs.com/    ♥♥♥ 
+pinia.mjs:290 🍍 "live2d-expressions" store installed 🆕
+transformers.web.js:33049 Unable to determine content-length from response headers. Will expand buffer when needed.
+readResponse @ transformers.web.js:33049
+cubism4.es.js:860 [CSM][I]Live2D Cubism Core version: 05.00.0000 (83886080)
+
+cubism4.es.js:860 [CSM][I]CubismFramework.startUp() is complete.
+
+cubism4.es.js:860 [CSM][I]CubismFramework.initialize() is complete.
+
+live2dcubismcore.min.js:9 Live2D Cubism SDK Core Version 5.0.0
+The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127
+?headless=true&transparent=true&char=kawaii:1 The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127
+ort-wasm-simd-threaded.jsep.mjs:100 2026-04-15 07:13:10.926400 [W:onnxruntime:, session_state.cc:1280 VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.
+Bc @ ort-wasm-simd-threaded.jsep.mjs:100
+ort-wasm-simd-threaded.jsep.mjs:100 2026-04-15 07:13:10.926900 [W:onnxruntime:, session_state.cc:1282 VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.
+Bc @ ort-wasm-simd-threaded.jsep.mjs:100
+:4315/v1/health:1  Failed to load resource: net::ERR_CONNECTION_REFUSED
+:11996/tts/audio/voices:1  Failed to load resource: net::ERR_CONNECTION_REFUSED
+:1234/v1/models:1  Failed to load resource: net::ERR_CONNECTION_REFUSED
+client.ts:359 WebSocket connection to 'ws://localhost:6121/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+(anonymous) @ client.ts:359
+channel-server.ts:135 WebSocket server connection error: Object
+:1234/v1/models:1  Failed to load resource: net::ERR_CONNECTION_REFUSED
+RightSidebar.tsx:449 [DIAG] onSend called, val: hello introduce yourself isRightSidebarOpen: true
+RightSidebar.tsx:491 [DIAG] onSend: sending message, sidebar state before: true
+RightSidebar.tsx:503 [DIAG] onSend: messages added, sidebar state after store updates: true
+agent.ts:989 Agent chat failed: No API key found for provider: google. Please run 'Hunt for Working AI Keys' from the model menu, or set it in Settings.
+(anonymous) @ agent.ts:989
+RightSidebar.tsx:509 Agent chat failed: No API key found for provider: google. Please run 'Hunt for Working AI Keys' from the model menu, or set it in Settings.
+(anonymous) @ RightSidebar.tsx:509
+RightSidebar.tsx:514 [DIAG] onSend: done. sidebar state: true
+Stage.vue:569 [BRIDGE] Streaming to intent: Error: "No API key found for provider: google. Please run 'Hunt for Working AI Keys' from the model menu, or set it in Settings."
+client.ts:359 WebSocket connection to 'ws://localhost:6121/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+(anonymous) @ client.ts:359
+channel-server.ts:135 WebSocket server connection error: Object
+client.ts:359 WebSocket connection to 'ws://localhost:6121/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+(anonymous) @ client.ts:359
+(anonymous) @ client.ts:320
+channel-server.ts:135 WebSocket server connection error: {message: 'WebSocket error', error: Error: WebSocket error
+    at ws.onerror (http://localhost:5174/@fs/C:/Users/HADES/Desktop/vscodium…}
+runtime-core.esm-bundler.js:51 [Vue warn]: Unhandled error during execution of mounted hook 
+  at <Index onVnodeUnmounted=fn<onVnodeUnmounted> ref=Ref< Proxy(Object) {__v_skip: true} > > 
+  at <RouterView > 
+  at <Stage onVnodeUnmounted=fn<onVnodeUnmounted> ref=Ref< Proxy(Object) {__v_skip: true} > > 
+  at <RouterView > 
+  at <StageTransitionGroup primary-color="color-mix(in srgb, oklch(95% var(--chromatic-chroma-900) calc(var(--chromatic-hue) + 0)) 70%, oklch(50% 0 360))" secondary-color="color-mix(in srgb, oklch(95% var(--chromatic-chroma-900) calc(var(--chromatic-hue) + 180)) 70%, oklch(50% 0 360))" tertiary-color="color-mix(in srgb, oklch(95% var(--chromatic-chroma-900) calc(var(--chromatic-hue) + 60)) 70%, oklch(50% 0 360))"  ... > 
+  at <App>
+warn$1 @ runtime-core.esm-bundler.js:51
+logError @ runtime-core.esm-bundler.js:263
+handleError @ runtime-core.esm-bundler.js:255
+(anonymous) @ runtime-core.esm-bundler.js:209
+setTimeout
+(anonymous) @ index.js:1
+(anonymous) @ index.js:1
+(anonymous) @ index.js:19
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+    at async syncBackgroundTheme (theme-color.ts:161:7)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+    at async syncBackgroundTheme (theme-color.ts:161:7)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+    at async syncBackgroundTheme (theme-color.ts:161:7)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4
+theme-color.ts:23 Uncaught (in promise) Error: Widgets element not found
+    at withRetry.retry (theme-color.ts:23:15)
+    at withRetryInternal (index.js:14:20)
+    at index.js:22:26
+    at trampoline (index.js:4:20)
+    at async theme-color.ts:28:21
+    at async updateThemeColor (theme-color.ts:52:91)
+(anonymous) @ theme-color.ts:23
+(anonymous) @ index.js:14
+(anonymous) @ index.js:22
+(anonymous) @ index.js:4

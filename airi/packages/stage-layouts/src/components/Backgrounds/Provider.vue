@@ -10,7 +10,6 @@ import { DefaultBackground } from '../Backgrounds/default'
 defineProps<{
   background: BackgroundItem
   topColor?: string
-  transparent?: boolean
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
@@ -24,13 +23,12 @@ defineExpose({
   <div
     ref="containerRef"
     class="customized-background relative min-h-100dvh w-full overflow-hidden"
-    :style="{ background: transparent ? 'transparent !important' : '' }"
+    :class="[background.kind === BackgroundKind.Transparent ? 'airi-native-transparent-surface' : '']"
   >
     <!-- Background layers -->
     <div
-      v-if="!transparent"
       class="absolute inset-0 z-0 transition-all duration-300"
-      :class="[(background.blur && background.kind !== BackgroundKind.Wave) ? 'blur-md scale-110' : '']"
+      :class="[(background.blur && background.kind === BackgroundKind.Image) ? 'blur-md scale-110' : '']"
     >
       <template v-if="background.kind === BackgroundKind.Wave">
         <DefaultBackground class="h-full w-full" />
@@ -43,13 +41,16 @@ defineExpose({
           decoding="async"
         >
       </template>
+      <template v-else-if="background.kind === BackgroundKind.Transparent">
+        <div class="h-full w-full bg-transparent" />
+      </template>
       <template v-else>
         <div class="h-full w-full bg-neutral-950" />
       </template>
     </div>
 
     <!-- Overlay (not for wave) -->
-    <BackgroundGradientOverlay v-if="!transparent && background.kind !== BackgroundKind.Wave" :color="topColor" />
+    <BackgroundGradientOverlay v-if="background.kind === BackgroundKind.Image" :color="topColor" />
 
     <!-- Content layer (kept mounted during background switches) -->
     <div class="relative z-10 h-full w-full">

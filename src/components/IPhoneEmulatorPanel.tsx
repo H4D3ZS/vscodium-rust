@@ -7,21 +7,13 @@ import { invoke } from '@tauri-apps/api/core';
  * REAL iPhone emulator for mobile developers
  */
 const IPhoneEmulatorPanel: React.FC = () => {
-    const isWebDemo = typeof window !== 'undefined' && !(window as any).__TAURI__;
     const [isRunning, setIsRunning] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [status, setStatus] = useState<'disconnected' | 'connecting' | 'booting' | 'connected' | 'error'>('disconnected');
     const [errorMessage, setErrorMessage] = useState('');
     const [bootProgress, setBootProgress] = useState(0);
-    const [mockView, setMockView] = useState<'home' | 'agent' | 'browser'>('home');
 
     const handleLaunchIPhone = async () => {
-        if (isWebDemo) {
-            setStatus('connected');
-            setIsRunning(true);
-            return;
-        }
-
         setIsLoading(true);
         setStatus('connecting');
         setBootProgress(0);
@@ -34,7 +26,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
                 projectPath: flutterPath,
             });
             
-            // console.log('[iPhone] Launch result:', result);
+            console.log('[iPhone] Launch result:', result);
             setStatus('booting');
             
             // Boot animation
@@ -59,14 +51,6 @@ const IPhoneEmulatorPanel: React.FC = () => {
     };
 
     const handleStopIPhone = async () => {
-        if (isWebDemo) {
-            setIsRunning(false);
-            setStatus('disconnected');
-            setBootProgress(0);
-            setMockView('home');
-            return;
-        }
-
         try {
             await invoke('stop_iphone_emulator');
             setIsRunning(false);
@@ -76,82 +60,6 @@ const IPhoneEmulatorPanel: React.FC = () => {
             console.error('[iPhone] Stop error:', error);
         }
     };
-
-    if (isWebDemo) {
-        return (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--vscode-editor-background)' }}>
-                <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--vscode-panel-border)', background: 'var(--vscode-sideBar-background)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '14px' }}>🍎</span>
-                            <span style={{ fontSize: '11px', fontWeight: 700 }}>iPhone Simulator (Mock)</span>
-                        </div>
-                        <span style={{ fontSize: '9px', padding: '2px 6px', borderRadius: '999px', background: '#3a2d00', color: '#ffd76a' }}>Web Demo</span>
-                    </div>
-                    <p style={{ margin: '8px 0 0', fontSize: '10px', lineHeight: 1.45, color: 'var(--vscode-descriptionForeground)' }}>
-                        Limited demo for time constraints. The full emulator experience and native integrations work seamlessly in the desktop app.
-                    </p>
-                </div>
-
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-                    <div style={{ width: '220px', height: '440px', borderRadius: '34px', background: '#0f0f10', border: '2px solid #2a2a2a', boxShadow: '0 14px 40px rgba(0,0,0,0.45)', padding: '10px' }}>
-                        <div style={{ height: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                            <div style={{ width: '92px', height: '14px', borderRadius: '999px', background: '#050505' }} />
-                        </div>
-                        <div style={{ marginTop: '8px', height: '378px', borderRadius: '24px', background: 'linear-gradient(180deg, #101826 0%, #18233a 100%)', overflow: 'hidden', color: '#f5f5f5' }}>
-                            <div style={{ padding: '10px 12px', fontSize: '10px', opacity: 0.8, display: 'flex', justifyContent: 'space-between' }}>
-                                <span>9:41</span>
-                                <span>{isRunning ? '5G' : 'Offline'}</span>
-                            </div>
-                            <div style={{ padding: '0 14px 12px' }}>
-                                <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '6px' }}>AIRI Mobile Preview</div>
-                                <div style={{ fontSize: '10px', opacity: 0.78 }}>Interactive mock for GitHub Pages judges.</div>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '8px', padding: '0 12px 12px' }}>
-                                <button onClick={() => setMockView('home')} style={{ flex: 1, fontSize: '10px', padding: '6px', borderRadius: '8px', border: 'none', cursor: 'pointer', background: mockView === 'home' ? '#007aff' : '#24324f', color: '#fff' }}>Home</button>
-                                <button onClick={() => setMockView('agent')} style={{ flex: 1, fontSize: '10px', padding: '6px', borderRadius: '8px', border: 'none', cursor: 'pointer', background: mockView === 'agent' ? '#007aff' : '#24324f', color: '#fff' }}>Agent</button>
-                                <button onClick={() => setMockView('browser')} style={{ flex: 1, fontSize: '10px', padding: '6px', borderRadius: '8px', border: 'none', cursor: 'pointer', background: mockView === 'browser' ? '#007aff' : '#24324f', color: '#fff' }}>Web</button>
-                            </div>
-
-                            <div style={{ padding: '0 12px 12px', fontSize: '10px', lineHeight: 1.45 }}>
-                                {mockView === 'home' && (
-                                    <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '10px', padding: '10px' }}>
-                                        <div style={{ fontWeight: 700, marginBottom: '4px' }}>Home Screen</div>
-                                        <div>Demo apps and layout only. Native iOS runtime is desktop-only.</div>
-                                    </div>
-                                )}
-                                {mockView === 'agent' && (
-                                    <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '10px', padding: '10px' }}>
-                                        <div style={{ fontWeight: 700, marginBottom: '4px' }}>AIRI Agent Demo</div>
-                                        <div>Sidebar AI flow is mocked for web. Full local tooling runs in desktop app.</div>
-                                    </div>
-                                )}
-                                {mockView === 'browser' && (
-                                    <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '10px', padding: '10px' }}>
-                                        <div style={{ fontWeight: 700, marginBottom: '4px' }}>Judge Preview</div>
-                                        <div>This is enough for evaluation while preserving full desktop capabilities.</div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div style={{ padding: '10px 12px', borderTop: '1px solid var(--vscode-panel-border)', display: 'flex', justifyContent: 'center' }}>
-                    {!isRunning ? (
-                        <button onClick={handleLaunchIPhone} style={{ padding: '8px 14px', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', background: '#007aff', color: '#fff' }}>
-                            Launch Mock iPhone
-                        </button>
-                    ) : (
-                        <button onClick={handleStopIPhone} style={{ padding: '8px 14px', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', background: '#ff3b30', color: '#fff' }}>
-                            Stop Mock iPhone
-                        </button>
-                    )}
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div style={{

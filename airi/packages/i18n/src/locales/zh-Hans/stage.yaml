@@ -1,13 +1,22 @@
 chat:
+  actions:
+    retry: 重试
   message:
     character-name:
       airi: AIRI
       core-system: 核心系统
       you: 你
   reasoning: 思考
+  sessions:
+    title: 会话
+    new: + 新建
+    empty: 还没有会话
+    cloud-badge: 已同步到云端
+    new-chat-fallback: 新会话
+    delete: 删除会话
 message: 说点什么...
 send-mode:
-  title: Send key
+  title: 发送键值
   enter: Enter
   ctrl-enter: Ctrl + Enter
   double-enter: 双击Enter
@@ -81,7 +90,7 @@ promo-banner:
       title: Spring Theme Update
       eventName: Unlock window, desk, and night-lamp themes to refresh your room.
       date: 04/05 - 04/22
-      reward: Free Theme Draw Ticket on Login
+      reward: Free Theme Draw Ticket on Sign-in
       cta: 查看主题
 waiting: 等待中
 websocket-status:

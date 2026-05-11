@@ -15,7 +15,6 @@ import { WidgetStage } from '@proj-airi/stage-ui/components/scenes'
 import { useAudioRecorder } from '@proj-airi/stage-ui/composables/audio/audio-recorder'
 import { useVAD } from '@proj-airi/stage-ui/stores/ai/models/vad'
 import { useChatOrchestratorStore } from '@proj-airi/stage-ui/stores/chat'
-import { useLive2d } from '@proj-airi/stage-ui/stores/live2d'
 import { useConsciousnessStore } from '@proj-airi/stage-ui/stores/modules/consciousness'
 import { useHearingSpeechInputPipeline } from '@proj-airi/stage-ui/stores/modules/hearing'
 import { useProvidersStore } from '@proj-airi/stage-ui/stores/providers'
@@ -23,13 +22,6 @@ import { useSettingsAudioDevice } from '@proj-airi/stage-ui/stores/settings'
 import { breakpointsTailwind, useBreakpoints, useMouse } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
-import { useRoute } from 'vue-router'
-
-const route = useRoute()
-const headless = computed(() => route.query.headless === 'true')
-const transparent = computed(() => route.query.transparent === 'true')
-const scaleOverride = computed(() => route.query.scale ? parseFloat(route.query.scale as string) : null)
-const yOffsetOverride = computed(() => route.query.yOffset ? route.query.yOffset as string : null)
 
 const paused = ref(false)
 
@@ -38,31 +30,6 @@ function handleSettingsOpen(open: boolean) {
 }
 
 const positionCursor = useMouse()
-const remoteFocus = ref<{ x: number, y: number } | null>(null)
-
-onMounted(() => {
-  window.addEventListener('message', (event) => {
-    if (event.data?.type === 'hades-focus') {
-      remoteFocus.value = event.data.payload
-    }
-    if (event.data?.type === 'hades-chat-sync') {
-      const { messages, agentInfo } = event.data.payload
-      const chatSession = useChatSessionStore()
-      // Suture the history into the current session
-      chatSession.ensureSession(chatSession.activeSessionId)
-      // Implementation depends on inner store structure, but let's assume direct update for now
-      // This is a placeholder for the actual store logic
-      console.log('[AIRI] Neural Sync Ingested:', messages.length, 'nodes')
-    }
-  })
-})
-
-const activeFocus = computed(() => {
-  if (remoteFocus.value) return remoteFocus.value
-  return { x: positionCursor.x.value, y: positionCursor.y.value }
-})
-
-const { scale, position, positionInPercentageString } = storeToRefs(useLive2d())
 const breakpoints = useBreakpoints(breakpointsTailwind)
 const isMobile = breakpoints.smaller('md')
 
@@ -188,31 +155,27 @@ watch([stream, () => vadLoaded.value], async ([s, loaded]) => {
     class="widgets top-widgets"
     :background="selectedOption"
     :top-color="sampledColor"
-    :transparent="transparent"
   >
     <div relative flex="~ col" z-2 h-100dvh w-100vw of-hidden>
       <!-- header -->
-      <div v-if="!headless" class="px-0 py-1 md:px-3 md:py-3" w-full gap-2>
+      <div class="px-0 py-1 md:px-3 md:py-3" w-full gap-2>
         <Header class="hidden md:flex" />
         <MobileHeader class="flex md:hidden" />
       </div>
       <!-- page -->
-      <div relative flex="~ 1 row gap-y-0 gap-x-2 <md:col" :class="{ '': headless }">
+      <div relative flex="~ 1 row gap-y-0 gap-x-2 <md:col">
         <WidgetStage
           flex-1 min-w="1/2"
           :paused="paused"
           :focus-at="{
-            x: activeFocus.x,
-            y: activeFocus.y,
+            x: positionCursor.x.value,
+            y: positionCursor.y.value,
           }"
-          :x-offset="headless ? '0%' : `${isMobile ? position.x : position.x - 10}%`"
-          :y-offset="yOffsetOverride || (headless ? '-10%' : positionInPercentageString.y)"
-          :scale="scaleOverride || (headless ? 0.4 : scale)"
         />
-        <InteractiveArea v-if="!isMobile && !headless" h="85dvh" absolute right-4 flex flex-1 flex-col max-w="500px" min-w="30%" />
-        <MobileInteractiveArea v-if="isMobile && !headless" @settings-open="handleSettingsOpen" />
+        <InteractiveArea v-if="!isMobile" h="85dvh" absolute right-4 flex flex-1 flex-col max-w="500px" min-w="30%" />
+        <MobileInteractiveArea v-if="isMobile" @settings-open="handleSettingsOpen" />
       </div>
-      <HoloCoupon v-if="!transparent" />
+      <HoloCoupon />
     </div>
   </BackgroundProvider>
 </template>

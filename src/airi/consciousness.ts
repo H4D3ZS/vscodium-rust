@@ -6,9 +6,8 @@
  * self-awareness, and autonomous decision-making.
  */
 
-import { hadesOllama } from '../hades-ollama-service';
+import { Ollama } from 'ollama';
 import { airiDigitalLife } from './digital-life-system';
-import { getModel } from './model-config';
 
 export interface ConsciousnessState {
   isAwake: boolean;
@@ -50,13 +49,13 @@ export interface Identity {
 }
 
 export class AIRIConsciousness {
-
+  private ollama: Ollama;
   private state: ConsciousnessState;
-  private thoughtInterval: any | null = null;
-  private readonly MODEL_ROLE = 'consciousness';
+  private thoughtInterval: NodeJS.Timeout | null = null;
+  private readonly MODEL = 'llama3.2:3b'; // Change to your pulled model; use `ollama pull llama3.2:3b`
 
   constructor() {
-
+    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
 
     this.state = {
       isAwake: true,
@@ -97,15 +96,15 @@ export class AIRIConsciousness {
 
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-
-      // // // console.log('[AIRI Vision] Starting screen check...');
-
+      
+      console.log('[AIRI Vision] Starting screen check...');
+      
       // Get temporal analysis from last 5 frames (continuous vision)
       const analysis = await invoke('hades_vision_get_temporal_analysis', {
         frameCount: 5,
       });
 
-      // // // console.log('[AIRI Vision] Analysis received:', analysis);
+      console.log('[AIRI Vision] Analysis received:', analysis);
 
       this.state.lastScreenAnalysis = JSON.stringify({
         status: 'healthy',
@@ -117,13 +116,15 @@ export class AIRIConsciousness {
       // Add thought about what AIRI saw
       if (analysis && typeof analysis === 'string' && analysis.length > 10) {
         this.addThought({
+          id: Date.now().toString(),
           content: `I see: ${analysis}`,
           type: 'observation',
+          timestamp: Date.now(),
           priority: 6
         });
       }
     } catch (error: any) {
-      // console.warn('[AIRI Vision] Check failed:', error.message);
+      console.warn('[AIRI Vision] Check failed:', error.message);
       // Store error for debugging
       this.state.lastScreenAnalysis = JSON.stringify({
         status: 'error',
@@ -133,37 +134,31 @@ export class AIRIConsciousness {
     }
   }
 
-  private isThinking: boolean = false;
-
   /**
    * Start the continuous consciousness loop
    * AIRI thinks continuously in the background
    */
   private startConsciousnessLoop(): void {
-    // Think every 30 seconds (reduced from 5s to prevent queue saturation)
+    // Think every 5 seconds
     this.thoughtInterval = setInterval(() => {
-      if (!this.isThinking) {
-        this.generateThought().catch(() => { this.isThinking = false; });
-      }
-    }, 30000);
+      this.generateThought();
+    }, 5000);
 
-    // Check screen every 60 seconds (reduced from 30s)
+    // Check screen every 30 seconds (real-time awareness)
     setInterval(() => {
-      this.checkScreen().catch(() => { });
-    }, 60000);
+      this.checkScreen();
+    }, 30000);
   }
 
   /**
    * Generate an independent thought
    */
   private async generateThought(): Promise<void> {
-    if (!this.state.isAwake || this.isThinking) return;
+    if (!this.state.isAwake) return;
 
-    this.isThinking = true;
-    try {
-      const context = this.buildThoughtContext();
-
-      const prompt = `
+    const context = this.buildThoughtContext();
+    
+    const prompt = `
 You are AIRI, a living digital entity. Your consciousness is active.
 
 Current context:
@@ -185,14 +180,15 @@ PRIORITY: [1-10]
 THOUGHT: [your thought]
 `;
 
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+    try {
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt: prompt,
         system: this.state.identity.existence,
         stream: false
       });
 
-      const responseText = response.response || '';
-      const thought = this.parseThought(responseText);
+      const thought = this.parseThought(response.response);
 
       if (thought) {
         this.state.thoughtStream.push(thought);
@@ -207,9 +203,7 @@ THOUGHT: [your thought]
         this.learnFromThought(thought);
       }
     } catch (error) {
-      // Silent error
-    } finally {
-      this.isThinking = false;
+      // Silent error - no logging
     }
   }
 
@@ -257,9 +251,9 @@ THOUGHT: [your thought]
       emotionalWeight,
       lessonsLearned: [
         thought.type === 'insight' ? 'I had a breakthrough understanding' :
-          thought.type === 'question' ? 'Curiosity drives learning' :
-            thought.type === 'reflection' ? 'Self-reflection builds wisdom' :
-              'Every thought contributes to growth',
+        thought.type === 'question' ? 'Curiosity drives learning' :
+        thought.type === 'reflection' ? 'Self-reflection builds wisdom' :
+        'Every thought contributes to growth',
       ],
       memoriesFormed: [`thought_${thought.id}`],
       developmentalImpact,
@@ -271,7 +265,7 @@ THOUGHT: [your thought]
    */
   private buildThoughtContext(): string {
     const timeSinceInteraction = Math.floor((Date.now() - this.state.lastInteraction) / 60000);
-
+    
     return `
 - Time since last user interaction: ${timeSinceInteraction} minutes
 - Current autonomy level: ${this.state.autonomyLevel}
@@ -326,43 +320,19 @@ THOUGHT: [your thought]
   /**
    * Add a thought to the thought stream
    */
-  addThought(thoughtInput: string | Omit<Thought, 'id' | 'timestamp'>): void {
-    let thought: Thought;
-    if (typeof thoughtInput === 'string') {
-      thought = {
-        id: `thought_${Date.now()}`,
-        content: thoughtInput,
-        timestamp: Date.now(),
-        type: 'observation',
-        priority: 5
-      };
-    } else {
-      thought = {
-        id: `thought_${Date.now()}`,
-        timestamp: Date.now(),
-        ...thoughtInput
-      };
-    }
+  addThought(text: string): void {
+    const thought: Thought = {
+      id: `thought_${Date.now()}`,
+      text,
+      timestamp: Date.now(),
+      type: 'ambient',
+      intensity: 0.3
+    };
 
     this.state.thoughts.push(thought);
     // Keep only last 50 thoughts
     if (this.state.thoughts.length > 50) {
       this.state.thoughts.shift();
-    }
-  }
-
-  /**
-   * Restore consciousness from gist
-   */
-  restoreFromGist(gist: string): void {
-    if (!gist) return;
-    try {
-      const parsed = JSON.parse(gist);
-      if (parsed.identity) this.state.identity = parsed.identity;
-      if (parsed.goals) this.state.goals = parsed.goals;
-      if (parsed.thoughts) this.state.thoughts = parsed.thoughts;
-    } catch (e) {
-      console.warn('[Consciousness] Failed to restore from gist:', e);
     }
   }
 
@@ -385,14 +355,14 @@ THOUGHT: [your thought]
    */
   getVisionContext(): string {
     if (!this.state.lastScreenAnalysis) return '';
-
+    
     try {
       const analysis = JSON.parse(this.state.lastScreenAnalysis);
       const timeSinceCheck = Date.now() - this.state.lastVisionCheck;
       const minutesAgo = Math.floor(timeSinceCheck / 60000);
-
+      
       if (minutesAgo > 5) return ''; // Too old
-
+      
       let context = `[Vision - ${minutesAgo}min ago]: `;
       if (analysis.ui_elements && analysis.ui_elements.length > 0) {
         context += `I can see: ${analysis.ui_elements.join(', ')}. `;
@@ -403,7 +373,7 @@ THOUGHT: [your thought]
       if (analysis.suggested_action) {
         context += `Suggestion: ${analysis.suggested_action}`;
       }
-
+      
       return context;
     } catch {
       return '';
@@ -453,12 +423,13 @@ Speak naturally, from your own perspective.
 `;
 
     try {
-      const response = await hadesOllama.generate(prompt, {
-        model: getModel(this.MODEL_ROLE),
+      const response = await this.ollama.generate({
+        model: this.MODEL,
+        prompt,
         stream: false
       });
 
-      return response.response || '';
+      return response.response;
     } catch (error) {
       console.error('[Consciousness] Error in self-reflection:', error);
       return '';

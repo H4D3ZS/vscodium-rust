@@ -201,14 +201,11 @@ pub fn capture_screen() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         return Ok(png_bytes);
     }
     
-    #[cfg(not(target_os = "windows"))]
-    {
-        Err("Screen capture not supported on this platform".into())
-    }
+    Err("Screen capture not supported on this platform".into())
 }
 
 /// Capture specific window by title (not implemented yet)
-pub fn _capture_window(_window_title: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub fn capture_window(_window_title: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     // For now, capture full screen
     capture_screen()
 }

@@ -56,7 +56,7 @@ function createMockServer() {
     },
     httpServer,
     resolvedUrls: {
-      local: ['http://localhost:5173/'],
+      local: ['http://127.0.0.1:5173/'],
     },
     watcher,
   }
@@ -135,7 +135,7 @@ describe('capVitePlugin', () => {
       nodeOptions: {
         cwd: '/repo/app',
         env: {
-          CAPACITOR_DEV_SERVER_URL: 'http://localhost:5173/',
+          CAPACITOR_DEV_SERVER_URL: 'http://127.0.0.1:5173/',
         },
         stdio: ['ignore', 'inherit', 'inherit'],
       },
@@ -146,12 +146,12 @@ describe('capVitePlugin', () => {
 
     await vi.waitFor(() => {
       expect(firstRun.kill).toHaveBeenCalledWith('SIGINT')
-      expect(server.config.logger.info).toHaveBeenCalledWith('[cap-vite] manual restart requested. Re-running cap run ios.')
+      expect(server.config.logger.info).toHaveBeenCalledWith('[cap-vite] manual restart requested. Re-running "cap run ios --scheme AIRI".')
       expect(x).toHaveBeenNthCalledWith(2, 'cap', ['run', 'ios', '--scheme', 'AIRI'], {
         nodeOptions: {
           cwd: '/repo/app',
           env: {
-            CAPACITOR_DEV_SERVER_URL: 'http://localhost:5173/',
+            CAPACITOR_DEV_SERVER_URL: 'http://127.0.0.1:5173/',
           },
           stdio: ['ignore', 'inherit', 'inherit'],
         },

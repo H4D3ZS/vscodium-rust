@@ -45,6 +45,7 @@ export class AIRIVoiceInteraction {
     private recognition: any = null;
     private isListening = false;
     private audioStream: MediaStream | null = null;
+    private permissionDenied = false;
 
     constructor(config: Partial<VoiceInteractionConfig> = {}) {
         this.config = {
@@ -119,6 +120,9 @@ export class AIRIVoiceInteraction {
         }
 
         if (this.isListening) {
+            return;
+        }
+        if (this.permissionDenied) {
             return;
         }
 
@@ -254,11 +258,18 @@ export class AIRIVoiceInteraction {
      * Speech recognition error
      */
     private onSpeechError(event: any): void {
-        console.error('[VoiceInteraction] Error:', event.error);
-        
-        if (event.error === 'not-allowed') {
-            console.error('Microphone permission denied! Please allow microphone access.');
+        const err = event?.error || 'unknown';
+        if (err === 'not-allowed' || err === 'service-not-allowed') {
+            this.permissionDenied = true;
+            this.isListening = false;
+            console.warn('[VoiceInteraction] Microphone permission denied; voice input disabled.');
+            return;
         }
+        if (err === 'aborted' || err === 'no-speech') {
+            return;
+        }
+        console.error('[VoiceInteraction] Error:', err);
+        
     }
 
     /**

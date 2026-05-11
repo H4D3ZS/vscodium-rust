@@ -91,7 +91,7 @@ const MitmPanel: React.FC = () => {
 
             <div style={{ marginTop: '12px', fontSize: '11px', opacity: 0.5, display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <i className="codicon codicon-info" style={{ fontSize: '12px' }}></i>
-                Configure your target device or application to use localhost:8080 as HTTP/HTTPS proxy.
+                Configure your target device or application to use 127.0.0.1:8080 as HTTP/HTTPS proxy.
             </div>
         </div>
     );

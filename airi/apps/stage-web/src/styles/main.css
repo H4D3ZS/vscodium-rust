@@ -32,12 +32,6 @@ html {
   transition: all 0.3s ease-in-out;
 }
 
-html.is-transparent,
-html.is-transparent body,
-html.is-transparent #app {
-  background: transparent !important;
-}
-
 html.dark {
   --bg-color: var(--bg-color-dark);
   color-scheme: dark;
@@ -48,7 +42,7 @@ html.dark {
 }
 
 #nprogress .bar {
-  background: #3b82f6;
+  background: color-mix(in srgb, oklch(95% var(--chromatic-chroma-900) calc(var(--chromatic-hue) + ${0})) 70%, oklch(50% 0 360));
   opacity: 0.75;
   position: fixed;
   z-index: 1031;
@@ -59,14 +53,13 @@ html.dark {
 }
 
 .dark #nprogress .bar {
-  background: #3b82f6;
+  background: `color-mix(in srgb, oklch(95% var(--chromatic-chroma-900) calc(var(--chromatic-hue) + ${0})) 90%, oklch(90% 0 360))`;
 }
 
 @media (display-mode: standalone) {
   #nprogress {
     display: none;
   }
-
   #nprogress .bar {
     display: none;
   }
