@@ -156,6 +156,7 @@ pub fn run() {
 
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
+            ai_commands::ai_chat_fast,
             ai_commands::ai_chat_oneshot,
             ai_commands::ai_debug_code,
             ai_commands::ai_document_code,

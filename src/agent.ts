@@ -926,6 +926,38 @@ function looksLikeActionRequest(text: string): boolean {
     return ACTION_VERB_REGEX.test(text);
 }
 
+// "Trivial chat" detection. Used to bypass the full autonomous loop for
+// prompts that are obviously not asking the agent to touch the codebase
+// — greetings, small-talk, name questions, single-word acks. Without
+// this, "hello" in Agent mode runs the entire phase machinery and the
+// model dutifully calls `git_status` + `grep` before answering, taking
+// 5–15 seconds for a one-token reply.
+//
+// Conservative on purpose: any sign the user wants the agent to *do*
+// something (action verbs, paths, code fences, @-mentions, file
+// extensions, attached context) returns false and we fall through to
+// the normal agent path.
+const TRIVIAL_CHAT_REGEX = /^(hi+|hello+|hey+|yo+|sup|howdy|hola|ola|gm|gn|good\s+(morning|night|afternoon|evening)|thanks+|thank\s*you|ty|ok+|okay+|cool|nice|wow|lol|lmao|wtf|huh+|what'?s\s*up|how\s+are\s+you|how'?s\s+it\s+going|who\s+are\s+you|what'?s\s+your\s+name|tell\s+me\s+a\s+joke|tell\s+me\s+about\s+yourself|are\s+you\s+there|ping|test+|\?|\!)[\s\!\?\.]*$/i;
+const CODE_INDICATOR_REGEX = /[`{}<>$]|\b\w+\.(rs|ts|tsx|js|jsx|py|go|java|cs|cpp|c|h|md|json|toml|yaml|yml|html|css|scss|sh|bash|zsh|sql)\b|[\/\\][\w.\-]+|\@\w+/;
+
+function isTrivialChat(text: string, hasAttachedContext: boolean): boolean {
+    if (!text) return false;
+    const trimmed = text.trim();
+    // Anything with attached context (an @-file, image, etc.) is by
+    // definition NOT trivial.
+    if (hasAttachedContext) return false;
+    // Very short greetings/acks — always fast-path.
+    if (trimmed.length <= 24 && TRIVIAL_CHAT_REGEX.test(trimmed)) return true;
+    // Short messages without action verbs, code, paths, or @-mentions.
+    if (trimmed.length <= 80
+        && !ACTION_VERB_REGEX.test(trimmed)
+        && !CODE_INDICATOR_REGEX.test(trimmed)
+        && !trimmed.includes('\n')) {
+        return true;
+    }
+    return false;
+}
+
 export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: string) => void, context?: any[]): Promise<void> {
     const store = (window as any).useStore;
     if (!store) throw new Error("Store not found");
@@ -988,6 +1020,68 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
     // === Legacy Backend Flow (Ollama, llama.cpp/Kortex, OpenAI, Google, Anthropic, etc.) ===
     // Local inference uses Rust `ai_chat` with full tools — never bypass via HTTP-only helpers.
     const { agentMessages, setAiStatus, availableModels, agentModel, inferenceBackend } = store.getState();
+
+    // === Trivial-chat fast path ============================================
+    // For greetings / small talk / single-line questions with no action verbs
+    // or code references, skip the entire autonomous loop and just do a single
+    // round-trip to the model. This drops "hello" from ~5–15s to ~300ms
+    // (a single HTTP call to the provider) and stops the model from running
+    // git_status + grep for a one-token greeting.
+    const hasAttached = !!(context && context.length) || !!(store.getState().attachedContext?.length);
+    if (isTrivialChat(userPrompt, hasAttached)) {
+        try {
+            store.getState().setIsAgentThinking?.(true);
+
+            // Provider/model resolution — same logic as the slow path below,
+            // duplicated locally to avoid a giant refactor. Kept minimal.
+            let fastProvider = "OpenAI";
+            let fastModel = agentModel;
+            const foundFast = availableModels?.find((m: any) => m.id === agentModel || `${m.provider}|${m.id}` === agentModel);
+            if (foundFast) {
+                fastProvider = foundFast.provider;
+                fastModel = foundFast.id;
+            } else if (agentModel.includes("|")) {
+                [fastProvider, fastModel] = agentModel.split("|");
+            } else if (agentModel.toLowerCase().includes("goog") || agentModel.toLowerCase().includes("gemini")) {
+                fastProvider = "Google";
+            } else if (agentModel.toLowerCase().includes("anthropic") || agentModel.toLowerCase().includes("claude")) {
+                fastProvider = "Anthropic";
+            } else if (agentModel.toLowerCase().includes("ollama") || agentModel.includes("/") || agentModel.includes(":")) {
+                fastProvider = "Ollama";
+            }
+
+            const fastResult = await invoke<string>('ai_chat_fast', {
+                request: {
+                    provider: fastProvider.toLowerCase(),
+                    model: fastModel,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are AIRI, a friendly AI coding assistant. For this message, respond conversationally in 1–2 short sentences. Do NOT call any tools or describe what you would do — just chat back.',
+                        },
+                        { role: 'user', content: userPrompt },
+                    ],
+                    temperature: 0.7,
+                    autonomous: false,
+                    mode: 'Chat',
+                    ollama_url: store.getState().ollamaUrl,
+                    tools: [], // empty array = no tool catalog at all
+                },
+            });
+            // ai_chat_fast already emitted the `ai-content` event, which the
+            // global listener consumed to flip `isAgentThinking` off and call
+            // updateLastAgentMessage. We still call onUpdate for callers
+            // (Composer.tsx, /commit, /review, etc.) that pass their own.
+            try { onUpdate(fastResult); } catch (_) { /* non-fatal */ }
+            return;
+        } catch (e: any) {
+            // If the fast path fails for any reason, fall through to the
+            // full agent loop — better slow than nothing.
+            console.warn('[agent] fast-path failed, falling back to full loop:', e?.message ?? e);
+            store.getState().setIsAgentThinking?.(false);
+        }
+    }
+    // =======================================================================
 
     // Determine provider and model
     let provider = "OpenAI";

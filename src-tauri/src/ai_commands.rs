@@ -176,6 +176,39 @@ pub async fn ai_chat(state: State<'_, EditorState>, mut request: AiRequest) -> R
     Ok(result)
 }
 
+/// Trivial-chat fast path. Skips the autonomous loop, the phase
+/// machinery, tool catalog construction, system-prompt assembly, and
+/// every retry. One HTTP round-trip to the provider and we're done.
+/// Used by the frontend for short, action-less prompts like "hello"
+/// where running the full agent loop is gross overkill (and was making
+/// "hi" take 5+ seconds while the model dutifully ran git_status and
+/// grep). Cursor's Agent mode behaves the same way — it doesn't open
+/// the codebase index for a greeting.
+#[tauri::command]
+pub async fn ai_chat_fast(
+    state: State<'_, EditorState>,
+    request: AiRequest,
+) -> Result<String, String> {
+    state.kairos.report_activity().await;
+
+    let engine = state.ai_engine.clone();
+    // We deliberately do NOT inject the heavy Hades context here; the
+    // whole point is sub-second latency. The conversation history the
+    // frontend already passed is enough for trivial chat.
+    let result = engine
+        .single_shot_completion(request)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Keep the existing UI plumbing happy: every other code path
+    // delivers the response via the `ai-content` event, so emit it
+    // here too. The frontend `ai-content` listener calls
+    // `updateLastAgentMessage` and flips `isAgentThinking` off.
+    engine.emit_event("ai-content", serde_json::json!({ "content": result.clone() }));
+
+    Ok(result)
+}
+
 /// Background-agent entry point. Same engine, same tool surface as
 /// `ai_chat`, but every `emit_event` is suppressed for the duration of
 /// the run so the foreground chat UI keeps streaming whatever it was
