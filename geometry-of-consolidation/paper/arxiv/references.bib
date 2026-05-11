@@ -1,0 +1,573 @@
+% ============================================================
+% References for the arXiv companion to
+% ``The Geometry of Consolidation''
+%
+% All entries were verified against primary sources (arXiv,
+% ACL Anthology, IEEE Xplore, JMLR, PubMed, journal pages) in
+% April 2026 by a dedicated verification pass.
+%
+% Citation keys below match those used throughout sections/*.tex.
+% ============================================================
+
+% ------------------------------------------------------------
+% Companion papers in the trilogy (self-references)
+% ------------------------------------------------------------
+@article{geometryOfForgetting2026,
+  title   = {The Geometry of Forgetting: Variance Concentration in
+             Embedding Spaces Lower-Bounds Retrieval Accuracy},
+  author  = {Barman, J. and Gopinath, Ashwin},
+  journal = {Preprint, Sentra Technical Report},
+  year    = {2026},
+  note    = {First paper in the consolidation trilogy}
+}
+
+@article{priceOfMeaning2026,
+  title   = {The Price of Meaning: A Capacity Lower Bound for
+             Kernel-Threshold Memory Systems},
+  author  = {Gopinath, Ashwin},
+  journal = {Preprint, Sentra Technical Report},
+  year    = {2026},
+  note    = {Second paper in the consolidation trilogy}
+}
+
+% ------------------------------------------------------------
+% Retrieval-augmented generation
+% ------------------------------------------------------------
+@inproceedings{lewisRAG2020,
+  title     = {Retrieval-Augmented Generation for Knowledge-Intensive {NLP} Tasks},
+  author    = {Lewis, Patrick and Perez, Ethan and Piktus, Aleksandra and
+               Petroni, Fabio and Karpukhin, Vladimir and Goyal, Naman and
+               K{\"u}ttler, Heinrich and Lewis, Mike and Yih, Wen-tau and
+               Rockt{\"a}schel, Tim and Riedel, Sebastian and Kiela, Douwe},
+  booktitle = {Advances in Neural Information Processing Systems},
+  volume    = {33},
+  pages     = {9459--9474},
+  year      = {2020},
+  url       = {https://arxiv.org/abs/2005.11401}
+}
+
+@inproceedings{guu2020realm,
+  title     = {{REALM}: Retrieval-Augmented Language Model Pre-Training},
+  author    = {Guu, Kelvin and Lee, Kenton and Tung, Zora and
+               Pasupat, Panupong and Chang, Ming-Wei},
+  booktitle = {Proceedings of the 37th International Conference on
+               Machine Learning},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {119},
+  pages     = {3929--3938},
+  year      = {2020},
+  publisher = {PMLR},
+  url       = {https://arxiv.org/abs/2002.08909}
+}
+
+@inproceedings{karpukhin2020dpr,
+  title     = {Dense Passage Retrieval for Open-Domain Question Answering},
+  author    = {Karpukhin, Vladimir and O{\u{g}}uz, Barlas and Min, Sewon
+               and Lewis, Patrick and Wu, Ledell and Edunov, Sergey and
+               Chen, Danqi and Yih, Wen-tau},
+  booktitle = {Proceedings of the 2020 Conference on Empirical Methods
+               in Natural Language Processing ({EMNLP})},
+  pages     = {6769--6781},
+  year      = {2020},
+  doi       = {10.18653/v1/2020.emnlp-main.550}
+}
+
+@article{izacardAtlas2023,
+  title   = {Atlas: Few-Shot Learning with Retrieval Augmented Language Models},
+  author  = {Izacard, Gautier and Lewis, Patrick and Lomeli, Maria and
+             Hosseini, Lucas and Petroni, Fabio and Schick, Timo and
+             Dwivedi-Yu, Jane and Joulin, Armand and Riedel, Sebastian
+             and Grave, Edouard},
+  journal = {Journal of Machine Learning Research},
+  volume  = {24},
+  number  = {251},
+  pages   = {1--43},
+  year    = {2023},
+  url     = {https://jmlr.org/papers/v24/23-0037.html}
+}
+
+@inproceedings{borgeaud2022retro,
+  title     = {Improving Language Models by Retrieving from Trillions of Tokens},
+  author    = {Borgeaud, Sebastian and Mensch, Arthur and Hoffmann, Jordan
+               and Cai, Trevor and Rutherford, Eliza and Millican, Katie
+               and van den Driessche, George and others},
+  booktitle = {Proceedings of the 39th International Conference on
+               Machine Learning},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {162},
+  pages     = {2206--2240},
+  year      = {2022},
+  publisher = {PMLR},
+  url       = {https://arxiv.org/abs/2112.04426}
+}
+
+@inproceedings{izacard2021fid,
+  title     = {Leveraging Passage Retrieval with Generative Models for
+               Open Domain Question Answering},
+  author    = {Izacard, Gautier and Grave, Edouard},
+  booktitle = {Proceedings of the 16th Conference of the European Chapter
+               of the Association for Computational Linguistics: Main Volume},
+  pages     = {874--880},
+  year      = {2021},
+  doi       = {10.18653/v1/2021.eacl-main.74}
+}
+
+% ------------------------------------------------------------
+% Vector-store quantization and approximate nearest neighbour
+% ------------------------------------------------------------
+@article{jegouPQ2011,
+  title   = {Product Quantization for Nearest Neighbor Search},
+  author  = {J{\'e}gou, Herv{\'e} and Douze, Matthijs and Schmid, Cordelia},
+  journal = {{IEEE} Transactions on Pattern Analysis and Machine Intelligence},
+  volume  = {33},
+  number  = {1},
+  pages   = {117--128},
+  year    = {2011},
+  doi     = {10.1109/TPAMI.2010.57}
+}
+
+@inproceedings{ge2013optimized,
+  title     = {Optimized Product Quantization for Approximate Nearest
+               Neighbor Search},
+  author    = {Ge, Tiezheng and He, Kaiming and Ke, Qifa and Sun, Jian},
+  booktitle = {{IEEE} Conference on Computer Vision and Pattern
+               Recognition ({CVPR})},
+  pages     = {2946--2953},
+  year      = {2013},
+  doi       = {10.1109/CVPR.2013.379}
+}
+
+@inproceedings{charikarLSH2002,
+  title     = {Similarity Estimation Techniques from Rounding Algorithms},
+  author    = {Charikar, Moses S.},
+  booktitle = {Proceedings of the 34th Annual {ACM} Symposium on Theory
+               of Computing ({STOC})},
+  pages     = {380--388},
+  year      = {2002},
+  doi       = {10.1145/509907.509965}
+}
+
+@inproceedings{datarLSH2004,
+  title     = {Locality-Sensitive Hashing Scheme Based on $p$-Stable Distributions},
+  author    = {Datar, Mayur and Immorlica, Nicole and Indyk, Piotr and
+               Mirrokni, Vahab S.},
+  booktitle = {Proceedings of the 20th Annual Symposium on Computational
+               Geometry ({SCG})},
+  pages     = {253--262},
+  year      = {2004},
+  doi       = {10.1145/1007352.1007450}
+}
+
+@article{malkovHNSW2018,
+  title   = {Efficient and Robust Approximate Nearest Neighbor Search
+             Using Hierarchical Navigable Small World Graphs},
+  author  = {Malkov, Yu. A. and Yashunin, D. A.},
+  journal = {{IEEE} Transactions on Pattern Analysis and Machine Intelligence},
+  volume  = {42},
+  number  = {4},
+  pages   = {824--836},
+  year    = {2020},
+  doi     = {10.1109/TPAMI.2018.2889473}
+}
+
+@article{johnson2019faiss,
+  title   = {Billion-Scale Similarity Search with {GPU}s},
+  author  = {Johnson, Jeff and Douze, Matthijs and J{\'e}gou, Herv{\'e}},
+  journal = {{IEEE} Transactions on Big Data},
+  volume  = {7},
+  number  = {3},
+  pages   = {535--547},
+  year    = {2021},
+  doi     = {10.1109/TBDATA.2019.2921572}
+}
+
+% ------------------------------------------------------------
+% Sentence encoders / dense embedding models
+% ------------------------------------------------------------
+@inproceedings{reimers2019sbert,
+  title     = {Sentence-{BERT}: Sentence Embeddings using {S}iamese
+               {BERT}-Networks},
+  author    = {Reimers, Nils and Gurevych, Iryna},
+  booktitle = {Proceedings of the 2019 Conference on Empirical Methods
+               in Natural Language Processing ({EMNLP})},
+  pages     = {3982--3992},
+  year      = {2019},
+  doi       = {10.18653/v1/D19-1410}
+}
+
+@inproceedings{song2020mpnet,
+  title     = {{MPN}et: Masked and Permuted Pre-training for Language Understanding},
+  author    = {Song, Kaitao and Tan, Xu and Qin, Tao and Lu, Jianfeng
+               and Liu, Tie-Yan},
+  booktitle = {Advances in Neural Information Processing Systems},
+  volume    = {33},
+  pages     = {16857--16867},
+  year      = {2020}
+}
+
+@inproceedings{wang2020minilm,
+  title     = {{MiniLM}: Deep Self-Attention Distillation for
+               Task-Agnostic Compression of Pre-Trained Transformers},
+  author    = {Wang, Wenhui and Wei, Furu and Dong, Li and Bao, Hangbo
+               and Yang, Nan and Zhou, Ming},
+  booktitle = {Advances in Neural Information Processing Systems},
+  volume    = {33},
+  pages     = {5776--5788},
+  year      = {2020}
+}
+
+@article{wang2022e5,
+  title   = {Text Embeddings by Weakly-Supervised Contrastive Pre-training},
+  author  = {Wang, Liang and Yang, Nan and Huang, Xiaolong and Jiao,
+             Binxing and Yang, Linjun and Jiang, Daxin and Majumder,
+             Rangan and Wei, Furu},
+  journal = {arXiv preprint arXiv:2212.03533},
+  year    = {2022}
+}
+
+@inproceedings{xiao2023bge,
+  title     = {C-Pack: Packed Resources for General {C}hinese Embeddings},
+  author    = {Xiao, Shitao and Liu, Zheng and Zhang, Peitian and
+               Muennighoff, Niklas and Lian, Defu and Nie, Jian-Yun},
+  booktitle = {Proceedings of the 47th International {ACM} {SIGIR}
+               Conference on Research and Development in Information
+               Retrieval},
+  pages     = {641--649},
+  year      = {2024},
+  doi       = {10.1145/3626772.3657878}
+}
+
+@article{nussbaum2024nomic,
+  title   = {Nomic Embed: Training a Reproducible Long Context Text Embedder},
+  author  = {Nussbaum, Zach and Morris, John X. and Duderstadt, Brandon
+             and Mulyar, Andriy},
+  journal = {Transactions on Machine Learning Research},
+  year    = {2024}
+}
+
+@inproceedings{gao2021simcse,
+  title     = {{SimCSE}: Simple Contrastive Learning of Sentence Embeddings},
+  author    = {Gao, Tianyu and Yao, Xingcheng and Chen, Danqi},
+  booktitle = {Proceedings of the 2021 Conference on Empirical Methods
+               in Natural Language Processing ({EMNLP})},
+  pages     = {6894--6910},
+  year      = {2021},
+  doi       = {10.18653/v1/2021.emnlp-main.552}
+}
+
+% ------------------------------------------------------------
+% Complementary learning systems / cognitive consolidation
+% ------------------------------------------------------------
+@article{mcclellandConsolidation1995,
+  title   = {Why There Are Complementary Learning Systems in the
+             Hippocampus and Neocortex: Insights from the Successes and
+             Failures of Connectionist Models of Learning and Memory},
+  author  = {McClelland, James L. and McNaughton, Bruce L. and
+             O'Reilly, Randall C.},
+  journal = {Psychological Review},
+  volume  = {102},
+  number  = {3},
+  pages   = {419--457},
+  year    = {1995},
+  doi     = {10.1037/0033-295X.102.3.419}
+}
+
+@article{alvarezSquireConsolidation1994,
+  title   = {Memory Consolidation and the Medial Temporal Lobe: A
+             Simple Network Model},
+  author  = {Alvarez, Pablo and Squire, Larry R.},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {91},
+  number  = {15},
+  pages   = {7041--7045},
+  year    = {1994},
+  doi     = {10.1073/pnas.91.15.7041}
+}
+
+@article{marrSimple1971,
+  title   = {Simple Memory: A Theory for Archicortex},
+  author  = {Marr, D.},
+  journal = {Philosophical Transactions of the Royal Society of London.
+             Series B, Biological Sciences},
+  volume  = {262},
+  number  = {841},
+  pages   = {23--81},
+  year    = {1971},
+  doi     = {10.1098/rstb.1971.0078}
+}
+
+@article{wilson1994reactivation,
+  title   = {Reactivation of Hippocampal Ensemble Memories During Sleep},
+  author  = {Wilson, Matthew A. and McNaughton, Bruce L.},
+  journal = {Science},
+  volume  = {265},
+  number  = {5172},
+  pages   = {676--679},
+  year    = {1994},
+  doi     = {10.1126/science.8036517}
+}
+
+@article{oreillyHippocampus2014,
+  title   = {Hippocampal Conjunctive Encoding, Storage, and Recall:
+             Avoiding a Trade-Off},
+  author  = {O'Reilly, Randall C. and McClelland, James L.},
+  journal = {Hippocampus},
+  volume  = {4},
+  number  = {6},
+  pages   = {661--682},
+  year    = {1994},
+  doi     = {10.1002/hipo.450040605}
+}
+
+@article{tulvingEpisodic1972,
+  title   = {Episodic and Semantic Memory},
+  author  = {Tulving, Endel},
+  journal = {Organization of Memory},
+  editor  = {Tulving, Endel and Donaldson, Wayne},
+  pages   = {381--403},
+  year    = {1972},
+  publisher = {Academic Press, New York}
+}
+
+% ------------------------------------------------------------
+% Catastrophic forgetting / continual learning
+% ------------------------------------------------------------
+@incollection{mccloskey1989cf,
+  title     = {Catastrophic Interference in Connectionist Networks: The
+               Sequential Learning Problem},
+  author    = {McCloskey, Michael and Cohen, Neal J.},
+  booktitle = {Psychology of Learning and Motivation},
+  volume    = {24},
+  pages     = {109--165},
+  year      = {1989},
+  doi       = {10.1016/S0079-7421(08)60536-8}
+}
+
+@article{robinsReplay1995,
+  title   = {Catastrophic Forgetting, Rehearsal and Pseudorehearsal},
+  author  = {Robins, Anthony V.},
+  journal = {Connection Science},
+  volume  = {7},
+  number  = {2},
+  pages   = {123--146},
+  year    = {1995},
+  doi     = {10.1080/09540099550039318}
+}
+
+@article{kirkpatrickEWC2017,
+  title   = {Overcoming Catastrophic Forgetting in Neural Networks},
+  author  = {Kirkpatrick, James and Pascanu, Razvan and Rabinowitz,
+             Neil and Veness, Joel and Desjardins, Guillaume and Rusu,
+             Andrei A. and Milan, Kieran and Quan, John and Ramalho,
+             Tiago and Grabska-Barwinska, Agnieszka and Hassabis, Demis
+             and Clopath, Claudia and Kumaran, Dharshan and Hadsell, Raia},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {114},
+  number  = {13},
+  pages   = {3521--3526},
+  year    = {2017},
+  doi     = {10.1073/pnas.1611835114}
+}
+
+@inproceedings{chaudhryGEM2019,
+  title     = {Efficient Lifelong Learning with {A-GEM}},
+  author    = {Chaudhry, Arslan and Ranzato, Marc'Aurelio and
+               Rohrbach, Marcus and Elhoseiny, Mohamed},
+  booktitle = {7th International Conference on Learning Representations
+               ({ICLR})},
+  year      = {2019},
+  url       = {https://arxiv.org/abs/1812.00420}
+}
+
+% ------------------------------------------------------------
+% Effective rank / intrinsic dimension
+% ------------------------------------------------------------
+@inproceedings{royVetterli2007,
+  title     = {The Effective Rank: A Measure of Effective Dimensionality},
+  author    = {Roy, Olivier and Vetterli, Martin},
+  booktitle = {15th European Signal Processing Conference ({EUSIPCO})},
+  pages     = {606--610},
+  year      = {2007},
+  address   = {Poznan, Poland},
+  url       = {https://www.eurasip.org/Proceedings/Eusipco/Eusipco2007/Papers/a5p-h05.pdf}
+}
+
+% ------------------------------------------------------------
+% Concentration of measure / high-dimensional probability
+% ------------------------------------------------------------
+@book{milman1986asymptotic,
+  title     = {Asymptotic Theory of Finite Dimensional Normed Spaces},
+  author    = {Milman, Vitali D. and Schechtman, Gideon},
+  series    = {Lecture Notes in Mathematics},
+  volume    = {1200},
+  year      = {1986},
+  publisher = {Springer-Verlag},
+  address   = {Berlin},
+  doi       = {10.1007/978-3-540-38822-7}
+}
+
+@incollection{ball1997elementary,
+  title     = {An Elementary Introduction to Modern Convex Geometry},
+  author    = {Ball, Keith},
+  booktitle = {Flavors of Geometry},
+  editor    = {Levy, Silvio},
+  series    = {{MSRI} Publications},
+  volume    = {31},
+  pages     = {1--58},
+  year      = {1997},
+  publisher = {Cambridge University Press},
+  address   = {Cambridge},
+  url       = {https://library.msri.org/books/Book31/files/ball.pdf}
+}
+
+@book{vershynin2018hdp,
+  title     = {High-Dimensional Probability: An Introduction with
+               Applications in Data Science},
+  author    = {Vershynin, Roman},
+  year      = {2018},
+  publisher = {Cambridge University Press},
+  doi       = {10.1017/9781108231596}
+}
+
+@book{ledoux2001concentration,
+  title     = {The Concentration of Measure Phenomenon},
+  author    = {Ledoux, Michel},
+  series    = {Mathematical Surveys and Monographs},
+  volume    = {89},
+  year      = {2001},
+  publisher = {American Mathematical Society},
+  doi       = {10.1090/surv/089}
+}
+
+@inproceedings{beyer1999nn,
+  title     = {When Is ``Nearest Neighbor'' Meaningful?},
+  author    = {Beyer, Kevin and Goldstein, Jonathan and Ramakrishnan,
+               Raghu and Shaft, Uri},
+  booktitle = {Database Theory --- ICDT'99},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {1540},
+  pages     = {217--235},
+  year      = {1999},
+  publisher = {Springer},
+  doi       = {10.1007/3-540-49257-7\_15}
+}
+
+% ------------------------------------------------------------
+% Berry-Esseen theorem
+% ------------------------------------------------------------
+@article{esseen1942,
+  title   = {On the {L}iapounoff Limit of Error in the Theory of Probability},
+  author  = {Esseen, Carl-Gustav},
+  journal = {Arkiv f{\"o}r Matematik, Astronomi och Fysik},
+  volume  = {28A},
+  number  = {9},
+  pages   = {1--19},
+  year    = {1942},
+  publisher = {Almqvist \& Wiksell}
+}
+
+% ------------------------------------------------------------
+% Open-domain QA benchmarks
+% ------------------------------------------------------------
+@article{kwiatkowski2019nq,
+  title   = {Natural Questions: A Benchmark for Question Answering Research},
+  author  = {Kwiatkowski, Tom and Palomaki, Jennimaria and Redfield,
+             Olivia and Collins, Michael and Parikh, Ankur and Alberti,
+             Chris and Epstein, Danielle and Polosukhin, Illia and
+             Devlin, Jacob and Lee, Kenton and Toutanova, Kristina and
+             Jones, Llion and Kelcey, Matthew and Chang, Ming-Wei and
+             Dai, Andrew M. and Uszkoreit, Jakob and Le, Quoc and
+             Petrov, Slav},
+  journal = {Transactions of the Association for Computational Linguistics},
+  volume  = {7},
+  pages   = {452--466},
+  year    = {2019},
+  doi     = {10.1162/tacl_a_00276}
+}
+
+@inproceedings{yang2018hotpotqa,
+  title     = {{H}otpot{QA}: A Dataset for Diverse, Explainable
+               Multi-hop Question Answering},
+  author    = {Yang, Zhilin and Qi, Peng and Zhang, Saizheng and
+               Bengio, Yoshua and Cohen, William W. and Salakhutdinov,
+               Ruslan and Manning, Christopher D.},
+  booktitle = {Proceedings of the 2018 Conference on Empirical Methods
+               in Natural Language Processing ({EMNLP})},
+  pages     = {2369--2380},
+  year      = {2018},
+  doi       = {10.18653/v1/D18-1259}
+}
+
+@inproceedings{mallen2023popqa,
+  title     = {When Not to Trust Language Models: Investigating
+               Effectiveness of Parametric and Non-Parametric Memories},
+  author    = {Mallen, Alex and Asai, Akari and Zhong, Victor and
+               Das, Rajarshi and Khashabi, Daniel and Hajishirzi, Hannaneh},
+  booktitle = {Proceedings of the 61st Annual Meeting of the
+               Association for Computational Linguistics ({ACL})},
+  pages     = {9802--9822},
+  year      = {2023},
+  doi       = {10.18653/v1/2023.acl-long.546}
+}
+
+@article{nguyen2016msmarco,
+  title   = {{MS} {MARCO}: A Human Generated {MA}chine {R}eading
+             {CO}mprehension Dataset},
+  author  = {Nguyen, Tri and Rosenberg, Mir and Song, Xia and
+             Gao, Jianfeng and Tiwary, Saurabh and Majumder, Rangan
+             and Deng, Li},
+  journal = {arXiv preprint arXiv:1611.09268},
+  year    = {2016}
+}
+
+@inproceedings{rajpurkar2016squad,
+  title     = {{SQ}u{AD}: 100,000+ Questions for Machine Comprehension of Text},
+  author    = {Rajpurkar, Pranav and Zhang, Jian and Lopyrev, Konstantin
+               and Liang, Percy},
+  booktitle = {Proceedings of the 2016 Conference on Empirical Methods
+               in Natural Language Processing ({EMNLP})},
+  pages     = {2383--2392},
+  year      = {2016},
+  doi       = {10.18653/v1/D16-1264}
+}
+
+% ------------------------------------------------------------
+% Reader and inference system
+% ------------------------------------------------------------
+@article{llama31,
+  title   = {The {L}lama 3 Herd of Models},
+  author  = {Grattafiori, Aaron and Dubey, Abhimanyu and Jauhri,
+             Abhinav and Pandey, Abhinav and Kadian, Abhishek and
+             Al-Dahle, Ahmad and others},
+  journal = {arXiv preprint arXiv:2407.21783},
+  year    = {2024}
+}
+
+@inproceedings{kwon2023vllm,
+  title     = {Efficient Memory Management for Large Language Model
+               Serving with {PagedAttention}},
+  author    = {Kwon, Woosuk and Li, Zhuohan and Zhuang, Siyuan and
+               Sheng, Ying and Zheng, Lianmin and Yu, Cody Hao and
+               Gonzalez, Joseph E. and Zhang, Hao and Stoica, Ion},
+  booktitle = {Proceedings of the 29th Symposium on Operating Systems
+               Principles ({SOSP})},
+  pages     = {611--626},
+  year      = {2023},
+  doi       = {10.1145/3600006.3613165}
+}
+
+% ------------------------------------------------------------
+% DRM false-memory paradigm
+% ------------------------------------------------------------
+@article{roediger1995drm,
+  title   = {Creating False Memories: Remembering Words Not Presented
+             in Lists},
+  author  = {Roediger, Henry L. and McDermott, Kathleen B.},
+  journal = {Journal of Experimental Psychology: Learning, Memory, and
+             Cognition},
+  volume  = {21},
+  number  = {4},
+  pages   = {803--814},
+  year    = {1995},
+  doi     = {10.1037/0278-7393.21.4.803}
+}

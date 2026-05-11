@@ -1,0 +1,130 @@
+% ============================================================
+% The Geometry of Consolidation --- arXiv version
+%
+% Authors: Anirudh Bharadwaj Vangara (Sentra; University of Waterloo Computer Engineering),
+%          Ashwin Gopinath (Sentra; MIT Mechanical Engineering, corresponding)
+% Companion paper to:
+%   - "The Geometry of Forgetting" (Barman et al., 2026)
+%   - "The Price of Meaning" (2026)
+% ============================================================
+
+\documentclass[11pt]{article}
+
+\usepackage[margin=1.0in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{booktabs}
+% microtype omitted: requires scalable fonts not always available in
+% the build environment. The document renders cleanly without it.
+\usepackage{authblk}
+\usepackage[sort&compress,numbers]{natbib}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{mdframed}
+
+\captionsetup{font=small, labelfont=bf, labelsep=period}
+
+% Section styling: keep Nature-style small bold sans for consistency with
+% the companion papers, but allow numbering here because the arXiv version
+% is long enough to need a table of contents.
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\itshape}{\thesubsubsection}{1em}{}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+% Intuition box environment: used in every section to give a plain-English
+% framing before the technical development.
+\newmdenv[
+  linewidth=0.5pt,
+  linecolor=black!30,
+  backgroundcolor=black!3,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  innerleftmargin=10pt,
+  innerrightmargin=10pt,
+  skipabove=6pt,
+  skipbelow=6pt,
+  roundcorner=2pt,
+]{intuition}
+
+\newcommand{\deff}{{d_{\mathrm{eff}}}}
+\newcommand{\dbar}{\bar{d}}
+\newcommand{\thetap}{\theta'}
+\newcommand{\memset}{\mathcal{M}}
+\newcommand{\clusterset}{\mathcal{C}}
+\newcommand{\store}{\mathcal{S}}
+\newcommand{\reps}{\mathcal{R}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\inner}[2]{\left\langle#1,#2\right\rangle}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\SphereD}{S^{d-1}}
+
+\title{The Geometry of Consolidation}
+
+\author[1,2]{Anirudh Bharadwaj Vangara}
+\author[1,3]{Ashwin Gopinath\thanks{Correspondence: \texttt{ashwin@sentra.app}}}
+\affil[1]{Sentra, 235 2nd Street, San Francisco, CA 94105, USA}
+\affil[2]{Department of Computer Engineering, University of Waterloo, Waterloo, ON N2L 3G1, Canada}
+\affil[3]{Department of Mechanical Engineering, Massachusetts Institute of Technology, Cambridge, MA 02139, USA}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\input{sections/00_abstract}
+\end{abstract}
+
+\vspace{0.5em}
+
+\input{sections/01_introduction}
+\input{sections/02_background}
+\input{sections/03_duality_theorem}
+\input{sections/04_experimental_design}
+\input{sections/05_e1_theorem_validation}
+\input{sections/06_template_collapse}
+\input{sections/07_gac_algorithm}
+\input{sections/08_e3_pareto}
+\input{sections/09_e5_scale}
+\input{sections/10_e7_downstream}
+\input{sections/11_e9_temporal}
+\input{sections/12_discussion}
+\input{sections/13_methods}
+
+\section*{Author contributions}
+A.B.V.\ conceived the project and authored the original research specification
+that set the experimental programme underlying this paper. He designed and
+ran the experimental grid whose results appear in Figures~1--3 and the
+$c_1$ calibration table (the 400-cell synthetic validation of the regime
+boundary, the six-encoder universality sweep, and the initial per-corpus
+identity$\times$MRR measurements) and produced the corresponding parquet
+data in \texttt{results/}. A.G.\ developed the consolidation theorem
+and its proof from A.B.V.'s measurements, designed and ran the remaining
+experiments (E5 scale, E6 ablation, E7 downstream RAG, E8 encoder
+universality extension, E9 temporal stability), implemented the
+geometry-aware router in \texttt{gac/}, and wrote the manuscript.
+
+\section*{Acknowledgements}
+The authors thank the Sentra team and the authors of the two companion
+papers (``The Price of Meaning'' and ``The Geometry of Forgetting'') for
+many foundational discussions on the geometry of embedding memory.
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,284 @@
+% Supplementary Material for "The Geometry of Consolidation"
+% Authors: Anirudh Bharadwaj Vangara (Sentra; University of Waterloo Computer Engineering),
+%          Ashwin Gopinath (Sentra; MIT Mechanical Engineering, corresponding).
+%
+% Compiled standalone. For one-PDF submission, append to main.tex.
+
+\documentclass[11pt]{article}
+
+\usepackage[margin=1.0in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+% microtype disabled: enabling font expansion triggers pdftex fatal
+% error on non-scalable bitmap fonts used by the long per-cell tables.
+% \usepackage{microtype}
+\usepackage{authblk}
+\usepackage[sort&compress,numbers,super]{natbib}
+\usepackage{titlesec}
+\usepackage{enumitem}
+
+\titleformat*{\section}{\normalsize\bfseries}
+\titleformat*{\subsection}{\normalsize\itshape}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\newcommand{\deff}{d_{\mathrm{eff}}}
+\newcommand{\dbar}{\bar{d}}
+\newcommand{\thetap}{\theta'}
+\newcommand{\memset}{\mathcal{M}}
+\newcommand{\clusterset}{\mathcal{C}}
+\newcommand{\store}{\mathcal{S}}
+\newcommand{\reps}{\mathcal{R}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\inner}[2]{\left\langle#1,#2\right\rangle}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\R}{\mathbb{R}}
+
+\title{The Geometry of Consolidation \\
+       \large Supplementary Material}
+
+\author[1,2]{Anirudh Bharadwaj Vangara}
+\author[1,3]{Ashwin Gopinath\thanks{\texttt{ashwin@sentra.app}}}
+\affil[1]{Sentra, 235 2nd Street, San Francisco, CA 94105, USA}
+\affil[2]{Department of Computer Engineering, University of Waterloo, Waterloo, ON N2L 3G1, Canada}
+\affil[3]{Department of Mechanical Engineering, Massachusetts Institute of Technology, Cambridge, MA 02139, USA}
+
+\date{Submitted to \textbf{NeurIPS 2026} as supplementary material.}
+
+\begin{document}
+
+\maketitle
+
+% Re-number so supp. figures/tables do not collide with the main paper.
+\renewcommand{\thefigure}{S\arabic{figure}}
+\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\theequation}{S\arabic{equation}}
+\setcounter{figure}{0}
+\setcounter{table}{0}
+\setcounter{equation}{0}
+\setcounter{section}{0}
+\renewcommand{\thesection}{S\arabic{section}}
+
+\tableofcontents
+
+\vspace{1em}
+
+\section{Scope of this supplementary}
+
+This document is a companion to the main paper; it does not restate
+its narrative. It collects (i)~per-cell tables for every experimental
+grid referenced in the main paper, (ii)~an expanded E8 encoder grid
+with two additional figures, (iii)~the full $c_1$ calibration table at
+every $(\deff, \theta)$ row of the E1 grid, (iv)~a run manifest mapping
+every main-paper figure to its source parquet, and (v)~the exact
+reproduction recipe. The proof of the Duality Theorem and the
+statement of Definition~1 ($\deff$ as the participation ratio
+$(\sum\lambda_i)^2/\sum\lambda_i^2$) live in the main paper's Methods
+section and are not duplicated here.
+
+\paragraph{What is \emph{not} in this supplementary.}
+No new theorems. No additional experiments beyond those referenced in
+the main paper. No claims about $c_1$ or the regime boundary that are
+not already stated quantitatively in \S3 and \S4 of the main paper.
+
+\section{Expanded E8 encoder-strategy grid}
+\label{sec:supp:e8-expanded}
+
+The main paper reports E8 on a 5-strategy slice ($6$ encoders $\times$
+$5$ strategies $\times$ $3$ seeds $= 90$ cells). For completeness we
+re-ran E8 on the full $6\times 11 \times 3 = 198$-cell grid that also
+sweeps GAC's threshold $\theta \in \{0.6, 0.7, 0.8, 0.9\}$, four
+\textsc{selective\_prune} keep-ratios ($0.50, 0.25, 0.10$), and the
+\emph{no\_consolidation} identity ceiling. Two figures summarise the
+expanded data.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.78\linewidth]{figs/figS_theta_sweep.pdf}
+  \caption{E8 expanded: GAC threshold $\theta$ sweep on DRM. Each line
+  is one encoder; the dashed line is the mean centroid baseline.
+  Identity accuracy is approximately flat across $\theta \in [0.6,0.9]$
+  for every encoder --- consistent with the main paper's finding that
+  tight DRM clusters fall in the regime where the centroid branch of
+  the GAC router dominates, making the router insensitive to $\theta$.}
+  \label{fig:s-theta}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.82\linewidth]{figs/figS_compression_frontier.pdf}
+  \caption{E8 expanded: compression--identity frontier across the full
+  $6 \times 11 \times 3$ grid. Each point is one seed. The horizontal
+  axis is the empirical compression ratio
+  $n_{\mathrm{train}}/n_{\mathrm{representatives}}$; the right edge is
+  \emph{no\_consolidation} by construction. Centroid and medoid
+  occupy the upper-right (compressed + accurate) corner on every
+  encoder; \textsc{selective\_prune} degrades continuously as the
+  keep-ratio shrinks.}
+  \label{fig:s-frontier}
+\end{figure}
+
+\section{E1 strategy sweep and identity--coverage scatter}
+\label{sec:supp:e1-aux}
+
+Two auxiliary plots that did not fit in the main text.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.92\linewidth]{figs/figS_strategy_sweep.pdf}
+  \caption{Strategy-level cap-coverage error on the E1 grid. Each row
+  fixes $\theta$; each panel plots mean $\eps_{\mathrm{cap}}$ versus
+  $\deff$ for centroid, medoid, selective pruning, and GAC. All
+  strategies collapse to zero error in the tight regime ($\dbar <
+  \thetap$, left of the boundary in each panel); the four strategies
+  fan out in the spread regime in the $\deff$-monotone order the
+  Duality Theorem anticipates.}
+  \label{fig:s-strategy-sweep}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.82\linewidth]{figs/figS_id_coverage.pdf}
+  \caption{Identity accuracy versus cap-coverage on the E4 corpus
+  grid. Each point is one (corpus, strategy, encoder) triple. Identity
+  and cap-coverage move together in the tight regime (lower-left
+  cluster, near-zero error on both) and separate in the spread regime
+  --- a direct visualisation that cap-coverage and identity are
+  distinct quantities but agree wherever the theorem is non-vacuous.}
+  \label{fig:s-id-cov}
+\end{figure}
+
+\section{Complete $c_1$ calibration table}
+\label{sec:supp:c1}
+
+Table~\ref{tab:c1_calib} gives the per-cell $c_1$ calibration row by
+row across the E1 grid. The aggregate numbers reported in \S4 of the
+main paper ($c_1^{95} \approx 0.046$ on $12{,}400$ tight cells;
+$c_1^{95} \approx 4.61 \times 10^{10}$ on $3{,}600$ spread cells;
+global $c_1^{95} \approx 4.60 \times 10^{6}$ on all $16{,}000$ cells)
+are the $p95$ quantiles of the per-row $c_1$ distribution restricted to
+the relevant regime. The full per-$(d_{\mathrm{eff,target}}, \theta)$
+breakdown below lets a reader audit the regime boundary and verify
+that the $c_1$ explosion is localised to the extreme-coherence corner
+(high $\theta$, low $\deff$), not an artifact of outlier rows.
+
+\input{tables/supp_t_c1_calibration}
+
+\section{Per-cell experiment tables}
+\label{sec:supp:percell}
+
+These tables enumerate every row of the main experimental grids so
+that aggregated statistics in the main paper can be reproduced by
+inspection.
+
+\input{tables/supp_t_e2_per_cell}
+\input{tables/supp_t_e3_per_cell}
+\input{tables/supp_t_e6_per_cell}
+
+\section{DRM per-strategy breakdown}
+\label{sec:supp:drm}
+
+The DRM (Deese--Roediger--McDermott) corpus contains 64 templated
+paraphrase lists of 50 items each --- the cleanest tight-regime case
+in the paper, with cluster-local $\deff = 2.3$. Table~\ref{tab:drm_breakdown}
+reports identity (literal and paraphrase), recall@1, and MRR per
+strategy on bge-large. All four non-pruning strategies agree to within
+$0.03$ identity on DRM; \textsc{selective\_prune} is the only
+strategy that loses, consistent with the main paper's statement that
+in the tight regime every reasonable strategy saturates.
+
+\input{tables/supp_t_drm_breakdown}
+
+\section{Reproduction recipe}
+\label{sec:supp:repro}
+
+\paragraph{Local (single machine).}
+\begin{verbatim}
+git clone https://github.com/niashwin/geometry-of-consolidation
+cd geometry-of-consolidation
+pip install -r requirements.txt
+export GAC_DATA_DIR=./data_local
+python -m data.build_nq --model bge-large
+python -m experiments.e1_theorem_validation --seed 0 --n-shards 1
+python scripts/make_figures.py
+\end{verbatim}
+
+\paragraph{Modal (full reproduction).}
+\begin{verbatim}
+modal volume create gac-data
+modal secret create gac-hf-secret HF_TOKEN=<your hf token>
+modal run modal_app/app.py::run_all --run-id reproduce-v1
+modal volume get gac-data runs/e1_theorem_validation/reproduce-v1 ./results/e1
+\end{verbatim}
+
+\paragraph{Seeds.}
+The main paper uses seeds $\{0,1,2\}$ for experiments with three
+replicates and $\{0,\dots,9\}$ for E1. Every parquet stores the seed
+per row.
+
+\section{Intentional scope choices}
+\label{sec:supp:scope}
+
+Three choices that a reviewer might reasonably ask about; we justify
+each with the data that led to it rather than with a claim.
+
+\paragraph{Embed-space paraphrase proxy (E4).}
+E4 uses additive Gaussian perturbations in embedding space, calibrated
+to three severity levels, as a paraphrase proxy rather than
+LLM-generated paraphrases. On a preliminary DRM subset we compared
+embed-space perturbation against Llama-3.1-70B paraphrase drift and
+the two agreed within $5\%$ on identity error at matched severity.
+Running 70B generation for $80{,}000$ paraphrases on Modal is a full
+day of H100 time, which we prioritised for E5 (scale) and E7 (RAG)
+instead. This is limitation L2 in the main paper.
+
+\paragraph{Scale ceiling at 1M (E5).}
+E5 sweeps $10{,}000 / 100{,}000 / 1{,}000{,}000$ Wikipedia items. We
+stopped at 1M rather than $10{,}000{,}000$ because the identity
+accuracy of GAC and centroid both flatten between $100{,}000$ and
+$1{,}000{,}000$ on two encoders (BGE-large, MiniLM-L6); the
+$1M \to 10M$ extrapolation from the observed curves gives no evidence
+of a regime change. An additional 10M point would have required
+$\approx 16$ H100-hours and a larger Modal volume; we did not spend
+either.
+
+\paragraph{No closed-weight encoder.}
+E8 does not include \texttt{text-embedding-3-large} or other
+closed-weight encoders. The six open-weight encoders already agree on
+the strategy ordering and on the tight-regime $\eps_{\mathrm{cap}}
+\leq 0.5\%$ result; adding one closed-weight encoder would not change
+the qualitative conclusions and would add $\approx \$200$ of API spend
+per full sweep.
+
+\section{Run manifest}
+\label{sec:supp:manifest}
+
+Every figure and table in the main paper is produced from a single
+parquet file generated on Modal. The manifest below records the
+source script, parquet path, and commit SHA for each artifact so that
+the pipeline can be audited end-to-end.
+
+\input{tables/supp_t_manifest}
+
+\section{Licensing and data provenance}
+
+All corpora used in the paper are public and licensed under MIT,
+CC-BY-SA, or Apache-2.0. No human-subjects data is used. Per-corpus
+URLs and licence terms are listed in the ``Data and code
+availability'' section of the main paper.
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}

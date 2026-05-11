@@ -1,0 +1,19 @@
+\begin{table}[t]
+\centering
+\small
+\caption{T2: GAC router ablation across corpora (E6). BGE-large, 3 seeds. \textsc{gac\_full} is the default router. \textsc{gac\_oracle} is the router that picks the best strategy per cluster given gold identity labels (upper-bound reference).}
+\label{tab:t2}
+\begin{tabular}{lcccccc}
+\toprule
+Router & drm templated & ms marco & nq questions & hotpot qa & wikipedia sections & arxiv titles \\
+\midrule
+\textbf{\textsc{gac\_full} (ours)} & \textbf{0.940} & \textbf{0.836} & \textbf{0.433} & \textbf{0.356} & \textbf{0.393} & \textbf{0.584} \\
+gac\_no\_residual & 0.942 & 0.833 & 0.434 & 0.355 & 0.393 & 0.584 \\
+gac\_random & 0.840 & 0.806 & 0.491 & 0.386 & 0.403 & 0.547 \\
+gac\_fixed\_centroid & 0.943 & 0.899 & 0.784 & 0.499 & 0.656 & 0.754 \\
+gac\_fixed\_medoid & 0.920 & 0.794 & 0.691 & 0.357 & 0.485 & 0.630 \\
+gac\_fixed\_prune & 0.776 & 0.830 & 0.425 & 0.355 & 0.393 & 0.584 \\
+gac\_oracle & 0.943 & 0.862 & 0.512 & 0.489 & 0.388 & 0.598 \\
+\bottomrule
+\end{tabular}
+\end{table}

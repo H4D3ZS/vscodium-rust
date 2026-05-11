@@ -1,0 +1,349 @@
+\section{Related Work}
+\label{sec:related}
+
+\begin{intuition}
+This paper sits at the intersection of four literatures: (i) retrieval-
+augmented generation and vector-database compression; (ii) the
+cognitive-science theory of memory consolidation; (iii) the geometry
+of high-dimensional embedding spaces; and (iv) continual learning.
+Each has produced a piece of the consolidation problem, and this
+section places our contribution against them.
+\end{intuition}
+
+\subsection{Retrieval-augmented generation and vector compression}
+\label{sec:related:rag}
+
+Retrieval-augmented generation (RAG)~\cite{lewisRAG2020,
+guu2020realm, karpukhin2020dpr, borgeaud2022retro, izacardAtlas2023,
+izacard2021fid} adds a vector-database retrieval step to a
+pretrained language model: given a query, fetch the top-$k$ relevant
+passages and condition the reader on their concatenation. The
+dominant engineering concern in deployed RAG systems is the
+\emph{size} of the vector index. A billion-passage corpus encoded at
+$768$--$1536$ dimensions is multiple terabytes in raw form; every
+production system therefore applies some lossy compression.
+
+The classical compression toolkit splits into two families. The
+\emph{learned-quantization} family, dominated by Product
+Quantization~\cite{jegouPQ2011} and its Optimized PQ
+variant~\cite{ge2013optimized}, stores each vector as a short string of
+codebook indices, typically at $4$--$32$ bytes per vector. PQ is
+implemented in FAISS~\cite{johnson2019faiss} and is the default
+compression for billion-scale retrieval. Simpler baselines include
+locality-sensitive hashing~\cite{charikarLSH2002, datarLSH2004},
+dimensionality reduction, and the HNSW graph pruning technique
+built into most vector databases~\cite{malkovHNSW2018}. The
+\emph{consolidation} family replaces a cluster of similar vectors
+with one or a few representatives: centroid summarisation, medoid
+selection, or selective pruning.
+
+The two families have not, to our knowledge, been compared on a
+common Pareto frontier before this work. The consolidation family
+has been studied primarily in cognitive-science contexts (see
+below), while the compression family has been studied in
+engineering contexts. E3 (\S\ref{sec:e3}) is the first apples-to-apples
+comparison, showing that consolidation Pareto-dominates learned
+quantization in the low-$\deff$ corner (five of six corpora) and
+the frontiers cross only at high $\deff$.
+
+\subsection{Cognitive consolidation}
+\label{sec:related:cls}
+
+The idea that memory systems replace dense experience traces with
+sparse representatives runs through half a century of cognitive
+neuroscience. The standard-model framing is \emph{Complementary
+Learning Systems}~\cite{mcclellandConsolidation1995,
+alvarezSquireConsolidation1994, oreillyHippocampus2014, marrSimple1971},
+which posits that the hippocampus stores episodic traces quickly and
+noisily, while the neocortex slowly abstracts those traces into
+semantic representatives through offline replay~\cite{wilson1994reactivation,
+robinsReplay1995}. The CLS framework motivates a vast computational
+literature on consolidation algorithms --- most of which treat
+consolidation as parameter-update rather than index-update
+\cite{mccloskey1989cf, kirkpatrickEWC2017, chaudhryGEM2019,
+tulvingEpisodic1972}. Our contribution is to show that the
+\emph{vector-index} version of consolidation, which is the form used
+in production RAG, obeys the same capacity-bound structure as the
+parameter-update version and can be analysed with the same geometric
+tools.
+
+\subsection{Geometry of embedding spaces and effective rank}
+\label{sec:related:geometry}
+
+The effective rank of a matrix (or a set of vectors) is an
+entropy-weighted measure of its spectral spread, formalised by Roy
+and Vetterli~\cite{royVetterli2007}. In high dimensions, the
+cap-volume concentration phenomena~\cite{ball1997elementary,
+milman1986asymptotic, ledoux2001concentration, vershynin2018hdp,
+beyer1999nn} constrain how much of the sphere a small neighbourhood
+can occupy; the Berry-Esseen machinery~\cite{esseen1942} then gives
+uniform rates for the Gaussian approximation that underlies our
+bound. The first paper in the trilogy~\cite{geometryOfForgetting2026}
+measured effective dimensions of production encoders (SBERT,
+MiniLM, MPNet, BGE-base/large, E5-large, Nomic, SimCSE) and found
+$\deff \approx 16$ across the board; the second paper raised this
+into a lower bound on identity retrieval under noise. The present
+paper extends the same geometric framework to the compressed case,
+where the perturbation is not noise but a consolidator.
+
+Production sentence encoders~\cite{reimers2019sbert, gao2021simcse,
+wang2022e5, wang2020minilm, song2020mpnet, xiao2023bge, nussbaum2024nomic}
+are the empirical objects on which the theorem is evaluated. Each
+has its own training recipe (contrastive, self-supervised,
+retrieval-fine-tuned) but the effective-dimensionality and
+cap-volume phenomena are nearly encoder-independent across the
+six encoders we test (\S\ref{sec:template_collapse}). This is consistent with
+the hypothesis that the geometric structure is a property of the
+\emph{semantic space}, not the individual encoder.
+
+\subsection{Continual learning and catastrophic forgetting}
+\label{sec:related:cl}
+
+Catastrophic forgetting~\cite{mccloskey1989cf} is the well-known
+failure mode of sequential neural-network training: learning a new
+task overwrites the parameters needed for an old one. The
+continual-learning literature~\cite{kirkpatrickEWC2017,
+chaudhryGEM2019, robinsReplay1995} responds with replay buffers
+(revisit old data), regularisation (EWC, MAS), or architectural
+separation. The parallel between consolidation in RAG and replay in
+continual learning is the direct inspiration for the term
+``consolidation'' in our setting: in both cases, the operator reduces
+a dense record of experience to a sparser one in the interest of
+memory cost. The cap-volume bound we prove should be viewed as a
+\emph{necessary condition} that any replay compression scheme must
+satisfy; E5's $1$M scaling result confirms that the bound is not a
+small-$n$ artefact.
+
+\subsection{QA benchmarks and downstream evaluation}
+\label{sec:related:qa}
+
+The downstream E7 evaluation uses three QA benchmarks with
+distinctive cluster structures: Natural Questions~\cite{kwiatkowski2019nq},
+HotpotQA~\cite{yang2018hotpotqa}, and PopQA~\cite{mallen2023popqa};
+we also test MS MARCO passage ranking~\cite{nguyen2016msmarco} in
+E2/E4. The SQuAD v$1.1$ text-normalisation protocol
+~\cite{rajpurkar2016squad} is used for the EM/F$1$ scoring.
+Llama-$3.1$-$70$B-Instruct~\cite{llama31} is served through
+vLLM~\cite{kwon2023vllm} as the reader. The DRM template
+corpus~\cite{roediger1995drm} is a synthetic paraphrase benchmark
+adapted from the original Deese-Roediger-McDermott false-memory
+paradigm; it gives us a controlled high-$\theta$ regime for
+operator isolation.
+
+\section{Discussion}
+\label{sec:discussion}
+
+\begin{intuition}
+\textbf{The shape of the result.} We have formulated a mathematically
+explicit version of a simple question --- when can a cluster of
+embeddings be replaced by a sparse set of representatives without
+losing its identity? --- and used it to organise a body of
+experimental evidence that previously looked like a loose collection
+of empirical findings about RAG compression. The theorem is a
+regime split: $\dbar < \thetap$ (tight) versus $\dbar \geq \thetap$
+(spread). The unexpected empirical consequence of the split is that
+on every real-text corpus we tested, the simplest one-vector
+summary --- the cluster centroid --- dominates everything we or
+anyone else might build on top of it. Our own adaptive scheme, GAC,
+is dominated by the fixed centroid on five of six corpora, and even
+the in-hindsight oracle cannot meaningfully beat it. We read this
+as confirmation that real English text at retrieval thresholds near
+$0.8$ sits inside the tight regime the law describes.
+\end{intuition}
+
+\subsection{The law, stated in plain language}
+\label{sec:disc:law}
+
+Restated without symbols: an embedding cluster can be safely
+replaced by a one-vector summary exactly when the cluster's mean
+cosine spread is smaller than the retrieval threshold's orthogonal
+complement, $1 - \theta$. When that condition holds, the cap around
+the centroid contains every cluster member and retrieval is
+recovered by the summary at negligible byte cost. When it fails, no
+single vector suffices; in fact, no cluster-aware summary at all
+can recover what the full cluster would have provided, and learned
+vector quantization (which works per-vector rather than per-cluster)
+overtakes consolidation entirely.
+
+This is a statement we believe to be the first mathematically
+explicit formulation of the consolidation-compressibility law. It is
+not the final form. The bound is isotropic and becomes vacuous in
+the extreme-coherence corner of the spread regime
+(\S\ref{sec:e1:calibration}); we see that as an invitation for
+future work rather than a flaw in the framing.
+
+\subsection{The centroid lesson}
+\label{sec:disc:centroid}
+
+On every real-text corpus we tested, the centroid and its
+importance-weighted twin dominate every adaptive scheme we could
+build, including the one we built specifically to beat it (GAC).
+The oracle ceiling on any router is within a few EM points of the
+fixed centroid, and on Wikipedia sections and NQ the oracle is
+\emph{worse} than the fixed centroid. We read this as evidence that
+real English text at $\theta = 0.8$ sits well inside the tight
+regime of the law, and that the law's headline prediction in that
+regime is that the centroid is already near-optimal. The GAC router
+is therefore best understood as the instrument that made the
+measurement, not as the method that the paper advocates.
+
+The centroid-dominance result also has a deployment implication.
+Most RAG systems we are aware of implement some variant of an
+adaptive compression policy. If the corpus sits in the tight regime
+(readily checkable from $\deff_{\mathrm{local}}$ and $\dbar$), no
+adaptive policy will recover meaningful accuracy from a fixed
+centroid. We suggest running the cheap geometric check before
+investing in a router.
+
+\subsection{Scope of our claims}
+\label{sec:disc:scope}
+
+We take care to state the scope narrowly. The theorem and every
+experimental claim in this paper apply to \emph{embedding
+consolidation in contrastive unit-norm text embedding spaces under
+cosine-threshold retrieval}. We do not claim the law governs
+biological memory, multimodal embeddings, non-contrastive encoders,
+or retrieval with learned scoring heads. The cognitive-science
+literature motivated our framing
+(\S\ref{sec:related:cls}) and the theorem offers a candidate
+geometric reading of the CLS picture, but we do not present it as a
+model of biological memory. Transfer to those settings is a
+research project, not a corollary of our result.
+
+Within the scope above, the tested surface is concrete: six English
+text corpora, six sentence encoders, five consolidation operators,
+five learned-quantization baselines, one reader model
+(Llama-3.1-70B-Instruct), and corpus sizes from $10$K to $1$M
+vectors. The universality claims in \S\ref{sec:template_collapse}
+should be read with this tested surface in mind.
+
+\subsection{The central open problem: anisotropic refinement}
+\label{sec:disc:open}
+
+The single most consequential weakness of the current theorem is
+that its cap-volume argument is \emph{isotropic}: it treats all
+directions on $\SphereD$ symmetrically. Real clusters are not
+isotropic --- variance concentrates along a few principal
+directions, exactly the situation the cluster's $\deff$ quantifies.
+This isotropy assumption is what makes our calibrated $c_1$ blow
+up to $10^{10}$ in the extreme-coherence corner of the spread
+regime (\S\ref{sec:e1:calibration}), and it is why we read
+spread-regime evidence throughout the paper as
+\emph{observational} support for the law's qualitative predictions
+rather than as a test of its quantitative form.
+
+We believe an anisotropic refinement --- replacing the cap volume
+with an ellipsoidal volume whose axes are the cluster's principal
+directions --- should tighten the bound dramatically in the spread
+regime. Constructing that bound is the paper's primary theoretical
+open problem. We have not done it; we explicitly raise it so that a
+future reader can. The shape-of-the-refinement question is concrete
+enough to state as a theorem target: prove a version of
+Theorem~\ref{thm:duality} in which $(\thetap/\dbar)^{\deff/2}$ is
+replaced by a quantity involving the full eigenvalue profile of
+$\Sigma_k$, and show that the calibrated $c_1$ in the spread regime
+remains bounded by a polynomial of $\deff$.
+
+\subsection{Other open problems}
+\label{sec:disc:other-open}
+
+\paragraph{Streaming consolidation.} All our consolidation operators
+run on a fixed corpus. The production version of consolidation is
+streaming. An online variant of the centroid operator with amortised
+cost and a regret bound against the offline optimum is a natural
+next step; the law we prove suggests the regret structure should
+track the cluster-level $\dbar_k$.
+
+\paragraph{Multi-level hierarchical consolidation.} E7 shows that
+the right centroid behaviour depends on cluster granularity. A
+hierarchical index that consolidates at multiple levels
+simultaneously --- paragraph centroids within document medoids
+within topic clusters --- could unify the ranking. We have not
+built this.
+
+\paragraph{Billion-scale empirical validation.} E5 reaches $1$M;
+production is $10^8$--$10^9$. The cluster-then-consolidate pipeline
+scales linearly with $n$ in cluster time and roughly quadratically
+in query time. The scaling slopes we observe through $1$M are
+consistent with smooth extrapolation, but extrapolation is not
+measurement.
+
+\paragraph{Why this matters.} If the law and centroid lesson
+transfer beyond our tested surface, a billion-scale RAG index can be
+compressed by $5$--$10$\texttimes{} with the fixed-centroid
+operator while preserving identity, and the savings target the
+dominant cost of deployed retrieval systems. If they do not
+transfer --- if the regime on production corpora is different from
+the one we measured --- the same law gives a cheap diagnostic that
+surfaces the mismatch before deployment. Either outcome is
+informative; the law converts a tuning exercise into a
+measurement.
+
+\section{Limitations}
+\label{sec:limits}
+
+We flag six specific limitations a reader should hold in mind when
+applying the results.
+
+\begin{enumerate}[leftmargin=1.8em, itemsep=4pt]
+\item \textbf{L1. The theorem is vacuous in the extreme-coherence
+spread regime.} The $95\%$ calibrated $c_1$ is $\approx 0.05$ in tight cells
+and $\sim 10^{10}$ in the high-$\dbar$, low-$\deff$ corner. The
+spread-regime evidence throughout the paper should be read as
+observational support for the theorem's qualitative predictions
+(ordering, monotonicity), not as a test of its quantitative form.
+We consider the anisotropic refinement the paper's primary open
+theoretical problem (\S\ref{sec:disc:open}), and we foreground it
+rather than bury it.
+
+\item \textbf{L2. Tested scope is text-centric.} All experiments use
+contrastive English-text encoders and cosine-threshold retrieval.
+We do not claim the law applies to multimodal embeddings, image
+retrieval, speech embeddings, non-contrastive encoders, or
+retrieval pipelines that re-rank with a learned scoring head. We
+expect the shape of the law to transfer because the cap-volume
+argument is geometric, but we have not measured it.
+
+\item \textbf{L3. Compute-gated cells in E7.} We report $10$ of a
+possible $15$ downstream QA cells. The missing cells
+(selective-prune on NQ, GAC and centroid on HotpotQA,
+no-consolidation and medoid on PopQA) are omitted because of
+70B inference budget. Their omission weakens any attempt to fit a
+full two-parameter interaction model; we treat E7 as directional
+evidence rather than a fully-crossed factorial.
+
+\item \textbf{L4. Seed count at $1$M in E5.} The three $1$M cells
+were run at one seed each. We state their accuracies as point
+evidence that $10$K $\to$ $100$K trends continue, not as
+independent measurements with confidence intervals.
+
+\item \textbf{L5. E9 temporal standard deviations.} Earlier drafts
+summarised MRR@$20$ across-epoch variability as ``$<0.01$
+everywhere''. The correct statement is that the \emph{median}
+across-epoch s.d.\ is $0.028$ and $98$ of $105$ cells have s.d.\
+$<0.05$, with the highest single cell at $0.108$. The strategy
+ranking is nonetheless invariant: centroid is top in every
+(corpus, encoder, epoch) combination we measured.
+
+\item \textbf{L6. E4 paraphrase procedure.} The paraphrase
+perturbation is embedding-space isotropic Gaussian noise calibrated
+to the empirical paraphrase cosine ($\approx 0.92$). Natural
+text-level paraphrase may behave differently, though on the two
+corpora where we can check (MS MARCO, HotpotQA) the difference is
+$< 0.03$ identity points.
+\end{enumerate}
+
+\section{Data and code availability}
+\label{sec:data}
+
+All code, raw shard JSONL outputs, aggregated parquet tables, and
+figure-generation scripts are available at
+\url{https://github.com/niashwin/geometry-of-consolidation}. The
+repository pins each experiment's provenance: E1 (16{,}000 cells,
+synthetic grid), E2 (503 cells, 6 corpora), E3 (138 of 150 cells,
+learned-quantization Pareto), E4 (90 cells, paraphrase), E5 (23 cells,
+scale with 3 at $1$M), E6 (126 cells, 7-router ablation), E7 (10
+cells, Llama-70B downstream; 5 cells, 8B reference), E8 (198 cells,
+6-encoder universality), E9 (525 cells, 5-epoch temporal). The total
+is $17{,}813$ cells plus $5$ reference cells, all reproducible from
+the included shards.

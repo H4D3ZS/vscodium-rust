@@ -1,0 +1,80 @@
+%% Abstract: law-first framing. The theorem is the center of gravity;
+%% the centroid result is the headline practical consequence; GAC is a
+%% probe used to test what adaptive routing can and cannot buy.
+
+\noindent\textbf{The question.} When a memory system replaces many
+embedded items with a few representatives on the unit sphere, what
+geometric quantity determines how much \emph{identity} can survive that
+compression? Vector-store compression in retrieval-augmented language
+models, replay-buffer summarisation in continual learning, and
+neuroscience-style consolidation of episodic traces each rest on the
+implicit hope that a cluster's important structure is
+low-dimensional. Previous papers in this trilogy showed this hope is
+wrong for \emph{retrieval under noise}: production embedding spaces
+concentrate variance in a handful of effective
+dimensions~\cite{geometryOfForgetting2026} and must therefore forget by
+an information-theoretic bound no budget can
+escape~\cite{priceOfMeaning2026}. Compression is the remaining lever;
+the question is whether it is exempt.
+
+\medskip
+\noindent\textbf{The law.} It is not. We prove the
+\emph{Consolidation--Interference Duality}: for any consolidator that
+maps $n$ unit-norm cluster members to $m < n$ representatives, whenever
+the retrieval cap $\thetap = 1-\theta$ is smaller than the mean
+within-cluster cosine distance $\dbar$, the identity-retrieval error
+obeys
+\[
+\eps_{\mathrm{id}} \;\geq\; 1 - c_1\,m\,(\thetap/\dbar)^{\deff/2},
+\]
+where $c_1$ is a universal constant and $\deff$ is the cluster's local
+effective dimension (participation ratio of its covariance
+spectrum). The bound is the same spectral quantity that governs
+forgetting under retrieval noise --- hence ``duality.'' We validate the
+regime structure the bound predicts on a $400$-cell $(\deff, \theta,
+\dbar)$ grid with $10$ seeds per cell ($16{,}000$ trials): in the
+\emph{tight regime} $\dbar < \thetap$ every strategy achieves mean
+cap-coverage error $\leq 0.5\%$; in the \emph{spread regime} $\dbar
+\geq \thetap$ errors diverge to $30$--$74\%$ in an order predicted by
+$\deff$. The same regime structure organises the ordering of six real
+corpora, across six sentence encoders and five consolidation operators.
+
+\medskip
+\noindent\textbf{The surprising consequence.} The law's main practical
+implication is not that a more adaptive algorithm wins. It is the
+opposite: on five real-text corpora (MS~MARCO, Natural Questions,
+HotpotQA, Wikipedia sections, arXiv titles) a fixed \emph{centroid}
+picker dominates a stochastic geometry-aware router by $1$--$6$
+identity points, and dominates five learned-quantization baselines
+(PQ, OPQ, LSH, PCA+int8, HNSW-prune) on the Pareto frontier of
+identity-vs-bytes for five of six corpora. An ablation shows that the
+expensive residual-direction budget in our adaptive router contributes
+\emph{nothing} ($\Delta \leq 0.002$ identity on every corpus) and that
+a per-cluster oracle barely improves over fixed centroid on real
+text. We introduce Geometry-Aware Consolidation (GAC) and treat it as
+an \emph{instrument} for probing what adaptive routing can buy under
+the law; its failure to beat centroid on real text is itself one of
+the paper's main scientific findings, and is explained by the fact
+that real-text clusters sit in the tight regime the theorem predicts
+is safe. Closing the loop to a downstream reader, a
+Llama-3.1-70B-Instruct retrieval-augmented pipeline on three QA
+benchmarks exhibits a regime-dependent three-way split: centroid
+\emph{hurts} Natural Questions by $4.2$ EM points, is neutral on
+HotpotQA, and \emph{wins} by $8.4$ EM points on PopQA, matching the
+cap-coverage prediction of which branch the law prefers on each
+corpus.
+
+\medskip
+\noindent\textbf{Scope and open problem.} The scope of the law is
+embedding consolidation in contrastive unit-norm text spaces under
+cosine-threshold retrieval; extensions to multimodal or learned-state
+memory remain open. The theorem is shape-correct and predictively
+useful in the tight regime ($c_1$ calibrates to $\approx 0.05$
+on $12{,}400$ cells at the $95\%$ quantile --- within an order
+of magnitude of the ideal Berry--Esseen constant); in the spread
+regime the isotropic cap-volume approximation is loose ($c_1$
+grows unbounded as $\theta \to 1$ at small $\deff$). We therefore state the theorem as the first
+mathematically explicit version of the law, with an anisotropic
+refinement as the central open theoretical problem. All $17{,}813$
+experimental cells, figures, and analysis scripts are open-source
+under MIT license.

@@ -1,0 +1,215 @@
+\section{Experimental Design}
+\label{sec:experiments}
+
+\begin{intuition}
+\textbf{Roadmap: experiments as tests of the law.} The theorem
+predicts a regime split: tight clusters admit one-vector summaries,
+spread clusters do not. Everything that follows is a test of
+that split and its consequences. E1 asks whether the split exists
+on a controlled grid. E2/E4/E8 ask whether cluster geometry
+organises behaviour across six real corpora and six encoders.
+E6 asks whether adaptation between summary families buys anything
+beyond picking the right one per cluster. E3 asks how consolidation
+trades off against learned quantization across the regime. E5 and
+E9 ask whether the answer is stable from $10$K to $1$M vectors and
+across query resamplings. E7 asks whether geometry predicts
+downstream reader exact-match with a $70$B-parameter Llama reader.
+The nine experiments yield $17{,}813$ measured cells ($16{,}000$ of
+them from the E1 grid). None of them were designed to crown a
+winning method; each was designed to isolate one implication of
+the regime split.
+\end{intuition}
+
+\subsection{What each experiment is designed to show}
+\label{sec:experiments:purpose}
+
+Table~\ref{tab:experiment_matrix} summarises the nine experiments. We
+describe them at a high level here; detailed designs appear in the
+corresponding results sections.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Exp.} & \textbf{Question it answers} & \textbf{Cells} \\
+\midrule
+E1 & Does the tight/spread regime split exist on a controlled grid? & $16{,}000$ \\
+E2 & Does cluster geometry organise strategy behaviour across six real corpora? & $503$ \\
+E3 & Does geometry, not method family, select between consolidation and quantization? & $338$ \\
+E4 & Do full retrieval metrics agree with the identity-coverage story? & $90$ \\
+E5 & Is the regime answer stable from $10$K to $1$M vectors? & $23$ \\
+E6 & Does adaptation buy anything beyond picking the right summary family per cluster? & $126$ \\
+E7 & Does cluster geometry predict downstream reader EM with a $70$B model? & $10$ \\
+E8 & Does the geometric prediction reproduce across six sentence encoders? & $198$ \\
+E9 & Is the regime answer stable under query resampling? & $525$ \\
+\midrule
+\textbf{Total} & & $\mathbf{17{,}813}$ \\
+\bottomrule
+\end{tabular}
+\caption{The nine experiments and the part of the law each one tests.
+Each row is expanded into its own results section
+(\S\ref{sec:e1_validation} through \S\ref{sec:e9}). \textbf{Read
+this table as the map of the remaining paper:} every later figure
+attacks one of these questions.}
+\label{tab:experiment_matrix}
+\end{table}
+
+The design has two overlapping guarantees. First, each experiment
+answers \emph{one} question about the regime split; the others
+either isolate a confounder or extend coverage. Second, each
+experiment is independently interpretable: a reader can stop at
+the end of any one and take away a complete finding. This matches
+the way we ran them in practice: one at a time, with the next
+one's design informed by the previous one's result. The order in
+which we present them below mirrors the logic rather than the
+chronology: E1 establishes the regime split, E2/E4/E8 show that
+the split organises real corpora, E6 tests whether adaptation
+helps, E3 asks which compression family wins where, and E5/E7/E9
+ask whether the answer survives scale, downstream use, and
+resampling.
+
+\subsection{The six corpora}
+\label{sec:experiments:corpora}
+
+We use six text corpora, chosen to span the $(\deff_{\mathrm{local}},
+\dbar)$ plane from the theorem's tight regime to its extreme-coherence
+corner.
+
+\begin{itemize}[leftmargin=1.8em, itemsep=2pt]
+\item \textbf{drm\_templated} ($n = 4{,}000$, synthetic). Derived from
+the Deese--Roediger--McDermott false-memory
+paradigm~\cite{roediger1995drm}: $800$ semantically structured facts,
+each rendered in five paraphrase templates. Designed as a tight,
+low-$\deff$ control: $\deff_{\mathrm{local}} = 2.3$, $\dbar = 0.05$.
+This is the \emph{easy} corpus.
+\item \textbf{ms\_marco} ($n = 14{,}972$). $1{,}500$ queries from the
+MS MARCO passage-ranking benchmark~\cite{nguyen2016msmarco}, each with
+roughly ten associated passages. A classic IR benchmark with moderate
+per-cluster spread.
+\item \textbf{nq\_questions} ($n = 6{,}973$). $500$ groups from
+Natural Questions~\cite{kwiatkowski2019nq}, treating each question
+group as a cluster. High $\deff_{\mathrm{local}} = 12.6$.
+\item \textbf{hotpot\_qa} ($n = 2{,}772$). $1{,}189$ multi-hop question
+groups from HotpotQA~\cite{yang2018hotpotqa}. A stress case: tiny
+clusters (two or three items), high $\dbar = 0.48$, very small
+$\deff_{\mathrm{local}} = 1.5$. The bound is loose here and the
+corpus is the hardest in our collection.
+\item \textbf{wikipedia\_sections} ($n = 19{,}793$). $379$ sections
+from the $20231101$ English Wikipedia dump. High $\dbar$, mid-$\deff$.
+\item \textbf{arxiv\_titles} ($n = 11{,}500$). Eleven subject classes
+from \texttt{ccdv/arxiv-classification}. Unusual high
+$\deff_{\mathrm{local}} = 107.5$: the corpus where the cap-volume
+bound goes vacuous first, so we expect learned quantization to
+overtake consolidation. It does (\S\ref{sec:e3}).
+\end{itemize}
+
+The corpora were selected \emph{before} the experiments ran, with the
+criterion that they sample different $(\deff_{\mathrm{local}}, \dbar)$
+regimes. They are not tuned for any individual strategy's benefit.
+
+\subsection{The six encoders}
+\label{sec:experiments:encoders}
+
+We run the full DRM strategy sweep on six sentence
+encoders to separate theorem-predicted universality from encoder-specific
+artefacts:
+\texttt{BAAI/bge-base-en-v1.5}~\cite{xiao2023bge},
+\texttt{BAAI/bge-large-en-v1.5}~\cite{xiao2023bge},
+\texttt{sentence-transformers/all-mpnet-base-v2}~\cite{song2020mpnet},
+\texttt{sentence-transformers/all-MiniLM-L6-v2}~\cite{wang2020minilm},
+\texttt{intfloat/e5-large-v2}~\cite{wang2022e5},
+\texttt{nomic-ai/nomic-embed-text-v1.5}~\cite{nussbaum2024nomic}.
+Their embedding dimensions range from $384$ (MiniLM) to $1024$ (BGE-large,
+E5-large, Nomic), and they differ in contrastive training corpus,
+instruction schema, and tokeniser. If the theorem's prediction is a
+property of the cluster geometry rather than of any one encoder's
+artefacts, the strategy ranking should reproduce across all six
+(\S\ref{sec:template_collapse:e8}). It does, with a single exception
+(Nomic), which we attribute to the encoder's higher intrinsic $\dbar$
+pushing the DRM corpus from tight to spread regime.
+
+\subsection{The five consolidation strategies}
+\label{sec:experiments:strategies}
+
+Each experiment evaluates some subset of these five operators.
+
+\begin{itemize}[leftmargin=1.8em, itemsep=2pt]
+\item \textbf{Centroid}: $r_k = \mathrm{mean}(\clusterset_k) /
+\lVert \mathrm{mean} \rVert$. One representative per cluster;
+simplest operator.
+\item \textbf{Medoid}: $r_k = \arg\min_{x \in \clusterset_k}
+\sum_{y \in \clusterset_k} d(x, y)$. One representative per cluster;
+chosen from the cluster itself. Always closer to at least one real
+vector than the centroid.
+\item \textbf{Importance-weighted}: weighted mean with weights from an
+inverse-rank sampler over pairwise similarities. Degenerates to
+centroid on isotropic clusters (Corollary~\ref{cor:iw}).
+\item \textbf{Selective pruning}: keep the top-$p$\% items by cosine
+similarity to the cluster centroid and drop the rest. $p = 50\%$ by
+default; we also sweep $p \in \{10\%, 25\%\}$ in E8.
+\item \textbf{GAC (Geometry-Aware Consolidation)}: per-cluster router
+that picks between centroid, medoid-plus-residual, and pruning
+depending on two features of the cluster (\S\ref{sec:gac}). The
+production router.
+\end{itemize}
+
+Plus a \emph{no-consolidation} reference that keeps all source vectors;
+this sets the ceiling for downstream retrieval accuracy.
+
+\subsection{Learned-quantization baselines}
+\label{sec:experiments:quantization}
+
+Five non-consolidation families compete against ours on identity
+accuracy at matched bytes/vector in E3 (\S\ref{sec:e3}):
+
+\begin{itemize}[leftmargin=1.8em, itemsep=2pt]
+\item \textbf{Product Quantization (PQ)}~\cite{jegouPQ2011}: FAISS
+implementation, $m \in \{4, 8, 16, 32\}$ chunks, $256$ centroids per
+chunk.
+\item \textbf{Optimized PQ (OPQ)}~\cite{ge2013optimized}: PQ with a
+learned rotation, same chunk schedule.
+\item \textbf{LSH}~\cite{charikarLSH2002}: signed random projections to
+$\{64, 128, 256, 512\}$ dimensions then reconstructed.
+\item \textbf{PCA+int8}: principal components to $\{16, 32, 64, 128\}$
+dimensions followed by per-dimension int8 quantisation.
+\item \textbf{HNSW-prune}~\cite{malkovHNSW2018}: hnswlib index with
+$M = 16$, $ef = 200$, and $\{25\%, 50\%, 75\%\}$ prune-and-rank
+retention.
+\end{itemize}
+
+All baselines are compared to consolidation on the same $(80\%/20\%)$
+train/query split of each corpus.
+
+\subsection{Statistical design: seeds, splits, reporting}
+\label{sec:experiments:stats}
+
+Each experiment reports mean performance across three to ten seeds per
+cell (exact $n$ per experiment in the respective section). Seeds control
+both the random train/query split and any stochastic operator (e.g.\ PQ
+initialisation, GAC's random subsample for residual-direction fitting).
+Win/tie/loss counts use a tolerance of $10^{-3}$ on mean cap-coverage
+error or identity accuracy, chosen to match the one-SD noise floor
+across seeds.
+
+All raw results land as line-delimited JSON shards on a persistent Modal
+volume, then are reduced to parquet files per experiment. The parquet
+files are committed under \texttt{results/} in the repository, along
+with the reduction scripts that produced them. Every number cited in
+this paper is re-derivable by running \texttt{scripts/make\_figures.py}
+and the per-experiment table builders; we verify this end-to-end as part
+of Reflection~\ref{sec:limits}.
+
+\subsection{Compute footprint and honesty budget}
+\label{sec:experiments:compute}
+
+The full run footprint is $17{,}813$ cells, spread across nine
+experiments. Roughly $60\%$ of the wall-clock budget went to E1 (the
+$16{,}000$-seed theoretical grid) and $20\%$ to E7 (the
+Llama-3.1-70B-Instruct RAG runs on two-H100 nodes with tensor parallelism
+2). The remaining $20\%$ covers the six-corpus, six-encoder sweep of
+E2--E9. Where we stopped short of the originally planned coverage --- E5
+at $1$M points instead of $10$M, E7 at $10$ cells instead of a full
+$3 \times 5$ grid, E8 at $198$ cells instead of $1{,}008$ --- we flag the
+gap as an honest limitation (\S\ref{sec:limits}), never
+as a methodological choice.

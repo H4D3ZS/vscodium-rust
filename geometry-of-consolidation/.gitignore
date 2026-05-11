@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Modal
+.modal/
+
+# Experiment outputs (keep summaries + parquets small enough to commit)
+checkpoints/
+cache/
+embeddings/
+runs/
+ckpt/
+*.npy
+*.npz
+*.pkl
+*.pt
+# Commit results/ summaries and parquets for reproducibility; ignore just caches.
+!results/
+# But do not commit raw per-shard jsonl (the parquet is the source of truth).
+results/**/shard_*.jsonl
+/tmp_e*_check/
+
+# Paper
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.bbl
+paper/*.blg
+paper/*.toc
+paper/*.synctex.gz
+paper/**/*.aux
+paper/**/*.log
+paper/**/*.out
+paper/**/*.bbl
+paper/**/*.blg
+paper/**/*.toc
+paper/**/*.synctex.gz
+paper/build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.pem
+*.key
+
+# local credentials (never commit)
+.secrets/
+tokens.env

@@ -1,0 +1,74 @@
+\begin{longtable}{lcccccc}
+\caption{E3 per-cell results (learned baselines: PQ, OPQ, LSH, PCA+int8, HNSW-prune). (showing first 60 rows; full CSV in repo)}\label{tab:supp_e3}\\
+\toprule
+corpus & family & bytes\_per\_vec & identity\_accuracy & recall@1 & recall@10 & recall@100 \\
+\midrule
+\endfirsthead
+\multicolumn{7}{l}{\small\itshape (continued)}\\
+\toprule
+corpus & family & bytes\_per\_vec & identity\_accuracy & recall@1 & recall@10 & recall@100 \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+arxiv\_titles & hnsw\_prune & 4096 & 0.466 & 0.466 & 0.872 & 0.994 \\
+arxiv\_titles & hnsw\_prune & 4096 & 0.518 & 0.517 & 0.877 & 0.995 \\
+arxiv\_titles & hnsw\_prune & 4096 & 0.594 & 0.594 & 0.912 & 0.994 \\
+arxiv\_titles & hnsw\_prune & 4096 & 0.668 & 0.670 & 0.941 & 0.996 \\
+arxiv\_titles & lsh & 1 & 0.127 & 0.129 & 0.693 & 0.997 \\
+arxiv\_titles & lsh & 4 & 0.310 & 0.311 & 0.834 & 0.998 \\
+arxiv\_titles & lsh & 16 & 0.529 & 0.526 & 0.935 & 0.999 \\
+arxiv\_titles & lsh & 64 & 0.684 & 0.686 & 0.953 & 0.999 \\
+arxiv\_titles & opq & 4 & 0.679 & 0.679 & 0.938 & 0.995 \\
+arxiv\_titles & opq & 8 & 0.699 & 0.699 & 0.945 & 0.996 \\
+arxiv\_titles & opq & 16 & 0.709 & 0.710 & 0.956 & 0.996 \\
+arxiv\_titles & opq & 32 & 0.710 & 0.710 & 0.955 & 0.996 \\
+arxiv\_titles & opq & 64 & 0.716 & 0.720 & 0.954 & 0.997 \\
+arxiv\_titles & pca\_int8 & 2 & 0.315 & 0.306 & 0.867 & 0.991 \\
+arxiv\_titles & pca\_int8 & 4 & 0.450 & 0.448 & 0.911 & 0.993 \\
+arxiv\_titles & pca\_int8 & 8 & 0.611 & 0.615 & 0.937 & 0.993 \\
+arxiv\_titles & pca\_int8 & 16 & 0.682 & 0.683 & 0.946 & 0.995 \\
+arxiv\_titles & pca\_int8 & 32 & 0.696 & 0.702 & 0.953 & 0.995 \\
+arxiv\_titles & pca\_int8 & 64 & 0.718 & 0.717 & 0.951 & 0.995 \\
+arxiv\_titles & pq & 4 & 0.664 & 0.663 & 0.911 & 0.991 \\
+arxiv\_titles & pq & 8 & 0.692 & 0.687 & 0.917 & 0.990 \\
+arxiv\_titles & pq & 16 & 0.710 & 0.709 & 0.930 & 0.991 \\
+arxiv\_titles & pq & 32 & 0.716 & 0.720 & 0.937 & 0.991 \\
+arxiv\_titles & pq & 64 & 0.731 & 0.731 & 0.950 & 0.994 \\
+arxiv\_titles & pq & 128 & 0.720 & 0.723 & 0.956 & 0.997 \\
+drm\_templated & hnsw\_prune & 4096 & 0.925 & 0.925 & 1.000 & 1.000 \\
+drm\_templated & hnsw\_prune & 4096 & 0.930 & 0.930 & 1.000 & 1.000 \\
+drm\_templated & hnsw\_prune & 4096 & 0.930 & 0.930 & 1.000 & 1.000 \\
+drm\_templated & hnsw\_prune & 4096 & 0.930 & 0.930 & 1.000 & 1.000 \\
+drm\_templated & lsh & 1 & 0.031 & 0.043 & 0.247 & 0.818 \\
+drm\_templated & lsh & 4 & 0.514 & 0.512 & 0.874 & 0.999 \\
+drm\_templated & lsh & 16 & 0.794 & 0.794 & 0.924 & 1.000 \\
+drm\_templated & lsh & 64 & 0.805 & 0.805 & 0.944 & 1.000 \\
+drm\_templated & opq & 4 & 0.710 & 0.705 & 0.866 & 1.000 \\
+drm\_templated & opq & 8 & 0.746 & 0.746 & 0.906 & 1.000 \\
+drm\_templated & opq & 16 & 0.769 & 0.769 & 0.927 & 1.000 \\
+drm\_templated & opq & 32 & 0.780 & 0.780 & 0.929 & 1.000 \\
+drm\_templated & opq & 64 & 0.797 & 0.797 & 0.934 & 1.000 \\
+drm\_templated & pca\_int8 & 2 & 0.039 & 0.039 & 0.230 & 0.762 \\
+drm\_templated & pca\_int8 & 4 & 0.250 & 0.250 & 0.655 & 0.995 \\
+drm\_templated & pca\_int8 & 8 & 0.664 & 0.664 & 0.834 & 1.000 \\
+drm\_templated & pca\_int8 & 16 & 0.731 & 0.731 & 0.875 & 1.000 \\
+drm\_templated & pca\_int8 & 32 & 0.765 & 0.765 & 0.907 & 1.000 \\
+drm\_templated & pca\_int8 & 64 & 0.799 & 0.799 & 0.931 & 1.000 \\
+drm\_templated & pq & 4 & 0.517 & 0.510 & 0.767 & 1.000 \\
+drm\_templated & pq & 8 & 0.675 & 0.662 & 0.804 & 1.000 \\
+drm\_templated & pq & 16 & 0.738 & 0.738 & 0.824 & 1.000 \\
+drm\_templated & pq & 32 & 0.755 & 0.755 & 0.843 & 1.000 \\
+drm\_templated & pq & 64 & 0.772 & 0.772 & 0.871 & 1.000 \\
+drm\_templated & pq & 128 & 0.794 & 0.794 & 0.919 & 1.000 \\
+hotpot\_qa & hnsw\_prune & 4096 & 0.347 & 0.347 & 0.624 & 0.863 \\
+hotpot\_qa & hnsw\_prune & 4096 & 0.347 & 0.347 & 0.624 & 0.863 \\
+hotpot\_qa & hnsw\_prune & 4096 & 0.348 & 0.348 & 0.628 & 0.863 \\
+hotpot\_qa & hnsw\_prune & 4096 & 0.366 & 0.365 & 0.649 & 0.880 \\
+hotpot\_qa & lsh & 1 & 0.003 & 0.003 & 0.040 & 0.261 \\
+hotpot\_qa & lsh & 4 & 0.032 & 0.032 & 0.146 & 0.462 \\
+hotpot\_qa & lsh & 16 & 0.223 & 0.224 & 0.438 & 0.745 \\
+hotpot\_qa & lsh & 64 & 0.372 & 0.373 & 0.655 & 0.894 \\
+hotpot\_qa & opq & 4 & 0.205 & 0.206 & 0.491 & 0.848 \\
+hotpot\_qa & opq & 8 & 0.276 & 0.277 & 0.574 & 0.874 \\
+\end{longtable}

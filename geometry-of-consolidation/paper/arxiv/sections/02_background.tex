@@ -1,0 +1,273 @@
+\section{Background}
+\label{sec:background}
+
+\begin{intuition}
+This section collects the handful of ideas we lean on throughout: what
+an embedding is, what it means to \emph{cluster} a memory, how we
+measure how ``spread out'' a cluster is ($\dbar$), and what effective
+dimension ($\deff$) captures about a cluster's shape. A reader
+familiar with retrieval-augmented generation, product quantization,
+and effective rank can skim. The rest of the paper assumes only these.
+\end{intuition}
+
+This section exists for a reader approaching the paper from an adjacent
+field. A reader already familiar with retrieval-augmented generation,
+product quantization, and effective rank can safely skim.
+
+\subsection{What is an embedding, and what is an embedding memory?}
+\label{sec:background:embedding}
+
+An \emph{embedding} is a function that maps a piece of input data --- a
+sentence, an image, a code snippet --- to a point in $\R^d$ for some
+fixed $d$ between a few hundred and a few thousand. Modern sentence
+embeddings have two properties that matter for this paper. First, they
+are \emph{normalised}: the embedded vectors live on the unit sphere
+$\SphereD$, so similarity reduces to the cosine $\inner{x}{y} = \cos
+\angle(x, y)$. Second, they are \emph{semantically structured}: two
+sentences that mean the same thing have cosine similarity close to one,
+while two unrelated sentences have cosine similarity close to zero. The
+second property is enforced during training by a contrastive
+loss~\cite{reimers2019sbert,gao2021simcse,xiao2023bge,wang2022e5} that
+pulls paraphrases together and pushes unrelated pairs apart.
+
+An \emph{embedding memory} is any system that stores a large set of such
+vectors $\memset = \{x_1, \ldots, x_N\} \subset \SphereD$ and supports
+nearest-neighbour queries on them. The three canonical systems in the
+introduction --- RAG databases, hippocampal memory, continual-learning
+replay buffers --- all take this form, differing mainly in how they choose
+what to keep.
+
+\subsection{Retrieval-augmented generation, quickly}
+\label{sec:background:rag}
+
+Retrieval-augmented generation
+(RAG)~\cite{lewisRAG2020,guu2020realm,karpukhin2020dpr,izacardAtlas2023,
+borgeaud2022retro,izacard2021fid} is the dominant way large language
+models access factual knowledge outside their training distribution. The
+pipeline has three stages:
+
+\begin{enumerate}[leftmargin=1.8em, itemsep=2pt]
+\item \textbf{Indexing.} Every passage in the corpus (often the whole of
+Wikipedia, or a domain-specific collection) is passed through a
+sentence encoder and the resulting vectors are stored in a
+vector database.
+\item \textbf{Retrieval.} At query time, the query string is embedded
+by the same encoder, and the $k$ passages whose vectors are most
+similar to the query's vector are retrieved by approximate
+nearest-neighbour search~\cite{johnson2019faiss,malkovHNSW2018}.
+\item \textbf{Reading.} The retrieved passages are concatenated into
+the context of a large language model, which generates the final
+answer.
+\end{enumerate}
+
+At production scale the vector database has $10^{6}$--$10^{10}$
+entries. Scanning all of them for every query is infeasible, so every
+production stack compresses the index. The dominant compression family
+is \emph{vector quantization}: approximate each $d$-dimensional vector
+by a short code, so the database is a few bytes per vector rather than
+$4d$. Two examples of this family dominate:
+
+\paragraph{Product Quantization (PQ).} Introduced
+in~\cite{jegouPQ2011}, PQ splits each vector into $M$ sub-vectors of
+dimension $d/M$, and quantizes each sub-vector to one of $K$ centroids
+learned by $k$-means. The code for each vector is $M \log_2 K$ bits ---
+for example, $M=8$, $K=256$ gives $64$ bits per $d$-dimensional vector.
+Distances are then computed as the sum of pre-tabulated distances
+between sub-vector centroids. Optimized
+PQ~\cite{ge2013optimized} adds a learned rotation to decorrelate
+sub-vectors before chunking. These two remain the backbone of
+billion-scale similarity search~\cite{johnson2019faiss}.
+
+\paragraph{Locality-Sensitive Hashing (LSH).} LSH for cosine similarity
+was introduced in~\cite{charikarLSH2002} and generalised
+in~\cite{datarLSH2004}. The idea is to hash each vector to a short
+binary string such that vectors with high cosine similarity collide
+with high probability. Matching becomes bitwise Hamming-distance
+comparison, which is cheap. LSH is simpler than PQ but sits below
+PQ on the Pareto frontier for typical ANN
+workloads~\cite{johnson2019faiss}.
+
+\paragraph{Graph-based ANN.} HNSW~\cite{malkovHNSW2018} and its
+descendants store not vectors but a navigable small-world graph whose
+edges connect nearby vectors. Retrieval is a greedy walk from an entry
+point. HNSW at full precision is typically the fastest recall-$95$
+option, but its memory cost is dominated by the graph, so at large
+scale it is combined with PQ or with HNSW-prune (a retention sweep that
+drops the lowest-degree fraction).
+
+All three families compress \emph{at the vector level}: every vector
+stays in the index, only represented more cheaply. What this paper calls
+\emph{consolidation} is orthogonal: it compresses \emph{at the cluster
+level}, dropping most vectors and replacing them with a handful of
+representatives. Whether consolidation should win over vector quantization
+depends on the geometry of the corpus, and is the central empirical
+question of Section~\ref{sec:e3}.
+
+\subsection{Complementary learning systems, quickly}
+\label{sec:background:cls}
+
+The cognitive neuroscience literature on human memory consolidation is
+anchored by the \emph{Complementary Learning Systems} (CLS) framework of
+McClelland, McNaughton and
+O'Reilly~\cite{mcclellandConsolidation1995}, itself drawing on Marr's
+earlier model of the hippocampus as a fast associative
+store~\cite{marrSimple1971} and on Alvarez and Squire's account of
+gradient retrograde amnesia~\cite{alvarezSquireConsolidation1994}. The
+claim: the brain has two memory systems. The hippocampus encodes
+episodic traces rapidly but has limited capacity; the neocortex stores
+overlapping, distributed representations and learns slowly. During
+offline periods --- particularly sleep --- the hippocampus replays
+compressed versions of its traces to the cortex, allowing slow cortical
+consolidation without interference.
+
+Key empirical anchors: Wilson and McNaughton showed that hippocampal
+place cells replay awake-activity sequences during subsequent
+sleep~\cite{wilson1994reactivation}. O'Reilly and
+colleagues~\cite{oreillyHippocampus2014} laid out the computational
+constraints on such a system --- sparse hippocampal coding, pattern
+separation, pattern completion --- and argued that ``consolidation'' in
+the neuroscience sense and ``rehearsal'' in the
+continual-learning~\cite{mccloskey1989cf,robinsReplay1995} sense are the
+same operation under different names.
+
+Two open questions in the CLS literature are structurally similar to
+the embedding consolidation problem we study. First, how many cortical
+exemplars are needed to represent a hippocampal episode? Under common
+assumptions this is set by task similarity and buffer size, but without
+a geometric bound the number is chosen empirically. Second, what
+happens when the episodes overlap heavily (e.g.\ thousands of
+paraphrase-like traces of the same fact)? Standard CLS models assume
+well-separated episodes consolidate without interference. We note that
+our theorem, in the embedding-consolidation setting we study, gives a
+geometric condition --- tightness of the cluster in its effective
+subspace --- under which a structural analogue of that assumption
+holds. Whether the same geometry governs biological consolidation is a
+question the theorem \emph{motivates} but does not settle; the
+evidence we report is for text embedding consolidation only.
+
+\subsection{Effective dimension and why it matters}
+\label{sec:background:deff}
+
+The central spectral quantity of this paper is the \emph{effective
+dimension} of a cluster, defined for $X \subset \R^d$ with sample
+covariance $\Sigma$ and eigenvalues $\lambda_1 \geq \ldots \geq
+\lambda_d \geq 0$ by
+\begin{equation}
+\deff(X) := \frac{\bigl(\sum_i \lambda_i\bigr)^2}{\sum_i \lambda_i^2}.
+\label{eq:deff_def}
+\end{equation}
+This is the ratio between the squared trace of $\Sigma$ and the trace
+of $\Sigma^2$; it lies in $[1, d]$ and takes the value $d$ iff $\Sigma$
+is proportional to the identity, the value $1$ iff $\Sigma$ has a single
+nonzero eigenvalue (rank-one collapse). In information-theoretic terms,
+$1/\deff = \sum_i p_i^2$ where $p_i = \lambda_i / \sum_j \lambda_j$ is
+the probability of eigenvalue $i$ under the natural Gibbs distribution;
+$\deff$ is therefore the exponential of the R\'enyi-2 entropy of the
+normalised spectrum~\cite{royVetterli2007}. In the
+statistics literature the same quantity also goes by ``effective
+degrees of freedom,''
+``stable rank,'' or ``participation
+ratio''~\cite{vershynin2018hdp,ledoux2001concentration}.
+
+Two things make $\deff$ the right spectral summary for our problem.
+\begin{enumerate}[leftmargin=1.8em, itemsep=2pt]
+\item It is \emph{scale-invariant}: multiplying $\Sigma$ by a constant
+leaves $\deff$ unchanged. The quantity therefore reports the shape of
+the spectrum, not its magnitude.
+\item It is \emph{weighted}: two large eigenvalues and one thousand
+small ones give $\deff \approx 2$, not $\deff \approx 1000$. This
+matches the geometric intuition that the ``hard to compress''
+directions are those with large variance.
+\end{enumerate}
+
+The previous paper in this trilogy documented that production sentence
+encoders have $\deff \approx 16$ at the global
+level~\cite{geometryOfForgetting2026}, with $\deff_{\mathrm{local}}$ on a
+single cluster often below $5$. The claim of the present paper is that
+this same $\deff_{\mathrm{local}}$ controls how much compression a
+cluster can take before its members stop retrieving themselves.
+
+\paragraph{Measurement conventions (used throughout).}
+All reported values of $\deff$ use Equation~\eqref{eq:deff_def}
+(participation ratio); the code computes this form as the default of
+\texttt{gac.theory.d\_eff} (see the repository). We distinguish:
+(i) the \emph{global} $\deff$ of a corpus is measured on the pooled
+embedding matrix of all items across clusters;
+(ii) the \emph{local} $\deff_{\mathrm{local}}$ of a corpus is the
+\textbf{median} of per-cluster participation ratios, computed on each
+cluster's own embedding matrix.
+The theorem as stated is cluster-conditional: its bound applies to a
+single cluster with $\deff$ computed from that cluster's covariance.
+Corpus-level diagnostics (e.g.\ the ordering tables in
+Section~\ref{sec:template_collapse}) report medians across clusters.
+Likewise $\dbar$ is mean within-cluster cosine distance and is reported
+cluster-conditionally; corpus rows report medians. All other
+definitions used in this paper reduce to this single quantity $\deff$
+under the participation-ratio form; we do not mix definitions.
+
+\subsection{Concentration of measure on the sphere}
+\label{sec:background:concentration}
+
+The proof of the duality theorem uses a classical fact about points on a
+high-dimensional sphere: most of them are nearly orthogonal to any fixed
+direction. Formally, if $x$ is drawn uniformly from $\SphereD$, then for
+any fixed $r \in \SphereD$ and any $\theta \in (0, 1)$,
+\begin{equation}
+\Pr[\inner{x}{r} \geq \theta] \;\leq\; e^{-d \theta^2 / 2}.
+\label{eq:cap_volume_standard}
+\end{equation}
+This is the canonical \emph{cap-volume} estimate (see Ball's
+introduction to convex geometry~\cite{ball1997elementary} or Vershynin's
+textbook~\cite{vershynin2018hdp}; tight constants appear in Milman and
+Schechtman~\cite{milman1986asymptotic} and in
+Ledoux~\cite{ledoux2001concentration}).
+
+Equation~\eqref{eq:cap_volume_standard} says: on a high-dimensional
+sphere, the spherical cap of angular radius $\arccos\theta$ has
+exponentially small mass as $d$ grows. This is why nearest-neighbour
+search on random points in high dimensions becomes
+trivial~\cite{beyer1999nn}: no point is close to the query except the
+query itself, if there is one.
+
+Our setting is different in one crucial way. Our cluster is not isotropic
+on $\SphereD$; it concentrates in a low-dimensional effective subspace of
+dimension $\deff \ll d$. The bound we need therefore replaces $d$ by
+$\deff$: on a cluster with effective dimension $\deff$ and mean
+within-cluster distance $\dbar$, a spherical cap of radius
+$\arccos\theta$ has mass at most $c_1 (\thetap/\dbar)^{\deff/2}$
+whenever $\thetap < \dbar$ (Lemma~\ref{lem:cap} in Methods). A union
+bound over $m$ representatives then gives the theorem. The
+low-dimensionality of real embedding clusters is what makes the bound
+non-trivial: for $\deff = 16$ and $\thetap / \dbar = 0.5$, the
+per-representative mass bound is $(0.5)^{8} = 0.004$ --- small, but not
+astronomically small. For $\deff = 2$ (HotpotQA-like), $(0.5)^1 = 0.5$,
+and the bound is vacuous within a factor of two.
+
+\subsection{Notation summary}
+\label{sec:background:notation}
+
+We use the following notation throughout.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+$\clusterset = \{x_1, \ldots, x_n\} \subset \SphereD$ & cluster of $n$
+source points on the unit sphere \\
+$\reps = \{r_1, \ldots, r_m\} \subset \SphereD$ & set of $m$
+representatives produced by a consolidator \\
+$\Sigma$ & sample covariance of $\clusterset$ \\
+$\lambda_1 \geq \ldots \geq \lambda_d$ & eigenvalues of $\Sigma$ \\
+$\deff = (\sum_i \lambda_i)^2 / \sum_i \lambda_i^2$ & effective dimension
+of $\clusterset$ (Def.~\ref{def:deff}) \\
+$\dbar = \tfrac{1}{\binom{n}{2}} \sum_{i<j} (1 - \inner{x_i}{x_j})$ &
+mean within-cluster cosine distance \\
+$\theta \in (0, 1)$ & retrieval cap (minimum cosine to count as a hit) \\
+$\thetap = 1 - \theta$ & cap slack \\
+$\eps_{\mathrm{cap}}$ & cap-coverage error (Eq.~\ref{eq:cap_error}) \\
+$\eps_{\mathrm{id}}$ & identity-retrieval error (Def.~\ref{def:id}) \\
+$\rho = \lambda_1 / \sum_i \lambda_i$ & spectral concentration (top eigenvalue fraction) \\
+\bottomrule
+\end{tabular}
+\end{center}

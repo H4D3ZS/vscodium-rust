@@ -1,0 +1,32 @@
+[
+  {
+    "strategy": "centroid",
+    "mean_acc": 0.7842647989798128,
+    "mean_cov_08": 0.41905770998886094,
+    "mean_compression": 486.3964434562752
+  },
+  {
+    "strategy": "gac",
+    "mean_acc": 0.6571873943323966,
+    "mean_cov_08": 0.38304195255617585,
+    "mean_compression": 2.1038529683772684
+  },
+  {
+    "strategy": "importance_weighted",
+    "mean_acc": 0.7749369388870618,
+    "mean_cov_08": 0.4129808210744123,
+    "mean_compression": 486.3964434562752
+  },
+  {
+    "strategy": "medoid",
+    "mean_acc": 0.6703696070349431,
+    "mean_cov_08": 0.2856208227405779,
+    "mean_compression": 486.3964434562752
+  },
+  {
+    "strategy": "selective_prune",
+    "mean_acc": 0.5756730348966681,
+    "mean_cov_08": 0.3468848080686362,
+    "mean_compression": 3.047534484014951
+  }
+]

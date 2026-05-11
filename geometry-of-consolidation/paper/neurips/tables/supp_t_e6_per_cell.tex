@@ -1,0 +1,74 @@
+\begin{longtable}{lcccccccc}
+\caption{E6 per-cell results (GAC router ablation). (showing first 60 rows; full CSV in repo)}\label{tab:supp_e6}\\
+\toprule
+corpus & model & router & seed & compression & identity\_accuracy & recall@10 & mrr@20 & coverage@0.80 \\
+\midrule
+\endfirsthead
+\multicolumn{9}{l}{\small\itshape (continued)}\\
+\toprule
+corpus & model & router & seed & compression & identity\_accuracy & recall@10 & mrr@20 & coverage@0.80 \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+arxiv\_titles & bge-large & gac\_fixed\_centroid & 0 & 2322.27 & 0.754 & 1.000 & 0.851 & 0.733 \\
+arxiv\_titles & bge-large & gac\_fixed\_centroid & 1 & 2322.27 & 0.753 & 1.000 & 0.850 & 0.760 \\
+arxiv\_titles & bge-large & gac\_fixed\_centroid & 2 & 2322.27 & 0.756 & 1.000 & 0.852 & 0.747 \\
+arxiv\_titles & bge-large & gac\_fixed\_medoid & 0 & 580.57 & 0.624 & 0.908 & 0.703 & 0.122 \\
+arxiv\_titles & bge-large & gac\_fixed\_medoid & 1 & 580.57 & 0.638 & 0.906 & 0.713 & 0.118 \\
+arxiv\_titles & bge-large & gac\_fixed\_medoid & 2 & 580.57 & 0.627 & 0.906 & 0.703 & 0.113 \\
+arxiv\_titles & bge-large & gac\_fixed\_prune & 0 & 2.00 & 0.582 & 0.938 & 0.707 & 0.612 \\
+arxiv\_titles & bge-large & gac\_fixed\_prune & 1 & 2.00 & 0.583 & 0.936 & 0.709 & 0.630 \\
+arxiv\_titles & bge-large & gac\_fixed\_prune & 2 & 2.00 & 0.587 & 0.943 & 0.712 & 0.611 \\
+arxiv\_titles & bge-large & gac\_full & 0 & 2.00 & 0.582 & 0.938 & 0.707 & 0.612 \\
+arxiv\_titles & bge-large & gac\_full & 1 & 2.00 & 0.583 & 0.936 & 0.709 & 0.630 \\
+arxiv\_titles & bge-large & gac\_full & 2 & 2.00 & 0.587 & 0.943 & 0.712 & 0.611 \\
+arxiv\_titles & bge-large & gac\_no\_residual & 0 & 2.00 & 0.582 & 0.938 & 0.707 & 0.612 \\
+arxiv\_titles & bge-large & gac\_no\_residual & 1 & 2.00 & 0.583 & 0.936 & 0.709 & 0.630 \\
+arxiv\_titles & bge-large & gac\_no\_residual & 2 & 2.00 & 0.587 & 0.943 & 0.712 & 0.611 \\
+arxiv\_titles & bge-large & gac\_oracle & 0 & 2.38 & 0.594 & 0.949 & 0.721 & 0.689 \\
+arxiv\_titles & bge-large & gac\_oracle & 1 & 2.38 & 0.611 & 0.955 & 0.733 & 0.707 \\
+arxiv\_titles & bge-large & gac\_oracle & 2 & 2.16 & 0.588 & 0.947 & 0.716 & 0.655 \\
+arxiv\_titles & bge-large & gac\_random & 0 & 4.39 & 0.593 & 0.888 & 0.694 & 0.689 \\
+arxiv\_titles & bge-large & gac\_random & 1 & 5.69 & 0.571 & 0.945 & 0.690 & 0.662 \\
+arxiv\_titles & bge-large & gac\_random & 2 & 5.81 & 0.477 & 0.824 & 0.594 & 0.590 \\
+drm\_templated & bge-large & gac\_fixed\_centroid & 0 & 4.00 & 0.943 & 1.000 & 0.964 & 1.000 \\
+drm\_templated & bge-large & gac\_fixed\_centroid & 1 & 4.00 & 0.945 & 1.000 & 0.967 & 1.000 \\
+drm\_templated & bge-large & gac\_fixed\_centroid & 2 & 4.00 & 0.941 & 1.000 & 0.963 & 1.000 \\
+drm\_templated & bge-large & gac\_fixed\_medoid & 0 & 1.00 & 0.918 & 0.988 & 0.939 & 1.000 \\
+drm\_templated & bge-large & gac\_fixed\_medoid & 1 & 1.00 & 0.931 & 0.984 & 0.946 & 1.000 \\
+drm\_templated & bge-large & gac\_fixed\_medoid & 2 & 1.00 & 0.911 & 0.983 & 0.931 & 1.000 \\
+drm\_templated & bge-large & gac\_fixed\_prune & 0 & 2.00 & 0.769 & 0.925 & 0.822 & 1.000 \\
+drm\_templated & bge-large & gac\_fixed\_prune & 1 & 2.00 & 0.791 & 0.930 & 0.840 & 1.000 \\
+drm\_templated & bge-large & gac\_fixed\_prune & 2 & 2.00 & 0.768 & 0.924 & 0.823 & 1.000 \\
+drm\_templated & bge-large & gac\_full & 0 & 1.55 & 0.932 & 0.995 & 0.953 & 1.000 \\
+drm\_templated & bge-large & gac\_full & 1 & 1.53 & 0.946 & 0.995 & 0.964 & 1.000 \\
+drm\_templated & bge-large & gac\_full & 2 & 1.54 & 0.943 & 0.994 & 0.960 & 1.000 \\
+drm\_templated & bge-large & gac\_no\_residual & 0 & 4.00 & 0.934 & 0.995 & 0.956 & 1.000 \\
+drm\_templated & bge-large & gac\_no\_residual & 1 & 4.00 & 0.949 & 0.996 & 0.966 & 1.000 \\
+drm\_templated & bge-large & gac\_no\_residual & 2 & 4.00 & 0.944 & 0.996 & 0.962 & 1.000 \\
+drm\_templated & bge-large & gac\_oracle & 0 & 4.00 & 0.943 & 1.000 & 0.964 & 1.000 \\
+drm\_templated & bge-large & gac\_oracle & 1 & 4.00 & 0.945 & 1.000 & 0.967 & 1.000 \\
+drm\_templated & bge-large & gac\_oracle & 2 & 4.00 & 0.941 & 1.000 & 0.963 & 1.000 \\
+drm\_templated & bge-large & gac\_random & 0 & 1.77 & 0.821 & 0.969 & 0.868 & 1.000 \\
+drm\_templated & bge-large & gac\_random & 1 & 1.73 & 0.866 & 0.978 & 0.898 & 1.000 \\
+drm\_templated & bge-large & gac\_random & 2 & 1.74 & 0.834 & 0.969 & 0.875 & 1.000 \\
+hotpot\_qa & bge-large & gac\_fixed\_centroid & 0 & 2.33 & 0.487 & 0.766 & 0.580 & 0.020 \\
+hotpot\_qa & bge-large & gac\_fixed\_centroid & 1 & 2.33 & 0.518 & 0.797 & 0.610 & 0.023 \\
+hotpot\_qa & bge-large & gac\_fixed\_centroid & 2 & 2.33 & 0.492 & 0.768 & 0.586 & 0.022 \\
+hotpot\_qa & bge-large & gac\_fixed\_medoid & 0 & 1.01 & 0.361 & 0.572 & 0.419 & 0.025 \\
+hotpot\_qa & bge-large & gac\_fixed\_medoid & 1 & 1.01 & 0.366 & 0.596 & 0.432 & 0.022 \\
+hotpot\_qa & bge-large & gac\_fixed\_medoid & 2 & 1.01 & 0.345 & 0.576 & 0.406 & 0.018 \\
+hotpot\_qa & bge-large & gac\_fixed\_prune & 0 & 1.81 & 0.352 & 0.623 & 0.439 & 0.018 \\
+hotpot\_qa & bge-large & gac\_fixed\_prune & 1 & 1.81 & 0.366 & 0.632 & 0.447 & 0.018 \\
+hotpot\_qa & bge-large & gac\_fixed\_prune & 2 & 1.81 & 0.348 & 0.620 & 0.434 & 0.020 \\
+hotpot\_qa & bge-large & gac\_full & 0 & 1.79 & 0.355 & 0.628 & 0.440 & 0.018 \\
+hotpot\_qa & bge-large & gac\_full & 1 & 1.79 & 0.360 & 0.634 & 0.450 & 0.018 \\
+hotpot\_qa & bge-large & gac\_full & 2 & 1.80 & 0.354 & 0.633 & 0.442 & 0.019 \\
+hotpot\_qa & bge-large & gac\_no\_residual & 0 & 1.81 & 0.351 & 0.624 & 0.439 & 0.018 \\
+hotpot\_qa & bge-large & gac\_no\_residual & 1 & 1.81 & 0.367 & 0.633 & 0.447 & 0.018 \\
+hotpot\_qa & bge-large & gac\_no\_residual & 2 & 1.81 & 0.348 & 0.622 & 0.435 & 0.021 \\
+hotpot\_qa & bge-large & gac\_oracle & 0 & 2.11 & 0.471 & 0.744 & 0.564 & 0.021 \\
+hotpot\_qa & bge-large & gac\_oracle & 1 & 2.13 & 0.510 & 0.770 & 0.598 & 0.024 \\
+hotpot\_qa & bge-large & gac\_oracle & 2 & 2.15 & 0.487 & 0.749 & 0.576 & 0.022 \\
+\end{longtable}

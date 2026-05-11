@@ -12,9 +12,9 @@ dist
 dist-ssr
 *.local
 # Kortex legacy workspace lives at /kortex/ (Rust + neuraldrive + tools).
-# We track its source, but skip the upstream llama.cpp clone (974 MB) and
-# all build artifacts. The /kortex/.gitignore handles target/ + node_modules/.
-/kortex/llama.cpp/
+# We track its source AND the inlined upstream llama.cpp tree so a fresh
+# clone is self-contained. Build artifacts are still excluded:
+/kortex/llama.cpp/build/
 /kortex/target/
 /kortex/**/target/
 /kortex/**/node_modules/
@@ -62,10 +62,15 @@ vscodium/
 antigravity/
 claude-code-fork/
 
-# External reference repositories cloned in for Kortex inference research.
-# These ship as separate upstream projects and must NOT be committed here.
-ds4/
-geometry-of-consolidation/
+# Reference implementations cloned in for Kortex inference research.
+# We INLINE the source (no nested .git) so a fresh clone is fully
+# self-contained; only build/cache artifacts under them are excluded.
+/ds4/target/
+/ds4/**/__pycache__/
+/geometry-of-consolidation/.venv/
+/geometry-of-consolidation/**/__pycache__/
+/geometry-of-consolidation/wandb/
+/geometry-of-consolidation/outputs/
 
 
 # Editor directories and files

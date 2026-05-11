@@ -1,0 +1,52 @@
+{
+  "n_rows": 16000,
+  "n_cells": 400,
+  "strategies": {
+    "centroid": {
+      "err_cluster_mean": 0.0,
+      "err_cap_mean": 0.1278,
+      "err_source_mean": 1.0,
+      "bound_mean": 0.2058,
+      "theorem_holds_cap_rate": 0.807,
+      "theorem_holds_source_rate": 1.0,
+      "mean_gap_cap": -0.0779,
+      "mean_gap_source": 0.7942
+    },
+    "gac": {
+      "err_cluster_mean": 0.0,
+      "err_cap_mean": 0.0761,
+      "err_source_mean": 0.8803,
+      "bound_mean": 0.2058,
+      "theorem_holds_cap_rate": 0.7775,
+      "theorem_holds_source_rate": 0.8125,
+      "mean_gap_cap": -0.1297,
+      "mean_gap_source": 0.6746
+    },
+    "medoid": {
+      "err_cluster_mean": 0.0001,
+      "err_cap_mean": 0.1701,
+      "err_source_mean": 0.9667,
+      "bound_mean": 0.2058,
+      "theorem_holds_cap_rate": 0.7822,
+      "theorem_holds_source_rate": 0.83,
+      "mean_gap_cap": -0.0357,
+      "mean_gap_source": 0.7609
+    },
+    "prune50": {
+      "err_cluster_mean": 0.0,
+      "err_cap_mean": 0.067,
+      "err_source_mean": 0.5,
+      "bound_mean": 0.2058,
+      "theorem_holds_cap_rate": 0.775,
+      "theorem_holds_source_rate": 0.789,
+      "mean_gap_cap": -0.1388,
+      "mean_gap_source": 0.2942
+    }
+  },
+  "n_violations_by_strategy": {
+    "centroid": 772,
+    "gac": 890,
+    "medoid": 871,
+    "prune50": 900
+  }
+}

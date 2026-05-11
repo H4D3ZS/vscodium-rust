@@ -1,0 +1,23 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Run manifest: every figure and table mapped to source parquet and commit SHA.}
+\label{tab:manifest}
+\begin{tabular}{lllc}
+\toprule
+artifact & source & parquet & commit \\
+\midrule
+Fig 1 (conceptual) & scripts/make\_figures.py:fig1b\_conceptual & (none) & 3b8a227477 \\
+Fig 1 (theorem regimes) & scripts/make\_figures.py:fig1\_theorem\_regimes & results/e1/e1\_results.parquet & 3b8a227477 \\
+Fig 2 & fig2\_strategy\_sweep & results/e4/e4\_results.parquet & 3b8a227477 \\
+Fig 3 & fig3\_learned\_baselines & results/e3/e3\_results.parquet & 3b8a227477 \\
+Fig 4a & fig4\_encoder\_universality & results/e8/e8\_results.parquet & 3b8a227477 \\
+Fig 4b (id-coverage) & fig4b\_id\_coverage & results/e4/e4\_results.parquet & 3b8a227477 \\
+Fig 5 (scale) & fig5\_scale & results/e5/e5\_results.parquet & 3b8a227477 \\
+Fig 6 (ablation) & fig6\_ablation & results/e6/e6\_results.parquet & 3b8a227477 \\
+Fig 6b (downstream) & fig6b\_downstream & results/e7/e7\_results.parquet & 3b8a227477 \\
+Table 1 & make\_tables.py:t1 & e3, e4 parquets & 3b8a227477 \\
+Table 2 & make\_tables.py:t2 & results/e6/e6\_results.parquet & 3b8a227477 \\
+\bottomrule
+\end{tabular}
+\end{table}

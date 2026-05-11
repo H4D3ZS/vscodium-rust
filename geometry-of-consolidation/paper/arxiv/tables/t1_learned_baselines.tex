@@ -1,0 +1,23 @@
+\begin{table}[t]
+\centering
+\small
+\caption{T1: Identity accuracy at $\approx$10$\times$ compression across methods and corpora. Top block: learned baselines (PQ, OPQ, LSH, PCA+int8, HNSW-prune) from E3. Bottom block: geometric strategies (incl. ours: \textsc{GAC}) from E4. BGE-large encoder, 3 seeds.}
+\label{tab:t1}
+\begin{tabular}{lcccccc}
+\toprule
+Method & drm templated & ms marco & nq questions & hotpot qa & wikipedia sections & arxiv titles \\
+\midrule
+PQ & 0.794 & 0.881 & 0.595 & 0.450 & 0.599 & 0.720 \\
+OPQ & 0.797 & 0.881 & 0.590 & 0.434 & 0.596 & 0.716 \\
+LSH & 0.805 & 0.870 & 0.532 & 0.372 & 0.510 & 0.684 \\
+PCA\_INT8 & 0.799 & 0.833 & 0.566 & 0.269 & 0.541 & 0.718 \\
+HNSW\_PRUNE & 0.925 & 0.545 & 0.279 & 0.347 & 0.510 & 0.466 \\
+\midrule
+centroid & 0.943 & 0.899 & 0.784 & 0.499 & 0.656 & 0.754 \\
+medoid & 0.911 & 0.776 & 0.686 & 0.334 & 0.469 & 0.619 \\
+selective\_prune & 0.776 & 0.830 & 0.425 & 0.356 & 0.393 & 0.584 \\
+importance\_weighted & 0.941 & 0.903 & 0.780 & 0.499 & 0.658 & 0.755 \\
+\textbf{GAC (ours)} & \textbf{0.940} & \textbf{0.836} & \textbf{0.434} & \textbf{0.357} & \textbf{0.393} & \textbf{0.584} \\
+\bottomrule
+\end{tabular}
+\end{table}

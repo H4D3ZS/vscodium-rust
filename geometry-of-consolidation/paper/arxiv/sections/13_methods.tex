@@ -1,0 +1,252 @@
+\section{Methods and Appendices}
+\label{sec:methods}
+
+\subsection*{A. Notation and formal definitions}
+\label{sec:methods:notation}
+
+We collect the central objects in one place.
+
+\begin{definition}[Cluster and cluster set]
+A \emph{cluster} is a finite multiset $\clusterset \subset \SphereD$
+of unit-norm embeddings. The \emph{cluster set} of a corpus is a
+partition $\clusterset_1, \ldots, \clusterset_K$ produced by $k$-means
+on the $d$-dimensional embedding space, with $K$ chosen by the
+elbow-of-inertia criterion on the corpus used for evaluation.
+\end{definition}
+
+\begin{definition}[Mean cluster distance $\dbar$]
+For a cluster $\clusterset = \{x_1, \ldots, x_n\}$, define
+\[
+\dbar(\clusterset) \;=\; \frac{1}{\binom{n}{2}} \sum_{i<j}
+\left(1 - \inner{x_i}{x_j}\right).
+\]
+This is the mean cosine distance between pairs in the cluster.
+It is the natural scalar measure of cluster ``spread''.
+\end{definition}
+
+\begin{definition}[Effective dimension $\deff$]
+\label{def:deff}
+For a cluster $\clusterset$ with empirical covariance $\Sigma$,
+let $\lambda_1 \geq \lambda_2 \geq \ldots \geq \lambda_d \geq 0$
+be the eigenvalues of $\Sigma$. The \emph{effective dimension} is
+the participation ratio of the spectrum
+(Equation~\eqref{eq:deff_def}, restated here):
+\[
+\deff(\clusterset) \;=\; \frac{\bigl(\sum_i \lambda_i\bigr)^{2}}{\sum_i \lambda_i^{2}}
+\;=\; \frac{1}{\sum_i p_i^{2}}, \qquad
+p_i = \frac{\lambda_i}{\sum_j \lambda_j}.
+\]
+Equivalently, $\deff$ is the exponential of the R\'enyi-$2$
+entropy of the normalised spectrum~\cite{royVetterli2007}; it
+ranges in $[1, d]$. We use this single definition throughout the
+paper for every reported $\deff$ value, and report
+$\deff_{\mathrm{local}}$ as the median $\deff$ across a corpus's
+clusters.
+\end{definition}
+
+\begin{definition}[Representative set $\reps$ and consolidation operator]
+A \emph{consolidation operator} $\Psi: \clusterset \to \reps$ maps
+a cluster to a representative set $\reps = \{r_1, \ldots, r_m\}
+\subset \SphereD$ with $m \leq n$. The five operators we study:
+\begin{itemize}
+  \item \textbf{centroid}: $\reps = \{\bar{x}/\norm{\bar{x}}\}$ where
+  $\bar{x} = \frac{1}{n}\sum x_i$.
+  \item \textbf{importance-weighted}: $\reps = \{z/\norm{z}\}$ where
+  $z = \sum w_i x_i$, $w_i \propto \|x_i\|$ (local density).
+  \item \textbf{medoid}: $\reps = \{x_{i^\star}\}$ for
+  $i^\star = \arg\min_i \sum_j d(x_i, x_j)$.
+  \item \textbf{selective-prune}: $\reps$ retains the top-$p$
+  highest-density points in the cluster, with $p$ the keep ratio.
+  \item \textbf{GAC}: Geometry-Aware Consolidation router
+  (\S\ref{sec:gac}), applies centroid, top-$p$ pruning, or medoid
+  plus top-$r$ residuals depending on per-cluster spectral
+  concentration.
+\end{itemize}
+\end{definition}
+
+\begin{definition}[Identity retrieval error]
+\label{def:id}
+Given threshold $\theta \in (0,1)$ and cluster $\clusterset$ with
+consolidation $\reps$, the identity retrieval error is
+\[
+\eps_{\mathrm{id}}(\theta, \clusterset, \reps) \;=\;
+\Pr_{x \sim \mathrm{Unif}(\clusterset)}\!\left[
+\max_{r \in \reps} \inner{x}{r} \; < \; \theta \right].
+\]
+Identity accuracy is $1 - \eps_{\mathrm{id}}$.
+\end{definition}
+
+\subsection*{B. Full proof of the duality theorem}
+\label{sec:methods:proof}
+
+We prove Theorem~\ref{thm:duality} in four steps, two of which are
+stated as lemmas and proved in turn.
+
+\begin{lemma}[Cap-volume lemma on $\SphereD$]
+\label{lem:cap}
+Let $x \sim \mathrm{Unif}(\SphereD)$ with $d \geq 2$, and let
+$r \in \SphereD$. For any $\theta \in (0, 1)$,
+\[
+\Pr\!\left[\inner{x}{r} \geq \theta\right] \;\leq\; \tfrac{1}{2}
+\left(1 - \theta^2\right)^{(d-1)/2}.
+\]
+\end{lemma}
+
+\noindent\emph{Proof sketch.} By rotational symmetry, the event
+reduces to $\{x_1 \geq \theta\}$ on $\SphereD$. The volume of a
+spherical cap is classical~\cite{ball1997elementary,
+milman1986asymptotic}; the stated form is the Ball tightening of the
+standard $\exp(-d\theta^2/2)$ bound. $\square$
+
+\begin{lemma}[Effective-dimension reduction]
+Suppose the cluster $\clusterset$ lies in an effective-dimension
+subspace: there is a projection $\Pi$ of rank $\deff$ such that
+$\norm{(I - \Pi) x_i} \leq \eta$ for all $i$ (the cluster is
+$\eta$-close to a $\deff$-dimensional subspace, with $\eta$ small
+when the spectrum is concentrated). Then the cap-volume lemma
+applies with $d$ replaced by $\deff$, up to an additive error
+$O(\eta)$.
+\end{lemma}
+
+\noindent\emph{Proof sketch.} Project the cluster onto the effective
+subspace; apply the cap-volume lemma inside the subspace; lift
+using that inner products are preserved to additive error $O(\eta)$
+by the projection bound. $\square$
+
+\noindent\emph{Main proof.} Fix a cluster $\clusterset$, a
+consolidation $\reps = \{r_1, \ldots, r_m\}$, and a threshold
+$\theta$. For $x \in \clusterset$, the event
+$\{\max_{r \in \reps} \inner{x}{r} < \theta\}$ is the intersection
+$\bigcap_{j=1}^{m} \{\inner{x}{r_j} < \theta\}$. By the union bound,
+\[
+\Pr_{x}\!\left[\max_{r} \inner{x}{r} \geq \theta \right] \;\leq\;
+\sum_{j=1}^{m} \Pr_{x}\!\left[\inner{x}{r_j} \geq \theta\right].
+\]
+Combining with the effective-dimension version of the cap-volume
+lemma, and writing $\thetap$ for the modified threshold that
+accounts for the cluster's mean-spread contribution (see
+Corollary~\ref{cor:compression}),
+\[
+\Pr_{x}\!\left[\max_{r} \inner{x}{r} < \theta \right] \;\geq\;
+1 \;-\; m \cdot c_1 \left(\tfrac{\thetap}{\dbar}\right)^{\deff},
+\]
+for a constant $c_1$ absorbing cap-volume and dimension-reduction
+prefactors. Taking $m = O(1)$ and applying the Berry-Esseen rate
+for the Gaussian approximation~\cite{esseen1942} to the one-sided
+tail gives the uniform convergence used in the proof. The
+resulting statement is Theorem~\ref{thm:duality}. $\square$
+
+\subsection*{C. Full experimental protocol}
+\label{sec:methods:protocol}
+
+We unified the measurement pipeline across the $17{,}813$-cell
+design as follows.
+
+\paragraph{Step 1: Encoding.} For each (corpus, encoder) pair,
+embed every passage with the encoder's canonical pooled output
+and normalise to unit length. The six encoders are
+BGE-large~\cite{xiao2023bge}, BGE-base~\cite{xiao2023bge},
+E5-large~\cite{wang2022e5}, MiniLM~\cite{wang2020minilm},
+MPNet~\cite{song2020mpnet}, and Nomic~\cite{nussbaum2024nomic};
+SBERT~\cite{reimers2019sbert} and SimCSE~\cite{gao2021simcse}
+are cited as prior-art anchors but not run in the present
+measurement.
+
+\paragraph{Step 2: Clustering.} Run $k$-means with $k$ set by the
+elbow-of-inertia heuristic on the $20\%$ held-out set. Cluster
+assignment is deterministic given a seed.
+
+\paragraph{Step 3: Consolidation.} Apply each of the five operators
+to produce a representative set for each cluster. Fix GAC's
+thresholds at $\dbar_{\mathrm{safe}} = 0.75\,\thetap$,
+$\dbar_{\mathrm{unsafe}} = 1.25\,\thetap$, $\tau_\rho = 0.30$
+(see \S\ref{sec:gac}).
+
+\paragraph{Step 4: Identity probing.} For each held-out passage
+(the $20\%$ not used to build the index), compute its cosine
+to every representative, rank, and record:
+\begin{itemize}[leftmargin=1.8em, itemsep=2pt]
+\item \emph{identity accuracy}: whether the top-$1$ representative
+is in the passage's own cluster.
+\item \emph{Recall@$k$}: whether the passage's cluster is covered by
+the top-$k$ representatives for $k \in \{1, 10, 100\}$.
+\item \emph{MRR@$20$}: reciprocal rank of the correct cluster within
+the top $20$.
+\item \emph{coverage@$0.80$}: fraction of representatives whose
+cosine to some held-out query exceeds $0.80$.
+\end{itemize}
+
+\paragraph{Step 5: Paraphrase probing.} For E4, generate paraphrases
+by held-out-template substitution on the query set; the paraphrase
+paraphrase is calibrated so that the median embedding-cosine to the
+original passage is $0.92$ (MS MARCO as the calibration corpus).
+
+\paragraph{Step 6: Downstream QA.} For E7, concatenate the top-$5$
+retrieved passages (recovered by cosine from the consolidated
+representatives) as context for
+Llama-$3.1$-$70$B-Instruct~\cite{llama31} served through
+vLLM~\cite{kwon2023vllm}. Score EM/F$1$ with the SQuAD v$1.1$ text
+normaliser~\cite{rajpurkar2016squad}.
+
+\paragraph{Step 7: Statistics.} Each cell is rerun with $1$--$3$
+seeds depending on experiment (E1: 1 seed per grid point; E2/E4/E6:
+$3$ seeds; E5: $1$ seed; E7: $1$ seed; E9: $3$ seeds $\times$ $5$
+epochs). We report mean and, where appropriate, s.e.\ from binomial
+sampling variance.
+
+\subsection*{D. Datasets and preparation}
+\label{sec:methods:datasets}
+
+\paragraph{MS MARCO.} Passage ranking corpus~\cite{nguyen2016msmarco};
+$\sim 8.8$M passages with real-user search queries. We use the $2019$
+TREC dev split.
+
+\paragraph{Natural Questions.} Open-domain QA pairs over Wikipedia
+passages~\cite{kwiatkowski2019nq}; we use the long-answer split,
+$8{,}000$ train / $500$ query.
+
+\paragraph{HotpotQA.} Multi-hop questions requiring $2$--$3$
+supporting passages~\cite{yang2018hotpotqa}; $2{,}774$ train /
+$500$ query; distractor setting.
+
+\paragraph{PopQA.} Multi-paraphrase entity QA~\cite{mallen2023popqa};
+$5{,}485$ train / $500$ query.
+
+\paragraph{Wikipedia sections.} $\sim 20$K Wikipedia article
+sections, treated as documents; used for E2/E5/E8/E9. Scales
+cleanly to $1$M through additional page harvest.
+
+\paragraph{arXiv titles.} $\sim 1$M arXiv paper titles (cs.\*
+subset); used only for E2 to provide a high-$\deff$ corpus that
+exercises the spread regime.
+
+\paragraph{DRM-templated.} Synthetic paraphrase corpus generated
+from the Deese-Roediger-McDermott false-memory
+paradigm~\cite{roediger1995drm}. Each cluster is a DRM list
+($\sim 15$ words) expanded with $20$ templates per word, yielding
+high-cosine near-paraphrases. Used for E4/E6/E8 to produce
+controlled tight-cluster regimes.
+
+\subsection*{E. Reproduction guide}
+\label{sec:methods:reproduce}
+
+The repository contains a single entry script,
+\texttt{scripts/run\_all.sh}, which reproduces every cell of the
+$17{,}813$-cell design from scratch on a $4\times$H$100$ node
+(\texttt{Llama-3.1-70B} cells require one node; all other cells run
+on a single A$100$ or CPU). Expected wall-clock: $\approx 72$ hours
+for the full sweep.
+
+For partial replication, individual experiments are gated by
+environment variables:
+\begin{itemize}[leftmargin=1.8em, itemsep=2pt]
+\item \texttt{E1\_ONLY=1}: $16{,}000$-cell synthetic grid,
+$\approx 4$ hours on CPU.
+\item \texttt{E5\_ONLY=1}: scale study through $1$M,
+$\approx 8$ hours including the $1$M medoid runs.
+\item \texttt{E7\_ONLY=1}: downstream QA at $70$B, requires
+$4\times$H$100$ and $\approx 3$ hours wall-clock.
+\end{itemize}
+
+The repository pins all random seeds and serialises embeddings to
+parquet so cluster assignments are bit-identical across replays.

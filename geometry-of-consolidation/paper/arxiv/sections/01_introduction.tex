@@ -1,0 +1,279 @@
+\section{Introduction}
+\label{sec:intro}
+
+\begin{intuition}
+\textbf{In one paragraph.} When an embedding-based memory system
+replaces many items with a few representatives, what determines how
+much \emph{identity} can survive that compression? This paper proves
+that for any consolidator acting on a unit-norm embedding cluster, the
+answer is a single spectral ratio: the within-cluster spread $\dbar$
+and the retrieval cap $\thetap$, raised to half the cluster's
+effective dimension $\deff$. Two concrete things follow. One, there is
+a phase boundary at $\dbar = \thetap$: below it every strategy
+works; above it strategies diverge by tens of identity points in an
+order the law predicts. Two, the law's main practical consequence on
+real text is not that an adaptive method wins. It is that simple
+\emph{centroid} averaging is already near-optimal --- because real
+text clusters tend to sit in exactly the tight regime where the
+theorem says averaging is safe. The bound is the same spectral
+quantity that governs retrieval under noise; a bound on \emph{losing}
+information is also a bound on \emph{compressing} it.
+\end{intuition}
+
+\subsection{The question}
+\label{sec:intro:question}
+
+Consider an embedding-based vector store that has indexed a million
+text items, each mapped to a unit-length vector by a sentence encoder.
+A query arrives and the store must return the items most similar to
+the query under cosine similarity. At production scale one cannot
+keep all million vectors at full precision: related items are
+\emph{consolidated} into a smaller set of representatives, and only
+the representatives are ranked at query time.
+
+Consolidation takes many forms. A cluster's arithmetic
+\emph{centroid} can be used as its representative; its \emph{medoid}
+(the real item closest to the rest) can be used instead; the cluster
+can be \emph{pruned} to its densest half; or an adaptive router can
+pick among these per-cluster from local geometric features. Each
+choice has its defenders. None of them by itself tells a designer
+how much identity has actually been lost.
+
+The scientific question is sharper than which choice is best:
+\emph{what geometric quantity of a cluster determines how much
+identity can survive consolidation, and does that quantity predict
+which operator is appropriate?} If that quantity exists, it should
+impose a floor on identity loss that no choice of operator can
+escape; it should separate a safe regime from an unsafe one; and it
+should explain, rather than merely record, the performance of each
+operator on real text.
+
+\subsection{The answer}
+\label{sec:intro:answer}
+
+We prove that such a quantity exists. For any unit-norm cluster
+$\clusterset \subset S^{d-1}$ with mean within-cluster cosine distance
+$\dbar$ and local effective dimension $\deff$ (participation ratio of
+its covariance spectrum), and for any consolidator mapping the
+cluster to $m$ representatives, whenever the retrieval cap $\thetap
+:= 1-\theta$ is smaller than $\dbar$,
+\[
+\eps_{\mathrm{id}} \;\geq\; 1 - c_1\,m\,(\thetap/\dbar)^{\deff/2},
+\]
+where $c_1$ is a universal constant (Theorem~\ref{thm:duality}). We
+call this the \emph{Consolidation--Interference Duality}: the
+identical spectral quantity that sets an information-theoretic floor
+on retrieval under noise~\cite{priceOfMeaning2026} reappears as a
+floor on consolidation under compression. The bound is a direct
+union-bound application of a cap-volume lemma; what is new is that
+it binds compression, not just retrieval, and that it binds it with
+the local effective dimension of the cluster rather than the ambient
+dimension.
+
+The bound separates two regimes. In the \emph{tight regime}
+$\dbar < \thetap$ the bound vanishes and every operator has room to
+preserve identity; experimentally, every strategy achieves mean
+cap-coverage error $\leq 0.5\%$ on tight synthetic cells. In the
+\emph{spread regime} $\dbar \geq \thetap$ the bound bites and
+operators diverge; experimentally, mean cap-coverage errors diverge
+to $30$--$74\%$ with an order uniquely predicted by $\deff$. This
+tight/spread split is not a soft trend. It is visible as a phase
+boundary in $(\deff, \theta)$ space and organises the ordering of
+real-corpus identity accuracy across six sentence encoders.
+
+\subsection{The surprising consequence}
+\label{sec:intro:consequence}
+
+If the law says the tight regime is where identity is preserved, a
+natural next question is: where do real-text clusters sit? The
+answer we find, across six corpora (synthetic DRM, MS~MARCO, Natural
+Questions, HotpotQA, Wikipedia sections, arXiv titles) and six
+contrastive sentence encoders, is that they sit mostly in the tight
+regime --- and in that regime the geometry is lenient enough that
+simple centroid averaging is already near-optimal. Three
+experimental findings make this claim sharp.
+
+\begin{enumerate}[leftmargin=1.8em, itemsep=2pt]
+\item An adaptive per-cluster router we built (Geometry-Aware
+Consolidation, GAC) Pareto-dominates the medoid baseline on every
+synthetic cell, but a \emph{fixed-centroid} ablation beats the full
+router by $1$--$6$ identity points on every one of the five
+real-text corpora (\S\ref{sec:gac:ablation}). The residual-direction
+budget that dominates the router's engineering complexity contributes
+nothing ($\Delta \leq 0.002$). A per-cluster \emph{oracle} barely
+improves over fixed centroid on real text.
+\item At matched bytes-per-vector against five learned-quantization
+baselines (product quantization~\cite{jegouPQ2011}, optimized product
+quantization~\cite{ge2013optimized}, LSH~\cite{charikarLSH2002},
+PCA+int8, HNSW-prune~\cite{malkovHNSW2018}), consolidation and
+learned quantization populate different Pareto corners of the
+identity-vs-bytes frontier; centroid dominates on the five
+low-to-moderate-$\deff$ corpora and quantization takes over only on
+high-$\deff$ arXiv titles (\S\ref{sec:e3}).
+\item Closing the loop to a downstream reader, a
+Llama-3.1-70B-Instruct retrieval-augmented pipeline on three QA
+benchmarks shows a regime-dependent three-way split: centroid
+\emph{hurts} Natural Questions EM by $4.2$ points, is neutral on
+HotpotQA, and \emph{wins} by $8.4$ EM points on PopQA --- matching
+the cap-coverage prediction of which operator the law prefers on
+each corpus (\S\ref{sec:e7}).
+\end{enumerate}
+
+The centroid result is not an engineering accident; it is the
+law's main practical implication in the regime where real text
+lives. The residual-direction and adaptive-routing machinery that
+the engineering literature builds in anticipation of a harder
+regime turns out, on the corpora we tested, to be solving a
+problem that does not arise.
+
+\subsection{GAC is a probe, not the main product}
+\label{sec:intro:gac_as_probe}
+
+A paper whose primary product is an adaptive router would want that
+router to win. This paper uses GAC for a different purpose: as an
+\emph{instrument} that asks whether, given the regime structure the
+theorem predicts, adaptive per-cluster routing can outperform a
+fixed simple operator. The instrument returns a clean negative
+answer on real text. The negative is scientifically informative ---
+it localises the value of adaptation to the low-$\dbar$ synthetic
+regime, it isolates which components of the router matter
+(none of the residual-direction machinery does), and it sets up the
+downstream three-way finding. We therefore describe GAC in full
+(\S\ref{sec:gac}), but the paper is organised so its role is to
+test the law rather than to advertise a method.
+
+\subsection{Scope of the law}
+\label{sec:intro:scope}
+
+The theorem is stated and proved for unit-norm embedding clusters
+under cosine-threshold retrieval. Its experimental support is
+text-centric: six contrastive sentence encoders on six text corpora,
+at scales from $10^3$ to $10^6$ items. Under those assumptions the
+bound is provably a lower bound on identity-retrieval error, and
+empirically it organises the behaviour of every consolidation
+operator we tested. What the paper does \emph{not} claim is a full
+theory of cognitive memory or of arbitrary learned-state memory in
+neural networks. Biological consolidation, multimodal embedding
+memory, and replay in large-state continual-learning agents share
+the same \emph{structural} compression problem and so are natural
+settings in which to test whether the law extends; but the
+evidence we report is for text embedding consolidation, and we keep
+the scientific claim inside that envelope.
+
+The theorem itself is also honest about where it is strongest. In
+the tight regime (defined directly by the theorem's hypothesis
+$\dbar < \thetap$) the calibrated constant sits at $c_1^{95}
+\approx 0.05$ on $12{,}400$ cells --- within an order of magnitude
+of the ideal Berry--Esseen constant that falls out of the
+cap-volume lemma; in the spread regime, the isotropic cap-volume
+approximation is loose and the calibrated $c_1$ grows unbounded as
+$\theta \to 1$ at small $\deff$.
+We state the theorem as the first mathematically explicit version of
+the law and mark an \emph{anisotropic refinement} of the cap-volume
+argument as the central open theoretical problem
+(\S\ref{sec:limits}).
+
+\subsection{Where this sits in a trilogy}
+\label{sec:intro:trilogy}
+
+This paper is the third of three on the geometry of embedding
+memory, and can be read independently of the other two. The first,
+\emph{The Geometry of Forgetting}~\cite{geometryOfForgetting2026},
+documented empirically that production sentence encoders concentrate
+$\geq 99\%$ of their variance in at most $\deff \approx 16$ effective
+dimensions, across six encoder families and ten benchmarks. The
+second, \emph{The Price of Meaning}~\cite{priceOfMeaning2026}, lifted
+that observation to a theorem: any kernel-threshold memory with
+finite $\deff$ must forget by interference under retrieval noise,
+with a lower bound no storage budget can evade. The present paper
+closes the trilogy by showing that the compression lever does not
+provide an escape route: the same spectral quantity that governs
+forgetting governs consolidation, by the same cap-volume argument
+applied to the cluster-conditional measure. The three papers share
+a mathematical core; what they do not share is the object under
+compression (global store vs.\ cluster) or the failure mode under
+study (retrieval noise vs.\ compression).
+
+\subsection{Contributions}
+\label{sec:intro:contributions}
+
+In order of scientific centrality:
+
+\begin{description}[leftmargin=1.8em, itemsep=3pt]
+\item[\textbf{(C1)} The Duality Theorem.]
+A universal-constant lower bound on identity-retrieval error after
+consolidation, in the same spectral quantity
+$(\thetap/\dbar)^{\deff/2}$ that governs retrieval under noise
+(\S\ref{sec:duality}; proof in Appendix~\S\ref{sec:methods:proof}).
+
+\item[\textbf{(C2)} Regime structure and empirical validation.]
+The theorem induces a tight/spread phase boundary at $\dbar =
+\thetap$. We validate the boundary on a $400$-cell synthetic grid
+($16{,}000$ trials), and show the same regime structure organises
+the ordering of six real-text corpora across six sentence encoders
+(\S\ref{sec:e1_validation}, \S\ref{sec:template_collapse}).
+
+\item[\textbf{(C3)} Centroid dominates on real text.]
+On five real-text corpora, a fixed-centroid operator dominates a
+stochastic adaptive router by $1$--$6$ identity points; the
+residual-direction budget contributes nothing; a per-cluster oracle
+barely improves. This is not an engineering accident --- it is the
+law's prediction for corpora that sit in the tight regime
+(\S\ref{sec:gac:ablation}).
+
+\item[\textbf{(C4)} Geometry selects between consolidation and
+learned quantization.] At matched bytes-per-vector, consolidation
+and learned quantization occupy different Pareto corners of the
+identity-vs-bytes frontier. The crossover is predicted by $\deff$:
+quantization takes over on high-$\deff$ arXiv titles; consolidation
+dominates on the other five corpora (\S\ref{sec:e3}).
+
+\item[\textbf{(C5)} Downstream consequences are regime-dependent.]
+A Llama-3.1-70B-Instruct retrieval-augmented pipeline on Natural
+Questions, HotpotQA, and PopQA exhibits a regime-dependent
+three-way split in end-to-end EM, matching the cap-coverage
+prediction of which operator the law prefers per corpus
+(\S\ref{sec:e7}).
+
+\item[\textbf{(C6)} Limits of the current theory.]
+The isotropic cap-volume bound is shape-correct and predictively
+useful in the tight regime ($c_1^{95} \approx 0.05$, $95\%$
+coverage; $c_1^{99} \approx 370$, $99\%$) and loose-to-vacuous in
+the spread regime ($c_1 \to
+\infty$ as $\theta \to 1$ at small $\deff$). An anisotropic refinement of the
+cap-volume argument is the central open theoretical problem
+(\S\ref{sec:limits}).
+
+\item[\textbf{(C7)} GAC as an instrument.]
+We introduce Geometry-Aware Consolidation and use it as a probe of
+what per-cluster adaptation can buy under the law. GAC
+Pareto-dominates the medoid baseline on every synthetic cell. Its
+failure to beat fixed centroid on real text localises the value of
+adaptation to the low-$\dbar$ synthetic regime and is itself one of
+the paper's scientific findings (\S\ref{sec:gac}).
+\end{description}
+
+\subsection{How to read this paper}
+
+We have split the exposition so that different readers can start at
+different depths.
+
+\begin{itemize}[leftmargin=1.8em, itemsep=2pt]
+\item A reader who wants the \textbf{law only} can stop after
+Section~\ref{sec:duality} and skim the regime-map figure in
+Section~\ref{sec:e1_validation}.
+\item A reader who wants the \textbf{centroid lesson on real text}
+should read Sections~\ref{sec:template_collapse} and~\ref{sec:gac:ablation}.
+\item A reader who wants the \textbf{downstream implications for RAG}
+should jump to Section~\ref{sec:e7}.
+\item A reader who wants the \textbf{proof} should read
+Section~\ref{sec:duality} then Appendix~\S\ref{sec:methods:proof}.
+\item A reader new to consolidation, effective rank, or RAG should
+start with Section~\ref{sec:background}.
+\end{itemize}
+
+Each results section opens with a gray ``intuition'' box giving the
+plain-English reading, followed by the full technical development.
+The intent is that a reader who is technical but not steeped in
+embedding geometry can read the intuition boxes end-to-end and leave
+with the paper's full argument.

@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this software or the accompanying paper, please cite it as below."
+title: "The Geometry of Consolidation: A Spectral Account of Memory Representations"
+type: software
+authors:
+  - family-names: Gopinath
+    given-names: Ashwin
+    email: ashwin.gopinath@gmail.com
+date-released: 2026-04-19
+url: "https://github.com/niashwin/geometry-of-consolidation"
+license: MIT
+version: "1.0.0"
+keywords:
+  - memory consolidation
+  - vector databases
+  - retrieval
+  - representation geometry
+  - spectral theory
+  - NeurIPS
+preferred-citation:
+  type: article
+  title: "The Geometry of Consolidation: A Spectral Account of Memory Representations"
+  authors:
+    - family-names: Gopinath
+      given-names: Ashwin
+  year: 2026
+  url: "https://github.com/niashwin/geometry-of-consolidation"
+  notes: "Submission to NeurIPS 2026; preprint available via the repository."

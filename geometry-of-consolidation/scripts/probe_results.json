@@ -1,0 +1,15 @@
+{
+  "probe_date_utc": "2026-04-19T00:06:00Z",
+  "account": "sentra",
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "achieved_concurrency": 8,
+  "recommended_plan": "Plan B (stagger E2 into halves)",
+  "ladder": [
+    {"N": 1,  "wall_s": 33.93, "start_p50": 10.51, "start_p90": 10.51, "start_max": 10.51},
+    {"N": 2,  "wall_s": 26.00, "start_p50": 2.00,  "start_p90": 3.86,  "start_max": 3.86},
+    {"N": 4,  "wall_s": 26.62, "start_p50": 2.06,  "start_p90": 4.46,  "start_max": 4.46},
+    {"N": 8,  "wall_s": 31.31, "start_p50": 2.36,  "start_p90": 8.57,  "start_max": 8.57},
+    {"N": 16, "wall_s": 41.65, "start_p50": 3.12,  "start_p90": 16.37, "start_max": 20.02}
+  ],
+  "interpretation": "At N=16 p90 start latency (16.4s) exceeded 80% of the 20s sleep window, indicating workers were queued. At N=8 all workers started cleanly (p90=8.57s < 16s). Therefore MAX_CONCURRENT_H100 = 8."
+}

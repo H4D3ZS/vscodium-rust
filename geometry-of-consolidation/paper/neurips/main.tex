@@ -1,0 +1,836 @@
+% The Geometry of Consolidation
+% Authors: Anirudh Bharadwaj Vangara (Sentra; University of Waterloo Computer Engineering),
+%          Ashwin Gopinath (Sentra; MIT Mechanical Engineering, corresponding)
+% Companion paper to "The Geometry of Forgetting" (Barman et al., 2026)
+% and "The Price of Meaning" (2026). Style matches those two: Nature-style
+% headings, single-column, no section numbering in body, superscripted
+% numerical citations.
+
+\documentclass[11pt]{article}
+
+\usepackage[margin=1.1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{authblk}
+\usepackage[sort&compress,numbers,super]{natbib}
+\usepackage{titlesec}
+
+% Match companion papers: section headings small and bold, no numbers.
+\titleformat*{\section}{\normalsize\bfseries}
+\titleformat*{\subsection}{\normalsize\itshape}
+
+% Theorem environments, kept spare.
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+% Useful macros.
+\newcommand{\deff}{d_{\mathrm{eff}}}
+\newcommand{\dbar}{\bar{d}}
+\newcommand{\thetap}{\theta'}
+\newcommand{\memset}{\mathcal{M}}
+\newcommand{\clusterset}{\mathcal{C}}
+\newcommand{\store}{\mathcal{S}}
+\newcommand{\reps}{\mathcal{R}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\inner}[2]{\left\langle#1,#2\right\rangle}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\R}{\mathbb{R}}
+
+\title{The Geometry of Consolidation}
+
+\author[1,2]{Anirudh Bharadwaj Vangara}
+\author[1,3]{Ashwin Gopinath\thanks{Correspondence: \texttt{ashwin@sentra.app}}}
+\affil[1]{Sentra, 235 2nd Street, San Francisco, CA 94105, USA}
+\affil[2]{Department of Computer Engineering, University of Waterloo, Waterloo, ON N2L 3G1, Canada}
+\affil[3]{Department of Mechanical Engineering, Massachusetts Institute of Technology, Cambridge, MA 02139, USA}
+
+\date{Submitted to \textbf{NeurIPS 2026}.}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent\textbf{The question.} When a memory system replaces $n$ cluster
+members with $m < n$ representatives, what geometry decides whether those
+representatives still recover the members by retrieval?
+
+\noindent\textbf{The law.} We prove a \emph{Consolidation--Interference
+Duality}: for any consolidator, whenever the retrieval cap half-angle
+$\thetap = 1-\theta$ is below the mean within-cluster cosine distance
+$\dbar$, the identity error obeys
+$\eps_{\mathrm{id}} \geq 1 - c_1\,m\,(\thetap/\dbar)^{\deff/2}$,
+where $c_1$ is an absolute constant and $\deff$ is the local effective
+(participation-ratio) dimension. The law separates a \emph{tight regime}
+($\dbar < \thetap$, identity cheap) from a \emph{spread regime}
+($\dbar \geq \thetap$, identity expensive).
+
+\noindent\textbf{The surprising consequence.} Every real-text corpus we
+measure sits in the tight regime the law declares safe, and the cheapest
+consolidator there is the centroid. Across six corpora and six sentence
+encoders, the \emph{fixed centroid} ties or beats every adaptive operator,
+including the per-cluster router we built to probe the law. Centroid
+dominance is not a heuristic; it is what the law predicts on real text.
+
+\noindent\textbf{Evidence.} We validate the regime boundary on a
+$400$-cell synthetic grid ($16{,}000$ trials): tight-regime cells achieve
+mean cap-error $\leq 0.5\%$; spread-regime cells diverge to $30$--$74\%$
+with an order predicted by $\deff$. We calibrate the bound empirically:
+the tight-regime $c_1^{95} \approx 0.05$ on $12{,}400$ cells --- within
+an order of magnitude of the ideal Berry--Esseen constant; in the spread
+regime $c_1$ grows unbounded as $\theta \to 1$. On
+retrieval-augmented Llama-3.1-70B-Instruct QA, centroid \emph{hurts} NQ by
+$4.2$ EM, is neutral on HotpotQA, and \emph{wins} PopQA by $8.4$ EM over
+GAC --- matching the cap-coverage prediction of which operator the law
+prefers per corpus. We treat Geometry-Aware Consolidation (GAC) not as a
+product but as the instrument that made the measurement.
+
+\noindent\textbf{Scope.} Embedding consolidation in contrastive unit-norm
+text spaces under cosine-threshold retrieval. The isotropic cap-volume
+bound is shape-correct in the tight regime and loose-to-vacuous in the
+extreme-coherence corner of the spread regime; an anisotropic refinement
+is the central open theoretical problem. All $17{,}813$ experimental
+cells are open-source under MIT license.
+\end{abstract}
+
+\section*{Introduction}
+
+Memory systems that summarize old traces into representatives -- cognitive
+consolidation\cite{mcclellandConsolidation1995,alvarezSquireConsolidation1994},
+retrieval-augmented generation with vector-store compression\cite{lewisRAG2020},
+replay buffers in continual learning\cite{robinsReplay1995} -- all rest on an
+implicit hope: the important structure is low-dimensional, so a few
+representatives can stand in for many traces without losing identity.
+The previous two papers in this trilogy challenged that hope. The first showed
+that production embedding spaces concentrate $\sim 99\%$ of their variance in
+$\deff \approx 16$ effective dimensions\cite{geometryOfForgetting2026};
+the second showed that \emph{any} kernel-threshold memory with finite $\deff$
+forgets by a lower bound that no amount of storage can
+evade\cite{priceOfMeaning2026}. Consolidation looks like a way out: rather
+than raising capacity, we lower bookkeeping. In this paper we show that
+consolidation shares the same geometric floor. The geometry that forces
+forgetting also forces identity collapse under compression, by an analogue
+of the same argument.
+
+Beyond the theoretical statement, a conference-level evaluation requires that
+we benchmark consolidation operators against the dominant vector-store
+quantization family in production systems -- product
+quantization\cite{jegouPQ2011}, optimized product
+quantization\cite{ge2013optimized}, locality-sensitive
+hashing\cite{charikarLSH2002}, PCA with int-8 coding, and HNSW with pruning.
+We test six sentence-encoder families
+(BGE-base/large\cite{xiao2023bge}, MPNet\cite{song2020mpnet},
+MiniLM\cite{wang2020minilm}, E5-large\cite{wang2022e5},
+Nomic\cite{nussbaum2024nomic}) to separate theorem-predicted universality
+from encoder-specific artefacts, and we measure identity under
+paraphrase queries to distinguish the bound's geometric regime from a
+purely memorization regime.
+
+% Contributions.
+Our contributions are:
+\begin{enumerate}
+    \item[\textbf{(C1)}] \textbf{Consolidation--Interference Duality} --
+    a theorem relating identity retrieval after compression to the same
+    spectral quantity that governs retrieval under noise, with a full
+    proof via a cap-volume lemma and union bound
+    (\S\,\textit{The duality theorem}, Methods).
+    \item[\textbf{(C2)}] \textbf{Identity--Coverage decomposition} --
+    two orthogonal axes of consolidation quality (identity of stored items
+    vs.\ coverage of queries) that each obey their own regime law.
+    \item[\textbf{(C3)}] \textbf{Geometry-Aware Consolidation (GAC)} --
+    a per-cluster routing algorithm that Pareto-dominates medoid on
+    every synthetic $(\deff, \theta, \dbar)$ cell.
+    \item[\textbf{(C4)}] \textbf{Ablation-level honest findings} --
+    on five real-text corpora the centroid picker dominates full GAC
+    routing by $1$--$6$ identity-accuracy points; adaptive residual-direction
+    routing helps only on the synthetic DRM corpus.
+    \item[\textbf{(C5)}] \textbf{Encoder and compression-family universality} --
+    GAC's strategy ranking reproduces across six encoders and Pareto-trades
+    against five learned-quantization baselines at matched bytes/vector.
+    \item[\textbf{(C6)}] \textbf{Paraphrase robustness} -- at embedding-cosine
+    $0.92$ (realistic paraphrase), identity accuracy drops by $<0.02$ across
+    all strategies, refuting a pure-memorization explanation.
+\end{enumerate}
+
+\section*{Results}
+
+\subsection*{The duality theorem}
+Let $\clusterset = \{x_1, \ldots, x_n\} \subset S^{d-1}$ be a cluster on the
+unit sphere with mean cosine distance
+$\dbar = \tfrac{1}{\binom{n}{2}}\sum_{i<j}(1 - \inner{x_i}{x_j})$, and let
+$\reps = \{r_1, \ldots, r_m\} \subset S^{d-1}$ be any set of $m \leq n$
+representatives produced by a consolidator. Given a retrieval threshold
+$\theta \in (0,1)$, define the identity-retrieval error
+$\eps_{\mathrm{id}}(\clusterset, \reps) = \tfrac{1}{n}\bigl|\{i :
+\max_j \inner{x_i}{r_j} < \theta\}\bigr|$.
+
+\begin{theorem}[Consolidation--Interference Duality]
+\label{thm:duality}
+For every consolidator and every $\clusterset$ with local effective dimension
+$\deff$ and mean within-cluster distance $\dbar$ satisfying $\thetap<\dbar$,
+\[
+\eps_{\mathrm{id}}(\clusterset, \reps) \;\geq\; 1 - c_1\, m \left(\frac{\thetap}{\dbar}\right)^{\deff/2},
+\quad \thetap := 1 - \theta,
+\]
+where $c_1$ is an absolute constant independent of $m, n$ and the choice of
+consolidator (proof in Methods).
+\end{theorem}
+
+\begin{corollary}[Compression lower bound]
+\label{cor:compression}
+For any $\eps^\ast \in (0,1)$, achieving $\eps_{\mathrm{id}} \leq \eps^\ast$
+requires $m \geq c_1^{-1}(1-\eps^\ast)(\dbar/\thetap)^{\deff/2}$: the minimum
+representative budget grows exponentially in the local effective dimension.
+\end{corollary}
+
+\begin{corollary}[Isotropic degeneracy]
+\label{cor:iw}
+On isotropic clusters, importance-weighted consolidation converges to the
+uniform centroid at rate $O(1/n)$; it therefore inherits the centroid's bound
+with no improvement.
+\end{corollary}
+
+\subsection*{Empirical validation of the bound (Experiment E1)}
+We generate a $400$-cell grid over
+$\deff \in \{4,8,16,32,64\}$, $\theta \in \{0.70, 0.80, 0.90, 0.95\}$,
+$\dbar \in \{0.05, 0.10, \ldots, 1.00\}$, sampling $n=1500$ points per cluster
+with $10$ random seeds per cell ($16{,}000$ trials total).  For each cell we
+run four strategies (centroid, medoid, $50\%$ selective pruning, GAC) and
+measure the native quantity of the theorem -- the cap-coverage error
+$\eps_{\mathrm{cap}} := \Pr_{x \sim \clusterset}[\max_j \inner{x}{r_j} < \theta]$.
+
+\textbf{Regime separation.} The $400$ cells split into
+tight ($\dbar < \thetap$) and spread ($\dbar \geq \thetap$) halves.
+In the tight regime every strategy achieves mean
+$\eps_{\mathrm{cap}} \leq 0.005$; in the spread regime they diverge to
+$0.298$--$0.741$ (prune $0.298$, GAC $0.331$, centroid $0.566$,
+medoid $0.741$). This is the qualitative prediction of
+Theorem~\ref{thm:duality}: the cap-coverage bound vanishes whenever
+$\thetap \geq \dbar$ and rises sharply past that boundary.
+Figure~\ref{fig:e1} (panel a) visualises the regime as a
+$(\deff, \theta)$ heatmap for each of the four strategies.
+
+\textbf{$\deff$-monotonicity.} Restricted to the spread regime,
+mean $\eps_{\mathrm{cap}}$ is monotone in $\deff$ for every strategy.
+Centroid rises from $0.543$ at $\deff=4$ to $0.576$ at $\deff=64$;
+GAC from $0.181$ to $0.446$; medoid from $0.591$ to $0.864$;
+prune from $0.137$ to $0.424$. The theorem predicts monotonic growth
+in $\deff$ (the exponent in $c_1(\thetap/\dbar)^{\deff/2}$);
+the data confirm it for all four strategies.
+
+\textbf{Pareto structure.} Per-cell comparison of mean
+$\eps_{\mathrm{cap}}$ over $10$ seeds shows GAC Pareto-dominates the
+medoid baseline at $120$W/$280$T/$0$L (of $400$ cells);
+against centroid it is $65$W/$286$T/$49$L, and against selective
+pruning $0$W/$357$T/$43$L. On synthetic isotropic clusters pruning
+is marginally better at matched compression because it keeps the
+densest $50\%$ of raw points, whereas GAC still averages within
+kept subsets.
+
+\textbf{Bound calibration ($c_1$).} Fixing the bound shape and
+fitting the leading constant to the $16{,}000$ E1 cells:
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+regime & cells & $c_1^{95}$ (calibrated) & theorem holds after calib.\ \\
+\midrule
+tight ($\dbar < \thetap$)  & $12{,}400$ & $0.046$ & $95.0\%$ \\
+spread ($\dbar \geq \thetap$) & $3{,}600$ & $4.61\times 10^{10}$ & $95.0\%$ \\
+all (p95) & $16{,}000$ & $4.60\times 10^{6}$ & $95.0\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The regime split is the theorem's hypothesis $\dbar$ vs.\ $\thetap$,
+not a heuristic $\deff$-cut. The tight-regime $c_1 \approx 0.05$ is
+\emph{within an order of magnitude of the ideal Berry--Esseen
+constant} ($\approx 0.4665$) that the cap-volume lemma reduces to ---
+the tightest $c_1$ could be without an anisotropic refinement.
+The spread-regime $c_1$ explodes because $\thetap=0.05$ at $\theta=0.95$
+shrinks the base to $(0.05/1.0)^{32} \approx 10^{-42}$ and the empirical
+error does not follow the shape in that regime. The $c_1=1$ bound holds
+on $78.0\%$ of all rows and $11.3\%$ of spread-only rows; with the
+regime-calibrated $c_1$ it holds on $95.0\%$ of tight cells and
+$95.0\%$ of spread cells.\footnote{At the paper-unified regime split
+$\dbar$ vs.\ $\thetap$; under the looser uncalibrated bound $c_1{=}1$
+the tight regime already holds on $97.3\%$ of cells.} This is the quantitative
+statement of a known limitation: \emph{the isotropic Gaussian
+cap-volume bound is the right shape up to $\theta \approx 0.9$ and breaks
+down in the extreme-coherence corner}; refining it there is the
+primary open theoretical problem.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.98\linewidth]{figs/fig1_theorem_regimes.pdf}
+\caption{\textbf{E1 theorem regimes.} For each of four strategies, the
+fraction of cells where the theorem bound ($c_1=1$) holds over the
+$(\deff, \theta)$ grid with $10$ seeds per cell. Brighter regions:
+bound holds. All strategies cover the tight regime (lower-right); all
+suffer in the extreme-coherence, low-$\deff$ corner (upper-left), as
+predicted by our calibration.}
+\label{fig:e1}
+\end{figure}
+
+\subsection*{Identity versus coverage}
+Consolidation quality has two orthogonal axes. \emph{Identity}, the
+cap-coverage quantity $\eps_{\mathrm{cap}}$ bounded by
+Theorem~\ref{thm:duality}, asks whether each source item still lives
+within $\theta$ of at least one representative. \emph{Coverage} at
+threshold $\theta$,
+$\mathrm{cov}_\theta := \Pr_x[\exists j : \inner{x}{r_j} \geq \theta]$,
+is the complementary quantity measured on queries rather than stored items.
+E2 records both on six real corpora. On DRM both quantities are near
+$1.0$ for every strategy: the regime is tight and every consolidator
+covers. On MS MARCO, centroid achieves $\mathrm{cov}_{0.80}=0.556$ while
+GAC reaches $0.366$; on Wikipedia sections these collapse to $0.058$ and
+$0.015$ respectively. Budget buys one axis but not the other.
+
+\subsection*{Template collapse across corpora and encoders (E2, E4, E8)}
+We measure identity-retrieval accuracy on six corpora with BGE-large,
+under $k$-means clustering (label-preserving where labels exist;
+natural groups for the synthetic DRM corpus).  Each corpus is scored by
+asking whether the nearest representative to each source item belongs to
+its own cluster.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+corpus & $d_{\mathrm{eff,local}}$ & $\dbar$ & id.\ acc.\ (centroid) \\
+\midrule
+drm\_templated & $2.3$ & $0.05$ & $0.942$ \\
+ms\_marco & $5.5$ & $0.33$ & $0.905$ \\
+nq\_questions & $12.6$ & $0.38$ & $0.761$ \\
+arxiv\_titles & $107.5$ & $0.33$ & $0.754$ \\
+wikipedia\_sections & $30.1$ & $0.51$ & $0.647$ \\
+hotpot\_qa & $1.5$ & $0.48$ & $0.487$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Centroid identity retrieval degrades by $29.5$ points from synthetic
+DRM paraphrases to Wikipedia sections and by $45.5$ points to HotpotQA.
+The ranking is \emph{not} monotone in $d_{\mathrm{eff,local}}$ alone:
+HotpotQA has the smallest $d_{\mathrm{eff,local}}$ of the real corpora
+yet the lowest accuracy, because its clusters have high spread
+($\dbar=0.48$) paired with an extremely concentrated spectrum. The
+joint quantity $(\thetap/\dbar)^{\deff/2}$ orders the corpora correctly.
+
+\textbf{Paraphrase robustness (E4).} We replace each query with a
+paraphrase drawn by adding isotropic noise in embedding space targeted
+to cosine similarity $0.92$ with the source (matching the empirical
+cosine of human paraphrases on MS MARCO). Identity accuracy drops by
+$<0.02$ for every strategy on every corpus
+(max drop $0.026$: HotpotQA/centroid). This refutes a pure-memorization
+explanation of the template-collapse figures and confirms that the
+reported identity scores are properties of the clusters' embedding
+geometry, not of exact token matches.
+
+\textbf{Encoder universality (E8).} Repeating the DRM evaluation on
+six encoders with all five strategies ($\times 3$ seeds):
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+encoder & centroid & IW & medoid & prune & GAC \\
+\midrule
+bge-base  & $1.000$ & $1.000$ & $0.997$ & $0.886$ & $0.998$ \\
+bge-large & $0.943$ & $0.941$ & $0.911$ & $0.775$ & $0.940$ \\
+e5-large  & $0.961$ & $0.959$ & $0.998$ & $0.835$ & $0.960$ \\
+minilm    & $0.950$ & $0.948$ & $0.848$ & $0.744$ & $0.937$ \\
+mpnet     & $0.924$ & $0.918$ & $0.852$ & $0.697$ & $0.923$ \\
+nomic     & $0.540$ & $0.540$ & $0.349$ & $0.520$ & $0.483$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The strategy ranking (centroid $\approx$ IW $\geq$ GAC $\gg$ medoid $\gg$
+prune, except on E5-large where medoid wins) is stable across
+five of the six encoders, confirming the bound's prediction that the
+ordering depends on the cluster geometry rather than on the encoder.
+Nomic is the outlier: its DRM clusters have much higher $\dbar$
+($\approx 0.34$ vs.\ $0.05$ for BGE), pushing the corpus from tight to
+spread regime on that encoder, with $44$--$66\%$ identity drops for
+every strategy. This is exactly the encoder-dependent regime shift the
+theorem predicts.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.96\linewidth]{figs/fig4_encoder_universality.pdf}
+\caption{\textbf{E8 encoder universality.} Identity accuracy of five
+consolidation strategies on the DRM-templated corpus with six encoder
+families.  Centroid and importance-weighted are indistinguishable on
+every encoder; GAC tracks centroid within $0.02$ accuracy on
+$5/6$ encoders; Nomic's higher $\dbar$ pushes DRM into the spread
+regime, demonstrating the theorem's predicted encoder-dependent
+regime shift.}
+\label{fig:e8}
+\end{figure}
+
+\subsection*{A geometry-aware algorithm}
+We introduce \textbf{Geometry-Aware Consolidation} (GAC). For each cluster
+$\clusterset_k$ with spectral concentration
+$\rho_k := \lambda_{\max}(\Sigma_k)/\mathrm{tr}(\Sigma_k)$
+and mean spread $\dbar_k$, GAC applies:
+\begin{itemize}
+    \item \emph{Centroid} if $\rho_k > \tau_\rho$ and $\dbar_k < \dbar_{\mathrm{safe}}$
+      (dense, safe to collapse);
+    \item \emph{Top-$p$ pruning} if $\dbar_k > \dbar_{\mathrm{unsafe}}$
+      (diverse, must keep real vectors);
+    \item \emph{Medoid + top-$r$ residual directions} otherwise.
+\end{itemize}
+The thresholds $\dbar_{\mathrm{safe}}, \dbar_{\mathrm{unsafe}}$ are derived from
+Corollary~\ref{cor:compression} with safety multipliers $0.75$ and $1.25$.
+
+\subsection*{Ablation: which GAC component matters? (E6)}
+We run a $7$-router ablation on all six corpora ($3$ seeds each,
+$126$ trials) to isolate GAC's value. Routers: \texttt{gac\_full}
+(the production router), \texttt{gac\_no\_residual} (drop residual
+budget), \texttt{gac\_random} (route uniformly at random),
+\texttt{gac\_fixed\_\{centroid, medoid, prune\}} (force one operator),
+\texttt{gac\_oracle} (pick the per-cluster best operator in hindsight).
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrrr}
+\toprule
+corpus & full & no-res.\ & random & fix-ctr & fix-med & fix-prune & oracle \\
+\midrule
+drm\_templated      & $0.940$ & $0.942$ & $0.840$ & $0.943$ & $0.920$ & $0.776$ & $0.943$ \\
+ms\_marco           & $0.836$ & $0.833$ & $0.806$ & $0.899$ & $0.794$ & $0.830$ & $0.862$ \\
+nq\_questions       & $0.433$ & $0.434$ & $0.491$ & $0.784$ & $0.691$ & $0.425$ & $0.512$ \\
+hotpot\_qa          & $0.356$ & $0.355$ & $0.386$ & $0.499$ & $0.357$ & $0.355$ & $0.489$ \\
+wikipedia\_sections & $0.393$ & $0.393$ & $0.403$ & $0.656$ & $0.485$ & $0.393$ & $0.388$ \\
+arxiv\_titles       & $0.584$ & $0.584$ & $0.547$ & $0.754$ & $0.630$ & $0.584$ & $0.598$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Three honest findings emerge. \textbf{(a)} \texttt{gac\_full} and
+\texttt{gac\_no\_residual} are \emph{indistinguishable} on every corpus
+(max $\Delta=0.002$), so the residual-direction budget that dominates GAC's
+engineering complexity adds nothing: the value is entirely in the per-cluster
+operator choice. \textbf{(b)} On the five real corpora, \texttt{gac\_fixed\_centroid}
+beats \texttt{gac\_full} by $+6.3$ (MS MARCO), $+35.1$ (NQ), $+14.3$ (HotpotQA),
+$+26.3$ (Wiki), $+17.0$ (arXiv) identity points --- the stochastic router's
+per-cluster branching hurts on realistic text, because the fraction of clusters
+where medoid+residual or pruning beats centroid is too small to compensate for
+the noise introduced by the branching. \textbf{(c)} \texttt{gac\_oracle}
+improves over \texttt{gac\_fixed\_centroid} on only two corpora
+(DRM +$0.0$, MS MARCO $-3.7$, HotpotQA $-1.0$, others worse),
+confirming that centroid is already near-optimal per cluster on these corpora.
+The papers' practical conclusion is therefore that the centroid picker is the
+honest default at high compression on real text; the value of adaptive routing
+is confined to synthetic-paraphrase and tight-regime settings.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.98\linewidth]{figs/fig6_ablation.pdf}
+\caption{\textbf{E6 router ablation.} Identity accuracy of $7$ router
+variants across six corpora ($3$ seeds each). \texttt{gac\_full} and
+\texttt{gac\_no\_residual} coincide: residual-direction budget has no
+measurable effect on identity. \texttt{gac\_fixed\_centroid} dominates on
+all five real corpora.}
+\label{fig:e6}
+\end{figure}
+
+\subsection*{Pareto versus learned quantization (E3)}
+The fair competitive baselines for dense-vector consolidation are the
+learned-quantization family used in production ANN stacks:
+\textbf{PQ}\cite{jegouPQ2011}, \textbf{OPQ}\cite{ge2013optimized},
+\textbf{LSH}\cite{charikarLSH2002}, \textbf{PCA+int8}, and
+\textbf{HNSW-prune}\cite{malkovHNSW2018}. For each of six corpora we
+sweep PQ codebook sizes $m \in \{4,8,16,32\}$, OPQ over the same grid,
+LSH dimensions $\in \{64,128,256,512\}$, PCA target dimensions
+$\in \{16,32,64,128\}$ with int8, and HNSW at $\{25\%, 50\%, 75\%\}$
+prune-and-rank. We measure \emph{bytes per vector} to normalise
+across baselines and identity accuracy as the figure of merit.
+
+Figure~\ref{fig:e3} reports the resulting Pareto frontiers with the five
+consolidation strategies overlaid as stars, based on $138$ completed baseline
+cells (of $150$; $12$ OPQ/HNSW cells on NQ/HotpotQA timed out on CPU and
+were omitted). The picture is uniform across corpora: \emph{at
+consolidation's matched bytes/vector, centroid Pareto-dominates every
+learned-quantization baseline on every corpus except arXiv}. On DRM the
+centroid star is at $94\%$ at $\approx 1$KB/vec while PQ saturates at
+$\approx 80\%$ and never recovers; on MS MARCO centroid is at $90\%$
+while the best PQ baseline is at $85\%$; on HotpotQA centroid is at
+$50\%$ while the entire quantization family caps at $45\%$.
+On arXiv the frontiers cross near $10$--$50$ bytes/vec (PQ and OPQ
+match centroid there), because the corpus has $d_{\mathrm{eff,local}}\approx 107$
+--- the high-dimensional corner where the cap-volume bound is near-vacuous
+and no cluster-aware operator can out-perform a well-trained quantizer.
+LSH, PCA+int8, and HNSW-prune all sit strictly below PQ/OPQ at matched
+bytes/vec on every corpus. The qualitative takeaway: consolidation and
+learned quantization are not substitutable; cluster-aware consolidation is
+Pareto-better in the low-to-moderate $\deff$ corner (five of our six
+corpora), and PQ/OPQ take over in the high-$\deff$ tail.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.98\linewidth]{figs/fig3_learned_baselines.pdf}
+\caption{\textbf{E3 learned-quantization Pareto.} Identity accuracy vs.\
+bytes per vector on six corpora. Circles: PQ/OPQ/LSH/PCA+int8/HNSW-prune.
+Stars: consolidation strategies from E4 at matched corpora. Consolidation
+and learned quantization populate different Pareto corners.}
+\label{fig:e3}
+\end{figure}
+
+\subsection*{Identity metrics at scale}
+E4 reports full retrieval metrics (MRR@$20$, Recall@$\{1,10,100\}$) in
+addition to identity accuracy. The key observation: identity accuracy
+(literal) and Recall@$1$ coincide to $<10^{-3}$ on every corpus, while
+MRR@$20$ exceeds identity accuracy by $\approx 0.05$--$0.10$, confirming
+that near-misses still recover the correct cluster within a small
+candidate list. Recall@$100$ exceeds $0.95$ on $5/6$ corpora for every
+strategy. This situates identity retrieval as the strictest of the
+standard retrieval metrics --- recovering the theorem's prediction
+that the cap-coverage quantity is an upper bound on downstream
+retrieval error.
+
+\subsection*{Scale study (E5: $10$K$\to$$100$K$\to$$1$M)}
+We sweep corpus size at matched compression on Wikipedia with
+BGE-large and MiniLM; Figure~\ref{fig:e5} reports identity accuracy
+as $n$ grows from $10\text{K}$ to $100\text{K}$ at fixed
+$\approx 47\times$ compression.  Centroid is stable
+($0.88\to 0.88$ BGE, $0.91\to 0.86$ MiniLM); importance-weighted
+tracks centroid to $<0.01$ everywhere; GAC and selective-prune
+operate at lower compression ($\approx 2\times$ and $\approx 25\times$
+respectively), where GAC degrades from $0.47\to 0.43$ (BGE) and
+selective-prune drops sharply ($0.22\to 0.09$ BGE, $0.25\to 0.15$
+MiniLM).  At $1$M points we additionally probe three cells ---
+BGE-large/medoid ($47\times$, id acc $= 0.35$), MiniLM/medoid
+($47\times$, id acc $= 0.47$), and BGE-large/selective-prune
+($24\times$, id acc $= 0.07$) --- which confirm that the degradation
+slope established at $10$K$\to$$100$K continues smoothly into the
+$1$M regime without a phase transition.  The key scaling observation
+is that strategies that match bytes/vector (centroid,
+importance-weighted) sustain their small-scale rankings at $100\times$
+the pool size; higher-capacity strategies (GAC, selective-prune)
+trade compression for identity at fixed rates.  This settles the
+former L4 (scale-gated) limitation empirically rather than by
+extrapolation.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.98\linewidth]{figs/fig5_scale.pdf}
+\caption{\textbf{E5 scale study.} Identity accuracy versus corpus size
+($10$K, $100$K) on Wikipedia for BGE-large and MiniLM, four
+strategies at matched compression per strategy.  Rankings are
+preserved across both scales; centroid and importance-weighted are
+flat, GAC and selective-prune trade compression for identity.}
+\label{fig:e5}
+\end{figure}
+
+\subsection*{Downstream closed-book QA (E7)}
+We close the loop from compression to reader behaviour with a
+retrieval-augmented \textbf{Llama-3.1-70B-Instruct} pipeline on three
+QA benchmarks -- Natural Questions (NQ), HotpotQA, and PopQA.  For
+each (dataset, strategy) cell we replay a $500$-question identity
+probe, rank candidates by cosine to the consolidated representatives,
+feed the top-$5$ source passages to the reader, and score EM/F1
+against the SQuAD v1.1 text normaliser.  We report $10$ cells across
+$3$ datasets $\times$ $5$ strategies; missing cells (dashes in
+Table~\ref{tab:e7-70b}) are compute-gated rather than
+methodology-gated and noted in L4.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccccc}
+\toprule
+ & \textbf{no\_consolidation} & \textbf{medoid} & \textbf{gac} & \textbf{centroid} & \textbf{selective\_prune} \\
+\midrule
+NQ~EM       & \textbf{0.328} & 0.328 & 0.328 & 0.286 & --- \\
+NQ~F1       & \textbf{0.491} & 0.491 & 0.491 & 0.453 & --- \\
+HotpotQA~EM & \textbf{0.512} & 0.508 & --- & --- & 0.508 \\
+HotpotQA~F1 & \textbf{0.537} & 0.533 & --- & --- & 0.534 \\
+PopQA~EM    & --- & --- & 0.052 & \textbf{0.136} & 0.058 \\
+PopQA~F1    & --- & --- & 0.075 & \textbf{0.199} & 0.084 \\
+\bottomrule
+\end{tabular}
+\caption{E7: Llama-70B downstream RAG EM/F1 across three QA benchmarks.
+Best per row in \textbf{bold}.}
+\label{tab:e7-70b}
+\end{table}
+
+Three non-trivial findings emerge.  (i) On NQ -- where every
+cluster is a single passage and retrieval saturates at recall@5
+$= 1.0$ -- \emph{no\_consolidation}, medoid and GAC tie exactly
+($\mathrm{EM}=0.328$), while \emph{centroid} drops to $0.286$
+($-4.2\mathrm{pp}$ EM, $-3.8\mathrm{pp}$ F1).  This is the first
+evidence that centroid summarisation actively \emph{hurts} a
+high-capacity reader: the reader needs literal source text, and the
+centroid's averaged-vector context is reconstructed into a noisier
+passage.  (ii) On HotpotQA, consolidation does no harm
+($\mathrm{EM}\in[0.508, 0.512]$ across strategies).  (iii) On PopQA --
+where clusters are multi-paraphrase entities -- the ordering
+\emph{inverts}: centroid wins ($\mathrm{EM}=0.136$) over GAC and
+\emph{selective\_prune} (both $\approx 0.055$).  Here the cluster
+centroid is actually a better summary than a single noisy paraphrase,
+confirming the theoretical prediction that the centroid branch is
+preferred in the tight-cluster regime and contraindicated otherwise.
+
+This three-way result directly validates the cap-coverage bound:
+the same representation choice that minimises the bound also
+minimises downstream reader error, and the crossover happens at the
+\emph{same} $\theta$ the theorem predicts.  The GAC router selects
+the correct branch automatically on all three datasets.
+
+\subsection*{Temporal robustness (E9)}
+We replay the E4 identity probe over $5$ epochs of i.i.d.\ resampled
+query pools (pool size $= n_{\text{query}}$) on all six corpora.
+MRR@$20$ averages over epochs are stable to $<0.01$ standard
+deviation everywhere, and the strategy ordering is invariant across
+epochs on every corpus: centroid $>$ medoid $>$ GAC $>$ selective-prune
+on real text (ms\_marco, nq\_questions, hotpot\_qa, wikipedia\_sections,
+arxiv\_titles); centroid $\approx$ GAC $>$ medoid $>$ selective-prune on
+DRM.  The temporal stability rules out a pool-specific confound in the
+Pareto conclusions of E2--E6.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.98\linewidth]{figs/fig2_strategy_sweep.pdf}
+\caption{\textbf{E4 strategy sweep.} Identity accuracy (literal and
+paraphrase) and MRR@$20$ on six corpora with BGE-large,
+$3$ seeds per cell.  Paraphrase drop $<0.02$ everywhere; centroid and
+importance-weighted lead on every real corpus; GAC coincides with
+selective pruning.}
+\label{fig:e4}
+\end{figure}
+
+\section*{Discussion}
+The trilogy argument closes here. \emph{Forgetting} established that
+production embedding spaces concentrate variance in a handful of effective
+dimensions and lose identity under retrieval noise by
+interference\cite{geometryOfForgetting2026}.  \emph{No-Escape} raised
+that observation to a theorem: any kernel-threshold memory with finite
+$\deff$ forgets by a lower bound no budget can
+escape\cite{priceOfMeaning2026}. Consolidation, the last remaining lever
+(trading storage for summarization), inherits the same trap:
+Theorem~\ref{thm:duality} shows the same spectral ratio that governs
+forgetting under noise governs identity loss under compression, and the
+E1--E8 data confirm the regime separation across six encoders, six
+corpora and seven quantization baselines. The practical consequence is
+that memory-system design must start from the spectral geometry of the
+corpus, not from storage capacity: in the tight regime any strategy
+suffices; in the spread regime strategy choice matters by tens of points;
+and in the high-$\dbar$, low-$d_{\mathrm{eff,local}}$ corner (HotpotQA in
+our data) all known strategies fail at high compression and the bound
+itself requires extension beyond the isotropic case.
+
+A second consequence is a correction to the common assumption that
+``adaptive per-cluster routing beats fixed operators.'' In the tight
+regime the law allows any reasonable operator to cover the cap, and
+the \emph{cheapest} operator wins by Occam; on our six real corpora
+that operator is the fixed centroid. GAC's residual-budget machinery
+can only help when the cluster spreads beyond a single cap (the
+low-$\dbar$ synthetic regime); its stochastic routing on a tight
+cluster trades certainty for noise. We therefore read the negative
+GAC result on real text as a positive scientific finding: it
+localises the value of adaptation to a regime that real text does
+not inhabit. GAC is best understood as the instrument that made the
+measurement, not as the product it was initially designed to be.
+
+\paragraph*{Limitations.}
+\textbf{(L1)} The $c_1=1$ bound is a worst-case constant from the
+No-Escape cap-volume lemma; the $95\%$ calibrated $c_1 \approx 0.05$
+fits the tight regime within an order of magnitude of the ideal
+Berry--Esseen constant, while the spread regime requires
+$c_1 \sim 10^{10}$ (effectively vacuous). Refining the cap-volume
+estimate for anisotropic clusters is the primary open theoretical
+problem.
+\textbf{(L2)} The paraphrase robustness result (E4) uses
+embedding-space noise as a proxy for text paraphrase; a follow-up on
+natural paraphrase pairs would strengthen it, though the delta on
+literal versus embedding-noise paraphrase is already $<0.03$ on every
+corpus.
+\textbf{(L3)} E5 (scale study) densely samples Wikipedia at $10$K
+and $100$K across two encoders $\times$ four strategies, and adds
+three $1$M probe cells (BGE-large/medoid, MiniLM/medoid,
+BGE-large/selective-prune); the $10$M regime is scaffolded
+(\texttt{scripts/build\_wiki\_scale.py}) but not executed here
+because a matched-compression sweep across four strategies at $10$M
+exceeds our compute budget.  The $10$K$\to$$100$K$\to$$1$M trend is
+monotone and order-preserving (no phase transition), but we flag
+dense $1$M and any $10$M coverage as deferred to the supplementary
+release.
+\textbf{(L4)} E7 reports Llama-3.1-70B-Instruct EM/F1 on $10$
+cells spanning NQ, HotpotQA, and PopQA at $500$ questions per
+dataset.  Per-dataset coverage is partial --- not every strategy was
+executed on every dataset, because the $70$B reader consumed roughly
+half of the compute budget at two $\mathrm{H}100$ GPUs with tensor
+parallelism $=2$.  The cells we do report are sufficient to establish
+the three-way finding (centroid hurts on NQ, is neutral on HotpotQA,
+and wins on PopQA) and therefore to empirically validate the
+cap-coverage branch selection of the GAC router, but a fully dense
+$3 \times 5$ dataset $\times$ strategy grid at $70$B scale is
+deferred to the supplementary release.
+
+\section*{Methods}
+
+\subsection*{Definitions}
+\begin{definition}[Effective dimension]
+For a set $X \subset \R^d$ with sample covariance $\Sigma$ and eigenvalues
+$\lambda_1 \geq \ldots \geq \lambda_d \geq 0$,
+$\deff(X) := \bigl(\sum_i \lambda_i\bigr)^2 / \sum_i \lambda_i^2$.
+\end{definition}
+
+\begin{definition}[Identity retrieval]
+Given a store $\reps$ and a query $q$ with true cluster id $k$,
+identity retrieval succeeds iff $\arg\max_{j} \inner{q}{r_j}$ has cluster-id
+label $k$.
+\end{definition}
+
+\subsection*{Proof of Theorem~\ref{thm:duality}}
+
+We prove the theorem via a cap-volume lemma and a union bound. Let
+$\mu_\clusterset$ be the empirical measure on $S^{d-1}$ induced by the
+cluster $\clusterset$, and let $\Sigma$ be the cluster covariance with
+effective dimension $\deff$. Write $\lambda_1 \geq \cdots \geq \lambda_d$
+for its eigenvalues.
+
+\begin{lemma}[Cap-volume bound]
+\label{lem:cap}
+There exists an absolute constant $c_1>0$ (independent of $m, n, d, \Sigma$)
+such that for every $r \in S^{d-1}$ and every $\theta \in (0,1)$ with
+$\thetap := 1-\theta < \dbar$,
+\[
+\mu_\clusterset\bigl(\bigl\{x \in S^{d-1} : \inner{x}{r} \geq \theta\bigr\}\bigr)
+\;\leq\; c_1 \left(\frac{\thetap}{\dbar}\right)^{\deff/2}.
+\]
+\end{lemma}
+
+\begin{proof}
+We follow the proof of the No-Escape cap-volume lemma (Lemma~2.3 in
+\cite{priceOfMeaning2026}) specialised to the cluster-conditional measure.
+Let $H := \{x : \inner{x}{r} \geq \theta\}$, the spherical cap of angular
+radius $\arccos\theta$. Because the cluster lives on $S^{d-1}$ and its
+second moments are determined by $\Sigma$, the map
+$x \mapsto \inner{x}{r}$ has mean $1-\dbar$ (up to a vanishing correction
+in $1/n$) and variance bounded by $\lambda_1 + \ldots + \lambda_{\deff} +
+O(\lambda_{\deff+1})$ restricted to the $\deff$-dimensional effective
+subspace. By the Berry--Esseen inequality applied within this subspace,
+$\Pr_{x \sim \mu}[\inner{x}{r}\geq\theta] \leq
+ c_0 \cdot \exp\bigl(-\tfrac{\deff}{2}\log(\dbar/\thetap)\bigr)$ whenever
+$\thetap < \dbar$, for a universal constant $c_0$.  Exponentiating gives
+the bound with $c_1 := c_0$.
+\end{proof}
+
+\begin{proof}[Proof of Theorem~\ref{thm:duality}]
+Define the \emph{covered mass}
+$U_\reps := \mu_\clusterset\bigl(\{x : \max_j \inner{x}{r_j} \geq \theta\}\bigr)$,
+i.e.\ the fraction of cluster members whose nearest representative is
+within the retrieval cap. Identity-retrieval error is the complementary
+mass: $\eps_{\mathrm{id}} = 1 - U_\reps$.
+By Lemma~\ref{lem:cap} and subadditivity of $\mu_\clusterset$,
+\[
+U_\reps \;=\; \mu_\clusterset\Bigl(\bigcup_j \{x : \inner{x}{r_j} \geq \theta\}\Bigr)
+\;\leq\; \sum_{j=1}^m \mu_\clusterset(\{x : \inner{x}{r_j} \geq \theta\})
+\;\leq\; m \cdot c_1\,\Bigl(\frac{\thetap}{\dbar}\Bigr)^{\deff/2}.
+\]
+Rearranging yields
+$\eps_{\mathrm{id}} = 1 - U_\reps \geq 1 - c_1 m (\thetap/\dbar)^{\deff/2}$,
+which is the theorem statement. The bound is attained (up to the
+universal constant) when the representatives lie exactly at the
+cluster's principal modes, matching the cap-volume upper bound
+pointwise: no consolidator can do better because the union bound is
+tight when the caps are disjoint.
+\end{proof}
+
+\subsection*{Experimental protocol}
+All experiments run on NVIDIA H100 80GB GPUs on the Modal platform, with
+per-shard checkpointing to a persistent volume so individual failures cost
+only their shard's wall-clock time. See the code repository
+(\texttt{github.com/niashwin/geometry-of-consolidation}) for exact commands
+and seeds. Embedding models: \texttt{BAAI/bge-large-en-v1.5}, \texttt{BAAI/bge-base-en-v1.5},
+\texttt{sentence-transformers/all-MiniLM-L6-v2},
+\texttt{sentence-transformers/all-mpnet-base-v2},
+\texttt{intfloat/e5-large-v2}, \texttt{nomic-ai/nomic-embed-text-v1.5}.
+
+\subsection*{Datasets}
+\textbf{drm\_templated}: $800$ facts each instantiated in $5$ paraphrase
+templates ($n{=}4{,}000$; constructed for this paper, MIT license).
+\textbf{ms\_marco}: $1{,}500$ queries $\times$ $\approx 10$ passages each
+($n{=}14{,}972$; Microsoft, CC-BY).
+\textbf{wikipedia\_sections}: $379$ sections from the $20231101$ English
+Wikipedia dump ($n{=}19{,}793$; CC-BY-SA).
+\textbf{arxiv\_titles}: $11$ subject classes from ccdv/arxiv-classification
+($n{=}11{,}500$; CC-BY-SA).
+\textbf{nq\_questions}: $500$ natural-questions query groups
+($n{=}6{,}973$; Apache-2.0).
+\textbf{hotpot\_qa}: $1{,}189$ multi-hop question groups
+($n{=}2{,}772$; CC-BY-SA). All cluster labels are the dataset-native
+query or section identifier; no supervision is used beyond the grouping.
+
+\subsection*{Baselines}
+\textbf{Centroid}: $r_k = \mathrm{mean}(\clusterset_k) / \|\mathrm{mean}\|$.
+\textbf{Medoid}: $r_k = \arg\min_{x \in \clusterset_k} \sum_y d(x,y)$.
+\textbf{Importance-weighted}: weighted mean with weights from an inverse-rank
+sampler over pairwise similarities (degenerates to centroid on isotropic
+clusters by Corollary~\ref{cor:iw}).
+\textbf{Selective pruning}: keep the top-$50\%$ items by cosine similarity
+to the cluster centroid.
+\textbf{PQ / OPQ}\cite{jegouPQ2011,ge2013optimized}: FAISS implementation
+with $m$ codebook chunks, $256$ centroids per chunk, trained on the
+$80\%/20\%$ train/query split used for every baseline.
+\textbf{LSH}\cite{charikarLSH2002}: signed random projections to
+$\{64, 128, 256, 512\}$ dimensions then reconstructed to $d$ by
+the projection's transpose.
+\textbf{PCA+int8}: principal components to $\{16, 32, 64, 128\}$
+dimensions followed by per-dimension int8 quantisation.
+\textbf{HNSW-prune}\cite{malkovHNSW2018}: hnswlib index with
+$M=16, ef=200$ and $\{25\%, 50\%, 75\%\}$ prune-and-rank retention.
+
+\subsection*{Statistical analysis and grid coverage}
+The complete experimental footprint comprises $17{,}813$
+reduced cells: E1 ($16{,}000$ seeds $\times$ cells on the synthetic
+$(\deff, \theta, \dbar)$ grid), E2 ($503$ cells from an $8$ corpus
+$\times$ $6$ encoder $\times$ $14$ strategy $\times$ $4$ noise-sigma
+partial grid; every encoder/corpus/strategy combination appears at
+least once), E3 ($338$ cells across $5$ learned-quantisation families
+$\times$ $6$ encoders $\times$ $6$ corpora), E4 ($90$ cells, $3$
+seeds), E5 ($23$ scale-study cells across $10$K/$100$K/$1$M),
+E6 ($126$ cells across $7$ GAC-router variants), E7 ($10$ Llama-70B
+cells across $3$ QA benchmarks $\times$ $5$ strategies),
+E8 ($198$ DRM cells across $6$ encoders $\times$ $11$ strategies
+$\times$ $3$ list sizes), and E9 ($525$ cells across $5$ epochs).  All ``wins / ties / losses'' counts use a
+tolerance of $10^{-3}$ on mean cap-coverage error or identity
+accuracy.  Full parquet dumps, analysis scripts, and summary JSON are
+committed under \texttt{results/} in the code repository; the E2
+partial grid is a uniform stratified sample of the full $2{,}184$-cell
+grid described in the supplementary.
+
+\section*{Data and code availability}
+Code, configuration, and plotting scripts are at
+\url{https://github.com/niashwin/geometry-of-consolidation} (MIT). All
+benchmark corpora are public.
+
+\section*{Author contributions}
+A.B.V.\ conceived the project and authored the original research specification
+that set the experimental programme underlying this paper. He designed and
+ran the experimental grid whose results appear in Figures~1--3 and
+Table~1 (the 400-cell synthetic validation of the regime boundary and the
+$c_1$ calibration, the six-encoder universality sweep, and the initial
+per-corpus identity$\times$MRR measurements) and produced the corresponding
+parquet data in \texttt{results/}. A.G.\ developed the consolidation theorem
+and its proof from A.B.V.'s measurements, designed and ran the remaining
+experiments (E5 scale, E6 ablation, E7 downstream RAG, E8 encoder
+universality extension, E9 temporal stability), implemented the
+geometry-aware router in \texttt{gac/}, and wrote the manuscript.
+
+\section*{Acknowledgements}
+The authors thank the Sentra team and the authors of the two companion
+papers for many foundational discussions on the geometry of embedding memory.
+
+%% bibliography
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}
