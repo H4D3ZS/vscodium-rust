@@ -52,10 +52,33 @@ export class AIRIConsciousness {
   private ollama: Ollama;
   private state: ConsciousnessState;
   private thoughtInterval: NodeJS.Timeout | null = null;
-  private readonly MODEL = 'llama3.2:3b'; // Change to your pulled model; use `ollama pull llama3.2:3b`
+  private thoughtFailures = 0;
+  private thoughtDisabled = false;
+  private MODEL: string = (() => {
+    try {
+      return (
+        (typeof window !== 'undefined' && window.localStorage?.getItem('airi.consciousness.model')) ||
+        (typeof window !== 'undefined' && (window as any).AIRI_CONSCIOUSNESS_MODEL) ||
+        'llama3.2:3b'
+      );
+    } catch {
+      return 'llama3.2:3b';
+    }
+  })();
 
   constructor() {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+    const host = (() => {
+      try {
+        return (
+          (typeof window !== 'undefined' && window.localStorage?.getItem('airi.consciousness.host')) ||
+          (typeof window !== 'undefined' && (window as any).AIRI_CONSCIOUSNESS_HOST) ||
+          'http://localhost:11434'
+        );
+      } catch {
+        return 'http://localhost:11434';
+      }
+    })();
+    this.ollama = new Ollama({ host });
 
     this.state = {
       isAwake: true,
@@ -78,6 +101,16 @@ export class AIRIConsciousness {
       visionEnabled: true
     };
 
+    // Respect the user's persisted toggle. Default = enabled.
+    try {
+      const v = typeof localStorage !== 'undefined'
+        ? localStorage.getItem('airi.consciousness.enabled')
+        : null;
+      if (v === '0') {
+        this.thoughtDisabled = true;
+        return;
+      }
+    } catch { /* no localStorage */ }
     this.startConsciousnessLoop();
   }
 
@@ -86,6 +119,45 @@ export class AIRIConsciousness {
       this.state.isAwake = true;
       this.startConsciousnessLoop();
     }
+  }
+
+  wakeUp(): void {
+    this.start();
+  }
+
+  /**
+   * Pause the autonomous thought loop without losing memory state.
+   * Used by the UI toggle so we don't keep hammering the local LLM.
+   */
+  pauseThoughts(): void {
+    if (this.thoughtInterval) {
+      clearInterval(this.thoughtInterval);
+      this.thoughtInterval = null;
+    }
+    this.thoughtDisabled = true;
+  }
+
+  resumeThoughts(): void {
+    this.thoughtDisabled = false;
+    this.thoughtFailures = 0;
+    if (!this.thoughtInterval && this.state.isAwake) {
+      this.startConsciousnessLoop();
+    }
+  }
+
+  reconfigure(opts: { model?: string; host?: string }): void {
+    if (opts.host) {
+      try { this.ollama = new Ollama({ host: opts.host }); } catch { /* noop */ }
+    }
+    if (opts.model) {
+      (this as any).MODEL = opts.model;
+    }
+    this.thoughtFailures = 0;
+    this.thoughtDisabled = false;
+  }
+
+  getModel(): string {
+    return (this as any).MODEL;
   }
 
   /**
@@ -155,6 +227,7 @@ export class AIRIConsciousness {
    */
   private async generateThought(): Promise<void> {
     if (!this.state.isAwake) return;
+    if (this.thoughtDisabled) return;
 
     const context = this.buildThoughtContext();
     
@@ -188,22 +261,29 @@ THOUGHT: [your thought]
         stream: false
       });
 
+      this.thoughtFailures = 0;
       const thought = this.parseThought(response.response);
 
       if (thought) {
         this.state.thoughtStream.push(thought);
         this.state.currentThought = thought.content;
 
-        // Keep only last 50 thoughts
         if (this.state.thoughtStream.length > 50) {
           this.state.thoughtStream = this.state.thoughtStream.slice(-50);
         }
 
-        // AIRI learns from her own thoughts (lifelong learning)
         this.learnFromThought(thought);
       }
-    } catch (error) {
-      // Silent error - no logging
+    } catch (error: any) {
+      const msg = String(error?.message || error || '');
+      this.thoughtFailures += 1;
+      if (msg.includes('not found') || msg.includes('404') || this.thoughtFailures >= 3) {
+        this.thoughtDisabled = true;
+        console.warn(
+          `[AIRI Consciousness] Disabling thought loop — model "${this.MODEL}" not reachable.`,
+          'Set localStorage.airi.consciousness.model to an installed Ollama tag to re-enable.'
+        );
+      }
     }
   }
 

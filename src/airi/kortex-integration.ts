@@ -106,13 +106,20 @@ export class AIRIKortexIntegration {
 
         } catch (error: any) {
             const msg = String(error?.message || error || '');
-            if (msg.includes('Command load_kortex_memory not found')) {
+            const isMissing = !msg
+                || msg.includes('Command load_kortex_memory not found')
+                || msg.includes('not found')
+                || msg.includes('No such command');
+            if (isMissing) {
                 if (!this.missingBackendLogged) {
-                    console.warn('[AIRI-Kortex] Backend memory command unavailable; running with in-memory consciousness only.');
+                    console.warn(
+                        '[AIRI-Kortex] Backend memory command unavailable; running with in-memory consciousness only.',
+                        msg || '(empty error)'
+                    );
                     this.missingBackendLogged = true;
                 }
             } else {
-                console.error('[AIRI-Kortex] ❌ Failed to load consciousness:', error);
+                console.error('[AIRI-Kortex] ❌ Failed to load consciousness:', msg, error);
             }
             this.isLoaded = true;
         }

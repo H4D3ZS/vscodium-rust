@@ -302,6 +302,15 @@ async function speakElevenLabs(text: string, preset: VoicePreset): Promise<Array
                 const fallbackErr = await response.text();
                 throw new Error(`ElevenLabs API error: ${response.status} - ${fallbackErr}`);
             }
+        } else if (response.status === 401 || response.status === 403) {
+            // Invalid / expired key — disable ElevenLabs for the rest of the
+            // session so we stop hammering it once per word. The next TTS call
+            // will fall back to Qwen3-TTS / browser speech.
+            ttsProvider = 'qwen';
+            currentApiKey = undefined;
+            try { localStorage.removeItem('elevenlabs_api_key'); } catch { /* quota */ }
+            console.warn('[TTS] ElevenLabs returned', response.status, '— disabling for this session.');
+            throw new Error(`ElevenLabs auth failed (${response.status}); falling back.`);
         } else {
             throw new Error(`ElevenLabs API error: ${response.status} - ${err}`);
         }
@@ -365,7 +374,14 @@ export async function speakStreamRealtime(
             );
 
             if (!response.ok || !response.body) {
-                console.error('[TTS] ElevenLabs streaming error');
+                if (response.status === 401 || response.status === 403) {
+                    ttsProvider = 'qwen';
+                    currentApiKey = undefined;
+                    try { localStorage.removeItem('elevenlabs_api_key'); } catch { /* quota */ }
+                    console.warn('[TTS] ElevenLabs streaming auth failed — disabled for this session.');
+                    return false;
+                }
+                console.error('[TTS] ElevenLabs streaming error', response.status);
                 continue;
             }
 

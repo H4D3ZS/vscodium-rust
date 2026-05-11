@@ -151,12 +151,14 @@ function createPopover(element: HTMLElement, items: { label: string, value: stri
 
 export function openModeDropdown(element: HTMLElement, onSelect: (label: string) => void) {
     createPopover(element, [
-        { label: "💬 Chat", value: "Chat", icon: "comment", desc: "Conversational — AIRI answers and discusses. No tools called automatically. Ask first, act when told." },
-        { label: "Planning", value: "Planning", icon: "beaker", desc: "Agent plans and executes autonomously. For complex multi-step tasks." },
+        { label: "Agent", value: "Agent", icon: "rocket", desc: "Default. Writes files, runs commands, executes tasks autonomously — Cursor-style." },
+        { label: "Bug Bounty", value: "BugBounty", icon: "bug", desc: "Offensive cybersecurity researcher. Writes PoCs, runs exploits, saves vulnerability reports to disk. Tooling-first." },
+        { label: "Chat (read-only)", value: "Chat", icon: "comment", desc: "Conversational ONLY. The agent will refuse to write files or run commands. Pair it with @mentions for analysis." },
+        { label: "Planning", value: "Planning", icon: "beaker", desc: "Agent explores codebase and produces a plan. Reads but does not write." },
         { label: "Develop from Specs", value: "Develop from Specs", icon: "sparkles", desc: "Trigger the autonomous Specs-to-Code pipeline for the current project" },
         { label: "Planning (Source Control)", value: "Planning (Source Control)", icon: "git-branch", desc: "Deep dive into git history and planning source control workflows" },
         { label: "Fast", value: "Fast", icon: "zap", desc: "Agent will execute tasks directly. Use for simple tasks that can be completed faster" },
-        { label: "Sentient", value: "Sentient", icon: "beaker", desc: "Full autonomy mode. Agent will work proactively until the task is complete, like Antigravity." }
+        { label: "Sentient", value: "Sentient", icon: "beaker", desc: "Maximum autonomy. Works until 'MISSION_ACCOMPLISHED'. Best for large specs-to-code missions." }
     ], (val) => {
         if (val === "Develop from Specs") {
             const state = useStore.getState();
@@ -914,6 +916,16 @@ function isLocalInferenceRoute(store: { getState: () => any }): boolean {
     return b === 'ollama' || b === 'llama-cpp';
 }
 
+// Imperative action verbs that imply the user wants actual file writes / shell
+// execution, not just a chat response. Used to auto-escalate Chat mode to Agent
+// when YOLO is on, and to warn when Chat mode is silently swallowing actions.
+const ACTION_VERB_REGEX = /\b(write|create|generate|make|build|implement|add|edit|patch|fix|refactor|delete|remove|run|execute|launch|invoke|fuzz|exploit|scan|recon|enumerate|inject|craft|emit|attack|brute(force)?|crack|sniff|intercept|deploy|install|compile|test|verify|save|persist|store|push|commit|merge|rebase|checkout|spawn|popen|shell|payload|poc|reverse[\s-]?shell|bind[\s-]?shell|c2|callback|stager)\b/i;
+
+function looksLikeActionRequest(text: string): boolean {
+    if (!text || text.length < 3) return false;
+    return ACTION_VERB_REGEX.test(text);
+}
+
 export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: string) => void, context?: any[]): Promise<void> {
     const store = (window as any).useStore;
     if (!store) throw new Error("Store not found");
@@ -922,6 +934,31 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
     if (userPrompt.startsWith('/')) {
         const handled = await processSlashCommand(userPrompt);
         if (handled) return;
+    }
+
+    // --- Auto-escalate Chat → Agent when the user wants action ---
+    // Chat mode forbids tool calls. If the user is in Chat mode but their prompt
+    // clearly asks for code/files/commands, we either silently upgrade (YOLO on)
+    // or surface a one-line warning so they don't get a wall of text again.
+    const currentMode = store.getState().agentMode;
+    const yolo = !!store.getState().isYoloMode;
+    if (currentMode === 'Chat' && looksLikeActionRequest(userPrompt)) {
+        if (yolo) {
+            try {
+                store.getState().setAgentMode?.('Agent');
+                store.getState().addAgentMessage?.(
+                    'assistant',
+                    '⚡ Auto-switched **Chat → Agent** for this turn (YOLO is on). I will write files and run commands directly.'
+                );
+            } catch { /* non-fatal */ }
+        } else {
+            try {
+                store.getState().addAgentMessage?.(
+                    'assistant',
+                    'ℹ You are in **Chat (read-only)** mode — I will describe but not execute.\n\nClick the mode pill (bottom-right of this panel) and pick **Agent** or **Bug Bounty** to make me actually write files and run commands. Or enable **YOLO** to auto-upgrade on action verbs.'
+                );
+            } catch { /* non-fatal */ }
+        }
     }
 
     // === Legacy Backend Flow (Ollama, llama.cpp/Kortex, OpenAI, Google, Anthropic, etc.) ===

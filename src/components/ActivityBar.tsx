@@ -4,6 +4,11 @@ import { invoke } from '../tauri_bridge';
 import { applyTheme, type VscodeTheme } from '../theme_engine';
 import { Beaker, Layout, Bot, Globe } from 'lucide-react';
 
+// Stable sentinel so a missing viewsContainers entry never produces a fresh
+// array reference; otherwise Zustand's selector identity check thrashes and
+// React logs "The result of getSnapshot should be cached".
+const EMPTY_EXTENSION_ITEMS: any[] = [];
+
 const ActivityBar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
     const setActiveView = useStore(state => state.setActiveSidebarView);
@@ -12,7 +17,9 @@ const ActivityBar: React.FC = () => {
     const [installedThemes, setInstalledThemes] = useState<VscodeTheme[]>([]);
     const setTheme = useStore(state => state.setTheme);
 
-    const extensionItems = useStore(state => state.extensionContributions?.viewsContainers?.activitybar || []);
+    const extensionItems = useStore(
+        state => state.extensionContributions?.viewsContainers?.activitybar ?? EMPTY_EXTENSION_ITEMS
+    );
 
     const items = [
         { id: 'explorer-view', icon: 'files', title: 'Explorer' },

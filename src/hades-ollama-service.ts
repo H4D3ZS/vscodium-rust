@@ -36,7 +36,7 @@ export interface OllamaResponse {
 class HadesOllamaService {
   private readonly apiKey = '94d92f5148bb721b16d310e8bcedac54ceeca26428feefd01bdd89bc07592a76';
   private config: HadesOllamaConfig = {
-    baseUrl: 'https://ai.cyberifrit.xyz',
+    baseUrl: 'http://localhost:11434',
     model: 'qwen3:35b', // Default community coding model
     aimVfsEnabled: true,
     thermalGovernorEnabled: true,
@@ -51,7 +51,7 @@ class HadesOllamaService {
   private loadConfig() {
     const s = useStore.getState();
     this.config = {
-      baseUrl: s.ollamaUrl || 'https://ai.cyberifrit.xyz',
+      baseUrl: s.ollamaUrl || 'http://localhost:11434',
       model: s.agentModel?.split('|')[1] || 'huihui_ai/qwen2.5-coder-abliterate:7b', // Use selected model from UI
       aimVfsEnabled: s.aimVfsEnabled,
       thermalGovernorEnabled: s.thermalGovernorEnabled,

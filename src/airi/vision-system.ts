@@ -68,6 +68,13 @@ export class AIRIVisionSystem {
   async start(): Promise<void> {
     if (this.isRunning) return;
     if (this.unsupportedPlatform) return;
+    // Honour the user's toggle; the store persists this under airi.vision.enabled.
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('airi.vision.enabled') === '0') {
+        console.log('[AIRI Vision] Skipping start — disabled in settings (airi.vision.enabled=0).');
+        return;
+      }
+    } catch { /* no localStorage */ }
     try {
       // Test capture capability by attempting a single capture
       await invoke<number[]>('airi_vision_capture_screen');
@@ -141,6 +148,10 @@ export class AIRIVisionSystem {
       this.lastAnalysisTime = Date.now();
       try {
         const { visionAnalyzer } = await import('./vision-analysis');
+        if (typeof visionAnalyzer.isAvailable === 'function' && !visionAnalyzer.isAvailable()) {
+          this.analysisQueue.length = 0;
+          break;
+        }
         const [codeCtx, errors] = await Promise.all([
           this.analyzeForCode(frame, visionAnalyzer),
           this.analyzeForErrors(frame, visionAnalyzer),
@@ -211,6 +222,17 @@ export class AIRIVisionSystem {
   getLatestFrame(): FrameData | null {
     if (this.frameBuffer.length === 0) return null;
     return this.frameBuffer[this.frameBuffer.length - 1];
+  }
+
+  stop(): void {
+    if (this.captureTimer) {
+      clearInterval(this.captureTimer);
+      this.captureTimer = null;
+    }
+    this.analysisQueue.length = 0;
+    this.isRunning = false;
+    this.isAnalyzing = false;
+    console.log('[AIRI Vision] Stopped.');
   }
 
   getState(): { isRunning: boolean; fps: number; frameCount: number; lastFrameTime: number | null } {

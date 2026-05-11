@@ -66,11 +66,21 @@ export class AIRIVRMAvatar {
 
   /**
    * Initialize the VRM avatar
+   *
+   * NOTE: The real 3D avatar is rendered by the AIRI iframe (port 5174) inside
+   * AiriPanel.tsx. This in-process VRM was a prototype that appends a renderer
+   * to `document.body`, overlays the IDE, and trips `@pixiv/three-vrm` +
+   * Three.js 0.183 texture incompatibilities (colorSpace TypeError). Disable
+   * it by default so it cannot break the host page; pass `vrmUrl` explicitly
+   * to opt back in.
    */
   async initialize(vrmUrl?: string): Promise<boolean> {
+    if (!vrmUrl) {
+      this.isInitialized = true;
+      return true;
+    }
 
     try {
-      // Setup renderer
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.renderer.setPixelRatio(window.devicePixelRatio);
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;

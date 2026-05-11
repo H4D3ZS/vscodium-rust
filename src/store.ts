@@ -152,6 +152,11 @@ interface AppState {
     isAgentThinking: boolean;
     isAgentPaused: boolean;
     isYoloMode: boolean;
+    // AIRI subsystem toggles persisted in localStorage so they survive reloads.
+    airiVisionEnabled: boolean;
+    airiVisionModel: string;
+    airiConsciousnessEnabled: boolean;
+    airiConsciousnessModel: string;
     agentUiMode: 'chat' | 'airi';
     avatarCharacter: string; // Selected AI avatar character
     avatarCustomConfig?: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }; // Custom 2D avatar URLs
@@ -361,6 +366,10 @@ interface AppState {
     setEmulatorPanelPosition: (pos: 'android' | 'iphone') => void;
     setEmulatorLayout: (layout: 'left' | 'right' | 'hidden') => void;
     setYoloMode: (enabled: boolean) => void;
+    setAiriVisionEnabled: (enabled: boolean) => void;
+    setAiriVisionModel: (model: string) => void;
+    setAiriConsciousnessEnabled: (enabled: boolean) => void;
+    setAiriConsciousnessModel: (model: string) => void;
     setAgentUiMode: (mode: 'chat' | 'airi') => void;
     setAgentCurrentAction: (action: string | null) => void;
     attachFile: (file: any | any[]) => void;
@@ -489,7 +498,10 @@ const storeImplementation: any = (set: any, get: any) => ({
     aiStatus: 'alive',
     tokenUsage: 0,
     iconThemeMapping: null,
-    agentMode: 'Chat',
+    // Default to ACTION mode so the agent actually writes files, runs
+    // commands and ships PoCs — critical for cybersecurity/bug-bounty work.
+    // Chat mode forbids tool calls, which was the previous (broken) default.
+    agentMode: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.mode')) || 'Agent',
     agentModel: 'Ollama|qwen3:35b', // Default community coding model
     trustedPublishers: JSON.parse(localStorage.getItem('trustedPublishers') || '[]'),
     activeRoot: localStorage.getItem('activeRoot') || null,
@@ -511,6 +523,12 @@ const storeImplementation: any = (set: any, get: any) => ({
     isAgentThinking: false,
     isAgentPaused: false,
     isYoloMode: false,
+    // Default vision OFF (it needs an installed VL model + screen-capture
+    // permission). Default consciousness ON pointed at a lightweight model.
+    airiVisionEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.vision.enabled') === '1') || false,
+    airiVisionModel: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.vision.model')) || 'qwen2.5vl:72b',
+    airiConsciousnessEnabled: (typeof localStorage === 'undefined' || localStorage.getItem('airi.consciousness.enabled') !== '0'),
+    airiConsciousnessModel: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.consciousness.model')) || 'llama3.2:3b',
     agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'airi',
     avatarCharacter: localStorage.getItem('avatarCharacter') || 'airi',
     avatarCustomConfig: JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}'),
@@ -550,7 +568,9 @@ const storeImplementation: any = (set: any, get: any) => ({
     currentDevProject: null,
     emulatorPlatform: 'ios',
     
-    ollamaUrl: 'https://ai.cyberifrit.xyz', // Community cloud Ollama endpoint
+    // Default to local Ollama. Users can switch to a hosted endpoint from the
+    // settings UI; we no longer pin a dead cloud host here.
+    ollamaUrl: (typeof localStorage !== 'undefined' && localStorage.getItem('ollamaUrl')) || 'http://localhost:11434',
     isPullingModel: false,
     pullProgress: 0,
     pendingChanges: [],
@@ -681,7 +701,10 @@ const storeImplementation: any = (set: any, get: any) => ({
     setAiStatus: (aiStatus) => set({ aiStatus }),
     setTokenUsage: (tokenUsage) => set({ tokenUsage }),
     setIconThemeMapping: (iconThemeMapping) => set({ iconThemeMapping }),
-    setAgentMode: (agentMode) => set({ agentMode }),
+    setAgentMode: (agentMode) => {
+        try { localStorage.setItem('agent.mode', agentMode); } catch { /* quota */ }
+        set({ agentMode });
+    },
     setAgentModel: (agentModel) => set({ agentModel }),
     setAgentRootAccess: (_rootAccess: boolean) => {
         // Root access is now permanent and cannot be disabled
@@ -790,10 +813,13 @@ const storeImplementation: any = (set: any, get: any) => ({
         invoke('set_ollama_url', { url }).catch(console.error);
     },
     setOllamaConnectionMode: (mode: 'proxy' | 'direct') => {
-        const url = 'https://ai.cyberifrit.xyz';
+        // Honour an existing override (e.g. typed by the user) before falling
+        // back to the local default. The legacy hardcoded cloud endpoint went
+        // offline and timing it out on every settings toggle is no help.
+        const existing = (typeof localStorage !== 'undefined' && localStorage.getItem('ollamaUrl')) || '';
+        const url = existing && /^https?:/.test(existing) ? existing : 'http://localhost:11434';
         set({ ollamaConnectionMode: mode, ollamaUrl: url });
         invoke('set_ollama_url', { url }).catch(console.error);
-        // Persist mode to localStorage
         localStorage.setItem('ollamaConnectionMode', mode);
     },
     setDevWorkflowActive: (active: boolean) => {
@@ -1065,12 +1091,17 @@ const storeImplementation: any = (set: any, get: any) => ({
             for (const p of activeProviders) {
                 try {
                     if (p.toLowerCase() === 'ollama') {
-                        const ollamaToUse = 'https://ai.cyberifrit.xyz';
-                        // Ensure backend has the correct URL before listing
+                        // Use whatever Ollama URL the store already has (set by
+                        // the user / persisted in localStorage). Falling back
+                        // to the dead community cloud endpoint just spams 404s.
+                        const ollamaToUse = get().ollamaUrl || 'http://localhost:11434';
                         await invoke('set_ollama_url', { url: ollamaToUse });
-                        // Also update store state to match
                         set({ ollamaUrl: ollamaToUse });
-                        set({ ollamaConnectionMode: 'direct', ollamaMode: 'cloud' });
+                        const isLocal = /localhost|127\.|0\.0\.0\.0/.test(ollamaToUse);
+                        set({
+                            ollamaConnectionMode: 'direct',
+                            ollamaMode: isLocal ? 'local' : 'cloud',
+                        });
                     }
                     const models = await invoke<string[]>('list_provider_models', { provider: p });
                     allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
@@ -1349,6 +1380,69 @@ const storeImplementation: any = (set: any, get: any) => ({
     setIsAgentThinking: (isAgentThinking) => set({ isAgentThinking }),
     setIsAgentPaused: (isAgentPaused) => set({ isAgentPaused }),
     setYoloMode: (isYoloMode) => set({ isYoloMode }),
+    setAiriVisionEnabled: (enabled) => {
+        try { localStorage.setItem('airi.vision.enabled', enabled ? '1' : '0'); } catch { /* quota */ }
+        set({ airiVisionEnabled: enabled });
+        // Best-effort start/stop; vision-system is lazy-loaded.
+        (async () => {
+            try {
+                const mod = await import('./airi/vision-system');
+                if (enabled) {
+                    await mod.airiVision.start();
+                } else if (typeof (mod.airiVision as any).stop === 'function') {
+                    (mod.airiVision as any).stop();
+                }
+            } catch (err) {
+                console.warn('[store] toggling AIRI vision failed:', err);
+            }
+        })();
+    },
+    setAiriVisionModel: (model) => {
+        try { localStorage.setItem('airi.vision.model', model); } catch { /* quota */ }
+        set({ airiVisionModel: model });
+        (async () => {
+            try {
+                const { visionAnalyzer } = await import('./airi/vision-analysis');
+                if (typeof (visionAnalyzer as any).reconfigure === 'function') {
+                    (visionAnalyzer as any).reconfigure({ model });
+                }
+            } catch { /* analyzer not loaded yet */ }
+        })();
+    },
+    setAiriConsciousnessEnabled: (enabled) => {
+        try { localStorage.setItem('airi.consciousness.enabled', enabled ? '1' : '0'); } catch { /* quota */ }
+        set({ airiConsciousnessEnabled: enabled });
+        (async () => {
+            try {
+                const { airiConsciousness } = await import('./airi/consciousness');
+                if (enabled) {
+                    if (typeof (airiConsciousness as any).resumeThoughts === 'function') {
+                        (airiConsciousness as any).resumeThoughts();
+                    } else if (typeof (airiConsciousness as any).wakeUp === 'function') {
+                        (airiConsciousness as any).wakeUp();
+                    } else if (typeof (airiConsciousness as any).start === 'function') {
+                        (airiConsciousness as any).start();
+                    }
+                } else if (typeof (airiConsciousness as any).pauseThoughts === 'function') {
+                    (airiConsciousness as any).pauseThoughts();
+                }
+            } catch (err) {
+                console.warn('[store] toggling consciousness failed:', err);
+            }
+        })();
+    },
+    setAiriConsciousnessModel: (model) => {
+        try { localStorage.setItem('airi.consciousness.model', model); } catch { /* quota */ }
+        set({ airiConsciousnessModel: model });
+        (async () => {
+            try {
+                const { airiConsciousness } = await import('./airi/consciousness');
+                if (typeof (airiConsciousness as any).reconfigure === 'function') {
+                    (airiConsciousness as any).reconfigure({ model });
+                }
+            } catch { /* not loaded yet */ }
+        })();
+    },
     setAgentUiMode: (agentUiMode) => { localStorage.setItem('agentUiMode', agentUiMode); set({ agentUiMode }); },
     setAvatarCharacter: (avatarCharacter) => { localStorage.setItem('avatarCharacter', avatarCharacter); set({ avatarCharacter }); },
     setAvatarCustomConfig: (config: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }) => {

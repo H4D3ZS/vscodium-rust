@@ -219,7 +219,7 @@ export const AiriOverlay: React.FC = () => {
             const status = e.payload?.status;
             if (phase && status) {
                 addThought({
-                    id: `phase-${Date.now()}`,
+                    id: `phase-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                     text: status,
                     type: 'action',
                     ttl: 3000
@@ -230,8 +230,11 @@ export const AiriOverlay: React.FC = () => {
         listen<any>('memory-update', (e) => {
             const slots = e.payload?.slots ?? 0;
             if (slots > 0 && slots % 5 === 0) {
+                // Date.now() ticks once per ms, but two memory-update events
+                // can fire in the same millisecond. Append a random suffix so
+                // React doesn't see duplicate keys.
                 addThought({
-                    id: `mem-${Date.now()}`,
+                    id: `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                     text: `Kortex brain: ${slots} knowledge slots stored`,
                     type: 'action',
                     ttl: 3000

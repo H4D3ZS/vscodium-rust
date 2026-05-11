@@ -238,6 +238,31 @@ export class TerminalManager {
     this.defaultProfileId = platformProfiles.find(p => p.isDefault)?.id || platformProfiles[0]?.id || 'powershell';
   }
 
+  /**
+   * Return the list of shell executables this host knows about. Used by
+   * `TerminalView` to populate the shell picker. Falls back to the static
+   * platform profiles when the Tauri backend doesn't expose detection.
+   */
+  async getAvailableShells(): Promise<string[]> {
+    await this.profilesReady;
+    try {
+      const shells = await invoke<string[]>('get_available_shells');
+      if (Array.isArray(shells) && shells.length > 0) {
+        return shells;
+      }
+    } catch {
+      // Backend command unavailable — fall back to defaults.
+    }
+    const platform = navigator.platform.toLowerCase().includes('win')
+      ? 'win32'
+      : navigator.platform.toLowerCase().includes('mac')
+        ? 'darwin'
+        : 'linux';
+    return DEFAULT_PROFILES
+      .filter(p => !p.platform || p.platform === platform)
+      .map(p => p.path);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // TERMINAL CREATION
   // ═══════════════════════════════════════════════════════════════════════
@@ -788,7 +813,8 @@ export const initTerminal = async (addTerminalGroup: (shell: string) => void) =>
     if (instance) {
       addTerminalGroup(instance.shell);
     }
-  } catch (e) {
-    console.warn('Failed to create initial terminal:', e);
+  } catch (e: any) {
+    const msg = e?.message || e?.toString?.() || String(e) || 'unknown error';
+    console.warn('[terminal] Failed to create initial terminal:', msg, e);
   }
 };

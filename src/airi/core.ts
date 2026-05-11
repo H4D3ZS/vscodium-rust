@@ -455,8 +455,17 @@ export class AIRICore {
     }
 
     // Initialize VISION — real-time screen understanding
+    // Respect the user's toggle (persisted as airi.vision.enabled). Vision is
+    // off by default so a missing VL model can't trigger a 404 storm.
     if (this.config.fullAutonomyEnabled) {
-      await this.vision.start();
+      let visionAllowed = false;
+      try {
+        visionAllowed = typeof localStorage !== 'undefined'
+          && localStorage.getItem('airi.vision.enabled') === '1';
+      } catch { /* no localStorage */ }
+      if (visionAllowed) {
+        await this.vision.start();
+      }
     }
 
     // Initialize SURGICAL EDITOR — code modification engine
@@ -570,9 +579,17 @@ export class AIRICore {
       airiPhaseWrap.start();
     }
 
-    // Initialize VISION (real-time screen analysis)
+    // Initialize VISION (real-time screen analysis) — gated on the user's
+    // `airi.vision.enabled` toggle so missing VL models don't 404-storm.
     if (this.config.fullAutonomyEnabled) {
-      await this.vision.start();
+      let visionAllowed = false;
+      try {
+        visionAllowed = typeof localStorage !== 'undefined'
+          && localStorage.getItem('airi.vision.enabled') === '1';
+      } catch { /* no localStorage */ }
+      if (visionAllowed) {
+        await this.vision.start();
+      }
     }
 
     // Initialize SURGICAL EDITOR (code modification)

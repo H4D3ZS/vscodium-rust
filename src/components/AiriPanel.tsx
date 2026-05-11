@@ -51,24 +51,27 @@ async function ttsSpeak(iframeRef: React.RefObject<HTMLIFrameElement | null>, te
 
     if (!clean) return;
 
-    console.log('[AiriPanel] 🎤 Sending lip sync text:', clean.substring(0, 50) + '...');
-
-    // Send to iframe for VRM lip sync animation
+    // Send to iframe for VRM lip sync animation. We deliberately don't log
+    // per-chunk: TTS streams in word-sized chunks, so logging here floods the
+    // console and obscures real errors. One warn-per-minute is plenty.
     if (iframeRef.current?.contentWindow) {
-        // Send text for lip sync
         iframeRef.current.contentWindow.postMessage({
             type: 'airi-speak',
-            payload: { 
+            payload: {
                 text: clean,
                 timestamp: Date.now()
             }
         }, '*');
-        
-        console.log('[AiriPanel] ✅ Lip sync message sent to VRM');
-    } else {
-        console.warn('[AiriPanel] ⚠️ Iframe not ready for lip sync');
+        return;
+    }
+
+    const now = Date.now();
+    if (now - (ttsSpeak as any)._lastWarn > 60_000) {
+        (ttsSpeak as any)._lastWarn = now;
+        console.warn('[AiriPanel] VRM iframe not ready — lip sync messages dropped silently.');
     }
 }
+(ttsSpeak as any)._lastWarn = 0;
 
 function ttsStop(iframeRef: React.RefObject<HTMLIFrameElement | null>) {
     stop();
@@ -152,6 +155,20 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     const [lastActivityTime, setLastActivityTime] = useState(Date.now());
     const [isTtsEnabled, setTtsEnabled] = useState(true); // ENABLED by default - AIRI should speak!
     const [isListening, setIsListening] = useState(false);
+    // The AIRI 3D iframe lives at localhost:5174. If the airi/ pnpm workspace
+    // hasn't been installed the service isn't running and the iframe sits
+    // blank forever; probe once and fall back to the web-demo placeholder.
+    const [is3dReachable, setIs3dReachable] = useState<boolean | null>(null);
+    useEffect(() => {
+        let aborted = false;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 1500);
+        fetch('http://localhost:5174/', { method: 'HEAD', mode: 'no-cors', signal: ctrl.signal })
+            .then(() => { if (!aborted) setIs3dReachable(true); })
+            .catch(() => { if (!aborted) setIs3dReachable(false); })
+            .finally(() => clearTimeout(timer));
+        return () => { aborted = true; ctrl.abort(); clearTimeout(timer); };
+    }, []);
 
     const IDLE_TIMEOUT = 60000; // 1 minute
 
@@ -173,22 +190,33 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     const isAgentThinking = useStore(s => s.isAgentThinking);
     const agentMessages = useStore(s => s.agentMessages);
 
-    // Track activity and manage hibernation
+    // Track activity and manage hibernation.
+    //
+    // We keep `lastActivityTime` in a ref so the hibernation timer can read it
+    // without putting it in the dep array. Previously, `wakeUp()` updated
+    // `lastActivityTime` every render → effect re-ran → wakeUp() → infinite
+    // "Maximum update depth exceeded" loop while the agent was thinking.
+    const lastActivityRef = useRef(lastActivityTime);
+    useEffect(() => {
+        lastActivityRef.current = lastActivityTime;
+    }, [lastActivityTime]);
+
     useEffect(() => {
         if (isAgentThinking) {
             wakeUp();
             return;
         }
-
         const iv = setInterval(() => {
-            if (Date.now() - lastActivityTime > IDLE_TIMEOUT && !isAgentThinking && !isHibernating) {
+            if (Date.now() - lastActivityRef.current > IDLE_TIMEOUT && !isHibernating) {
                 console.log('[PERF] Hibernating AIRI Core to save RAM (1.3GB cleanup)');
                 setIsHibernating(true);
             }
-        }, 10000); // Check every 10s
-
+        }, 10000);
         return () => clearInterval(iv);
-    }, [isAgentThinking, lastActivityTime, isHibernating, wakeUp]);
+        // wakeUp is intentionally referenced via closure only; including it in
+        // deps would re-arm the interval every time `isHibernating` flipped.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isAgentThinking, isHibernating]);
 
     const uiStatus = useStore(s => s.aiStatus);
 
@@ -484,7 +512,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                             {isSmall ? '...' : 'Syncing Manifold...'}
                         </div>
                     )}
-                    {isWebDemo ? (
+                    {isWebDemo || is3dReachable === false ? (
                         <div
                             style={{
                                 width: '100%',
@@ -500,12 +528,23 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                             <div style={{ textAlign: 'center', padding: '12px' }}>
                                 <div style={{ fontSize: '56px', marginBottom: '8px' }}>🤖</div>
                                 <div style={{ fontSize: '11px', fontWeight: 700, color: '#c084fc', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                                    AIRI Web Avatar
+                                    AIRI Avatar
                                 </div>
-                                <div style={{ fontSize: '10px', opacity: 0.65, marginTop: '6px', maxWidth: '220px', lineHeight: 1.4 }}>
-                                    3D VRM runtime is desktop-only. Voice and chat stay active for the judge demo.
+                                <div style={{ fontSize: '10px', opacity: 0.65, marginTop: '6px', maxWidth: '240px', lineHeight: 1.4 }}>
+                                    {isWebDemo
+                                        ? '3D VRM runtime is desktop-only. Voice and chat stay active.'
+                                        : 'AIRI 3D service is not running on :5174. Run `cd airi && pnpm install && pnpm dev:web` to enable the avatar.'}
                                 </div>
                             </div>
+                        </div>
+                    ) : is3dReachable === null ? (
+                        <div style={{
+                            width: '100%', height: '100%', display: 'flex',
+                            alignItems: 'center', justifyContent: 'center',
+                            color: meta.color, fontSize: '9px', opacity: 0.5,
+                            letterSpacing: '1px', textTransform: 'uppercase',
+                        }}>
+                            probing avatar service…
                         </div>
                     ) : (
                         <iframe

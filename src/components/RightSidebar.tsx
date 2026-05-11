@@ -133,6 +133,17 @@ const RightSidebar: React.FC = () => {
     const agentUiMode = useStore(state => state.agentUiMode);
     const setAgentUiMode = useStore(state => state.setAgentUiMode);
     const avatarCharacter = useStore(state => state.avatarCharacter);
+    // AIRI subsystem toggles surfaced in the sidebar so the user can flip
+    // vision / consciousness without digging into localStorage.
+    const airiVisionEnabled = useStore(state => state.airiVisionEnabled);
+    const setAiriVisionEnabled = useStore(state => state.setAiriVisionEnabled);
+    const airiVisionModel = useStore(state => state.airiVisionModel);
+    const setAiriVisionModel = useStore(state => state.setAiriVisionModel);
+    const airiConsciousnessEnabled = useStore(state => state.airiConsciousnessEnabled);
+    const setAiriConsciousnessEnabled = useStore(state => state.setAiriConsciousnessEnabled);
+    const airiConsciousnessModel = useStore(state => state.airiConsciousnessModel);
+    const setAiriConsciousnessModel = useStore(state => state.setAiriConsciousnessModel);
+    const [airiToggleOpen, setAiriToggleOpen] = useState(false);
     const addAgentMessage = useStore(state => state.addAgentMessage);
     const updateLastAgentMessage = useStore(state => state.updateLastAgentMessage);
     const setIsAgentThinking = useStore(state => state.setIsAgentThinking);
@@ -697,6 +708,25 @@ const RightSidebar: React.FC = () => {
         import('../agent').then(m => m.openModeDropdown(target, () => { }));
     };
 
+    // Visual style for the mode pill. Read-only modes get an orange tint so
+    // the user sees at a glance they're in a "describe-only" mode and won't
+    // get file writes / command executions.
+    const modeStyle = useMemo(() => {
+        const m = (mode || '').toLowerCase();
+        const readOnly = m === 'chat' || m === 'planning' || m.includes('source control');
+        const bug = m === 'bugbounty' || m === 'bug bounty';
+        const danger = m === 'sentient' || bug;
+        return {
+            label: bug ? 'Bug Bounty' : (mode || 'Agent'),
+            color: readOnly ? '#f59e0b' : (danger ? '#ef4444' : '#10b981'),
+            background: readOnly ? 'rgba(245,158,11,0.10)' : (danger ? 'rgba(239,68,68,0.10)' : 'rgba(16,185,129,0.10)'),
+            border: readOnly ? '1px solid rgba(245,158,11,0.35)' : (danger ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(16,185,129,0.30)'),
+            title: readOnly
+                ? `${mode} — READ-ONLY (no tool calls). Click to switch to Agent or Bug Bounty.`
+                : `${mode} — agent will write files and run commands. Click to change.`,
+        };
+    }, [mode]);
+
     const onModelClick = (e: React.MouseEvent) => {
         const target = e.currentTarget as HTMLElement;
         import('../agent').then(m => m.openModelDropdown(target, () => { }));
@@ -1000,10 +1030,125 @@ const RightSidebar: React.FC = () => {
                     <div onClick={() => setView('dashboard')} style={{ cursor: 'pointer', opacity: view === 'dashboard' ? 1 : 0.4 }} title="Dashboard"><i className="codicon codicon-dashboard" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setView('context')} style={{ cursor: 'pointer', opacity: view === 'context' ? 1 : 0.4 }} title="Workspace Context"><i className="codicon codicon-hubot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setView('settings')} style={{ cursor: 'pointer', opacity: view === 'settings' ? 1 : 0.4 }} title="Settings"><i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
+                    <div
+                        onClick={() => setAiriToggleOpen(v => !v)}
+                        style={{
+                            cursor: 'pointer',
+                            opacity: airiToggleOpen ? 1 : 0.6,
+                            color: airiToggleOpen ? '#c084fc' : 'inherit',
+                        }}
+                        title="AIRI subsystems (vision / consciousness)"
+                    >
+                        <i className="codicon codicon-eye" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                    </div>
                     <div onClick={() => setIsHelpOpen(true)} style={{ cursor: 'pointer', opacity: 0.8, color: '#3b82f6' }} title="Command Help"><i className="codicon codicon-question" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={toggle} style={{ cursor: 'pointer', opacity: 0.5 }} title="Close"><i className="codicon codicon-close" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                 </div>
             </div>
+
+            {airiToggleOpen && (
+                <div
+                    style={{
+                        padding: '10px 14px',
+                        borderBottom: '1px solid rgba(255,255,255,0.06)',
+                        background: 'rgba(168,85,247,0.04)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px',
+                        fontSize: '11px',
+                    }}
+                >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.55, fontSize: '9px', fontWeight: 700 }}>
+                            AIRI subsystems
+                        </span>
+                        <span style={{ fontSize: '9px', opacity: 0.4 }}>
+                            local models only
+                        </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                            type="button"
+                            onClick={() => setAiriVisionEnabled(!airiVisionEnabled)}
+                            style={{
+                                cursor: 'pointer',
+                                padding: '3px 8px',
+                                borderRadius: '5px',
+                                fontSize: '9px',
+                                fontWeight: 700,
+                                letterSpacing: '0.08em',
+                                textTransform: 'uppercase',
+                                color: airiVisionEnabled ? '#34d399' : 'rgba(255,255,255,0.55)',
+                                background: airiVisionEnabled ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.05)',
+                                border: airiVisionEnabled ? '1px solid rgba(52,211,153,0.45)' : '1px solid rgba(255,255,255,0.1)',
+                            }}
+                            title={airiVisionEnabled ? 'Disable screen vision' : 'Enable screen vision'}
+                        >
+                            Vision {airiVisionEnabled ? 'ON' : 'OFF'}
+                        </button>
+                        <input
+                            type="text"
+                            value={airiVisionModel}
+                            onChange={e => setAiriVisionModel(e.target.value)}
+                            placeholder="vision model tag"
+                            style={{
+                                flex: 1,
+                                background: 'rgba(255,255,255,0.04)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '5px',
+                                padding: '4px 8px',
+                                color: 'inherit',
+                                fontSize: '11px',
+                                outline: 'none',
+                            }}
+                        />
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                            type="button"
+                            onClick={() => setAiriConsciousnessEnabled(!airiConsciousnessEnabled)}
+                            style={{
+                                cursor: 'pointer',
+                                padding: '3px 8px',
+                                borderRadius: '5px',
+                                fontSize: '9px',
+                                fontWeight: 700,
+                                letterSpacing: '0.08em',
+                                textTransform: 'uppercase',
+                                color: airiConsciousnessEnabled ? '#c084fc' : 'rgba(255,255,255,0.55)',
+                                background: airiConsciousnessEnabled ? 'rgba(168,85,247,0.12)' : 'rgba(255,255,255,0.05)',
+                                border: airiConsciousnessEnabled ? '1px solid rgba(168,85,247,0.45)' : '1px solid rgba(255,255,255,0.1)',
+                            }}
+                            title={airiConsciousnessEnabled ? 'Pause AIRI background thoughts' : 'Resume AIRI background thoughts'}
+                        >
+                            Thoughts {airiConsciousnessEnabled ? 'ON' : 'OFF'}
+                        </button>
+                        <input
+                            type="text"
+                            value={airiConsciousnessModel}
+                            onChange={e => setAiriConsciousnessModel(e.target.value)}
+                            placeholder="consciousness model tag"
+                            style={{
+                                flex: 1,
+                                background: 'rgba(255,255,255,0.04)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '5px',
+                                padding: '4px 8px',
+                                color: 'inherit',
+                                fontSize: '11px',
+                                outline: 'none',
+                            }}
+                        />
+                    </div>
+
+                    <div style={{ fontSize: '9px', opacity: 0.45, lineHeight: 1.4 }}>
+                        Vision sends screen captures to a local Ollama VL model. Thoughts runs a lightweight LLM
+                        for AIRI's background monologue. Both default to your local install — turn off to save GPU.
+                    </div>
+                </div>
+            )}
 
             {isHelpOpen && (
                 <div className="help-modal-overlay" onClick={() => setIsHelpOpen(false)}>
@@ -1717,7 +1862,23 @@ const RightSidebar: React.FC = () => {
                                     <div onClick={handleAttachFile} style={{ cursor: 'pointer', opacity: 0.5, display: 'flex', alignItems: 'center' }} className="hoverable-bg" title="Attach File (Neural Gist)">
                                         <i className="codicon codicon-attach" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
                                     </div>
-                                    <span onClick={onModeClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }} className="hoverable-bg">{mode}</span>
+                                    <span
+                                        onClick={onModeClick}
+                                        style={{
+                                            fontSize: '10px',
+                                            cursor: 'pointer',
+                                            padding: '1px 6px',
+                                            borderRadius: '4px',
+                                            fontWeight: 600,
+                                            color: modeStyle.color,
+                                            background: modeStyle.background,
+                                            border: modeStyle.border,
+                                        }}
+                                        title={modeStyle.title}
+                                        className="hoverable-bg"
+                                    >
+                                        {modeStyle.label}
+                                    </span>
                                     <span onClick={onModelClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }} className="hoverable-bg">{(model.split('|')[1] || model).split(':')[0]}</span>
                                     {/* Token counter */}
                                     <span style={{ fontSize: '9px', opacity: 0.35, fontVariantNumeric: 'tabular-nums' }} title="Estimated context tokens">
