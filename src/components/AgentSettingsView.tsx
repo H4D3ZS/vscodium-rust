@@ -93,7 +93,7 @@ const AgentSettingsView: React.FC = () => {
     ];
 
     // API Key state
-    const [apiKeys, setApiKeys] = useState({ anthropic: '', google: '', openai: '', groq: '', openrouter: '', elevenlabs: '', ollama: '' });
+    const [apiKeys, setApiKeys] = useState({ anthropic: '', google: '', openai: '', groq: '', openrouter: '', deepseek: '', elevenlabs: '', ollama: '' });
     const [realApiKey, setRealApiKey] = useState(''); // Store real ElevenLabs key separately
     const [savingKeys, setSavingKeys] = useState(false);
     const [keyStatus, setKeyStatus] = useState<Record<string, string>>({});
@@ -140,6 +140,7 @@ const AgentSettingsView: React.FC = () => {
                         openai: keys.openai ? '••••••••' + (keys.openai.slice(-4)) : '',
                         groq: (keys as any).groq ? '••••••••' + ((keys as any).groq.slice(-4)) : '',
                         openrouter: (keys as any).openrouter ? '••••••••' + ((keys as any).openrouter.slice(-4)) : '',
+                        deepseek: (keys as any).deepseek ? '••••••••' + String((keys as any).deepseek).slice(-4) : '',
                         elevenlabs: (keys as any).elevenlabs_api_key ? '••••••••' + ((keys as any).elevenlabs_api_key.slice(-4)) : '',
                         ollama: (keys as any).ollama ? '••••••••' + String((keys as any).ollama).slice(-4) : '',
                     };
@@ -245,6 +246,10 @@ const AgentSettingsView: React.FC = () => {
             if ((apiKeys as any).openrouter && !(apiKeys as any).openrouter.startsWith('•')) {
                 keysToSave.openrouter = (apiKeys as any).openrouter;
                 console.log('[Settings] Adding openrouter key to save');
+            }
+            if ((apiKeys as any).deepseek && !(apiKeys as any).deepseek.startsWith('•')) {
+                keysToSave.deepseek = (apiKeys as any).deepseek;
+                console.log('[Settings] Adding deepseek key to save');
             }
             if ((apiKeys as any).elevenlabs && !(apiKeys as any).elevenlabs.startsWith('•')) {
                 keysToSave.elevenlabs_api_key = (apiKeys as any).elevenlabs;
@@ -804,6 +809,7 @@ const AgentSettingsView: React.FC = () => {
                         { key: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
                         { key: 'groq', label: 'Groq', placeholder: 'gsk_...' },
                         { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
+                        { key: 'deepseek', label: 'DeepSeek (API)', placeholder: 'sk-… (platform.deepseek.com)' },
                         // Removed: elevenlabs - now only in VOICE & TTS section below
                     ] as { key: string; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
                         <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

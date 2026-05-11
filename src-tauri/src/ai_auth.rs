@@ -42,6 +42,7 @@ fn api_key_console_url(provider: &str) -> Option<&'static str> {
         "openai" => Some("https://platform.openai.com/api-keys"),
         "groq" => Some("https://console.groq.com/keys"),
         "openrouter" => Some("https://openrouter.ai/keys"),
+        "deepseek" => Some("https://platform.deepseek.com/api_keys"),
         "mistral" => Some("https://console.mistral.ai/api-keys"),
         "xai" => Some("https://console.x.ai/"),
         _ => None,
@@ -279,6 +280,8 @@ pub struct ApiKeys {
     pub google: Option<String>,
     pub groq: Option<String>,
     pub openrouter: Option<String>,
+    /// DeepSeek official API (`https://api.deepseek.com`). Used for `deepseek:*` models.
+    pub deepseek: Option<String>,
     pub mistral: Option<String>,
     pub xai: Option<String>,
     pub alibaba: Option<String>,
@@ -326,6 +329,7 @@ pub async fn save_api_keys(
     if incoming.google.is_some()              { merged.google              = incoming.google; }
     if incoming.groq.is_some()                { merged.groq                = incoming.groq; }
     if incoming.openrouter.is_some()          { merged.openrouter          = incoming.openrouter; }
+    if incoming.deepseek.is_some()           { merged.deepseek            = incoming.deepseek; }
     if incoming.mistral.is_some()             { merged.mistral             = incoming.mistral; }
     if incoming.xai.is_some()                 { merged.xai                 = incoming.xai; }
     if incoming.alibaba.is_some()             { merged.alibaba             = incoming.alibaba; }
@@ -353,6 +357,7 @@ pub async fn save_api_key(
         "openai" => keys.openai = Some(value),
         "anthropic" => keys.anthropic = Some(value),
         "google" => keys.google = Some(value),
+        "deepseek" => keys.deepseek = Some(value),
         "elevenlabs_api_key" => keys.elevenlabs_api_key = Some(value),
         "ollama" => keys.ollama = Some(value),
         _ => return Err(format!("Unsupported key: {}", key)),

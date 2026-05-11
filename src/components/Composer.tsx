@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useStore } from '../store';
 import { FileDiff } from './DiffViewer';
+import { sendAgentMessage } from '../agent';
 
 interface ComposerMessage {
     id: string;
@@ -44,34 +45,57 @@ const Composer: React.FC = () => {
     const handleSend = useCallback(async () => {
         if (!input.trim() || isProcessing) return;
 
+        const userText = input;
         const userMessage: ComposerMessage = {
             id: Date.now().toString(),
             role: 'user',
-            content: input,
+            content: userText,
             timestamp: Date.now(),
         };
+        const assistantId = (Date.now() + 1).toString();
+        const assistantPlaceholder: ComposerMessage = {
+            id: assistantId,
+            role: 'assistant',
+            content: '',
+            timestamp: Date.now(),
+            isRunning: true,
+        };
 
-        setMessages(prev => [...prev, userMessage]);
+        setMessages(prev => [...prev, userMessage, assistantPlaceholder]);
         setInput('');
         setIsProcessing(true);
+        setConversationHistory(prev => [...prev, { role: 'user', content: userText }]);
 
-        // Add to conversation history
-        setConversationHistory(prev => [...prev, { role: 'user', content: input }]);
+        // Workflow mode is prepended as a soft directive — the real agent loop
+        // already handles tool calls, planning, diffs, and accept/reject via
+        // the global pendingChanges store, so Composer just streams the
+        // assistant text into its local message list.
+        const modePrefix =
+            workflowMode === 'create'   ? '[Workflow: CREATE] '   :
+            workflowMode === 'refactor' ? '[Workflow: REFACTOR] ' :
+            workflowMode === 'debug'    ? '[Workflow: DEBUG] '    :
+                                          '';
+        const prompt = modePrefix + userText;
 
-        // TODO: Send to AI agent with workflow context
-        // This would integrate with the agent system
-        setTimeout(() => {
-            const assistantMessage: ComposerMessage = {
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: 'Processing your request...',
-                timestamp: Date.now(),
-                isRunning: true,
-            };
-            setMessages(prev => [...prev, assistantMessage]);
+        try {
+            await sendAgentMessage(prompt, (msg: string) => {
+                setMessages(prev => prev.map(m =>
+                    m.id === assistantId ? { ...m, content: msg, isRunning: true } : m
+                ));
+            });
+        } catch (err: any) {
+            setMessages(prev => prev.map(m =>
+                m.id === assistantId
+                    ? { ...m, content: `Error: ${err?.message ?? String(err)}`, isRunning: false }
+                    : m
+            ));
+        } finally {
+            setMessages(prev => prev.map(m =>
+                m.id === assistantId ? { ...m, isRunning: false } : m
+            ));
             setIsProcessing(false);
-        }, 1000);
-    }, [input, isProcessing]);
+        }
+    }, [input, isProcessing, workflowMode]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {

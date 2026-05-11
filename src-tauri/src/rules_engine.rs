@@ -20,12 +20,35 @@ impl RulesEngine {
 
     pub fn get_workspace_rules(&self) -> Vec<AgentRule> {
         let mut rules = Vec::new();
-        let rules_dir = self.workspace_root.join(".agents").join("rules");
-        let legacy_dir = self.workspace_root.join(".agent").join("rules");
 
-        self.scan_dir(&rules_dir, &mut rules);
-        self.scan_dir(&legacy_dir, &mut rules);
-        
+        // Our native rule locations
+        self.scan_dir(&self.workspace_root.join(".agents").join("rules"), &mut rules);
+        self.scan_dir(&self.workspace_root.join(".agent").join("rules"),  &mut rules);
+
+        // Cursor IDE compatibility: read `.cursor/rules/*.mdc` (and `.md`) so
+        // any project pulled from a Cursor user's machine keeps its rules
+        // active without manual migration. `.mdc` is Cursor's native suffix.
+        self.scan_dir(&self.workspace_root.join(".cursor").join("rules"),  &mut rules);
+
+        // Legacy single-file rules — Cursor's old `.cursorrules` and the
+        // common AI-tool conventions `AGENTS.md` / `CLAUDE.md` at root.
+        for (name, fname) in [
+            ("cursorrules", ".cursorrules"),
+            ("agents",      "AGENTS.md"),
+            ("claude",      "CLAUDE.md"),
+        ] {
+            let p = self.workspace_root.join(fname);
+            if p.is_file() {
+                if let Ok(content) = fs::read_to_string(&p) {
+                    rules.push(AgentRule {
+                        name: name.to_string(),
+                        content,
+                        file_path: p,
+                    });
+                }
+            }
+        }
+
         rules
     }
 
@@ -34,7 +57,12 @@ impl RulesEngine {
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_file() && path.extension().map(|s| s == "md").unwrap_or(false) {
+                let ext_ok = path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s == "md" || s == "mdc")
+                    .unwrap_or(false);
+                if path.is_file() && ext_ok {
                     if let Ok(content) = fs::read_to_string(&path) {
                         let name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
                         rules.push(AgentRule {

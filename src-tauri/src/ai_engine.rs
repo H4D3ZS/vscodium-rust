@@ -3381,6 +3381,17 @@ impl Sentient {
             if !self.get_key_for_provider("mistral").is_empty() {
                 models.push("mistral:mistral-large-latest".to_string());
             }
+            if !self.get_key_for_provider("deepseek").is_empty() {
+                // Curated DeepSeek picks for ApiRadar aggregate + M1 pull parity.
+                // Live IDs come from `list_provider_models` when provider is Deepseek;
+                // these entries stay useful when only ApiRadar is opened.
+                models.push("deepseek:deepseek-chat".to_string());
+                models.push("deepseek:deepseek-reasoner".to_string());
+                models.push("deepseek:deepseek-coder".to_string());
+                models.push("deepseek:deepseek-v2".to_string());
+                models.push("deepseek:deepseek-v2.5".to_string());
+                models.push("deepseek:deepseek-v3".to_string());
+            }
 
             return Ok(models);
         }
@@ -3389,6 +3400,31 @@ impl Sentient {
             && provider.to_lowercase() != "ollama" 
             && provider.to_lowercase() != "antigravity" {
             return Err(anyhow!("API key not found for provider: {}", provider));
+        }
+
+        if provider.to_lowercase() == "deepseek" {
+            let endpoint = "https://api.deepseek.com/v1/models";
+            let mut request = self.client.get(endpoint);
+            if !provider_key.trim().is_empty() {
+                request = request.bearer_auth(provider_key.trim());
+            }
+            let response = request
+                .send()
+                .await
+                .map_err(|e| anyhow!("DeepSeek list_models: {}", e))?;
+            let result: Value = response
+                .json()
+                .await
+                .map_err(|e| anyhow!("DeepSeek list_models JSON: {}", e))?;
+            let mut model_ids = Vec::new();
+            if let Some(data) = result.get("data").and_then(|d| d.as_array()) {
+                for m in data {
+                    if let Some(id) = m.get("id").and_then(|i| i.as_str()) {
+                        model_ids.push(id.to_string());
+                    }
+                }
+            }
+            return Ok(model_ids);
         }
 
         if provider.to_lowercase() == "ollama" {
@@ -3733,6 +3769,7 @@ impl Sentient {
             "google" => "GOOGLE_API_KEY",
             "groq" => "GROQ_API_KEY",
             "openrouter" => "OPENROUTER_API_KEY",
+            "deepseek" => "DEEPSEEK_API_KEY",
             "xai" => "XAI_API_KEY",
             "cerebras" => "CEREBRAS_API_KEY",
             "alibaba" => "ALIBABA_API_KEY",
@@ -3769,6 +3806,7 @@ impl Sentient {
             "mistral" => "https://api.mistral.ai/v1/chat/completions".to_string(),
             "groq" => "https://api.groq.com/openai/v1/chat/completions".to_string(),
             "openrouter" => "https://openrouter.ai/api/v1/chat/completions".to_string(),
+            "deepseek" => "https://api.deepseek.com/v1/chat/completions".to_string(),
             "apiradar" => "https://apiradar.live/api/v1/chat/completions".to_string(),
             "xai" => "https://api.x.ai/v1/chat/completions".to_string(),
             "cerebras" => "https://api.cerebras.ai/v1/chat/completions".to_string(),

@@ -51,10 +51,26 @@ pub struct McpClient {
 }
 
 impl McpClient {
+    /// Back-compat shim. New code should call `spawn_with_env` so the MCP
+    /// server actually receives the `env` (and `cwd`) declared in mcp.json.
+    #[allow(dead_code)]
     pub async fn spawn(command: &str, args: Vec<&str>) -> Result<Arc<Self>> {
+        Self::spawn_with_env(command, args, &HashMap::new(), None).await
+    }
+
+    /// Spawn an MCP server over stdio, honoring `env` and `cwd` from
+    /// `mcp.json` (matching Cursor's behavior). Previously these were
+    /// silently dropped, which broke any MCP needing API keys or
+    /// project-relative paths.
+    pub async fn spawn_with_env(
+        command: &str,
+        args: Vec<&str>,
+        env: &HashMap<String, String>,
+        cwd: Option<&std::path::Path>,
+    ) -> Result<Arc<Self>> {
         #[allow(unused_mut)]
         let mut final_command = command.to_string();
-        
+
         #[cfg(target_os = "windows")]
         {
             if command == "npx" || command == "npm" || command == "yarn" || command == "pnpm" {
@@ -62,13 +78,22 @@ impl McpClient {
             }
         }
 
-        let mut child = Command::new(final_command)
-            .args(args)
+        let mut cmd = Command::new(&final_command);
+        cmd.args(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        if let Some(dir) = cwd {
+            cmd.current_dir(dir);
+        }
+
+        let mut child = cmd
             .spawn()
-            .context("Failed to spawn MCP server")?;
+            .with_context(|| format!("Failed to spawn MCP server '{}'", final_command))?;
 
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("Failed to open stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("Failed to open stdout"))?;

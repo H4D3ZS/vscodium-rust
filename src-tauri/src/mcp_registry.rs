@@ -13,9 +13,13 @@ use serde::{Deserialize, Serialize};
 pub enum McpServerConfig {
     Stdio {
         command: String,
+        #[serde(default)]
         args: Vec<String>,
         #[serde(default)]
         env: std::collections::HashMap<String, String>,
+        /// Optional working directory. Matches Cursor's mcp.json field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
     },
     Http {
         #[serde(rename = "type")]
@@ -72,13 +76,12 @@ impl McpRegistry {
             McpServerConfig::Stdio {
                 command,
                 args,
-                env: _,
+                env,
+                cwd,
             } => {
                 let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                // Note: env is supported by Child but McpClient::spawn doesn't take it yet.
-                // For now we assume env is handled by npx or outer shell if needed,
-                // but we should eventually update McpClient::spawn.
-                McpClient::spawn(&command, args_refs).await?
+                let cwd_path = cwd.as_deref().map(std::path::Path::new);
+                McpClient::spawn_with_env(&command, args_refs, &env, cwd_path).await?
             }
             McpServerConfig::Http { server_url, .. } => McpClient::connect_http(server_url)?,
         };

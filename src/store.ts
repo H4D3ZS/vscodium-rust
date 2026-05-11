@@ -1171,6 +1171,7 @@ const storeImplementation: any = (set: any, get: any) => ({
             if (keys.openai) providers.push('OpenAI');
             if (keys.openrouter) providers.push('Openrouter');
             if (keys.mistral) providers.push('Mistral');
+            if ((keys as any).deepseek) providers.push('Deepseek');
             if (keys.groq) providers.push('Groq');
             if (keys.xai) providers.push('xAI');
             if (keys.alibaba) providers.push('Alibaba');
