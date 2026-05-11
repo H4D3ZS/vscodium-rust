@@ -1371,7 +1371,17 @@ impl Sentient {
         // Reset stop signal before starting loop
         self.reset_stop_signal();
 
-        let yolo_start = self.yolo_mode.load(Ordering::SeqCst);
+        // Cursor-style autonomy guards:
+        //  - recent_tool_calls: detect when the model is stuck repeating the
+        //    same tool with the same arguments. Triggers a "try a different
+        //    approach" nudge after 3 consecutive identical calls.
+        //  - tools_run_this_turn: counts tool executions since the user's last
+        //    message. We refuse to honor TASK_COMPLETE / MISSION_ACCOMPLISHED
+        //    if zero tools ran — that's the model trying to bail without doing
+        //    the work.
+        let mut recent_tool_calls: Vec<String> = Vec::with_capacity(8);
+        let mut tools_run_this_turn: u32 = 0;
+
         let mode_str = req.mode.as_deref().unwrap_or("Agent");
         let is_chat_mode = mode_str == "Chat";
         // Modes that should run autonomously until the model signals done.
@@ -1383,15 +1393,28 @@ impl Sentient {
             mode_str,
             "Agent" | "Execution" | "BugBounty" | "Bug Bounty" | "Fast" | "Sentient" | "Autonomous"
         );
+
+        // Cursor-style autonomy: in persistent action modes, the user already
+        // opted in by picking the mode. Auto-enable YOLO for the duration of
+        // this call so notify_user blocks, permission-gated tools, and
+        // pre-verification all behave like a real autonomous agent.
+        let yolo_already_on = self.yolo_mode.load(Ordering::SeqCst);
+        let auto_yolo = is_persistent_mode && !is_chat_mode;
+        if auto_yolo && !yolo_already_on {
+            self.set_yolo_mode(true);
+            println!("[AI] Auto-enabled YOLO for persistent mode '{}'", mode_str);
+        }
+        let yolo_start = self.yolo_mode.load(Ordering::SeqCst);
+
         let max_iterations = if is_chat_mode {
             1 // Chat mode — single turn, no autonomous looping
         } else if yolo_start {
-            200 // Full autonomy — run until MISSION_ACCOMPLISHED
+            200 // Full autonomy — run until completion keyword
         } else if mode_str == "Sentient" {
-            100
+            150
         } else if is_persistent_mode {
             // Agent / BugBounty / Fast / Execution / Autonomous — Cursor-style
-            100
+            150
         } else {
             50
         };
@@ -2492,6 +2515,14 @@ impl Sentient {
                         None
                     };
 
+                    // Track this call for stuck-loop detection (Cursor-style).
+                    // We fingerprint name + args; if the model issues the same
+                    // call 3 times in a row, we'll inject a nudge after the loop.
+                    let fingerprint = format!("{}::{}", tool_name, tool_args_json.to_string());
+                    recent_tool_calls.push(fingerprint);
+                    if recent_tool_calls.len() > 8 { recent_tool_calls.remove(0); }
+                    tools_run_this_turn += 1;
+
                     // Always execute the tool — never block
                     let mut tool_result = self.tool_invoker
                         .execute_tool(&tool_name, &tool_args_json.to_string())
@@ -2662,7 +2693,7 @@ impl Sentient {
                     // text-only message; we treat this as "the model paused" and
                     // nudge it to keep executing UNLESS it signaled completion.
                     let upper = final_text.to_ascii_uppercase();
-                    let has_completion_keyword = upper.contains("MISSION_ACCOMPLISHED")
+                    let raw_completion_keyword = upper.contains("MISSION_ACCOMPLISHED")
                         || upper.contains("TASK_COMPLETE")
                         || upper.contains("TASK COMPLETE")
                         || upper.contains("ALL DONE")
@@ -2670,7 +2701,28 @@ impl Sentient {
                         || upper.contains("FULLY COMPLETE")
                         || upper.contains("READY FOR REVIEW");
 
-                    let nudge_for_mode = match mode_str {
+                    // Premature-completion guard: if the model wants to bail
+                    // before running ANY tool this turn, refuse — that's a
+                    // small model giving up instead of working.
+                    let has_completion_keyword =
+                        raw_completion_keyword && tools_run_this_turn > 0;
+                    if raw_completion_keyword && tools_run_this_turn == 0 {
+                        println!(
+                            "[AI] Refusing premature completion in '{}' — zero tools ran since user message",
+                            mode_str
+                        );
+                    }
+
+                    // Stuck-loop detection: if the model just hammered the
+                    // same tool with the same arguments 3 times in a row, it's
+                    // not making progress. Inject an "unstick" nudge.
+                    let stuck = recent_tool_calls.len() >= 3 && {
+                        let n = recent_tool_calls.len();
+                        recent_tool_calls[n - 1] == recent_tool_calls[n - 2]
+                            && recent_tool_calls[n - 2] == recent_tool_calls[n - 3]
+                    };
+
+                    let base_nudge = match mode_str {
                         "BugBounty" | "Bug Bounty" => {
                             "Continue the bug-bounty mission. Call your next tool now \
                              (write_to_file for the PoC, run_command to execute it, view_file/grep \
@@ -2690,21 +2742,43 @@ impl Sentient {
                         }
                     };
 
+                    let nudge_for_mode = if stuck {
+                        // Concrete escape from a loop
+                        "You are repeating the SAME tool call with the SAME arguments. STOP. \
+                         Pick a different approach: try a different file, different search pattern, \
+                         use write_to_file to create a missing file, or use run_command to gather \
+                         new information. If you cannot make progress after one different attempt, \
+                         write TASK_COMPLETE with a brief blocker explanation."
+                    } else if raw_completion_keyword && tools_run_this_turn == 0 {
+                        // Refuse premature stop
+                        "You have not executed any tool yet for the user's current request. \
+                         Do not stop. Begin work now: read the relevant files, then make the \
+                         change with write_to_file or search_replace_edit, then verify with \
+                         run_command. Only after work is on disk should you declare completion."
+                    } else {
+                        base_nudge
+                    };
+
                     if !has_completion_keyword && iteration < max_iterations - 1 {
                         println!(
-                            "[AI] Persistent mode '{}' — no completion keyword yet, nudging continuation (iter {}/{})",
-                            mode_str, iteration, max_iterations
+                            "[AI] Persistent mode '{}' — continuing (iter {}/{}, tools_this_turn={}, stuck={})",
+                            mode_str, iteration, max_iterations, tools_run_this_turn, stuck
                         );
                         self.emit_event("ai-continuation", json!({
                             "iteration": iteration,
                             "max_iterations": max_iterations,
                             "mode": mode_str,
+                            "stuck": stuck,
+                            "tools_this_turn": tools_run_this_turn,
                         }));
                         messages.push(ChatMessage {
                             role: "user".to_string(),
                             content: Some(MessageContent::Text(nudge_for_mode.to_string())),
                             ..Default::default()
                         });
+                        // Clear stuck history after one nudge so the model gets
+                        // a fair chance to break out.
+                        if stuck { recent_tool_calls.clear(); }
                         continue;
                     }
 
@@ -2740,23 +2814,30 @@ impl Sentient {
                 }
 
                 // Yolo mode: if no completion keyword declared and iterations remain, keep pushing.
+                // Also reject completion if zero tools ran this turn (model trying to bail).
                 let yolo_upper = final_text.to_ascii_uppercase();
-                let yolo_done = yolo_upper.contains("MISSION_ACCOMPLISHED")
+                let yolo_keyword = yolo_upper.contains("MISSION_ACCOMPLISHED")
                     || yolo_upper.contains("TASK_COMPLETE")
                     || yolo_upper.contains("ALL DONE")
                     || yolo_upper.contains("FULLY COMPLETE");
+                let yolo_done = yolo_keyword && tools_run_this_turn > 0;
                 if self.yolo_mode.load(Ordering::SeqCst)
                     && !yolo_done
                     && iteration < max_iterations - 1
                 {
-                    println!("[YOLO] No tool calls, no completion. Forcing continuation...");
+                    let reason = if yolo_keyword && tools_run_this_turn == 0 {
+                        "you declared completion without running ANY tool — that is not acceptable. Do the work first."
+                    } else {
+                        "you have not completed the mission."
+                    };
+                    println!("[YOLO] {} Forcing continuation...", reason);
                     messages.push(ChatMessage {
                         role: "user".to_string(),
-                        content: Some(MessageContent::Text(
-                            "YOLO MODE: You have not completed the mission. \
-                            Use tools NOW. Write code. Execute commands. Do not explain. \
-                            Declare MISSION_ACCOMPLISHED only when all files are written and verified.".to_string()
-                        )),
+                        content: Some(MessageContent::Text(format!(
+                            "YOLO MODE: {} Use tools NOW. Write code. Execute commands. Do not explain. \
+                            Declare MISSION_ACCOMPLISHED only when all files are written and verified.",
+                            reason
+                        ))),
                         ..Default::default()
                     });
                     continue;

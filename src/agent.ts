@@ -1054,13 +1054,26 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
     }
 
     // Cap history sent to model — keeps UI display full but limits context window.
-    // Local servers (Ollama + llama.cpp/Kortex): keep 16. Cloud: 40.
+    // Local servers (Ollama + llama.cpp/Kortex) get a smaller default to fit small
+    // context windows, BUT autonomous action modes need real working memory across
+    // many tool calls — so we bump it for Agent / BugBounty / Sentient / Fast.
     const isLocalRoute =
         inferenceBackend === 'llama-cpp' ||
         inferenceBackend === 'ollama' ||
         normalizedProvider === 'ollama' ||
         normalizedProvider === 'antigravity';
-    const MAX_HISTORY = isLocalRoute ? 16 : 40;
+    const activeMode = storeState.agentMode || 'Agent';
+    const persistentMode =
+        activeMode === 'Agent' ||
+        activeMode === 'Execution' ||
+        activeMode === 'BugBounty' ||
+        activeMode === 'Bug Bounty' ||
+        activeMode === 'Sentient' ||
+        activeMode === 'Fast' ||
+        activeMode === 'Autonomous';
+    const MAX_HISTORY = isLocalRoute
+        ? (persistentMode ? 40 : 16) // local + action mode → 40 turns of working memory
+        : (persistentMode ? 80 : 40); // cloud + action mode → 80 turns
     const cappedMessages: typeof agentMessages = agentMessages.length > MAX_HISTORY
         ? [
             ...agentMessages.slice(0, 2),
