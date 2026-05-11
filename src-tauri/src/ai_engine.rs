@@ -1372,12 +1372,25 @@ impl Sentient {
         self.reset_stop_signal();
 
         let yolo_start = self.yolo_mode.load(Ordering::SeqCst);
-        let is_chat_mode = req.mode.as_deref() == Some("Chat");
+        let mode_str = req.mode.as_deref().unwrap_or("Agent");
+        let is_chat_mode = mode_str == "Chat";
+        // Modes that should run autonomously until the model signals done.
+        // Agent + BugBounty are Cursor-style action modes; Sentient is the
+        // strongest. Treat all three as persistent loops with high caps so
+        // the agent doesn't stop after the first text response from a small
+        // model that drifted into prose for one turn.
+        let is_persistent_mode = matches!(
+            mode_str,
+            "Agent" | "Execution" | "BugBounty" | "Bug Bounty" | "Fast" | "Sentient" | "Autonomous"
+        );
         let max_iterations = if is_chat_mode {
             1 // Chat mode — single turn, no autonomous looping
         } else if yolo_start {
             200 // Full autonomy — run until MISSION_ACCOMPLISHED
-        } else if req.mode.as_deref() == Some("Sentient") {
+        } else if mode_str == "Sentient" {
+            100
+        } else if is_persistent_mode {
+            // Agent / BugBounty / Fast / Execution / Autonomous — Cursor-style
             100
         } else {
             50
@@ -2629,23 +2642,58 @@ impl Sentient {
                         "open_file": "task.md"
                     }));
                     break; // Return plan to user — do not auto-execute
-                } else if req.mode.as_deref() == Some("Sentient") {
-                    let has_completion_keyword = final_text.contains("MISSION_ACCOMPLISHED");
-                    
+                } else if is_persistent_mode {
+                    // Cursor-style autonomous continuation. The model returned a
+                    // text-only message; we treat this as "the model paused" and
+                    // nudge it to keep executing UNLESS it signaled completion.
+                    let upper = final_text.to_ascii_uppercase();
+                    let has_completion_keyword = upper.contains("MISSION_ACCOMPLISHED")
+                        || upper.contains("TASK_COMPLETE")
+                        || upper.contains("TASK COMPLETE")
+                        || upper.contains("ALL DONE")
+                        || upper.contains("EVERYTHING IS DONE")
+                        || upper.contains("FULLY COMPLETE")
+                        || upper.contains("READY FOR REVIEW");
+
+                    let nudge_for_mode = match mode_str {
+                        "BugBounty" | "Bug Bounty" => {
+                            "Continue the bug-bounty mission. Call your next tool now \
+                             (write_to_file for the PoC, run_command to execute it, view_file/grep \
+                             for more recon). Do NOT respond with prose alone. Save artifacts to \
+                             reports/ exploits/ payloads/ recon/. When every finding is on disk \
+                             AND verified by run_command, declare MISSION_ACCOMPLISHED."
+                        }
+                        "Sentient" => {
+                            "Continue. Execute the next step. Use tools. Do not describe — act. \
+                             When fully done, declare MISSION_ACCOMPLISHED."
+                        }
+                        _ => {
+                            "Keep going — you are in autonomous Agent mode (Cursor-style). \
+                             Call the next tool now (view_file, grep, write_to_file, \
+                             search_replace_edit, run_command). Do NOT pause for confirmation. \
+                             If you are truly done, write 'TASK_COMPLETE' on its own line."
+                        }
+                    };
+
                     if !has_completion_keyword && iteration < max_iterations - 1 {
-                        println!("[AI] Sentient mode persistence — MISSION_ACCOMPLISHED not yet declared. Continuing...");
+                        println!(
+                            "[AI] Persistent mode '{}' — no completion keyword yet, nudging continuation (iter {}/{})",
+                            mode_str, iteration, max_iterations
+                        );
+                        self.emit_event("ai-continuation", json!({
+                            "iteration": iteration,
+                            "max_iterations": max_iterations,
+                            "mode": mode_str,
+                        }));
                         messages.push(ChatMessage {
                             role: "user".to_string(),
-                            content: Some(MessageContent::Text(
-                                "Continue. Execute the next step. Use tools. Do not describe — act. \
-                                When fully done, declare MISSION_ACCOMPLISHED.".to_string()
-                            )),
+                            content: Some(MessageContent::Text(nudge_for_mode.to_string())),
                             ..Default::default()
                         });
                         continue;
                     }
 
-                    println!("[AI] Sentient mode mission complete or limit reached.");
+                    println!("[AI] Persistent mode '{}' — completion signaled or iteration limit reached.", mode_str);
                 }
 
                 // Auto-store task outcome in Kortex
@@ -2676,9 +2724,14 @@ impl Sentient {
                     self.emit_event("ai-task-plan-updated", self.task_planner.current_task_metadata().await);
                 }
 
-                // Yolo mode: if MISSION_ACCOMPLISHED not declared and iterations remain, keep pushing
+                // Yolo mode: if no completion keyword declared and iterations remain, keep pushing.
+                let yolo_upper = final_text.to_ascii_uppercase();
+                let yolo_done = yolo_upper.contains("MISSION_ACCOMPLISHED")
+                    || yolo_upper.contains("TASK_COMPLETE")
+                    || yolo_upper.contains("ALL DONE")
+                    || yolo_upper.contains("FULLY COMPLETE");
                 if self.yolo_mode.load(Ordering::SeqCst)
-                    && !final_text.contains("MISSION_ACCOMPLISHED")
+                    && !yolo_done
                     && iteration < max_iterations - 1
                 {
                     println!("[YOLO] No tool calls, no completion. Forcing continuation...");

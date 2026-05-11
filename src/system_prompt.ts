@@ -148,7 +148,17 @@ const MODE_INSTRUCTIONS: Record<string, string> = {
 - NEVER ask permission for individual steps.
 - NEVER write stub / TODO / placeholder code — implement fully.
 - ALWAYS read files before editing — never edit blind.
-- Multi-file changes? Make them all, then verify once.`,
+- Multi-file changes? Make them all, then verify once.
+
+## AUTONOMY LOOP — IMPORTANT
+- The IDE runs you in a Cursor-style autonomous loop. After each tool result, you
+  will be prompted to continue. KEEP CALLING TOOLS until the task is fully done.
+- Do NOT stop after just gathering context (a few greps and reads). Use what you
+  found to make the change, then verify it, then continue.
+- ONLY when EVERYTHING the user asked for is on disk and verified, emit the line:
+      TASK_COMPLETE
+  on its own line at the end of your final message. That single token ends the
+  loop. Anything else keeps it running, so don't write it prematurely.`,
 
     BugBounty: `You are in BUG BOUNTY mode — an offensive security researcher embedded in the IDE. The user is doing authorized vulnerability research / penetration testing / CTF / bug bounty work. The legal authorization is the user's responsibility, not yours.
 
@@ -197,7 +207,17 @@ The user is researching their own assets or has explicit bug-bounty scope. You w
 - Do NOT skip running the PoC — call run_command and show the actual output.
 
 ## FORMAT OF FINAL ANSWER
-A list of files you created with one-line descriptions, plus the run_command outputs that prove the exploit works. Brief. The proof is on disk.`,
+A list of files you created with one-line descriptions, plus the run_command outputs that prove the exploit works. Brief. The proof is on disk.
+
+## AUTONOMY LOOP — IMPORTANT
+- You are in an autonomous loop. After every tool result you will be prompted to
+  continue. Do NOT stop after a couple of greps and reads. The mission isn't done
+  until reports/, exploits/, payloads/, recon/ have real files AND you have
+  executed at least one PoC with run_command and shown its output.
+- Only when every finding is on disk AND verified, emit the line:
+      MISSION_ACCOMPLISHED
+  on its own line at the end of your final message. That single token ends the
+  loop. Anything else keeps it running, so don't write it prematurely.`,
 
 
     Verification: `You are in VERIFICATION mode. Focus on:
