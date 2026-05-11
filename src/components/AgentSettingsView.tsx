@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
-import { getThemes, applyTheme } from '../theme_engine';
-import type { VscodeTheme } from '../theme_engine';
 import ElevenLabsVoicePicker from './ElevenLabsVoicePicker';
 
 const AgentSettingsView: React.FC = () => {
@@ -15,7 +13,6 @@ const AgentSettingsView: React.FC = () => {
     const agentModel = useStore(state => state.agentModel);
     const setAgentModel = useStore(state => state.setAgentModel);
     const availableModels = useStore(state => state.availableModels);
-    const setTheme = useStore(state => state.setTheme);
     const mcpServers = useStore(state => state.mcpServers);
     const addMcpServer = useStore(state => state.addMcpServer);
     const removeMcpServer = useStore(state => state.removeMcpServer);
@@ -29,6 +26,59 @@ const AgentSettingsView: React.FC = () => {
     const avatar3dConfig = useStore(state => state.avatar3dConfig);
     const setAvatar3dConfig = useStore(state => state.setAvatar3dConfig);
     const [pullInput, setPullInput] = useState('');
+    /** Raw bearer for nginx-proxied Ollama; persisted in api_keys.json as `ollama`. */
+    const [ollamaBearerDraft, setOllamaBearerDraft] = useState('');
+    const [ollamaBearerSaved, setOllamaBearerSaved] = useState(false);
+    const [ollamaBearerStatus, setOllamaBearerStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
+
+    interface OllamaDiagnostic {
+        ok: boolean;
+        url: string;
+        endpoint: string;
+        bearer_configured: boolean;
+        status: number | null;
+        content_type?: string;
+        model_count: number;
+        models: string[];
+        body_preview?: string;
+        body_looks_html?: boolean;
+        fallback_used?: boolean;
+        error_kind?: string;
+        error?: string;
+        hint: string;
+    }
+    const [ollamaDiag, setOllamaDiag] = useState<OllamaDiagnostic | null>(null);
+    const [ollamaDiagBusy, setOllamaDiagBusy] = useState(false);
+
+    const runOllamaDiagnostic = async () => {
+        setOllamaDiagBusy(true);
+        try {
+            // Make sure the backend has the URL the user typed right now,
+            // even if they didn't blur the input yet.
+            try { await invoke('set_ollama_url', { url: ollamaUrl }); } catch { /* no-op */ }
+            const d = await invoke<OllamaDiagnostic>('diagnose_ollama');
+            setOllamaDiag(d);
+            if (d.ok) {
+                // Mirror the discovered models into the global store so the
+                // Active Model dropdown updates immediately.
+                try { await refreshModels('ollama'); } catch { /* no-op */ }
+            }
+        } catch (e: any) {
+            setOllamaDiag({
+                ok: false,
+                url: ollamaUrl,
+                endpoint: ollamaUrl,
+                bearer_configured: false,
+                status: null,
+                model_count: 0,
+                models: [],
+                error: String(e),
+                hint: 'Frontend failed to invoke diagnose_ollama. Rebuild the Tauri shell so the command is registered.',
+            });
+        } finally {
+            setOllamaDiagBusy(false);
+        }
+    };
 
     // AI Avatar Characters
     const avatarCharacters = [
@@ -43,7 +93,7 @@ const AgentSettingsView: React.FC = () => {
     ];
 
     // API Key state
-    const [apiKeys, setApiKeys] = useState({ anthropic: '', google: '', openai: '', groq: '', openrouter: '', elevenlabs: '' });
+    const [apiKeys, setApiKeys] = useState({ anthropic: '', google: '', openai: '', groq: '', openrouter: '', elevenlabs: '', ollama: '' });
     const [realApiKey, setRealApiKey] = useState(''); // Store real ElevenLabs key separately
     const [savingKeys, setSavingKeys] = useState(false);
     const [keyStatus, setKeyStatus] = useState<Record<string, string>>({});
@@ -91,6 +141,7 @@ const AgentSettingsView: React.FC = () => {
                         groq: (keys as any).groq ? '••••••••' + ((keys as any).groq.slice(-4)) : '',
                         openrouter: (keys as any).openrouter ? '••••••••' + ((keys as any).openrouter.slice(-4)) : '',
                         elevenlabs: (keys as any).elevenlabs_api_key ? '••••••••' + ((keys as any).elevenlabs_api_key.slice(-4)) : '',
+                        ollama: (keys as any).ollama ? '••••••••' + String((keys as any).ollama).slice(-4) : '',
                     };
                     console.log('[Settings] Setting apiKeys state:', {
                         elevenlabs: newKeys.elevenlabs ? `${newKeys.elevenlabs.substring(0, 8)}...` : 'EMPTY',
@@ -110,6 +161,10 @@ const AgentSettingsView: React.FC = () => {
                 const savedVoiceId = (keys as any).elevenlabs_voice_id;
                 console.log('[Settings] 🎤 Saved voice ID:', savedVoiceId);
                 
+                if ((keys as any).ollama && String((keys as any).ollama).length > 0) {
+                    setOllamaBearerSaved(true);
+                }
+
                 if (savedVoiceId) {
                     setSelectedElevenLabsVoice(savedVoiceId);
                     console.log('[Settings] ✅ Voice ID set in component state:', savedVoiceId);
@@ -868,9 +923,72 @@ const AgentSettingsView: React.FC = () => {
                             type="text"
                             value={ollamaUrl}
                             onChange={(e) => setOllamaUrl(e.target.value)}
+                            // Re-check connection 800ms after the user stops typing.
+                            // Without this, switching from localhost to a VPS URL
+                            // still shows "Error" until they manually hit Reconnect.
+                            onBlur={() => refreshModels('ollama').catch(() => {})}
                             style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
-                            placeholder="http://localhost:1536"
+                            placeholder="https://your-host or hostname only (https added automatically)"
                         />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: '11px', opacity: 0.8 }}>Ollama bearer (optional)</label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <input
+                                type="password"
+                                autoComplete="off"
+                                value={ollamaBearerDraft}
+                                onChange={(e) => setOllamaBearerDraft(e.target.value)}
+                                placeholder={ollamaBearerSaved ? 'Token saved — paste new to replace' : 'Same secret as OLLAMA_BEARER on nginx'}
+                                style={{ flex: 1, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
+                            />
+                            <button
+                                type="button"
+                                disabled={!ollamaBearerDraft.trim() || ollamaBearerStatus === 'saving'}
+                                onClick={async () => {
+                                    const v = ollamaBearerDraft.trim();
+                                    if (!v) return;
+                                    setOllamaBearerStatus('saving');
+                                    try {
+                                        await invoke('save_api_keys', { keys: { ollama: v } });
+                                        setOllamaBearerDraft('');
+                                        setOllamaBearerSaved(true);
+                                        setApiKeys(prev => ({ ...prev, ollama: '••••••••' + v.slice(-4) }));
+                                        // Auto-reconnect: re-check status and re-list models so the
+                                        // red dot turns green without a second click.
+                                        try { await refreshModels('ollama'); } catch (e) { console.warn('[Settings] post-save Ollama refresh failed:', e); }
+                                        setOllamaBearerStatus('ok');
+                                        setTimeout(() => setOllamaBearerStatus('idle'), 2500);
+                                    } catch (e) {
+                                        console.error('[Settings] Failed to save Ollama bearer:', e);
+                                        setOllamaBearerStatus('error');
+                                        setTimeout(() => setOllamaBearerStatus('idle'), 4000);
+                                    }
+                                }}
+                                style={{
+                                    background: ollamaBearerStatus === 'ok' ? '#16a34a'
+                                        : ollamaBearerStatus === 'error' ? '#dc2626'
+                                        : ollamaBearerDraft.trim() ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',
+                                    color: 'var(--vscode-button-foreground)',
+                                    border: 'none',
+                                    padding: '4px 10px',
+                                    fontSize: '11px',
+                                    cursor: ollamaBearerDraft.trim() && ollamaBearerStatus !== 'saving' ? 'pointer' : 'not-allowed',
+                                    borderRadius: '4px',
+                                    whiteSpace: 'nowrap'
+                                }}
+                            >
+                                {ollamaBearerStatus === 'saving' ? 'Saving…'
+                                    : ollamaBearerStatus === 'ok' ? 'Saved ✓'
+                                    : ollamaBearerStatus === 'error' ? 'Failed'
+                                    : 'Save token'}
+                            </button>
+                        </div>
+                        <span style={{ fontSize: '10px', opacity: 0.65, lineHeight: 1.35 }}>
+                            Stored in <code style={{ fontSize: '10px' }}>api_keys.json</code> as <code style={{ fontSize: '10px' }}>ollama</code>.
+                            Or set env <code style={{ fontSize: '10px' }}>OLLAMA_API_KEY</code>. Sent as <code style={{ fontSize: '10px' }}>Authorization: Bearer …</code> on Ollama requests.
+                        </span>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -884,12 +1002,85 @@ const AgentSettingsView: React.FC = () => {
                             {ollamaStatus === 'running' ? 'Connected' : ollamaStatus === 'error' ? 'Error' : 'Checking...'}
                         </span>
                         <button
+                            onClick={runOllamaDiagnostic}
+                            disabled={ollamaDiagBusy}
+                            style={{
+                                marginLeft: 'auto',
+                                background: 'var(--vscode-button-background)',
+                                color: 'var(--vscode-button-foreground)',
+                                border: 'none', padding: '2px 8px', fontSize: '10px',
+                                cursor: ollamaDiagBusy ? 'wait' : 'pointer', borderRadius: '4px',
+                            }}
+                            title="Probe the Ollama URL and tell me exactly what's wrong"
+                        >
+                            {ollamaDiagBusy ? 'Testing…' : 'Test connection'}
+                        </button>
+                        <button
                             onClick={() => refreshModels('ollama')}
-                            style={{ marginLeft: 'auto', background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '2px 8px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px' }}
+                            style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '2px 8px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px' }}
                         >
                             Reconnect
                         </button>
                     </div>
+
+                    {ollamaDiag && (
+                        <div
+                            style={{
+                                marginTop: '4px',
+                                padding: '10px 12px',
+                                fontSize: '11px',
+                                lineHeight: 1.45,
+                                borderRadius: '6px',
+                                background: ollamaDiag.ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
+                                border: `1px solid ${ollamaDiag.ok ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                                color: 'var(--vscode-foreground)',
+                            }}
+                        >
+                            <div style={{ fontWeight: 700, marginBottom: '6px', color: ollamaDiag.ok ? '#34d399' : '#f87171' }}>
+                                {ollamaDiag.ok
+                                    ? `✓ Connected — ${ollamaDiag.model_count} model${ollamaDiag.model_count === 1 ? '' : 's'} discovered${ollamaDiag.fallback_used ? ' (via /v1/ fallback)' : ''}`
+                                    : `✗ Cannot list models${ollamaDiag.status ? ` (HTTP ${ollamaDiag.status})` : ''}`}
+                            </div>
+                            <div style={{ opacity: 0.85, marginBottom: '6px' }}>{ollamaDiag.hint}</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 8px', fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: '10px', opacity: 0.85 }}>
+                                <span style={{ opacity: 0.6 }}>endpoint</span><span style={{ wordBreak: 'break-all' }}>{ollamaDiag.endpoint}</span>
+                                <span style={{ opacity: 0.6 }}>bearer</span><span>{ollamaDiag.bearer_configured ? 'sent (Authorization: Bearer …)' : 'not configured'}</span>
+                                {ollamaDiag.status !== null && (
+                                    <>
+                                        <span style={{ opacity: 0.6 }}>http status</span><span>{ollamaDiag.status}</span>
+                                    </>
+                                )}
+                                {ollamaDiag.content_type && (
+                                    <>
+                                        <span style={{ opacity: 0.6 }}>content-type</span><span>{ollamaDiag.content_type}</span>
+                                    </>
+                                )}
+                                {ollamaDiag.error && (
+                                    <>
+                                        <span style={{ opacity: 0.6 }}>error</span><span style={{ color: '#f87171', wordBreak: 'break-all' }}>{ollamaDiag.error_kind ? `[${ollamaDiag.error_kind}] ` : ''}{ollamaDiag.error}</span>
+                                    </>
+                                )}
+                            </div>
+                            {ollamaDiag.body_preview && (
+                                <details style={{ marginTop: '8px' }}>
+                                    <summary style={{ cursor: 'pointer', fontSize: '10px', opacity: 0.7 }}>Body preview</summary>
+                                    <pre style={{ marginTop: '4px', padding: '6px 8px', background: 'rgba(0,0,0,0.35)', borderRadius: '4px', fontSize: '10px', maxHeight: '120px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+{ollamaDiag.body_preview}
+                                    </pre>
+                                </details>
+                            )}
+                            {ollamaDiag.models && ollamaDiag.models.length > 0 && (
+                                <details style={{ marginTop: '6px' }} open>
+                                    <summary style={{ cursor: 'pointer', fontSize: '10px', opacity: 0.7 }}>Models ({ollamaDiag.models.length})</summary>
+                                    <div style={{ marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                        {ollamaDiag.models.map((m) => (
+                                            <span key={m} style={{ padding: '2px 6px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', fontSize: '10px', fontFamily: 'monospace' }}>{m}</span>
+                                        ))}
+                                    </div>
+                                </details>
+                            )}
+                        </div>
+                    )}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px', padding: '10px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '2px' }}>
                         <label style={{ fontSize: '11px', fontWeight: 600, opacity: 0.7 }}>Pull New Model</label>

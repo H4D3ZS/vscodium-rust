@@ -1,5 +1,5 @@
 use crate::EditorState;
-use crate::ai_engine::{AiRequest, ChatMessage, MessageContent, AiResponse};
+use crate::ai_engine::{AiRequest, ChatMessage, MessageContent, AiResponse, normalize_ollama_base_url};
 use tauri::{State, AppHandle, Emitter};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -783,12 +783,13 @@ pub async fn pull_ollama_model(state: State<'_, EditorState>, name: String) -> R
 
 #[tauri::command]
 pub async fn set_ollama_url(state: State<'_, EditorState>, url: String) -> Result<(), String> {
+    let normalized = normalize_ollama_base_url(&url);
     {
         let mut current = state.ollama_url.lock().await;
-        *current = url.clone();
+        *current = normalized.clone();
     }
 
-    state.ai_engine.set_ollama_url(url).await;
+    state.ai_engine.set_ollama_url(normalized).await;
     Ok(())
 }
 
@@ -810,6 +811,14 @@ pub async fn get_ollama_ps(state: State<'_, EditorState>) -> Result<Value, Strin
         .await
         .map(|status| json!({ "initialized": status }))
         .map_err(|e| e.to_string())
+}
+
+/// Verbose Ollama probe: returns URL, status code, bearer-configured flag,
+/// model list, body preview and a human-readable hint. Use this when the
+/// model dropdown comes back empty so the user knows *why*.
+#[tauri::command]
+pub async fn diagnose_ollama(state: State<'_, EditorState>) -> Result<Value, String> {
+    Ok(state.ai_engine.diagnose_ollama().await)
 }
 
 #[tauri::command]

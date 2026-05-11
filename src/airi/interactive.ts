@@ -5,7 +5,8 @@
  * Full bidirectional communication while maintaining autonomy
  */
 
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
+import { createSharedOllama } from './shared-ollama';
 import { airiBiology } from './biology';
 import { airiConsciousness } from './consciousness';
 import { airiMemory } from './memory';
@@ -42,7 +43,7 @@ export class AIRIInteractive {
   private interactionCallbacks: Map<string, (response: string) => void>;
 
   constructor() {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+    this.ollama = createSharedOllama();
     this.interactionHistory = [];
     this.activeConversation = [];
     this.interactionCallbacks = new Map();

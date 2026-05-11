@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
-import McpManager from './McpManager';
+import AgentSettingsView from './AgentSettingsView';
 
 interface Settings {
     theme: string;
@@ -10,11 +10,19 @@ interface Settings {
     auto_save?: string;
 }
 
+type SettingsTab = 'user' | 'workspace' | 'agent';
+
+function readInitialTab(): SettingsTab {
+    try {
+        const t = sessionStorage.getItem('settings.initialTab');
+        if (t === 'user' || t === 'workspace' || t === 'agent') return t;
+    } catch { /* no-op */ }
+    return 'user';
+}
+
 const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'user' | 'workspace' | 'agent'>('user');
+    const [activeTab, setActiveTab] = useState<SettingsTab>(readInitialTab);
     const setTheme = useStore(state => state.setTheme);
-    const ollamaStatus = useStore(state => state.ollamaStatus);
-    const refreshAvailableModels = useStore(state => state.refreshAvailableModels);
     
     const [settings, setSettings] = useState<Settings>({
         theme: 'vs-dark',
@@ -26,6 +34,21 @@ const SettingsPage: React.FC = () => {
 
     useEffect(() => {
         loadSettings();
+        // Consume the one-shot initial-tab hint so a later File→Settings
+        // open doesn't get stuck on a stale destination.
+        try { sessionStorage.removeItem('settings.initialTab'); } catch { /* no-op */ }
+    }, []);
+
+    // Allow other panes (e.g. the right-sidebar gear) to re-focus this page
+    // on a specific section while it's already open.
+    useEffect(() => {
+        const onFocus = (e: Event) => {
+            const detail = (e as CustomEvent).detail || {};
+            const t = detail.tab;
+            if (t === 'user' || t === 'workspace' || t === 'agent') setActiveTab(t);
+        };
+        window.addEventListener('settings:focus-tab', onFocus as EventListener);
+        return () => window.removeEventListener('settings:focus-tab', onFocus as EventListener);
     }, []);
 
     const loadSettings = async () => {
@@ -62,33 +85,12 @@ const SettingsPage: React.FC = () => {
         </div>
     );
 
+    // The Agent tab embeds the full AgentSettingsView so there is exactly
+    // one place to configure Ollama URL, bearer, API keys, voice, avatar and
+    // MCP servers. The right-sidebar gear now opens this same tab too.
     const renderAgentSettings = () => (
-        <div className="agent-settings">
-            <div className="settings-section">
-                <div className="settings-section-title">AI Engine</div>
-                {renderSettingItem(
-                    "Ollama Status",
-                    "Status of the local Ollama instance.",
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ 
-                            width: '10px', 
-                            height: '10px', 
-                            borderRadius: '50%', 
-                            background: ollamaStatus === 'running' ? '#4ade80' : '#f87171' 
-                        }}></div>
-                        <span>{ollamaStatus === 'running' ? 'Connected' : 'Disconnected'}</span>
-                        <button 
-                            className="secondary-button" 
-                            style={{ marginLeft: '12px', padding: '4px 8px', fontSize: '11px' }}
-                            onClick={() => refreshAvailableModels('ollama')}
-                        >
-                            Reconnect
-                        </button>
-                    </div>
-                )}
-            </div>
-
-            <McpManager />
+        <div className="agent-settings" style={{ padding: 0 }}>
+            <AgentSettingsView />
         </div>
     );
 

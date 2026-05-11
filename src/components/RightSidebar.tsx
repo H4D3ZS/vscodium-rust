@@ -3,7 +3,6 @@ import { marked } from 'marked';
 import { useStore } from '../store';
 import type { FileEntry } from '../store';
 import { invoke } from '../tauri_bridge';
-import AgentSettingsView from './AgentSettingsView';
 import MissionControl from './agent/MissionControl';
 import ResearchCenter from './agent/ResearchCenter';
 import ContextSidebar from './visual/ContextSidebar';
@@ -14,6 +13,10 @@ import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, g
 import AiriConversation from './AiriConversation';
 import OllamaProgressBar from './OllamaProgressBar';
 import EmulatorPanel from './EmulatorPanel';
+
+// One-shot AIRI bootstrap latch. Module-scoped so it survives unmount/remount
+// and (critically) React.StrictMode's deliberate double-invoke of effects.
+const airiInitOnce: { started: boolean } = { started: false };
 
 /**
  * Strips raw tool-call JSON/XML from AI content so the user sees only
@@ -73,6 +76,17 @@ function cleanAiContent(raw: string): string {
 
     // Strip MISSION_ACCOMPLISHED marker
     s = s.replace(/MISSION_ACCOMPLISHED/g, '');
+    s = s.replace(/TASK_COMPLETE/g, '');
+
+    // Strip degenerate LaTeX letter-spam that some abliterated/uncensored Ollama
+    // tunes emit ($\text{N}$ $\text{I}$ …). This is junk output, not real math —
+    // collapse runs of single-letter \text{X}/\mathit{X}/\mathrm{X} into the
+    // bare letters and drop the surrounding whitespace runs.
+    s = s.replace(/\$\s*\\(?:text|mathit|mathrm|mathbf|mathcal|mathsf|mathtt)\{([^{}]{1,6})\}\s*\$/g,
+        (_m, inner) => String(inner));
+    s = s.replace(/(?:^|[^\w])\$([A-Za-z0-9])\$(?=[^\w]|$)/g, (_m, ch) => ch);
+    // Three or more single-letter tokens with whitespace between them → collapse.
+    s = s.replace(/(?:\b[A-Za-z]\b\s+){3,}/g, (m) => m.replace(/\s+/g, ''));
 
     // Clean up excessive blank lines
     s = s.replace(/\n{3,}/g, '\n\n').trim();
@@ -121,7 +135,10 @@ const RightSidebar: React.FC = () => {
     const isOpen = useStore(state => state.isRightSidebarOpen);
     const toggle = useStore(state => state.toggleRightSidebar);
     const aiStatus = useStore(state => state.aiStatus || 'idle');
-    const [view, setView] = useState<'chat' | 'history' | 'settings' | 'dashboard' | 'research' | 'context' | 'kortex'>('chat');
+    // 'settings' is no longer a right-sidebar view — the gear opens the
+    // unified Settings tab in the editor pane instead. We keep the union
+    // narrow so renaming the right-sidebar views stays cheap.
+    const [view, setView] = useState<'chat' | 'history' | 'dashboard' | 'research' | 'context' | 'kortex'>('chat');
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mode = useStore(state => state.agentMode);
     const model = useStore(state => state.agentModel);
@@ -200,8 +217,16 @@ const RightSidebar: React.FC = () => {
     const emulatorLayout = useStore(state => state.emulatorLayout);
     const [showEmulatorInRight, setShowEmulatorInRight] = useState(false);
 
-    // Initialize TTS on mount
+    // Initialize TTS on mount.
+    // Guarded so React.StrictMode's intentional double-invoke (and any
+    // remount of <RightSidebar>) doesn't fire the entire AIRI stack twice
+    // — that was why every "✅ … ACTIVE" line showed up twice and why the
+    // greeting played twice, two cognitive intervals were registered, etc.
     useEffect(() => {
+        if (airiInitOnce.started) {
+            return;
+        }
+        airiInitOnce.started = true;
         console.log('[RightSidebar] 🚀 Initializing AIRI...');
         
         initVoiceSystem().then(ready => {
@@ -1054,7 +1079,13 @@ const RightSidebar: React.FC = () => {
                     <div onClick={() => setView('history')} style={{ cursor: 'pointer', opacity: view === 'history' ? 1 : 0.4 }} title="History"><i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setView('dashboard')} style={{ cursor: 'pointer', opacity: view === 'dashboard' ? 1 : 0.4 }} title="Dashboard"><i className="codicon codicon-dashboard" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                     <div onClick={() => setView('context')} style={{ cursor: 'pointer', opacity: view === 'context' ? 1 : 0.4 }} title="Workspace Context"><i className="codicon codicon-hubot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
-                    <div onClick={() => setView('settings')} style={{ cursor: 'pointer', opacity: view === 'settings' ? 1 : 0.4 }} title="Settings"><i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
+                    <div
+                        onClick={() => useStore.getState().openSettings('agent')}
+                        style={{ cursor: 'pointer', opacity: 0.7 }}
+                        title="Open unified Settings (AI Agent tab)"
+                    >
+                        <i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                    </div>
                     <div
                         onClick={() => setAiriToggleOpen(v => !v)}
                         style={{
@@ -1777,9 +1808,7 @@ const RightSidebar: React.FC = () => {
                             <ResearchCenter />
                         ) : view === 'context' ? (
                             <ContextSidebar />
-                        ) : (
-                            <AgentSettingsView />
-                        )}
+                        ) : null}
                     </div>
                 )}
             </div>

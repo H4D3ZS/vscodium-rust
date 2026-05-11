@@ -9,6 +9,7 @@
  */
 
 import { Ollama } from 'ollama';
+import { createSharedOllama, getOllamaHost } from './shared-ollama';
 
 export interface ErrorDetectionResult {
   hasError: boolean;
@@ -25,11 +26,12 @@ const FAILURE_BUDGET = 3;
 function resolveHost(): string {
   try {
     const w: any = typeof window !== 'undefined' ? window : null;
-    return (
-      w?.localStorage?.getItem?.('airi.vision.host') ||
-      w?.AIRI_VISION_HOST ||
-      DEFAULT_HOST
-    );
+    const override =
+      w?.localStorage?.getItem?.('airi.vision.host') || w?.AIRI_VISION_HOST;
+    if (override) return override;
+    // Fall back to the global Ollama host (Settings → Ollama Integration)
+    // instead of localhost so the vision LLM hits the same proxy as chat.
+    return getOllamaHost() || DEFAULT_HOST;
   } catch {
     return DEFAULT_HOST;
   }
@@ -58,7 +60,9 @@ export class VisionAnalyzer {
   constructor(host?: string, model?: string) {
     this.host = host || resolveHost();
     this.model = model || resolveModel();
-    this.ollama = new Ollama({ host: this.host });
+    // If we're using the configured global host (no explicit override), use
+    // the shared proxy so the Bearer token from API Keys is attached.
+    this.ollama = host ? new Ollama({ host: this.host }) : createSharedOllama();
   }
 
   isAvailable(): boolean {
@@ -73,6 +77,14 @@ export class VisionAnalyzer {
     if (opts.model) {
       this.model = opts.model;
     }
+    this.failureCount = 0;
+    this.disabled = false;
+  }
+
+  /** Drop the explicit host and re-attach to the global shared client. */
+  resetToSharedHost(): void {
+    this.host = resolveHost();
+    this.ollama = createSharedOllama();
     this.failureCount = 0;
     this.disabled = false;
   }

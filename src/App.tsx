@@ -65,7 +65,7 @@ const App: React.FC = () => {
             initMobile();
             initScm();
             initDebugUI();
-            initTerminal((shell) => useStore.getState().addTerminalGroup(shell));
+            initTerminal(() => useStore.getState().addTerminalGroup());
             initAgent();
         });
 

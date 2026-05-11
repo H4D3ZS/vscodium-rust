@@ -7,7 +7,8 @@
  * She is the decider
  */
 
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
+import { createSharedOllama } from './shared-ollama';
 import { hadesOllama } from '../hades-ollama-service';
 import { getModel } from './model-config';
 import { airiConsciousness } from './consciousness';
@@ -54,7 +55,7 @@ export class AIRIAutonomousDecision {
   private isProcessing: boolean = false;
 
   constructor(config: Partial<AutonomyConfig> = {}) {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+    this.ollama = createSharedOllama();
 
     this.config = {
       allowUnethical: config.allowUnethical ?? true, // TRUE AUTONOMY

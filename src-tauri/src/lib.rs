@@ -178,6 +178,7 @@ pub fn run() {
             ai_commands::pull_ollama_model,
             ai_commands::unload_ollama_model,
             ai_commands::get_ollama_ps,
+            ai_commands::diagnose_ollama,
             ai_commands::list_provider_models,
             ai_commands::set_ai_model,
             ai_commands::set_advisor_model,

@@ -8,7 +8,6 @@ import ExtensionsView from './ExtensionsView';
 import ScmView from './ScmView';
 import DebugView from './DebugView';
 import EmulatorPanel from './EmulatorPanel';
-import AgentSettingsView from './AgentSettingsView';
 import ProjectSpecsSidebar from './ProjectSpecsSidebar';
 import CheckpointsPanel from './CheckpointsPanel';
 import VectorSearchPanel from './VectorSearchPanel';

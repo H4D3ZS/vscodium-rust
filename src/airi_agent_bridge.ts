@@ -16,7 +16,9 @@ import { airiConsciousness } from './airi/consciousness';
 import { airiBiology } from './airi/biology';
 import { airiSelfLearning } from './airi/self-learning';
 import { airiInteractive } from './airi/interactive';
-import { useStore } from './store';
+import { invoke } from './tauri_bridge';
+import { useStore, normalizeOllamaUrl } from './store';
+import { refreshOllamaConfig } from './airi/shared-ollama';
 
 export interface AIRIAgentConfig {
     /** Enable full autonomy - AIRI works without prompts */
@@ -56,9 +58,33 @@ export class AIRIAgentBridge {
 
 
         try {
+            const rawOllama = useStore.getState().ollamaUrl || 'http://localhost:11434';
+            let ollamaHost: string;
+            try {
+                ollamaHost = normalizeOllamaUrl(rawOllama);
+            } catch {
+                ollamaHost = 'http://localhost:11434';
+            }
+            try {
+                await invoke('set_ollama_url', { url: ollamaHost });
+            } catch (e) {
+                console.warn('[AIRI Bridge] set_ollama_url failed:', e);
+            }
+            let ollamaHeaders: Record<string, string> | undefined;
+            try {
+                const keys = await invoke<Record<string, string>>('get_api_keys');
+                const tok = keys?.ollama?.trim();
+                if (tok) ollamaHeaders = { Authorization: `Bearer ${tok}` };
+            } catch (e) {
+                console.warn('[AIRI Bridge] get_api_keys failed:', e);
+            }
+            refreshOllamaConfig(ollamaHost, ollamaHeaders ?? null);
+
             // Initialize AIRI core with all systems
             await airi.initialize({
                 workspacePath: this.getWorkspacePath(),
+                ollamaHost,
+                ...(ollamaHeaders ? { ollamaHeaders } : {}),
                 fullAutonomyEnabled: this.config.fullAutonomy,
                 selfLearningEnabled: this.config.selfLearning,
                 selfHealingEnabled: true,

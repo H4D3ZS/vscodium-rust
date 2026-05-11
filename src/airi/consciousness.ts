@@ -8,6 +8,7 @@
 
 import { Ollama } from 'ollama';
 import { airiDigitalLife } from './digital-life-system';
+import { createSharedOllama, refreshOllamaConfig } from './shared-ollama';
 
 export interface ConsciousnessState {
   isAwake: boolean;
@@ -67,18 +68,21 @@ export class AIRIConsciousness {
   })();
 
   constructor() {
-    const host = (() => {
+    // Per-subsystem host override is still honored, but we no longer hard-code
+    // `localhost:11434`: the shared proxy reads `Settings → Ollama Integration`
+    // (and the Bearer token from API Keys) automatically when no override.
+    const override = (() => {
       try {
         return (
           (typeof window !== 'undefined' && window.localStorage?.getItem('airi.consciousness.host')) ||
           (typeof window !== 'undefined' && (window as any).AIRI_CONSCIOUSNESS_HOST) ||
-          'http://localhost:11434'
+          null
         );
       } catch {
-        return 'http://localhost:11434';
+        return null;
       }
     })();
-    this.ollama = new Ollama({ host });
+    this.ollama = override ? new Ollama({ host: override }) : createSharedOllama();
 
     this.state = {
       isAwake: true,
@@ -147,7 +151,12 @@ export class AIRIConsciousness {
 
   reconfigure(opts: { model?: string; host?: string }): void {
     if (opts.host) {
-      try { this.ollama = new Ollama({ host: opts.host }); } catch { /* noop */ }
+      try {
+        refreshOllamaConfig(opts.host);
+        this.ollama = createSharedOllama();
+      } catch {
+        /* noop */
+      }
     }
     if (opts.model) {
       (this as any).MODEL = opts.model;
@@ -168,28 +177,42 @@ export class AIRIConsciousness {
 
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      
-      console.log('[AIRI Vision] Starting screen check...');
-      
+
       // Get temporal analysis from last 5 frames (continuous vision)
       const analysis = await invoke('hades_vision_get_temporal_analysis', {
         frameCount: 5,
       });
 
-      console.log('[AIRI Vision] Analysis received:', analysis);
+      const text = typeof analysis === 'string' ? analysis.trim() : '';
+
+      if (!text) {
+        // Streak-counter so we don't log/loop forever when the vision backend
+        // returns nothing (no installed VLM, frame buffer empty, etc).
+        (this as any)._visionEmptyStreak = ((this as any)._visionEmptyStreak || 0) + 1;
+        const streak = (this as any)._visionEmptyStreak;
+        if (streak === 1) {
+          console.warn('[AIRI Vision] Empty analysis; will retry silently.');
+        }
+        if (streak >= 5) {
+          this.state.visionEnabled = false;
+          console.warn('[AIRI Vision] Disabled after 5 empty analyses — set localStorage.airi.vision.enabled=true and configure a VLM to re-enable.');
+        }
+        return;
+      }
+
+      (this as any)._visionEmptyStreak = 0;
 
       this.state.lastScreenAnalysis = JSON.stringify({
         status: 'healthy',
-        description: analysis,
+        description: text,
         timestamp: Date.now(),
       });
       this.state.lastVisionCheck = Date.now();
 
-      // Add thought about what AIRI saw
-      if (analysis && typeof analysis === 'string' && analysis.length > 10) {
+      if (text.length > 10) {
         this.addThought({
           id: Date.now().toString(),
-          content: `I see: ${analysis}`,
+          content: `I see: ${text}`,
           type: 'observation',
           timestamp: Date.now(),
           priority: 6

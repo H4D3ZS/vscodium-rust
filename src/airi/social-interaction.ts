@@ -4,7 +4,8 @@
  * Empathy, relationship building, conversation, emotional intelligence
  */
 
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
+import { createSharedOllama } from './shared-ollama';
 
 export interface Relationship {
   personId: string;
@@ -31,7 +32,7 @@ export class AIRISocialInteraction {
   private currentContext: SocialContext | null = null;
 
   constructor() {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+    this.ollama = createSharedOllama();
     this.relationships = new Map();
 
   }

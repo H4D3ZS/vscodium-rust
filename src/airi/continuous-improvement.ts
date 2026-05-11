@@ -4,7 +4,8 @@
  * Never stops evolving - every execution makes her better
  */
 
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
+import { createSharedOllama } from './shared-ollama';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -48,7 +49,7 @@ export class AIRIContinuousImprovement {
   private cycleCount: number = 0;
 
   constructor(codebasePath: string) {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' });
+    this.ollama = createSharedOllama();
     this.optimizations = [];
     this.evolutionHistory = [];
     this.codebasePath = codebasePath;
@@ -281,24 +282,42 @@ Respond as JSON array:
 
     try {
       const response = await this.generateWithFallback(prompt);
+      const raw = String(response?.response ?? '');
+      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) return optimizations;
 
-      const jsonMatch = response.response.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const opts = JSON.parse(jsonMatch[0]);
-        
-        for (const opt of opts) {
-          optimizations.push({
-            id: `opt_${Date.now()}_${Math.random()}`,
-            type: opt.type as OptimizationType,
-            description: opt.description,
-            impact: opt.impact,
-            effort: opt.effort,
-            status: 'identified'
-          });
-        }
+      let chunk = jsonMatch[0].trim();
+      // Some local tunes echo the example with literal ellipsis ("[ ... ]"),
+      // a trailing comma, or JS-style comments. Sanitize before parsing.
+      if (/^\[\s*\.{2,}\s*\]$/.test(chunk) || /^\[\s*…\s*\]$/.test(chunk)) {
+        return optimizations;
+      }
+      chunk = chunk
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/,\s*([\]}])/g, '$1');
+
+      let opts: any[] = [];
+      try {
+        opts = JSON.parse(chunk);
+      } catch {
+        return optimizations;
+      }
+      if (!Array.isArray(opts)) return optimizations;
+
+      for (const opt of opts) {
+        if (!opt || typeof opt !== 'object' || !opt.description) continue;
+        optimizations.push({
+          id: `opt_${Date.now()}_${Math.random()}`,
+          type: opt.type as OptimizationType,
+          description: opt.description,
+          impact: Number(opt.impact) || 0,
+          effort: Number(opt.effort) || 0,
+          status: 'identified'
+        });
       }
     } catch (error) {
-      console.error('[ContinuousImprovement] Optimization identification failed:', error);
+      console.warn('[ContinuousImprovement] Optimization identification skipped:',
+        (error as any)?.message || error);
     }
 
     return optimizations;

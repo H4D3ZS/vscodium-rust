@@ -121,6 +121,8 @@ import { invoke } from '../tauri_bridge';
 export interface AIRIConfig {
   workspacePath: string;
   ollamaHost: string;
+  /** Optional headers for the browser Ollama client (e.g. `Authorization: Bearer …` behind nginx). */
+  ollamaHeaders?: Record<string, string>;
   consciousnessEnabled: boolean;
   biologyEnabled: boolean;
   autonomousWorkEnabled: boolean;
@@ -237,6 +239,7 @@ export class AIRICore {
     this.config = {
       workspacePath: resolvedWorkspacePath,
       ollamaHost: config.ollamaHost || 'http://localhost:11434',
+      ollamaHeaders: config.ollamaHeaders,
       consciousnessEnabled: config.consciousnessEnabled ?? true,
       biologyEnabled: config.biologyEnabled ?? true,
       autonomousWorkEnabled: config.autonomousWorkEnabled ?? true,
@@ -253,7 +256,10 @@ export class AIRICore {
       sensesEnabled: config.fullAutonomyEnabled ?? true,
     };
 
-    this.ollama = new Ollama({ host: this.config.ollamaHost });
+    this.ollama = new Ollama({
+      host: this.config.ollamaHost,
+      ...(this.config.ollamaHeaders ? { headers: this.config.ollamaHeaders } : {}),
+    });
     this.selfHealing = createSelfHealing(this.config.workspacePath);
     this.selfEvolution = createSelfEvolution(this.config.workspacePath);
     this.actionSystem = createAIRIActionSystem([this.config.workspacePath]);
@@ -288,8 +294,11 @@ export class AIRICore {
       this.continuousImprovement = createAIRIContinuousImprovement(this.config.workspacePath);
       this.development = createAIRIDevelopmentAssistant(this.config.workspacePath);
       this.autonomousDev = createAIRIAutonomousDevelopment(this.config.workspacePath);
+      this.ollama = new Ollama({
+        host: this.config.ollamaHost,
+        ...(this.config.ollamaHeaders ? { headers: this.config.ollamaHeaders } : {}),
+      });
     }
-    
 
     // ═══════════════════════════════════════════════════════════
     // CRITICAL SAFETY - Always initialize first
@@ -621,6 +630,20 @@ export class AIRICore {
    * Check Ollama connection and models
    */
   private async checkOllama(): Promise<void> {
+    const tauri = typeof window !== 'undefined' && (window as any).__TAURI__;
+    if (tauri) {
+      try {
+        const models = await invoke<string[]>('list_provider_models', { provider: 'ollama' });
+        if (!models || models.length === 0) {
+          console.warn('[AIRI] Ollama reachable but returned no model tags');
+        }
+        return;
+      } catch (error) {
+        console.error('[AIRI] ❌ Ollama: DISCONNECTED');
+        console.error('[AIRI] Make sure Ollama is running: ollama serve');
+        throw error;
+      }
+    }
     try {
       const models = await this.ollama.list();
       

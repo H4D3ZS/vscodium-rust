@@ -194,6 +194,52 @@ export const getVSCodeTheme = (): TerminalTheme => {
   };
 };
 
+function currentTerminalPlatform(): 'win32' | 'linux' | 'darwin' {
+  const p = navigator.platform.toLowerCase();
+  if (p.includes('win')) return 'win32';
+  if (p.includes('mac')) return 'darwin';
+  return 'linux';
+}
+
+/** Resolve profile from profile id, full shell path, or executable name. */
+function resolveTerminalProfile(shellOrProfileId?: string): TerminalProfile {
+  const platform = currentTerminalPlatform();
+  const platformProfiles = DEFAULT_PROFILES.filter(p => !p.platform || p.platform === platform);
+  const fallback = platformProfiles.find(p => p.isDefault) || platformProfiles[0] || DEFAULT_PROFILES[0];
+
+  if (!shellOrProfileId || !String(shellOrProfileId).trim()) {
+    return fallback;
+  }
+
+  const key = String(shellOrProfileId).trim();
+  const lower = key.toLowerCase();
+
+  const byId = platformProfiles.find(p => p.id === key);
+  if (byId) return byId;
+
+  const byExactPath = platformProfiles.find(p => p.path.toLowerCase() === lower);
+  if (byExactPath) return byExactPath;
+
+  const base = key.split(/[/\\]/).pop() || key;
+  const baseLower = base.toLowerCase();
+
+  const byExe = platformProfiles.find(p => {
+    const tail = p.path.split(/[/\\]/).pop() || p.path;
+    return tail.toLowerCase() === baseLower;
+  });
+  if (byExe) return byExe;
+
+  return {
+    id: 'custom-shell',
+    name: base,
+    path: key,
+    args: [],
+    icon: 'terminal-bash',
+    isDefault: false,
+    platform
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // TERMINAL MANAGER
 // ═══════════════════════════════════════════════════════════════════════════
@@ -206,9 +252,45 @@ export class TerminalManager {
   private defaultProfileId: string = 'powershell';
   private linkProvider: any = null;
   private profilesReady: Promise<void>;
+  // Global `terminal-data` listener — set up exactly once and routes payloads
+  // to whichever terminal instance owns the term_id. Without this listener
+  // the xterm display stayed blank (PTY output was emitted into the void).
+  private dataListenerInstalled = false;
+  // Per-terminal write buffers used until the underlying xterm has been
+  // attached and is ready to receive `term.write`.
+  private pendingWrites: Map<string, string[]> = new Map();
 
   constructor() {
     this.profilesReady = this.loadProfiles();
+    void this.ensureDataListener();
+  }
+
+  /** Subscribe once to the Tauri `terminal-data` event stream. */
+  private async ensureDataListener(): Promise<void> {
+    if (this.dataListenerInstalled) return;
+    this.dataListenerInstalled = true;
+    try {
+      await listen('terminal-data', (event: any) => {
+        // Rust emits TerminalDataPayload { term_id, data }.
+        const payload = event?.payload || {};
+        const id: string | undefined = payload.term_id || payload.termId || payload.id;
+        const data: string | undefined = payload.data;
+        if (!id || typeof data !== 'string') return;
+        const inst = this.terminals.get(id);
+        if (inst) {
+          inst.term.write(data);
+          inst.lastOutput = data;
+        } else {
+          // Terminal not yet attached — buffer until createTerminal finishes.
+          const list = this.pendingWrites.get(id) || [];
+          list.push(data);
+          this.pendingWrites.set(id, list);
+        }
+      });
+    } catch (err) {
+      console.warn('[terminal] Failed to subscribe to terminal-data:', err);
+      this.dataListenerInstalled = false;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -270,12 +352,16 @@ export class TerminalManager {
   async createTerminal(
     profileId?: string,
     groupId?: string,
-    cwd?: string
+    cwd?: string,
+    /** Must match React/store `instanceId` so `attach()` can find this terminal. */
+    explicitId?: string
   ): Promise<string> {
     await this.profilesReady;
-    const id = `term-${this.nextId++}`;
-    const profile = DEFAULT_PROFILES.find(p => p.id === (profileId || this.defaultProfileId)) 
-                  || DEFAULT_PROFILES[0];
+    const id =
+      explicitId && explicitId.trim().length > 0
+        ? explicitId.trim()
+        : `term-${this.nextId++}`;
+    const profile = resolveTerminalProfile(profileId || this.defaultProfileId);
 
     // Create persistent element
     const element = document.createElement('div');
@@ -359,6 +445,13 @@ export class TerminalManager {
 
     this.terminals.set(id, instance);
 
+    // If data arrived before this instance was registered, flush it now.
+    const pending = this.pendingWrites.get(id);
+    if (pending && pending.length) {
+      for (const chunk of pending) term.write(chunk);
+      this.pendingWrites.delete(id);
+    }
+
     // Create group if needed
     const actualGroupId = groupId || this.createGroupId();
     if (!this.groups.has(actualGroupId)) {
@@ -378,24 +471,32 @@ export class TerminalManager {
     // Setup terminal events
     this.setupTerminalEvents(instance);
 
-    // Spawn shell
+    // Spawn shell (Rust `spawn_terminal` only accepts `id` + optional `shell`)
     try {
-      const result = await invoke<{ id?: string; status?: string; pid?: number }>('spawn_terminal', { 
-        id, 
-        shell: profile.path,
-        args: profile.args || [],
-        cwd 
+      const result = await invoke<{ id?: string; status?: string; pid?: number }>('spawn_terminal', {
+        id,
+        shell: profile.path
       });
-      
+
       if (result && typeof result === 'object' && 'pid' in result) {
         instance.pid = (result as any).pid;
       }
-      
-      // Initial fit
-      setTimeout(() => {
-        fitAddon.fit();
-        term.focus();
-      }, 50);
+
+      const fitNow = () => {
+        try {
+          fitAddon.fit();
+          const { cols, rows } = term;
+          if (cols > 0 && rows > 0) {
+            void invoke('resize_terminal', { id, cols, rows });
+          }
+        } catch {
+          /* container may still be 0×0 */
+        }
+      };
+      setTimeout(fitNow, 0);
+      setTimeout(fitNow, 50);
+      setTimeout(fitNow, 200);
+      term.focus();
     } catch (e: any) {
       term.writeln(`\r\n\x1b[31mError spawning terminal: ${e.message || e}\x1b[0m\r\n`);
       term.writeln(`\x1b[33mProfile: ${profile.name} (${profile.path})\x1b[0m\r\n`);
@@ -405,19 +506,21 @@ export class TerminalManager {
   }
 
   private setupTerminalEvents(instance: TerminalInstance) {
-    const { term, id } = instance;
+    const { term, id, element } = instance;
 
-    // Data event - send to backend
+    // Keystrokes — pipe to the backend PTY via terminal_send_data.
+    // The previous `write_to_terminal` invocation silently no-op'd because
+    // no such Tauri command was registered.
     term.onData((data: string) => {
-      invoke('write_to_terminal', { id, data });
+      invoke('terminal_send_data', { id, data }).catch((e) => {
+        console.warn('[terminal] terminal_send_data failed:', e);
+      });
     });
 
-    // Resize event
     term.onResize(({ cols, rows }) => {
-      invoke('resize_terminal', { id, cols, rows });
+      invoke('resize_terminal', { id, cols, rows }).catch(() => {});
     });
 
-    // Title event
     term.onTitleChange((title: string) => {
       if (title && title !== instance.name) {
         instance.name = title;
@@ -425,22 +528,16 @@ export class TerminalManager {
       }
     });
 
-    // Bell event
     term.onBell(() => {
-      // Visual bell effect
       instance.element.style.boxShadow = 'inset 0 0 20px rgba(255, 255, 255, 0.3)';
       setTimeout(() => {
         instance.element.style.boxShadow = '';
       }, 100);
     });
 
-    // Selection event
-    term.onSelectionChange(() => {
-      // Could trigger context menu update
-    });
-
-    // Right-click for context menu
-    term.onContextMenu((event: MouseEvent) => {
+    // Right-click for context menu — `Terminal#onContextMenu` does not exist
+    // in xterm.js, so we listen on the DOM element instead.
+    element.addEventListener('contextmenu', (event: MouseEvent) => {
       event.preventDefault();
       this.showContextMenu(instance, event);
     });
@@ -454,13 +551,24 @@ export class TerminalManager {
     const instance = this.terminals.get(id);
     if (instance && container) {
       container.appendChild(instance.element);
-      setTimeout(() => {
+      const fitNow = () => {
         try {
           instance.fitAddon.fit();
           const { cols, rows } = instance.term;
-          invoke('resize_terminal', { id, cols, rows });
-        } catch (e) {}
-      }, 50);
+          if (cols > 0 && rows > 0) {
+            void invoke('resize_terminal', { id, cols, rows });
+          }
+        } catch {
+          /* layout not ready */
+        }
+      };
+      setTimeout(fitNow, 0);
+      requestAnimationFrame(() => {
+        fitNow();
+        requestAnimationFrame(fitNow);
+      });
+      setTimeout(fitNow, 50);
+      setTimeout(fitNow, 200);
     }
   }
 
@@ -468,6 +576,23 @@ export class TerminalManager {
     const instance = this.terminals.get(id);
     if (instance && instance.element.parentNode) {
       instance.element.parentNode.removeChild(instance.element);
+    }
+  }
+
+  /**
+   * Refit & resync a terminal. `TerminalInstance` calls this on activation
+   * and on ResizeObserver ticks; the missing method was a silent no-op
+   * before and left xterm with stale cols/rows after layout changes.
+   */
+  resize(id: string): void {
+    const instance = this.terminals.get(id);
+    if (!instance) return;
+    try {
+      instance.fitAddon.fit();
+      const { cols, rows } = instance.term;
+      invoke('resize_terminal', { id, cols, rows }).catch(() => {});
+    } catch {
+      /* xterm not yet measured */
     }
   }
 
@@ -529,7 +654,7 @@ export class TerminalManager {
     if (!group) throw new Error('Group not found');
 
     // Create new terminal with same profile
-    const newId = await this.createTerminal(undefined, group.id, instance.cwd);
+    const newId = await this.createTerminal(instance.shell, group.id, instance.cwd);
     
     // Update layout
     group.layout = direction === 'horizontal' ? 'split-horizontal' : 'split-vertical';
@@ -805,14 +930,12 @@ export const terminalManager = new TerminalManager();
 // LEGACY INIT FUNCTION (for App.tsx compatibility)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export const initTerminal = async (addTerminalGroup: (shell: string) => void) => {
-  // Create initial terminal with default profile
+export const initTerminal = async (addTerminalGroup: () => void | Promise<void>) => {
+  // Let the store allocate the canonical `term-*` id and call `createTerminal`
+  // once. A prior bug created one terminal in the manager, then a second in
+  // the store with a mismatched id — the UI attached to nothing (blank pane).
   try {
-    const id = await terminalManager.createTerminal();
-    const instance = terminalManager.getTerminal(id);
-    if (instance) {
-      addTerminalGroup(instance.shell);
-    }
+    await addTerminalGroup();
   } catch (e: any) {
     const msg = e?.message || e?.toString?.() || String(e) || 'unknown error';
     console.warn('[terminal] Failed to create initial terminal:', msg, e);

@@ -5,7 +5,8 @@
  * Powered by Qwen 3.6 local AI
  */
 
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
+import { createSharedOllama } from './shared-ollama';
 
 export type SecurityMode = 'red' | 'blue' | 'purple' | 'passive';
 
@@ -35,7 +36,7 @@ export class AIRISecurityEngine {
   private readonly MODEL = 'qwen3.6:14b-q4_K_M';
 
   constructor() {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' });
+    this.ollama = createSharedOllama();
   }
 
   start(): void {

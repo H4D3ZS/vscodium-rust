@@ -132,8 +132,8 @@ Energy: ${biology.energy}%, Mood: ${biology.mood}
 
     // Ask AIRI to reflect on her own state
     // (Uses the underlying Ollama model directly)
-    const { Ollama } = await import('ollama');
-    const ollama = new Ollama({ host: 'http://localhost:11434' });
+    const { createSharedOllama } = await import('./shared-ollama');
+    const ollama = createSharedOllama();
 
     try {
       const response = await ollama.generate({

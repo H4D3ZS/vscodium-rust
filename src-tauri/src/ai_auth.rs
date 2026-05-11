@@ -283,6 +283,8 @@ pub struct ApiKeys {
     pub xai: Option<String>,
     pub alibaba: Option<String>,
     pub apiradar: Option<String>,
+    /// Bearer token for reverse-proxied Ollama (e.g. nginx + `OLLAMA_BEARER`).
+    pub ollama: Option<String>,
     pub elevenlabs_api_key: Option<String>,
     pub elevenlabs_voice_id: Option<String>,
 }
@@ -312,11 +314,25 @@ pub async fn save_api_keys(
     };
 
     let incoming: ApiKeys = serde_json::from_value(keys).map_err(|e| e.to_string())?;
-    
-    if incoming.openai.is_some() { merged.openai = incoming.openai; }
-    if incoming.anthropic.is_some() { merged.anthropic = incoming.anthropic; }
-    if incoming.google.is_some() { merged.google = incoming.google; }
-    if incoming.elevenlabs_api_key.is_some() { merged.elevenlabs_api_key = incoming.elevenlabs_api_key; }
+
+    // Merge every field declared on ApiKeys. Earlier versions only merged a
+    // hand-picked subset (openai/anthropic/google/ollama/elevenlabs_api_key)
+    // which silently dropped groq, openrouter, the ElevenLabs voice id, and
+    // most other providers — meaning "Save" returned Success while writing
+    // nothing. Keep the explicit list so any future field added to the struct
+    // forces a compile-time decision instead of vanishing.
+    if incoming.openai.is_some()              { merged.openai              = incoming.openai; }
+    if incoming.anthropic.is_some()           { merged.anthropic           = incoming.anthropic; }
+    if incoming.google.is_some()              { merged.google              = incoming.google; }
+    if incoming.groq.is_some()                { merged.groq                = incoming.groq; }
+    if incoming.openrouter.is_some()          { merged.openrouter          = incoming.openrouter; }
+    if incoming.mistral.is_some()             { merged.mistral             = incoming.mistral; }
+    if incoming.xai.is_some()                 { merged.xai                 = incoming.xai; }
+    if incoming.alibaba.is_some()             { merged.alibaba             = incoming.alibaba; }
+    if incoming.apiradar.is_some()            { merged.apiradar            = incoming.apiradar; }
+    if incoming.ollama.is_some()              { merged.ollama              = incoming.ollama; }
+    if incoming.elevenlabs_api_key.is_some()  { merged.elevenlabs_api_key  = incoming.elevenlabs_api_key; }
+    if incoming.elevenlabs_voice_id.is_some() { merged.elevenlabs_voice_id = incoming.elevenlabs_voice_id; }
 
     let content = serde_json::to_string_pretty(&merged).map_err(|e| e.to_string())?;
     std::fs::write(path, content).map_err(|e| e.to_string())?;
@@ -338,6 +354,7 @@ pub async fn save_api_key(
         "anthropic" => keys.anthropic = Some(value),
         "google" => keys.google = Some(value),
         "elevenlabs_api_key" => keys.elevenlabs_api_key = Some(value),
+        "ollama" => keys.ollama = Some(value),
         _ => return Err(format!("Unsupported key: {}", key)),
     }
     let path = state.config_dir.join("api_keys.json");

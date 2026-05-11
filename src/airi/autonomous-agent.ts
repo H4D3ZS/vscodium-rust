@@ -4,7 +4,8 @@
  * Works 24/7, even while you sleep
  */
 
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
+import { createSharedOllama } from './shared-ollama';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -72,7 +73,7 @@ export class AIRIAutonomousAgent {
   private readonly MODEL = 'qwen3.6:14b-q4_K_M';
 
   constructor(workspacePath: string) {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+    this.ollama = createSharedOllama();
     this.workspacePath = workspacePath;
 
   }

@@ -5,7 +5,8 @@
  * Stores knowledge permanently, builds understanding over time
  */
 
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
+import { createSharedOllama } from './shared-ollama';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -62,7 +63,7 @@ export class AIRISelfLearning {
   private isLearning: boolean = false;
 
   constructor(storagePath: string = './.airi/knowledge') {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+    this.ollama = createSharedOllama();
     this.knowledgeBase = new Map();
     this.learningEvents = [];
     this.KNOWLEDGE_PATH = storagePath;

@@ -124,6 +124,96 @@ pub struct AiRequest {
     pub tools: Option<Vec<Value>>,
 }
 
+/// Bare hostnames (`ai.example.com`) are not valid bases for `reqwest` — they become
+/// path segments and trigger `builder error: relative URL without a base`. Only infer
+/// a scheme when the string already looks like a hostname (contains `.` in the host
+/// part, or starts with `localhost`).
+pub fn normalize_ollama_base_url(raw: &str) -> String {
+    let s = raw.trim().trim_end_matches('/');
+    if s.is_empty() {
+        return "http://127.0.0.1:11434".to_string();
+    }
+    if s.starts_with("http://") || s.starts_with("https://") {
+        return s.to_string();
+    }
+    if s.starts_with("//") {
+        return format!("https:{}", s.trim_end_matches('/'));
+    }
+    if !ollama_should_infer_scheme(s) {
+        return s.to_string();
+    }
+    let hostish = s.trim_start_matches('/');
+    let lower = hostish.to_lowercase();
+    let scheme = if ollama_looks_like_loopback_or_lan(&lower) {
+        "http"
+    } else {
+        "https"
+    };
+    format!("{}://{}", scheme, hostish)
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn ollama_should_infer_scheme(s: &str) -> bool {
+    let head = s
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split('?')
+        .next()
+        .unwrap_or("")
+        .trim_start_matches('/');
+    if head.is_empty() {
+        return false;
+    }
+    let lower = head.to_lowercase();
+    if lower.starts_with("localhost") {
+        return true;
+    }
+    // IPv4 / numeric host
+    if head
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+        || head.starts_with('[')
+    {
+        return head.contains('.') || head.contains(':');
+    }
+    if !head.contains('.') {
+        return false;
+    }
+    let labels: Vec<&str> = head.split('.').filter(|p| !p.is_empty()).collect();
+    if labels.len() < 2 {
+        return false;
+    }
+    labels.last().map_or(false, |tld| tld.len() >= 2)
+}
+
+fn ollama_looks_like_loopback_or_lan(lower: &str) -> bool {
+    if lower.starts_with("localhost")
+        || lower.starts_with("127.")
+        || lower.starts_with("0.0.0.0")
+        || lower.starts_with("[::1]")
+    {
+        return true;
+    }
+    if lower.starts_with("192.168.") {
+        return true;
+    }
+    if lower.starts_with("10.") {
+        return true;
+    }
+    if let Some(rest) = lower.strip_prefix("172.") {
+        if let Some((oct2, _)) = rest.split_once('.') {
+            if let Ok(n) = oct2.parse::<u32>() {
+                return (16..=31).contains(&n);
+            }
+        }
+    }
+    false
+}
+
 pub struct Sentient {
     client: Client,
     api_key: String,
@@ -259,8 +349,9 @@ impl Sentient {
     }
 
     pub async fn set_ollama_url(&self, url: String) {
+        let normalized = normalize_ollama_base_url(&url);
         let mut u = self.ollama_url.lock().await;
-        *u = url;
+        *u = normalized;
     }
 
     pub async fn set_advisor_model(&self, model: Option<String>) {
@@ -465,7 +556,7 @@ impl Sentient {
 
         let ollama_url = {
             let u = self.ollama_url.lock().await;
-            u.clone()
+            normalize_ollama_base_url(&u)
         };
 
         let req = AiRequest {
@@ -823,19 +914,167 @@ impl Sentient {
     pub async fn check_ollama_status(&self) -> Result<bool> {
         let url = {
             let u = self.ollama_url.lock().await;
-            u.clone()
+            normalize_ollama_base_url(&u)
         };
-        // Use a 2-second timeout for status check
-        let resp = self
-            .client
-            .get(format!("{}/api/tags", url))
-            .timeout(std::time::Duration::from_secs(2))
+        for path in ["/api/tags", "/v1/api/tags"] {
+            let mut req = self.client.get(format!("{}{}", url, path));
+            let k = self.get_key_for_provider("ollama");
+            if !k.trim().is_empty() {
+                req = req.bearer_auth(k.trim());
+            }
+            match req
+                .timeout(std::time::Duration::from_secs(3))
+                .send()
+                .await
+            {
+                Ok(r) if r.status().is_success() => return Ok(true),
+                Ok(r) if r.status().as_u16() == 404 => continue, // try /v1 fallback
+                Ok(_) | Err(_) => return Ok(false),
+            }
+        }
+        Ok(false)
+    }
+
+    /// Probe the configured Ollama endpoint and report exactly what went wrong
+    /// so the user doesn't have to guess between "wrong URL", "no bearer",
+    /// "nginx returned HTML", "401" or "ollama empty".
+    pub async fn diagnose_ollama(&self) -> serde_json::Value {
+        let url_raw = self.ollama_url.lock().await.clone();
+        let url_trim = normalize_ollama_base_url(&url_raw);
+
+        let bearer = self.get_key_for_provider("ollama");
+        let bearer_configured = !bearer.trim().is_empty();
+
+        // Probe `/api/tags` first (native Ollama). If the reverse proxy only
+        // exposes the OpenAI-compatible `/v1/` surface (the default emitted by
+        // `tools/vps-ollama-proxy/bootstrap.sh` before this patch), retry on
+        // `/v1/api/tags` so the diagnostic and the model list both succeed
+        // even on existing deployments that haven't been re-bootstrapped.
+        let mut endpoint = format!("{}/api/tags", url_trim);
+        let mut fallback_used = false;
+        let mut req = self.client.get(&endpoint);
+        if bearer_configured {
+            req = req.bearer_auth(bearer.trim());
+        }
+        let mut resp = req
+            .timeout(std::time::Duration::from_secs(6))
             .send()
             .await;
 
+        if let Ok(ref r) = resp {
+            if r.status().as_u16() == 404 {
+                let alt = format!("{}/v1/api/tags", url_trim);
+                let mut alt_req = self.client.get(&alt);
+                if bearer_configured {
+                    alt_req = alt_req.bearer_auth(bearer.trim());
+                }
+                if let Ok(alt_resp) = alt_req
+                    .timeout(std::time::Duration::from_secs(6))
+                    .send()
+                    .await
+                {
+                    if alt_resp.status().is_success() {
+                        endpoint = alt;
+                        fallback_used = true;
+                        resp = Ok(alt_resp);
+                    }
+                }
+            }
+        }
+
         match resp {
-            Ok(r) => Ok(r.status().is_success()),
-            Err(_) => Ok(false),
+            Err(e) => {
+                // Transport-level failure (DNS, TLS, connect, timeout).
+                serde_json::json!({
+                    "ok": false,
+                    "url": url_trim,
+                    "endpoint": endpoint,
+                    "bearer_configured": bearer_configured,
+                    "status": null,
+                    "model_count": 0,
+                    "models": serde_json::Value::Array(Vec::new()),
+                    "error_kind": if e.is_timeout() { "timeout" }
+                        else if e.is_connect() { "connect" }
+                        else if e.is_request() { "request" }
+                        else { "transport" },
+                    "error": e.to_string(),
+                    "hint": if e.to_string().contains("relative URL without a base") {
+                        "The Ollama base URL must include a scheme. Try https://your-host (or http:// for localhost / LAN)."
+                    } else if e.is_connect() {
+                        "Cannot reach the URL. Check it resolves, is reachable from this machine, and that the port is open."
+                    } else if e.is_timeout() {
+                        "Reached the host but it didn't respond within 6s. Verify nginx/Ollama is actually running."
+                    } else {
+                        "Transport error before any HTTP status was received (often TLS or invalid URL)."
+                    }
+                })
+            }
+            Ok(r) => {
+                let status = r.status();
+                let status_code = status.as_u16();
+                let content_type = r
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_string();
+                let body = r.text().await.unwrap_or_default();
+                let body_trim = body.trim();
+                let body_preview: String = body_trim.chars().take(400).collect();
+                let body_looks_html = body_trim.starts_with('<')
+                    || content_type.to_lowercase().contains("text/html");
+
+                let parsed: Result<serde_json::Value, _> = serde_json::from_str(&body);
+                let models: Vec<String> = match &parsed {
+                    Ok(v) => v
+                        .get("models")
+                        .and_then(|m| m.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|m| {
+                                    m.get("name").and_then(|n| n.as_str()).map(|s| s.to_string())
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    Err(_) => Vec::new(),
+                };
+
+                let ok = status.is_success() && !models.is_empty();
+                let hint = if !status.is_success() {
+                    match status_code {
+                        401 | 403 => "Server replied with auth failure. The bearer is missing or wrong — paste the same secret you set as OLLAMA_BEARER on nginx, then click Save token.",
+                        404 => "Reached the server but neither /api/tags nor /v1/api/tags is exposed. Add a `location /api/` block to your nginx config (see tools/vps-ollama-proxy/bootstrap.sh).",
+                        502 | 503 | 504 => "Reached nginx but the upstream Ollama is down or unreachable from the proxy. Restart `ollama serve` on the VPS.",
+                        _ => "Server returned a non-2xx status. See the body preview below.",
+                    }
+                } else if body_looks_html {
+                    "Endpoint returned HTML instead of JSON — almost always an nginx misroute or a captive-portal page in front of the proxy."
+                } else if parsed.is_err() {
+                    "Endpoint returned non-JSON. Check that nginx proxies /api/ directly to Ollama with no rewrites."
+                } else if models.is_empty() {
+                    "Connected fine but the server has zero models installed. Run `ollama pull <name>` on the VPS or click Pull New Model here."
+                } else if fallback_used {
+                    "Connected via the /v1/ fallback. Your nginx exposes only the OpenAI-compat surface — IDE will keep working, but to use the native Ollama CLI add a `location /api/` block (see tools/vps-ollama-proxy/bootstrap.sh)."
+                } else {
+                    "Connected. Models discovered."
+                };
+
+                serde_json::json!({
+                    "ok": ok,
+                    "url": url_trim,
+                    "endpoint": endpoint,
+                    "bearer_configured": bearer_configured,
+                    "status": status_code,
+                    "content_type": content_type,
+                    "model_count": models.len(),
+                    "models": models,
+                    "body_preview": body_preview,
+                    "body_looks_html": body_looks_html,
+                    "fallback_used": fallback_used,
+                    "hint": hint,
+                })
+            }
         }
     }
 
@@ -843,22 +1082,32 @@ impl Sentient {
     pub async fn pull_model(&self, name: &str) -> Result<()> {
         let url = {
             let u = self.ollama_url.lock().await;
-            u.clone()
+            normalize_ollama_base_url(&u)
         };
 
         let payload = json!({ "name": name, "stream": false });
-        let resp = self
-            .client
-            .post(format!("{}/api/pull", url))
-            .json(&payload)
-            .send()
-            .await?;
-
-        if resp.status().is_success() {
-            Ok(())
-        } else {
-            Err(anyhow!("Failed to pull model: {}", resp.status()))
+        let key = self.get_key_for_provider("ollama");
+        let bearer = key.trim();
+        for path in ["/api/pull", "/v1/api/pull"] {
+            let mut req = self
+                .client
+                .post(format!("{}{}", url, path))
+                .json(&payload);
+            if !bearer.is_empty() {
+                req = req.bearer_auth(bearer);
+            }
+            let resp = req.send().await?;
+            if resp.status().is_success() {
+                return Ok(());
+            }
+            if resp.status().as_u16() != 404 {
+                return Err(anyhow!("Failed to pull model: {}", resp.status()));
+            }
         }
+        Err(anyhow!(
+            "Failed to pull model: neither /api/pull nor /v1/api/pull is exposed on {}",
+            url
+        ))
     }
 
 
@@ -1030,12 +1279,19 @@ impl Sentient {
         let mut phase_files_written: Vec<String> = Vec::new();
         // Trigger Phase-Wrap every N iterations to compress context → .aim.
         // Local/Ollama models have small context windows — wrap aggressively to prevent truncation.
+        // Phase-Wrap cadence. Wrapping every 3 iterations on small Ollama models
+        // was catastrophic — it dropped the model into "[system, gist, mission]"
+        // before it ever finished a single tool chain, which is why local tunes
+        // (abliterated, neuraldevil, etc.) started emitting LaTeX letter-spam
+        // and looping. Bumping the floor keeps a real working window.
         let phase_wrap_every: u32 = {
             let m = req.model.to_lowercase();
             if is_ollama_provider {
-                if Self::is_small_model_name(&m) { 3 } else { 5 }
+                if Self::is_small_model_name(&m) { 12 } else { 18 }
+            } else if Self::is_small_model_name(&m) {
+                12
             } else {
-                if Self::is_small_model_name(&m) { 6 } else { 12 }
+                24
             }
         };
 
@@ -1932,7 +2188,10 @@ impl Sentient {
                 // Already handled in URL key param, but some proxies might like the header too
                 request = request.header("x-goog-api-key", &provider_key);
             } else if active_provider.to_lowercase() == "ollama" {
-                // No auth for local Ollama
+                let k = self.get_key_for_provider("ollama");
+                if !k.trim().is_empty() {
+                    request = request.bearer_auth(k.trim());
+                }
             } else {
                 request = request.bearer_auth(&provider_key);
             }
@@ -2976,22 +3235,60 @@ impl Sentient {
         }
 
         if provider.to_lowercase() == "ollama" {
-            let base = self.ollama_url.lock().await.clone();
-            let base = base.trim_end_matches('/');
-            let endpoint = format!("{}/api/tags", base);
-            let resp = self.client.get(endpoint).send().await?;
-            let json: Value = resp.json().await?;
-            
-            let mut model_names = Vec::new();
-            if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
-                for m in models {
-                    if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
-                        model_names.push(name.to_string());
+            let base = {
+                let u = self.ollama_url.lock().await;
+                normalize_ollama_base_url(&u)
+            };
+            // Try native `/api/tags`; if the proxy only exposes /v1/, retry
+            // through `/v1/api/tags` which `tools/vps-ollama-proxy` rewrites
+            // back to `/api/tags` upstream.
+            let key = self.get_key_for_provider("ollama");
+            let bearer = key.trim();
+            let mut last_err: Option<String> = None;
+            for path in ["/api/tags", "/v1/api/tags"] {
+                let url = format!("{}{}", base, path);
+                let mut req = self.client.get(&url);
+                if !bearer.is_empty() {
+                    req = req.bearer_auth(bearer);
+                }
+                match req.send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        let json: Value = resp.json().await?;
+                        let mut model_names = Vec::new();
+                        if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
+                            for m in models {
+                                if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
+                                    model_names.push(name.to_string());
+                                }
+                            }
+                        }
+                        return Ok(model_names);
+                    }
+                    Ok(resp) if resp.status().as_u16() == 404 => {
+                        last_err = Some(format!("{} returned 404", url));
+                        continue;
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let body = resp.text().await.unwrap_or_default();
+                        return Err(anyhow!(
+                            "Ollama list_models {} -> {}: {}",
+                            url,
+                            status,
+                            body.chars().take(200).collect::<String>()
+                        ));
+                    }
+                    Err(e) => {
+                        last_err = Some(e.to_string());
+                        continue;
                     }
                 }
             }
-            
-            return Ok(model_names);
+            return Err(anyhow!(
+                "Ollama list_models: neither /api/tags nor /v1/api/tags reachable on {} ({})",
+                base,
+                last_err.unwrap_or_default()
+            ));
         }
 
         let endpoint = match provider.to_lowercase().as_str() {
@@ -3312,11 +3609,11 @@ impl Sentient {
             }
             "antigravity" => "http://127.0.0.1:1536/v1/chat/completions".to_string(),
             "ollama" => {
-                let base = req
-                    .ollama_url
-                    .clone()
-                    .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
-                let base = base.trim_end_matches('/');
+                let base = normalize_ollama_base_url(
+                    &req.ollama_url
+                        .clone()
+                        .unwrap_or_else(|| "http://127.0.0.1:11434".to_string()),
+                );
                 format!("{}/v1/chat/completions", base)
             }
             _ => "https://api.openai.com/v1/chat/completions".to_string(),

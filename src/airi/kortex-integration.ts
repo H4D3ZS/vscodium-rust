@@ -101,8 +101,16 @@ export class AIRIKortexIntegration {
             const hours = Math.floor(timeDiff / (1000 * 60 * 60));
             
 
-            // Restore emotional state
-            airiConsciousness.restoreFromGist(this.state.gistToken);
+            // Restore emotional state (optional — older builds of AIRI
+            // consciousness don't expose `restoreFromGist`; just skip then).
+            const restore = (airiConsciousness as any)?.restoreFromGist;
+            if (typeof restore === 'function') {
+                try {
+                    restore.call(airiConsciousness, this.state.gistToken);
+                } catch (e) {
+                    console.warn('[AIRI-Kortex] restoreFromGist threw:', e);
+                }
+            }
 
         } catch (error: any) {
             const msg = String(error?.message || error || '');

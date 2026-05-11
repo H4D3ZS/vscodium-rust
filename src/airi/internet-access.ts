@@ -4,7 +4,8 @@
  * Reads, searches, downloads, learns from the entire web
  */
 
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
+import { createSharedOllama } from './shared-ollama';
 import * as https from 'https';
 import * as http from 'http';
 
@@ -40,7 +41,7 @@ export class AIRIInternetAccess {
   private knowledgeGoals: string[] = [];
 
   constructor() {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+    this.ollama = createSharedOllama();
     this.browsingHistory = [];
     this.searchHistory = [];
 

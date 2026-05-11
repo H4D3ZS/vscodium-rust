@@ -157,8 +157,8 @@ export class AIRISurgicalEditor {
     errorMessage: string,
     context: string
   ): Promise<{ search: string; replace: string; description: string }> {
-    const { Ollama } = await import('ollama');
-    const ollama = new Ollama({ host: 'http://localhost:11434' });
+    const { createSharedOllama } = await import('./shared-ollama');
+    const ollama = createSharedOllama();
 
     const prompt = `Fix the Rust compiler error using EXACT SEARCH/REPLACE.
 

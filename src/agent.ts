@@ -1,6 +1,6 @@
 import { invoke, listen } from './tauri_bridge.ts';
 import { browserOpen, browserNavigate, browserScreenshot, browserClose } from './browser.ts';
-import { useStore } from './store.ts';
+import { useStore, normalizeOllamaUrl } from './store.ts';
 import { TaskManager, SubAgentManager } from './task_manager.ts';
 import type { PendingChange } from './store.ts';
 import {
@@ -471,7 +471,7 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
 
     // Add local Ollama manual check if no models found (fallback)
     if (!items.find(i => i.value.startsWith("Ollama"))) {
-        items.push({ label: "🛠️ Check Ollama (Local)", value: "action|check_ollama", desc: "Scan for local models on http://localhost:1536" });
+        items.push({ label: "🛠️ Check Ollama", value: "action|check_ollama", desc: "Re-scan models on the configured Ollama URL (Settings → AI Agent Settings)" });
     }
 
     // Always offer Hunting/Settings if list is low or empty
@@ -1144,23 +1144,63 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
 
     // Fast failure when a local endpoint is completely unreachable — better UX
     // than a generic Rust transport error.
-    if (inferenceBackend === 'ollama' || inferenceBackend === 'llama-cpp') {
-        const base = (inferenceBackend === 'llama-cpp' ? routingOllamaUrl : store.getState().ollamaUrl || '').replace(/\/$/, '');
+    // Ollama: use Tauri (reqwest + Bearer + /v1 fallbacks). Renderer `fetch` hits CORS
+    // on locked-down proxies and never sends the stored API key.
+    if (inferenceBackend === 'ollama') {
+        const raw = store.getState().ollamaUrl?.trim() || 'http://localhost:11434';
+        let base: string;
+        try {
+            base = normalizeOllamaUrl(raw);
+        } catch {
+            store.getState().setIsAgentThinking(false);
+            store.getState().updateLastAgentMessage(
+                '**Inference endpoint offline**\n\nInvalid Ollama URL in **Settings → Ollama Integration**.',
+            );
+            setAiStatus('dead');
+            return;
+        }
+        try {
+            await invoke('set_ollama_url', { url: base });
+        } catch {
+            /* best-effort sync with Rust */
+        }
+        try {
+            const models = await invoke<string[]>('list_provider_models', { provider: 'ollama' });
+            if (!models || models.length === 0) {
+                store.getState().setIsAgentThinking(false);
+                store.getState().updateLastAgentMessage(
+                    `**Inference endpoint offline**\n\nOllama at ${base} returned no models. Pull a model or check your proxy.`,
+                );
+                setAiStatus('dead');
+                return;
+            }
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            store.getState().setIsAgentThinking(false);
+            store.getState().updateLastAgentMessage(
+                `**Inference endpoint offline**\n\nCannot reach Ollama at ${base} (${msg}). Start **Ollama Desktop**, fix the URL under **Settings → Ollama Integration**, or set an **Ollama API key** if your proxy requires Bearer auth.`,
+            );
+            setAiStatus('dead');
+            return;
+        }
+    } else if (inferenceBackend === 'llama-cpp') {
+        const base = (routingOllamaUrl || '').replace(/\/$/, '');
         if (base) {
-            const probes = inferenceBackend === 'llama-cpp'
-                ? [`${base}/health`, `${base}/v1/models`]
-                : [`${base}/api/tags`];
+            const probes = [`${base}/health`, `${base}/v1/models`];
             let ok = false;
             for (const u of probes) {
                 try {
                     const r = await fetch(u, { signal: AbortSignal.timeout(4000) });
-                    if (r.ok) { ok = true; break; }
-                } catch { /* try next */ }
+                    if (r.ok) {
+                        ok = true;
+                        break;
+                    }
+                } catch {
+                    /* try next */
+                }
             }
             if (!ok) {
-                const hint = inferenceBackend === 'llama-cpp'
-                    ? `Cannot reach llama-server/Kortex at ${base}. Open **Settings → Local Inference (Kortex)** and click **Start Kortex stack**, or set **llama.cpp URL** to a running server (include KDKVC proxy port if you use disk KV cache).`
-                    : `Cannot reach Ollama at ${base}. Start **Ollama Desktop** or fix the URL under **Settings → Ollama Integration**.`;
+                const hint = `Cannot reach llama-server/Kortex at ${base}. Open **Settings → Local Inference (Kortex)** and click **Start Kortex stack**, or set **llama.cpp URL** to a running server (include KDKVC proxy port if you use disk KV cache).`;
                 store.getState().setIsAgentThinking(false);
                 store.getState().updateLastAgentMessage(`**Inference endpoint offline**\n\n${hint}`);
                 setAiStatus('dead');

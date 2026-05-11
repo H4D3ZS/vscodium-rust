@@ -5,7 +5,8 @@
  * No human interference needed - she understands, plans, develops
  */
 
-import { Ollama } from 'ollama';
+import type { Ollama } from 'ollama';
+import { createSharedOllama } from './shared-ollama';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -72,7 +73,7 @@ export class AIRIAutonomousDevelopment {
   private isWorking: boolean = false;
 
   constructor(workspacePath: string) {
-    this.ollama = new Ollama({ host: 'http://localhost:11434' }); // AIM proxy
+    this.ollama = createSharedOllama();
     this.goals = [];
     this.activeGoal = null;
     this.workspacePath = workspacePath;

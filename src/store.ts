@@ -2,8 +2,54 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { computeDiffBlocks, patchContentSelective } from './services/DiffService';
-import { terminalManager, getVSCodeTheme } from './terminal';
+import { terminalManager } from './terminal';
 import { initTheme } from './theme_engine';
+
+/** Bare hostnames break reqwest in Rust; infer https for public FQDNs, http for localhost/LAN. */
+function ollamaShouldInferScheme(s: string): boolean {
+    const head = (s.split('/')[0].split('?')[0] || '').replace(/^\/+/, '');
+    if (!head) return false;
+    const lower = head.toLowerCase();
+    if (lower.startsWith('localhost')) return true;
+    const first = head.charCodeAt(0);
+    if ((first >= 48 && first <= 57) || head.startsWith('[')) {
+        return head.includes('.') || head.includes(':');
+    }
+    if (!head.includes('.')) return false;
+    const labels = head.split('.').filter(Boolean);
+    if (labels.length < 2) return false;
+    const tld = labels[labels.length - 1] || '';
+    return tld.length >= 2;
+}
+
+export function normalizeOllamaUrl(raw: string): string {
+    const s = raw.trim().replace(/\/+$/, '');
+    if (!s) return 'http://127.0.0.1:11434';
+    if (/^https?:\/\//i.test(s)) return s;
+    if (s.startsWith('//')) return `https:${s}`.replace(/\/+$/, '');
+    if (!ollamaShouldInferScheme(s)) return s;
+    const hostish = s.replace(/^\/+/, '');
+    const lower = hostish.toLowerCase();
+    const useHttp =
+        lower.startsWith('localhost') ||
+        lower.startsWith('127.') ||
+        lower.startsWith('0.0.0.0') ||
+        lower.startsWith('[::1]') ||
+        /^192\.168\.\d+\.\d+/.test(lower) ||
+        /^10\.\d+\.\d+\.\d+/.test(lower) ||
+        /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+/.test(lower);
+    const scheme = useHttp ? 'http' : 'https';
+    return `${scheme}://${hostish}`.replace(/\/+$/, '');
+}
+
+function readStoredOllamaUrl(): string {
+    try {
+        if (typeof localStorage === 'undefined') return 'http://localhost:11434';
+        return localStorage.getItem('ollamaUrl') || 'http://localhost:11434';
+    } catch {
+        return 'http://localhost:11434';
+    }
+}
 
 interface EditorTab {
     id: string;
@@ -334,7 +380,7 @@ interface AppState {
     setLlamaCppNgl: (ngl: number) => void;
     setLlamaCppHadesEnabled: (enabled: boolean) => void;
     checkLlamaCppStatus: () => Promise<void>;
-    openSettings: () => void;
+    openSettings: (tab?: 'user' | 'workspace' | 'agent') => void;
     setProjectMemory: (content: string, files?: string[]) => void;
     
     // Dev Workflow Actions
@@ -570,7 +616,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     
     // Default to local Ollama. Users can switch to a hosted endpoint from the
     // settings UI; we no longer pin a dead cloud host here.
-    ollamaUrl: (typeof localStorage !== 'undefined' && localStorage.getItem('ollamaUrl')) || 'http://localhost:11434',
+    ollamaUrl: normalizeOllamaUrl(readStoredOllamaUrl()),
     isPullingModel: false,
     pullProgress: 0,
     pendingChanges: [],
@@ -809,18 +855,36 @@ const storeImplementation: any = (set: any, get: any) => ({
         });
     },
     setOllamaUrl: (url: string) => {
-        set({ ollamaUrl: url });
-        invoke('set_ollama_url', { url }).catch(console.error);
+        const normalized = normalizeOllamaUrl(url);
+        set({ ollamaUrl: normalized });
+        try {
+            localStorage.setItem('ollamaUrl', normalized);
+        } catch {
+            /* quota / private mode / Tracking Prevention */
+        }
+        invoke('set_ollama_url', { url: normalized }).catch(console.error);
     },
     setOllamaConnectionMode: (mode: 'proxy' | 'direct') => {
         // Honour an existing override (e.g. typed by the user) before falling
         // back to the local default. The legacy hardcoded cloud endpoint went
         // offline and timing it out on every settings toggle is no help.
-        const existing = (typeof localStorage !== 'undefined' && localStorage.getItem('ollamaUrl')) || '';
-        const url = existing && /^https?:/.test(existing) ? existing : 'http://localhost:11434';
+        let fromLs = '';
+        try {
+            fromLs = typeof localStorage !== 'undefined' ? (localStorage.getItem('ollamaUrl') || '') : '';
+        } catch {
+            /* Tracking Prevention blocks storage in some Edge profiles */
+        }
+        const fromStore = get().ollamaUrl || '';
+        const merged = (fromLs || fromStore || '').trim();
+        const url = normalizeOllamaUrl(merged || 'http://localhost:11434');
         set({ ollamaConnectionMode: mode, ollamaUrl: url });
         invoke('set_ollama_url', { url }).catch(console.error);
-        localStorage.setItem('ollamaConnectionMode', mode);
+        try {
+            localStorage.setItem('ollamaConnectionMode', mode);
+            localStorage.setItem('ollamaUrl', url);
+        } catch {
+            /* quota / private mode / Tracking Prevention */
+        }
     },
     setDevWorkflowActive: (active: boolean) => {
         set({ isDevWorkflowActive: active });
@@ -1033,14 +1097,25 @@ const storeImplementation: any = (set: any, get: any) => ({
         }
     },
 
-    openSettings: () => {
+    openSettings: (tab?: 'user' | 'workspace' | 'agent') => {
+        // Stash the requested initial tab so SettingsPage can read it as it
+        // mounts (or re-mounts when the user returns to the existing tab).
+        try {
+            if (tab) sessionStorage.setItem('settings.initialTab', tab);
+        } catch { /* sessionStorage unavailable */ }
+        try {
+            // Broadcast for the case where the Settings tab is already open
+            // and we just want it to switch its inner section.
+            window.dispatchEvent(new CustomEvent('settings:focus-tab', { detail: { tab } }));
+        } catch { /* no-op */ }
+
         const settingsTab = get().tabs.find(t => t.type === 'settings');
         if (settingsTab) {
             set({ activeTabId: settingsTab.id });
             return;
         }
         const id = 'settings-tab';
-        const tab: EditorTab = {
+        const newTab: EditorTab = {
             id,
             filename: 'Settings',
             path: 'vscode://settings',
@@ -1049,7 +1124,7 @@ const storeImplementation: any = (set: any, get: any) => ({
             language: '',
             type: 'settings'
         };
-        set((state) => ({ tabs: [...state.tabs, tab], activeTabId: id }));
+        set((state) => ({ tabs: [...state.tabs, newTab], activeTabId: id }));
     },
 
     // Backend Actions
@@ -1094,9 +1169,15 @@ const storeImplementation: any = (set: any, get: any) => ({
                         // Use whatever Ollama URL the store already has (set by
                         // the user / persisted in localStorage). Falling back
                         // to the dead community cloud endpoint just spams 404s.
-                        const ollamaToUse = get().ollamaUrl || 'http://localhost:11434';
+                        const raw = get().ollamaUrl || 'http://localhost:11434';
+                        const ollamaToUse = normalizeOllamaUrl(raw);
                         await invoke('set_ollama_url', { url: ollamaToUse });
                         set({ ollamaUrl: ollamaToUse });
+                        try {
+                            localStorage.setItem('ollamaUrl', ollamaToUse);
+                        } catch {
+                            /* Tracking Prevention / private mode */
+                        }
                         const isLocal = /localhost|127\.|0\.0\.0\.0/.test(ollamaToUse);
                         set({
                             ollamaConnectionMode: 'direct',
@@ -1734,8 +1815,11 @@ const storeImplementation: any = (set: any, get: any) => ({
         const instanceId = `term-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
         const name = shell ? shell.split(/[\\/]/).pop() || 'shell' : 'terminal';
 
-        // Create the terminal instance in the manager
-        await terminalManager.createTerminal(shell, getVSCodeTheme(), instanceId);
+        // Pass explicit id so React `TerminalInstance` and PTY `spawn_terminal`
+        // use the same key. (Previously `getVSCodeTheme()` was passed as
+        // `groupId` and the store id as `cwd`, so the manager created `term-1`
+        // while the UI looked up `term-<timestamp>-…` → blank terminal.)
+        await terminalManager.createTerminal(shell || undefined, undefined, undefined, instanceId);
 
         const newGroup: TerminalGroup = {
             id,
@@ -1758,11 +1842,10 @@ const storeImplementation: any = (set: any, get: any) => ({
         const newInstanceId = `term-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
 
         // Get shell of current instance if possible
-        const currentInstance = terminalManager.terminals.get(instanceId);
+        const currentInstance = terminalManager.getTerminal(instanceId);
         const shell = currentInstance?.shell;
 
-        // Create the terminal instance in the manager
-        await terminalManager.createTerminal(shell, getVSCodeTheme(), newInstanceId);
+        await terminalManager.createTerminal(shell, undefined, undefined, newInstanceId);
 
         set((state) => {
             const groups = state.terminalGroups.map(g => {
@@ -2129,8 +2212,19 @@ if (typeof window !== 'undefined') {
         }
     });
 
+    // KAIROS fires suggestions on every idle tick — logging each one floods
+    // the console. Keep the log but throttle to once per minute, and skip
+    // entirely unless localStorage.kairos.debug is enabled.
+    let _kairosLastLog = 0;
     listen('kairos://suggestion', (event: any) => {
-        console.log('[KAIROS] Suggestion received:', event.payload);
+        const debugOn = (() => {
+            try { return localStorage.getItem('kairos.debug') === '1'; } catch { return false; }
+        })();
+        const now = Date.now();
+        if (debugOn && now - _kairosLastLog > 60_000) {
+            _kairosLastLog = now;
+            console.log('[KAIROS] Suggestion received (throttled, 1/min):', event.payload);
+        }
         const state = useStore.getState() as any;
         state.addKairosSuggestion(event.payload);
     });
