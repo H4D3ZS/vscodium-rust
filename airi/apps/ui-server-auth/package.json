@@ -42,7 +42,7 @@
     "nprogress": "^0.2.0",
     "pinia": "^3.0.4",
     "posthog-js": "catalog:",
-    "uuid": "^13.0.0",
+    "uuid": "^14.0.0",
     "vaul-vue": "^0.4.1",
     "vue": "catalog:",
     "vue-i18n": "^11.3.2",
