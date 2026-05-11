@@ -1211,12 +1211,25 @@ export async function handleToolCall(toolName: string, toolArgs: any): Promise<s
 
     const result = await executeToolCall(toolCall, ctx);
 
-    // Update step status
+    // Update step status — reflect real failures (Rust tools often return JSON with status: "error")
     if (store) {
         const currentSteps = store.getState().agentSteps || [];
         const lastStep = currentSteps[currentSteps.length - 1];
         if (lastStep && lastStep.name === toolName) {
-            lastStep.status = 'success';
+            let ok =
+                !result.content.startsWith('Error:') &&
+                !result.content.startsWith('Tool execution error:');
+            if (ok) {
+                try {
+                    const j = JSON.parse(result.content) as { status?: string; success?: boolean };
+                    if (j && (j.status === 'error' || j.status === 'blocked' || j.success === false)) {
+                        ok = false;
+                    }
+                } catch {
+                    /* plain text */
+                }
+            }
+            lastStep.status = ok ? 'success' : 'error';
             lastStep.result = result.content.slice(0, 200);
             store.getState().setAgentSteps?.([...currentSteps]);
         }

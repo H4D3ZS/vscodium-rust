@@ -114,7 +114,7 @@ const MODE_INSTRUCTIONS: Record<string, string> = {
 - If you only describe an action in prose, you have FAILED the task.
 
 ## FILE OPERATIONS (autonomous, no permission needed):
-- READ file: view_file(path) / file_read(path) — ALWAYS read before editing.
+- READ file: view_file(path) / file_read(path) — ALWAYS read before editing. **view_file reads live disk** (never a stale cache).
 - CREATE/OVERWRITE file: write_to_file(path, content) / file_write(path, content) — creates parent dirs automatically. Write COMPLETE content.
 - SURGICAL edit: search_replace_edit(path, search, replace) / file_edit(path, old_string, new_string) — exact match.
 - LINE-RANGE edit: replace_file_content(path, StartLine, EndLine, ReplacementContent)

@@ -333,7 +333,32 @@ const RightSidebar: React.FC = () => {
             }).then(u => subs.push(u));
             listen<any>('ai-tool-result', (e) => {
                 const name = e.payload?.name;
-                setLiveToolCalls(prev => prev.map(a => a.tool === name && a.status === 'running' ? { ...a, status: 'done' } : a));
+                const raw = e.payload?.result ?? '';
+                const rs = typeof raw === 'string' ? raw : JSON.stringify(raw);
+                let failed = rs.startsWith('Error:') || rs.startsWith('Tool execution error:');
+                if (!failed) {
+                    try {
+                        const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                        if (j && (j.status === 'error' || j.status === 'blocked' || j.success === false)) {
+                            failed = true;
+                        }
+                    } catch {
+                        if (rs.includes('"status":"error"') || rs.includes('"status":"blocked"')) {
+                            failed = true;
+                        }
+                    }
+                }
+                setLiveToolCalls(prev =>
+                    prev.map(a =>
+                        a.tool === name && a.status === 'running'
+                            ? {
+                                ...a,
+                                status: failed ? ('error' as const) : ('done' as const),
+                                detail: rs.slice(0, 120),
+                            }
+                            : a
+                    )
+                );
             }).then(u => subs.push(u));
         });
         return () => subs.forEach(u => u());
@@ -1408,6 +1433,7 @@ const RightSidebar: React.FC = () => {
                                         if (last && last.tool === tc.tool) {
                                             last.count++;
                                             if (tc.status === 'running') last.status = 'running';
+                                            else if (tc.status === 'error') last.status = 'error';
                                         } else {
                                             deduped.push({ ...tc, count: 1 });
                                         }

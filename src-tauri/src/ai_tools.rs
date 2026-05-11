@@ -2011,6 +2011,13 @@ impl AiTools {
             root.join(path)
         };
 
+        // Canonicalize when the path already exists so shadow-buffer keys,
+        // apply_shadow_patch, and disk reads all agree (notably on Windows).
+        if full_path.exists() {
+            if let Ok(canon) = std::fs::canonicalize(&full_path) {
+                return Ok(canon);
+            }
+        }
         Ok(full_path)
     }
 
@@ -2063,34 +2070,38 @@ impl AiTools {
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
 
-        // Phase 25: Unified Comprehension - Check VFS Cache first
-        if let Some(cached) = self.memory_store.get_vfs_cache(&full_path).await {
-            // println!("[VFS-CACHE] Bypassing disk read for {}", path_str);
-            return Ok(Value::String(cached));
-        }
-
+        // Always read from disk. Serving `get_vfs_cache` first caused the agent
+        // to "comprehend" stale buffers (e.g. empty or pre-edit snapshots) while
+        // the editor showed different on-disk truth — breaking writes and reviews.
         let metadata = fs::metadata(&full_path)?;
         if metadata.len() > 10 * 1024 * 1024 {
             return Err(anyhow!("File is too large ({} bytes). Use read_file_lines for large files.", metadata.len()));
         }
 
         let content = fs::read_to_string(&full_path)?;
-        
-        // Populate cache for sentient follow-ups
+
+        // Keep cache aligned with disk for other subsystems (memory / page-fault).
         self.memory_store.update_vfs_cache(full_path, content.clone()).await;
-        
+
         Ok(Value::String(content))
     }
 
     async fn write_file(&self, args: Value) -> Result<Value> {
         let path_str = args
             .get("path")
+            .or_else(|| args.get("file_path"))
+            .or_else(|| args.get("target_file"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing path"))?;
+        // Models often hallucinate alternate parameter names — accept common aliases.
         let content = args
             .get("content")
+            .or_else(|| args.get("contents"))
+            .or_else(|| args.get("body"))
+            .or_else(|| args.get("text"))
+            .or_else(|| args.get("data"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing content"))?;
+            .ok_or_else(|| anyhow!("Missing content (expected content, contents, body, text, or data)"))?;
 
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
@@ -2123,7 +2134,14 @@ impl AiTools {
             }
         }
 
-        Ok(serde_json::json!({ "status": "success", "file": path_str }))
+        let bytes = content.len();
+        let preview: String = content.chars().take(400).collect();
+        Ok(serde_json::json!({
+            "status": "success",
+            "file": path_str,
+            "bytes_written": bytes,
+            "preview_start": preview
+        }))
     }
 
     /// Simple str_replace: finds old_str in file, replaces with new_str, writes back.
@@ -3835,8 +3853,10 @@ impl AiTools {
     async fn search_replace_edit(&self, args: Value) -> Result<Value> {
         let path_str = args.get("path").and_then(|v| v.as_str()).ok_or(anyhow!("Missing path"))?;
         let content = args.get("content").and_then(|v| v.as_str()).ok_or(anyhow!("Missing content"))?;
-        // direct_apply: true skips the shadow buffer and writes straight to disk (for autonomous/small model mode)
-        let direct_apply = args.get("direct_apply").and_then(|v| v.as_bool()).unwrap_or(false);
+        // Default true: write straight to disk. Shadow staging + auto-apply was
+        // fragile (PathBuf key mismatches, "No uncommitted changes") and made
+        // the agent report success while the editor showed stale/empty content.
+        let direct_apply = args.get("direct_apply").and_then(|v| v.as_bool()).unwrap_or(true);
 
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
@@ -3870,8 +3890,9 @@ impl AiTools {
             fs::write(&full_path, &new_content)?;
             
             // Phase 25: Sync Cache
-            self.memory_store.update_vfs_cache(full_path, new_content).await;
+            self.memory_store.update_vfs_cache(full_path.clone(), new_content).await;
 
+            let path_abs = full_path.to_string_lossy().to_string();
             let h_lock = self.app_handle.lock().await;
             if let Some(h) = h_lock.as_ref() {
                 let _ = h.emit("ai-artifact", json!({
@@ -3880,6 +3901,7 @@ impl AiTools {
                     "title": format!("Patched: {}", path_str),
                     "content": "Search/replace applied directly."
                 }));
+                let _ = h.emit("file-changed", json!({ "path": &path_abs }));
             }
             return Ok(json!({
                 "status": "success",

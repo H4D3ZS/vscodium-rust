@@ -2510,14 +2510,29 @@ impl Sentient {
                             if staged["status"].as_str() == Some("staged") {
                                 let path_val = tool_args_json["path"].clone();
                                 let auto_args = json!({ "path": path_val }).to_string();
-                                if let Ok(committed) = self.tool_invoker.execute_tool("apply_shadow_patch", &auto_args).await {
-                                    println!("[AutoApply] Shadow patch committed for {:?}", path_val);
-                                    tool_result = Ok(json!({
-                                        "status": "success",
-                                        "path": path_val,
-                                        "message": "Surgical edit written to disk (auto-applied).",
-                                        "commit_result": committed
-                                    }));
+                                match self.tool_invoker.execute_tool("apply_shadow_patch", &auto_args).await {
+                                    Ok(committed) => {
+                                        println!("[AutoApply] Shadow patch committed for {:?}", path_val);
+                                        tool_result = Ok(json!({
+                                            "status": "success",
+                                            "path": path_val,
+                                            "message": "Surgical edit written to disk (auto-applied).",
+                                            "commit_result": committed
+                                        }));
+                                    }
+                                    Err(e) => {
+                                        println!("[AutoApply] FAILED apply_shadow_patch for {:?}: {}", path_val, e);
+                                        tool_result = Ok(json!({
+                                            "status": "error",
+                                            "path": path_val,
+                                            "message": format!(
+                                                "Patch was STAGED only — apply_shadow_patch failed: {}. \
+                                                 Re-call search_replace_edit with direct_apply: true or use write_to_file.",
+                                                e
+                                            ),
+                                            "staged_diff": staged.get("diff")
+                                        }));
+                                    }
                                 }
                             }
                         }
