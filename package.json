@@ -55,5 +55,14 @@
     "remark-gfm": "^4.0.1",
     "three": "^0.183.2",
     "zustand": "^5.0.11"
+  },
+  "overrides": {
+    "dompurify": "^3.4.2",
+    "monaco-editor": {
+      "dompurify": "^3.4.2"
+    },
+    "@monaco-editor/react": {
+      "dompurify": "^3.4.2"
+    }
   }
 }

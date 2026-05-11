@@ -9,7 +9,10 @@ export default defineConfig({
       react(),
       nodePolyfills({
         protocolImports: true,
-        include: ['path', 'http', 'https', 'events', 'os', 'crypto', 'buffer', 'stream', 'util'],
+        // 'crypto' intentionally omitted — it drags in `elliptic` which has an
+        // open low-severity CVE (GHSA-848j-6mx2-7j84) with no upstream fix yet.
+        // No source file imports `crypto`; browser-side code uses WebCrypto.
+        include: ['path', 'http', 'https', 'events', 'os', 'buffer', 'stream', 'util'],
       }),
     ],
     resolve: {
