@@ -14,6 +14,7 @@ import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, g
 import AiriConversation from './AiriConversation';
 import OllamaProgressBar from './OllamaProgressBar';
 import EmulatorPanel from './EmulatorPanel';
+import { formatTps } from '../kortex/throughput';
 
 /**
  * Strips raw tool-call JSON/XML from AI content so the user sees only
@@ -121,6 +122,7 @@ const RightSidebar: React.FC = () => {
     const isOpen = useStore(state => state.isRightSidebarOpen);
     const toggle = useStore(state => state.toggleRightSidebar);
     const aiStatus = useStore(state => state.aiStatus || 'idle');
+    const kortexTelemetry = useStore(state => state.kortexTelemetry);
     const [view, setView] = useState<'chat' | 'history' | 'settings' | 'dashboard' | 'research' | 'context' | 'kortex'>('chat');
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mode = useStore(state => state.agentMode);
@@ -970,6 +972,39 @@ const RightSidebar: React.FC = () => {
                             )}
                             {!isAgentThinking && !isAttaching && (
                                 <span style={{ fontSize: '9px', opacity: 0.3, textTransform: 'uppercase' }}>{aiStatus}</span>
+                            )}
+                            {kortexTelemetry && kortexTelemetry.current_tps > 0 && (
+                                <span
+                                    title={
+                                        `Avg ${kortexTelemetry.avg_tps.toFixed(1)} tok/s over ${kortexTelemetry.sample_size} requests` +
+                                        (kortexTelemetry.last_prefill_ms > 0
+                                            ? `\nLast TTFT: ${kortexTelemetry.last_prefill_ms} ms`
+                                            : '') +
+                                        (kortexTelemetry.cache_hit_rate > 0
+                                            ? `\nKV cache hit rate: ${(kortexTelemetry.cache_hit_rate * 100).toFixed(0)}%`
+                                            : '') +
+                                        (kortexTelemetry.last_model_id
+                                            ? `\nModel: ${kortexTelemetry.last_model_id}`
+                                            : '')
+                                    }
+                                    style={{
+                                        marginLeft: 6,
+                                        fontSize: '9px',
+                                        fontWeight: 700,
+                                        letterSpacing: '0.04em',
+                                        padding: '1px 5px',
+                                        borderRadius: '5px',
+                                        background: kortexTelemetry.last_cache_hit
+                                            ? 'rgba(168,85,247,0.18)'
+                                            : 'rgba(74,222,128,0.15)',
+                                        color: kortexTelemetry.last_cache_hit ? '#c084fc' : '#4ade80',
+                                        border: `1px solid ${kortexTelemetry.last_cache_hit ? 'rgba(168,85,247,0.35)' : 'rgba(74,222,128,0.3)'}`,
+                                        fontVariantNumeric: 'tabular-nums',
+                                    }}
+                                >
+                                    {formatTps(kortexTelemetry.current_tps)}
+                                    {kortexTelemetry.last_cache_hit ? ' ⚡' : ''}
+                                </span>
                             )}
                         </div>
                     </div>

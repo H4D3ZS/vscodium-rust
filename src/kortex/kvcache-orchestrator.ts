@@ -65,6 +65,17 @@ export interface RunningCacheInfo {
     slot_dir: string;
     max_bytes: number;
     slot_id: number;
+    /** Stable identifier of the model the proxy is currently bound to (the
+     *  basename of the GGUF, or `model.id` from llama-server's `/props`).
+     *  Empty when the proxy couldn't reach `/props` at startup. */
+    model_id?: string;
+    /** Quantisation signature parsed from the GGUF filename, e.g. "Q4_K_M".
+     *  Used by the cache to decide whether a hit from a different quant is
+     *  acceptable under the configured ModelMatchPolicy. */
+    quant_signature?: string;
+    /** SHA-256 of the chat template — distinguishes "same GGUF path but
+     *  tokenizer config got swapped underneath us". */
+    tokenizer_hash?: string;
 }
 
 export const DEFAULT_KV_CACHE_OPTS: Omit<KvCacheOptions, 'index_dir' | 'slot_dir'> = {

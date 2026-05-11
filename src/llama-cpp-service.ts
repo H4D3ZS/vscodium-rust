@@ -85,10 +85,23 @@ const DEFAULT_CONFIG: LlamaCppConfig = {
   kvCacheProxyPort: 8090,
 };
 
+/** Final-chunk timings from llama-server's /completion stream. Populated by
+ *  generateCompletion() so generateChat() can record precise tokens/sec
+ *  without re-deriving counts from characters. */
+interface LlamaTimings {
+  tokens_predicted: number;
+  tokens_evaluated: number;
+  prompt_ms: number;
+  predicted_ms: number;
+}
+
 class LlamaCppService {
   private config: LlamaCppConfig = DEFAULT_CONFIG;
   private status: LlamaCppStatus = { status: 'disconnected' };
   private baseUrl: string = 'http://localhost:8081';  // llama.cpp server default (changed from 8080)
+  private lastTimings: LlamaTimings | null = null;
+  /** Wall-clock ms from /completion request fire to first non-empty token. */
+  private lastTtftMs: number = 0;
 
   constructor() {
     this.loadConfig();
@@ -166,6 +179,13 @@ class LlamaCppService {
       throw new Error('llama.cpp not connected');
     }
 
+    // Reset per-request stats so generateChat sees fresh values even if the
+    // server omits some of them on this call.
+    this.lastTimings = null;
+    this.lastTtftMs = 0;
+    const reqT0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    let sawFirstToken = false;
+
     const response = await fetch(`${this.baseUrl}/completion`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -207,7 +227,24 @@ class LlamaCppService {
           try {
             const parsed = JSON.parse(data);
             if (parsed.content) {
+              if (!sawFirstToken && parsed.content.length > 0) {
+                sawFirstToken = true;
+                const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+                this.lastTtftMs = Math.max(1, Math.round(now - reqT0));
+              }
               yield parsed.content;
+            }
+            // llama-server's final SSE message carries `stop: true` and
+            // accurate token counts in `timings`. Capture them so the chat
+            // wrapper can record precise tok/s instead of approximating.
+            if (parsed.stop === true || parsed.stopped_eos === true || parsed.stopped_limit === true) {
+              const t = parsed.timings ?? {};
+              this.lastTimings = {
+                tokens_predicted: Number(parsed.tokens_predicted ?? t.predicted_n ?? 0),
+                tokens_evaluated: Number(parsed.tokens_evaluated ?? t.prompt_n ?? 0),
+                prompt_ms: Number(t.prompt_ms ?? 0),
+                predicted_ms: Number(t.predicted_ms ?? 0),
+              };
             }
           } catch (e) {
             console.warn('Failed to parse SSE data:', e);
@@ -263,14 +300,20 @@ class LlamaCppService {
       .map((m) => `${m.role}: ${m.content}`)
       .join('\n\n') + '\nassistant:';
 
+    // Snapshot KV cache stats before the call so we can diff after — a hit
+    // increments `hits` by one and adds the prefix length to `tokens_skipped`.
+    const preStats = useStore.getState().kvCacheStats;
+
     try {
       for await (const chunk of this.generateCompletion(prompt, options)) {
         outputChars += chunk.length;
         yield chunk;
       }
     } finally {
+      const t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const wallMs = Math.max(1, Math.round(t1 - t0));
+
       if (route) {
-        const t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
         try {
           recordRequest({
             request_id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
@@ -278,13 +321,52 @@ class LlamaCppService {
             input_chars: inputChars,
             active_chars: activeChars,
             output_chars: outputChars,
-            wall_clock_ms: Math.max(1, Math.round(t1 - t0)),
+            wall_clock_ms: wallMs,
             routing_counts: route.counts,
             saved_fraction: route.saved_fraction,
           });
         } catch {
           // Bookkeeping; ignore.
         }
+      }
+
+      // Live throughput telemetry — prefer ground-truth counts from
+      // llama-server's final timings chunk, fall back to char approximation.
+      try {
+        const s = useStore.getState();
+        const t = this.lastTimings;
+        let outputTokens = t && t.tokens_predicted > 0 ? t.tokens_predicted : 0;
+        let inputTokens = t && t.tokens_evaluated > 0 ? t.tokens_evaluated : 0;
+        if (outputTokens === 0) outputTokens = Math.max(1, Math.round(outputChars / 4));
+        if (inputTokens === 0) inputTokens = Math.max(0, Math.round((activeChars || inputChars || prompt.length) / 4));
+
+        const prefillMs = this.lastTtftMs > 0
+          ? this.lastTtftMs
+          : (t && t.prompt_ms > 0 ? Math.round(t.prompt_ms) : 0);
+
+        // Detect KDKVC prefix hit by diffing the stats counters. The proxy
+        // polls hits/misses/tokens_skipped on a 4 s timer so this lags a bit,
+        // but for back-to-back chat turns it's accurate enough.
+        const postStats = useStore.getState().kvCacheStats;
+        let cacheHit = false;
+        let tokensSkipped = 0;
+        if (preStats && postStats) {
+          if (postStats.hits > preStats.hits) cacheHit = true;
+          tokensSkipped = Math.max(0, postStats.tokens_skipped - preStats.tokens_skipped);
+        }
+
+        s.recordKortexCompletion({
+          wall_clock_ms: wallMs,
+          prefill_ms: prefillMs > 0 ? prefillMs : undefined,
+          output_tokens: outputTokens,
+          input_tokens: inputTokens,
+          backend: 'llama.cpp',
+          cache_hit: cacheHit,
+          tokens_skipped: tokensSkipped,
+          model_id: this.config.modelPath.split(/[/\\]/).pop() ?? '',
+        });
+      } catch {
+        // Telemetry must never break the inference path.
       }
     }
   }

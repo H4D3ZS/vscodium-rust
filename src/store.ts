@@ -252,6 +252,26 @@ interface AppState {
     /** Cached recent η statistic ({sample_size, avg_eta, avg_saved_fraction, total_skipped_segments}). */
     ccetEfficiency: { sample_size: number; avg_eta: number; avg_saved_fraction: number; total_skipped_segments: number } | null;
 
+    // ═══ Kortex live telemetry ═══
+    /** Rolling-window throughput summary updated by inference services after
+     *  every completion. Null until at least one request has finished. */
+    kortexTelemetry: {
+        current_tps: number;
+        avg_tps: number;
+        avg_prefill_tps: number;
+        cache_hit_rate: number;
+        sample_size: number;
+        total_tokens_skipped: number;
+        last_output_tokens: number;
+        last_input_tokens: number;
+        last_wall_clock_ms: number;
+        last_prefill_ms: number;
+        last_backend: string;
+        last_cache_hit: boolean;
+        last_model_id: string;
+        last_ts_unix_ms: number;
+    } | null;
+
     // Dev Workflow State
     isDevWorkflowActive: boolean;
     currentDevProject: DevWorkflowProject | null;
@@ -431,6 +451,20 @@ interface AppState {
     setCcetTauCompress: (v: number) => void;
     setCcetMaxSkipFraction: (v: number) => void;
     refreshCcetEfficiency: () => void;
+
+    // Kortex telemetry actions
+    /** Push a single completion sample into the rolling tracker. Safe to call
+     *  from any inference service; failures here never surface. */
+    recordKortexCompletion: (sample: {
+        wall_clock_ms: number;
+        prefill_ms?: number;
+        output_tokens: number;
+        input_tokens: number;
+        backend: string;
+        cache_hit: boolean;
+        tokens_skipped: number;
+        model_id?: string;
+    }) => void;
 
     // Dev Workflow Actions
     setDevWorkflowActive: (active: boolean) => void;
@@ -652,6 +686,9 @@ const storeImplementation: any = (set: any, get: any) => ({
     ccetTauCompress: parseFloat(localStorage.getItem('ccetTauCompress') || '0.30'),
     ccetMaxSkipFraction: parseFloat(localStorage.getItem('ccetMaxSkipFraction') || '0.40'),
     ccetEfficiency: null,
+
+    // Kortex telemetry — starts null, first completion populates it
+    kortexTelemetry: null,
 
     // HADES Intelligence Layer (works with any backend)
     aimVfsEnabled: localStorage.getItem('aimVfsEnabled') !== 'false',  // .aim VFS context injection
@@ -1048,6 +1085,52 @@ const storeImplementation: any = (set: any, get: any) => ({
         import('./kortex/ccet')
             .then((mod) => set({ ccetEfficiency: mod.summarizeEfficiency(50) }))
             .catch(() => set({ ccetEfficiency: null }));
+    },
+
+    // ─── Kortex telemetry ────────────────────────────────────────────────
+    recordKortexCompletion: (sample) => {
+        // Tracker lives module-side so it's shared across the renderer.
+        // Lazy import keeps the cold-start of the store snappy.
+        import('./kortex/throughput')
+            .then((mod) => {
+                try {
+                    mod.recordCompletion({
+                        wall_clock_ms: sample.wall_clock_ms,
+                        prefill_ms: sample.prefill_ms,
+                        output_tokens: sample.output_tokens,
+                        input_tokens: sample.input_tokens,
+                        backend: sample.backend,
+                        cache_hit: sample.cache_hit,
+                        tokens_skipped: sample.tokens_skipped,
+                        model_id: sample.model_id,
+                        ts_unix_ms: Date.now(),
+                    });
+                    const sum = mod.summarizeThroughput();
+                    set({
+                        kortexTelemetry: {
+                            current_tps: sum.current_tps,
+                            avg_tps: sum.avg_tps,
+                            avg_prefill_tps: sum.avg_prefill_tps,
+                            cache_hit_rate: sum.cache_hit_rate,
+                            sample_size: sum.sample_size,
+                            total_tokens_skipped: sum.total_tokens_skipped,
+                            last_output_tokens: sum.last?.output_tokens ?? 0,
+                            last_input_tokens: sum.last?.input_tokens ?? 0,
+                            last_wall_clock_ms: sum.last?.wall_clock_ms ?? 0,
+                            last_prefill_ms: sum.last?.prefill_ms ?? 0,
+                            last_backend: sum.last?.backend ?? '',
+                            last_cache_hit: sum.last?.cache_hit ?? false,
+                            last_model_id: sum.last?.model_id ?? '',
+                            last_ts_unix_ms: sum.last?.ts_unix_ms ?? Date.now(),
+                        },
+                    });
+                } catch {
+                    // Bookkeeping; ignore.
+                }
+            })
+            .catch(() => {
+                // Module load failed (e.g. in a non-bundled test env). Drop sample.
+            });
     },
     // Right sidebar panel toggles
     toggleAiriPanel: () => set((state) => ({

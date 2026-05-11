@@ -28,6 +28,8 @@ import {
     clearKvCache,
     makeKvCacheOptions,
     summarizeKvCache,
+    getKvCacheStatus,
+    type RunningCacheInfo,
 } from '../kortex/kvcache-orchestrator';
 
 // ─── presentational helpers ────────────────────────────────────────────────
@@ -151,6 +153,9 @@ const KortexInferencePanel: React.FC = () => {
     const ccetEfficiency = useStore(s => s.ccetEfficiency);
     const refreshCcetEfficiency = useStore(s => s.refreshCcetEfficiency);
 
+    // Live telemetry (populated by inference services after each completion).
+    const telemetry = useStore(s => s.kortexTelemetry);
+
     // Local component state — async results that don't belong in the global store.
     const [profilePath, setProfilePath] = useState<string>('');
     const [plan, setPlan] = useState<TierPlan | null>(null);
@@ -158,6 +163,7 @@ const KortexInferencePanel: React.FC = () => {
     const [err, setErr] = useState<string>('');
     const [gacRunning, setGacRunning] = useState<boolean>(false);
     const [kvRunning, setKvRunning] = useState<boolean>(false);
+    const [cacheStatus, setCacheStatus] = useState<RunningCacheInfo | null>(null);
 
     // Resolve the default profile path whenever the model changes.
     useEffect(() => {
@@ -173,6 +179,18 @@ const KortexInferencePanel: React.FC = () => {
         const id = setInterval(tick, 4000);
         return () => clearInterval(id);
     }, [kvRunning, refreshKvCacheStats]);
+
+    // Fetch RunningCacheInfo whenever the proxy state flips on. Surfaces the
+    // model identity (model_id, quant_signature, tokenizer_hash) so the user
+    // can confirm the cache is bound to the model they think it is.
+    useEffect(() => {
+        if (!kvRunning) { setCacheStatus(null); return; }
+        let cancelled = false;
+        getKvCacheStatus()
+            .then((info) => { if (!cancelled) setCacheStatus(info); })
+            .catch(() => { if (!cancelled) setCacheStatus(null); });
+        return () => { cancelled = true; };
+    }, [kvRunning]);
 
     // Refresh CCET efficiency on every prop change to keep the UI fresh.
     useEffect(() => { refreshCcetEfficiency(); }, [refreshCcetEfficiency]);
@@ -321,6 +339,117 @@ const KortexInferencePanel: React.FC = () => {
                     {err}
                 </div>
             )}
+
+            {/* ── Live throughput card ──────────────────────────────────── */}
+            <div style={{
+                marginTop: 12,
+                padding: 14,
+                background: 'linear-gradient(135deg, rgba(74, 222, 128, 0.05), rgba(74, 222, 128, 0.02))',
+                border: '1px solid rgba(74, 222, 128, 0.25)',
+                borderRadius: 6,
+            }}>
+                <div style={{
+                    display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+                    marginBottom: 8,
+                }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4 }}>
+                        Live Throughput
+                    </div>
+                    <div style={{ fontSize: 10, opacity: 0.65 }}>
+                        rolling window · {telemetry?.sample_size ?? 0} samples
+                    </div>
+                </div>
+
+                <div style={{
+                    display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12,
+                    alignItems: 'baseline',
+                }}>
+                    <div>
+                        <div style={{ fontSize: 28, fontWeight: 800, color: '#4ade80', lineHeight: 1 }}>
+                            {telemetry && telemetry.current_tps > 0
+                                ? telemetry.current_tps.toFixed(1)
+                                : '--'}
+                        </div>
+                        <div style={{ fontSize: 10, opacity: 0.7, marginTop: 2 }}>
+                            tok/s (current)
+                        </div>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.2 }}>
+                            {telemetry && telemetry.avg_tps > 0 ? telemetry.avg_tps.toFixed(1) : '--'}
+                        </div>
+                        <div style={{ fontSize: 10, opacity: 0.7 }}>
+                            tok/s (avg)
+                        </div>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.2 }}>
+                            {telemetry && Number.isFinite(telemetry.avg_prefill_tps) && telemetry.avg_prefill_tps > 0
+                                ? telemetry.avg_prefill_tps.toFixed(0)
+                                : '--'}
+                        </div>
+                        <div style={{ fontSize: 10, opacity: 0.7 }}>
+                            prefill tok/s
+                        </div>
+                    </div>
+                </div>
+
+                {telemetry ? (
+                    <div style={{
+                        marginTop: 10,
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        opacity: 0.85,
+                        lineHeight: 1.5,
+                    }}>
+                        <div>
+                            last: {telemetry.last_output_tokens} out / {telemetry.last_input_tokens} in
+                            · {(telemetry.last_wall_clock_ms / 1000).toFixed(2)}s
+                            {telemetry.last_prefill_ms > 0
+                                ? ` (ttft ${telemetry.last_prefill_ms}ms)`
+                                : ''}
+                            · {telemetry.last_backend || 'unknown'}
+                        </div>
+                        <div style={{ marginTop: 2 }}>
+                            cache: {(telemetry.cache_hit_rate * 100).toFixed(0)}% hit rate
+                            {telemetry.total_tokens_skipped > 0
+                                ? ` · ${telemetry.total_tokens_skipped.toLocaleString()} tokens skipped`
+                                : ''}
+                            {telemetry.last_cache_hit ? ' · LAST WAS HIT' : ''}
+                        </div>
+                        {telemetry.last_model_id && (
+                            <div style={{ marginTop: 2, opacity: 0.7 }}>
+                                model: {telemetry.last_model_id}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>
+                        Run a chat request to populate. Counts come from
+                        llama-server's <code>timings</code> chunk and Ollama's
+                        <code> eval_count</code> when available, falling back to
+                        a char/4 approximation otherwise.
+                    </div>
+                )}
+
+                {cacheStatus && (cacheStatus.model_id || cacheStatus.quant_signature) && (
+                    <div style={{
+                        marginTop: 10,
+                        padding: '4px 8px',
+                        background: 'rgba(74, 222, 128, 0.08)',
+                        borderRadius: 4,
+                        fontSize: 10,
+                        fontFamily: 'monospace',
+                        opacity: 0.85,
+                    }}>
+                        cache bound to: {cacheStatus.model_id || '(unknown)'}
+                        {cacheStatus.quant_signature ? ` · ${cacheStatus.quant_signature}` : ''}
+                        {cacheStatus.tokenizer_hash
+                            ? ` · tok-sha ${cacheStatus.tokenizer_hash.slice(0, 8)}`
+                            : ''}
+                    </div>
+                )}
+            </div>
 
             {/* ── GAC section ───────────────────────────────────────────── */}
             <div style={sectionStyle}>

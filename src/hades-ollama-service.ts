@@ -158,6 +158,15 @@ class HadesOllamaService {
     let activeChars = 0;
     let outputChars = 0;
     let route: RoutingResult | null = null;
+    // Ollama's terminal `done:true` chunk carries precise token stats. We
+    // capture them here for the throughput tracker.
+    let evalCount = 0;
+    let evalDurationNs = 0;
+    let promptEvalCount = 0;
+    let promptEvalDurationNs = 0;
+    let ttftMs = 0;
+    let sawFirstToken = false;
+    const preStats = useStore.getState().kvCacheStats;
 
     try {
       const targetModel = options?.model || this.config.model;
@@ -218,10 +227,21 @@ class HadesOllamaService {
           try {
             const json = JSON.parse(line);
             if (json.message?.content) {
+              if (!sawFirstToken && json.message.content.length > 0) {
+                sawFirstToken = true;
+                const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+                ttftMs = Math.max(1, Math.round(now - t0));
+              }
               outputChars += json.message.content.length;
               yield json.message.content;
             }
-            if (json.done) return;
+            if (json.done) {
+              evalCount = Number(json.eval_count ?? 0);
+              evalDurationNs = Number(json.eval_duration ?? 0);
+              promptEvalCount = Number(json.prompt_eval_count ?? 0);
+              promptEvalDurationNs = Number(json.prompt_eval_duration ?? 0);
+              return;
+            }
           } catch {
             // console.warn('Failed to parse chunk:', line);
           }
@@ -229,9 +249,11 @@ class HadesOllamaService {
       }
     } finally {
       this.activeRequests--;
+      const t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const wallMs = Math.max(1, Math.round(t1 - t0));
+
       // Record an η sample if CCET routing actually applied to this request.
       if (route) {
-        const t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
         try {
           recordRequest({
             request_id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
@@ -239,13 +261,59 @@ class HadesOllamaService {
             input_chars: inputChars,
             active_chars: activeChars,
             output_chars: outputChars,
-            wall_clock_ms: Math.max(1, Math.round(t1 - t0)),
+            wall_clock_ms: wallMs,
             routing_counts: route.counts,
             saved_fraction: route.saved_fraction,
           });
         } catch {
           // Don't let metric bookkeeping leak into the chat result.
         }
+      }
+
+      // Live throughput sample. Ollama gives us ground-truth eval_count and
+      // eval_duration on the terminal chunk — use them when present, fall back
+      // to character approximation otherwise.
+      try {
+        const s = useStore.getState();
+        let outputTokens = evalCount > 0 ? evalCount : Math.max(1, Math.round(outputChars / 4));
+        let inputTokens = promptEvalCount > 0
+          ? promptEvalCount
+          : Math.max(0, Math.round((activeChars || inputChars) / 4));
+
+        // Prefer Ollama's prompt_eval_duration for prefill timing; fall back
+        // to the TTFT we measured client-side.
+        let prefillMs = 0;
+        if (promptEvalDurationNs > 0) {
+          prefillMs = Math.max(1, Math.round(promptEvalDurationNs / 1_000_000));
+        } else if (ttftMs > 0) {
+          prefillMs = ttftMs;
+        }
+
+        // Effective wall clock for decode-only tok/s when ollama reports it.
+        const effectiveWallMs = evalDurationNs > 0
+          ? Math.max(1, Math.round(evalDurationNs / 1_000_000))
+          : wallMs;
+
+        const postStats = useStore.getState().kvCacheStats;
+        let cacheHit = false;
+        let tokensSkipped = 0;
+        if (preStats && postStats) {
+          if (postStats.hits > preStats.hits) cacheHit = true;
+          tokensSkipped = Math.max(0, postStats.tokens_skipped - preStats.tokens_skipped);
+        }
+
+        s.recordKortexCompletion({
+          wall_clock_ms: effectiveWallMs,
+          prefill_ms: prefillMs > 0 ? prefillMs : undefined,
+          output_tokens: outputTokens,
+          input_tokens: inputTokens,
+          backend: 'ollama',
+          cache_hit: cacheHit,
+          tokens_skipped: tokensSkipped,
+          model_id: options?.model || this.config.model,
+        });
+      } catch {
+        // Telemetry must never break the inference path.
       }
     }
   }
