@@ -112,10 +112,100 @@ async function syncRustOllamaUrl(): Promise<void> {
     }
 }
 
-async function tauriList(): Promise<{ models: Array<{ name: string; [k: string]: unknown }> }> {
+// ─── Installed-model cache + auto-fallback ──────────────────────────────────
+// AIRI subsystems still ship hardcoded model tags (`gemma3:12b`,
+// `qwen3.6:32b-q4_K_M`, …) that almost certainly aren't on a paying
+// customer's remote VPS. The browser-side ollama-guard handles this by
+// rewriting the `fetch` body, but that interceptor never sees the Tauri IPC
+// path. We replicate the same substitution here so AIRI uses whatever the
+// user actually has installed (preferring their selected agent model).
+
+let installedModels: Set<string> | null = null;
+let refreshingInstalled: Promise<void> | null = null;
+let lastInstalledRefresh = 0;
+const INSTALLED_TTL_MS = 60_000;
+const FALLBACK_STORAGE_KEYS = [
+    'agentModel', // "ollama|tag"
+    'airi.consciousness.model',
+    'airi.vision.model',
+];
+
+function preferredFallbackTags(): string[] {
+    const out: string[] = [];
+    if (typeof localStorage === 'undefined') return out;
+    for (const key of FALLBACK_STORAGE_KEYS) {
+        try {
+            let v = localStorage.getItem(key);
+            if (!v) continue;
+            v = v.includes('|') ? v.split('|')[1] : v;
+            v = v.trim();
+            if (v && !out.includes(v)) out.push(v);
+        } catch {
+            /* tracking prevention */
+        }
+    }
+    return out;
+}
+
+function chooseFallback(): string | null {
+    const prefs = preferredFallbackTags();
+    if (!installedModels || installedModels.size === 0) return prefs[0] ?? null;
+    for (const p of prefs) if (installedModels.has(p)) return p;
+    const cheap = ['llama3.2:3b', 'llama3.2:1b', 'gemma2:2b', 'qwen2.5:3b'];
+    for (const c of cheap) if (installedModels.has(c)) return c;
+    return installedModels.values().next().value ?? null;
+}
+
+async function refreshInstalled(force = false): Promise<void> {
+    if (refreshingInstalled) return refreshingInstalled;
+    const fresh = Date.now() - lastInstalledRefresh < INSTALLED_TTL_MS;
+    if (installedModels && fresh && !force) return;
+    refreshingInstalled = (async () => {
+        try {
+            const data = (await tauriListRaw()) as {
+                models?: Array<{ name?: string; model?: string }>;
+            };
+            const names = (data?.models || [])
+                .map((m) => String(m?.name || m?.model || '').trim())
+                .filter(Boolean);
+            installedModels = new Set(names);
+            lastInstalledRefresh = Date.now();
+        } catch {
+            /* leave previous cache intact */
+        } finally {
+            refreshingInstalled = null;
+        }
+    })();
+    return refreshingInstalled;
+}
+
+async function substituteUnknownModel(req: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const requested = typeof req.model === 'string' ? req.model.trim() : '';
+    if (!requested) return req;
+    await refreshInstalled();
+    if (!installedModels || installedModels.size === 0) return req;
+    if (installedModels.has(requested)) return req;
+    const fallback = chooseFallback();
+    if (!fallback || fallback === requested) return req;
+    console.warn(
+        `[AIRI Ollama] Model "${requested}" not installed on this server — substituting "${fallback}".`,
+    );
+    return { ...req, model: fallback };
+}
+
+async function tauriListRaw(): Promise<{ models: Array<{ name: string; [k: string]: unknown }> }> {
     await syncRustOllamaUrl();
     const data = await invoke<Record<string, unknown>>('ollama_native_get', { path: '/api/tags' });
     return data as { models: Array<{ name: string; [k: string]: unknown }> };
+}
+
+async function tauriList(): Promise<{ models: Array<{ name: string; [k: string]: unknown }> }> {
+    const data = await tauriListRaw();
+    installedModels = new Set(
+        (data?.models || []).map((m) => String(m?.name || (m as any)?.model || '').trim()).filter(Boolean),
+    );
+    lastInstalledRefresh = Date.now();
+    return data;
 }
 
 async function tauriGenerate(request: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -124,10 +214,11 @@ async function tauriGenerate(request: Record<string, unknown>): Promise<Record<s
             'AIRI: streaming Ollama generate is not supported through the Tauri bridge; use stream: false.',
         );
     }
+    const finalReq = await substituteUnknownModel(request);
     await syncRustOllamaUrl();
     return invoke<Record<string, unknown>>('ollama_native_post', {
         path: '/api/generate',
-        body: request,
+        body: finalReq,
     });
 }
 
@@ -137,11 +228,18 @@ async function tauriChat(request: Record<string, unknown>): Promise<Record<strin
             'AIRI: streaming Ollama chat is not supported through the Tauri bridge; use stream: false.',
         );
     }
+    const finalReq = await substituteUnknownModel(request);
     await syncRustOllamaUrl();
     return invoke<Record<string, unknown>>('ollama_native_post', {
         path: '/api/chat',
-        body: request,
+        body: finalReq,
     });
+}
+
+/** Drop the cached model list; next request will refresh from `/api/tags`. */
+export function invalidateInstalledModelCache(): void {
+    installedModels = null;
+    lastInstalledRefresh = 0;
 }
 
 function buildClient(): Ollama {

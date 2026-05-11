@@ -18,7 +18,7 @@ import { airiSelfLearning } from './airi/self-learning';
 import { airiInteractive } from './airi/interactive';
 import { invoke } from './tauri_bridge';
 import { useStore, normalizeOllamaUrl } from './store';
-import { refreshOllamaConfig } from './airi/shared-ollama';
+import { refreshOllamaConfig, invalidateInstalledModelCache } from './airi/shared-ollama';
 
 export interface AIRIAgentConfig {
     /** Enable full autonomy - AIRI works without prompts */
@@ -79,6 +79,7 @@ export class AIRIAgentBridge {
                 console.warn('[AIRI Bridge] get_api_keys failed:', e);
             }
             refreshOllamaConfig(ollamaHost, ollamaHeaders ?? null);
+            invalidateInstalledModelCache();
 
             // Initialize AIRI core with all systems
             await airi.initialize({
