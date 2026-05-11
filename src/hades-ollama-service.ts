@@ -81,7 +81,20 @@ class HadesOllamaService {
     } catch {
       /* no Tauri / no keys */
     }
-    const response = await fetch(`${base}${path}`, {
+    // Same-origin dev proxy (see vite.config.ts) when running in a browser surface.
+    // Falls through to the configured base URL only for fully-local Ollama (matches origin).
+    let url = `${base}${path}`;
+    if (typeof window !== 'undefined') {
+      try {
+        const u = new URL(base);
+        if (u.origin !== window.location.origin) {
+          url = `${window.location.origin}/__ollama${path}`;
+        }
+      } catch {
+        /* malformed base → keep as-is */
+      }
+    }
+    const response = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),

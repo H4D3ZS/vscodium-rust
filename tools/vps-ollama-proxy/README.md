@@ -40,6 +40,25 @@ Copy the **whole** `vps-ollama-proxy` folder (including `snippets/`) to the VPS 
 Required `.env` variables: `OLLAMA_DOMAIN`, `OLLAMA_BEARER`, `LE_EMAIL`.  
 Optional: `CORS_ORIGIN`, `OLLAMA_UPSTREAM`, `OLLAMA_PROXY_HOST` (see `env.example`).
 
+`CORS_ORIGIN` is a **space-separated allow-list**. nginx echoes back whichever
+origin matches (or the first entry on a miss) so multiple end-user surfaces
+share one proxy. Defaults cover the four production targets for paying
+vscodium-rust customers:
+
+```
+"https://h4d3zs.github.io tauri://localhost https://tauri.localhost http://localhost:5173 http://127.0.0.1:5173"
+```
+
+| Origin | Surface |
+|--------|---------|
+| `tauri://localhost` | macOS / Linux Tauri bundle (older Windows WebView) |
+| `https://tauri.localhost` | Windows WebView2 Tauri bundle |
+| `https://h4d3zs.github.io` | PWA / stage-web fallback |
+| `http://localhost:5173` | `npm run dev` Vite renderer |
+
+> The Tauri build sends all Ollama traffic through Rust IPC, so it never
+> trips CORS. The whitelist above only matters for browser surfaces.
+
 DNS: **A** record for the hostname (e.g. `ai`) must point at the server **before** Certbot runs.
 
 **Do not use `ai.example.com`** (or other `*.example.*`) as `OLLAMA_DOMAIN` — Let’s Encrypt returns *policy forbids issuance* for those reserved names. Use your real subdomain (e.g. `ai.cyberifrit.xyz`).

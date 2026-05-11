@@ -46,9 +46,23 @@ case "${OLLAMA_DOMAIN}" in
     ;;
 esac
 
-CORS_ORIGIN="${CORS_ORIGIN:-https://h4d3zs.github.io}"
+# CORS_ORIGIN accepts a space-separated allow-list. The first entry is also
+# the fallback echoed for unknown origins so existing single-origin deployments
+# keep working. Add the surfaces your $200 IDE end-users hit:
+#   - Tauri webview origins: tauri://localhost (macOS/Linux), https://tauri.localhost (Windows WebView2)
+#   - GitHub Pages PWA: https://h4d3zs.github.io
+#   - Local dev: http://localhost:5173 http://127.0.0.1:5173
+CORS_ORIGIN="${CORS_ORIGIN:-https://h4d3zs.github.io tauri://localhost https://tauri.localhost http://localhost:5173 http://127.0.0.1:5173}"
 OLLAMA_UPSTREAM="${OLLAMA_UPSTREAM:-http://127.0.0.1:11434}"
 OLLAMA_PROXY_HOST="${OLLAMA_PROXY_HOST:-127.0.0.1:11434}"
+
+# Build the `map` body so nginx can reflect whichever request Origin is on the list.
+CORS_FALLBACK=""
+CORS_MAP_BODY=""
+for origin in ${CORS_ORIGIN}; do
+  [[ -z "${CORS_FALLBACK}" ]] && CORS_FALLBACK="${origin}"
+  CORS_MAP_BODY+="    \"${origin}\" \"${origin}\";"$'\n'
+done
 
 AUTH_EXPECTED="Bearer ${OLLAMA_BEARER}"
 MAP_LINE="\"${AUTH_EXPECTED}\" 1;"
@@ -183,6 +197,12 @@ map \$http_authorization \$ollama_auth_ok {
     ${MAP_LINE}
 }
 
+# Reflect a known Origin so multiple end-user surfaces work without using "*"
+# (which is incompatible with Authorization-bearing requests in some browsers).
+map \$http_origin \$cors_origin_allowed {
+    default "${CORS_FALLBACK}";
+${CORS_MAP_BODY}}
+
 server {
     listen 80;
     listen [::]:80;
@@ -205,10 +225,11 @@ server {
     ssl_certificate_key ${CERT_DIR}/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
 
-    set \$cors_origin "${CORS_ORIGIN}";
-    add_header Access-Control-Allow-Origin \$cors_origin always;
+    add_header Access-Control-Allow-Origin \$cors_origin_allowed always;
+    add_header Vary "Origin" always;
     add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
     add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+    add_header Access-Control-Allow-Credentials "true" always;
     add_header Access-Control-Max-Age 86400 always;
 
     if (\$request_method = OPTIONS) { return 204; }

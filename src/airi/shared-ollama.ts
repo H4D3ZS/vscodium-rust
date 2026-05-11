@@ -42,6 +42,26 @@ function isTauri(): boolean {
     return typeof window !== 'undefined' && !!(window as any).__TAURI__;
 }
 
+/**
+ * When the renderer is the Vite dev server (or any non-Tauri browser surface
+ * served from the same host as the IDE bundle), we cannot send the configured
+ * remote Ollama URL directly — nginx CORS will reject it. Instead we route
+ * through the same-origin dev proxy at `/__ollama` declared in `vite.config.ts`.
+ * Tauri builds never take this path because they use Rust IPC.
+ */
+function browserOllamaBase(): string {
+    if (typeof window === 'undefined') return getOllamaHost();
+    const host = getOllamaHost();
+    try {
+        const u = new URL(host);
+        const pageOrigin = window.location.origin;
+        if (u.origin === pageOrigin) return host; // same-origin local Ollama; no proxy
+    } catch {
+        /* malformed host → fall through to proxy */
+    }
+    return `${window.location.origin}/__ollama`;
+}
+
 async function bootstrap(): Promise<void> {
     if (bootstrapped) return;
     if (bootstrapPromise) return bootstrapPromise;
@@ -125,7 +145,7 @@ async function tauriChat(request: Record<string, unknown>): Promise<Record<strin
 }
 
 function buildClient(): Ollama {
-    const host = getOllamaHost();
+    const host = isTauri() ? getOllamaHost() : browserOllamaBase();
     const headers = getOllamaHeaders();
     return new OllamaClient({ host, ...(headers ? { headers } : {}) } as any);
 }
@@ -192,7 +212,7 @@ export async function fetchOllama(path: string, init?: RequestInit): Promise<Res
             });
         }
     }
-    const host = getOllamaHost();
+    const host = browserOllamaBase();
     const headers: Record<string, string> = {
         ...(init?.headers as Record<string, string> | undefined),
         ...(cachedHeaders ?? {}),

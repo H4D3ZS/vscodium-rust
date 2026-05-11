@@ -1,9 +1,18 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { resolve } from 'path';
 
-export default defineConfig({
+// Default Ollama target for the Vite dev proxy. Override by exporting
+// VITE_OLLAMA_DEV_PROXY=<https://your-vps.example.com> (or
+// http://localhost:11434 for a fully-local dev box).
+// In production the Tauri app uses Rust IPC (no proxy required).
+const DEV_OLLAMA_DEFAULT = 'https://ai.cyberifrit.xyz';
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const proxyTarget = env.VITE_OLLAMA_DEV_PROXY || DEV_OLLAMA_DEFAULT;
+  return {
     root: './src',
     plugins: [
       react(),
@@ -37,8 +46,23 @@ export default defineConfig({
         port: 5173,
         strictPort: false,
         host: true,
+        // Dev-only Ollama proxy so the renderer can talk to the remote VPS proxy
+        // without nginx CORS rejecting `http://localhost:5173`. Routes:
+        //   /__ollama/api/tags        -> ${proxyTarget}/api/tags
+        //   /__ollama/api/generate    -> ${proxyTarget}/api/generate
+        //   /__ollama/v1/...          -> ${proxyTarget}/v1/...
+        // The Tauri build uses Rust IPC and never hits this path.
+        proxy: {
+            '/__ollama': {
+                target: proxyTarget,
+                changeOrigin: true,
+                secure: false,
+                rewrite: (path: string) => path.replace(/^\/__ollama/, ''),
+            },
+        },
     },
     clearScreen: false,
     envPrefix: ['VITE_', 'TAURI_'],
     base: './',
+  };
 });
