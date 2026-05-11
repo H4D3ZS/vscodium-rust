@@ -1088,6 +1088,30 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "secrets_scan".to_string(),
+                description: "Red-team / blue-team secrets sweep. Recursively scan a file or directory for hard-coded credentials, API keys, tokens, JWTs, private keys, cloud credentials, DSNs, and database URLs. Returns structured findings: {type, severity, path, line, redacted_preview}. Use during security audits, pre-commit checks, leak hunts, and bug bounty recon.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "File or directory path (relative to workspace). Use '.' to scan everything." },
+                        "max_findings": { "type": "integer", "description": "Maximum number of findings to return (default 200)" },
+                        "include_low": { "type": "boolean", "description": "Include LOW-severity heuristic matches (default false)" }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "weaponize_env".to_string(),
+                description: "Red-team weaponization assessment of a .env / env-export file. Parses KEY=VALUE pairs, classifies each variable (secret / endpoint / telemetry / runtime), and produces a structured weaponization plan: which secrets are immediately actionable (DB URLs, admin passwords, API tokens, Sentry/OTLP DSNs), which endpoints are pivot targets, what the blast radius is, and what an attacker would do next. Pair with `secrets_scan` for full coverage. Output is JSON suitable for the agent to drive follow-up actions.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Path to a .env file or shell-export style file (relative to workspace)" },
+                        "raw": { "type": "string", "description": "Alternative to `path`: raw env content as a string" }
+                    }
+                }),
+            },
+            ToolDefinition {
                 name: "file_entropy_analysis".to_string(),
                 description: "Calculate bit-level entropy to detect packed or encrypted sections (Malware Research).".to_string(),
                 input_schema: json!({
@@ -1337,6 +1361,8 @@ impl AiTools {
             | "network_port_scanner"
             | "binary_mach_o_scanner"
             | "file_entropy_analysis"
+            | "secrets_scan"
+            | "weaponize_env"
             | "dev_cargo_diagnostics"
             | "search_codebase"
             | "get_lsp_diagnostics"
@@ -1642,6 +1668,8 @@ impl AiTools {
             "network_port_scanner" => self.network_port_scanner(arguments).await,
             "binary_mach_o_scanner" => self.binary_mach_o_scanner(arguments).await,
             "file_entropy_analysis" => self.file_entropy_analysis(arguments).await,
+            "secrets_scan" => self.secrets_scan(arguments).await,
+            "weaponize_env" => self.weaponize_env(arguments).await,
             "dev_cargo_diagnostics" => self.dev_cargo_diagnostics(arguments).await,
             "search_codebase" => self.search_codebase(arguments).await,
             "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
@@ -3223,6 +3251,278 @@ impl AiTools {
             "entropy": entropy,
             "high_entropy_warning": entropy > 7.5,
             "suggestion": if entropy > 7.5 { "Likely compressed or encrypted. check for malware packers." } else { "Normal executable density." }
+        }))
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Cybersecurity tooling: secrets_scan + weaponize_env
+    //
+    //  These power the red-team / blue-team / bug-bounty flows. They're
+    //  deterministic Rust (regex + simple parsing) so the agent can lean
+    //  on them instead of asking the LLM to "imagine" findings. Output is
+    //  structured JSON that downstream tool calls can act on.
+    // ────────────────────────────────────────────────────────────────────
+
+    fn secret_patterns() -> Vec<(&'static str, &'static str, &'static str)> {
+        // (kind, severity, regex). Regex must compile under the `regex` crate
+        // (RE2 — no lookarounds). We intentionally keep these conservative;
+        // the goal is "high signal" rather than "every possible false positive".
+        // Use `r#"..."#` delimiters everywhere so we can embed literal
+        // `"` characters and quote-classes (`['"]`) without escaping
+        // gymnastics. Backslashes inside `r#"..."#` are NOT processed by
+        // Rust, so `\s`, `\b`, `\d` survive as regex metacharacters.
+        vec![
+            ("aws_access_key_id",      "CRITICAL", r#"\bAKIA[0-9A-Z]{16}\b"#),
+            ("aws_secret_access_key",  "CRITICAL", r#"(?i)aws_secret_access_key\s*[:=]\s*['"]?([A-Za-z0-9/+=]{40})['"]?"#),
+            ("gcp_service_account",    "CRITICAL", r#""type"\s*:\s*"service_account""#),
+            ("github_token",           "CRITICAL", r#"\bgh[pousr]_[A-Za-z0-9]{20,}\b"#),
+            ("gitlab_token",           "HIGH",     r#"\bglpat-[A-Za-z0-9\-_]{20,}\b"#),
+            ("slack_token",            "HIGH",     r#"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b"#),
+            ("stripe_secret_key",      "CRITICAL", r#"\bsk_(?:live|test)_[A-Za-z0-9]{20,}\b"#),
+            ("openai_api_key",         "HIGH",     r#"\bsk-[A-Za-z0-9]{20,}\b"#),
+            ("anthropic_api_key",      "HIGH",     r#"\bsk-ant-[A-Za-z0-9\-_]{20,}\b"#),
+            ("sentry_dsn",             "HIGH",     r#"https?://[a-f0-9]{32}@[A-Za-z0-9\.\-]+/\d+"#),
+            ("jwt_token",              "MEDIUM",   r#"\beyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b"#),
+            ("private_key_block",      "CRITICAL", r#"-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----"#),
+            ("postgres_url",           "HIGH",     r#"postgres(?:ql)?://[^\s'"@]+:[^\s'"@]+@[A-Za-z0-9\.\-]+"#),
+            ("mysql_url",              "HIGH",     r#"mysql://[^\s'"@]+:[^\s'"@]+@[A-Za-z0-9\.\-]+"#),
+            ("mongodb_url",            "HIGH",     r#"mongodb(?:\+srv)?://[^\s'"@]+:[^\s'"@]+@[A-Za-z0-9\.\-]+"#),
+            ("redis_url",              "MEDIUM",   r#"redis://[^\s'"@]+:[^\s'"@]+@[A-Za-z0-9\.\-]+"#),
+            ("generic_password",       "LOW",      r#"(?i)(?:password|passwd|pwd)\s*[:=]\s*['"]([^'"\s]{8,})['"]"#),
+            ("generic_api_key",        "LOW",      r#"(?i)(?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token)\s*[:=]\s*['"]?([A-Za-z0-9_\-]{20,})['"]?"#),
+        ]
+    }
+
+    fn redact_secret(s: &str) -> String {
+        let len = s.len();
+        if len <= 12 {
+            return format!("{}…(redacted)", &s[..s.len().min(3)]);
+        }
+        format!("{}…{}  ({} chars)", &s[..4], &s[len - 4..], len)
+    }
+
+    async fn secrets_scan(&self, args: Value) -> Result<Value> {
+        use regex::Regex;
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let max_findings = args.get("max_findings").and_then(|v| v.as_u64()).unwrap_or(200) as usize;
+        let include_low = args.get("include_low").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        if !full_path.exists() {
+            return Err(anyhow!("Path not found: {}", path_str));
+        }
+
+        let patterns: Vec<(&str, &str, Regex)> = Self::secret_patterns()
+            .into_iter()
+            .filter_map(|(k, s, p)| Regex::new(p).ok().map(|r| (k, s, r)))
+            .collect();
+
+        let mut findings: Vec<Value> = Vec::new();
+        let mut files_scanned: usize = 0;
+        let mut bytes_scanned: u64 = 0;
+
+        // Files we never scan — they're either generated, vendored, or huge.
+        let skip_dirs = [
+            "node_modules", "target", "dist", "build", ".git",
+            "vendor", "third_party", ".next", ".cache", "__pycache__",
+        ];
+
+        let walker = walkdir::WalkDir::new(&full_path).max_depth(20).into_iter().filter_entry(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            !skip_dirs.contains(&name.as_str())
+        });
+
+        for entry in walker.flatten() {
+            if findings.len() >= max_findings { break; }
+            if !entry.file_type().is_file() { continue; }
+            // Skip files >2 MiB — most secrets live in small config files anyway.
+            if let Ok(meta) = entry.metadata() {
+                if meta.len() > 2 * 1024 * 1024 { continue; }
+            }
+            let content = match fs::read_to_string(entry.path()) {
+                Ok(c) => c,
+                Err(_) => continue, // binary or unreadable — skip
+            };
+            files_scanned += 1;
+            bytes_scanned += content.len() as u64;
+
+            let rel = entry.path().strip_prefix(&*root).unwrap_or(entry.path()).to_string_lossy().to_string();
+
+            for (line_no, line) in content.lines().enumerate() {
+                if findings.len() >= max_findings { break; }
+                if line.len() > 1000 { continue; } // minified — too noisy
+                for (kind, severity, re) in &patterns {
+                    if !include_low && *severity == "LOW" { continue; }
+                    if let Some(m) = re.find(line) {
+                        findings.push(json!({
+                            "kind": kind,
+                            "severity": severity,
+                            "path": rel,
+                            "line": line_no + 1,
+                            "preview": Self::redact_secret(m.as_str()),
+                        }));
+                        break; // one finding per line is plenty
+                    }
+                }
+            }
+        }
+
+        let mut counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        for f in &findings {
+            if let Some(s) = f.get("severity").and_then(|v| v.as_str()) {
+                *counts.entry(s.to_string()).or_insert(0) += 1;
+            }
+        }
+
+        Ok(json!({
+            "scope": path_str,
+            "files_scanned": files_scanned,
+            "bytes_scanned": bytes_scanned,
+            "total_findings": findings.len(),
+            "by_severity": counts,
+            "findings": findings,
+            "truncated": findings.len() >= max_findings,
+        }))
+    }
+
+    async fn weaponize_env(&self, args: Value) -> Result<Value> {
+        let raw_input = if let Some(p) = args.get("path").and_then(|v| v.as_str()) {
+            let root = self.root_path.lock().await.clone();
+            let full_path = self.validate_path(&root, p)?;
+            fs::read_to_string(&full_path)
+                .map_err(|e| anyhow!("Failed to read {}: {}", p, e))?
+        } else if let Some(raw) = args.get("raw").and_then(|v| v.as_str()) {
+            raw.to_string()
+        } else {
+            return Err(anyhow!("Provide either `path` or `raw` env content"));
+        };
+
+        // Parse env content — accept both KEY=VALUE and `export KEY=VALUE` forms.
+        let mut vars: Vec<(String, String)> = Vec::new();
+        for line in raw_input.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+            let payload = trimmed.strip_prefix("export ").unwrap_or(trimmed);
+            if let Some(eq) = payload.find('=') {
+                let key = payload[..eq].trim().to_string();
+                let mut val = payload[eq + 1..].trim().to_string();
+                // Strip surrounding quotes.
+                if (val.starts_with('"') && val.ends_with('"'))
+                    || (val.starts_with('\'') && val.ends_with('\''))
+                {
+                    val = val[1..val.len() - 1].to_string();
+                }
+                if !key.is_empty() {
+                    vars.push((key, val));
+                }
+            }
+        }
+
+        // Classify each variable + propose a weaponization vector.
+        fn classify(key: &str, val: &str) -> (&'static str, &'static str, Option<&'static str>) {
+            // (category, severity, weaponization_hint)
+            let k = key.to_ascii_lowercase();
+            let v = val.to_ascii_lowercase();
+
+            if k.contains("admin_password") || k.contains("root_password") || k == "neko_admin_password" {
+                return ("credential", "CRITICAL", Some("Direct admin login — try web admin panel / SSH / app console at the deployment URL."));
+            }
+            if k.contains("password") || k.contains("passwd") || k.contains("pwd") {
+                return ("credential", "HIGH", Some("Try as login credential against any auth endpoint discovered in this env."));
+            }
+            if k.contains("sentry_dsn") || (v.starts_with("http") && v.contains("@sentry")) {
+                return ("telemetry_dsn", "HIGH", Some("Hijack: send forged events to poison error monitoring, exfiltrate via tagged messages, or trigger alert fatigue."));
+            }
+            if k.contains("otel") || k.contains("otlp") {
+                if v.starts_with("http") {
+                    return ("telemetry_endpoint", "MEDIUM", Some("Telemetry sink — can be redirected to collector you control to capture traces/metrics."));
+                }
+                return ("telemetry_config", "LOW", None);
+            }
+            if k.contains("dsn") || (v.starts_with("postgres") || v.starts_with("mysql") || v.starts_with("mongodb")) {
+                return ("database_url", "CRITICAL", Some("Direct DB connection — dump data, escalate via stored procs, plant persistence."));
+            }
+            if k.contains("api_key") || k.contains("apikey") || k.contains("token") || k.contains("secret") {
+                return ("api_credential", "HIGH", Some("Enumerate the API surface, harvest privileged data, pivot to other services."));
+            }
+            if k.contains("aws_") || k.contains("gcp_") || k.contains("azure_") {
+                return ("cloud_credential", "CRITICAL", Some("Cloud lateral movement: list buckets, enumerate IAM, escalate privileges."));
+            }
+            if k.contains("domain") || k.contains("host") || k.contains("url") || k.contains("endpoint") {
+                if v.starts_with("http") || v.contains('.') {
+                    return ("endpoint", "MEDIUM", Some("Pivot target — enumerate via web_search / port scan / dirbust."));
+                }
+            }
+            if k.contains("env") || k.contains("environment") {
+                if v.contains("prod") {
+                    return ("env_flag_prod", "HIGH", Some("Confirms PRODUCTION runtime — blast radius is real users."));
+                }
+                return ("env_flag", "LOW", None);
+            }
+            if k.contains("username") || k.contains("user") {
+                return ("identity", "MEDIUM", Some("Pair with discovered passwords for auth attempts."));
+            }
+            ("config", "LOW", None)
+        }
+
+        let mut classified: Vec<Value> = Vec::new();
+        let mut sev_counts: std::collections::HashMap<&str, u64> = std::collections::HashMap::new();
+        let mut actionable: Vec<Value> = Vec::new();
+
+        for (k, v) in &vars {
+            let (cat, sev, hint) = classify(k, v);
+            *sev_counts.entry(sev).or_insert(0) += 1;
+            let entry = json!({
+                "key": k,
+                "category": cat,
+                "severity": sev,
+                "preview": Self::redact_secret(v),
+                "weaponization": hint,
+            });
+            if matches!(sev, "CRITICAL" | "HIGH") && hint.is_some() {
+                actionable.push(entry.clone());
+            }
+            classified.push(entry);
+        }
+
+        // Build a prioritized attack plan from the actionable set.
+        let attack_plan: Vec<Value> = actionable.iter().enumerate().map(|(i, v)| {
+            json!({
+                "step": i + 1,
+                "target_key": v.get("key").cloned().unwrap_or(Value::Null),
+                "category": v.get("category").cloned().unwrap_or(Value::Null),
+                "action": v.get("weaponization").cloned().unwrap_or(Value::Null),
+            })
+        }).collect();
+
+        // Detect environment context (prod vs staging vs dev).
+        let env_label = vars.iter().find_map(|(k, v)| {
+            let kl = k.to_ascii_lowercase();
+            if kl.contains("env") && (v.to_ascii_lowercase().contains("prod")
+                || v.to_ascii_lowercase().contains("staging")
+                || v.to_ascii_lowercase().contains("dev"))
+            {
+                Some(v.clone())
+            } else { None }
+        }).unwrap_or_else(|| "unknown".to_string());
+
+        Ok(json!({
+            "summary": {
+                "total_variables": vars.len(),
+                "actionable_count": actionable.len(),
+                "environment": env_label,
+                "by_severity": sev_counts,
+            },
+            "variables": classified,
+            "actionable_findings": actionable,
+            "attack_plan": attack_plan,
+            "next_steps": [
+                "1. Confirm the deployment is reachable (web_search the domains / endpoint values)",
+                "2. For each CRITICAL row in attack_plan, try the suggested action manually or with the appropriate tool",
+                "3. Document blast radius + proof in a markdown report (write_to_file)",
+                "4. If this is a bug bounty engagement, draft a disclosure with redacted PoC",
+            ],
         }))
     }
 

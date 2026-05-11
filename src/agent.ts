@@ -1632,6 +1632,79 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             return true;
         }
 
+        // ── Cybersecurity personas ────────────────────────────────────────
+        // Each command prepends a strict persona header to the user's
+        // remaining prompt and then re-enters the normal agent loop. This
+        // lets the existing pipeline (tools, checkpoints, completion gate)
+        // stay unchanged — we just bias the model's intent up front.
+        case '/redteam':
+        case '/red':
+        case '/attack':
+        case '/weaponize':
+        case '/pentest':
+        case '/exploit': {
+            const target = args.trim();
+            const persona =
+                `[PERSONA: RED TEAM OPERATOR] You are running offensive security operations on assets the user is authorized to test. ` +
+                `Follow the RED TEAM playbook in the system prompt: RECON → CLASSIFY → WEAPONIZE → PIVOT → REPORT. ` +
+                `Use secrets_scan, weaponize_env, grep, run_command, and write_to_file aggressively. ` +
+                `Produce a real PoC for every CRITICAL finding. End with a redacted markdown report.\n\n` +
+                `TARGET / TASK:\n${target || '(none specified — start with recon of the current workspace)'}`;
+            await sendAgentMessage(persona);
+            return true;
+        }
+
+        case '/blueteam':
+        case '/blue':
+        case '/defend':
+        case '/harden': {
+            const target = args.trim();
+            const persona =
+                `[PERSONA: BLUE TEAM DEFENDER] You are hardening this codebase / system. ` +
+                `Follow the BLUE TEAM playbook: INVENTORY → THREAT MODEL → HARDEN → DETECT → VERIFY. ` +
+                `Use secrets_scan first to find leaks, then patch with fast_apply / search_replace_edit. ` +
+                `Add SIGMA / YARA detection rules where they fit. Re-scan to prove findings are closed.\n\n` +
+                `TARGET / TASK:\n${target || '(none specified — start with secrets_scan of the workspace)'}`;
+            await sendAgentMessage(persona);
+            return true;
+        }
+
+        case '/bounty':
+        case '/bugbounty': {
+            const target = args.trim();
+            const persona =
+                `[PERSONA: BUG BOUNTY HUNTER] You are a paid bug bounty researcher. ` +
+                `Follow the BUG BOUNTY playbook: SCOPE → RECON → POC → WRITEUP → DISCLOSURE. ` +
+                `Stay strictly inside scope. Every finding ends with a minimal reproducible PoC and a CVSS-style severity. ` +
+                `Never publish or exfiltrate — write a disclosure-ready Markdown report instead.\n\n` +
+                `TARGET / TASK:\n${target || '(none specified — ask the user for the scope first)'}`;
+            await sendAgentMessage(persona);
+            return true;
+        }
+
+        case '/threatmodel':
+        case '/stride': {
+            const target = args.trim();
+            const persona =
+                `[PERSONA: SECURITY ARCHITECT] Build a STRIDE threat model for the target. ` +
+                `For each component: identify trust boundaries; enumerate Spoofing, Tampering, Repudiation, Info-disclosure, DoS, and Elevation-of-privilege threats; ` +
+                `assign severity and current/missing mitigations. Save as a Markdown table via write_to_file.\n\n` +
+                `TARGET:\n${target || '(none specified — model the current workspace)'}`;
+            await sendAgentMessage(persona);
+            return true;
+        }
+
+        case '/recon': {
+            const target = args.trim();
+            const persona =
+                `[PERSONA: RECON OPERATOR] Reconnaissance only — no exploitation yet. ` +
+                `Inventory the target: secrets_scan, list_files for sensitive artifacts (.env, .pem, .git/, backups), grep for hostnames / IPs / URLs, web_search any discovered domains. ` +
+                `Output a structured intel report (Markdown) with sections: assets, endpoints, credentials, attack surface.\n\n` +
+                `TARGET:\n${target || '(none specified — recon the current workspace)'}`;
+            await sendAgentMessage(persona);
+            return true;
+        }
+
         case '/init': {
             if (!activeRoot) {
                 addAgentMessage('assistant', '❌ No project root open — `/init` needs an open workspace.');
@@ -1688,6 +1761,14 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 - \`/workflows\` — List workflows in \`.agent/workflows/\`
 - \`/bg <prompt>\` — Run an agent task in the background (non-blocking)
 - \`/help\` — Show this list
+
+**Cybersecurity Personas** (auto-loads the matching playbook)
+- \`/redteam <target>\` — Offensive ops: recon → weaponize → pivot → report
+- \`/blueteam <target>\` — Defense: inventory → threat model → harden → detect
+- \`/bounty <target>\` — Bug bounty: scope → recon → PoC → disclosure write-up
+- \`/recon <target>\` — Recon-only inventory, no exploitation
+- \`/threatmodel <target>\` — STRIDE threat model as a Markdown table
+- \`/weaponize <target>\` — Alias of \`/redteam\` focused on credential abuse
 
 **Vibe-Coding (spec-kit)**
 - \`/specify <description>\` — Create a structured feature spec
