@@ -113,6 +113,74 @@ async function syncRustOllamaUrl(): Promise<void> {
     }
 }
 
+// ─── Concurrency gate + 503 retry ──────────────────────────────────────────
+// AIRI fires many background generate/chat calls in parallel (consciousness,
+// vision, continuous-improvement, self-learning, social, …). A single VPS
+// behind nginx with `limit_conn ollama_conn 20` will reject the burst with
+// 503. This gate serializes traffic to a small concurrency cap and applies
+// exponential backoff when nginx (or Ollama) signals pressure.
+
+const MAX_CONCURRENT_OLLAMA = 3;
+let inflight = 0;
+const waiters: Array<() => void> = [];
+
+async function acquireSlot(): Promise<() => void> {
+    if (inflight < MAX_CONCURRENT_OLLAMA) {
+        inflight++;
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            inflight--;
+            const next = waiters.shift();
+            if (next) next();
+        };
+    }
+    await new Promise<void>((resolve) => waiters.push(resolve));
+    return acquireSlot();
+}
+
+function isRetryableOllamaError(err: unknown): { retry: boolean; backoffMs: number } {
+    const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
+    if (msg.includes('503') || msg.includes('service temporarily unavailable')) {
+        return { retry: true, backoffMs: 1500 };
+    }
+    if (msg.includes('429') || msg.includes('too many requests')) {
+        return { retry: true, backoffMs: 2000 };
+    }
+    if (msg.includes('limit_conn') || msg.includes('limiting connections')) {
+        return { retry: true, backoffMs: 1500 };
+    }
+    return { retry: false, backoffMs: 0 };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function withOllamaConcurrency<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    const MAX_ATTEMPTS = 4;
+    let attempt = 0;
+    let release = await acquireSlot();
+    try {
+        while (true) {
+            attempt++;
+            try {
+                return await fn();
+            } catch (err) {
+                const { retry, backoffMs } = isRetryableOllamaError(err);
+                if (!retry || attempt >= MAX_ATTEMPTS) throw err;
+                const jitter = Math.floor(Math.random() * 250);
+                const wait = backoffMs * Math.pow(2, attempt - 1) + jitter;
+                console.warn(
+                    `[AIRI Ollama] ${label} hit upstream throttle (attempt ${attempt}/${MAX_ATTEMPTS}); retrying in ${wait}ms.`,
+                );
+                await sleep(wait);
+            }
+        }
+    } finally {
+        release();
+    }
+}
+
 // ─── Installed-model cache + auto-fallback ──────────────────────────────────
 // AIRI subsystems still ship hardcoded model tags (`gemma3:12b`,
 // `qwen3.6:32b-q4_K_M`, …) that almost certainly aren't on a paying
@@ -268,9 +336,11 @@ export async function resolveOllamaModelTag(requested: string): Promise<string> 
 }
 
 async function tauriListRaw(): Promise<{ models: Array<{ name: string; [k: string]: unknown }> }> {
-    await syncRustOllamaUrl();
-    const data = await invoke<Record<string, unknown>>('ollama_native_get', { path: '/api/tags' });
-    return data as { models: Array<{ name: string; [k: string]: unknown }> };
+    return withOllamaConcurrency('list', async () => {
+        await syncRustOllamaUrl();
+        const data = await invoke<Record<string, unknown>>('ollama_native_get', { path: '/api/tags' });
+        return data as { models: Array<{ name: string; [k: string]: unknown }> };
+    });
 }
 
 async function tauriList(): Promise<{ models: Array<{ name: string; [k: string]: unknown }> }> {
@@ -289,10 +359,12 @@ async function tauriGenerate(request: Record<string, unknown>): Promise<Record<s
         );
     }
     const finalReq = await substituteUnknownModel(request);
-    await syncRustOllamaUrl();
-    return invoke<Record<string, unknown>>('ollama_native_post', {
-        path: '/api/generate',
-        body: finalReq,
+    return withOllamaConcurrency('generate', async () => {
+        await syncRustOllamaUrl();
+        return invoke<Record<string, unknown>>('ollama_native_post', {
+            path: '/api/generate',
+            body: finalReq,
+        });
     });
 }
 
@@ -303,10 +375,12 @@ async function tauriChat(request: Record<string, unknown>): Promise<Record<strin
         );
     }
     const finalReq = await substituteUnknownModel(request);
-    await syncRustOllamaUrl();
-    return invoke<Record<string, unknown>>('ollama_native_post', {
-        path: '/api/chat',
-        body: finalReq,
+    return withOllamaConcurrency('chat', async () => {
+        await syncRustOllamaUrl();
+        return invoke<Record<string, unknown>>('ollama_native_post', {
+            path: '/api/chat',
+            body: finalReq,
+        });
     });
 }
 

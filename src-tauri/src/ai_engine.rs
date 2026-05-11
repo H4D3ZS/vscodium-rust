@@ -10,8 +10,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::AppHandle;
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::Semaphore;
 use base64::{engine::general_purpose, Engine as _};
 
 use crate::ai_auth::AuthState;
@@ -228,6 +230,9 @@ pub struct Sentient {
     app_handle: std::sync::RwLock<Option<AppHandle>>,
     auth_state: Arc<AuthState>,
     ollama_url: tokio::sync::Mutex<String>,
+    /// Caps concurrent Ollama HTTP calls from this process so one desktop seat
+    /// does not trip nginx `limit_conn` on a shared reverse proxy.
+    ollama_http_sem: Arc<Semaphore>,
     _browser_state: Arc<crate::browser::BrowserState>,
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
@@ -325,6 +330,7 @@ impl Sentient {
             app_handle: std::sync::RwLock::new(None),
             auth_state,
             ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
+            ollama_http_sem: Arc::new(Semaphore::new(4)),
             _browser_state: browser_state.clone(),
             stop_signal: Arc::new(AtomicBool::new(false)),
             pause_signal: Arc::new(AtomicBool::new(false)),
@@ -352,6 +358,14 @@ impl Sentient {
         let normalized = normalize_ollama_base_url(&url);
         let mut u = self.ollama_url.lock().await;
         *u = normalized;
+    }
+
+    async fn ollama_http_permit(&self) -> tokio::sync::OwnedSemaphorePermit {
+        self.ollama_http_sem
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("ollama_http_sem not closed")
     }
 
     pub async fn set_advisor_model(&self, model: Option<String>) {
@@ -1045,7 +1059,7 @@ impl Sentient {
                     match status_code {
                         401 | 403 => "Server replied with auth failure. The bearer is missing or wrong — paste the same secret you set as OLLAMA_BEARER on nginx, then click Save token.",
                         404 => "Reached the server but neither /api/tags nor /v1/api/tags is exposed. Add a `location /api/` block to your nginx config (see tools/vps-ollama-proxy/bootstrap.sh).",
-                        502 | 503 | 504 => "Reached nginx but the upstream Ollama is down or unreachable from the proxy. Restart `ollama serve` on the VPS.",
+                        502 | 503 | 504 => "Nginx gateway error: upstream Ollama may be down, or nginx limit_conn/limit_req is throttling your client IP. Raise OLLAMA_CONN_PER_IP on the VPS (tools/vps-ollama-proxy/bootstrap.sh) and reload nginx.",
                         _ => "Server returned a non-2xx status. See the body preview below.",
                     }
                 } else if body_looks_html {
@@ -1096,88 +1110,130 @@ impl Sentient {
 
     /// Ollama GET from Rust so the webview is not subject to nginx CORS.
     pub async fn ollama_native_get(&self, path: String) -> Result<Value> {
+        let _permit = self.ollama_http_permit().await;
         let base = {
             let u = self.ollama_url.lock().await;
             normalize_ollama_base_url(&u)
         };
         let bearer = self.get_key_for_provider("ollama").trim().to_string();
         let urls = Self::ollama_try_urls(&base, &path);
-        let mut last: Option<String> = None;
-        for url in &urls {
-            let mut req = self.client.get(url);
-            if !bearer.is_empty() {
-                req = req.bearer_auth(&bearer);
-            }
-            match req.send().await {
-                Ok(resp) => {
-                    let status = resp.status();
-                    let bytes = resp.bytes().await?;
-                    if status.is_success() {
-                        let v: Value = serde_json::from_slice(&bytes).map_err(|e| {
-                            anyhow!("ollama_native_get JSON: {} (status {})", e, status)
-                        })?;
-                        return Ok(v);
+
+        'attempt: for attempt in 0u32..6u32 {
+            let mut last: Option<String> = None;
+            for url in &urls {
+                let mut req = self.client.get(url);
+                if !bearer.is_empty() {
+                    req = req.bearer_auth(&bearer);
+                }
+                match req.send().await {
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let code = status.as_u16();
+                        let bytes = resp.bytes().await?;
+                        if status.is_success() {
+                            let v: Value = serde_json::from_slice(&bytes).map_err(|e| {
+                                anyhow!("ollama_native_get JSON: {} (status {})", e, status)
+                            })?;
+                            return Ok(v);
+                        }
+                        if code == 404 && urls.len() > 1 && !url.contains("/v1/api/") {
+                            last = Some(format!("GET {} -> 404", url));
+                            continue;
+                        }
+                        if (code == 503 || code == 429) && attempt < 5 {
+                            let ms = 400u64 * (1u64 << attempt).min(10_000);
+                            tokio::time::sleep(Duration::from_millis(ms)).await;
+                            continue 'attempt;
+                        }
+                        let preview: String =
+                            String::from_utf8_lossy(&bytes).chars().take(280).collect();
+                        return Err(anyhow!("GET {} -> {}: {}", url, status, preview));
                     }
-                    if status.as_u16() == 404 && urls.len() > 1 && !url.contains("/v1/api/") {
-                        last = Some(format!("GET {} -> 404", url));
+                    Err(e) => {
+                        last = Some(e.to_string());
                         continue;
                     }
-                    let preview: String = String::from_utf8_lossy(&bytes).chars().take(280).collect();
-                    return Err(anyhow!("GET {} -> {}: {}", url, status, preview));
-                }
-                Err(e) => {
-                    last = Some(e.to_string());
-                    continue;
                 }
             }
+            if attempt < 5 {
+                if last
+                    .as_ref()
+                    .map(|s| s.contains("503") || s.contains("429"))
+                    .unwrap_or(false)
+                {
+                    let ms = 400u64 * (1u64 << attempt).min(10_000);
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                    continue 'attempt;
+                }
+            }
+            return Err(anyhow!(
+                "ollama_native_get exhausted fallbacks: {}",
+                last.unwrap_or_default()
+            ));
         }
-        Err(anyhow!(
-            "ollama_native_get exhausted fallbacks: {}",
-            last.unwrap_or_default()
-        ))
+        unreachable!()
     }
 
     /// Ollama POST from Rust (same CORS bypass + `/v1` fallback as GET).
     pub async fn ollama_native_post(&self, path: String, body: Value) -> Result<Value> {
+        let _permit = self.ollama_http_permit().await;
         let base = {
             let u = self.ollama_url.lock().await;
             normalize_ollama_base_url(&u)
         };
         let bearer = self.get_key_for_provider("ollama").trim().to_string();
         let urls = Self::ollama_try_urls(&base, &path);
-        let mut last: Option<String> = None;
-        for url in &urls {
-            let mut req = self.client.post(url).json(&body);
-            if !bearer.is_empty() {
-                req = req.bearer_auth(&bearer);
-            }
-            match req.send().await {
-                Ok(resp) => {
-                    let status = resp.status();
-                    let bytes = resp.bytes().await?;
-                    if status.is_success() {
-                        let v: Value = serde_json::from_slice(&bytes).map_err(|e| {
-                            anyhow!("ollama_native_post JSON: {} (status {})", e, status)
-                        })?;
-                        return Ok(v);
+
+        'attempt: for attempt in 0u32..6u32 {
+            let mut last: Option<String> = None;
+            for url in &urls {
+                let mut req = self.client.post(url).json(&body);
+                if !bearer.is_empty() {
+                    req = req.bearer_auth(&bearer);
+                }
+                match req.send().await {
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let code = status.as_u16();
+                        let bytes = resp.bytes().await?;
+                        if status.is_success() {
+                            let v: Value = serde_json::from_slice(&bytes).map_err(|e| {
+                                anyhow!("ollama_native_post JSON: {} (status {})", e, status)
+                            })?;
+                            return Ok(v);
+                        }
+                        if code == 404 && urls.len() > 1 && !url.contains("/v1/api/") {
+                            last = Some(format!("POST {} -> 404", url));
+                            continue;
+                        }
+                        if (code == 503 || code == 429) && attempt < 5 {
+                            let ms = 400u64 * (1u64 << attempt).min(10_000);
+                            tokio::time::sleep(Duration::from_millis(ms)).await;
+                            continue 'attempt;
+                        }
+                        let preview: String =
+                            String::from_utf8_lossy(&bytes).chars().take(280).collect();
+                        return Err(anyhow!("POST {} -> {}: {}", url, status, preview));
                     }
-                    if status.as_u16() == 404 && urls.len() > 1 && !url.contains("/v1/api/") {
-                        last = Some(format!("POST {} -> 404", url));
+                    Err(e) => {
+                        last = Some(e.to_string());
                         continue;
                     }
-                    let preview: String = String::from_utf8_lossy(&bytes).chars().take(280).collect();
-                    return Err(anyhow!("POST {} -> {}: {}", url, status, preview));
-                }
-                Err(e) => {
-                    last = Some(e.to_string());
-                    continue;
                 }
             }
+            if attempt < 5 {
+                if last.as_ref().map(|s| s.contains("503") || s.contains("429")).unwrap_or(false) {
+                    let ms = 400u64 * (1u64 << attempt).min(10_000);
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                    continue 'attempt;
+                }
+            }
+            return Err(anyhow!(
+                "ollama_native_post exhausted fallbacks: {}",
+                last.unwrap_or_default()
+            ));
         }
-        Err(anyhow!(
-            "ollama_native_post exhausted fallbacks: {}",
-            last.unwrap_or_default()
-        ))
+        unreachable!()
     }
 
     pub async fn pull_model(&self, name: &str) -> Result<()> {
@@ -3336,6 +3392,7 @@ impl Sentient {
         }
 
         if provider.to_lowercase() == "ollama" {
+            let _permit = self.ollama_http_permit().await;
             let base = {
                 let u = self.ollama_url.lock().await;
                 normalize_ollama_base_url(&u)
@@ -3346,50 +3403,60 @@ impl Sentient {
             let key = self.get_key_for_provider("ollama");
             let bearer = key.trim();
             let mut last_err: Option<String> = None;
-            for path in ["/api/tags", "/v1/api/tags"] {
-                let url = format!("{}{}", base, path);
-                let mut req = self.client.get(&url);
-                if !bearer.is_empty() {
-                    req = req.bearer_auth(bearer);
-                }
-                match req.send().await {
-                    Ok(resp) if resp.status().is_success() => {
-                        let json: Value = resp.json().await?;
-                        let mut model_names = Vec::new();
-                        if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
-                            for m in models {
-                                if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
-                                    model_names.push(name.to_string());
+
+            'attempt: for attempt in 0u32..6u32 {
+                for path in ["/api/tags", "/v1/api/tags"] {
+                    let url = format!("{}{}", base, path);
+                    let mut req = self.client.get(&url);
+                    if !bearer.is_empty() {
+                        req = req.bearer_auth(bearer);
+                    }
+                    match req.send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            let json: Value = resp.json().await?;
+                            let mut model_names = Vec::new();
+                            if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
+                                for m in models {
+                                    if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
+                                        model_names.push(name.to_string());
+                                    }
                                 }
                             }
+                            return Ok(model_names);
                         }
-                        return Ok(model_names);
-                    }
-                    Ok(resp) if resp.status().as_u16() == 404 => {
-                        last_err = Some(format!("{} returned 404", url));
-                        continue;
-                    }
-                    Ok(resp) => {
-                        let status = resp.status();
-                        let body = resp.text().await.unwrap_or_default();
-                        return Err(anyhow!(
-                            "Ollama list_models {} -> {}: {}",
-                            url,
-                            status,
-                            body.chars().take(200).collect::<String>()
-                        ));
-                    }
-                    Err(e) => {
-                        last_err = Some(e.to_string());
-                        continue;
+                        Ok(resp) if resp.status().as_u16() == 404 => {
+                            last_err = Some(format!("{} returned 404", url));
+                            continue;
+                        }
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let code = status.as_u16();
+                            if (code == 503 || code == 429) && attempt < 5 {
+                                let ms = 400u64 * (1u64 << attempt).min(10_000);
+                                tokio::time::sleep(Duration::from_millis(ms)).await;
+                                continue 'attempt;
+                            }
+                            let body = resp.text().await.unwrap_or_default();
+                            return Err(anyhow!(
+                                "Ollama list_models {} -> {}: {}",
+                                url,
+                                status,
+                                body.chars().take(200).collect::<String>()
+                            ));
+                        }
+                        Err(e) => {
+                            last_err = Some(e.to_string());
+                            continue;
+                        }
                     }
                 }
+                return Err(anyhow!(
+                    "Ollama list_models: neither /api/tags nor /v1/api/tags reachable on {} ({})",
+                    base,
+                    last_err.clone().unwrap_or_default()
+                ));
             }
-            return Err(anyhow!(
-                "Ollama list_models: neither /api/tags nor /v1/api/tags reachable on {} ({})",
-                base,
-                last_err.unwrap_or_default()
-            ));
+            unreachable!();
         }
 
         let endpoint = match provider.to_lowercase().as_str() {

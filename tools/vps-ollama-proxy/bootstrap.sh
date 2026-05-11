@@ -88,14 +88,21 @@ WEBROOT="/var/www/html"
 mkdir -p "${WEBROOT}/.well-known/acme-challenge"
 chmod -R a+rX "${WEBROOT}/.well-known" 2>/dev/null || true
 
+# Tunable per-IP caps. AIRI autonomy fires many concurrent /api/generate calls
+# from the same client (consciousness, vision, continuous-improvement, …),
+# which trips a low cap with nginx returning 503 (visible in the IDE diagnostic
+# panel as "HTTP 503 / 503 Service Temporarily Unavailable"). Defaults below
+# are sized for a single $200 IDE seat behind one residential IP.
+OLLAMA_RATE_PER_SEC="${OLLAMA_RATE_PER_SEC:-60}"
+OLLAMA_BURST="${OLLAMA_BURST:-120}"
+OLLAMA_CONN_PER_IP="${OLLAMA_CONN_PER_IP:-128}"
+
 ZONES_FILE="/etc/nginx/conf.d/ollama-proxy-zones.conf"
-if [[ ! -f "${ZONES_FILE}" ]]; then
-  info "Writing rate-limit zones (${ZONES_FILE}) ..."
-  cat >"${ZONES_FILE}" <<'ZONES'
-limit_req_zone $binary_remote_addr zone=ollama_rl:10m rate=15r/s;
-limit_conn_zone $binary_remote_addr zone=ollama_conn:10m;
+info "Writing rate-limit zones (${ZONES_FILE}) — rate=${OLLAMA_RATE_PER_SEC}r/s burst=${OLLAMA_BURST} conn/IP=${OLLAMA_CONN_PER_IP} ..."
+cat >"${ZONES_FILE}" <<ZONES
+limit_req_zone \$binary_remote_addr zone=ollama_rl:10m rate=${OLLAMA_RATE_PER_SEC}r/s;
+limit_conn_zone \$binary_remote_addr zone=ollama_conn:10m;
 ZONES
-fi
 
 mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
 SITE_PATH="/etc/nginx/sites-available/${OLLAMA_DOMAIN}.conf"
@@ -236,8 +243,8 @@ server {
 
     if (\$ollama_auth_ok = 0) { return 401; }
 
-    limit_req zone=ollama_rl burst=30 nodelay;
-    limit_conn ollama_conn 20;
+    limit_req zone=ollama_rl burst=${OLLAMA_BURST} nodelay;
+    limit_conn ollama_conn ${OLLAMA_CONN_PER_IP};
 
     location /v1/ {
         rewrite ^/v1/api/(.*)\$ /api/\$1 break;
