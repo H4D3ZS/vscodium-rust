@@ -13,6 +13,7 @@
 import type { Ollama } from 'ollama';
 import { Ollama as OllamaClient } from 'ollama';
 import { invoke } from '../tauri_bridge';
+import { useStore } from '../store';
 
 type Headers = Record<string, string>;
 
@@ -125,19 +126,76 @@ let refreshingInstalled: Promise<void> | null = null;
 let lastInstalledRefresh = 0;
 const INSTALLED_TTL_MS = 60_000;
 const FALLBACK_STORAGE_KEYS = [
-    'agentModel', // "ollama|tag"
+    'agentModel', // persisted by store.setAgentModel — "Ollama|namespace/tag"
     'airi.consciousness.model',
     'airi.vision.model',
 ];
 
+let lastSubstWarnKey = '';
+let lastSubstWarnAt = 0;
+
+function maybeWarnSubstitution(requested: string, fallback: string): void {
+    const key = `${requested}→${fallback}`;
+    const now = Date.now();
+    if (key === lastSubstWarnKey && now - lastSubstWarnAt < 15_000) return;
+    lastSubstWarnKey = key;
+    lastSubstWarnAt = now;
+    console.warn(
+        `[AIRI Ollama] Model "${requested}" not installed on this server — substituting "${fallback}".`,
+    );
+}
+
+function normalizeModelTag(s: string): string {
+    return s.replace(/:latest$/i, '').trim().toLowerCase();
+}
+
+/** Map a requested tag (often a default like \`qwen3:35b\`) to an installed name (e.g. \`balia/qwen3.6-35b\`). */
+function fuzzyMatchInstalled(requested: string, installed: Set<string>): string | null {
+    const r = normalizeModelTag(requested);
+    if (!r) return null;
+    for (const m of installed) {
+        if (normalizeModelTag(m) === r) return m;
+    }
+    const afterColon = r.includes(':') ? r.split(':').slice(1).join(':') : '';
+    const compact = afterColon.replace(/[^a-z0-9.]/gi, '');
+    if (compact.length >= 3) {
+        for (const m of installed) {
+            const ml = m.toLowerCase();
+            if (ml.includes(compact)) return m;
+        }
+    }
+    const stem = r.split(/[:/]/).filter((p) => p.length >= 3)[0];
+    if (stem) {
+        for (const m of installed) {
+            if (m.toLowerCase().includes(stem)) return m;
+        }
+    }
+    return null;
+}
+
+function resolveInstalledOrNull(requested: string): string | null {
+    if (!installedModels?.size) return null;
+    if (installedModels.has(requested)) return requested;
+    return fuzzyMatchInstalled(requested, installedModels);
+}
+
 function preferredFallbackTags(): string[] {
     const out: string[] = [];
+    try {
+        const am = useStore.getState().agentModel;
+        if (am?.includes('|')) {
+            const id = am.split('|').slice(1).join('|').trim();
+            if (id) out.push(id);
+        }
+    } catch {
+        /* store not ready */
+    }
     if (typeof localStorage === 'undefined') return out;
     for (const key of FALLBACK_STORAGE_KEYS) {
         try {
             let v = localStorage.getItem(key);
             if (!v) continue;
-            v = v.includes('|') ? v.split('|')[1] : v;
+            v = v.includes('|') ? v.split('|').slice(1).join('|') : v;
             v = v.trim();
             if (v && !out.includes(v)) out.push(v);
         } catch {
@@ -150,7 +208,11 @@ function preferredFallbackTags(): string[] {
 function chooseFallback(): string | null {
     const prefs = preferredFallbackTags();
     if (!installedModels || installedModels.size === 0) return prefs[0] ?? null;
-    for (const p of prefs) if (installedModels.has(p)) return p;
+    for (const p of prefs) {
+        if (installedModels.has(p)) return p;
+        const fuzzy = fuzzyMatchInstalled(p, installedModels);
+        if (fuzzy) return fuzzy;
+    }
     const cheap = ['llama3.2:3b', 'llama3.2:1b', 'gemma2:2b', 'qwen2.5:3b'];
     for (const c of cheap) if (installedModels.has(c)) return c;
     return installedModels.values().next().value ?? null;
@@ -184,13 +246,25 @@ async function substituteUnknownModel(req: Record<string, unknown>): Promise<Rec
     if (!requested) return req;
     await refreshInstalled();
     if (!installedModels || installedModels.size === 0) return req;
-    if (installedModels.has(requested)) return req;
+    const direct = resolveInstalledOrNull(requested);
+    if (direct) return { ...req, model: direct };
     const fallback = chooseFallback();
     if (!fallback || fallback === requested) return req;
-    console.warn(
-        `[AIRI Ollama] Model "${requested}" not installed on this server — substituting "${fallback}".`,
-    );
+    maybeWarnSubstitution(requested, fallback);
     return { ...req, model: fallback };
+}
+
+/**
+ * Public helper: pick a tag that exists on the configured server (exact,
+ * fuzzy match on defaults, then user preference order).
+ */
+export async function resolveOllamaModelTag(requested: string): Promise<string> {
+    await refreshInstalled();
+    const r = (requested || '').trim();
+    if (!r) return chooseFallback() || 'llama3.2:3b';
+    const hit = resolveInstalledOrNull(r);
+    if (hit) return hit;
+    return chooseFallback() || r;
 }
 
 async function tauriListRaw(): Promise<{ models: Array<{ name: string; [k: string]: unknown }> }> {

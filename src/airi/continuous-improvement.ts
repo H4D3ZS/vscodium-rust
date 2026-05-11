@@ -5,9 +5,85 @@
  */
 
 import type { Ollama } from 'ollama';
-import { createSharedOllama } from './shared-ollama';
+import { createSharedOllama, resolveOllamaModelTag } from './shared-ollama';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+
+/** First balanced `{ ... }` starting at the first `{` in \`s\`. */
+function extractBalancedJsonObject(s: string): string | null {
+    const start = s.indexOf('{');
+    if (start < 0) return null;
+    let depth = 0;
+    for (let i = start; i < s.length; i++) {
+        const c = s[i];
+        if (c === '{') depth++;
+        else if (c === '}') {
+            depth--;
+            if (depth === 0) return s.slice(start, i + 1);
+        }
+    }
+    return null;
+}
+
+/** First balanced \`[ ... ]\` starting at the first \`[\` in \`s\`. */
+function extractBalancedJsonArray(s: string): string | null {
+    const start = s.indexOf('[');
+    if (start < 0) return null;
+    let depth = 0;
+    for (let i = start; i < s.length; i++) {
+        const c = s[i];
+        if (c === '[') depth++;
+        else if (c === ']') {
+            depth--;
+            if (depth === 0) return s.slice(start, i + 1);
+        }
+    }
+    return null;
+}
+
+function extractFirstJsonObjectFromLlm(text: string): string | null {
+    if (!text) return null;
+    const t = text.trim();
+    const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) {
+        const inner = fence[1].trim();
+        if (inner.startsWith('{')) return extractBalancedJsonObject(inner);
+    }
+    return extractBalancedJsonObject(t);
+}
+
+function extractFirstJsonArrayFromLlm(text: string): string | null {
+    if (!text) return null;
+    const t = text.trim();
+    const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) {
+        const inner = fence[1].trim();
+        if (inner.startsWith('[')) return extractBalancedJsonArray(inner);
+    }
+    return extractBalancedJsonArray(t);
+}
+
+function safeParseJsonObject(text: string): Record<string, unknown> | null {
+    const blob = extractFirstJsonObjectFromLlm(text);
+    if (!blob) return null;
+    try {
+        const v = JSON.parse(blob);
+        return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+    } catch {
+        return null;
+    }
+}
+
+function safeParseJsonArray(text: string): unknown[] | null {
+    const blob = extractFirstJsonArrayFromLlm(text);
+    if (!blob) return null;
+    try {
+        const v = JSON.parse(blob);
+        return Array.isArray(v) ? v : null;
+    } catch {
+        return null;
+    }
+}
 
 export interface Optimization {
   id: string;
@@ -59,8 +135,10 @@ export class AIRIContinuousImprovement {
 
   private async generateWithFallback(prompt: string): Promise<{ response: string }> {
     let lastError: unknown = null;
-    for (const model of this.MODELS) {
+    const seeds = [...new Set([this.activeModel, ...this.MODELS])];
+    for (const seed of seeds) {
       try {
+        const model = await resolveOllamaModelTag((seed || '').trim() || 'llama3.2:3b');
         const response = await this.ollama.generate({
           model,
           prompt,
@@ -223,14 +301,12 @@ Respond with JSON:
     try {
       const response = await this.generateWithFallback(prompt);
 
-      // Parse JSON response
-      const jsonMatch = response.response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const analysis = JSON.parse(jsonMatch[0]);
+      const analysis = safeParseJsonObject(String(response?.response ?? ''));
+      if (analysis) {
         return {
-          performanceScore: analysis.performanceScore || 50,
-          codeQualityScore: analysis.codeQualityScore || 50,
-          issues: analysis.issues || []
+          performanceScore: Number(analysis.performanceScore) || 50,
+          codeQualityScore: Number(analysis.codeQualityScore) || 50,
+          issues: Array.isArray(analysis.issues) ? (analysis.issues as string[]) : [],
         };
       }
 
@@ -283,10 +359,10 @@ Respond as JSON array:
     try {
       const response = await this.generateWithFallback(prompt);
       const raw = String(response?.response ?? '');
-      const jsonMatch = raw.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) return optimizations;
+      let chunk = extractFirstJsonArrayFromLlm(raw);
+      if (!chunk) return optimizations;
 
-      let chunk = jsonMatch[0].trim();
+      chunk = chunk.trim();
       // Some local tunes echo the example with literal ellipsis ("[ ... ]"),
       // a trailing comma, or JS-style comments. Sanitize before parsing.
       if (/^\[\s*\.{2,}\s*\]$/.test(chunk) || /^\[\s*…\s*\]$/.test(chunk)) {
@@ -298,7 +374,7 @@ Respond as JSON array:
 
       let opts: any[] = [];
       try {
-        opts = JSON.parse(chunk);
+        opts = safeParseJsonArray(chunk) || [];
       } catch {
         return optimizations;
       }
@@ -372,43 +448,45 @@ Format:
     try {
       const response = await this.generateWithFallback(prompt);
 
-      const jsonMatch = response.response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const changes = JSON.parse(jsonMatch[0]);
-        
-        // Apply changes
-        const filePath = path.join(this.codebasePath, changes.file);
-        
-        // Backup original
-        const original = await fs.readFile(filePath, 'utf-8');
-        await fs.writeFile(filePath + '.backup', original, 'utf-8');
+      const changes = safeParseJsonObject(String(response?.response ?? ''));
+      if (!changes) return null;
 
-        // Apply new code
-        await fs.writeFile(filePath, changes.newCode, 'utf-8');
+      const fileRel = typeof changes.file === 'string' ? changes.file.trim() : '';
+      const newCode = typeof changes.newCode === 'string' ? changes.newCode : '';
+      if (!fileRel || !newCode) return null;
 
-        optimization.status = 'implemented';
-        optimization.codeChanges = changes.newCode;
+      // Apply changes
+      const filePath = path.join(this.codebasePath, fileRel);
+
+      // Backup original
+      const original = await fs.readFile(filePath, 'utf-8');
+      await fs.writeFile(filePath + '.backup', original, 'utf-8');
+
+      // Apply new code
+      await fs.writeFile(filePath, newCode, 'utf-8');
+
+      optimization.status = 'implemented';
+      optimization.codeChanges = newCode;
 
 
-        // Verify improvement
-        const performanceGain = await this.verifyImprovement(filePath, original);
+      // Verify improvement
+      const performanceGain = await this.verifyImprovement(filePath, original);
         
         if (performanceGain > 0) {
           optimization.performanceGain = performanceGain;
           optimization.status = 'verified';
-          
+
           // Remove backup on success
           await fs.unlink(filePath + '.backup');
-          
+
           return { success: true, performanceGain };
         } else {
           // Rollback on failure
           await fs.writeFile(filePath, original, 'utf-8');
           await fs.unlink(filePath + '.backup');
-          
+
           return { success: false };
         }
-      }
     } catch (error) {
       console.error(`   ❌ Implementation failed:`, error);
     }

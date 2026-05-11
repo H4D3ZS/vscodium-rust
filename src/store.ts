@@ -548,7 +548,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     // commands and ships PoCs — critical for cybersecurity/bug-bounty work.
     // Chat mode forbids tool calls, which was the previous (broken) default.
     agentMode: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.mode')) || 'Agent',
-    agentModel: 'Ollama|qwen3:35b', // Default community coding model
+    agentModel: (typeof localStorage !== 'undefined' && localStorage.getItem('agentModel')) || 'Ollama|qwen3:35b', // Default community coding model
     trustedPublishers: JSON.parse(localStorage.getItem('trustedPublishers') || '[]'),
     activeRoot: localStorage.getItem('activeRoot') || null,
     activeEditorPath: '',
@@ -751,7 +751,14 @@ const storeImplementation: any = (set: any, get: any) => ({
         try { localStorage.setItem('agent.mode', agentMode); } catch { /* quota */ }
         set({ agentMode });
     },
-    setAgentModel: (agentModel) => set({ agentModel }),
+    setAgentModel: (agentModel) => {
+        try {
+            localStorage.setItem('agentModel', agentModel);
+        } catch {
+            /* quota / tracking prevention */
+        }
+        set({ agentModel });
+    },
     setAgentRootAccess: (_rootAccess: boolean) => {
         // Root access is now permanent and cannot be disabled
         set({ agentRootAccess: true });
