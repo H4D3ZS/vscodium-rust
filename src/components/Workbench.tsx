@@ -74,11 +74,17 @@ const Workbench: React.FC = () => {
     const isDevWorkflowActive = useStore(state => state.isDevWorkflowActive);
 
     // Ctrl+\ = toggle split editor (global listener, works regardless of Monaco focus)
+    // Ctrl+Shift+V = toggle the markdown side-by-side preview (VS Code parity)
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
                 e.preventDefault();
                 toggleSplitEditor();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+                e.preventDefault();
+                const s = useStore.getState() as any;
+                s.toggleMarkdownPreview?.();
             }
         };
         window.addEventListener('keydown', handler);

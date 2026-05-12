@@ -50,5 +50,30 @@ impl KeybindingRegistry {
         None
     }
 
-    // Removed unused add_binding
+    /// Snapshot the current bindings — used by the frontend keybindings
+    /// editor to render the table.
+    pub fn list(&self) -> Vec<Keybinding> {
+        self.bindings.clone()
+    }
+
+    /// Add or replace a binding for a (command, when) pair. We replace
+    /// the existing entry that shares both fields; otherwise we append.
+    /// Empty `key` removes the binding.
+    pub fn upsert(&mut self, key: String, command: String, when: Option<String>) {
+        if let Some(idx) = self
+            .bindings
+            .iter()
+            .position(|b| b.command == command && b.when == when)
+        {
+            if key.is_empty() {
+                self.bindings.remove(idx);
+            } else {
+                self.bindings[idx].key = key;
+            }
+            return;
+        }
+        if !key.is_empty() {
+            self.bindings.push(Keybinding { key, command, when });
+        }
+    }
 }

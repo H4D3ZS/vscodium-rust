@@ -1872,6 +1872,164 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             return true;
         }
 
+        // ── Bug Finder (background pass for code quality) ───────────────
+        // Drops the agent into a code-review persona that walks the
+        // active file (or the user-supplied target) looking for bugs,
+        // smells, and CVEs. Output is a checklist of findings the user
+        // can copy/jump-to. We deliberately do not let the agent edit
+        // anything by default — this is review, not refactor.
+        case '/bugfind':
+        case '/bugs':
+        case '/review': {
+            const target = args.trim();
+            const storeState = (window as any).useStore?.getState();
+            const activeFile = storeState?.activeEditorPath || storeState?.tabs?.find((t: any) => t.id === storeState?.activeTabId)?.path;
+            const scope = target || activeFile || '(current workspace)';
+            const persona =
+                `[PERSONA: CODE REVIEWER] You are reviewing code for bugs, security holes, and design smells. ` +
+                `Do not modify files yet — produce a checklist of findings, each with: file path, line range, severity (CRITICAL/HIGH/MEDIUM/LOW), description, and a proposed fix. ` +
+                `Use view_file, grep, search_codebase, lsp_get_diagnostics, and apex_security_audit. End with a brief summary of the riskiest 3 items.\n\n` +
+                `SCOPE:\n${scope}`;
+            await sendAgentMessage(persona);
+            return true;
+        }
+
+        // ── Test generation ─────────────────────────────────────────────
+        // Generates unit / integration tests for the active file (or the
+        // user-supplied target). Strict output contract so the agent
+        // actually writes tests rather than narrating them.
+        case '/gentest':
+        case '/maketest':
+        case '/writetest': {
+            const target = args.trim();
+            const storeState = (window as any).useStore?.getState();
+            const activeFile = storeState?.activeEditorPath || storeState?.tabs?.find((t: any) => t.id === storeState?.activeTabId)?.path;
+            const scope = target || activeFile;
+            if (!scope) {
+                addAgentMessage('assistant', '❌ No file selected. Open a file or pass a path: `/gentest src/foo.ts`.');
+                return true;
+            }
+            const persona =
+                `[PERSONA: TEST AUTHOR] Generate unit tests for the file below. ` +
+                `Pick the project's existing test framework (jest, vitest, cargo test, pytest, etc.) by reading existing tests with grep, or fall back to vitest if none exist. ` +
+                `Cover happy path, edge cases, and error branches. Use write_to_file to land the new test file next to the source (e.g. foo.test.ts beside foo.ts). End with the path of the new file and a one-line summary.\n\n` +
+                `TARGET FILE: ${scope}`;
+            await sendAgentMessage(persona);
+            return true;
+        }
+
+        // ── Trajectory timeline ─────────────────────────────────────────
+        // Opens the agent timeline panel without leaving chat. Convenient
+        // alternative to clicking the clock icon next to the live action
+        // feed.
+        case '/timeline':
+        case '/trajectory': {
+            try {
+                const store = (window as any).useStore?.getState();
+                store?.openTrajectory?.();
+                addAgentMessage('assistant', '📊 Opened the agent trajectory timeline.');
+            } catch {
+                addAgentMessage('assistant', '❌ Couldn\'t open the trajectory panel.');
+            }
+            return true;
+        }
+
+        // ── Notepads — saved reusable prompts ──────────────────────────
+        // `/notepad list`            → list saved prompts
+        // `/notepad save <name>`     → save the previous user message
+        //                               under that name
+        // `/notepad run <name> ...`  → run a saved prompt with optional
+        //                               args appended
+        // `/notepad delete <name>`   → remove a saved prompt
+        case '/notepad':
+        case '/np': {
+            const sub = (args.trim().split(/\s+/)[0] || '').toLowerCase();
+            const rest = args.trim().slice(sub.length).trim();
+            const root = activeRoot;
+            if (!root) {
+                addAgentMessage('assistant', '❌ Notepads live in `.agents/prompts/` inside the workspace. Open a folder first.');
+                return true;
+            }
+            const dir = `${root}/.agents/prompts`;
+            try {
+                await invoke('create_directory', { path: dir }).catch(() => null);
+            } catch { /* directory may already exist */ }
+
+            if (sub === 'list' || !sub) {
+                try {
+                    const entries = await invoke<any[]>('list_directory', { path: dir }).catch(() => []);
+                    const names = (entries || [])
+                        .filter((e: any) => !e.is_dir && (e.name || '').endsWith('.md'))
+                        .map((e: any) => e.name.replace(/\.md$/, ''));
+                    if (names.length === 0) {
+                        addAgentMessage('assistant', '📓 No saved notepads. Save one with `/notepad save <name>` after sending a prompt.');
+                    } else {
+                        addAgentMessage('assistant', `📓 Saved notepads:\n${names.map(n => `  • \`${n}\``).join('\n')}\n\nRun with \`/notepad run <name>\`.`);
+                    }
+                } catch (e) {
+                    addAgentMessage('assistant', `❌ Couldn't list notepads: ${e}`);
+                }
+                return true;
+            }
+
+            if (sub === 'save') {
+                const name = (rest.split(/\s+/)[0] || '').replace(/[^a-z0-9_-]/gi, '');
+                if (!name) {
+                    addAgentMessage('assistant', '❌ Usage: `/notepad save <name>` — must be alphanumeric.');
+                    return true;
+                }
+                // Save the previous user message.
+                const msgs = ((window as any).useStore?.getState()?.agentMessages || []) as any[];
+                const lastUser = [...msgs].reverse().find(m => m.role === 'user' && !m.content?.startsWith('/notepad'));
+                if (!lastUser?.content) {
+                    addAgentMessage('assistant', '❌ Nothing to save. Send a prompt first, then `/notepad save <name>`.');
+                    return true;
+                }
+                try {
+                    await invoke('write_file_content', { path: `${dir}/${name}.md`, content: lastUser.content });
+                    addAgentMessage('assistant', `📓 Saved as \`${name}\`. Run with \`/notepad run ${name}\`.`);
+                } catch (e) {
+                    addAgentMessage('assistant', `❌ Save failed: ${e}`);
+                }
+                return true;
+            }
+
+            if (sub === 'run') {
+                const name = (rest.split(/\s+/)[0] || '').replace(/[^a-z0-9_-]/gi, '');
+                const extra = rest.slice(name.length).trim();
+                if (!name) {
+                    addAgentMessage('assistant', '❌ Usage: `/notepad run <name> [optional extra context]`.');
+                    return true;
+                }
+                try {
+                    const body = await invoke<string>('read_file', { path: `${dir}/${name}.md` });
+                    const composed = extra ? `${body}\n\nADDITIONAL CONTEXT:\n${extra}` : body;
+                    await sendAgentMessage(composed);
+                } catch (e) {
+                    addAgentMessage('assistant', `❌ Notepad "${name}" not found: ${e}`);
+                }
+                return true;
+            }
+
+            if (sub === 'delete' || sub === 'rm') {
+                const name = (rest.split(/\s+/)[0] || '').replace(/[^a-z0-9_-]/gi, '');
+                if (!name) {
+                    addAgentMessage('assistant', '❌ Usage: `/notepad delete <name>`.');
+                    return true;
+                }
+                try {
+                    await invoke('delete_path', { path: `${dir}/${name}.md` });
+                    addAgentMessage('assistant', `🗑 Deleted notepad \`${name}\`.`);
+                } catch (e) {
+                    addAgentMessage('assistant', `❌ Delete failed: ${e}`);
+                }
+                return true;
+            }
+
+            addAgentMessage('assistant', '📓 Notepad subcommands: `list`, `save <name>`, `run <name>`, `delete <name>`.');
+            return true;
+        }
+
         case '/init': {
             if (!activeRoot) {
                 addAgentMessage('assistant', '❌ No project root open — `/init` needs an open workspace.');
@@ -2556,11 +2714,123 @@ async function resolveSpecialMentions(context: any[], query: string, activeRoot:
                 } catch { /* ignore */ }
             } else if (item.path === '__docs__') {
                 try {
-                    // Pre-fetch relevant documentation via targeted web search
-                    const result = await invoke<any>('web_search', { query: `documentation for ${query}` }).catch(() => null);
-                    if (result) {
-                        const data = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-                        resolved.push({ id: '__docs__', type: 'file', name: 'Documentation context', path: '__docs__', data: data.slice(0, 8000) });
+                    // Pre-fetch relevant documentation via targeted web search.
+                    // We honor user-configured doc URLs first (Settings →
+                    // Indexing & Docs) before falling back to a generic
+                    // web-search synthesis so projects with a custom doc
+                    // surface don't get shadowed by random SERP hits.
+                    const storeState = (window as any).useStore?.getState();
+                    const docsUrls: string[] = Array.isArray(storeState?.indexingDocsUrls) ? storeState.indexingDocsUrls : [];
+                    const chunks: string[] = [];
+                    for (const u of docsUrls.slice(0, 3)) {
+                        try {
+                            const txt = await invoke<string>('web_fetch', { url: u }).catch(() => '');
+                            if (txt) chunks.push(`### ${u}\n${txt.slice(0, 3000)}`);
+                        } catch { /* ignore */ }
+                    }
+                    if (chunks.length === 0) {
+                        const result = await invoke<any>('web_search', { query: `documentation for ${query}` }).catch(() => null);
+                        if (result) chunks.push(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
+                    }
+                    if (chunks.length > 0) {
+                        resolved.push({
+                            id: '__docs__',
+                            type: 'file',
+                            name: 'Documentation context',
+                            path: '__docs__',
+                            data: chunks.join('\n\n').slice(0, 12000),
+                        });
+                    }
+                } catch { /* ignore */ }
+            } else if (item.path === '__symbol__') {
+                // Resolve the next non-mention word in the prompt as a workspace
+                // symbol query. e.g. `@symbol parseConfig …` → LSP workspace
+                // symbol search for "parseConfig". We piggyback on the LSP
+                // client the editor already has running.
+                try {
+                    const symQuery = (query.match(/@symbol\s+(\S+)/i)?.[1] || '').trim();
+                    if (symQuery) {
+                        const syms = await invoke<any[]>('lsp_workspace_symbols', { query: symQuery }).catch(() => null);
+                        if (Array.isArray(syms) && syms.length > 0) {
+                            const lines = syms.slice(0, 12).map((s: any) => {
+                                const loc = s?.location?.uri || s?.uri || '';
+                                const range = s?.location?.range || s?.range;
+                                const lineNo = range?.start?.line ?? '';
+                                return `- ${s?.name || s?.symbol || '?'} (${s?.kind ?? ''}) — ${loc}:${lineNo}`;
+                            }).join('\n');
+                            resolved.push({
+                                id: '__symbol__',
+                                type: 'file',
+                                name: `LSP symbols: ${symQuery}`,
+                                path: '__symbol__',
+                                data: `### Workspace symbols matching "${symQuery}"\n${lines}`,
+                            });
+                        }
+                    }
+                } catch { /* ignore */ }
+            } else if (item.path === '__folder__') {
+                // Inject a recursive listing for the directory mentioned after
+                // @folder. e.g. `@folder src/components`. We bound depth so
+                // huge trees don't blow the context window.
+                try {
+                    const folder = (query.match(/@folder\s+(\S+)/i)?.[1] || '').trim();
+                    const root = folder || activeRoot;
+                    const tree = await invoke<string>('get_directory_tree', { root, max_depth: 3 }).catch(() => '');
+                    if (tree) {
+                        resolved.push({
+                            id: `__folder__:${root}`,
+                            type: 'file',
+                            name: `Folder tree: ${root}`,
+                            path: '__folder__',
+                            data: String(tree).slice(0, 8000),
+                        });
+                    }
+                } catch { /* ignore */ }
+            } else if (item.path === '__problems__') {
+                // Pull current LSP diagnostics for the active file (Cursor's
+                // @problems mention). Falls back to a workspace-wide snapshot.
+                try {
+                    const storeState = (window as any).useStore?.getState();
+                    const activeFile = storeState?.activeEditorPath;
+                    let diags: any = null;
+                    if (activeFile) {
+                        diags = await invoke<any>('lsp_get_diagnostics', { uri: activeFile }).catch(() => null);
+                    }
+                    if (!diags) {
+                        diags = await invoke<any>('lsp_get_diagnostics', {}).catch(() => null);
+                    }
+                    if (diags) {
+                        const text = typeof diags === 'string' ? diags : JSON.stringify(diags, null, 2);
+                        resolved.push({
+                            id: '__problems__',
+                            type: 'file',
+                            name: 'LSP diagnostics',
+                            path: '__problems__',
+                            data: text.slice(0, 6000),
+                        });
+                    }
+                } catch { /* ignore */ }
+            } else if (item.path === '__terminal__') {
+                // Last terminal output — useful when the user wants the model
+                // to interpret a stack trace they just hit. We grab the most
+                // recently active terminal id from the store, then read its
+                // ring buffer.
+                try {
+                    const storeState = (window as any).useStore?.getState();
+                    const terminalId =
+                        storeState?.activeTerminalId ||
+                        storeState?.terminals?.[0]?.id;
+                    if (terminalId) {
+                        const out = await invoke<string>('terminal_read_output', { id: terminalId }).catch(() => '');
+                        if (out) {
+                            resolved.push({
+                                id: '__terminal__',
+                                type: 'file',
+                                name: 'Terminal output',
+                                path: '__terminal__',
+                                data: out.slice(-6000),
+                            });
+                        }
                     }
                 } catch { /* ignore */ }
             }

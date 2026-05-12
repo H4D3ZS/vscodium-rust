@@ -5,6 +5,10 @@ import { useStore } from '../store';
 import DiffViewer from './DiffViewer';
 import { FileJson, Database } from 'lucide-react';
 import InlineEditOverlay from './InlineEditOverlay';
+import Breadcrumbs from './Breadcrumbs';
+import MarkdownPreview from './MarkdownPreview';
+import WelcomePage from './WelcomePage';
+import PredictiveEditOverlay from './PredictiveEditOverlay';
 import { invoke, listen } from '../tauri_bridge';
 import { sendAgentMessage } from '../agent';
 
@@ -73,6 +77,10 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
 
     const handleMount: OnMount = useCallback((editor, monaco) => {
         editorRef.current = editor;
+        // Announce the live editor so add-on overlays (PredictiveEditOverlay,
+        // future inline widgets) can attach onDidChangeModelContent listeners
+        // without us having to thread the handle through React props.
+        window.dispatchEvent(new CustomEvent('editor:registered', { detail: { editor, monaco } }));
         editor.addCommand(CTRL_S, () => saveActiveFile());
 
         // ── Tab to accept Ghost Text (inline AI completion) ────────────────
@@ -690,18 +698,27 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     }, [activeTab?.path, refreshGitGutter]);
 
     if (!activeTab) {
-        // Show AIRI VRD Avatar when no file is open
+        // Show the Welcome page on first open (unless dismissed) plus the
+        // AIRI orb behind it. WelcomePage handles its own dismissal so
+        // once the user closes it they get the legacy avatar view.
         return (
-            <div style={{ 
-                height: '100%', 
-                width: '100%', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center',
+            <div style={{
+                height: '100%', width: '100%',
+                position: 'relative',
                 background: 'var(--vscode-editor-background)',
-                flexDirection: 'column',
-                gap: '20px'
+                overflow: 'hidden',
             }}>
+                <WelcomePage />
+                <div style={{
+                    height: '100%',
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'column',
+                    gap: '20px',
+                    pointerEvents: 'none',
+                }}>
                 <div style={{ 
                     width: '200px', 
                     height: '200px', 
@@ -737,15 +754,24 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         50% { transform: translateY(-20px); }
                     }
                 `}</style>
+                </div>
             </div>
         );
     }
 
     return (
-        <div style={{ position: 'relative', height: '100%', width: '100%' }}>
-            <MonacoEditor
-                height="100%"
-                width="100%"
+        <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column' }}>
+            {/* Breadcrumbs — file path + LSP symbol trail. We render it
+                above the Monaco editor so it stays anchored regardless of
+                editor scrolling. The component reads the active path from
+                the store and the cursor line from a CustomEvent the Monaco
+                onDidChangeCursorPosition handler already emits. */}
+            <Breadcrumbs />
+            <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
+              <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+                <MonacoEditor
+                    height="100%"
+                    width="100%"
                 theme={theme}
                 language={activeTab.language}
                 value={activeFilePendingChange ? activeFilePendingChange.newContent : activeTab.content}
@@ -852,6 +878,18 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     }}
                 />
             )}
+                {/* Cursor-style next-edit prediction. After the user
+                    renames an identifier we surface remaining sites with
+                    one-Tab apply. Mounted inside the editor pane so its
+                    absolute positioning anchors to the editor, not the
+                    full window. */}
+                <PredictiveEditOverlay />
+              </div>
+              {/* Side-by-side markdown preview. The component returns null
+                  unless the active file is .md and the toggle is on, so
+                  the layout collapses cleanly for other file types. */}
+              <MarkdownPreview />
+            </div>
         </div>
     );
 });

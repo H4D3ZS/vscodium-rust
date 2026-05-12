@@ -26,6 +26,7 @@ const ActivityBar: React.FC = () => {
         { id: 'search-view', icon: 'search', title: 'Search' },
         { id: 'scm-view', icon: 'source-control', title: 'Source Control' },
         { id: 'debug-view', icon: 'debug-alt', title: 'Run and Debug' },
+        { id: 'test-view', icon: 'beaker', title: 'Test Explorer' },
         { id: 'extensions-view', icon: 'extensions', title: 'Extensions' },
         { id: 'mobile-view', icon: 'device-mobile', title: 'Mobile Emulators (Android & iOS)' },
         { id: 'emulator-view', icon: 'device-camera', title: 'Emulator Preview (Dev Workflow)' },

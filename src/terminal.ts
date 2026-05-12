@@ -953,13 +953,92 @@ export class TerminalManager {
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     `;
 
-    const menuItems = [
+    // Capture once so all AI menu items see the same snapshot of buffer/
+    // selection; otherwise reading at click time can race with the user
+    // scrolling or selecting new text.
+    const hasSelection = instance.term.hasSelection();
+    const selectedText = hasSelection ? instance.term.getSelection() : '';
+    // Pull a chunky tail of the visible buffer for the "Explain last
+    // output" / "Fix last error" paths. We grab the active terminal's
+    // ring buffer through the dedicated IPC so we get raw command output
+    // (not just what's currently scrolled into view).
+    const askAgent = async (prompt: string) => {
+      try {
+        const m = await import('./agent');
+        // Dispatch a chat-style message so the user can see the agent's
+        // response inline. The right sidebar will auto-open if it's not
+        // already because addAgentMessage triggers a state change.
+        await m.sendAgentMessage(prompt, () => {}, []);
+      } catch (e) {
+        console.error('[AI Terminal] failed to dispatch prompt:', e);
+      }
+    };
+
+    const buildTail = async (): Promise<string> => {
+      try {
+        const { invoke } = await import('./tauri_bridge');
+        const out = await invoke<string>('terminal_read_output', { id: instance.id });
+        return (out || '').slice(-4000);
+      } catch {
+        // Fallback to the xterm buffer if the IPC failed (e.g. backend
+        // restarted but the xterm still has scrollback in memory).
+        try {
+          const buf = instance.term.buffer.active;
+          const lines: string[] = [];
+          for (let i = Math.max(0, buf.length - 200); i < buf.length; i++) {
+            lines.push(buf.getLine(i)?.translateToString(true) || '');
+          }
+          return lines.join('\n').slice(-4000);
+        } catch { return ''; }
+      }
+    };
+
+    const menuItems: any[] = [
       { label: 'New Terminal', icon: 'add', action: () => this.createTerminal() },
       { label: 'Split Terminal', icon: 'split-horizontal', action: () => this.splitTerminal(instance.id, 'horizontal') },
       { type: 'separator' },
       { label: 'Copy', icon: 'copy', action: () => this.copySelection(instance) },
       { label: 'Paste', icon: 'paste', action: () => this.paste(instance) },
       { label: 'Select All', icon: 'selection', action: () => this.selectAll(instance) },
+      { type: 'separator' },
+      // ── AI Terminal actions (Windsurf-style) ───────────────────────
+      // Each item ships a different framing to the agent so the result
+      // is targeted: explanation, root-cause + fix proposal, or a
+      // direct command suggestion. Selection-aware: if the user
+      // highlighted text we use that; otherwise we fall back to the
+      // last 4KB of terminal output.
+      {
+        label: hasSelection ? 'Explain selection' : 'Explain last output',
+        icon: 'sparkle',
+        action: async () => {
+          const body = hasSelection ? selectedText : await buildTail();
+          if (!body.trim()) return;
+          await askAgent(
+            `[INTENT: TERMINAL EXPLAIN]\nExplain this terminal output in plain English. Identify what command produced it, what the output means, and call out anything noteworthy.\n\n\`\`\`\n${body}\n\`\`\``
+          );
+        },
+      },
+      {
+        label: hasSelection ? 'Fix error in selection' : 'Fix last error',
+        icon: 'wand',
+        action: async () => {
+          const body = hasSelection ? selectedText : await buildTail();
+          if (!body.trim()) return;
+          await askAgent(
+            `[INTENT: TERMINAL FIX]\nThe following terminal output contains an error. Diagnose the root cause and propose a concrete fix. If a file edit would resolve it, use the appropriate edit tool; if a command would resolve it, suggest the exact command.\n\n\`\`\`\n${body}\n\`\`\``
+          );
+        },
+      },
+      {
+        label: 'Suggest next command',
+        icon: 'arrow-right',
+        action: async () => {
+          const body = await buildTail();
+          await askAgent(
+            `[INTENT: TERMINAL NEXT]\nGiven this recent terminal history, suggest the next 1-3 useful commands the user might run. Reply with code-fenced commands only, no narration.\n\n\`\`\`\n${body}\n\`\`\``
+          );
+        },
+      },
       { type: 'separator' },
       { label: 'Clear', icon: 'clear-all', action: () => instance.term.clear() },
       { label: 'Kill Terminal', icon: 'trash', action: () => this.closeTerminal(instance.id) }

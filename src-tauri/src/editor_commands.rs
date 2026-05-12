@@ -113,3 +113,26 @@ pub async fn resolve_keybinding(state: State<'_, EditorState>, key: String) -> R
     let kb = state.keybindings.lock().await;
     Ok(kb.resolve_key(&key, &state.context_keys))
 }
+
+/// Snapshot every registered keybinding. Powers the Keybindings panel in
+/// the settings UI; sorting / filtering happens client-side.
+#[tauri::command]
+pub async fn list_keybindings(state: State<'_, EditorState>) -> Result<Vec<crate::keybindings::Keybinding>, String> {
+    let kb = state.keybindings.lock().await;
+    Ok(kb.list())
+}
+
+/// Add or replace a binding. Pass an empty `key` to delete an existing
+/// (command, when) tuple. The when-clause is optional and matches the
+/// VS Code grammar.
+#[tauri::command]
+pub async fn update_keybinding(
+    state: State<'_, EditorState>,
+    key: String,
+    command: String,
+    when: Option<String>,
+) -> Result<(), String> {
+    let mut kb = state.keybindings.lock().await;
+    kb.upsert(key, command, when);
+    Ok(())
+}

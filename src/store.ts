@@ -224,6 +224,29 @@ interface AppState {
     agentMessages: any[];
     /** Last auto-checkpoint created at the start of an agent turn (Cursor-style restore). */
     lastAgentCheckpoint: { id: string; description: string; timestamp: number } | null;
+    // List of file edits the agent performed during the current turn.
+    // Populated from `ai-tool-call` events by the right sidebar; consumed
+    // by the MultiFileReview panel that pops at end-of-turn so the user
+    // can flip through the diffs and revert individual files.
+    pendingAgentEdits: { path: string; tool: string; timestamp: number; preview?: string }[];
+    isMultiFileReviewOpen: boolean;
+    // ── Agent trajectory ────────────────────────────────────────────────
+    // Persistent event log of what the agent did during the current
+    // session (tool calls, content stream, errors). Powers the Antigravity-
+    // style timeline panel that lets you replay a turn step-by-step.
+    agentTrajectory: {
+        id: string;
+        ts: number;
+        kind: 'tool_call' | 'tool_result' | 'content' | 'phase' | 'error';
+        tool?: string;
+        title: string;
+        detail?: string;
+        success?: boolean;
+        turn?: number;
+    }[];
+    isTrajectoryOpen: boolean;
+    currentTurnId: number;
+    isMarkdownPreviewOpen: boolean;
     /** Independent background-agent runs that don't claim the main chat. */
     backgroundAgents: { id: string; prompt: string; status: 'pending' | 'running' | 'done' | 'error'; result: string; startedAt: number; finishedAt?: number }[];
     isAgentThinking: boolean;
@@ -467,6 +490,22 @@ interface AppState {
     setMcpServerEnabled: (name: string, enabled: boolean) => Promise<void>;
     setLastAgentCheckpoint: (cp: { id: string; description: string; timestamp: number } | null) => void;
     rollbackLastAgentCheckpoint: () => Promise<{ ok: boolean; message: string }>;
+    // Multi-file review setters — single source of truth for the diff
+    // carousel so multiple components stay in sync.
+    addPendingAgentEdit: (edit: { path: string; tool: string; preview?: string }) => void;
+    clearPendingAgentEdits: () => void;
+    openMultiFileReview: () => void;
+    closeMultiFileReview: () => void;
+    // Trajectory setters — used by RightSidebar's event listeners to log
+    // each agent step, and by the trajectory panel to clear / replay.
+    pushTrajectoryEvent: (evt: { kind: 'tool_call' | 'tool_result' | 'content' | 'phase' | 'error'; tool?: string; title: string; detail?: string; success?: boolean }) => void;
+    clearTrajectory: () => void;
+    openTrajectory: () => void;
+    closeTrajectory: () => void;
+    beginNewTurn: () => void;
+    openMarkdownPreview: () => void;
+    closeMarkdownPreview: () => void;
+    toggleMarkdownPreview: () => void;
     /** Attach a Git checkpoint id to the most-recent `user` message in
      *  `agentMessages` so the chat can render a per-turn "Restore to here"
      *  button next to that message. */
@@ -662,6 +701,12 @@ const storeImplementation: any = (set: any, get: any) => ({
     llamaCppStatus: 'idle',
     agentMessages: [],
     lastAgentCheckpoint: null,
+    pendingAgentEdits: [],
+    isMultiFileReviewOpen: false,
+    agentTrajectory: [],
+    isTrajectoryOpen: false,
+    currentTurnId: 0,
+    isMarkdownPreviewOpen: false,
     backgroundAgents: [],
     isAgentThinking: false,
     isAgentPaused: false,
@@ -1585,6 +1630,49 @@ const storeImplementation: any = (set: any, get: any) => ({
             return { ok: false, message: String(e?.message ?? e) };
         }
     },
+    // Multi-file review state — populated by the right sidebar's
+    // ai-tool-call listener when the agent calls a write/patch tool,
+    // consumed by MultiFileReview.tsx. We dedupe by path so the panel
+    // shows one entry per file even if the agent edited it twice.
+    addPendingAgentEdit: (edit) => set(s => {
+        const existing = s.pendingAgentEdits.find(e => e.path === edit.path);
+        if (existing) {
+            return {
+                pendingAgentEdits: s.pendingAgentEdits.map(e =>
+                    e.path === edit.path
+                        ? { ...e, tool: edit.tool, timestamp: Date.now(), preview: edit.preview ?? e.preview }
+                        : e
+                ),
+            };
+        }
+        return {
+            pendingAgentEdits: [...s.pendingAgentEdits, { ...edit, timestamp: Date.now() }],
+        };
+    }),
+    clearPendingAgentEdits: () => set({ pendingAgentEdits: [] }),
+    openMultiFileReview: () => set({ isMultiFileReviewOpen: true }),
+    closeMultiFileReview: () => set({ isMultiFileReviewOpen: false }),
+    // Trajectory log. We bound at 1000 entries so a runaway agent loop
+    // can't balloon the heap. The current turn id is bumped each user
+    // send so the panel can group by turn for replay.
+    pushTrajectoryEvent: (evt) => set(s => ({
+        agentTrajectory: [
+            ...s.agentTrajectory.slice(-999),
+            {
+                id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                ts: Date.now(),
+                turn: s.currentTurnId,
+                ...evt,
+            },
+        ],
+    })),
+    clearTrajectory: () => set({ agentTrajectory: [] }),
+    openTrajectory: () => set({ isTrajectoryOpen: true }),
+    closeTrajectory: () => set({ isTrajectoryOpen: false }),
+    beginNewTurn: () => set(s => ({ currentTurnId: s.currentTurnId + 1 })),
+    openMarkdownPreview: () => set({ isMarkdownPreviewOpen: true }),
+    closeMarkdownPreview: () => set({ isMarkdownPreviewOpen: false }),
+    toggleMarkdownPreview: () => set(s => ({ isMarkdownPreviewOpen: !s.isMarkdownPreviewOpen })),
 
     // ── Background agents ───────────────────────────────────────────────
     runBackgroundAgent: async (prompt: string) => {

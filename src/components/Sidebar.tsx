@@ -7,6 +7,7 @@ import SearchView from './SearchView';
 import ExtensionsView from './ExtensionsView';
 import ScmView from './ScmView';
 import DebugView from './DebugView';
+import TestExplorer from './TestExplorer';
 import EmulatorPanel from './EmulatorPanel';
 import ProjectSpecsSidebar from './ProjectSpecsSidebar';
 import CheckpointsPanel from './CheckpointsPanel';
@@ -487,6 +488,7 @@ const Sidebar: React.FC = () => {
         'search-view': 'SEARCH',
         'scm-view': 'SOURCE CONTROL',
         'debug-view': 'RUN AND DEBUG',
+        'test-view': 'TEST EXPLORER',
         'extensions-view': 'EXTENSIONS',
         'specs-view': 'SPECS',
         'mobile-view': 'MOBILE EMULATORS',
@@ -562,6 +564,7 @@ const Sidebar: React.FC = () => {
                 {activeView === 'search-view' && <SearchView />}
                 {activeView === 'scm-view' && <ScmView />}
                 {activeView === 'debug-view' && <DebugView />}
+                {activeView === 'test-view' && <TestExplorer />}
                 {activeView === 'emulator-view' && isDevWorkflowActive && <EmulatorPreview />}
                 {activeView === 'emulator-view' && !isDevWorkflowActive && (
                     <div style={{ padding: '20px', textAlign: 'center', color: '#888' }}>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
 import AgentSettingsView, { type AgentSettingsCategory } from './AgentSettingsView';
+import KeybindingsPanel from './KeybindingsPanel';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Settings page — Cursor IDE parity layout.
@@ -141,6 +142,7 @@ const SettingsPage: React.FC = () => {
         { id: 'plan',        label: 'Plan & Usage',           icon: 'graph-line',    customRender: () => <PlanUsagePanel /> },
         { id: 'agents',      label: 'Agents',                 icon: 'robot',         customRender: () => <AgentBehaviourPanel />, groupStart: 'Agentic' },
         { id: 'tab',         label: 'Tab',                    icon: 'symbol-keyword', customRender: () => <CursorTabPanel /> },
+        { id: 'keybindings', label: 'Keybindings',            icon: 'keyboard',      customRender: () => <KeybindingsPanel /> },
         { id: 'models',      label: 'Models',                 icon: 'symbol-misc',   agentCategory: 'models' },
         { id: 'cloud',       label: 'Cloud Agents',           icon: 'cloud',         customRender: () => <CloudAgentsPanel /> },
         { id: 'plugins',     label: 'Plugins',                icon: 'extensions',    customRender: () => <PluginsPanel /> },

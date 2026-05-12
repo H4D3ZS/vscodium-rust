@@ -19,6 +19,8 @@ import { initTerminal } from './terminal';
 import { initAgent } from './agent';
 import { initTheme } from './theme_engine';
 import CommandPalette from './components/CommandPalette';
+import MultiFileReview from './components/agent/MultiFileReview';
+import TrajectoryPanel from './components/agent/TrajectoryPanel';
 import QuickOpen from './components/QuickOpen';
 import RightSidebar from './components/RightSidebar';
 
@@ -182,6 +184,8 @@ const App: React.FC = () => {
 
             <ContextMenu />
             <TrustDialog />
+            <MultiFileReview />
+            <TrajectoryPanel />
         </div>
     );
 };

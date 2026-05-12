@@ -11,6 +11,7 @@ import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
 import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';  
 import AiriConversation from './AiriConversation';
+import MessageBody from './agent/MessageBody';
 
 // ── Restore-checkpoint banner ────────────────────────────────────────────
 // Shows above the chat input whenever an agent turn just auto-snapshotted
@@ -54,6 +55,42 @@ const RestoreCheckpointBanner: React.FC = () => {
                 style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', opacity: 0.5, fontSize: 11 }}
                 title="Dismiss"
             />
+        </div>
+    );
+};
+
+// ── Multi-file review banner ──────────────────────────────────────────────
+// Appears after the agent's turn whenever it touched 2+ files. Clicking
+// opens the MultiFileReview carousel where the user can step through each
+// diff and keep/revert per file.
+const MultiFileReviewBanner: React.FC = () => {
+    const edits = useStore(s => s.pendingAgentEdits);
+    const isThinking = useStore(s => s.isAgentThinking);
+    const openReview = useStore(s => s.openMultiFileReview);
+    // Only show after the turn finishes, with 2+ files. Single-file edits
+    // are usually obvious and don't warrant a modal.
+    if (isThinking) return null;
+    if (edits.length < 2) return null;
+    return (
+        <div
+            onClick={openReview}
+            style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '6px 10px', marginBottom: 6,
+                background: 'rgba(34,197,94,0.08)',
+                border: '1px solid rgba(34,197,94,0.25)',
+                borderRadius: 8, fontSize: 11,
+                cursor: 'pointer',
+            }}
+        >
+            <i className="codicon codicon-diff-multiple" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#4ade80', fontSize: 13 }} />
+            <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)' }}>
+                Agent edited <b>{edits.length}</b> files — review the diff
+            </span>
+            <span style={{
+                background: '#4ade80', color: '#000', padding: '2px 8px', fontSize: 10,
+                fontWeight: 600, borderRadius: 4,
+            }}>Review</span>
         </div>
     );
 };
@@ -456,6 +493,41 @@ const RightSidebar: React.FC = () => {
                     id, tool: name, label, status: 'running' as const,
                     detail: e.payload?.args ? (typeof e.payload.args === 'string' ? e.payload.args.slice(0, 50) : JSON.stringify(e.payload.args).slice(0, 50)) : undefined
                 }, ...prev].slice(0, 8));
+
+                // Track which files the agent edited during this turn so the
+                // multi-file review panel can list them. The detection key
+                // matches the avatar-state map a bit lower in this file.
+                const editorTools = new Set([
+                    'write_to_file', 'file_write', 'create_file',
+                    'search_replace_edit', 'str_replace', 'patch_file_content',
+                    'apply_shadow_patch', 'fast_apply',
+                ]);
+                if (editorTools.has(name)) {
+                    const args = e.payload?.args || {};
+                    const path = args?.path || args?.file_path || args?.target || args?.filepath || '';
+                    if (path) {
+                        useStore.getState().addPendingAgentEdit({
+                            path,
+                            tool: name,
+                            preview: typeof args === 'object'
+                                ? (args.content || args.replace || args.patch || '').slice(0, 240)
+                                : '',
+                        });
+                    }
+                }
+
+                // Always log to the trajectory regardless of tool kind so
+                // the timeline panel can replay any agent turn end-to-end.
+                useStore.getState().pushTrajectoryEvent({
+                    kind: 'tool_call',
+                    tool: name,
+                    title: TOOL_LABELS[name] || name.replace(/_/g, ' '),
+                    detail: e.payload?.args
+                        ? (typeof e.payload.args === 'string'
+                            ? e.payload.args.slice(0, 400)
+                            : JSON.stringify(e.payload.args).slice(0, 400))
+                        : undefined,
+                });
             }).then(u => subs.push(u));
             listen<any>('ai-tool-result', (e) => {
                 const name = e.payload?.name;
@@ -485,6 +557,14 @@ const RightSidebar: React.FC = () => {
                             : a
                     )
                 );
+
+                useStore.getState().pushTrajectoryEvent({
+                    kind: 'tool_result',
+                    tool: name,
+                    title: failed ? `✗ ${name}` : `✓ ${name}`,
+                    detail: rs.slice(0, 800),
+                    success: !failed,
+                });
             }).then(u => subs.push(u));
         });
         return () => subs.forEach(u => u());
@@ -627,12 +707,21 @@ const RightSidebar: React.FC = () => {
         return flatten(fileTree);
     }, [fileTree]);
 
-    // Special context sources (Cursor-style @codebase, @web, @git)
+    // Special context sources (Cursor-style mentions). Each one becomes a
+    // synthetic "attachment" the user can stack into the prompt; they are
+    // resolved into real text by `resolveSpecialMentions` in agent.ts the
+    // moment the message is sent. The set mirrors Cursor's surface plus
+    // two extras (@problems, @terminal) that fall out naturally from the
+    // existing LSP / terminal IPC.
     const SPECIAL_MENTIONS = [
-        { path: '__codebase__', name: '@codebase', is_dir: false, _special: true, _icon: 'codicon-repo', _desc: 'Auto-find relevant files' },
-        { path: '__web__',      name: '@web',      is_dir: false, _special: true, _icon: 'codicon-globe', _desc: 'Search the web' },
-        { path: '__git__',      name: '@git',      is_dir: false, _special: true, _icon: 'codicon-git-branch', _desc: 'Git diff & status' },
-        { path: '__docs__',     name: '@docs',     is_dir: false, _special: true, _icon: 'codicon-book', _desc: 'Documentation context' },
+        { path: '__codebase__', name: '@codebase', is_dir: false, _special: true, _icon: 'codicon-repo',        _desc: 'Auto-find relevant files' },
+        { path: '__web__',      name: '@web',      is_dir: false, _special: true, _icon: 'codicon-globe',       _desc: 'Search the web' },
+        { path: '__git__',      name: '@git',      is_dir: false, _special: true, _icon: 'codicon-git-branch',  _desc: 'Git diff & status' },
+        { path: '__docs__',     name: '@docs',     is_dir: false, _special: true, _icon: 'codicon-book',        _desc: 'Documentation context' },
+        { path: '__symbol__',   name: '@symbol',   is_dir: false, _special: true, _icon: 'codicon-symbol-class', _desc: 'LSP workspace symbol lookup' },
+        { path: '__folder__',   name: '@folder',   is_dir: false, _special: true, _icon: 'codicon-folder',      _desc: 'Inject a directory listing' },
+        { path: '__problems__', name: '@problems', is_dir: false, _special: true, _icon: 'codicon-warning',     _desc: 'Current LSP diagnostics' },
+        { path: '__terminal__', name: '@terminal', is_dir: false, _special: true, _icon: 'codicon-terminal',    _desc: 'Last terminal output' },
     ];
 
     const filteredSuggestions = useMemo(() => {
@@ -794,6 +883,16 @@ const RightSidebar: React.FC = () => {
             const context = [...attachedFiles];
             const openPaths = useStore.getState().tabs.map((t: any) => t.path).filter(Boolean);
             snapshotCheckpoint(openPaths);
+            // Reset per-turn edit tracking so the multi-file review panel
+            // only shows files touched by this user turn, not the
+            // accumulation of the whole session.
+            useStore.getState().clearPendingAgentEdits();
+            useStore.getState().beginNewTurn();
+            useStore.getState().pushTrajectoryEvent({
+                kind: 'phase',
+                title: 'User turn',
+                detail: val.slice(0, 600),
+            });
             setIsAgentThinking(true);
             addAgentMessage('user', val, context);
             clearAttachedFiles();
@@ -1582,11 +1681,21 @@ const RightSidebar: React.FC = () => {
                                                 <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: isAgentThinking ? 'rgba(249,115,22,0.7)' : 'rgba(16,185,129,0.6)' }}>
                                                     {isAgentThinking ? (isYoloMode ? '⚡ YOLO Executing' : '● Live Actions') : '✓ Completed'}
                                                 </div>
-                                                <div
-                                                    onClick={() => setLiveToolCalls([])}
-                                                    style={{ cursor: 'pointer', fontSize: '11px', opacity: 0.35, padding: '0 2px', lineHeight: 1 }}
-                                                    title="Clear feed"
-                                                >✕</div>
+                                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                                    {/* Open the trajectory timeline. We render it here
+                                                        instead of in a global toolbar so it appears
+                                                        right next to the live action feed it's tied to. */}
+                                                    <div
+                                                        onClick={() => useStore.getState().openTrajectory()}
+                                                        style={{ cursor: 'pointer', fontSize: '10px', opacity: 0.55, padding: '0 4px', lineHeight: 1 }}
+                                                        title="Open agent trajectory timeline"
+                                                    >⏱</div>
+                                                    <div
+                                                        onClick={() => setLiveToolCalls([])}
+                                                        style={{ cursor: 'pointer', fontSize: '11px', opacity: 0.35, padding: '0 2px', lineHeight: 1 }}
+                                                        title="Clear feed"
+                                                    >✕</div>
+                                                </div>
                                             </div>
                                             {deduped.length === 0 && isAgentThinking && (
                                                 <div style={{ fontSize: '11px', opacity: 0.4, fontStyle: 'italic' }}>Thinking...</div>
@@ -1679,42 +1788,11 @@ const RightSidebar: React.FC = () => {
                                                             )}
                                                             {msg.role === 'assistant' && (
                                                                 <>
-                                                                    {/* ── Accept/Reject Buttons for AI Code ────────────────────────── */}
-                                                                    {msg.content && msg.content.includes('```') && (
-                                                                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                                                                            <button 
-                                                                                onClick={async () => {
-                                                                                    const codeMatch = msg.content.match(/```[\s\S]*?```/g);
-                                                                                    if (codeMatch) {
-                                                                                        const code = codeMatch[0].replace(/```\w*\n?/g, '').trim();
-                                                                                        const { invoke } = await import('../tauri_bridge');
-                                                                                        const activeTab = useStore.getState().tabs.find((t: any) => t.id === useStore.getState().activeTabId);
-                                                                                        if (activeTab?.path) {
-                                                                                            await invoke('write_file_content', { path: activeTab.path, content: code });
-                                                                                            alert('Code applied to file!');
-                                                                                        }
-                                                                                    }
-                                                                                }}
-                                                                                style={{ 
-                                                                                    background: '#10b981', border: 'none', color: '#fff', 
-                                                                                    padding: '4px 12px', borderRadius: '4px', fontSize: '11px', 
-                                                                                    cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px'
-                                                                                }}
-                                                                            >
-                                                                                <i className="codicon codicon-check" style={{ fontSize: '10px' }}></i> Accept
-                                                                            </button>
-                                                                            <button 
-                                                                                onClick={() => { }}
-                                                                                style={{ 
-                                                                                    background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', 
-                                                                                    padding: '4px 12px', borderRadius: '4px', fontSize: '11px', 
-                                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
-                                                                                }}
-                                                                            >
-                                                                                <i className="codicon codicon-close" style={{ fontSize: '10px' }}></i> Dismiss
-                                                                            </button>
-                                                                        </div>
-                                                                    )}
+                                                                    {/* Per-block Accept/Apply lives inside MessageBody now —
+                                                                        each fenced code block gets its own Copy / Insert /
+                                                                        Apply chip with the path the model declared in the
+                                                                        fence header. The old "first block clobbers the
+                                                                        active file" behaviour was lossy and dangerous. */}
                                                                     <i className={`codicon codicon-${lastCopiedIdx === idx ? 'check' : 'copy'}`}
                                                                         style={{ cursor: 'pointer', fontSize: '11px', color: lastCopiedIdx === idx ? '#10b981' : 'inherit' }}
                                                                         onClick={() => handleCopy(msg.content, idx)}></i>
@@ -1791,7 +1869,16 @@ const RightSidebar: React.FC = () => {
                                                                     if (!cleaned && msg.role === 'assistant') {
                                                                         return null;
                                                                     }
-                                                                    return <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.6' }} dangerouslySetInnerHTML={{ __html: marked.parse(cleaned) as string }} />;
+                                                                    // Use the rich MessageBody renderer so every fenced
+                                                                    // block gets a Copy / Insert / Apply chip header.
+                                                                    // User messages stay read-only (allowApply=false)
+                                                                    // to avoid overwriting files with raw input.
+                                                                    return (
+                                                                        <MessageBody
+                                                                            content={cleaned}
+                                                                            allowApply={msg.role === 'assistant' && !isAgentThinking}
+                                                                        />
+                                                                    );
                                                                 })()}
                                                             </>
                                                         )}
@@ -1976,6 +2063,7 @@ const RightSidebar: React.FC = () => {
                             </div>
                         )}
                         <RestoreCheckpointBanner />
+                        <MultiFileReviewBanner />
                         <BackgroundAgentsTray />
                         <div style={{
                             background: 'var(--vscode-input-background)', border: '1px solid var(--vscode-input-border, transparent)',

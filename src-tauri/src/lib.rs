@@ -280,6 +280,8 @@ pub fn run() {
             editor_commands::get_settings,
             editor_commands::update_settings,
             editor_commands::resolve_keybinding,
+            editor_commands::list_keybindings,
+            editor_commands::update_keybinding,
             editor_commands::switch_to_buffer,
             editor_commands::get_highlights,
             editor_commands::set_context_key,
