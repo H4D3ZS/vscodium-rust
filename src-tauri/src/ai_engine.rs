@@ -1321,8 +1321,17 @@ impl Sentient {
             return self.single_shot_completion(req).await;
         }
 
-        // Detect Ollama provider early — used throughout the function for budget decisions
-        let is_ollama_provider = req.provider.to_lowercase() == "ollama" || req.provider.to_lowercase() == "antigravity";
+        // Detect "local quantized model" providers early — used throughout the
+        // function for budget decisions. Ollama, the antigravity local proxy,
+        // AND the local DeepSeek-ANE server (llama.cpp / MLX on Apple Silicon)
+        // all share the same constraints: limited context, smaller model so
+        // the tool catalog must be trimmed, prompts kept lean.
+        let p = req.provider.to_lowercase();
+        let is_ollama_provider = p == "ollama"
+            || p == "antigravity"
+            || p == "deepseek-ane"
+            || p == "deepseek_ane"
+            || p == "ds2-ane";
 
         let (project_path, project_name, files_list) = {
             let root_inner = self.ai_tools.get_root_path();
@@ -3566,6 +3575,14 @@ impl Sentient {
                 models.push("deepseek:deepseek-v2.5".to_string());
                 models.push("deepseek:deepseek-v3".to_string());
             }
+            // Local DeepSeek V2 on Apple Silicon (M1/M2/M3) — always advertise
+            // these IDs because the server is local and keyless. Selecting one
+            // of them routes through `deepseek-ane` -> http://127.0.0.1:8080.
+            // If the server isn't running, the first chat will fail with a
+            // clear "start the server" error rather than silently disappearing.
+            models.push("deepseek-ane:deepseek-v2-lite-chat-q4_k_m".to_string());
+            models.push("deepseek-ane:deepseek-coder-v2-lite-instruct-q4_k_m".to_string());
+            models.push("deepseek-ane:deepseek-v2-lite-chat-mlx-4bit".to_string());
 
             return Ok(models);
         }
@@ -3597,6 +3614,64 @@ impl Sentient {
                         model_ids.push(id.to_string());
                     }
                 }
+            }
+            return Ok(model_ids);
+        }
+
+        // Local DeepSeek-V2 over MLX or llama.cpp on Apple Silicon. Calls
+        // the local `/v1/models` and returns whatever the server exposes.
+        // If the server isn't running we surface a clear error (and the
+        // ApiRadar curated list still has sensible defaults).
+        let provider_lc = provider.to_lowercase();
+        if provider_lc == "deepseek-ane"
+            || provider_lc == "deepseek_ane"
+            || provider_lc == "ds2-ane"
+        {
+            let base = std::env::var("DEEPSEEK_ANE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string())
+                .trim()
+                .trim_end_matches('/')
+                .to_string();
+            // Walk through possible "models" paths in priority order — MLX-LM
+            // and llama-server agree on /v1/models but a bare base URL works
+            // too.
+            let endpoint = if base.ends_with("/v1") {
+                format!("{}/models", base)
+            } else if base.ends_with("/v1/models") {
+                base.clone()
+            } else {
+                format!("{}/v1/models", base)
+            };
+            let mut request = self.client.get(&endpoint);
+            if !provider_key.trim().is_empty() {
+                request = request.bearer_auth(provider_key.trim());
+            }
+            let response = request
+                .send()
+                .await
+                .map_err(|e| anyhow!(
+                    "DeepSeek-ANE local server not reachable at {} — start it with \
+                     `bash tools/deepseek-ane/start-server.sh` (or set DEEPSEEK_ANE_URL): {}",
+                    endpoint, e
+                ))?;
+            let result: Value = response
+                .json()
+                .await
+                .map_err(|e| anyhow!("DeepSeek-ANE list_models JSON: {}", e))?;
+            let mut model_ids = Vec::new();
+            if let Some(data) = result.get("data").and_then(|d| d.as_array()) {
+                for m in data {
+                    if let Some(id) = m.get("id").and_then(|i| i.as_str()) {
+                        model_ids.push(id.to_string());
+                    }
+                }
+            }
+            if model_ids.is_empty() {
+                // Sensible fallback so the picker isn't empty if the server
+                // doesn't enumerate models — these are the Mac-friendly
+                // quantizations our bootstrap.sh downloads.
+                model_ids.push("deepseek-v2-lite-chat-q4_k_m".to_string());
+                model_ids.push("deepseek-coder-v2-lite-instruct-q4_k_m".to_string());
             }
             return Ok(model_ids);
         }
@@ -3944,6 +4019,9 @@ impl Sentient {
             "groq" => "GROQ_API_KEY",
             "openrouter" => "OPENROUTER_API_KEY",
             "deepseek" => "DEEPSEEK_API_KEY",
+            // Local DeepSeek-V2 server is keyless by default. If the user
+            // fronted it with an auth proxy they can still set this var.
+            "deepseek-ane" | "deepseek_ane" | "ds2-ane" => "DEEPSEEK_ANE_API_KEY",
             "xai" => "XAI_API_KEY",
             "cerebras" => "CEREBRAS_API_KEY",
             "alibaba" => "ALIBABA_API_KEY",
@@ -3981,6 +4059,28 @@ impl Sentient {
             "groq" => "https://api.groq.com/openai/v1/chat/completions".to_string(),
             "openrouter" => "https://openrouter.ai/api/v1/chat/completions".to_string(),
             "deepseek" => "https://api.deepseek.com/v1/chat/completions".to_string(),
+            // Local DeepSeek V2 running on Apple Silicon (M1/M2/M3) via either
+            // llama.cpp + Metal or MLX-LM. Both expose an OpenAI-compatible
+            // server. Default port is 8080 (llama-server), overridable via
+            // the DEEPSEEK_ANE_URL env var or `ollama_url` field on the
+            // request (we reuse the field for any local OpenAI-compatible
+            // endpoint to avoid threading another override through the API).
+            "deepseek-ane" | "deepseek_ane" | "ds2-ane" => {
+                let base = std::env::var("DEEPSEEK_ANE_URL")
+                    .ok()
+                    .or_else(|| req.ollama_url.clone())
+                    .unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
+                let base = base.trim().trim_end_matches('/').to_string();
+                // Accept either bare host (http://127.0.0.1:8080) or fully
+                // qualified path. Append /v1/chat/completions if not present.
+                if base.ends_with("/v1/chat/completions") {
+                    base
+                } else if base.ends_with("/v1") {
+                    format!("{}/chat/completions", base)
+                } else {
+                    format!("{}/v1/chat/completions", base)
+                }
+            }
             "apiradar" => "https://apiradar.live/api/v1/chat/completions".to_string(),
             "xai" => "https://api.x.ai/v1/chat/completions".to_string(),
             "cerebras" => "https://api.cerebras.ai/v1/chat/completions".to_string(),

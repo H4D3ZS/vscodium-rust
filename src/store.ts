@@ -1200,6 +1200,13 @@ const storeImplementation: any = (set: any, get: any) => ({
             if (keys.openrouter) providers.push('Openrouter');
             if (keys.mistral) providers.push('Mistral');
             if ((keys as any).deepseek) providers.push('Deepseek');
+            // Local DeepSeek V2 on Apple Silicon — always available because
+            // the server is local and keyless. If it isn't running, model
+            // listing will fail with a clear message and the user gets a
+            // pointer to `tools/deepseek-ane/start-server.sh`. Mac-only.
+            if (typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')) {
+                providers.push('Deepseek-ANE');
+            }
             if (keys.groq) providers.push('Groq');
             if (keys.xai) providers.push('xAI');
             if (keys.alibaba) providers.push('Alibaba');
