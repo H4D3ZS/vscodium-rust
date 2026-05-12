@@ -176,6 +176,8 @@ pub fn run() {
             ai_commands::grep_files,
             ai_commands::propose_file_change,
             ai_commands::set_ollama_url,
+            ai_commands::list_workspace_rules,
+            ai_commands::reindex_workspace,
             ai_commands::check_ollama_status,
             ai_commands::pull_ollama_model,
             ai_commands::unload_ollama_model,

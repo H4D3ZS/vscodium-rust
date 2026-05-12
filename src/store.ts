@@ -235,6 +235,33 @@ interface AppState {
     airiConsciousnessEnabled: boolean;
     airiConsciousnessModel: string;
     agentUiMode: 'chat' | 'airi';
+
+    // ── Cursor-style IDE preferences ────────────────────────────────────
+    // Each of these maps to a category in Settings → vscodium-rust
+    // Settings. They're persisted in localStorage and read at boot. We
+    // keep them flat (no nesting) so the settings page can wire each one
+    // to a primitive `set*` action without ceremony.
+    //
+    // tabPredictionEnabled    — Cursor Tab inline AI completion master switch
+    // tabMultilineSuggestions — whether tab predictions can span multiple lines
+    // tabAcceptKey            — which key accepts a suggestion ('Tab' | 'Enter')
+    // betaFastApply           — enable the experimental fast_apply tool in the catalog
+    // betaSemanticSearch      — enable semantic_search tool in the catalog
+    // betaShadowWorkspace     — preview edits in a shadow VFS before commit
+    // networkProxyUrl         — http(s)://host:port for outbound IDE network calls
+    // networkAllowInsecureTls — accept self-signed TLS for self-hosted endpoints
+    // indexingEnabled         — let the context_indexer scan the workspace
+    // indexingDocsUrls        — list of documentation URLs the agent can browse
+    tabPredictionEnabled: boolean;
+    tabMultilineSuggestions: boolean;
+    tabAcceptKey: 'Tab' | 'Enter';
+    betaFastApply: boolean;
+    betaSemanticSearch: boolean;
+    betaShadowWorkspace: boolean;
+    networkProxyUrl: string;
+    networkAllowInsecureTls: boolean;
+    indexingEnabled: boolean;
+    indexingDocsUrls: string[];
     avatarCharacter: string; // Selected AI avatar character
     avatarCustomConfig?: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }; // Custom 2D avatar URLs
     avatar3dConfig?: { modelUrl?: string; modelId?: string; customModels?: Array<{ id: string; name: string; url: string }> }; // 3D VRM avatar config
@@ -472,6 +499,18 @@ interface AppState {
     setAiriConsciousnessEnabled: (enabled: boolean) => void;
     setAiriConsciousnessModel: (model: string) => void;
     setAgentUiMode: (mode: 'chat' | 'airi') => void;
+    // Cursor-style IDE preference setters — see the matching state fields
+    // above for what each one controls.
+    setTabPredictionEnabled: (v: boolean) => void;
+    setTabMultilineSuggestions: (v: boolean) => void;
+    setTabAcceptKey: (k: 'Tab' | 'Enter') => void;
+    setBetaFastApply: (v: boolean) => void;
+    setBetaSemanticSearch: (v: boolean) => void;
+    setBetaShadowWorkspace: (v: boolean) => void;
+    setNetworkProxyUrl: (url: string) => void;
+    setNetworkAllowInsecureTls: (v: boolean) => void;
+    setIndexingEnabled: (v: boolean) => void;
+    setIndexingDocsUrls: (urls: string[]) => void;
     setAgentCurrentAction: (action: string | null) => void;
     attachFile: (file: any | any[]) => void;
     removeFile: (path: string) => void;
@@ -634,6 +673,29 @@ const storeImplementation: any = (set: any, get: any) => ({
     airiConsciousnessEnabled: (typeof localStorage === 'undefined' || localStorage.getItem('airi.consciousness.enabled') !== '0'),
     airiConsciousnessModel: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.consciousness.model')) || 'llama3.2:3b',
     agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'airi',
+    // ── Cursor-style IDE preference defaults ──────────────────────────
+    // Tab predictions / fast_apply / shadow workspace default ON because
+    // the existing agent loop already references those tools when they
+    // exist. Toggling them OFF gives the user a way to opt out without
+    // editing source. Proxy + insecure TLS default empty/off so we don't
+    // surprise users who never configured a proxy.
+    tabPredictionEnabled: (() => { try { return localStorage.getItem('tab.predictionEnabled') !== '0'; } catch { return true; } })(),
+    tabMultilineSuggestions: (() => { try { return localStorage.getItem('tab.multilineSuggestions') !== '0'; } catch { return true; } })(),
+    tabAcceptKey: (() => { try { return (localStorage.getItem('tab.acceptKey') as 'Tab' | 'Enter') || 'Tab'; } catch { return 'Tab' as const; } })(),
+    betaFastApply: (() => { try { return localStorage.getItem('beta.fastApply') !== '0'; } catch { return true; } })(),
+    betaSemanticSearch: (() => { try { return localStorage.getItem('beta.semanticSearch') !== '0'; } catch { return true; } })(),
+    betaShadowWorkspace: (() => { try { return localStorage.getItem('beta.shadowWorkspace') === '1'; } catch { return false; } })(),
+    networkProxyUrl: (() => { try { return localStorage.getItem('network.proxyUrl') || ''; } catch { return ''; } })(),
+    networkAllowInsecureTls: (() => { try { return localStorage.getItem('network.allowInsecureTls') === '1'; } catch { return false; } })(),
+    indexingEnabled: (() => { try { return localStorage.getItem('indexing.enabled') !== '0'; } catch { return true; } })(),
+    indexingDocsUrls: (() => {
+        try {
+            const raw = localStorage.getItem('indexing.docsUrls');
+            if (!raw) return [];
+            const arr = JSON.parse(raw);
+            return Array.isArray(arr) ? arr.filter((s: any) => typeof s === 'string') : [];
+        } catch { return []; }
+    })(),
     avatarCharacter: localStorage.getItem('avatarCharacter') || 'airi',
     avatarCustomConfig: JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}'),
     avatar3dConfig: JSON.parse(localStorage.getItem('avatar3dConfig') || '{}'),
@@ -1824,6 +1886,20 @@ const storeImplementation: any = (set: any, get: any) => ({
         })();
     },
     setAgentUiMode: (agentUiMode) => { localStorage.setItem('agentUiMode', agentUiMode); set({ agentUiMode }); },
+    // Cursor-style IDE preference setters. Each one persists to
+    // localStorage under a stable key so toggling lives across reloads.
+    // Boolean keys use '1'/'0' to stay compatible with the rest of the
+    // store; lists are JSON-encoded.
+    setTabPredictionEnabled: (v) => { try { localStorage.setItem('tab.predictionEnabled', v ? '1' : '0'); } catch {} set({ tabPredictionEnabled: v }); },
+    setTabMultilineSuggestions: (v) => { try { localStorage.setItem('tab.multilineSuggestions', v ? '1' : '0'); } catch {} set({ tabMultilineSuggestions: v }); },
+    setTabAcceptKey: (k) => { try { localStorage.setItem('tab.acceptKey', k); } catch {} set({ tabAcceptKey: k }); },
+    setBetaFastApply: (v) => { try { localStorage.setItem('beta.fastApply', v ? '1' : '0'); } catch {} set({ betaFastApply: v }); },
+    setBetaSemanticSearch: (v) => { try { localStorage.setItem('beta.semanticSearch', v ? '1' : '0'); } catch {} set({ betaSemanticSearch: v }); },
+    setBetaShadowWorkspace: (v) => { try { localStorage.setItem('beta.shadowWorkspace', v ? '1' : '0'); } catch {} set({ betaShadowWorkspace: v }); },
+    setNetworkProxyUrl: (url) => { try { localStorage.setItem('network.proxyUrl', url); } catch {} set({ networkProxyUrl: url }); },
+    setNetworkAllowInsecureTls: (v) => { try { localStorage.setItem('network.allowInsecureTls', v ? '1' : '0'); } catch {} set({ networkAllowInsecureTls: v }); },
+    setIndexingEnabled: (v) => { try { localStorage.setItem('indexing.enabled', v ? '1' : '0'); } catch {} set({ indexingEnabled: v }); },
+    setIndexingDocsUrls: (urls) => { try { localStorage.setItem('indexing.docsUrls', JSON.stringify(urls)); } catch {} set({ indexingDocsUrls: urls }); },
     setAvatarCharacter: (avatarCharacter) => { localStorage.setItem('avatarCharacter', avatarCharacter); set({ avatarCharacter }); },
     setAvatarCustomConfig: (config: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }) => {
         const existing = JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}');

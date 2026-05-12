@@ -863,6 +863,53 @@ pub async fn set_ollama_url(state: State<'_, EditorState>, url: String) -> Resul
     Ok(())
 }
 
+/// Force the context indexer to rescan the active workspace. Powers the
+/// "Re-index" button under Settings → Indexing & Docs and the `/reindex`
+/// slash command. We call `reindex_if_needed` (not a hard rebuild) so
+/// large repos don't get flattened by an accidental click; the indexer
+/// itself decides if anything has changed on disk.
+#[tauri::command]
+pub async fn reindex_workspace(
+    state: State<'_, EditorState>,
+) -> Result<Value, String> {
+    let root = {
+        let guard = state.active_root.lock().await;
+        guard.clone().unwrap_or_else(|| std::path::PathBuf::from("."))
+    };
+    state
+        .context_indexer
+        .reindex_if_needed(&root)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "status": "ok",
+        "root": root.to_string_lossy(),
+    }))
+}
+
+/// List every workspace rule the rules engine currently sees. Used by the
+/// Cursor-style "Rules, Skills, Subagents" settings panel so the user can
+/// inspect which files are being injected into the system prompt without
+/// having to grep the workspace. Returns each rule's name, full text, and
+/// source path so the UI can deep-link to the file.
+#[tauri::command]
+pub async fn list_workspace_rules(
+    state: State<'_, EditorState>,
+) -> Result<Value, String> {
+    let rules = state.ai_engine.rules_engine.get_workspace_rules();
+    let items: Vec<Value> = rules
+        .into_iter()
+        .map(|r| serde_json::json!({
+            "name": r.name,
+            "content": r.content,
+            "file_path": r.file_path.to_string_lossy(),
+        }))
+        .collect();
+    Ok(serde_json::json!({
+        "count": items.len(),
+        "rules": items,
+    }))
+}
+
 #[tauri::command]
 pub async fn unload_ollama_model(state: State<'_, EditorState>, name: String) -> Result<(), String> {
     state
