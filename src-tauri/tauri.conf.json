@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Kortex IDE",
+  "productName": "vscodium-rust ide",
   "version": "0.1.0",
   "identifier": "com.hades.vscode-rust-app",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Kortex IDE",
+        "title": "vscodium-rust ide",
         "url": "index.html",
         "width": 1440,
         "height": 900,

@@ -101,12 +101,12 @@ const TitleBar: React.FC = () => {
             {/* Left: nav + menus */}
             <div className="title-bar-left">
                 {/* IDE Icon instead of nav arrows */}
-                <div className="ide-logo hoverable" title="VSCodium-Rust" style={{ display: 'flex', alignItems: 'center', marginRight: '8px', padding: '4px 8px' }}>
+                <div className="ide-logo hoverable" title="vscodium-rust ide" style={{ display: 'flex', alignItems: 'center', marginRight: '8px', padding: '4px 8px' }}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ marginRight: '6px' }}>
                         <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#c084fc"/>
                         <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke="#c084fc" strokeWidth="2"/>
                     </svg>
-                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>VSCodium-Rust</span>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>vscodium-rust ide</span>
                 </div>
 
                 <div className="menu-items-container">
