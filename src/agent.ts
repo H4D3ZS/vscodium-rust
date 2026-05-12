@@ -1125,7 +1125,36 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
                 fastProvider = "Ollama";
             }
 
-            const fastResult = await invoke<string>('ai_chat_fast', {
+            // ── Resolve the model against the live Ollama install ────────
+            // The user previously had a remote Ollama with a different
+            // model catalog. After switching to local Ollama, the
+            // persisted `agentModel` (e.g. `qwen3:35b`) often doesn't
+            // exist locally — `ai_chat_fast` then sends a 404 to Ollama
+            // and the chat hangs with no visible error. Fix it before we
+            // make the call by swapping in whatever the user actually
+            // has installed.
+            if (fastProvider.toLowerCase() === 'ollama') {
+                try {
+                    const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
+                    const resolved = await resolveOllamaModelTag(fastModel);
+                    if (resolved && resolved !== fastModel) {
+                        console.warn(`[agent] Model "${fastModel}" not installed — swapping to "${resolved}".`);
+                        fastModel = resolved;
+                        // Persist the working choice so the picker reflects
+                        // reality and the next turn doesn't pay the same swap.
+                        try {
+                            store.getState().setAgentModel?.(`Ollama|${resolved}`);
+                        } catch { /* non-fatal */ }
+                    }
+                } catch (_) { /* leave fastModel as-is and let the call fail loudly */ }
+            }
+
+            // ── Race the call against a 60s timeout ─────────────────────
+            // Without this, an unreachable provider / missing model means
+            // the spinner spins forever with no error in the chat. 60s
+            // is long enough for a slow first-token on a cold local model
+            // but short enough that the user gets actionable feedback.
+            const fastCall = invoke<string>('ai_chat_fast', {
                 request: {
                     provider: fastProvider.toLowerCase(),
                     model: fastModel,
@@ -1143,16 +1172,29 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
                     tools: [], // empty array = no tool catalog at all
                 },
             });
+            const timeout = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`ai_chat_fast timed out after 60s (provider=${fastProvider}, model=${fastModel})`)), 60_000)
+            );
+            const fastResult = await Promise.race([fastCall, timeout]);
+
             // ai_chat_fast already emitted the `ai-content` event, which the
             // global listener consumed to flip `isAgentThinking` off and call
             // updateLastAgentMessage. We still call onUpdate for callers
             // (Composer.tsx, /commit, /review, etc.) that pass their own.
-            try { onUpdate(fastResult); } catch (_) { /* non-fatal */ }
+            try { onUpdate(fastResult as string); } catch (_) { /* non-fatal */ }
             return;
         } catch (e: any) {
-            // If the fast path fails for any reason, fall through to the
-            // full agent loop — better slow than nothing.
-            console.warn('[agent] fast-path failed, falling back to full loop:', e?.message ?? e);
+            // If the fast path fails for any reason, show the user what
+            // went wrong AND fall through to the full agent loop (better
+            // slow than nothing). The visible error is critical — without
+            // it the chat just spins and the user has no idea why.
+            const msg = e?.message ?? String(e);
+            console.warn('[agent] fast-path failed, falling back to full loop:', msg);
+            try {
+                store.getState().updateLastAgentMessage?.(
+                    `**Fast-path error:** ${msg}\n\n_Falling back to the full agent loop…_`
+                );
+            } catch { /* non-fatal */ }
             store.getState().setIsAgentThinking?.(false);
         }
     }
@@ -1402,6 +1444,23 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
         }
     }
 
+    // ── Resolve the Ollama model against the live install ──────────────
+    // Same protection as the trivial fast path: if the user's stored
+    // `agentModel` references a tag that isn't on the current Ollama
+    // server, swap it in for one that is so the full agent loop doesn't
+    // hang on a model_not_found from the backend.
+    if (routingProvider === 'ollama' && routingModel) {
+        try {
+            const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
+            const resolved = await resolveOllamaModelTag(routingModel);
+            if (resolved && resolved !== routingModel) {
+                console.warn(`[agent] Full-loop model "${routingModel}" not installed — swapping to "${resolved}".`);
+                routingModel = resolved;
+                try { store.getState().setAgentModel?.(`Ollama|${resolved}`); } catch { /* non-fatal */ }
+            }
+        } catch (_) { /* fall through and let the call fail loudly */ }
+    }
+
     try {
         await invoke<string>("ai_chat", {
             request: {
@@ -1419,7 +1478,20 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
         });
         logTaskToMemory(userPrompt).catch(() => { });
     } catch (e: any) {
-        console.error("Agent chat failed:", e);
+        // Surface the failure in the chat instead of leaving the spinner
+        // running silently. The RightSidebar onSend handler has its own
+        // catch that overwrites the last message, but errors thrown from
+        // here sometimes don't bubble cleanly when the agent has already
+        // emitted partial content. Write directly so the user always
+        // sees what went wrong.
+        const msg = e?.message ?? String(e);
+        console.error("Agent chat failed:", msg);
+        try {
+            store.getState().updateLastAgentMessage?.(
+                `**Agent loop error:** ${msg}\n\n` +
+                `Provider: \`${routingProvider}\`  ·  Model: \`${routingModel}\`  ·  URL: \`${routingOllamaUrl || '(default)'}\``
+            );
+        } catch { /* non-fatal */ }
         setAiStatus('dead');
         throw e;
     }
