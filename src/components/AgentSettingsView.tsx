@@ -4,7 +4,38 @@ import { useStore } from '../store';
 import ElevenLabsVoicePicker from './ElevenLabsVoicePicker';
 import MemoryPanel from './MemoryPanel';
 
-const AgentSettingsView: React.FC = () => {
+// One of the eight Cursor-style categories the parent SettingsPage shows
+// in its left sidebar. When passed, `AgentSettingsView` renders only the
+// matching section(s) and hides the header banner so the Cursor-style
+// per-category page lands with a clean top edge. When omitted (legacy
+// callers), the full scrolling view is shown — same as before this
+// refactor.
+export type AgentSettingsCategory =
+    | 'general'
+    | 'models'
+    | 'ollama'
+    | 'agents'
+    | 'mcps'
+    | 'memory'
+    | 'voice'
+    | 'avatar';
+
+interface AgentSettingsViewProps {
+    category?: AgentSettingsCategory;
+    /** Hide the banner / header card; useful when rendered inside a
+     *  category page that already has its own title. */
+    hideHeader?: boolean;
+}
+
+/** Decide whether a section keyed `data-cat="X"` should render in a given
+ *  category page. Returning true from a render path is harmless; we use it
+ *  to short-circuit hidden categories so heavy children don't mount. */
+function visibleInCategory(cat: AgentSettingsCategory | undefined, sectionCat: AgentSettingsCategory): boolean {
+    if (!cat) return true;        // legacy mode = render everything
+    return cat === sectionCat;
+}
+
+const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHeader }) => {
     const ollamaUrl = useStore(state => state.ollamaUrl);
     // Cursor-style server mode picker (Local / Auto / Remote). The new
     // picker replaces the legacy "AIM Proxy vs Direct Ollama" port toggle
@@ -303,6 +334,7 @@ const AgentSettingsView: React.FC = () => {
 
     return (
         <div className="agent-settings-view" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '20px', height: '100%', overflowY: 'auto' }}>
+            {!hideHeader && !category && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '10px', padding: '20px 0', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                 <div style={{ position: 'relative', marginBottom: '12px' }}>
                     <div style={{
@@ -340,9 +372,11 @@ const AgentSettingsView: React.FC = () => {
                 </div>
                 <div style={{ fontSize: '11px', opacity: 0.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Core Configuration</div>
             </div>
+            )}
 
             {/* ── AI Character Selection ── */}
-            <section>
+            {visibleInCategory(category, 'avatar') && (
+            <section data-cat="avatar">
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
                     AI Character
                 </div>
@@ -786,8 +820,10 @@ const AgentSettingsView: React.FC = () => {
                     </div>
                 </div>
             </section>
+            )}
 
-            <section>
+            {visibleInCategory(category, 'models') && (
+            <section data-cat="models">
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
                     Model Configuration
                 </div>
@@ -806,9 +842,11 @@ const AgentSettingsView: React.FC = () => {
                     </select>
                 </div>
             </section>
+            )}
 
             {/* ── Cloud API Keys ── */}
-            <section>
+            {visibleInCategory(category, 'models') && (
+            <section data-cat="models">
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
                     Cloud API Keys
                 </div>
@@ -878,8 +916,10 @@ const AgentSettingsView: React.FC = () => {
                     )}
                 </div>
             </section>
+            )}
 
-            <section>
+            {visibleInCategory(category, 'ollama') && (
+            <section data-cat="ollama">
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
                     Ollama Integration
                 </div>
@@ -1188,9 +1228,11 @@ const AgentSettingsView: React.FC = () => {
                     </div>
                 </div>
             </section>
+            )}
 
             {/* ── Voice / TTS Settings ── */}
-            <section>
+            {visibleInCategory(category, 'voice') && (
+            <section data-cat="voice">
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
                     Voice & TTS (AIRI Speech)
                 </div>
@@ -1334,15 +1376,19 @@ const AgentSettingsView: React.FC = () => {
                     </div>
                 </div>
             </section>
+            )}
 
-            <section>
+            {visibleInCategory(category, 'memory') && (
+            <section data-cat="memory">
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
                     Brain / Memory
                 </div>
                 <MemoryPanel />
             </section>
+            )}
 
-            <section>
+            {visibleInCategory(category, 'mcps') && (
+            <section data-cat="mcps">
                 <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     MCP Servers
                     <button
@@ -1519,6 +1565,7 @@ const AgentSettingsView: React.FC = () => {
                     })}
                 </div>
             </section>
+            )}
 
         </div>
     );
