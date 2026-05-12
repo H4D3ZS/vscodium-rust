@@ -300,7 +300,33 @@ THOUGHT: [your thought]
     } catch (error: any) {
       const msg = String(error?.message || error || '');
       this.thoughtFailures += 1;
-      if (msg.includes('not found') || msg.includes('404') || this.thoughtFailures >= 3) {
+      // Before tripping the disable flag, try to recover by swapping in
+      // a model the user actually has installed. This handles the
+      // common case where Ollama is reachable but the configured tag
+      // (default `llama3.2:3b`) hasn't been pulled — typical when the
+      // user switches from a remote proxy with one model set to a
+      // local install with a different set. resolveOllamaModelTag()
+      // pulls the live /api/tags list and picks the closest match,
+      // falling back to a known-cheap tag if nothing fits.
+      const isMissingModel = msg.includes('not found') || msg.includes('404');
+      if (isMissingModel) {
+        try {
+          const { resolveOllamaModelTag } = await import('./shared-ollama');
+          const swapped = await resolveOllamaModelTag(this.MODEL);
+          if (swapped && swapped !== this.MODEL) {
+            console.warn(
+              `[AIRI Consciousness] Model "${this.MODEL}" not installed locally — switching to "${swapped}".`
+            );
+            this.MODEL = swapped;
+            try { window.localStorage?.setItem('airi.consciousness.model', swapped); } catch { /* ignore quota */ }
+            // Reset the failure counter — the next tick will retry
+            // with the new model instead of disabling.
+            this.thoughtFailures = 0;
+            return;
+          }
+        } catch (_) { /* fall through to the disable path below */ }
+      }
+      if (isMissingModel || this.thoughtFailures >= 3) {
         this.thoughtDisabled = true;
         console.warn(
           `[AIRI Consciousness] Disabling thought loop — model "${this.MODEL}" not reachable.`,

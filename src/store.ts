@@ -42,10 +42,29 @@ export function normalizeOllamaUrl(raw: string): string {
     return `${scheme}://${hostish}`.replace(/\/+$/, '');
 }
 
+// Known dead/legacy hosts that may still be lingering in localStorage from
+// older sessions. If we hit one of these on boot we drop it and fall back
+// to direct localhost so the agent doesn't spend the first 30 seconds
+// timing out against a host the user has already taken offline.
+const DEAD_OLLAMA_HOSTS = [
+    'ai.cyberifrit.xyz',
+];
+
 function readStoredOllamaUrl(): string {
     try {
         if (typeof localStorage === 'undefined') return 'http://localhost:11434';
-        return localStorage.getItem('ollamaUrl') || 'http://localhost:11434';
+        const raw = (localStorage.getItem('ollamaUrl') || '').trim();
+        if (!raw) return 'http://localhost:11434';
+        // Strip any of the known-dead hosts so we don't reconnect to them.
+        // Users who legitimately want a custom host can re-enter it in
+        // Settings → Ollama Integration; that codepath persists it back.
+        for (const dead of DEAD_OLLAMA_HOSTS) {
+            if (raw.includes(dead)) {
+                try { localStorage.removeItem('ollamaUrl'); } catch { /* tracking prevention */ }
+                return 'http://localhost:11434';
+            }
+        }
+        return raw;
     } catch {
         return 'http://localhost:11434';
     }
@@ -913,25 +932,44 @@ const storeImplementation: any = (set: any, get: any) => ({
         invoke('set_ollama_url', { url: normalized }).catch(console.error);
     },
     setOllamaConnectionMode: (mode: 'proxy' | 'direct') => {
-        // Honour an existing override (e.g. typed by the user) before falling
-        // back to the local default. The legacy hardcoded cloud endpoint went
-        // offline and timing it out on every settings toggle is no help.
-        let fromLs = '';
-        try {
-            fromLs = typeof localStorage !== 'undefined' ? (localStorage.getItem('ollamaUrl') || '') : '';
-        } catch {
-            /* Tracking Prevention blocks storage in some Edge profiles */
-        }
-        const fromStore = get().ollamaUrl || '';
-        const merged = (fromLs || fromStore || '').trim();
-        const url = normalizeOllamaUrl(merged || 'http://localhost:11434');
+        // The two toggle buttons are EXPLICIT port presets — clicking
+        // them MUST change the backend URL to the matching port. The
+        // previous version reused whatever was in localStorage, which
+        // meant switching to "Direct Ollama (11434)" silently kept a
+        // stale VPS URL alive and every subsequent /api/tags call timed
+        // out against a host that was no longer running. Now the toggle
+        // is canonical: proxy → 1536 (AIM), direct → 11434 (raw Ollama).
+        // Users who want a custom host edit the textbox; the textbox
+        // calls `setOllamaUrl` which doesn't touch the mode.
+        const PROXY_DEFAULT = 'http://127.0.0.1:1536';
+        const DIRECT_DEFAULT = 'http://127.0.0.1:11434';
+        const url = mode === 'proxy' ? PROXY_DEFAULT : DIRECT_DEFAULT;
+
         set({ ollamaConnectionMode: mode, ollamaUrl: url });
-        invoke('set_ollama_url', { url }).catch(console.error);
+
+        // Push the URL into the Rust engine immediately, then re-list
+        // models so the picker reflects the new endpoint without the
+        // user having to hit Reconnect.
+        (async () => {
+            try {
+                await invoke('set_ollama_url', { url });
+            } catch (err) {
+                console.error('[ollama] set_ollama_url failed:', err);
+            }
+            try {
+                await get().refreshAvailableModels?.('ollama');
+            } catch { /* surface via the green/red dot, no toast spam */ }
+            try {
+                await get().checkOllamaStatus?.();
+            } catch { /* ditto */ }
+        })();
+
         try {
             localStorage.setItem('ollamaConnectionMode', mode);
             localStorage.setItem('ollamaUrl', url);
         } catch {
-            /* quota / private mode / Tracking Prevention */
+            /* quota / private mode / Tracking Prevention — fine, it'll
+             * fall back to the in-memory `set` above. */
         }
     },
     setDevWorkflowActive: (active: boolean) => {
