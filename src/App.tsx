@@ -80,7 +80,13 @@ const App: React.FC = () => {
         else document.body.classList.add('is-web');
         // ----------------------------------------
 
-        const { refreshAvailableModels, setActiveRoot, activeRoot, refreshFileTree } = useStore.getState();
+        const { refreshAvailableModels, setActiveRoot, activeRoot, refreshFileTree, setOllamaServerMode, ollamaServerMode } = useStore.getState();
+        // Re-apply the persisted Ollama server mode on every boot. This
+        // re-runs the auto-probe (if mode='auto') and re-pushes the
+        // resolved URL into the Rust engine, so the very first model
+        // call after launch hits the right endpoint instead of whatever
+        // stale URL `set_ollama_url` was last seeded with.
+        try { setOllamaServerMode(ollamaServerMode); } catch { /* non-fatal */ }
         refreshAvailableModels();
 
         // Restore the active project root on startup.

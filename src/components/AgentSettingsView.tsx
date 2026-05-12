@@ -6,9 +6,15 @@ import MemoryPanel from './MemoryPanel';
 
 const AgentSettingsView: React.FC = () => {
     const ollamaUrl = useStore(state => state.ollamaUrl);
-    const setOllamaUrl = useStore(state => state.setOllamaUrl);
-    const ollamaConnectionMode = useStore(state => state.ollamaConnectionMode);
-    const setOllamaConnectionMode = useStore(state => state.setOllamaConnectionMode);
+    // Cursor-style server mode picker (Local / Auto / Remote). The new
+    // picker replaces the legacy "AIM Proxy vs Direct Ollama" port toggle
+    // in the day-to-day UX. The legacy setters are still exported from
+    // the store for any callers that haven't migrated yet, but this
+    // component drives the new flow only.
+    const ollamaServerMode = useStore(state => state.ollamaServerMode);
+    const setOllamaServerMode = useStore(state => state.setOllamaServerMode);
+    const customOllamaUrl = useStore(state => state.customOllamaUrl);
+    const setCustomOllamaUrl = useStore(state => state.setCustomOllamaUrl);
     const ollamaStatus = useStore(state => state.ollamaStatus);
     const refreshModels = useStore(state => state.refreshAvailableModels);
     const agentModel = useStore(state => state.agentModel);
@@ -878,70 +884,119 @@ const AgentSettingsView: React.FC = () => {
                     Ollama Integration
                 </div>
                 
-                {/* Connection Mode Toggle */}
-                <div style={{ 
-                    display: 'flex', 
-                    gap: '8px', 
+                {/* ── Server mode picker (Cursor-style 3-way) ──────────── */}
+                {/* local: 127.0.0.1:11434  ·  auto: probe remote, fall back  ·  remote: customOllamaUrl */}
+                <div style={{
+                    display: 'flex',
+                    gap: '6px',
                     marginBottom: '12px',
-                    padding: '10px',
+                    padding: '4px',
                     background: 'var(--vscode-sideBar-background)',
                     border: '1px solid var(--vscode-panel-border)',
                     borderRadius: '6px'
                 }}>
-                    <button
-                        onClick={() => setOllamaConnectionMode('proxy')}
-                        style={{
-                            flex: 1,
-                            padding: '8px 12px',
-                            fontSize: '11px',
-                            fontWeight: ollamaConnectionMode === 'proxy' ? 600 : 400,
-                            background: ollamaConnectionMode === 'proxy' ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',
-                            color: ollamaConnectionMode === 'proxy' ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-secondaryForeground)',
-                            border: ollamaConnectionMode === 'proxy' ? '2px solid var(--vscode-button-foreground)' : '1px solid var(--vscode-panel-border)',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
+                    {([
+                        { id: 'local',  label: '🏠 Local',  hint: '127.0.0.1:11434' },
+                        { id: 'auto',   label: '⚡ Auto',   hint: 'Best available' },
+                        { id: 'remote', label: '🌐 Remote', hint: 'Custom URL' },
+                    ] as const).map(opt => (
+                        <button
+                            key={opt.id}
+                            onClick={() => setOllamaServerMode(opt.id)}
+                            style={{
+                                flex: 1,
+                                padding: '6px 10px',
+                                fontSize: '11px',
+                                fontWeight: ollamaServerMode === opt.id ? 600 : 400,
+                                background: ollamaServerMode === opt.id ? 'var(--vscode-button-background)' : 'transparent',
+                                color: ollamaServerMode === opt.id ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)',
+                                border: ollamaServerMode === opt.id ? '1px solid var(--vscode-button-foreground)' : '1px solid transparent',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s',
+                                textAlign: 'center'
+                            }}
+                        >
+                            <div>{opt.label}</div>
+                            <div style={{ fontSize: '9px', opacity: 0.7, marginTop: '2px' }}>{opt.hint}</div>
+                        </button>
+                    ))}
+                </div>
+
+                {/* ── Remote URL card (Cursor "Override Base URL" style) ── */}
+                {/* Always rendered; the toggle inside controls whether the agent uses it.   */}
+                {/* Disabled (greyed) when mode is 'local' because the URL isn't being used. */}
+                <div style={{
+                    marginBottom: '12px',
+                    padding: '12px',
+                    background: 'var(--vscode-sideBar-background)',
+                    border: '1px solid var(--vscode-panel-border)',
+                    borderRadius: '6px',
+                    opacity: ollamaServerMode === 'local' ? 0.55 : 1,
+                    transition: 'opacity 0.2s'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <div style={{ fontSize: '12px', fontWeight: 600 }}>Override Ollama Base URL</div>
+                        <button
+                            onClick={() => setOllamaServerMode(ollamaServerMode === 'remote' ? 'local' : 'remote')}
+                            title={ollamaServerMode === 'remote' ? 'Click to switch to Local' : 'Click to switch to Remote'}
+                            style={{
+                                width: '32px',
+                                height: '18px',
+                                borderRadius: '9px',
+                                background: ollamaServerMode === 'remote' ? '#10b981' : ollamaServerMode === 'auto' ? '#3b82f6' : 'rgba(255,255,255,0.15)',
+                                border: 'none',
+                                cursor: 'pointer',
+                                position: 'relative',
+                                padding: 0,
+                                transition: 'background 0.2s'
+                            }}
+                        >
+                            <div style={{
+                                position: 'absolute',
+                                top: '2px',
+                                left: ollamaServerMode === 'remote' ? '16px' : ollamaServerMode === 'auto' ? '8px' : '2px',
+                                width: '14px',
+                                height: '14px',
+                                borderRadius: '50%',
+                                background: '#fff',
+                                transition: 'left 0.2s',
+                            }} />
+                        </button>
+                    </div>
+                    <div style={{ fontSize: '11px', opacity: 0.65, marginBottom: '8px' }}>
+                        Point at a self-hosted Ollama (e.g. your 192GB VRAM box). <strong>Auto</strong> probes this URL on
+                        every refresh and silently falls back to localhost if it's unreachable.
+                    </div>
+                    <input
+                        type="text"
+                        value={customOllamaUrl}
+                        onChange={(e) => setCustomOllamaUrl(e.target.value)}
+                        onBlur={() => {
+                            if ((ollamaServerMode === 'remote' || ollamaServerMode === 'auto') && customOllamaUrl.trim()) {
+                                refreshModels('ollama').catch(() => {});
+                            }
                         }}
-                    >
-                        🧠 AIM Proxy (1536)
-                        <div style={{ fontSize: '9px', opacity: 0.8, marginTop: '2px' }}>99.9% token savings</div>
-                    </button>
-                    <button
-                        onClick={() => setOllamaConnectionMode('direct')}
+                        placeholder="https://ai.cyberifrit.xyz  or  http://192.168.1.50:11434"
                         style={{
-                            flex: 1,
-                            padding: '8px 12px',
-                            fontSize: '11px',
-                            fontWeight: ollamaConnectionMode === 'direct' ? 600 : 400,
-                            background: ollamaConnectionMode === 'direct' ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',
-                            color: ollamaConnectionMode === 'direct' ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-secondaryForeground)',
-                            border: ollamaConnectionMode === 'direct' ? '2px solid var(--vscode-button-foreground)' : '1px solid var(--vscode-panel-border)',
+                            width: '100%',
+                            background: 'var(--vscode-input-background)',
+                            color: 'var(--vscode-input-foreground)',
+                            border: '1px solid var(--vscode-input-border)',
+                            padding: '6px 8px',
+                            fontSize: '12px',
                             borderRadius: '4px',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
+                            boxSizing: 'border-box',
+                            fontFamily: 'monospace'
                         }}
-                    >
-                        🏠 Direct Ollama (11434)
-                        <div style={{ fontSize: '9px', opacity: 0.8, marginTop: '2px' }}>Local RX 580</div>
-                    </button>
+                    />
+                    {/* Live resolved-URL line — Cursor shows the active endpoint right under the toggle. */}
+                    <div style={{ fontSize: '10px', opacity: 0.6, marginTop: '6px', fontFamily: 'monospace' }}>
+                        Active endpoint: <span style={{ color: '#a5b4fc' }}>{ollamaUrl || '(unresolved)'}</span>
+                    </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <label style={{ fontSize: '11px', opacity: 0.8 }}>Self-Hosted URL</label>
-                        <input
-                            type="text"
-                            value={ollamaUrl}
-                            onChange={(e) => setOllamaUrl(e.target.value)}
-                            // Re-check connection 800ms after the user stops typing.
-                            // Without this, switching from localhost to a VPS URL
-                            // still shows "Error" until they manually hit Reconnect.
-                            onBlur={() => refreshModels('ollama').catch(() => {})}
-                            style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
-                            placeholder="https://your-host or hostname only (https added automatically)"
-                        />
-                    </div>
-
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <label style={{ fontSize: '11px', opacity: 0.8 }}>Ollama bearer (optional)</label>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

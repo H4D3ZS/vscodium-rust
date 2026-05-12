@@ -260,6 +260,14 @@ interface AppState {
     llamaCppHadesEnabled: boolean;
     ollamaConnectionMode: 'proxy' | 'direct';  // proxy=1536 (AIM), direct=11434
     ollamaMode: 'local' | 'cloud' | 'auto';  // Hybrid backend mode
+    // Cursor-style server-mode picker:
+    //   local  → http://127.0.0.1:11434 (no questions asked)
+    //   remote → user-supplied `customOllamaUrl`
+    //   auto   → probe remote first; on failure fall back to local
+    // The resolved/active URL lives in `ollamaUrl` (unchanged); these fields
+    // are the user-facing config that drive what `ollamaUrl` gets set to.
+    ollamaServerMode: 'local' | 'remote' | 'auto';
+    customOllamaUrl: string;
 
     // Dev Workflow State
     isDevWorkflowActive: boolean;
@@ -403,6 +411,8 @@ interface AppState {
     saveActiveFile: () => Promise<void>;
     setOllamaUrl: (url: string) => void;
     setOllamaConnectionMode: (mode: 'proxy' | 'direct') => void;
+    setOllamaServerMode: (mode: 'local' | 'remote' | 'auto') => void;
+    setCustomOllamaUrl: (url: string) => void;
     checkOllamaStatus: () => Promise<void>;
     pullOllamaModel: (name: string) => Promise<void>;
     setInferenceBackend: (backend: 'ollama' | 'llama-cpp' | 'openai') => void;
@@ -629,6 +639,14 @@ const storeImplementation: any = (set: any, get: any) => ({
     avatar3dConfig: JSON.parse(localStorage.getItem('avatar3dConfig') || '{}'),
     ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
     ollamaMode: (localStorage.getItem('ollamaMode') as 'local' | 'cloud' | 'auto') || 'auto',
+    ollamaServerMode: (() => {
+        try {
+            return (localStorage.getItem('ollamaServerMode') as 'local' | 'remote' | 'auto') || 'local';
+        } catch { return 'local'; }
+    })(),
+    customOllamaUrl: (() => {
+        try { return localStorage.getItem('customOllamaUrl') || ''; } catch { return ''; }
+    })(),
 
     // Right sidebar panels
     isAiriPanelOpen: true,  // AIRI open by default
@@ -970,6 +988,75 @@ const storeImplementation: any = (set: any, get: any) => ({
         } catch {
             /* quota / private mode / Tracking Prevention — fine, it'll
              * fall back to the in-memory `set` above. */
+        }
+    },
+    // ── Cursor-style server mode picker ─────────────────────────────────
+    // `setOllamaServerMode` is the top-level selector the user clicks in
+    // Settings → Ollama. It resolves to the concrete URL (`local`,
+    // `remote`, or `auto`), pushes that URL into the Rust engine via
+    // `set_ollama_url`, then re-lists models so the picker is in sync.
+    //
+    // - local  → http://127.0.0.1:11434 (raw Ollama)
+    // - remote → customOllamaUrl (whatever the user typed in the input)
+    // - auto   → probe customOllamaUrl /api/tags; on success use remote,
+    //            else fall back to local. Same idea as Cursor's "Auto"
+    //            balanced mode.
+    setOllamaServerMode: (mode: 'local' | 'remote' | 'auto') => {
+        const LOCAL = 'http://127.0.0.1:11434';
+        const custom = (get().customOllamaUrl || '').trim();
+        const remote = custom ? normalizeOllamaUrl(custom) : '';
+
+        // Resolve to a concrete URL synchronously for `local` / `remote`;
+        // `auto` needs an async probe so we set local first and upgrade
+        // to remote in the background if it pings back.
+        const resolveAuto = async (): Promise<string> => {
+            if (!remote) return LOCAL;
+            try {
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), 3000);
+                const r = await fetch(`${remote.replace(/\/$/, '')}/api/tags`, {
+                    method: 'GET',
+                    signal: ctrl.signal,
+                });
+                clearTimeout(t);
+                if (r.ok || r.status === 401) return remote; // 401 = auth needed but reachable
+            } catch { /* unreachable */ }
+            return LOCAL;
+        };
+
+        let initialUrl = LOCAL;
+        if (mode === 'remote' && remote) initialUrl = remote;
+
+        set({ ollamaServerMode: mode, ollamaUrl: initialUrl });
+        try {
+            localStorage.setItem('ollamaServerMode', mode);
+            localStorage.setItem('ollamaUrl', initialUrl);
+        } catch { /* tracking prevention */ }
+
+        (async () => {
+            let finalUrl = initialUrl;
+            if (mode === 'auto') {
+                finalUrl = await resolveAuto();
+                if (finalUrl !== initialUrl) {
+                    set({ ollamaUrl: finalUrl });
+                    try { localStorage.setItem('ollamaUrl', finalUrl); } catch { /* ignore */ }
+                }
+            }
+            try { await invoke('set_ollama_url', { url: finalUrl }); }
+            catch (err) { console.error('[ollama] set_ollama_url failed:', err); }
+            try { await get().refreshAvailableModels?.('ollama'); } catch { /* surfaced via status dot */ }
+            try { await get().checkOllamaStatus?.(); } catch { /* same */ }
+        })();
+    },
+    setCustomOllamaUrl: (url: string) => {
+        const trimmed = url.trim();
+        set({ customOllamaUrl: trimmed });
+        try { localStorage.setItem('customOllamaUrl', trimmed); } catch { /* ignore */ }
+        // If we're currently in remote/auto mode, re-resolve so the URL
+        // change takes effect immediately without a second click.
+        const mode = get().ollamaServerMode;
+        if (mode === 'remote' || mode === 'auto') {
+            get().setOllamaServerMode?.(mode);
         }
     },
     setDevWorkflowActive: (active: boolean) => {
