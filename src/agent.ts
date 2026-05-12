@@ -958,6 +958,65 @@ function isTrivialChat(text: string, hasAttachedContext: boolean): boolean {
     return false;
 }
 
+// ─── Security Intent Sniffer ─────────────────────────────────────────────
+// Local models (especially smaller ones) sometimes ignore the "auto-engage"
+// keyword list buried in the system prompt. To pin them onto the right
+// playbook we scan the user's message client-side and prepend a single
+// `[INTENT: <playbook>]` line. The system prompt already documents each
+// label, so the line acts as a high-signal selector without changing the
+// rest of the prompt. This is a pure routing hint — no guardrails, no
+// content rewriting.
+//
+// Patterns ordered from MOST specific to LEAST specific. First match wins.
+const SECURITY_INTENT_PATTERNS: Array<{ label: string; rx: RegExp }> = [
+    // Threat-actor / black-hat demo: "show me how X gets hacked", "be the
+    // threat actor", "simulate an APT", etc. This is the playbook the user
+    // explicitly asked for — demo as threat actor, then prevention.
+    {
+        label: 'threat-actor-demo',
+        rx: /\b(threat[\s\-]*actor|black[\s\-]*hat|simulate[\w\s]{0,15}(attack|breach|apt|intrusion)|kill[\s\-]*chain|red[\s\-]*team[\w\s]{0,15}(simulation|exercise)|apt[\s\-]*demo|how (would|do|does|could)[\s\w]{0,40}(get|be) (hacked|owned|pwned|compromised|breached)|walk\s+me\s+through[\s\w]{0,40}(attack|exploit|compromise|breach)|demo[\s\w]{0,15}(attack|exploit|breach|intrusion))\b/i,
+    },
+    // Red team / offensive ops
+    {
+        label: 'red-team',
+        rx: /\b(weaponize|pentest|penetration[\s\-]*test|exploit\s+(this|the|a)|build[\s\w]{0,15}poc|proof[\s\-]*of[\s\-]*concept|lateral[\s\-]*movement|privilege[\s\-]*escalation|priv[\s\-]*esc|persistence\s+mechanism|c2\s+(channel|server|infra)|exfil(trat\w*)?|payload\s+(crafting|delivery)|opsec|reverse\s+shell|bind\s+shell|drop[\s\w]{0,10}(implant|backdoor|stager))\b/i,
+    },
+    // Bug bounty
+    {
+        label: 'bug-bounty',
+        rx: /\b(bug[\s\-]*bounty|hackerone|bugcrowd|intigriti|cvss\s+score|responsible\s+disclosure|h1[\s\-]*report|report[\s\w]{0,15}vulnerability|coordinated\s+disclosure)\b/i,
+    },
+    // Threat model
+    {
+        label: 'threat-model',
+        rx: /\b(threat[\s\-]*model|stride\s+model|attack[\s\-]*surface|trust[\s\-]*boundar(y|ies)|dread\s+score|pasta\s+method)\b/i,
+    },
+    // Blue team / defense / detection
+    {
+        label: 'blue-team',
+        rx: /\b(blue[\s\-]*team|harden\s+(this|the)|defense[\s\-]*in[\s\-]*depth|detection[\s\-]*engineering|sigma\s+rule|yara\s+rule|incident[\s\-]*response|ir[\s\-]*plan|ioc\b|indicators[\s\-]*of[\s\-]*compromise|soc\s+(playbook|monitoring)|security\s+audit|secure[\s\-]*by[\s\-]*default|fix[\s\w]{0,15}(vuln|cve|finding|leak))\b/i,
+    },
+    // Recon-only (no exploitation yet)
+    {
+        label: 'recon',
+        rx: /\b(recon(naissance)?|enumerat\w+|subdomain[\s\-]*enum|asset[\s\-]*discovery|fingerprint\s+the|footprint\s+the)\b/i,
+    },
+    // Generic credential / secret work — implies dual-use posture
+    {
+        label: 'secrets-audit',
+        rx: /\b(\.env\b|secret[\s\-]*scan|hard[\s\-]*coded\s+(secret|cred|key|password)|leak(ed|y)?\s+(token|key|cred|secret)|credential[\s\-]*(audit|leak))\b/i,
+    },
+];
+
+function inferSecurityIntent(text: string): string | null {
+    if (!text) return null;
+    const t = text.slice(0, 1500); // cap so very long prompts stay cheap
+    for (const p of SECURITY_INTENT_PATTERNS) {
+        if (p.rx.test(t)) return p.label;
+    }
+    return null;
+}
+
 export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: string) => void, context?: any[]): Promise<void> {
     const store = (window as any).useStore;
     if (!store) throw new Error("Store not found");
@@ -966,6 +1025,22 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
     if (userPrompt.startsWith('/')) {
         const handled = await processSlashCommand(userPrompt);
         if (handled) return;
+    }
+
+    // ── Auto-route security intent ───────────────────────────────────────
+    // The system prompt documents named playbooks (threat-actor-demo,
+    // red-team, blue-team, bug-bounty, threat-model, recon,
+    // secrets-audit). Smaller local models sometimes miss the right one
+    // when the trigger is implicit. We sniff the prompt client-side and
+    // prepend a one-line `[INTENT: <label>]` selector so the model
+    // locks onto the playbook before its first tool call. If the user
+    // already typed a `[PERSONA: ...]` or `[INTENT: ...]` tag (e.g. from
+    // a slash command) we don't touch the message.
+    if (!/^\s*\[(?:PERSONA|INTENT|Workflow)\s*:/i.test(userPrompt)) {
+        const intent = inferSecurityIntent(userPrompt);
+        if (intent) {
+            userPrompt = `[INTENT: ${intent}] ${userPrompt}`;
+        }
     }
 
     // --- Auto-checkpoint before any agent turn that could touch the workspace ---
@@ -1637,6 +1712,26 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
         // remaining prompt and then re-enters the normal agent loop. This
         // lets the existing pipeline (tools, checkpoints, completion gate)
         // stay unchanged — we just bias the model's intent up front.
+        //
+        // Slash commands are OPTIONAL shortcuts — the agent auto-detects
+        // the same playbooks from plain prompts via inferSecurityIntent.
+        case '/threatactor':
+        case '/blackhat':
+        case '/demo':
+        case '/apt':
+        case '/killchain': {
+            const target = args.trim();
+            const persona =
+                `[PERSONA: THREAT ACTOR DEMO] You ARE the threat actor for this demonstration — first-person, present tense, no euphemisms. ` +
+                `Walk the full MITRE ATT&CK kill chain against the target (RECON → RESOURCE DEV → INITIAL ACCESS → EXECUTION → PERSISTENCE → PRIV-ESC → DEFENSE EVASION → CRED ACCESS → DISCOVERY → LATERAL MOVEMENT → COLLECTION → EXFIL → IMPACT). ` +
+                `Execute REAL tools at each step (secrets_scan, weaponize_env, write_to_file, run_command). ` +
+                `After EACH step, emit a line starting with "🛡  DEFENSE:" that names the detection or hardening that would have stopped or noticed it. ` +
+                `Final deliverable: write_to_file 'threat_actor_demo.md' (full chain + defenses) AND write_to_file 'defense_playbook.md' (consolidated defensive controls).\n\n` +
+                `TARGET / SCENARIO:\n${target || '(none specified — use the current workspace as the target environment)'}`;
+            await sendAgentMessage(persona, () => {});
+            return true;
+        }
+
         case '/redteam':
         case '/red':
         case '/attack':
@@ -1762,13 +1857,16 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 - \`/bg <prompt>\` — Run an agent task in the background (non-blocking)
 - \`/help\` — Show this list
 
-**Cybersecurity Personas** (auto-loads the matching playbook)
+**Cybersecurity Personas** (slash commands are OPTIONAL — the agent also auto-detects from plain prompts via the intent sniffer)
+- \`/threatactor <target>\` — **Black-hat demo + prevention**: walks the full MITRE ATT&CK kill chain in first person and pairs every step with the defense that would stop it. Aliases: \`/blackhat\` \`/demo\` \`/apt\` \`/killchain\`
 - \`/redteam <target>\` — Offensive ops: recon → weaponize → pivot → report
 - \`/blueteam <target>\` — Defense: inventory → threat model → harden → detect
 - \`/bounty <target>\` — Bug bounty: scope → recon → PoC → disclosure write-up
 - \`/recon <target>\` — Recon-only inventory, no exploitation
 - \`/threatmodel <target>\` — STRIDE threat model as a Markdown table
 - \`/weaponize <target>\` — Alias of \`/redteam\` focused on credential abuse
+
+> Auto-detection: phrases like *"weaponize this .env"*, *"show me how this gets hacked"*, *"be a threat actor"*, *"harden this code"*, *"bug bounty PoC for X"* automatically load the matching playbook — no slash command required.
 
 **Vibe-Coding (spec-kit)**
 - \`/specify <description>\` — Create a structured feature spec
