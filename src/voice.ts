@@ -5,6 +5,7 @@
 
 import { invoke } from './tauri_bridge';
 import { qwenTTS } from './airi/qwen-tts'; // Qwen3-TTS local fallback
+import { qwenNativeTTS } from './airi/qwen-tts-native'; // Qwen3-TTS High Quality Server
 
 // NEW API KEY (saved securely via Tauri backend)
 const ELEVENLABS_API_KEY = 'sk_e184e0a4bfa989bb8a04dee3076313f56173c6b29adcc777';
@@ -187,7 +188,7 @@ export function getVoicesByGender(gender: 'male' | 'female'): VoiceConfig[] {
 
 let currentAudio: HTMLAudioElement | null = null;
 let isPlaying = false;
-let ttsProvider: 'elevenlabs' | 'openai' | 'browser' = 'elevenlabs';
+let ttsProvider: 'elevenlabs' | 'openai' | 'browser' | 'qwen' | 'qwen-native' = 'elevenlabs';
 let currentApiKey: string | null = null;
 let openaiApiKey: string | null = null;
 let selectedVoiceId: string | null = null; // User-selected ElevenLabs voice
@@ -202,7 +203,7 @@ let isAudioQueuePlaying = false;
 
 export async function initTTS(): Promise<boolean> {
     console.log('[TTS] 🎤 Initializing voice system...');
-    
+
     // ALWAYS load API keys first before any speech
     try {
         const apiKeys = await invoke<any>('get_api_keys');
@@ -263,7 +264,7 @@ export function setSelectedVoice(voiceId: string): void {
 async function speakElevenLabs(text: string, preset: VoicePreset): Promise<ArrayBuffer> {
     const config = ELEVENLABS_VOICES[preset];
     const voiceId = selectedVoiceId || config.voice_id;
-    
+
     console.log(`[TTS] speakElevenLabs: preset=${preset}, selectedVoiceId=${selectedVoiceId}, using voiceId=${voiceId}`);
 
     if (!currentApiKey) {
@@ -340,16 +341,16 @@ export async function speakStreamRealtime(
     try {
         // Split text into sentences for natural streaming chunks
         const sentences = splitIntoSentences(text);
-        
+
         for (const sentence of sentences) {
             if (!isStreaming || streamAbortController?.signal.aborted) {
                 break;
             }
 
             onChunkStart?.();
-            
+
             const config = ELEVENLABS_VOICES[preset];
-            
+
             // Stream audio chunks as they arrive
             const response = await fetch(
                 `https://api.elevenlabs.io/v1/text-to-speech/${config.voice_id}?optimize_streaming_latency=2&output_format=mp3_44100_128`,
@@ -408,13 +409,13 @@ export async function speakStreamRealtime(
 
                 // Decode MP3 audio
                 const audioBuffer = await audioContext.decodeAudioData(combined.buffer);
-                
+
                 // Play with WebAudio for zero-latency
                 const source = audioContext.createBufferSource();
                 source.buffer = audioBuffer;
                 source.connect(audioContext.destination);
                 source.start();
-                
+
                 await new Promise<void>(resolve => {
                     source.onended = () => {
                         audioContext.close();
@@ -438,7 +439,7 @@ export async function speakStreamRealtime(
         }
         console.error('[TTS] Streaming error:', error);
         isStreaming = false;
-        
+
         // Fallback to regular speak
         return speak(text, preset, onEnd, onChunkStart);
     }
@@ -458,6 +459,7 @@ async function speakOpenAI(text: string, preset: VoicePreset): Promise<ArrayBuff
         airi: 'shimmer', sage: 'alloy', nova: 'fable', kawaii: 'shimmer',
         yamato: 'onyx', hana: 'fable', ren: 'onyx', yuki: 'alloy',
         haru: 'echo', sora: 'nova', zero: 'onyx', aria: 'shimmer',
+        filipino: 'alloy',
     };
 
     const response = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -544,26 +546,26 @@ export async function speak(
             }
         }
     }
-    
+
     // Auto-detect Filipino/Tagalog text and switch voice
     const filipinoPatterns = [
         /\b(kumusta|kamusta|salamat|paalam|oo|hindi|baka|nandito|tagalog|filipino|pinoy|pinay)\b/i,
         /\b(na|ng|sa|ang|mga|kay|kay|nina|para|tungkol)\b/,
         /\b(magandang|masayang|malungkot|pagod|gutom|uhaw)\b/i,
     ];
-    
+
     const isFilipino = filipinoPatterns.some(pattern => pattern.test(text));
     if (isFilipino && preset !== 'filipino') {
         console.log('[TTS] 🇵 Filipino/Tagalog detected, switching voice...');
         preset = 'filipino';
     }
-    
+
     console.log(`[TTS] speak() called: provider=${ttsProvider}, preset=${preset}, selectedVoiceId=${selectedVoiceId}`);
-    
+
     // Prevent overlapping speech - stop any current playback
     stop();
 
-// Force ElevenLabs if API key is available
+    // Force ElevenLabs if API key is available
     if (!currentApiKey) {
         const apiKeys = (window as any).apiKeysForTTS; // Cached if available
         if (!apiKeys?.elevenlabs_api_key?.startsWith('sk_')) {
@@ -586,7 +588,7 @@ export async function speak(
     }
 
     // Priority: ElevenLabs > OpenAI > Qwen3-TTS (local) > Browser
-    if (ttsProvider !== 'elevenlabs' && ttsProvider !== 'openai' && ttsProvider !== 'qwen') {
+    if (ttsProvider !== 'elevenlabs' && ttsProvider !== 'openai' && ttsProvider !== 'qwen' && ttsProvider !== 'qwen-native') {
         console.warn('[TTS] ⚠️ No valid TTS provider configured. Using Qwen3-TTS (local browser) fallback.');
         ttsProvider = 'qwen';
     }
@@ -602,6 +604,13 @@ export async function speak(
             audioBuffer = await speakElevenLabs(text, preset);
         } else if (ttsProvider === 'openai') {
             audioBuffer = await speakOpenAI(text, preset);
+        } else if (ttsProvider === 'qwen-native') {
+            // Use Qwen3-TTS (High Quality local server)
+            await qwenNativeTTS.speak(text, preset);
+            isPlaying = false;
+            onEnd?.();
+            window.dispatchEvent(new CustomEvent('airi-tts-end'));
+            return true;
         } else if (ttsProvider === 'qwen') {
             // Use Qwen3-TTS (free, local)
             await qwenTTS.speak(text, preset);
@@ -636,7 +645,7 @@ export async function speak(
             URL.revokeObjectURL(url);
             onEnd?.();
             window.dispatchEvent(new CustomEvent('airi-tts-end'));
-            
+
             // Stop lip sync
             window.dispatchEvent(new CustomEvent('airi-lipsync-stop'));
         };
@@ -660,7 +669,7 @@ export async function speak(
         console.error('[TTS] Speak error:', error);
         isPlaying = false;
         window.dispatchEvent(new CustomEvent('airi-tts-error', { detail: { error } }));
-        
+
         // Fallback to browser TTS if ElevenLabs fails (quota exceeded, etc.)
         if (ttsProvider === 'elevenlabs') {
             console.log('[TTS] ⚠️ ElevenLabs failed, falling back to browser TTS');
@@ -678,7 +687,7 @@ export async function speak(
 function splitIntoSentences(text: string): string[] {
     // Improved sentence splitting for natural, human-like speech
     // Handles abbreviations, numbers, and preserves speech flow
-    
+
     // First, clean the text while preserving natural speech patterns
     let cleaned = text
         // Remove markdown code blocks
@@ -694,15 +703,15 @@ function splitIntoSentences(text: string): string[] {
         // Normalize whitespace
         .replace(/\s+/g, ' ')
         .trim();
-    
+
     // Protect common abbreviations from being split
     const abbreviations = ['Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Jr', 'vs', 'etc', 'e.g', 'i.e', 'cf', 'al', 'St', 'Ave', 'Blvd', 'Rd', 'Inc', 'Ltd', 'Co'];
     const protectedText = cleaned;
-    
+
     // Split on natural sentence boundaries
     // Matches: sentence-ending punctuation followed by space (or end of string)
     const sentences = protectedText.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g);
-    
+
     if (!sentences || sentences.length === 0) {
         return [cleaned];
     }
@@ -755,10 +764,10 @@ let currentTtsPreset: VoicePreset = 'airi';
 
 export function queueSpeechChunk(text: string, preset: VoicePreset = 'airi'): void {
     if (!text || text.trim().length === 0) return;
-    
+
     currentTtsPreset = preset;
     ttsQueue.push(text.trim());
-    
+
     if (!isProcessingQueue) {
         processTtsQueue();
     }
@@ -778,23 +787,23 @@ export function clearTtsQueue(): void {
 
 async function processTtsQueue(): Promise<void> {
     if (isProcessingQueue || ttsQueue.length === 0) return;
-    
+
     isProcessingQueue = true;
-    
+
     while (ttsQueue.length > 0) {
         const text = ttsQueue.shift()!;
-        
+
         // If streaming is interrupted, stop processing
         if (!isSpeaking()) {
             break;
         }
-        
+
         await speak(text, currentTtsPreset);
-        
+
         // Small delay between chunks for natural pacing
         await new Promise(resolve => setTimeout(resolve, 100));
     }
-    
+
     isProcessingQueue = false;
 }
 

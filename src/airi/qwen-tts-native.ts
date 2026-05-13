@@ -45,10 +45,10 @@ export class Qwen3TTSServer {
         try {
             // For Tauri, we'll use fetch to a Python HTTP server
             // The Python script needs to be started separately or via Tauri command
-            
+
             // Check if server is ready
             const ready = await this.waitForServer();
-            
+
             if (ready) {
                 this.isRunning = true;
                 return true;
@@ -72,17 +72,17 @@ export class Qwen3TTSServer {
                     method: 'GET',
                     signal: AbortSignal.timeout(1000),
                 });
-                
+
                 if (response.ok) {
                     return true;
                 }
             } catch {
                 // Server not ready yet
             }
-            
+
             await new Promise(resolve => setTimeout(resolve, 500));
         }
-        
+
         return false;
     }
 
@@ -117,7 +117,7 @@ export class Qwen3TTSServer {
             const audioBlob = await response.blob();
             const audioUrl = URL.createObjectURL(audioBlob);
             const audio = new Audio(audioUrl);
-            
+
             return new Promise((resolve) => {
                 audio.onended = () => {
                     URL.revokeObjectURL(audioUrl);
@@ -170,15 +170,15 @@ export class Qwen3TTSServer {
 }
 
 // Export singleton
-export const qwenTTS = new Qwen3TTSServer();
+export const qwenNativeTTS = new Qwen3TTSServer();
 
 // Auto-start on module load (for Tauri)
 if (typeof window !== 'undefined') {
     // Try to start server
-    qwenTTS.start().catch(console.error);
-    
+    qwenNativeTTS.start().catch(console.error);
+
     // Clean up on page unload
     window.addEventListener('beforeunload', () => {
-        qwenTTS.shutdown();
+        qwenNativeTTS.shutdown();
     });
 }
