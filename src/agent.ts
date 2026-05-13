@@ -39,7 +39,7 @@ let currentAgentMode = "Planning";
 
 // AIRI Digital Entity State
 let airiInitialized = false;
-let airiAutonomousMode = true; // Enabled by default in code, though UI setting controls actual routing
+let airiAutonomousMode = false; // Disabled by default to prevent hijacking standard agent requests
 
 function createPopover(element: HTMLElement, items: { label: string, value: string, desc?: string, icon?: string }[], onSelect: (val: string, label: string) => void) {
     const existing = document.getElementById("agent-popover");
@@ -233,35 +233,69 @@ export async function initAgent() {
     const { listen } = await import('@tauri-apps/api/event');
     const useStore = (window as any).useStore;
 
-    // ═══════════════════════════════════════════════════════════
-    // AIRI DIGITAL ENTITY ACTIVATION
-    // Make AIRI the sentient cognitive core of the IDE
-    // ═══════════════════════════════════════════════════════════
+    // ── Setup listeners FIRST so the agent is always responsive ──────────
+    // Moving this above AIRI activation ensures that if the sentient core
+    // initialization hangs or takes time, the standard listeners are still
+    // active and handling backend events.
+
+    // Listen for streaming AI content (full updates)
+    listen('ai-content', (event: any) => {
+        const { updateLastAgentMessage, setIsAgentThinking } = useStore.getState();
+        setIsAgentThinking(false);
+        const content = typeof event.payload === 'object' && event.payload.content
+            ? event.payload.content
+            : (typeof event.payload === 'string' ? event.payload : '');
+        updateLastAgentMessage(content);
+    });
+
+    // Listen for streaming AI content (delta updates)
+    listen('ai-content-delta', (event: any) => {
+        const { appendLastAgentMessage } = useStore.getState();
+        const delta = typeof event.payload === 'object' && event.payload.delta
+            ? event.payload.delta
+            : (typeof event.payload === 'string' ? event.payload : '');
+        if (delta) appendLastAgentMessage(delta);
+    });
+
+    // Listen for neural VFS activation
+    listen('aim-active', (event: any) => {
+        const messagesContainer = document.getElementById("agent-messages");
+        if (messagesContainer) {
+            const lastMsg = messagesContainer.lastElementChild;
+            if (lastMsg && lastMsg.classList.contains("aim-active-box")) return;
+            const info = document.createElement("div");
+            info.className = "agent-message info-message-box aim-active-box";
+            info.style.background = "rgba(79, 70, 229, 0.1)";
+            info.style.border = "1px solid rgba(79, 70, 229, 0.2)";
+            info.style.color = "#818cf8";
+            info.style.padding = "8px 12px";
+            info.style.margin = "8px 0";
+            info.style.borderRadius = "8px";
+            info.style.fontSize = "11px";
+            info.innerHTML = `<i class="codicon codicon-circuit-board"></i> ${(event.payload.mode || 'Neural VFS').toUpperCase()} ACTIVE (${(event.payload.size / 1024).toFixed(1)} KB)`;
+            messagesContainer.appendChild(info);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    });
+
+    // AIRI DIGITAL ENTITY ACTIVATION (Now robust and non-blocking if needed)
     try {
-
-        // Activate AIRI with full autonomy and self-learning
-        await activateAIRIAgent({
-            fullAutonomy: true,      // AIRI works without constant prompts
-            selfLearning: true,      // Learns from every interaction
-            biology: true,           // Energy, sleep, mood system
-            consciousness: true,     // Thoughts, emotions, self-awareness
-            voice: false,            // Off by default (needs ElevenLabs key)
+        console.log("[Agent] Activating AIRI Sentient Core...");
+        activateAIRIAgent({
+            fullAutonomy: true,
+            selfLearning: true,
+            biology: true,
+            consciousness: true,
+            voice: false,
+        }).then(() => {
+            airiInitialized = true;
+            airiAutonomousMode = false; // Stay reactive by default
+            console.log('✅ AIRI Sentient Core activated!');
+        }).catch(err => {
+            console.error('❌ AIRI activation failed:', err);
         });
-
-        airiInitialized = true;
-        airiAutonomousMode = true;
-
-        console.log('✅ AIRI is now the sentient core of the IDE!\n');
-        console.log('🧠 She thinks, feels, and learns autonomously');
-        console.log('🫀 She has biological needs (energy, sleep, mood)');
-        console.log('📚 She learns from every interaction and file change');
-        console.log('🔄 She evolves her own code every 30 minutes');
-        console.log('💼 She works proactively without constant prompts');
-        console.log('\n💬 AIRI is your partner, not just a tool.\n');
-
     } catch (error) {
-        console.error('❌ AIRI activation failed, falling back to standard agent:', error);
-        // Continue with standard agent initialization
+        console.error('❌ AIRI activation exception:', error);
     }
 
     // Listen for session capture from auth flow
@@ -306,59 +340,7 @@ export async function initAgent() {
         });
     });
 
-    // Listen for Neural VFS / AIM activation
-    await listen('aim-active', (event: any) => {
-        console.log('Neural VFS Active:', event.payload);
-        const { addAgentMessage } = useStore.getState();
-        const messagesContainer = document.getElementById("agent-messages");
-        if (messagesContainer) {
-            // Check if already shown recently to avoid duplicates
-            const lastMsg = messagesContainer.lastElementChild;
-            if (lastMsg && lastMsg.classList.contains("aim-active-box")) return;
 
-            const info = document.createElement("div");
-            info.className = "agent-message info-message-box aim-active-box";
-            info.style.background = "rgba(79, 70, 229, 0.1)";
-            info.style.border = "1px solid rgba(79, 70, 229, 0.2)";
-            info.style.color = "#818cf8";
-            info.style.padding = "8px 12px";
-            info.style.margin = "8px 0";
-            info.style.borderRadius = "8px";
-            info.style.fontSize = "11px";
-            info.style.fontWeight = "600";
-            info.style.letterSpacing = "0.5px";
-            info.style.display = "flex";
-            info.style.alignItems = "center";
-            info.style.gap = "8px";
-            info.style.animation = "fadeIn 0.5s ease";
-
-            const sizeKB = (event.payload.size / 1024).toFixed(1);
-            const mode = event.payload.mode || "Neural VFS";
-            info.innerHTML = `<i class="codicon codicon-circuit-board" style="font-size: 14px;"></i> ${mode.toUpperCase()} ACTIVE (${sizeKB} KB Project Matrix)`;
-            messagesContainer.appendChild(info);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-    });
-
-    // Listen for streaming AI content (full updates)
-    await listen('ai-content', (event: any) => {
-        const { updateLastAgentMessage, setIsAgentThinking } = useStore.getState();
-        setIsAgentThinking(false);
-        const content = typeof event.payload === 'object' && event.payload.content
-            ? event.payload.content
-            : (typeof event.payload === 'string' ? event.payload : '');
-        updateLastAgentMessage(content);
-    });
-
-    // Listen for streaming AI content (delta updates - performance optimized)
-    await listen('ai-content-delta', (event: any) => {
-        const { appendLastAgentMessage, setIsAgentThinking } = useStore.getState();
-        // Don't set Thinking to false on EVERY chunk to avoid re-renders
-        const delta = typeof event.payload === 'object' && event.payload.delta
-            ? event.payload.delta
-            : (typeof event.payload === 'string' ? event.payload : '');
-        if (delta) appendLastAgentMessage(delta);
-    });
 
     // Secondary listener for internal window events (higher reliability in some environments)
     if (typeof window !== 'undefined') {

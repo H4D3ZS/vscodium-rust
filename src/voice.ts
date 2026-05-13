@@ -254,6 +254,11 @@ export function getProvider(): string {
     return ttsProvider;
 }
 
+export function setProvider(provider: typeof ttsProvider): void {
+    ttsProvider = provider;
+    console.log(`[TTS] Provider switched to: ${provider}`);
+}
+
 export function setSelectedVoice(voiceId: string): void {
     selectedVoiceId = voiceId;
     console.log(`[TTS] Selected ElevenLabs voice: ${voiceId}`);

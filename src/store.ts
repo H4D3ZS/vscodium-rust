@@ -259,6 +259,7 @@ interface AppState {
     airiConsciousnessEnabled: boolean;
     airiConsciousnessModel: string;
     agentUiMode: 'chat' | 'airi';
+    ttsStrategy: 'elevenlabs' | 'openai' | 'browser' | 'qwen' | 'qwen-native';
 
     // ── Cursor-style IDE preferences ────────────────────────────────────
     // Each of these maps to a category in Settings → vscodium-rust
@@ -454,6 +455,9 @@ interface AppState {
     setActiveEditorPath: (path: string) => void;
     setActiveDevice: (id: string | null) => void;
     setEmulators: (ems: string[]) => void;
+    setAvatarCharacter: (avatarCharacter: string) => void;
+    setAvatarCustomConfig: (config: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }) => void;
+    setAvatar3dConfig: (config: { modelUrl?: string; modelId?: string; customModels?: Array<{ id: string; name: string; url: string }> }) => void;
     setExtensionContributions: (contributions: any) => void;
     refreshAvailableModels: (provider?: string) => Promise<void>;
     refreshFileTree: () => Promise<void>;
@@ -543,6 +547,7 @@ interface AppState {
     setAiriConsciousnessEnabled: (enabled: boolean) => void;
     setAiriConsciousnessModel: (model: string) => void;
     setAgentUiMode: (mode: 'chat' | 'airi') => void;
+    setTtsStrategy: (strategy: 'elevenlabs' | 'openai' | 'browser' | 'qwen' | 'qwen-native') => void;
     // Cursor-style IDE preference setters — see the matching state fields
     // above for what each one controls.
     setTabPredictionEnabled: (v: boolean) => void;
@@ -727,6 +732,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     airiConsciousnessEnabled: (typeof localStorage === 'undefined' || localStorage.getItem('airi.consciousness.enabled') !== '0'),
     airiConsciousnessModel: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.consciousness.model')) || 'llama3.2:3b',
     agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'airi',
+    ttsStrategy: (localStorage.getItem('ttsStrategy') as any) || 'elevenlabs',
     // ── Cursor-style IDE preference defaults ──────────────────────────
     // Tab predictions / fast_apply / shadow workspace default ON because
     // the existing agent loop already references those tools when they
@@ -2006,6 +2012,11 @@ const storeImplementation: any = (set: any, get: any) => ({
         })();
     },
     setAgentUiMode: (agentUiMode) => { localStorage.setItem('agentUiMode', agentUiMode); set({ agentUiMode }); },
+    setTtsStrategy: (strategy) => {
+        localStorage.setItem('ttsStrategy', strategy);
+        set({ ttsStrategy: strategy });
+        import('./voice').then(({ setProvider }) => setProvider(strategy)).catch(() => { });
+    },
     // Cursor-style IDE preference setters. Each one persists to
     // localStorage under a stable key so toggling lives across reloads.
     // Boolean keys use '1'/'0' to stay compatible with the rest of the
