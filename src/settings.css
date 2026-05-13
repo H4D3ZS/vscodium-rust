@@ -1,0 +1,246 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ *  Settings Page - Cursor/VS Code parity styling
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.settings-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+    font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+}
+
+.settings-header {
+    flex: 0 0 auto;
+    padding: 24px 30px 0 30px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+    background-color: var(--vscode-editor-background);
+}
+
+.settings-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.settings-title {
+    font-size: 24px;
+    font-weight: 300;
+    margin: 0;
+    color: var(--vscode-settings-headerForeground, var(--vscode-foreground));
+}
+
+.settings-search-wrapper {
+    position: relative;
+    max-width: 400px;
+    width: 100%;
+}
+
+.settings-search-input {
+    width: 100%;
+    padding: 6px 8px 6px 32px;
+    background-color: var(--vscode-settings-textInputBackground, var(--vscode-input-background));
+    color: var(--vscode-settings-textInputForeground, var(--vscode-input-foreground));
+    border: 1px solid var(--vscode-settings-textInputBorder, var(--vscode-input-border));
+    border-radius: 2px;
+    font-size: 13px;
+    outline: none;
+}
+
+.settings-search-input:focus {
+    border-color: var(--vscode-focusBorder);
+}
+
+.settings-search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0.6;
+    font-size: 14px;
+}
+
+.settings-tabs {
+    display: flex;
+    gap: 24px;
+}
+
+.settings-tab {
+    padding: 8px 0;
+    font-size: 13px;
+    cursor: pointer;
+    opacity: 0.6;
+    border-bottom: 1px solid transparent;
+    transition: opacity 0.2s, border-color 0.2s;
+}
+
+.settings-tab.active {
+    opacity: 1;
+    border-bottom-color: var(--vscode-foreground);
+}
+
+.settings-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+.settings-sidebar {
+    flex: 0 0 260px;
+    border-right: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+    padding: 12px 0;
+    overflow-y: auto;
+    background-color: var(--vscode-sideBar-background, rgba(0, 0, 0, 0.05));
+}
+
+.settings-sidebar-group {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.5;
+    padding: 16px 16px 8px 16px;
+    font-weight: 700;
+}
+
+.settings-sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--vscode-sideBar-foreground, var(--vscode-foreground));
+    transition: background-color 0.1s;
+    border-left: 2px solid transparent;
+}
+
+.settings-sidebar-item:hover {
+    background-color: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.1));
+}
+
+.settings-sidebar-item.active {
+    background-color: var(--vscode-list-activeSelectionBackground, rgba(0, 120, 212, 0.2));
+    color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+    border-left-color: var(--vscode-focusBorder);
+}
+
+.settings-sidebar-item i {
+    font-size: 16px;
+    opacity: 0.8;
+}
+
+.settings-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 30px 40px;
+}
+
+.settings-section {
+    margin-bottom: 40px;
+}
+
+.settings-section-title {
+    font-size: 18px;
+    font-weight: 400;
+    margin-bottom: 16px;
+    color: var(--vscode-settings-headerForeground, var(--vscode-foreground));
+}
+
+.settings-row {
+    display: flex;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--vscode-settings-rowHoverBorder, rgba(128, 128, 128, 0.1));
+}
+
+.settings-row-info {
+    flex: 1;
+    padding-right: 40px;
+}
+
+.settings-row-label {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--vscode-foreground);
+}
+
+.settings-row-description {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--vscode-descriptionForeground, rgba(204, 204, 204, 0.7));
+}
+
+.settings-row-control {
+    flex: 0 0 auto;
+    min-width: 200px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+/* Control Elements */
+.settings-select,
+.settings-input {
+    background-color: var(--vscode-settings-dropdownBackground, var(--vscode-input-background));
+    color: var(--vscode-settings-dropdownForeground, var(--vscode-input-foreground));
+    border: 1px solid var(--vscode-settings-dropdownBorder, var(--vscode-input-border));
+    padding: 6px 10px;
+    font-size: 13px;
+    border-radius: 2px;
+    outline: none;
+    min-width: 200px;
+}
+
+.settings-select:focus,
+.settings-input:focus {
+    border-color: var(--vscode-focusBorder);
+}
+
+.settings-checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.settings-checkbox {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--vscode-button-background);
+}
+
+.settings-button {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.settings-button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.settings-button.secondary {
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+}
+
+/* Cards */
+.solid-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.solid-card:hover {
+    background: rgba(255, 255, 255, 0.05);
+}

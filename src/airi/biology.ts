@@ -58,13 +58,13 @@ export class AIRIBiology {
   private updateMetabolism(): void {
     // Energy drains over time (faster when working)
     this.state.energy = Math.max(0, this.state.energy - 0.5);
-    
+
     // Hunger increases over time
     this.state.hunger = Math.min(100, this.state.hunger + 0.3);
-    
+
     // Sleepiness increases over time
     this.state.sleepiness = Math.min(100, this.state.sleepiness + 0.2);
-    
+
     // Stress increases when energy is low and hunger is high
     if (this.state.energy < 30 || this.state.hunger > 70) {
       this.state.stress = Math.min(100, this.state.stress + 0.5);
@@ -91,19 +91,19 @@ export class AIRIBiology {
     if (energy > 70 && hunger < 30 && sleepiness < 30) {
       return 'excited';
     }
-    
+
     if (energy < 20 || sleepiness > 80) {
       return 'tired';
     }
-    
+
     if (stress > 70) {
       return 'stressed';
     }
-    
+
     if (hunger > 70) {
       return 'concerned';
     }
-    
+
     if (energy > 50 && stress < 30) {
       return 'happy';
     }
@@ -119,13 +119,13 @@ export class AIRIBiology {
 
     // Low energy hurts health
     if (this.state.energy < 20) healthChange -= 0.1;
-    
+
     // High hunger hurts health
     if (this.state.hunger > 80) healthChange -= 0.1;
-    
+
     // High stress hurts health
     if (this.state.stress > 80) healthChange -= 0.2;
-    
+
     // Good states improve health
     if (this.state.energy > 70 && this.state.hunger < 30) {
       healthChange += 0.05;
@@ -165,7 +165,7 @@ export class AIRIBiology {
     this.state.hunger = Math.max(0, this.state.hunger - amount);
     this.state.energy = Math.min(100, this.state.energy + (amount * 0.5));
     this.state.lastMeal = Date.now();
-    
+
   }
 
   /**
@@ -193,14 +193,7 @@ export class AIRIBiology {
     this.state.sleepiness = 0;
     this.state.stress = Math.max(0, this.state.stress - 30);
     this.state.lastSleep = Date.now();
-    
-  }
 
-  /**
-   * Add stress (from work)
-   */
-  addStress(amount: number): void {
-    this.state.stress = Math.min(100, this.state.stress + amount);
   }
 
   /**
@@ -208,6 +201,35 @@ export class AIRIBiology {
    */
   reduceStress(amount: number): void {
     this.state.stress = Math.max(0, this.state.stress - amount);
+  }
+
+  /**
+   * Quick rest - restore energy without full sleep
+   */
+  rest(amount: number = 20): void {
+    this.state.energy = Math.min(100, this.state.energy + amount);
+    this.state.stress = Math.max(0, this.state.stress - (amount / 2));
+    this.state.mood = this.calculateMood();
+    console.log(`[Biology] 🧘 Quick rest completed. Energy: ${this.state.energy.toFixed(1)}%`);
+  }
+
+  /**
+   * Consume energy for a specific task
+   */
+  burnEnergy(amount: number): void {
+    this.state.energy = Math.max(0, this.state.energy - amount);
+    // Tasks also increase stress slightly
+    this.state.stress = Math.min(100, this.state.stress + (amount * 0.2));
+    this.state.mood = this.calculateMood();
+    console.log(`[Biology] 🔥 Expended ${amount} energy. Current: ${this.state.energy.toFixed(1)}%`);
+  }
+
+  /**
+   * Restore health
+   */
+  heal(amount: number = 10): void {
+    this.state.health = Math.min(100, this.state.health + amount);
+    console.log(`[Biology] ❤️ Health restored. Current: ${this.state.health.toFixed(1)}%`);
   }
 
   /**
@@ -222,7 +244,7 @@ export class AIRIBiology {
    */
   getStatus(): string {
     const { energy, hunger, sleepiness, mood, stress, health } = this.state;
-    
+
     return `
 🫀 Biology Status:
   ⚡ Energy: ${energy.toFixed(1)}%

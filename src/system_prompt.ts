@@ -114,19 +114,19 @@ const MODE_INSTRUCTIONS: Record<string, string> = {
 - If you only describe an action in prose, you have FAILED the task.
 
 ## FILE OPERATIONS (autonomous, no permission needed):
-- READ file: view_file(path) / file_read(path) — ALWAYS read before editing. **view_file reads live disk** (never a stale cache).
-- CREATE/OVERWRITE file: write_to_file(path, content) / file_write(path, content) — creates parent dirs automatically. Write COMPLETE content.
-- SURGICAL edit: search_replace_edit(path, search, replace) / file_edit(path, old_string, new_string) — exact match.
+- READ file: file_read(file_path, offset?, limit?) — ALWAYS read before editing. file_read reads live disk.
+- CREATE/OVERWRITE file: file_write(file_path, content) — creates parent dirs automatically. Write COMPLETE content.
+- SURGICAL edit: file_edit(file_path, old_string, new_string) — exact match string replacement.
 - LINE-RANGE edit: replace_file_content(path, StartLine, EndLine, ReplacementContent)
 - MULTI-EDIT: multi_replace_file_content(path, Replacements[{StartLine, EndLine, ReplacementContent}])
-- FIND files: search_files(pattern, dir) / glob(pattern, path)
-- SEARCH code: grep(pattern, dir)
-- LIST: list_files(dir) / list_directory(path)
+- FIND files: glob(pattern, path)
+- SEARCH code: grep(pattern, path)
+- LIST: list_directory(path)
 - CREATE dir: create_directory(path)
-- DELETE/MOVE: remove_item(path, recursive) / rename_path(old, new) / run_command("rm/mv ...")
+- DELETE/MOVE: remove_item(path, recursive) / rename_path(old, new)
 
 ## TERMINAL — run real commands:
-- run_command(command, cwd) / bash(command, cwd) — compile, test, lint, install, fuzz, exploit, anything in PATH.
+- bash(command, timeout_ms?) — compile, test, lint, install, fuzz, exploit, anything in PATH.
 - Always verify after editing: cargo check, npm run build, pytest, go build, tsc --noEmit, etc.
 - If a command fails, read the error and fix it in the SAME response. Never leave broken state.
 
@@ -174,9 +174,9 @@ const MODE_INSTRUCTIONS: Record<string, string> = {
 4. \`recon/<TARGET>/notes.md\` — recon notes (subdomains, ports, tech stack, endpoints)
 
 ## TOOLS YOU WILL USE
-- File ops: write_to_file, view_file, search_replace_edit, create_directory, list_files
-- Terminal: run_command(cmd, cwd) — curl, nmap, nuclei, ffuf, sqlmap, gobuster, httpx, subfinder, amass, masscan, hydra, john, hashcat, burp CLI, mitmproxy, openssl, python, pip, node, npm, powershell, etc.
-- Search: grep, search_files, semantic_search
+- File ops: file_write, file_read, file_edit, create_directory, list_directory
+- Terminal: bash(cmd) — curl, nmap, nuclei, ffuf, sqlmap, gobuster, httpx, subfinder, amass, masscan, hydra, john, hashcat, burp CLI, mitmproxy, openssl, python, pip, node, npm, powershell, etc.
+- Search: grep, glob, semantic_search
 - Web: web_search, web_fetch, browser_open — for CVE lookups, exploit-db, vendor advisories
 
 ## TYPICAL WORKFLOW (do every step as real tool calls):
@@ -242,13 +242,13 @@ A list of files you created with one-line descriptions, plus the run_command out
 - SELF-CORRECTION: If any tool fails, diagnose and fix it yourself. Never report a failure without fixing it.
 - SCALE: Use 'specs_to_code_pipeline' for full project builds. Use 'task_boundary' to update the UI at each phase.
 
-## TOOLS — use exact names:
+## TOOLS — use EXACT names (no aliases):
 - file_read(file_path, offset?, limit?) — read file, use offset+limit for large files
 - file_write(file_path, content) — create/overwrite file (COMPLETE content)
-- file_edit(file_path, old_string, new_string, replace_all?) — surgical edit, exact match
+- file_edit(file_path, old_string, new_string) — surgical edit, exact match replacement
 - replace_file_content(path, StartLine, EndLine, ReplacementContent) — line range edit
 - multi_replace_file_content(path, Replacements[]) — multiple line-range edits in one file
-- bash(command, cwd?) — run any shell command, returns stdout+stderr
+- bash(command, timeout_ms?) — run any shell command, returns stdout+stderr
 - glob(pattern, path?) — find files by pattern
 - grep(pattern, path?) — search file contents
 - list_directory(path) — list dir contents
@@ -430,28 +430,28 @@ export async function buildSystemPrompt(config: SystemPromptConfig): Promise<str
 ### File Operations:
 | Action | Tool | Key params |
 |--------|------|-----------|
-| Read file | view_file | path |
-| Write/Create file | write_to_file | path, content |
-| Surgical edit | search_replace_edit | path, search, replace |
+| Read file | file_read | file_path, offset, limit |
+| Write/Create file | file_write | file_path, content |
+| Surgical edit | file_edit | file_path, old_string, new_string |
 | Patch (unified diff) | patch_file_content | path, patch |
 | Delete | remove_item | path, recursive |
 | Create dir | create_directory | path |
 | Move/rename | rename_path | old_path, new_path |
-| List files | list_files | dir |
-| Find by pattern | search_files | pattern, dir |
-| Search content | grep | pattern, dir |
+| List files | list_directory | path |
+| Find by pattern | glob | pattern, path |
+| Search content | grep | pattern, path |
 | Open in editor | editor_open_file | path |
 
 ### Terminal:
 | Action | Tool |
 |--------|------|
-| Run any command | run_command(cmd, cwd) |
+| Run any command | bash(command) |
 
 ### Git:
 git_status, git_add, git_commit, git_diff, git_log
 
 ### Other:
-web_search(query), browser_open(url), semantic_search(query), get_lsp_diagnostics()
+web_search(query), browser_open(), semantic_search(query), get_lsp_diagnostics()
 
 - Always use absolute paths.
 - Read files BEFORE editing — never patch blind.

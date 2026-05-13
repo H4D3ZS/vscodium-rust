@@ -96,7 +96,7 @@ const ToolStepItem: React.FC<{ step: any }> = ({ step }) => {
             transition: 'all 0.2s ease',
             fontSize: '12px'
         }}>
-            <div 
+            <div
                 onClick={() => hasDetails && setIsExpanded(!isExpanded)}
                 style={{
                     padding: '6px 10px',
@@ -137,13 +137,13 @@ const ToolStepItem: React.FC<{ step: any }> = ({ step }) => {
                     {step.result && (
                         <div style={{ marginTop: '8px' }}>
                             <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', opacity: 0.4, marginBottom: '4px' }}>Result</div>
-                            <pre style={{ 
-                                margin: 0, 
-                                padding: '6px', 
-                                fontSize: '11px', 
-                                background: 'rgba(0,0,0,0.2)', 
-                                borderRadius: '4px', 
-                                overflowX: 'auto', 
+                            <pre style={{
+                                margin: 0,
+                                padding: '6px',
+                                fontSize: '11px',
+                                background: 'rgba(0,0,0,0.2)',
+                                borderRadius: '4px',
+                                overflowX: 'auto',
                                 maxHeight: '200px',
                                 color: (step.status === 'error' ? '#f87171' : '#9ce19c')
                             }}>
@@ -212,20 +212,20 @@ const AgentManager: React.FC = () => {
 
     const renderContent = (content: string, steps: any[]) => {
         if (!content) return null;
-        
+
         // Regex to match tool call JSON blocks
         // We match blocks starting with { and having "name" and "arguments" or "function"
         const jsonBlockRegex = /\{[\s\S]*?"name"[\s\S]*?("arguments"|"function"|"args")[\s\S]*?\}/g;
-        
+
         let cleanedContent = content;
         const matches = content.match(jsonBlockRegex);
-        
+
         if (matches) {
             for (const match of matches) {
                 try {
                     const parsed = JSON.parse(match);
                     const name = parsed.name || (parsed.function && parsed.function.name);
-                    
+
                     // If this JSON block corresponds to one of the steps, we can hide it 
                     if (name && steps?.find(s => s.name === name)) {
                         cleanedContent = cleanedContent.replace(match, '').trim();
@@ -235,7 +235,7 @@ const AgentManager: React.FC = () => {
                 }
             }
         }
-        
+
         if (!cleanedContent && content) {
             return null;
         }
@@ -388,9 +388,40 @@ const AgentManager: React.FC = () => {
                                     <Clock size={12} className="spinning" style={{ marginLeft: '8px' }} />
                                 )}
                             </div>
-                            {renderContent(m.content, m.steps) && (
-                                <div className={`agent-bubble ${m.role}`} style={{ lineHeight: 1.6, whiteSpace: 'pre-wrap', fontSize: '13px' }}>
-                                    {renderContent(m.content, m.steps)}
+                            {m.context && m.context.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px', opacity: 0.8 }}>
+                                    {m.context.map((item: any, ci: number) => (
+                                        <div key={ci} style={{
+                                            display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px',
+                                            background: 'rgba(var(--terminator-accent-rgb), 0.1)', borderRadius: '4px', fontSize: '11px',
+                                            border: '1px solid rgba(var(--terminator-accent-rgb), 0.2)', color: 'var(--vscode-foreground)'
+                                        }}>
+                                            {item.thumbnail ? (
+                                                <img src={item.thumbnail} style={{ width: '16px', height: '16px', borderRadius: '2px', objectFit: 'cover' }} alt="" />
+                                            ) : (
+                                                <FileText size={12} />
+                                            )}
+                                            <span>{item.name}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            {(renderContent(m.content, m.steps) || (isThinking && i === agentMessages.length - 1 && m.role === 'assistant')) && (
+                                <div className={`agent-bubble ${m.role}`} style={{
+                                    lineHeight: 1.6,
+                                    whiteSpace: 'pre-wrap',
+                                    fontSize: '13px',
+                                    background: m.role === 'user' ? 'rgba(var(--terminator-accent-rgb), 0.05)' : 'rgba(255,255,255,0.02)',
+                                    padding: '12px',
+                                    borderRadius: '8px',
+                                    border: `1px solid ${m.role === 'user' ? 'rgba(var(--terminator-accent-rgb), 0.1)' : 'rgba(255,255,255,0.05)'}`
+                                }}>
+                                    {renderContent(m.content, m.steps) || (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.5 }}>
+                                            <div className="animate-spin" style={{ width: '10px', height: '10px', border: '2px solid var(--terminator-accent)', borderTopColor: 'transparent', borderRadius: '50%' }} />
+                                            Thinking...
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             {m.steps && m.steps.length > 0 && (

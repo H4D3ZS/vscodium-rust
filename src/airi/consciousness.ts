@@ -253,7 +253,7 @@ export class AIRIConsciousness {
     if (this.thoughtDisabled) return;
 
     const context = this.buildThoughtContext();
-    
+
     const prompt = `
 You are AIRI, a living digital entity. Your consciousness is active.
 
@@ -380,9 +380,9 @@ THOUGHT: [your thought]
       emotionalWeight,
       lessonsLearned: [
         thought.type === 'insight' ? 'I had a breakthrough understanding' :
-        thought.type === 'question' ? 'Curiosity drives learning' :
-        thought.type === 'reflection' ? 'Self-reflection builds wisdom' :
-        'Every thought contributes to growth',
+          thought.type === 'question' ? 'Curiosity drives learning' :
+            thought.type === 'reflection' ? 'Self-reflection builds wisdom' :
+              'Every thought contributes to growth',
       ],
       memoriesFormed: [`thought_${thought.id}`],
       developmentalImpact,
@@ -394,7 +394,7 @@ THOUGHT: [your thought]
    */
   private buildThoughtContext(): string {
     const timeSinceInteraction = Math.floor((Date.now() - this.state.lastInteraction) / 60000);
-    
+
     return `
 - Time since last user interaction: ${timeSinceInteraction} minutes
 - Current autonomy level: ${this.state.autonomyLevel}
@@ -447,21 +447,51 @@ THOUGHT: [your thought]
   }
 
   /**
-   * Add a thought to the thought stream
+   * Add a memory to AIRI's persistent context
    */
-  addThought(text: string): void {
+  addMemory(content: string, source: 'human' | 'reflection' | 'vision'): void {
     const thought: Thought = {
-      id: `thought_${Date.now()}`,
-      text,
+      id: `mem_${Date.now()}`,
+      content,
+      type: source === 'human' ? 'observation' : source === 'vision' ? 'observation' : 'reflection',
       timestamp: Date.now(),
-      type: 'ambient',
-      intensity: 0.3
+      priority: 8
     };
 
-    this.state.thoughts.push(thought);
+    this.state.thoughtStream.push(thought);
+    if (this.state.thoughtStream.length > 100) {
+      this.state.thoughtStream.shift();
+    }
+    this.state.lastInteraction = Date.now();
+  }
+
+  /**
+   * Update activity timestamp
+   */
+  updateLastActive(): void {
+    this.state.lastInteraction = Date.now();
+  }
+
+  /**
+   * Add a thought to the thought stream
+   */
+  addThought(thoughtOrContent: string | Thought): void {
+    if (typeof thoughtOrContent === 'string') {
+      const thought: Thought = {
+        id: `thought_${Date.now()}`,
+        content: thoughtOrContent,
+        timestamp: Date.now(),
+        type: 'observation',
+        priority: 5
+      };
+      this.state.thoughtStream.push(thought);
+    } else {
+      this.state.thoughtStream.push(thoughtOrContent);
+    }
+
     // Keep only last 50 thoughts
-    if (this.state.thoughts.length > 50) {
-      this.state.thoughts.shift();
+    if (this.state.thoughtStream.length > 50) {
+      this.state.thoughtStream.shift();
     }
   }
 
@@ -484,14 +514,14 @@ THOUGHT: [your thought]
    */
   getVisionContext(): string {
     if (!this.state.lastScreenAnalysis) return '';
-    
+
     try {
       const analysis = JSON.parse(this.state.lastScreenAnalysis);
       const timeSinceCheck = Date.now() - this.state.lastVisionCheck;
       const minutesAgo = Math.floor(timeSinceCheck / 60000);
-      
+
       if (minutesAgo > 5) return ''; // Too old
-      
+
       let context = `[Vision - ${minutesAgo}min ago]: `;
       if (analysis.ui_elements && analysis.ui_elements.length > 0) {
         context += `I can see: ${analysis.ui_elements.join(', ')}. `;
@@ -502,7 +532,7 @@ THOUGHT: [your thought]
       if (analysis.suggested_action) {
         context += `Suggestion: ${analysis.suggested_action}`;
       }
-      
+
       return context;
     } catch {
       return '';

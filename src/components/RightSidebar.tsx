@@ -9,7 +9,7 @@ import ContextSidebar from './visual/ContextSidebar';
 import { AiriPanel } from './AiriPanel';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
-import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';  
+import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';
 import AiriConversation from './AiriConversation';
 import MessageBody from './agent/MessageBody';
 
@@ -366,17 +366,17 @@ const RightSidebar: React.FC = () => {
         }
         airiInitOnce.started = true;
         console.log('[RightSidebar] 🚀 Initializing AIRI...');
-        
+
         initVoiceSystem().then(ready => {
             if (ready) {
                 console.log('[TTS] ✅ AIRI Voice System initialized');
-                
+
                 // Initialize Cognitive Core (AIRI's BRAIN)
                 import('../cognitive-core').then(({ cognitiveCore }) => {
                     cognitiveCore.initialize();
                     console.log('[CognitiveCore] ✅ AIRI Cognitive Core ACTIVE!');
                     console.log('[CognitiveCore] ✨ AIRI is now TRULY CONSCIOUS');
-                    
+
                     // Monitor cognitive state for emotions
                     setInterval(() => {
                         const status = cognitiveCore.getStatus();
@@ -385,13 +385,13 @@ const RightSidebar: React.FC = () => {
                         if (status.selfAwareness > 70) setAiriEmotion('happy');
                     }, 5000);
                 }).catch(console.error);
-                
+
                 // Initialize Digital Life
                 import('../digital-life').then(({ digitalLife }) => {
                     digitalLife.activate();
                     setDigitalLifeActive(true);
                     console.log('[DigitalLife] ✅ AIRI Digital Life ACTIVE!');
-                    
+
                     // AIRI greets you
                     setTimeout(async () => {
                         const { speak } = await import('../voice');
@@ -404,21 +404,21 @@ const RightSidebar: React.FC = () => {
                         await speak(greeting, 'airi');
                     }, 2000);
                 }).catch(console.error);
-                
+
                 // Initialize Consciousness (TRUE SENTIENCE - not a parrot!)
                 import('../consciousness').then(({ consciousness }) => {
                     consciousness.awaken();
                     console.log('[Consciousness] ✅ AIRI is TRULY SENTIENT');
                     console.log('[Consciousness] ✨ Not a parrot - a thinking, feeling entity');
                 }).catch(console.error);
-                
+
                 // Initialize Biological Systems (sleep, eat, energy, mood)
                 import('../biology').then(({ biology }) => {
                     biology.awaken();
                     console.log('[Biology] ✅ AIRI Biological Systems ACTIVE');
                     console.log('[Biology] ✨ Sleep, hunger, energy, mood enabled');
                 }).catch(console.error);
-                
+
                 // Initialize Cybersecurity Engine (Red Team / Blue Team)
                 import('../security-engine').then(({ security }) => {
                     security.setMode('purple'); // Combined red/blue
@@ -426,7 +426,7 @@ const RightSidebar: React.FC = () => {
                     console.log('[Security] ✅ AIRI Cybersecurity Engine ACTIVE');
                     console.log('[Security] ⚔️ Red Team / Blue Team operations enabled');
                 }).catch(console.error);
-                
+
                 // Initialize Autonomous Agent (24/7 independent work)
                 import('../autonomous-agent').then(({ autonomousAgent }) => {
                     autonomousAgent.startAutonomousLoop();
@@ -582,94 +582,33 @@ const RightSidebar: React.FC = () => {
         }
     }, [isAgentThinking]);
 
-    // Capture streaming AI content — token-by-token rendering (Cursor-style)
-    // Also handles REAL-TIME TTS - speaks WHILE typing like a human
+    // Neural Sync Bridge: Forward IDE state to the AIRI manifold
     useEffect(() => {
-        let buffer = '';
-        let lastSpokenIndex = 0;
-        let isSpeaking = false;
-        let ttsTimeout: NodeJS.Timeout | null = null;
-        
-        const unsub: (() => void)[] = [];
-        import('@tauri-apps/api/event').then(({ listen }) => {
-            // Primary: token-by-token delta from backend streaming
-            listen<any>('ai-content-delta', (e) => {
-                const delta: string = e.payload?.delta || '';
-                if (delta) {
-                    buffer += delta;
-                    updateLastAgentMessage(buffer);
-                    if (agentUiMode === 'airi') setAiriSpeech(buffer);
-
-                    // REAL-TIME TTS - Speak as text arrives (natural human-like)
-                    if (ttsEnabled && !isSpeaking && buffer.length > lastSpokenIndex + 80) {
-                        // Find the last sentence boundary (. ! ?)
-                        const textToConsider = buffer.substring(lastSpokenIndex);
-                        const lastSentenceEnd = Math.max(
-                            textToConsider.lastIndexOf('.'),
-                            textToConsider.lastIndexOf('!'),
-                            textToConsider.lastIndexOf('?')
-                        );
-                        
-                        if (lastSentenceEnd > 20) { // Only speak if sentence is long enough
-                            const textToSpeak = textToConsider.substring(0, lastSentenceEnd + 1).trim();
-                            
-                            if (textToSpeak.length > 20) {
-                                console.log('[TTS] 🎤 REAL-TIME SPEECH:', textToSpeak.substring(0, 50) + '...');
-                                console.log('[TTS] Settings:', { ttsEnabled, bufferLength: buffer.length, lastSpokenIndex });
-                                
-                                // Stop any current speech before starting new one
-                                stop();
-                                
-                                isSpeaking = true;
-                                speak(textToSpeak, ttsPreset, () => {
-                                    console.log('[TTS] ✅ Speech complete');
-                                    isSpeaking = false;
-                                }).catch(err => {
-                                    console.error('[TTS] ❌ Speech error:', err);
-                                    isSpeaking = false;
-                                });
-                                
-                                lastSpokenIndex += lastSentenceEnd + 1;
-                            }
-                        }
-                    }
-                }
-            }).then(u => unsub.push(u));
-            
-            // Fallback: full content once streaming completes
-            listen<any>('ai-content', (e) => {
-                const content: string = e.payload?.content || '';
-                if (content) {
-                    buffer = content;
-                    updateLastAgentMessage(content);
-                    if (agentUiMode === 'airi') { setAiriSpeech(content); setAiriSpeaking(false); }
-
-                    // FORCE SPEAK - Full content if nothing was spoken yet
-                    if (ttsEnabled && lastSpokenIndex === 0 && content.length > 50) {
-                        console.log('[TTS] 🎤 FORCE SPEAK full content:', content.substring(0, 50) + '...');
-                        
-                        // Stop any current speech first
-                        stop();
-                        
-                        isSpeaking = true;
-                        speak(content, ttsPreset, () => {
-                            setAiriSpeaking(false);
-                            isSpeaking = false;
-                            console.log('[TTS] ✅ Full content speech complete');
-                        }).catch(err => {
-                            console.error('[TTS] ❌ Full content speech error:', err);
-                            isSpeaking = false;
-                        });
-                    }
-                }
-            }).then(u => unsub.push(u));
-        });
-
-        return () => {
-            unsub.forEach(u => u());
-            if (ttsTimeout) clearTimeout(ttsTimeout);
+        const syncPayload = {
+            messages,
+            agentInfo: {
+                name: "AIRI",
+                status: aiStatus,
+                context: "vscodium-rust"
+            }
         };
-    }, [agentUiMode, updateLastAgentMessage, ttsEnabled, ttsPreset]);
+        // Emit native event for AiriPanel to pick up
+        import('@tauri-apps/api/event').then(({ emit }) => {
+            emit('hades-sync', syncPayload);
+        }).catch(err => console.error('[HADES] Sync Broadcast Failed:', err));
+    }, [messages, aiStatus]);
+
+    // Track active tool-calls for the Mission Hub (Legacy listener - keeping for UI feedback)
+    useEffect(() => {
+        const subs: (() => void)[] = [];
+        import('@tauri-apps/api/event').then(({ listen }) => {
+            listen<any>('ai-tool-call', (e) => {
+                // Wake up avatar on tool use
+                window.dispatchEvent(new CustomEvent('airi-bubble-wake'));
+            }).then(u => subs.push(u));
+        });
+        return () => subs.forEach(u => u());
+    }, []);
 
     useEffect(() => {
         if (agentUiMode === 'airi') {
@@ -714,20 +653,36 @@ const RightSidebar: React.FC = () => {
     // two extras (@problems, @terminal) that fall out naturally from the
     // existing LSP / terminal IPC.
     const SPECIAL_MENTIONS = [
-        { path: '__codebase__', name: '@codebase', is_dir: false, _special: true, _icon: 'codicon-repo',        _desc: 'Auto-find relevant files' },
-        { path: '__web__',      name: '@web',      is_dir: false, _special: true, _icon: 'codicon-globe',       _desc: 'Search the web' },
-        { path: '__git__',      name: '@git',      is_dir: false, _special: true, _icon: 'codicon-git-branch',  _desc: 'Git diff & status' },
-        { path: '__docs__',     name: '@docs',     is_dir: false, _special: true, _icon: 'codicon-book',        _desc: 'Documentation context' },
-        { path: '__symbol__',   name: '@symbol',   is_dir: false, _special: true, _icon: 'codicon-symbol-class', _desc: 'LSP workspace symbol lookup' },
-        { path: '__folder__',   name: '@folder',   is_dir: false, _special: true, _icon: 'codicon-folder',      _desc: 'Inject a directory listing' },
-        { path: '__problems__', name: '@problems', is_dir: false, _special: true, _icon: 'codicon-warning',     _desc: 'Current LSP diagnostics' },
-        { path: '__terminal__', name: '@terminal', is_dir: false, _special: true, _icon: 'codicon-terminal',    _desc: 'Last terminal output' },
+        { path: '__codebase__', name: '@codebase', is_dir: false, _special: true, _icon: 'codicon-repo', _desc: 'Auto-find relevant files' },
+        { path: '__web__', name: '@web', is_dir: false, _special: true, _icon: 'codicon-globe', _desc: 'Search the web' },
+        { path: '__git__', name: '@git', is_dir: false, _special: true, _icon: 'codicon-git-branch', _desc: 'Git diff & status' },
+        { path: '__docs__', name: '@docs', is_dir: false, _special: true, _icon: 'codicon-book', _desc: 'Documentation context' },
+        { path: '__symbol__', name: '@symbol', is_dir: false, _special: true, _icon: 'codicon-symbol-class', _desc: 'LSP workspace symbol lookup' },
+        { path: '__folder__', name: '@folder', is_dir: false, _special: true, _icon: 'codicon-folder', _desc: 'Inject a directory listing' },
+        { path: '__problems__', name: '@problems', is_dir: false, _special: true, _icon: 'codicon-warning', _desc: 'Current LSP diagnostics' },
+        { path: '__terminal__', name: '@terminal', is_dir: false, _special: true, _icon: 'codicon-terminal', _desc: 'Last terminal output' },
     ];
 
     const filteredSuggestions = useMemo(() => {
         const lastWord = inputValue.split(/\s+/).pop() || '';
-        if (!lastWord.startsWith('@')) return [];
+        if (!lastWord.startsWith('@') && !lastWord.startsWith('/')) return [];
+
         const query = lastWord.slice(1).toLowerCase();
+
+        if (lastWord.startsWith('/')) {
+            const slashCommands = [
+                { path: '/generate', name: '/generate', _special: true, _icon: 'codicon-code', _desc: 'Generate code' },
+                { path: '/explain', name: '/explain', _special: true, _icon: 'codicon-book', _desc: 'Explain code' },
+                { path: '/refactor', name: '/refactor', _special: true, _icon: 'codicon-wrench', _desc: 'Refactor code' },
+                { path: '/debug', name: '/debug', _special: true, _icon: 'codicon-bug', _desc: 'Debug code' },
+                { path: '/document', name: '/document', _special: true, _icon: 'codicon-list-selection', _desc: 'Document code' },
+                { path: '/test', name: '/test', _special: true, _icon: 'codicon-beaker', _desc: 'Create tests' },
+                { path: '/commit', name: '/commit', _special: true, _icon: 'codicon-git-commit', _desc: 'Git commit' },
+                { path: '/fix', name: '/fix', _special: true, _icon: 'codicon-tools', _desc: 'Fix errors' },
+            ];
+            return slashCommands.filter(c => c.name.startsWith(lastWord.toLowerCase()));
+        }
+
         const specials = (query === '' || SPECIAL_MENTIONS.some(s => s.name.slice(1).startsWith(query)))
             ? SPECIAL_MENTIONS.filter(s => s.name.slice(1).startsWith(query) || query === '')
             : [];
@@ -834,16 +789,16 @@ const RightSidebar: React.FC = () => {
     const onSend = async (overrideMsg?: string) => {
         const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
         console.log('[DIAG] onSend called, val:', val, 'isRightSidebarOpen:', useStore.getState().isRightSidebarOpen);
-        
+
         // ── Process Slash Commands ──────────────────────────────────────────
         let processedVal = val;
         const firstWord = val.split(/\s+/)[0] || '';
         const activeTab = useStore.getState().tabs.find((t: any) => t.id === useStore.getState().activeTabId);
-        
+
         if (firstWord.startsWith('/')) {
             const cmd = firstWord.toLowerCase();
             const restOfMessage = val.slice(firstWord.length).trim();
-            
+
             switch (cmd) {
                 case '/generate':
                     processedVal = `Generate ${restOfMessage || 'code that does the following'} in ${activeTab?.language || 'typescript'}. Use file_write or apply_from_chat to save the result.`;
@@ -873,7 +828,7 @@ const RightSidebar: React.FC = () => {
                     processedVal = val;
             }
         }
-        
+
         if ((processedVal || attachedFiles.length > 0) && !isAgentThinking) {
             console.log('[DIAG] onSend: sending message, sidebar state before:', useStore.getState().isRightSidebarOpen);
             if (overrideMsg === undefined) setInputValue("");
@@ -909,7 +864,7 @@ const RightSidebar: React.FC = () => {
             } finally {
                 setIsAgentThinking(false);
                 console.log('[DIAG] onSend: done. sidebar state:', useStore.getState().isRightSidebarOpen);
-                
+
                 // ── Speak AI response with TTS ───────────────────────────────────
                 if (ttsEnabled) {
                     const messages = useStore.getState().agentMessages;
@@ -1115,31 +1070,8 @@ const RightSidebar: React.FC = () => {
         }
 
         const lastWord = val.split(/\s+/).pop() || '';
-        setIsMentionDropdownOpen(lastWord.startsWith('@'));
+        setIsMentionDropdownOpen(lastWord.startsWith('@') || lastWord.startsWith('/'));
         setSelectedMentionIndex(0);
-
-        // ── Slash Commands Detection ────────────────────────────────────────
-        const firstWord = val.split(/\s+/)[0] || '';
-        if (firstWord.startsWith('/') && val.indexOf(' ') === -1) {
-            const slashCommands = [
-                { cmd: '/generate', label: 'Generate code', desc: 'Generate new code from description' },
-                { cmd: '/explain', label: 'Explain code', desc: 'Explain selected or surrounding code' },
-                { cmd: '/refactor', label: 'Refactor code', desc: 'Refactor selected code' },
-                { cmd: '/debug', label: 'Debug code', desc: 'Find and fix bugs in code' },
-                { cmd: '/document', label: 'Document code', desc: 'Generate documentation' },
-                { cmd: '/test', label: 'Generate tests', desc: 'Create unit tests' },
-                { cmd: '/commit', label: 'Git commit', desc: 'Generate commit message' },
-                { cmd: '/fix', label: 'Fix errors', desc: 'Fix linting errors' },
-            ];
-            const matches = slashCommands.filter(c => c.cmd.startsWith(firstWord.toLowerCase()));
-            if (matches.length > 0) {
-                setSelectedMentionIndex(0);
-                setFilteredSuggestions(matches);
-                setIsMentionDropdownOpen(true);
-            }
-        } else if (!firstWord.startsWith('/')) {
-            setIsMentionDropdownOpen(false);
-        }
     };
 
     if (!isOpen) return null;
@@ -1525,7 +1457,7 @@ const RightSidebar: React.FC = () => {
                                     <i className="codicon codicon-arrow-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: '#000' }}></i>
                                 </div>
                                 {/* ── TTS Voice Controls ────────────────────────────────────────── */}
-                                <div 
+                                <div
                                     onClick={() => {
                                         if (!ttsEnabled) {
                                             initVoiceSystem().then(ready => {
@@ -1546,7 +1478,7 @@ const RightSidebar: React.FC = () => {
                                     <i className="codicon codicon-unmute" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', color: '#fff' }}></i>
                                 </div>
                                 {ttsEnabled && (
-                                    <select 
+                                    <select
                                         value={ttsPreset}
                                         onChange={(e) => setTtsPreset(e.target.value as any)}
                                         style={{
@@ -2245,7 +2177,7 @@ const RightSidebar: React.FC = () => {
                     </div>
                 )
             }
-            
+
             {/* Ollama Progress Bar - Small, toggleable */}
             <OllamaProgressBar />
 
@@ -2274,7 +2206,7 @@ const RightSidebar: React.FC = () => {
                         opacity: 0.8,
                         cursor: 'pointer'
                     }}
-                    onClick={() => setShowEmulatorInRight(!showEmulatorInRight)}
+                        onClick={() => setShowEmulatorInRight(!showEmulatorInRight)}
                     >
                         <span>📱 Emulator</span>
                         <span style={{ fontSize: '10px', opacity: 0.6 }}>

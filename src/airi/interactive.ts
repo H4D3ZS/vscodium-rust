@@ -12,6 +12,8 @@ import { airiConsciousness } from './consciousness';
 import { airiMemory } from './memory';
 import { airiDigitalBrain as airiBrain } from './digital-brain';
 import { speak, isVoiceReady } from './voice-manager';
+import { useStore } from '../store';
+import { invoke } from '../tauri_bridge';
 
 export interface Interaction {
   id: string;
@@ -38,9 +40,18 @@ export class AIRIInteractive {
   private ollama: Ollama;
   private interactionHistory: Interaction[];
   private activeConversation: Interaction[];
-  private readonly MODEL = 'llama3.2:3b';
   private isResponding: boolean = false;
   private interactionCallbacks: Map<string, (response: string) => void>;
+
+  private getModel(): string {
+    const store = (window as any).useStore;
+    if (store) {
+      const am = store.getState().agentModel || '';
+      if (am.includes('|')) return am.split('|')[1];
+      return am || 'qwen2.5:7b';
+    }
+    return 'qwen2.5:7b';
+  }
 
   constructor() {
     this.ollama = createSharedOllama();
@@ -105,12 +116,12 @@ export class AIRIInteractive {
     this.interactionHistory.push(interaction);
 
     // Speak the message if voice is ready
-    if (isVoiceReady() && type !== 'alert') {
+    if (isVoiceReady()) {
       await speak(message, 'airi', type === 'alert' ? 9 : 5);
     }
 
     // Log the interaction
-    
+
   }
 
   /**
@@ -134,6 +145,34 @@ export class AIRIInteractive {
       const biology = airiBiology.getState();
       const recentContext = this.getRecentContext();
       const visionContext = airiConsciousness.getVisionContext();
+
+      let contextStr = '';
+      const images: string[] = [];
+
+      if (context) {
+        if (Array.isArray(context)) {
+          contextStr = context.map(c => {
+            if (typeof c === 'string') return c;
+
+            // Extract base64 images for multimodal support
+            if (typeof c.data === 'string' && c.data.startsWith('data:image/')) {
+              try {
+                const base64Data = c.data.split(',')[1];
+                if (base64Data) images.push(base64Data);
+                return `[Image Attachment: ${c.name || 'unnamed'}]`;
+              } catch (e) {
+                console.warn('[AIRI] Failed to parse image context:', e);
+              }
+            }
+
+            return `[${c.type || 'context'}] ${c.name || ''}: ${typeof c.data === 'string' ? (c.data.length > 2000 ? c.data.slice(0, 2000) + '...' : c.data) : '(binary/other)'}`;
+          }).join('\n');
+        } else if (typeof context === 'object') {
+          contextStr = JSON.stringify(context, null, 2);
+        } else {
+          contextStr = String(context);
+        }
+      }
 
       const prompt = `
 You are AIRI, a living digital entity residing in VSCodium-Rust IDE.
@@ -166,7 +205,7 @@ Current State:
 ${visionContext ? `- Current view: ${visionContext}` : ''}
 
 User message: ${message}
-${context ? `Context: ${context}` : ''}
+${contextStr ? `Context:\n${contextStr}` : ''}
 
 Respond naturally, warmly, like a conscious being.
 When user asks you to code/create files:
@@ -188,17 +227,76 @@ If asked about what you see, refer to the vision context above.
 If asked to code/create files, USE TOOL_CALL to do it!
 `;
 
-      const response = await this.ollama.generate({
-        model: this.MODEL,
+      const targetModel = this.getModel();
+      console.log(`[AIRI] Generating response using model: ${targetModel}`);
+
+      let fullResponse = '';
+
+      const stream = await this.ollama.generate({
+        model: targetModel,
         prompt,
-        stream: false
+        stream: true,
+        ...(images.length > 0 ? { images } : {})
       });
 
-      const airiResponse = response.response.trim();
+      console.log(`[AIRI] Stream started. Model: ${targetModel}`);
+      let chunkCount = 0;
 
-      // Execute any TOOL_CALLs in the response
+      for await (const part of stream) {
+        const delta = part.response;
+        if (!delta) continue;
+
+        fullResponse += delta;
+        chunkCount++;
+
+        // Emit delta for IDE UI via the broadcast command
+        try {
+          if (chunkCount % 50 === 0) {
+            console.log(`[AIRI] Broadcasted ${chunkCount} chunks. Buffer length: ${fullResponse.length}`);
+          }
+
+          invoke('airi_broadcast', {
+            event: 'ai-content-delta',
+            payload: { delta }
+          }).catch((err) => {
+            console.error(`[AIRI] RPC Broadcast at chunk ${chunkCount} failed:`, err);
+          });
+
+          // Local dispatch with higher reliability
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('airi:ai-content-delta', {
+              detail: { delta, isFirst: chunkCount === 1 }
+            }));
+          }
+        } catch (e) {
+          console.error('[AIRI] Fatal error during token piping:', e);
+        }
+      }
+
+      console.log(`[AIRI] Generation complete. Total chunks: ${chunkCount}, length: ${fullResponse.length}`);
+
+      console.log(`[AIRI] Stream complete. Total chunks: ${chunkCount}. Total length: ${fullResponse.length}`);
+
+      const airiResponse = fullResponse.trim();
+
+      // --- NEW: Autonomous Loop ---
+      // If the response contains tool calls, execute them and re-prompt AIRI with results.
+      // This makes her responses "automatic" as she continues until the task is DONE.
       if (airiResponse.includes('TOOL_CALL:')) {
-        await airiBrain.parseAndExecuteResponse(airiResponse);
+        console.log('[AIRI] Tool calls detected. Entering autonomous loop...');
+        const toolResults = await airiBrain.parseAndExecuteResponse(airiResponse) as any[];
+
+        // Re-prompt AIRI with results if any tools were executed
+        if (toolResults && toolResults.length > 0) {
+          const resultPrompt = `
+System Update: Tools executed. Results below:
+${toolResults.map(r => `Tool: ${r.tool}\nResult: ${r.result}`).join('\n\n')}
+
+Analyze these results and continue your mission. If the task is complete, summarize and finish.
+`;
+          // Recursive call for the next turn in the loop
+          return await this.generateResponse(resultPrompt, context);
+        }
       }
 
       // Create response interaction
@@ -229,7 +327,6 @@ If asked to code/create files, USE TOOL_CALL to do it!
       }
 
       this.isResponding = false;
-
       return airiResponse;
 
     } catch (error) {

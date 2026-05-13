@@ -165,7 +165,7 @@ export class AIRIDigitalBrain {
     const action = await airiAutonomousDecision.decide(activeGoal);
 
     if (action) {
-      
+
       // Execute action via HADES-Ollama
       try {
         await this.executeAction(action);
@@ -186,7 +186,7 @@ export class AIRIDigitalBrain {
 
     // Reflect on recent actions
     const recentActions = await airiMemory.getRecentActions(10);
-    
+
     // Learn from successes and failures
     for (const action of recentActions) {
       await airiSelfLearning.learnFromAction(action);
@@ -194,7 +194,7 @@ export class AIRIDigitalBrain {
 
     // Check for needed improvements
     const weaknesses = await airiSelfLearning.identifyWeaknesses();
-    
+
     if (weaknesses.length > 0) {
       // Schedule improvement work
     }
@@ -267,34 +267,110 @@ Execute this action thoughtfully and helpfully.
   /**
    * Parse and execute LLM response
    */
-  private async parseAndExecuteResponse(response: string): Promise<void> {
-    // Check for tool calls in response
-    const toolMatch = response.match(/TOOL_CALL:\s*(\w+)\(([\s\S]*?)\)/);
+  /**
+   * Parse and execute LLM response with tool calls.
+   * Supports both standard TOOL_CALL: name(args) and modern JSON blocks.
+   * Returns a list of results for re-prompting.
+   */
+  public async parseAndExecuteResponse(response: string): Promise<Array<{ tool: string; result: string }>> {
+    // Collect all tool calls. We support multiple calls in one response.
+    const results: Array<{ tool: string; result: string }> = [];
 
-    if (toolMatch) {
-      const toolName = toolMatch[1];
-      const toolArgs = JSON.parse(toolMatch[2]);
+    // Pattern 1: AIRI TOOL_CALL: name(args)
+    const toolRegex = /TOOL_CALL:\s*(\w+)\(([\s\S]*?)\)/g;
+    let match;
+
+    while ((match = toolRegex.exec(response)) !== null) {
+      const toolName = match[1];
+      const rawArgs = match[2];
 
       try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        
-        // Execute tool via Tauri commands
-        if (toolName === 'write_file' || toolName === 'create_file') {
-          await invoke('write_file', {
-            path: toolArgs.path,
-            content: toolArgs.content
-          });
-          console.log(`[AIRI Tool] Created file: ${toolArgs.path}`);
-        } else if (toolName === 'open_file') {
-          await invoke('open_file', { path: toolArgs.path });
-          console.log(`[AIRI Tool] Opened file: ${toolArgs.path}`);
-        } else if (toolName === 'run_command') {
-          await invoke('run_command', { command: toolArgs.command });
-          console.log(`[AIRI Tool] Ran command: ${toolArgs.command}`);
-        }
+        const toolArgs = JSON.parse(rawArgs);
+        const result = await this.dispatchTool(toolName, toolArgs);
+        results.push({ tool: toolName, result });
       } catch (error: any) {
-        console.error('[AIRI Tool] Execution failed:', error.message);
+        console.error(`[AIRI Tool] Execution failed for ${toolName}:`, error);
+        results.push({ tool: toolName, result: `Error: ${error.message || String(error)}` });
       }
+    }
+
+    // Pattern 2: Standard Agent JSON tool blocks (if any)
+    // (This is usually handled by the main agent loop, but we support it for AIRI consistency)
+    if (response.includes('```json')) {
+      const jsonRegex = /```json\n([\s\S]*?)\n```/g;
+      let jsonMatch;
+      while ((jsonMatch = jsonRegex.exec(response)) !== null) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          if (parsed.tool || parsed.name) {
+            const name = parsed.tool || parsed.name;
+            const args = parsed.arguments || parsed.parameters || parsed.input || {};
+            const result = await this.dispatchTool(name, args);
+            results.push({ tool: name, result });
+          }
+        } catch { /* skip non-tool JSON */ }
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Dispatches tool execution to either the native bridge or internal stubs
+   */
+  private async dispatchTool(name: string, args: any): Promise<string> {
+    console.log(`[AIRI Brain] Dispatching tool: ${name}`, args);
+
+    // Map internal names to canonical registry names if needed
+    const nameMap: Record<string, string> = {
+      'write_file': 'file_write',
+      'create_file': 'file_write',
+      'open_file': 'file_read',
+      'run_command': 'bash',
+      'execute_command': 'bash'
+    };
+
+    const canonicalName = nameMap[name] || name;
+
+    try {
+      // 1. Try to use the standard Tool Registry if available
+      const { executeToolCall, getToolByName } = await import('../tool_registry');
+      const tool = getToolByName(canonicalName);
+
+      if (tool) {
+        const store = (window as any).useStore?.getState();
+        const ctx = {
+          activeRoot: store?.activeRoot || process.cwd(),
+          activeFile: store?.activeFile,
+          agentMode: 'Sentient'
+        };
+
+        const callResult = await executeToolCall({
+          id: `call_${Date.now()}`,
+          name: canonicalName,
+          arguments: args
+        }, ctx);
+
+        return callResult.content;
+      }
+
+      // 2. Fallback to native invoke commands directly
+      const { invoke } = await import('@tauri-apps/api/core');
+
+      if (canonicalName === 'file_write') {
+        await invoke('write_file', { path: args.path, content: args.content });
+        return `Successfully wrote to ${args.path}`;
+      } else if (canonicalName === 'file_read') {
+        const content = await invoke<string>('read_file', { path: args.path });
+        return content;
+      } else if (canonicalName === 'bash') {
+        const res = await invoke<{ stdout: string; stderr: string }>('run_command', { command: args.command });
+        return res.stdout || res.stderr || 'Command executed with no output.';
+      }
+
+      return `Error: Tool "${name}" is not implemented in the current manifold.`;
+    } catch (error: any) {
+      return `Error executing "${name}": ${error.message || String(error)}`;
     }
   }
 
@@ -336,7 +412,7 @@ Execute this action thoughtfully and helpfully.
    */
   async speak(text: string, emotion?: string): Promise<void> {
     const biology = airiBiology.getState();
-    
+
     // Add emotional coloring based on biology
     const emotionalText = this.addEmotionalColoring(text, biology.mood);
 

@@ -335,15 +335,15 @@ export async function resolveOllamaModelTag(requested: string): Promise<string> 
     return chooseFallback() || r;
 }
 
-async function tauriListRaw(): Promise<{ models: Array<{ name: string; [k: string]: unknown }> }> {
+async function tauriListRaw(): Promise<{ models: Array<{ name: string;[k: string]: unknown }> }> {
     return withOllamaConcurrency('list', async () => {
         await syncRustOllamaUrl();
         const data = await invoke<Record<string, unknown>>('ollama_native_get', { path: '/api/tags' });
-        return data as { models: Array<{ name: string; [k: string]: unknown }> };
+        return data as { models: Array<{ name: string;[k: string]: unknown }> };
     });
 }
 
-async function tauriList(): Promise<{ models: Array<{ name: string; [k: string]: unknown }> }> {
+async function tauriList(): Promise<{ models: Array<{ name: string;[k: string]: unknown }> }> {
     const data = await tauriListRaw();
     installedModels = new Set(
         (data?.models || []).map((m) => String(m?.name || (m as any)?.model || '').trim()).filter(Boolean),
@@ -352,10 +352,17 @@ async function tauriList(): Promise<{ models: Array<{ name: string; [k: string]:
     return data;
 }
 
-async function tauriGenerate(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function tauriGenerate(request: Record<string, any>): Promise<any | AsyncIterable<any>> {
     if (request.stream === true) {
+        // Bypass the IPC bridge for streaming if it is a local host
+        const host = getOllamaHost();
+        const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+        if (isLocal) {
+            const client = buildClient();
+            return client.generate(request as any);
+        }
         throw new Error(
-            'AIRI: streaming Ollama generate is not supported through the Tauri bridge; use stream: false.',
+            'AIRI: streaming Ollama generate is only supported for local hosts (localhost/127.0.0.1) via browser direct-fetch; for remote hosts, use stream: false.',
         );
     }
     const finalReq = await substituteUnknownModel(request);
@@ -368,10 +375,17 @@ async function tauriGenerate(request: Record<string, unknown>): Promise<Record<s
     });
 }
 
-async function tauriChat(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function tauriChat(request: Record<string, any>): Promise<any | AsyncIterable<any>> {
     if (request.stream === true) {
+        // Bypass the IPC bridge for streaming if it is a local host
+        const host = getOllamaHost();
+        const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+        if (isLocal) {
+            const client = buildClient();
+            return client.chat(request as any);
+        }
         throw new Error(
-            'AIRI: streaming Ollama chat is not supported through the Tauri bridge; use stream: false.',
+            'AIRI: streaming Ollama chat is only supported for local hosts (localhost/127.0.0.1) via browser direct-fetch; for remote hosts, use stream: false.',
         );
     }
     const finalReq = await substituteUnknownModel(request);

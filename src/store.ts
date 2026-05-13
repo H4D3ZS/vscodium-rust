@@ -247,6 +247,7 @@ interface AppState {
     isTrajectoryOpen: boolean;
     currentTurnId: number;
     isMarkdownPreviewOpen: boolean;
+    attachedContext: AttachedContext[];
     /** Independent background-agent runs that don't claim the main chat. */
     backgroundAgents: { id: string; prompt: string; status: 'pending' | 'running' | 'done' | 'error'; result: string; startedAt: number; finishedAt?: number }[];
     isAgentThinking: boolean;
@@ -281,6 +282,10 @@ interface AppState {
     betaFastApply: boolean;
     betaSemanticSearch: boolean;
     betaShadowWorkspace: boolean;
+    aimVfsEnabled: boolean;
+    thermalGovernorEnabled: boolean;
+    jitDecompressionEnabled: boolean;
+    jitThreshold: number;
     networkProxyUrl: string;
     networkAllowInsecureTls: boolean;
     indexingEnabled: boolean;
@@ -473,7 +478,7 @@ interface AppState {
     checkLlamaCppStatus: () => Promise<void>;
     openSettings: (tab?: 'user' | 'workspace' | 'agent') => void;
     setProjectMemory: (content: string, files?: string[]) => void;
-    
+
     // Dev Workflow Actions
     setDevWorkflowActive: (active: boolean) => void;
     updateDevProject: (project: Partial<DevWorkflowProject>) => void;
@@ -546,6 +551,10 @@ interface AppState {
     setBetaFastApply: (v: boolean) => void;
     setBetaSemanticSearch: (v: boolean) => void;
     setBetaShadowWorkspace: (v: boolean) => void;
+    setAimVfsEnabled: (v: boolean) => void;
+    setThermalGovernorEnabled: (v: boolean) => void;
+    setJitDecompressionEnabled: (v: boolean) => void;
+    setJitThreshold: (v: number) => void;
     setNetworkProxyUrl: (url: string) => void;
     setNetworkAllowInsecureTls: (v: boolean) => void;
     setIndexingEnabled: (v: boolean) => void;
@@ -767,13 +776,13 @@ const storeImplementation: any = (set: any, get: any) => ({
     llamaCppModelPath: localStorage.getItem('llamaCppModelPath') || '',
     llamaCppNgl: parseInt(localStorage.getItem('llamaCppNgl') || '99'),
     llamaCppHadesEnabled: localStorage.getItem('llamaCppHadesEnabled') !== 'false',
-    
+
     // HADES Intelligence Layer (works with any backend)
     aimVfsEnabled: localStorage.getItem('aimVfsEnabled') !== 'false',  // .aim VFS context injection
     thermalGovernorEnabled: localStorage.getItem('thermalGovernorEnabled') !== 'false',  // RX 580 thermal monitoring
     jitDecompressionEnabled: localStorage.getItem('jitDecompressionEnabled') === 'true',  // JIT code inflation
     jitThreshold: parseFloat(localStorage.getItem('jitThreshold') || '0.85'),  // Attention trigger threshold
-    
+
     agentCurrentAction: null,
     isCommandPaletteOpen: false,
     isContextMenuOpen: false,
@@ -781,12 +790,12 @@ const storeImplementation: any = (set: any, get: any) => ({
     isAgentBlocked: false,
     contextMenuPosition: { x: 0, y: 0 },
     commandPaletteQuery: '',
-    
+
     // Dev Workflow State (initial values)
     isDevWorkflowActive: false,
     currentDevProject: null,
     emulatorPlatform: 'ios',
-    
+
     // Default to local Ollama. Users can switch to a hosted endpoint from the
     // settings UI; we no longer pin a dead cloud host here.
     ollamaUrl: normalizeOllamaUrl(readStoredOllamaUrl()),
@@ -802,6 +811,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     chatSessions: [],
     brainTelemetry: null,
     attachedFiles: [],
+    attachedContext: [],
     taskPlannerState: null,
     ghostRuntimeResults: [],
     currentThought: null,
@@ -1209,11 +1219,11 @@ const storeImplementation: any = (set: any, get: any) => ({
         // but inline completion uses the mutex on AiEngine).
         if (backend === 'llama-cpp') {
             import('./tauri_bridge').then(({ invoke }) =>
-                invoke('set_ollama_url', { url: st.llamaCppUrl }).catch(() => {})
+                invoke('set_ollama_url', { url: st.llamaCppUrl }).catch(() => { })
             );
         } else if (backend === 'ollama') {
             import('./tauri_bridge').then(({ invoke }) =>
-                invoke('set_ollama_url', { url: st.ollamaUrl }).catch(() => {})
+                invoke('set_ollama_url', { url: st.ollamaUrl }).catch(() => { })
             );
         }
     },
@@ -1222,7 +1232,7 @@ const storeImplementation: any = (set: any, get: any) => ({
         set({ llamaCppUrl: url });
         if (get().inferenceBackend === 'llama-cpp') {
             import('./tauri_bridge').then(({ invoke }) =>
-                invoke('set_ollama_url', { url }).catch(() => {})
+                invoke('set_ollama_url', { url }).catch(() => { })
             );
         }
     },
@@ -1239,12 +1249,12 @@ const storeImplementation: any = (set: any, get: any) => ({
         set({ llamaCppHadesEnabled: enabled });
     },
     // Right sidebar panel toggles
-    toggleAiriPanel: () => set((state) => ({ 
+    toggleAiriPanel: () => set((state) => ({
         isRightSidebarOpen: true,  // Open sidebar when toggling AIRI
         isAiriPanelOpen: !state.isAiriPanelOpen,
         isEmulatorPanelOpen: false  // Close emulator when opening AIRI
     })),
-    toggleEmulatorPanel: () => set((state) => ({ 
+    toggleEmulatorPanel: () => set((state) => ({
         isRightSidebarOpen: true,  // Open sidebar when toggling Emulator
         isEmulatorPanelOpen: !state.isEmulatorPanelOpen,
         isAiriPanelOpen: false  // Close AIRI when opening emulator
@@ -1422,10 +1432,10 @@ const storeImplementation: any = (set: any, get: any) => ({
         try {
             const keys: any = await invoke('get_api_keys');
             const providers: string[] = [];
-            
+
             // ALWAYS try Ollama first (default to local models)
             providers.push('Ollama');
-            
+
             if (keys.google) providers.push('Google');
             if (keys.anthropic) providers.push('Anthropic');
             if (keys.openai) providers.push('OpenAI');
@@ -1771,6 +1781,13 @@ const storeImplementation: any = (set: any, get: any) => ({
     }),
     removeFile: (path: string) => set((state: any) => ({ attachedFiles: state.attachedFiles.filter((f: any) => f.path !== path) })),
     clearAttachedFiles: () => set({ attachedFiles: [] }),
+    addAttachedContext: (item: AttachedContext) => set((state: any) => ({
+        attachedContext: [...state.attachedContext, item]
+    })),
+    removeAttachedContext: (index: number) => set((state: any) => ({
+        attachedContext: state.attachedContext.filter((_: any, i: number) => i !== index)
+    })),
+    clearAttachedContext: () => set({ attachedContext: [] }),
     addAgentMessage: (role: any, content: any, contextOrSubAgent: any) => set((state: any) => {
         const isSubAgent = typeof contextOrSubAgent === 'boolean' ? contextOrSubAgent : false;
         const context = Array.isArray(contextOrSubAgent) ? contextOrSubAgent : [];
@@ -1856,15 +1873,30 @@ const storeImplementation: any = (set: any, get: any) => ({
             if (fullRaw.includes('<think>')) {
                 const thinkMatch = fullRaw.match(/<think>([\s\S]*?)<\/think>/);
                 if (thinkMatch) {
-                    // Store thought internally for UI state, but DON'T add to message
-                    set({ currentThought: thinkMatch[1].trim() });
+                    // Update global UI state with a summary of the thought
+                    const thoughtText = thinkMatch[1].trim();
+                    if (thoughtText) set({ currentThought: thoughtText });
+
+                    // The visible content is everything EXCEPT the thinking blocks
                     newContent = fullRaw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
                 } else {
+                    // Think block is open but not closed yet.
+                    // Keep existing content, and only show what's BEFORE the <think> tag.
                     const parts = fullRaw.split('<think>');
                     newContent = parts[0] || '';
+
+                    // Update current thought with the partial content from inside the tag
+                    const partialThought = parts[1] || '';
+                    if (partialThought) set({ currentThought: partialThought.trim() });
                 }
             } else {
-                newContent += cleanDelta;
+                // If there's no think block, or we are AFTER the think block
+                // Just use the tail of fullRaw if a think block was previously stripped
+                if (fullRaw.includes('</think>')) {
+                    newContent = fullRaw.split('</think>').pop()?.trim() || '';
+                } else {
+                    newContent += cleanDelta;
+                }
             }
 
             messages[lastIndex] = {
@@ -1978,16 +2010,24 @@ const storeImplementation: any = (set: any, get: any) => ({
     // localStorage under a stable key so toggling lives across reloads.
     // Boolean keys use '1'/'0' to stay compatible with the rest of the
     // store; lists are JSON-encoded.
-    setTabPredictionEnabled: (v) => { try { localStorage.setItem('tab.predictionEnabled', v ? '1' : '0'); } catch {} set({ tabPredictionEnabled: v }); },
-    setTabMultilineSuggestions: (v) => { try { localStorage.setItem('tab.multilineSuggestions', v ? '1' : '0'); } catch {} set({ tabMultilineSuggestions: v }); },
-    setTabAcceptKey: (k) => { try { localStorage.setItem('tab.acceptKey', k); } catch {} set({ tabAcceptKey: k }); },
-    setBetaFastApply: (v) => { try { localStorage.setItem('beta.fastApply', v ? '1' : '0'); } catch {} set({ betaFastApply: v }); },
-    setBetaSemanticSearch: (v) => { try { localStorage.setItem('beta.semanticSearch', v ? '1' : '0'); } catch {} set({ betaSemanticSearch: v }); },
-    setBetaShadowWorkspace: (v) => { try { localStorage.setItem('beta.shadowWorkspace', v ? '1' : '0'); } catch {} set({ betaShadowWorkspace: v }); },
-    setNetworkProxyUrl: (url) => { try { localStorage.setItem('network.proxyUrl', url); } catch {} set({ networkProxyUrl: url }); },
-    setNetworkAllowInsecureTls: (v) => { try { localStorage.setItem('network.allowInsecureTls', v ? '1' : '0'); } catch {} set({ networkAllowInsecureTls: v }); },
-    setIndexingEnabled: (v) => { try { localStorage.setItem('indexing.enabled', v ? '1' : '0'); } catch {} set({ indexingEnabled: v }); },
-    setIndexingDocsUrls: (urls) => { try { localStorage.setItem('indexing.docsUrls', JSON.stringify(urls)); } catch {} set({ indexingDocsUrls: urls }); },
+    // Cursor-style IDE preference setters. Each one persists to
+    // localStorage under a stable key so toggling lives across reloads.
+    // Boolean keys use '1'/'0' to stay compatible with the rest of the
+    // store; lists are JSON-encoded.
+    setTabPredictionEnabled: (v) => { try { localStorage.setItem('tab.predictionEnabled', v ? '1' : '0'); } catch { } set({ tabPredictionEnabled: v }); },
+    setTabMultilineSuggestions: (v) => { try { localStorage.setItem('tab.multilineSuggestions', v ? '1' : '0'); } catch { } set({ tabMultilineSuggestions: v }); },
+    setTabAcceptKey: (k) => { try { localStorage.setItem('tab.acceptKey', k); } catch { } set({ tabAcceptKey: k }); },
+    setBetaFastApply: (v) => { try { localStorage.setItem('beta.fastApply', v ? '1' : '0'); } catch { } set({ betaFastApply: v }); },
+    setBetaSemanticSearch: (v) => { try { localStorage.setItem('beta.semanticSearch', v ? '1' : '0'); } catch { } set({ betaSemanticSearch: v }); },
+    setBetaShadowWorkspace: (v) => { try { localStorage.setItem('beta.shadowWorkspace', v ? '1' : '0'); } catch { } set({ betaShadowWorkspace: v }); },
+    setAimVfsEnabled: (v) => { try { localStorage.setItem('aimVfsEnabled', v ? 'true' : 'false'); } catch { } set({ aimVfsEnabled: v }); },
+    setThermalGovernorEnabled: (v) => { try { localStorage.setItem('thermalGovernorEnabled', v ? 'true' : 'false'); } catch { } set({ thermalGovernorEnabled: v }); },
+    setJitDecompressionEnabled: (v) => { try { localStorage.setItem('jitDecompressionEnabled', v ? 'true' : 'false'); } catch { } set({ jitDecompressionEnabled: v }); },
+    setJitThreshold: (v) => { try { localStorage.setItem('jitThreshold', v.toString()); } catch { } set({ jitThreshold: v }); },
+    setNetworkProxyUrl: (url: string) => { try { localStorage.setItem('network.proxyUrl', url); } catch { } set({ networkProxyUrl: url }); },
+    setNetworkAllowInsecureTls: (v) => { try { localStorage.setItem('network.allowInsecureTls', v ? '1' : '0'); } catch { } set({ networkAllowInsecureTls: v }); },
+    setIndexingEnabled: (v) => { try { localStorage.setItem('indexing.enabled', v ? '1' : '0'); } catch { } set({ indexingEnabled: v }); },
+    setIndexingDocsUrls: (urls) => { try { localStorage.setItem('indexing.docsUrls', JSON.stringify(urls)); } catch { } set({ indexingDocsUrls: urls }); },
     setAvatarCharacter: (avatarCharacter) => { localStorage.setItem('avatarCharacter', avatarCharacter); set({ avatarCharacter }); },
     setAvatarCustomConfig: (config: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }) => {
         const existing = JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}');

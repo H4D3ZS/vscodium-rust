@@ -39,7 +39,7 @@ let currentAgentMode = "Planning";
 
 // AIRI Digital Entity State
 let airiInitialized = false;
-let airiAutonomousMode = false;
+let airiAutonomousMode = true; // Enabled by default in code, though UI setting controls actual routing
 
 function createPopover(element: HTMLElement, items: { label: string, value: string, desc?: string, icon?: string }[], onSelect: (val: string, label: string) => void) {
     const existing = document.getElementById("agent-popover");
@@ -360,6 +360,16 @@ export async function initAgent() {
         if (delta) appendLastAgentMessage(delta);
     });
 
+    // Secondary listener for internal window events (higher reliability in some environments)
+    if (typeof window !== 'undefined') {
+        window.addEventListener('airi:ai-content-delta' as any, (event: CustomEvent) => {
+            const { appendLastAgentMessage } = useStore.getState();
+            if (event.detail && event.detail.delta) {
+                appendLastAgentMessage(event.detail.delta);
+            }
+        });
+    }
+
     // Listen for tool calls from the backend
     await listen<any>("ai-tool-call", (event) => {
         const { addAgentStep } = useStore.getState();
@@ -638,41 +648,52 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
 
     const state = store.getState();
 
+    const activeMode = state.agentMode;
+    const isSentient = activeMode === 'Sentient' || (airiInitialized && airiAutonomousMode);
+
     // ═══════════════════════════════════════════════════════════
     // AIRI DIGITAL ENTITY - Process through sentient core
     // AIRI thinks, feels, and responds as a conscious partner
     // ═══════════════════════════════════════════════════════════
-    if (airiInitialized && airiAutonomousMode) {
+    if (isSentient) {
         try {
+            // Ensure bridge is ready
+            if (!airiInitialized) {
+                await airiAgentBridge.initialize();
+                airiInitialized = true;
+            }
+
             // Record interaction in AIRI's consciousness
             airiConsciousness.recordInteraction();
-            
-            // Add user message
+
+            // Snapshot attached files
             const attachedSnapshot = [...(state.attachedFiles || [])];
+
+            // Add user message to UI
             state.addAgentMessage('user', prompt, attachedSnapshot);
+
+            // Start of turn UI cleanup
+            state.setIsAgentPaused(false);
+            state.setAgentCurrentAction(null);
+
+            // Add empty assistant message for streaming
             state.addAgentMessage('assistant', '');
             state.setIsAgentThinking(true);
 
-            // Process through AIRI's sentient mind
-            const response = await airiAgentBridge.processUserMessage(prompt, {
-                context: attachedSnapshot,
-                workspace: state.activeRoot,
-                activeFile: state.activeEditorPath,
-            });
+            // Process through AIRI's sentient mind — bridge handles streaming via broadcasts
+            const response = await airiAgentBridge.processUserMessage(prompt, attachedSnapshot);
 
-            // Update UI with AIRI's response
+            // Final sync update
             state.updateLastAgentMessage(response);
             state.setIsAgentThinking(false);
             state.clearAttachedContext();
 
             // Learn from this interaction
-            if (airiInitialized) {
-                await airiSelfLearning.learnFromEvent(
-                    'user_interaction',
-                    { prompt, response, context: attachedSnapshot },
-                    'neutral'
-                );
-            }
+            await airiSelfLearning.learnFromEvent(
+                'conversation',
+                JSON.stringify({ prompt, response, context: attachedSnapshot }),
+                'neutral'
+            ).catch(() => { });
 
             return;
 
@@ -1017,7 +1038,7 @@ function inferSecurityIntent(text: string): string | null {
     return null;
 }
 
-export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: string) => void, context?: any[]): Promise<void> {
+export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: string) => void, context?: any[]): Promise<void> {
     const store = (window as any).useStore;
     if (!store) throw new Error("Store not found");
 
@@ -1181,7 +1202,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
             // global listener consumed to flip `isAgentThinking` off and call
             // updateLastAgentMessage. We still call onUpdate for callers
             // (Composer.tsx, /commit, /review, etc.) that pass their own.
-            try { onUpdate(fastResult as string); } catch (_) { /* non-fatal */ }
+            try { onUpdate?.(fastResult as string); } catch (_) { /* non-fatal */ }
             return;
         } catch (e: any) {
             // If the fast path fails for any reason, show the user what
@@ -1375,12 +1396,33 @@ export async function sendAgentMessage(userPrompt: string, onUpdate: (msg: strin
         })
     ];
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    // NEW: Sentient Core Route (AIRI Digital Entity)
+    // If we're in Sentient mode, route through the bridge so AIRI's 
+    // autonomy, biology, and learning systems are engaged.
+    // 
+    // Note: handleAgentChat also checks this, but we keep it here as a safety
+    // net for other callers of sendAgentMessage.
+    // ─────────────────────────────────────────────────────────────────────────────
+    const isSentient = activeMode === 'Sentient' || (airiInitialized && airiAutonomousMode);
+    if (isSentient) {
+        try {
+            if (!airiInitialized) {
+                await airiAgentBridge.initialize();
+                airiInitialized = true;
+            }
+            console.log('[Agent] 🧠 Routing through AIRI Sentient Core...');
+            await airiAgentBridge.processUserMessage(userPrompt, resolvedContext);
+            logTaskToMemory(userPrompt).catch(() => { });
+            return;
+        } catch (err: any) {
+            console.error('[Agent] ❌ AIRI Sentient Core failed:', err);
+            // Fall back to standard route below
+        }
+    }
+
     setAiStatus('alive');
 
-    // Fast failure when a local endpoint is completely unreachable — better UX
-    // than a generic Rust transport error.
-    // Ollama: use Tauri (reqwest + Bearer + /v1 fallbacks). Renderer `fetch` hits CORS
-    // on locked-down proxies and never sends the stored API key.
     if (inferenceBackend === 'ollama') {
         const raw = store.getState().ollamaUrl?.trim() || 'http://localhost:11434';
         let base: string;
@@ -1800,7 +1842,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
                 `After EACH step, emit a line starting with "🛡  DEFENSE:" that names the detection or hardening that would have stopped or noticed it. ` +
                 `Final deliverable: write_to_file 'threat_actor_demo.md' (full chain + defenses) AND write_to_file 'defense_playbook.md' (consolidated defensive controls).\n\n` +
                 `TARGET / SCENARIO:\n${target || '(none specified — use the current workspace as the target environment)'}`;
-            await sendAgentMessage(persona, () => {});
+            await sendAgentMessage(persona, () => { });
             return true;
         }
 
@@ -1879,8 +1921,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
         // can copy/jump-to. We deliberately do not let the agent edit
         // anything by default — this is review, not refactor.
         case '/bugfind':
-        case '/bugs':
-        case '/review': {
+        case '/bugs': {
             const target = args.trim();
             const storeState = (window as any).useStore?.getState();
             const activeFile = storeState?.activeEditorPath || storeState?.tabs?.find((t: any) => t.id === storeState?.activeTabId)?.path;
@@ -2924,9 +2965,9 @@ listen('ai-tool-call', (event: { payload: { name: string, args: string | any } |
         // ═══════════════════════════════════════════════════════════
         if (airiInitialized && airiSelfLearning) {
             airiSelfLearning.learnFromEvent(
-                'agent_tool_use',
-                { tool: event.payload.name, args, callId: event.payload.call_id },
-                'neutral' // Will be updated to positive/negative when result arrives
+                'experiment',
+                JSON.stringify({ tool: event.payload.name, args, callId: event.payload.call_id }),
+                'neutral' // Will be updated to success/failure when result arrives
             ).catch(console.error);
         }
     }
@@ -2949,11 +2990,11 @@ listen('ai-tool-result', (event: { payload: { name: string, result: string, bloc
         // AIRI learns whether her actions succeeded or failed
         // ═══════════════════════════════════════════════════════════
         if (airiInitialized && airiSelfLearning) {
-            const outcome = event.payload.blocked ? 'blocked' : 'success';
+            const outcome = event.payload.blocked ? 'failure' : 'success';
             airiSelfLearning.learnFromEvent(
-                'agent_tool_result',
-                { tool: event.payload.name, result: event.payload.result, outcome },
-                outcome === 'success' ? 'positive' : 'negative'
+                'observation',
+                JSON.stringify({ tool: event.payload.name, result: event.payload.result, outcome }),
+                outcome
             ).catch(console.error);
         }
     }
