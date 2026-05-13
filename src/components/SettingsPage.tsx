@@ -73,13 +73,107 @@ const SettingsRow: React.FC<{
     description?: React.ReactNode;
     control: React.ReactNode;
 }> = ({ label, description, control }) => (
-    <div className="settings-item">
-        <div className="settings-item-header">
-            <div className="settings-item-label">{label}</div>
-            {description && <div className="settings-item-description">{description}</div>}
+    <div style={{
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        padding: '12px 0',
+        borderBottom: '1px solid var(--vscode-settings-rowHoverBorder, rgba(128,128,128,0.1))'
+    }}>
+        <div style={{ flex: 1, paddingRight: 32 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--vscode-foreground)', marginBottom: 4 }}>
+                {label}
+            </div>
+            {description && (
+                <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--vscode-descriptionForeground, rgba(204,204,204,0.7))' }}>
+                    {description}
+                </div>
+            )}
         </div>
-        <div className="settings-item-control">{control}</div>
+        <div style={{ flexShrink: 0, minWidth: 160, display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+            {control}
+        </div>
     </div>
+);
+
+// Helpers for native VS Code feel
+const SettingsInput: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => (
+    <input
+        {...props}
+        style={{
+            background: 'var(--vscode-settings-textInputBackground, var(--vscode-input-background))',
+            color: 'var(--vscode-settings-textInputForeground, var(--vscode-input-foreground))',
+            border: '1px solid var(--vscode-settings-textInputBorder, var(--vscode-input-border))',
+            padding: '4px 8px',
+            fontSize: 13,
+            borderRadius: 2,
+            outline: 'none',
+            minWidth: 200,
+            ...props.style
+        }}
+    />
+);
+
+const SettingsSelect: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = (props) => (
+    <select
+        {...props}
+        style={{
+            background: 'var(--vscode-settings-dropdownBackground, var(--vscode-dropdown-background))',
+            color: 'var(--vscode-settings-dropdownForeground, var(--vscode-dropdown-foreground))',
+            border: '1px solid var(--vscode-settings-dropdownBorder, var(--vscode-dropdown-border))',
+            padding: '4px 8px',
+            fontSize: 13,
+            borderRadius: 2,
+            outline: 'none',
+            minWidth: 200,
+            ...props.style
+        }}
+    />
+);
+
+const SettingsCheckbox: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => (
+    <input
+        type="checkbox"
+        {...props}
+        style={{
+            margin: 0,
+            cursor: 'pointer',
+            width: 16,
+            height: 16,
+            accentColor: 'var(--vscode-button-background)',
+            ...props.style
+        }}
+    />
+);
+
+const SettingsButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { secondary?: boolean }> = ({ secondary, ...props }) => (
+    <button
+        {...props}
+        style={{
+            background: secondary ? 'var(--vscode-button-secondaryBackground, transparent)' : 'var(--vscode-button-background)',
+            color: secondary ? 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))' : 'var(--vscode-button-foreground)',
+            border: `1px solid ${secondary ? 'var(--vscode-button-border, rgba(128,128,128,0.3))' : 'var(--vscode-button-border, transparent)'}`,
+            padding: '4px 12px',
+            fontSize: 13,
+            borderRadius: 2,
+            cursor: 'disabled' in props && props.disabled ? 'not-allowed' : 'pointer',
+            opacity: 'disabled' in props && props.disabled ? 0.6 : 1,
+            ...props.style
+        }}
+    />
+);
+
+const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <h2 style={{
+        fontSize: 18,
+        fontWeight: 400,
+        color: 'var(--vscode-settings-headerForeground, var(--vscode-foreground))',
+        marginBottom: 16,
+        marginTop: 0
+    }}>
+        {children}
+    </h2>
 );
 
 const SettingsPage: React.FC = () => {
@@ -138,32 +232,32 @@ const SettingsPage: React.FC = () => {
     // parity. `groupStart` adds a small label above an entry to act as
     // the divider Cursor uses between e.g. "Models" and "Tools".
     const agentCategories: CategoryDef[] = [
-        { id: 'general',     label: 'General',                icon: 'gear',          customRender: () => <AgentGeneralPanel /> },
-        { id: 'plan',        label: 'Plan & Usage',           icon: 'graph-line',    customRender: () => <PlanUsagePanel /> },
-        { id: 'agents',      label: 'Agents',                 icon: 'robot',         customRender: () => <AgentBehaviourPanel />, groupStart: 'Agentic' },
-        { id: 'tab',         label: 'Tab',                    icon: 'symbol-keyword', customRender: () => <CursorTabPanel /> },
-        { id: 'keybindings', label: 'Keybindings',            icon: 'keyboard',      customRender: () => <KeybindingsPanel /> },
-        { id: 'models',      label: 'Models',                 icon: 'symbol-misc',   agentCategory: 'models' },
-        { id: 'cloud',       label: 'Cloud Agents',           icon: 'cloud',         customRender: () => <CloudAgentsPanel /> },
-        { id: 'plugins',     label: 'Plugins',                icon: 'extensions',    customRender: () => <PluginsPanel /> },
-        { id: 'rules',       label: 'Rules, Skills, Subagents', icon: 'book',        customRender: () => <RulesSkillsPanel />, groupStart: 'Customization' },
-        { id: 'mcps',        label: 'Tools & MCPs',           icon: 'plug',          agentCategory: 'mcps' },
-        { id: 'hooks',       label: 'Hooks',                  icon: 'symbol-event',  customRender: () => <HooksPanel /> },
-        { id: 'indexing',    label: 'Indexing & Docs',        icon: 'search',        customRender: () => <IndexingDocsPanel />, groupStart: 'Context' },
-        { id: 'ollama',      label: 'Ollama',                 icon: 'server-environment', agentCategory: 'ollama' },
-        { id: 'memory',      label: 'Memory (.aim)',          icon: 'database',      agentCategory: 'memory' },
-        { id: 'voice',       label: 'Voice & TTS',            icon: 'unmute',        agentCategory: 'voice' },
-        { id: 'avatar',      label: 'AI Avatar',              icon: 'person',        agentCategory: 'avatar' },
-        { id: 'network',     label: 'Network',                icon: 'globe',         customRender: () => <NetworkPanel />, groupStart: 'System' },
-        { id: 'beta',        label: 'Beta',                   icon: 'beaker',        customRender: () => <BetaPanel /> },
-        { id: 'marketplace', label: 'Marketplace',            icon: 'extensions',    customRender: () => <MarketplacePanel />, groupStart: 'Resources' },
-        { id: 'docs',        label: 'Docs',                   icon: 'book',          customRender: () => <DocsPanel /> },
+        { id: 'general', label: 'General', icon: 'gear', customRender: () => <AgentGeneralPanel /> },
+        { id: 'plan', label: 'Plan & Usage', icon: 'graph-line', customRender: () => <PlanUsagePanel /> },
+        { id: 'agents', label: 'Agents', icon: 'robot', customRender: () => <AgentBehaviourPanel />, groupStart: 'Agentic' },
+        { id: 'features', label: 'Features', icon: 'sparkle', customRender: () => <FeaturesPanel /> },
+        { id: 'keybindings', label: 'Keybindings', icon: 'keyboard', customRender: () => <KeybindingsPanel /> },
+        { id: 'models', label: 'Models', icon: 'symbol-misc', agentCategory: 'models' },
+        { id: 'cloud', label: 'Cloud Agents', icon: 'cloud', customRender: () => <CloudAgentsPanel /> },
+        { id: 'plugins', label: 'Plugins', icon: 'extensions', customRender: () => <PluginsPanel /> },
+        { id: 'rules', label: 'Rules, Skills, Subagents', icon: 'book', customRender: () => <RulesSkillsPanel />, groupStart: 'Customization' },
+        { id: 'mcps', label: 'Tools & MCPs', icon: 'plug', agentCategory: 'mcps' },
+        { id: 'hooks', label: 'Hooks', icon: 'symbol-event', customRender: () => <HooksPanel /> },
+        { id: 'indexing', label: 'Indexing & Docs', icon: 'search', customRender: () => <IndexingDocsPanel />, groupStart: 'Context' },
+        { id: 'ollama', label: 'Ollama', icon: 'server-environment', agentCategory: 'ollama' },
+        { id: 'memory', label: 'Memory (.aim)', icon: 'database', agentCategory: 'memory' },
+        { id: 'voice', label: 'Voice & TTS', icon: 'unmute', agentCategory: 'voice' },
+        { id: 'avatar', label: 'AI Avatar', icon: 'person', agentCategory: 'avatar' },
+        { id: 'network', label: 'Network', icon: 'globe', customRender: () => <NetworkPanel />, groupStart: 'System' },
+        { id: 'beta', label: 'Beta', icon: 'beaker', customRender: () => <BetaPanel /> },
+        { id: 'marketplace', label: 'Marketplace', icon: 'extensions', customRender: () => <MarketplacePanel />, groupStart: 'Resources' },
+        { id: 'docs', label: 'Docs', icon: 'book', customRender: () => <DocsPanel /> },
     ];
 
     const vsCategories: CategoryDef[] = [
         { id: 'editor', label: 'Editor', icon: 'edit' },
-        { id: 'files',  label: 'Files',  icon: 'files' },
-        { id: 'theme',  label: 'Theme',  icon: 'symbol-color' },
+        { id: 'files', label: 'Files', icon: 'files' },
+        { id: 'theme', label: 'Theme', icon: 'symbol-color' },
     ];
 
     const activeList = topTab === 'agent' ? agentCategories : vsCategories;
@@ -197,7 +291,7 @@ const SettingsPage: React.FC = () => {
                 <ul style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.8, paddingLeft: '1.2em' }}>
                     <li><b>Plan &amp; Usage</b> — token throughput, model bindings, .aim telemetry.</li>
                     <li><b>Agents</b> — autonomy mode, YOLO escalation, completion gate.</li>
-                    <li><b>Tab</b> — inline AI completions (Cursor Tab).</li>
+                    <li><b>Features</b> — Cursor Tab, Composer, Predictive Edits, Terminal.</li>
                     <li><b>Models</b> — default model, cloud provider API keys, DeepSeek-ANE.</li>
                     <li><b>Cloud Agents</b> — background agents started with <code>/bg</code>.</li>
                     <li><b>Rules / Skills / Subagents</b> — workspace rules from <code>.cursor/rules</code>, <code>AGENTS.md</code>, <code>CLAUDE.md</code>.</li>
@@ -259,7 +353,7 @@ const SettingsPage: React.FC = () => {
     // same flags at completion time so disabling here actually silences
     // inline suggestions.
     // ─────────────────────────────────────────────────────────────────────
-    function CursorTabPanel() {
+    function FeaturesPanel() {
         const enabled = useStore(s => s.tabPredictionEnabled);
         const multi = useStore(s => s.tabMultilineSuggestions);
         const acceptKey = useStore(s => s.tabAcceptKey);
@@ -268,9 +362,9 @@ const SettingsPage: React.FC = () => {
         const setAcceptKey = useStore(s => s.setTabAcceptKey);
 
         return (
-            <div className="settings-section" style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div className="settings-section-title">Tab (inline AI completions)</div>
-                <p style={{ fontSize: 12, opacity: 0.7, marginTop: -4 }}>
+            <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column' }}>
+                <SectionTitle>Cursor Tab</SectionTitle>
+                <p style={{ fontSize: 13, opacity: 0.7, marginTop: -4, marginBottom: 16 }}>
                     Cursor Tab predicts the rest of the line (or block) you're typing using the
                     selected default model. Hit the accept key to apply.
                 </p>
@@ -303,16 +397,44 @@ const SettingsPage: React.FC = () => {
                     label="Accept key"
                     description="Key used to commit the visible suggestion."
                     control={
-                        <select
+                        <SettingsSelect
                             value={acceptKey}
                             onChange={(e) => setAcceptKey(e.target.value as 'Tab' | 'Enter')}
                             disabled={!enabled}
                         >
                             <option value="Tab">Tab</option>
                             <option value="Enter">Enter</option>
-                        </select>
+                        </SettingsSelect>
                     }
                 />
+
+                <div style={{ marginTop: 32 }}>
+                    <SectionTitle>Composer</SectionTitle>
+                    <SettingsRow
+                        label="Enable Composer"
+                        description="Composer allows multi-file edits and iterative feature building."
+                        control={<SettingsCheckbox checked={true} onChange={() => { }} />}
+                    />
+                    <SettingsRow
+                        label="Auto-Imports"
+                        description="Automatically add imports when generating code via Composer."
+                        control={<SettingsCheckbox checked={true} onChange={() => { }} />}
+                    />
+                </div>
+
+                <div style={{ marginTop: 32 }}>
+                    <SectionTitle>Terminal</SectionTitle>
+                    <SettingsRow
+                        label="Terminal command prediction"
+                        description="Predict commands directly in the integrated terminal."
+                        control={<SettingsCheckbox checked={true} onChange={() => { }} />}
+                    />
+                    <SettingsRow
+                        label="Auto-debug test failures"
+                        description="When a test run fails in the terminal, automatically ask the agent for a fix."
+                        control={<SettingsCheckbox checked={false} onChange={() => { }} />}
+                    />
+                </div>
             </div>
         );
     }
@@ -361,10 +483,10 @@ const SettingsPage: React.FC = () => {
                                         padding: '1px 8px',
                                         borderRadius: 10,
                                         background:
-                                            b.status === 'done'    ? 'rgba(0,180,0,0.18)' :
-                                            b.status === 'running' ? 'rgba(0,120,200,0.22)' :
-                                            b.status === 'error'   ? 'rgba(200,40,40,0.22)' :
-                                                                     'rgba(255,255,255,0.08)',
+                                            b.status === 'done' ? 'rgba(0,180,0,0.18)' :
+                                                b.status === 'running' ? 'rgba(0,120,200,0.22)' :
+                                                    b.status === 'error' ? 'rgba(200,40,40,0.22)' :
+                                                        'rgba(255,255,255,0.08)',
                                     }}>{b.status}</span>
                                 </div>
                                 <div style={{ opacity: 0.85, marginBottom: 6 }}>
@@ -760,26 +882,26 @@ const SettingsPage: React.FC = () => {
         const setSem = useStore(s => s.setBetaSemanticSearch);
         const setShadow = useStore(s => s.setBetaShadowWorkspace);
         return (
-            <div className="settings-section" style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div className="settings-section-title">Beta</div>
-                <p style={{ fontSize: 12, opacity: 0.7, marginTop: -6 }}>
+            <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column' }}>
+                <SectionTitle>Beta</SectionTitle>
+                <p style={{ fontSize: 13, opacity: 0.7, marginTop: -4, marginBottom: 16 }}>
                     Experimental features. Turning them off removes the matching tool from the
                     model's catalog at runtime.
                 </p>
                 <SettingsRow
                     label="fast_apply tool"
                     description="Lets the agent apply patches via diff-style search/replace instead of writing full files. Faster on large files."
-                    control={<input type="checkbox" checked={fast} onChange={(e) => setFast(e.target.checked)} />}
+                    control={<SettingsCheckbox checked={fast} onChange={(e) => setFast(e.target.checked)} />}
                 />
                 <SettingsRow
                     label="semantic_search tool"
                     description="Embedding-backed semantic search over the workspace. Requires indexing to be enabled."
-                    control={<input type="checkbox" checked={sem} onChange={(e) => setSem(e.target.checked)} />}
+                    control={<SettingsCheckbox checked={sem} onChange={(e) => setSem(e.target.checked)} />}
                 />
                 <SettingsRow
                     label="Shadow workspace preview"
                     description="Apply edits to a shadow VFS and render a green/red diff before committing to disk."
-                    control={<input type="checkbox" checked={shadow} onChange={(e) => setShadow(e.target.checked)} />}
+                    control={<SettingsCheckbox checked={shadow} onChange={(e) => setShadow(e.target.checked)} />}
                 />
             </div>
         );
@@ -793,9 +915,9 @@ const SettingsPage: React.FC = () => {
     // ─────────────────────────────────────────────────────────────────────
     function PluginsPanel() {
         return (
-            <div className="settings-section" style={{ maxWidth: 720 }}>
-                <div className="settings-section-title">Plugins</div>
-                <p style={{ fontSize: 12, opacity: 0.7 }}>
+            <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column' }}>
+                <SectionTitle>Plugins</SectionTitle>
+                <p style={{ fontSize: 13, opacity: 0.7, marginBottom: 16 }}>
                     VS Code extensions install and manage in the dedicated Extensions panel
                     (Activity Bar → Extensions). This page lists configuration that affects all
                     extensions globally.
@@ -804,9 +926,9 @@ const SettingsPage: React.FC = () => {
                     label="Open Extensions view"
                     description="Switch the workbench to the Extensions panel."
                     control={
-                        <button onClick={() => {
+                        <SettingsButton onClick={() => {
                             window.dispatchEvent(new CustomEvent('workbench:open-view', { detail: { view: 'extensions' } }));
-                        }} style={{ fontSize: 12 }}>Open</button>
+                        }}>Open</SettingsButton>
                     }
                 />
             </div>
@@ -815,21 +937,21 @@ const SettingsPage: React.FC = () => {
 
     function MarketplacePanel() {
         return (
-            <div className="settings-section" style={{ maxWidth: 720 }}>
-                <div className="settings-section-title">Marketplace</div>
-                <p style={{ fontSize: 12, opacity: 0.7 }}>
+            <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column' }}>
+                <SectionTitle>Marketplace</SectionTitle>
+                <p style={{ fontSize: 13, opacity: 0.7, marginBottom: 16 }}>
                     Browse skills, hooks, MCP servers and rule packs shared by the community.
                 </p>
                 <SettingsRow
                     label="Skills (Agent SKILL.md)"
                     description="Drop a SKILL.md under ~/.agents/skills/&lt;name&gt;/SKILL.md to install a new skill the agent can auto-discover."
-                    control={<code style={{ fontSize: 11 }}>~/.agents/skills/</code>}
+                    control={<code style={{ fontSize: 12 }}>~/.agents/skills/</code>}
                 />
                 <SettingsRow
                     label="MCP registry"
                     description="Public registry of Model Context Protocol servers."
                     control={
-                        <a href="https://github.com/modelcontextprotocol/servers" target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
+                        <a href="https://github.com/modelcontextprotocol/servers" target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--vscode-textLink-foreground)' }}>
                             github.com/modelcontextprotocol/servers
                         </a>
                     }
@@ -840,25 +962,25 @@ const SettingsPage: React.FC = () => {
 
     function DocsPanel() {
         return (
-            <div className="settings-section" style={{ maxWidth: 720 }}>
-                <div className="settings-section-title">Docs</div>
-                <p style={{ fontSize: 12, opacity: 0.7 }}>
+            <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column' }}>
+                <SectionTitle>Docs</SectionTitle>
+                <p style={{ fontSize: 13, opacity: 0.7, marginBottom: 16 }}>
                     Reference documentation for the agentic surfaces in vscodium-rust IDE.
                 </p>
                 <SettingsRow
                     label="Slash commands"
                     description="Type /help in the right-sidebar chat for the live list (init, bg, redteam, weaponize, …)."
-                    control={<code style={{ fontSize: 11 }}>/help</code>}
+                    control={<code style={{ fontSize: 12 }}>/help</code>}
                 />
                 <SettingsRow
                     label="Agent rules spec"
                     description="See AGENTS.md at the repo root."
-                    control={<code style={{ fontSize: 11 }}>AGENTS.md</code>}
+                    control={<code style={{ fontSize: 12 }}>AGENTS.md</code>}
                 />
                 <SettingsRow
                     label="Hooks spec"
                     description="~/.agents/skills/create-hook/SKILL.md"
-                    control={<code style={{ fontSize: 11 }}>SKILL.md</code>}
+                    control={<code style={{ fontSize: 12 }}>SKILL.md</code>}
                 />
             </div>
         );
@@ -868,19 +990,19 @@ const SettingsPage: React.FC = () => {
     function renderVsCodePanel() {
         if (activeCategory === 'theme') {
             return (
-                <div className="settings-section" style={{ maxWidth: 720 }}>
-                    <div className="settings-section-title">Theme</div>
+                <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column' }}>
+                    <SectionTitle>Theme</SectionTitle>
                     <SettingsRow
                         label="Workbench: Color Theme"
                         description="Specifies the color theme used in the workbench."
                         control={
-                            <select value={vsSettings.theme} onChange={(e) => handleVsSettingChange('theme', e.target.value)}>
+                            <SettingsSelect value={vsSettings.theme} onChange={(e) => handleVsSettingChange('theme', e.target.value)}>
                                 <option value="vs-dark">Dark (Visual Studio)</option>
                                 <option value="vs">Light (Visual Studio)</option>
                                 <option value="Darcula">Darcula</option>
                                 <option value="Monokai">Monokai</option>
                                 <option value="Solarized Dark">Solarized Dark</option>
-                            </select>
+                            </SettingsSelect>
                         }
                     />
                 </div>
@@ -889,13 +1011,13 @@ const SettingsPage: React.FC = () => {
 
         if (activeCategory === 'files') {
             return (
-                <div className="settings-section" style={{ maxWidth: 720 }}>
-                    <div className="settings-section-title">Files</div>
+                <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column' }}>
+                    <SectionTitle>Files</SectionTitle>
                     <SettingsRow
                         label="Files: Auto Save"
                         description="Controls auto save of editors that have unsaved changes."
                         control={
-                            <select
+                            <SettingsSelect
                                 value={vsSettings.auto_save || 'off'}
                                 onChange={(e) => handleVsSettingChange('auto_save', e.target.value)}
                             >
@@ -903,7 +1025,7 @@ const SettingsPage: React.FC = () => {
                                 <option value="afterDelay">afterDelay</option>
                                 <option value="onFocusChange">onFocusChange</option>
                                 <option value="onWindowChange">onWindowChange</option>
-                            </select>
+                            </SettingsSelect>
                         }
                     />
                 </div>
@@ -911,16 +1033,17 @@ const SettingsPage: React.FC = () => {
         }
 
         return (
-            <div className="settings-section" style={{ maxWidth: 720 }}>
-                <div className="settings-section-title">Editor</div>
+            <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column' }}>
+                <SectionTitle>Editor</SectionTitle>
                 <SettingsRow
                     label="Editor: Font Size"
                     description="Controls the font size in pixels."
                     control={
-                        <input
+                        <SettingsInput
                             type="number"
                             value={vsSettings.font_size}
                             onChange={(e) => handleVsSettingChange('font_size', parseInt(e.target.value || '14', 10))}
+                            style={{ minWidth: 100 }}
                         />
                     }
                 />
@@ -928,10 +1051,11 @@ const SettingsPage: React.FC = () => {
                     label="Editor: Tab Size"
                     description="The number of spaces a tab is equal to."
                     control={
-                        <input
+                        <SettingsInput
                             type="number"
                             value={vsSettings.tab_size || 4}
                             onChange={(e) => handleVsSettingChange('tab_size', parseInt(e.target.value || '4', 10))}
+                            style={{ minWidth: 100 }}
                         />
                     }
                 />
@@ -970,47 +1094,47 @@ const SettingsPage: React.FC = () => {
             <div
                 style={{
                     flex: '0 0 auto',
-                    padding: '16px 24px 0 24px',
-                    borderBottom: '1px solid var(--vscode-panel-border)',
+                    padding: '24px 32px 0 32px',
+                    borderBottom: '1px solid var(--vscode-panel-border, rgba(128,128,128,0.2))',
                 }}
             >
-                <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>Settings</h1>
-                <div style={{ position: 'relative', maxWidth: 520, marginTop: 10 }}>
-                    <input
-                        type="text"
-                        placeholder="Search settings"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        style={{
-                            width: '100%',
-                            paddingLeft: 30,
-                            padding: '6px 30px',
-                            fontSize: 12,
-                            background: 'var(--vscode-input-background)',
-                            color: 'var(--vscode-input-foreground)',
-                            border: '1px solid var(--vscode-input-border)',
-                            borderRadius: 4,
-                            boxSizing: 'border-box',
-                        }}
-                    />
-                    <i
-                        className="codicon codicon-search"
-                        style={{
-                            position: 'absolute',
-                            left: 8,
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            opacity: 0.5,
-                            fontFamily: 'codicon',
-                            fontStyle: 'normal',
-                        }}
-                    />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <h1 style={{ fontSize: 24, fontWeight: 300, margin: 0, color: 'var(--vscode-settings-headerForeground, var(--vscode-foreground))' }}>Settings</h1>
+                    <div style={{ position: 'relative', width: '100%', maxWidth: 400 }}>
+                        <SettingsInput
+                            type="text"
+                            placeholder="Search settings"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            style={{
+                                width: '100%',
+                                paddingLeft: 30,
+                                paddingRight: 8,
+                                paddingTop: 6,
+                                paddingBottom: 6,
+                                boxSizing: 'border-box'
+                            }}
+                        />
+                        <i
+                            className="codicon codicon-search"
+                            style={{
+                                position: 'absolute',
+                                left: 8,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                opacity: 0.6,
+                                fontFamily: 'codicon',
+                                fontStyle: 'normal',
+                                fontSize: 13,
+                            }}
+                        />
+                    </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 24, marginTop: 14 }}>
+                <div style={{ display: 'flex', gap: 24, marginTop: 16 }}>
                     {(
                         [
-                            { id: 'agent',  label: 'vscodium-rust Settings' },
+                            { id: 'agent', label: 'vscodium-rust Settings' },
                             { id: 'vscode', label: 'VS Code Settings' },
                         ] as { id: TopTab; label: string }[]
                     ).map(t => (
@@ -1024,9 +1148,11 @@ const SettingsPage: React.FC = () => {
                                 padding: '8px 0',
                                 fontSize: 13,
                                 cursor: 'pointer',
-                                fontWeight: topTab === t.id ? 600 : 400,
-                                opacity: topTab === t.id ? 1 : 0.55,
-                                borderBottom: topTab === t.id ? '2px solid var(--vscode-focusBorder, #0e639c)' : '2px solid transparent',
+                                fontWeight: 400,
+                                opacity: topTab === t.id ? 1 : 0.6,
+                                color: topTab === t.id ? 'var(--vscode-foreground)' : 'var(--vscode-descriptionForeground)',
+                                borderBottom: topTab === t.id ? '1px solid var(--vscode-foreground)' : '1px solid transparent',
+                                transition: 'opacity 0.2s',
                                 marginBottom: -1,
                             }}
                         >
