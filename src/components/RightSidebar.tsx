@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { marked } from 'marked';
+import { airiBiology } from '../airi/biology';
+import { airiConsciousness } from '../airi/consciousness';
 import { useStore } from '../store';
 import type { FileEntry } from '../store';
 import { invoke } from '../tauri_bridge';
@@ -588,15 +590,24 @@ const RightSidebar: React.FC = () => {
             messages,
             agentInfo: {
                 name: "AIRI",
-                status: aiStatus,
+                status: isAgentThinking ? 'thinking' : (aiStatus === 'dead' ? 'error' : 'idle'),
                 context: "vscodium-rust"
+            },
+            biology: {
+                energy: airiBiology.getState().energy,
+                mood: airiBiology.getState().mood,
+                hunger: (airiBiology.getState() as any).hunger || 0
+            },
+            consciousness: {
+                selfAwareness: airiConsciousness.getState().selfAwareness,
+                lastThought: airiConsciousness.getState().thoughts.slice(-1)[0]?.content
             }
         };
         // Emit native event for AiriPanel to pick up
         import('@tauri-apps/api/event').then(({ emit }) => {
             emit('hades-sync', syncPayload);
         }).catch(err => console.error('[HADES] Sync Broadcast Failed:', err));
-    }, [messages, aiStatus]);
+    }, [messages, aiStatus, isAgentThinking]);
 
     // Track active tool-calls for the Mission Hub (Legacy listener - keeping for UI feedback)
     useEffect(() => {
@@ -617,21 +628,6 @@ const RightSidebar: React.FC = () => {
         }
     }, [isAgentThinking, agentUiMode]);
 
-    // Neural Sync Bridge: Forward IDE state to the AIRI manifold
-    useEffect(() => {
-        const syncPayload = {
-            messages,
-            agentInfo: {
-                name: "AIRI",
-                status: aiStatus,
-                context: "vscodium-rust"
-            }
-        };
-        // Emit native event for AiriPanel to pick up
-        import('@tauri-apps/api/event').then(({ emit }) => {
-            emit('hades-sync', syncPayload);
-        }).catch(err => console.error('[HADES] Sync Broadcast Failed:', err));
-    }, [messages, aiStatus]);
     const [isAttaching, setIsAttaching] = useState(false);
 
     const allFiles = useMemo(() => {

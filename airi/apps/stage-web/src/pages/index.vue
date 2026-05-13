@@ -79,6 +79,14 @@ async function startAudioInteraction() {
       if (!text || !text.trim())
         return
 
+      // In headless mode, we don't ingest locally; 
+      // instead, we rely on the host (IDE) to receive the airi-transcription event
+      // that is naturally sent by the hearing pipeline.
+      if (isHeadless.value) {
+        console.log('[DigitalBrain] Forwarding voice transcription to host IDE:', text)
+        return
+      }
+
       try {
         const provider = await providersStore.getProviderInstance(activeChatProvider.value)
         if (!provider || !activeChatModel.value)
@@ -137,6 +145,11 @@ onUnmounted(() => {
   stopAudioInteraction()
 })
 
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
+const isHeadless = computed(() => route.query.headless === 'true')
+
 watch([stream, () => vadLoaded.value], async ([s, loaded]) => {
   if (enabled.value && loaded && s) {
     try {
@@ -156,14 +169,14 @@ watch([stream, () => vadLoaded.value], async ([s, loaded]) => {
     :background="selectedOption"
     :top-color="sampledColor"
   >
-    <div relative flex="~ col" z-2 h-100dvh w-100vw of-hidden>
+    <div relative flex="~ col" z-2 h-100dvh w-100vw of-hidden :class="{ 'headless-mode': isHeadless }">
       <!-- header -->
-      <div class="px-0 py-1 md:px-3 md:py-3" w-full gap-2>
+      <div v-if="!isHeadless" class="px-0 py-1 md:px-3 md:py-3" w-full gap-2>
         <Header class="hidden md:flex" />
         <MobileHeader class="flex md:hidden" />
       </div>
       <!-- page -->
-      <div relative flex="~ 1 row gap-y-0 gap-x-2 <md:col">
+      <div relative flex="~ 1 row gap-y-0 gap-x-2 <md:col" :class="{ 'p-0': isHeadless }">
         <WidgetStage
           flex-1 min-w="1/2"
           :paused="paused"
@@ -172,13 +185,19 @@ watch([stream, () => vadLoaded.value], async ([s, loaded]) => {
             y: positionCursor.y.value,
           }"
         />
-        <InteractiveArea v-if="!isMobile" h="85dvh" absolute right-4 flex flex-1 flex-col max-w="500px" min-w="30%" />
-        <MobileInteractiveArea v-if="isMobile" @settings-open="handleSettingsOpen" />
+        <InteractiveArea v-if="!isMobile && !isHeadless" h="85dvh" absolute right-4 flex flex-1 flex-col max-w="500px" min-w="30%" />
+        <MobileInteractiveArea v-if="isMobile && !isHeadless" @settings-open="handleSettingsOpen" />
       </div>
-      <HoloCoupon />
+      <HoloCoupon v-if="!isHeadless" />
     </div>
   </BackgroundProvider>
 </template>
+
+<style scoped>
+.headless-mode {
+  background: transparent !important;
+}
+</style>
 
 <route lang="yaml">
 name: IndexScenePage

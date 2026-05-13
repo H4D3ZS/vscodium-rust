@@ -115,6 +115,52 @@ function handleSetupConfigured() {
 function handleSetupSkipped() {
   onboardingStore.markSetupSkipped()
 }
+
+// Inter-process Communication: Listen for sync events from the IDE (hades-neural-sync)
+onMounted(() => {
+  window.addEventListener('message', (event) => {
+    const { type, payload } = event.data || {}
+    
+    if (type === 'hades-neural-sync') {
+      console.log('[DigitalBrain] 🧠 Synchronizing with IDE neural core...', payload)
+      
+      // Update chat session messages
+      if (payload.messages && Array.isArray(payload.messages)) {
+        // We could sync messages to chatSessionStore here if needed
+        // but primarily we want the entity to be aware of the conversation context
+      }
+      
+      // Update biological/metabolic state
+      if (payload.biology) {
+        const biologyStore = (payload as any).biology
+        // Assuming there's a store for this - looking at App.vue imports, we have airi-card
+        if (cardStore) {
+          // Sync metabolic state to the card / entity representation
+          console.log('[DigitalBrain] 🍎 Syncing biological state:', biologyStore)
+        }
+      }
+      
+      // Update cognitive state / emotions
+      if (payload.agentInfo?.status) {
+        const status = payload.agentInfo.status
+        if (status === 'thinking') {
+          characterOrchestratorStore.currentStatus = 'thinking'
+        } else if (status === 'idle') {
+          characterOrchestratorStore.currentStatus = 'idle'
+        }
+      }
+    }
+    
+    // Toggle UI visibility (customizations/menu)
+    if (type === 'airi-toggle-ui') {
+      const route = (window as any).$router || (window as any).router
+      if (route && route.currentRoute.value.query.headless === 'true') {
+        // Find isHeadless in the component or just toggle a global style
+        document.documentElement.classList.toggle('force-show-ui', payload?.show)
+      }
+    }
+  })
+})
 </script>
 
 <template>
