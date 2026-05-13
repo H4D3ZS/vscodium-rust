@@ -7,9 +7,19 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from qwen_tts import Qwen3TTSModel
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 app = FastAPI(title="Qwen3-TTS API Server")
+
+# Enable CORS for the IDE origin
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all for local dev; can be restricted to http://localhost:5173
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Load model
 device = "cuda:0" if torch.cuda.is_available() else "cpu"

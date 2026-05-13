@@ -43,7 +43,7 @@ export class AIRIVoiceActivation {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       this.recognition = new SpeechRecognition();
-      
+
       this.recognition.continuous = true;
       this.recognition.interimResults = true;
       this.recognition.lang = 'en-US';
@@ -92,7 +92,7 @@ export class AIRIVoiceActivation {
     ];
 
     const response = responses[Math.floor(Math.random() * responses.length)];
-    
+
     // Speak response
     await this.speak(response);
 
@@ -113,7 +113,7 @@ export class AIRIVoiceActivation {
   /**
    * Start listening for commands
    */
-  private startListening(): void {
+  public startListening(): void {
     if (this.recognition) {
       this.recognition.start();
       this.isListening = true;
@@ -123,7 +123,7 @@ export class AIRIVoiceActivation {
   /**
    * Stop listening
    */
-  private stopListening(): void {
+  public stopListening(): void {
     if (this.recognition) {
       this.recognition.stop();
       this.isListening = false;
@@ -135,11 +135,11 @@ export class AIRIVoiceActivation {
    */
   public async speak(text: string, emotion?: 'neutral' | 'friendly' | 'excited' | 'concerned'): Promise<void> {
     const { speak } = await import('../voice');
-    
-    // Map emotion to preset
-    const preset = emotion === 'friendly' ? 'friendly' : 
-                   emotion === 'excited' ? 'excited' :
-                   emotion === 'concerned' ? 'concerned' : 'airi';
+
+    // Map emotion to valid presets
+    const preset: any = emotion === 'friendly' ? 'yuki' :
+      emotion === 'excited' ? 'nova' :
+        emotion === 'concerned' ? 'hana' : 'airi';
 
     try {
       await speak(text, preset);

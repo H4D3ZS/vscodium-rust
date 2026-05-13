@@ -1387,13 +1387,15 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // net for other callers of sendAgentMessage.
     // ─────────────────────────────────────────────────────────────────────────────
     const isSentient = activeMode === 'Sentient' || (airiInitialized && airiAutonomousMode);
+    console.log('[Agent] sendAgentMessage: isSentient=', isSentient, 'activeMode=', activeMode);
     if (isSentient) {
         try {
+            console.log('[Agent] Routing through Sentient AIRI Core...');
             if (!airiInitialized) {
+                console.log('[Agent] Initializing AIRI Bridge on demand...');
                 await airiAgentBridge.initialize();
                 airiInitialized = true;
             }
-            console.log('[Agent] 🧠 Routing through AIRI Sentient Core...');
             await airiAgentBridge.processUserMessage(userPrompt, resolvedContext);
             logTaskToMemory(userPrompt).catch(() => { });
             return;
@@ -1486,6 +1488,11 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     }
 
     try {
+        console.log('[Agent] Invoking full ai_chat loop...', {
+            provider: routingProvider,
+            model: routingModel,
+            ollama_url: routingOllamaUrl
+        });
         await invoke<string>("ai_chat", {
             request: {
                 provider: routingProvider,
@@ -1500,6 +1507,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 tools: toolSchemas,
             }
         });
+        console.log('[Agent] Full ai_chat loop completed successfully.');
         logTaskToMemory(userPrompt).catch(() => { });
     } catch (e: any) {
         // Surface the failure in the chat instead of leaving the spinner

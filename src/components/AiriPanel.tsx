@@ -241,13 +241,13 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
             const iframe = iframeRef.current;
             if (iframe?.contentWindow) {
                 setAiriLoading(true);
-                
+
                 // Build new URL with model parameters
                 const baseUrl = 'http://localhost:5174/';
                 const params = new URLSearchParams();
                 params.set('headless', 'true');
                 params.set('transparent', 'true');
-                
+
                 if (e.detail.modelId) {
                     params.set('char', e.detail.modelId);
                     console.log('[AiriPanel] Setting character:', e.detail.modelId);
@@ -256,14 +256,14 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                     params.set('modelUrl', e.detail.modelUrl);
                     console.log('[AiriPanel] Setting model URL:', e.detail.modelUrl);
                 }
-                
+
                 // Add cache-busting timestamp
                 params.set('t', Date.now().toString());
-                
+
                 // Force complete reload
                 iframe.src = `${baseUrl}?${params.toString()}`;
                 console.log('[AiriPanel] 🔄 Reloading iframe with new model:', iframe.src);
-                
+
                 // Also send postMessage in case AIRI app supports it
                 try {
                     iframe.contentWindow.postMessage({
@@ -551,7 +551,6 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                             ref={iframeRef}
                             src={url}
                             allow="autoplay; microphone; camera"
-                            allowTransparency={true}
                             style={{ width: '100%', height: '100%', border: 'none', opacity: isAiriLoading ? 0 : 1, background: 'transparent' }}
                             onLoad={() => setAiriLoading(false)}
                         />
@@ -702,14 +701,14 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         onClick={async () => {
                             const newState = !isListening;
                             setIsListening(newState);
-                            
+
                             // Use voice activation system
                             if (newState) {
                                 await airiVoiceActivation.startConversation();
                             } else {
                                 airiVoiceActivation.stopListening();
                             }
-                            
+
                             // Also notify iframe for 3D avatar
                             iframeRef.current?.contentWindow?.postMessage({
                                 type: 'airi-listen',
