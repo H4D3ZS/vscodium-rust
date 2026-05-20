@@ -146,7 +146,7 @@ catalog:
   vue-sonner: 2.0.9
   web-haptics: ^0.0.6
   whatwg-mimetype: ^5.0.0
-  ws: ^8.20.0
+  ws: ^8.20.1
   xsschema: 0.5.0-beta.2
   yaml: ^2.8.3
   zod: ^4.3.6
