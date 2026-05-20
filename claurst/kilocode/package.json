@@ -84,7 +84,7 @@
     "prettier": "3.6.2",
     "semver": "^7.6.0",
     "sst": "3.18.10",
-    "turbo": "2.8.13",
+    "turbo": "2.9.14",
     "@changesets/changelog-github": "^0.5.1",
     "@changesets/cli": "^2.27.10"
   },
