@@ -1352,6 +1352,20 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // git_status + grep for a one-token greeting.
     const hasAttached = !!(context && context.length) || !!(store.getState().attachedContext?.length);
     if (isTrivialChat(userPrompt, hasAttached)) {
+        const t = userPrompt.trim().toLowerCase();
+        const instant =
+            /^(hi+|hello+|hey+|yo+|sup|howdy|hola|ola|gm)\b/.test(t)
+                ? 'Hey. I am ready.'
+                : /^(thanks+|thank\s*you|ty)\b/.test(t)
+                    ? 'Anytime.'
+                    : /^(ping|test+)\b/.test(t)
+                        ? 'pong'
+                        : 'Ready.';
+        store.getState().updateLastAgentMessage?.(instant);
+        store.getState().setIsAgentThinking?.(false);
+        try { onUpdate?.(instant); } catch (_) { /* non-fatal */ }
+        return;
+
         try {
             store.getState().setIsAgentThinking?.(true);
             // Show immediate feedback so the user knows inference is running

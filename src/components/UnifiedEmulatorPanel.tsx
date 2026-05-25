@@ -17,6 +17,8 @@ const UnifiedEmulatorPanel: React.FC = () => {
             style={{
                 display: 'flex',
                 flexDirection: 'column',
+                flex: '1 1 auto',
+                minHeight: 0,
                 height: '100%',
                 background: 'var(--vscode-editor-background)',
                 overflow: 'hidden'
@@ -84,7 +86,7 @@ const UnifiedEmulatorPanel: React.FC = () => {
             </div>
 
             {/* Emulator content */}
-            <div style={{ flex: 1, overflow: 'hidden' }}>
+            <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {activeEmulator === 'android' && <EmulatorPanel />}
                 {activeEmulator === 'iphone' && <IPhoneEmulatorPanel />}
             </div>

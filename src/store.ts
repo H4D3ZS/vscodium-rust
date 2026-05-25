@@ -1790,12 +1790,10 @@ const storeImplementation: any = (set: any, get: any) => ({
             ],
         }));
         try {
-            // Background runs use the same backend chat path but in a separate
-            // tauri command (`ai_chat_oneshot`) that does NOT mutate the
-            // foreground `agentMessages` / `isAgentThinking` state. We fall
-            // back to a direct `ai_chat` invocation if `ai_chat_oneshot` is
-            // not registered yet (kept as a soft dependency so this commit
-            // doesn't require a Rust side change).
+            // Background runs use the same autonomous backend as the foreground
+            // agent, but through `ai_chat_oneshot` so UI events do not cross-talk
+            // with the active chat. Keep this a real agent mission: tools,
+            // workspace writes, verification, and completion contract enabled.
             const state = get();
             const provider = state.agentModel.includes('|')
                 ? state.agentModel.split('|')[0]
@@ -1812,9 +1810,18 @@ const storeImplementation: any = (set: any, get: any) => ({
                 request: {
                     provider,
                     model,
-                    messages: [{ role: 'user', content: prompt }],
-                    autonomous: false,
-                    mode: 'Agent',
+                    messages: [
+                        {
+                            role: 'system',
+                            content:
+                                'You are a persistent autonomous coding agent inside VSCodium-Rust. Execute tools, inspect the workspace, write fixes, run verification, and continue until the requested goal is actually finished. Only stop when you can emit MISSION_ACCOMPLISHED or TASK_COMPLETE with a blocker.',
+                        },
+                        { role: 'user', content: prompt },
+                    ],
+                    autonomous: true,
+                    root_access: true,
+                    mode: state.agentMode === 'Chat' ? 'Agent' : state.agentMode,
+                    ollama_url: state.ollamaUrl,
                 },
             });
             set(s => ({

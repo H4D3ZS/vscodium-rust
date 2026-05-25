@@ -65,6 +65,8 @@ const IPhoneEmulatorPanel: React.FC = () => {
         <div style={{
             display: 'flex',
             flexDirection: 'column',
+            flex: '1 1 auto',
+            minHeight: 0,
             height: '100%',
             background: '#000',
         }}>
@@ -130,7 +132,8 @@ const IPhoneEmulatorPanel: React.FC = () => {
 
             {/* Emulator content */}
             <div style={{
-                flex: 1,
+                flex: '1 1 auto',
+                minHeight: 0,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',

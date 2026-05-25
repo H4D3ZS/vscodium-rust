@@ -747,19 +747,23 @@ const RightSidebar: React.FC = () => {
         }
     }, [messages]);
 
+    const visibleMessages = useMemo(() => {
+        const filtered = messages.filter(m => (
+            m.role !== 'system' &&
+            m.role !== 'tool' &&
+            !(typeof m.content === 'string' && (m.content.trim().startsWith('{') || m.content.trim().startsWith('[')))
+        ));
+        const lastUser = filtered.map(m => m.role).lastIndexOf('user');
+        if (lastUser >= 0) return filtered.slice(lastUser);
+        return filtered.slice(-2);
+    }, [messages]);
+
     useEffect(() => {
         const container = document.querySelector('.right-sidebar-messages');
         if (container) {
-            if (container.scrollHeight <= container.clientHeight) {
-                container.scrollTop = 0;
-                return;
-            }
-            const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-            if (isNearBottom) {
-                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            }
+            container.scrollTop = 0;
         }
-    }, [messages]);
+    }, [visibleMessages]);
 
     // Track current activity from live tool calls
     const [currentActivity, setCurrentActivity] = React.useState<AvatarState>('idle');
@@ -893,14 +897,14 @@ const RightSidebar: React.FC = () => {
                 detail: val.slice(0, 600),
             });
             setIsAgentThinking(true);
-            addAgentMessage('user', val, context);
+            addAgentMessage('user', processedVal, context);
             clearAttachedFiles();
             addAgentMessage('assistant', "");
             console.log('[DIAG] onSend: messages added, sidebar state after store updates:', useStore.getState().isRightSidebarOpen);
 
             try {
                 const m = await import('../agent');
-                await m.sendAgentMessage(val, () => { }, context);
+                await m.sendAgentMessage(processedVal, () => { }, context);
             } catch (err: any) {
                 console.error('Agent chat failed:', err);
                 const errorMsg = err.message || JSON.stringify(err);
@@ -1144,10 +1148,24 @@ const RightSidebar: React.FC = () => {
                     background: rgba(255,255,255,0.1) !important;
                     color: #fff;
                 }
-                .right-sidebar-messages {
+                .right-sidebar-body {
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
                     justify-content: flex-start !important;
                     align-items: stretch !important;
                     scroll-padding-top: 0;
+                }
+                .right-sidebar-scroll {
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    overflow-y: auto;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: flex-start !important;
+                    align-items: stretch !important;
                 }
                 .right-sidebar-messages > div {
                     margin-top: 0 !important;
@@ -1585,9 +1603,9 @@ const RightSidebar: React.FC = () => {
                 ) : (
 
                     /* ── CHAT / MISSION HUB MODE ── */
-                    <div className="right-sidebar-messages" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'stretch' }}>
+                    <div className="right-sidebar-body">
                         {view === 'chat' ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+                            <div className="right-sidebar-messages right-sidebar-scroll">
 
                                 {/* AIRI Sentient Header — only rendered when VRM is enabled */}
                                 {showVrmAvatar ? (
@@ -1766,13 +1784,9 @@ const RightSidebar: React.FC = () => {
 
                                 {/* Mission log — agent messages */}
                                 <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px 10px', gap: '10px', flex: 1 }}>
-                                    {messages.length > 0 && (
+                                    {visibleMessages.length > 0 && (
                                         <>
-                                            {messages.filter(m => (
-                                                m.role !== 'system' &&
-                                                m.role !== 'tool' &&
-                                                !(typeof m.content === 'string' && (m.content.trim().startsWith('{') || m.content.trim().startsWith('[')))
-                                            )).map((msg, idx) => (
+                                            {visibleMessages.map((msg, idx) => (
                                                 <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'relative' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: 0.5 }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1911,12 +1925,12 @@ const RightSidebar: React.FC = () => {
                                 </div>
                             </div>
                         ) : view === 'emulator' ? (
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                            <div style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                                 <UnifiedEmulatorPanel />
                             </div>
                         ) : view === 'kortex' ? (
                             /* Kortex .aim Brain Panel */
-                            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, height: '100%' }}>
                                 <div style={{ padding: '16px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span style={{ fontSize: '16px' }}>🧠</span>
@@ -1995,7 +2009,7 @@ const RightSidebar: React.FC = () => {
                                 </div>
                             </div>
                         ) : view === 'history' ? (
-                            <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div className="right-sidebar-scroll" style={{ padding: '16px', gap: '12px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                     <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5 }}>Recent History</span>
                                 </div>
