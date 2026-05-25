@@ -1663,11 +1663,12 @@ impl Sentient {
         if is_ollama_provider {
             const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
                 "view_file", "list_files", "write_to_file", "str_replace",
-                "search_replace_edit", "fast_apply", "patch_file_content",
+                "search_replace_edit", "apply_shadow_patch", "fast_apply", "patch_file_content",
                 "find_by_name", "get_directory_structure", "grep",
-                "search_codebase", "find_symbols", "run_command",
-                "verify_implementation", "save_knowledge_brief", "web_search",
-                "secrets_scan", "weaponize_env"
+                "search_codebase", "find_symbols", "create_directory", "run_command",
+                "terminal_read_output", "terminal_send_data", "verify_implementation",
+                "dev_cargo_diagnostics", "get_lsp_diagnostics", "save_knowledge_brief",
+                "web_search", "secrets_scan", "weaponize_env"
             ];
             tools.retain(|t| {
                 let name = t["function"]["name"].as_str()
@@ -2267,8 +2268,8 @@ impl Sentient {
                             Do NOT output any JSON blocks or tool calls."
                         );
                     } else if !supports_native_tools && !turn_tools.is_empty() {
-                        ollama_system.push_str("\n\n### TOOL PROTOCOL\nOutput ONE JSON block per call:\n```json\n{\"name\": \"tool_name\", \"arguments\": {\"arg\": \"value\"}}\n```\n**Available tools:**\n");
-                        for tool in turn_tools.iter().take(20) {
+                        ollama_system.push_str("\n\n### LOCAL AGENT MODE\nYou are a 7B-14B local coding agent. Be terse, concrete, and tool-first. Do not plan forever. Pick one useful tool call, wait for the result, then continue. Prefer tiny edits and immediate verification.\n\n### TOOL PROTOCOL\nOutput ONE JSON block per call:\n```json\n{\"name\": \"tool_name\", \"arguments\": {\"arg\": \"value\"}}\n```\n**Available tools:**\n");
+                        for tool in turn_tools.iter().take(28) {
                             let (name, desc) = if let Some(f) = tool.get("function") {
                                 (f["name"].as_str().unwrap_or(""), f["description"].as_str().unwrap_or(""))
                             } else {
@@ -3576,6 +3577,11 @@ impl Sentient {
                 models.push("deepseek:deepseek-v2.5".to_string());
                 models.push("deepseek:deepseek-v3".to_string());
             }
+            if !self.get_key_for_provider("nvidia").is_empty() {
+                models.push("nvidia:nvidia/llama-3.1-nemotron-70b-instruct".to_string());
+                models.push("nvidia:meta/llama-3.1-405b-instruct".to_string());
+                models.push("nvidia:mistralai/mixtral-8x22b-instruct-v0.1".to_string());
+            }
             // Local DeepSeek V2 on Apple Silicon (M1/M2/M3) — always advertise
             // these IDs because the server is local and keyless. Selecting one
             // of them routes through `deepseek-ane` -> http://127.0.0.1:8080.
@@ -3754,6 +3760,7 @@ impl Sentient {
             "mistral" => "https://api.mistral.ai/v1/models",
             "xai" => "https://api.x.ai/models",
             "cerebras" => "https://api.cerebras.ai/v1/models",
+            "nvidia" => "https://integrate.api.nvidia.com/v1/models",
             "apiradar" => "https://apiradar.live/api/v1/models",
             "openwebui" | "openwebui-claude" | "openwebui-gpt" | "openwebui-gemini" => {
                 "http://127.0.0.1:8080/api/models"
@@ -4040,6 +4047,7 @@ impl Sentient {
             "xai" => "XAI_API_KEY",
             "cerebras" => "CEREBRAS_API_KEY",
             "alibaba" => "ALIBABA_API_KEY",
+            "nvidia" => "NVIDIA_API_KEY",
             "apiradar" => "APIRADAR_API_KEY",
             "mistral" => "MISTRAL_API_KEY",
             "openai" => "OPENAI_API_KEY",
@@ -4101,6 +4109,7 @@ impl Sentient {
             "apiradar" => "https://apiradar.live/api/v1/chat/completions".to_string(),
             "xai" => "https://api.x.ai/v1/chat/completions".to_string(),
             "cerebras" => "https://api.cerebras.ai/v1/chat/completions".to_string(),
+            "nvidia" => "https://integrate.api.nvidia.com/v1/chat/completions".to_string(),
             "alibaba" => {
                 "https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions".to_string()
             }

@@ -152,6 +152,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         xai: '',
         cerebras: '',
         alibaba: '',
+        nvidia: '',
         elevenlabs: '',
         ollama: '',
     });
@@ -208,6 +209,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         xai: (keys as any).xai ? '********' + String((keys as any).xai).slice(-4) : '',
                         cerebras: (keys as any).cerebras ? '********' + String((keys as any).cerebras).slice(-4) : '',
                         alibaba: (keys as any).alibaba ? '********' + String((keys as any).alibaba).slice(-4) : '',
+                        nvidia: (keys as any).nvidia ? '********' + String((keys as any).nvidia).slice(-4) : '',
                         elevenlabs: (keys as any).elevenlabs_api_key ? '••••••••' + ((keys as any).elevenlabs_api_key.slice(-4)) : '',
                         ollama: (keys as any).ollama ? '••••••••' + String((keys as any).ollama).slice(-4) : '',
                     };
@@ -294,27 +296,27 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         try {
             // Only send non-masked (newly entered) keys
             const keysToSave: Record<string, string> = {};
-            if (apiKeys.anthropic && !apiKeys.anthropic.startsWith('•')) {
+            if (apiKeys.anthropic && !isMaskedApiKey(apiKeys.anthropic)) {
                 keysToSave.anthropic = apiKeys.anthropic;
                 console.log('[Settings] Adding anthropic key to save');
             }
-            if (apiKeys.google && !apiKeys.google.startsWith('•')) {
+            if (apiKeys.google && !isMaskedApiKey(apiKeys.google)) {
                 keysToSave.google = apiKeys.google;
                 console.log('[Settings] Adding google key to save');
             }
-            if (apiKeys.openai && !apiKeys.openai.startsWith('•')) {
+            if (apiKeys.openai && !isMaskedApiKey(apiKeys.openai)) {
                 keysToSave.openai = apiKeys.openai;
                 console.log('[Settings] Adding openai key to save');
             }
-            if ((apiKeys as any).groq && !(apiKeys as any).groq.startsWith('•')) {
+            if ((apiKeys as any).groq && !isMaskedApiKey((apiKeys as any).groq)) {
                 keysToSave.groq = (apiKeys as any).groq;
                 console.log('[Settings] Adding groq key to save');
             }
-            if ((apiKeys as any).openrouter && !(apiKeys as any).openrouter.startsWith('•')) {
+            if ((apiKeys as any).openrouter && !isMaskedApiKey((apiKeys as any).openrouter)) {
                 keysToSave.openrouter = (apiKeys as any).openrouter;
                 console.log('[Settings] Adding openrouter key to save');
             }
-            if ((apiKeys as any).deepseek && !(apiKeys as any).deepseek.startsWith('•')) {
+            if ((apiKeys as any).deepseek && !isMaskedApiKey((apiKeys as any).deepseek)) {
                 keysToSave.deepseek = (apiKeys as any).deepseek;
                 console.log('[Settings] Adding deepseek key to save');
             }
@@ -334,7 +336,11 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                 keysToSave.alibaba = (apiKeys as any).alibaba;
                 console.log('[Settings] Adding alibaba key to save');
             }
-            if ((apiKeys as any).elevenlabs && !(apiKeys as any).elevenlabs.startsWith('•')) {
+            if ((apiKeys as any).nvidia && !isMaskedApiKey((apiKeys as any).nvidia)) {
+                keysToSave.nvidia = (apiKeys as any).nvidia;
+                console.log('[Settings] Adding nvidia key to save');
+            }
+            if ((apiKeys as any).elevenlabs && !isMaskedApiKey((apiKeys as any).elevenlabs)) {
                 keysToSave.elevenlabs_api_key = (apiKeys as any).elevenlabs;
                 console.log('[Settings] ✅ Adding elevenlabs key to save:', (apiKeys as any).elevenlabs.substring(0, 10) + `... (length: ${(apiKeys as any).elevenlabs.length})`);
             } else {
@@ -914,7 +920,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {([
-                            { key: 'anthropic', label: 'Anthropic (Claude)', placeholder: 'sk-ant-...' },
+                            { key: 'anthropic', label: 'Anthropic (Claude / Claude Code)', placeholder: 'sk-ant-...' },
                             { key: 'google', label: 'Google (Gemini)', placeholder: 'AIza...' },
                             { key: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
                             { key: 'groq', label: 'Groq', placeholder: 'gsk_...' },
@@ -924,6 +930,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             { key: 'xai', label: 'xAI', placeholder: 'xai-...' },
                             { key: 'cerebras', label: 'Cerebras', placeholder: 'csk-...' },
                             { key: 'alibaba', label: 'Alibaba DashScope', placeholder: 'sk-...' },
+                            { key: 'nvidia', label: 'NVIDIA NIM', placeholder: 'nvapi-...' },
                             // Removed: elevenlabs - now only in VOICE & TTS section below
                         ] as { key: string; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
                             <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

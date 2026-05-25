@@ -166,7 +166,7 @@ const GitGraph: React.FC = () => {
     const fetchHistory = useCallback(async () => {
         try {
             setLoading(true);
-            const data = await invoke<GitCommit[]>('get_git_history', { path: activeRoot || "." });
+            const data = await invoke<GitCommit[]>('git_get_history', { path: activeRoot || "." });
             // Support larger history for World Tree demonstration
             setHistory(data?.slice(0, 500) || []);
         } catch (e) {

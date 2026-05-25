@@ -1483,6 +1483,7 @@ const storeImplementation: any = (set: any, get: any) => ({
             if (keys.xai) providers.push('xAI');
             if (keys.cerebras) providers.push('Cerebras');
             if (keys.alibaba) providers.push('Alibaba');
+            if ((keys as any).nvidia) providers.push('Nvidia');
             providers.push('ApiRadar'); // Always include for aggregated view
             providers.push(
                 'OpenWebUI',

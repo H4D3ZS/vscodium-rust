@@ -43,7 +43,7 @@ impl GitManager {
 
         for line in stdout.lines() {
             if line.len() > 3 {
-                let status = line[0..2].trim().to_string();
+                let status = line[0..2].to_string();
                 let path = line[3..].to_string();
                 results.push(GitFileStatus { path, status });
             }

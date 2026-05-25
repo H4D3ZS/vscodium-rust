@@ -286,6 +286,7 @@ pub struct ApiKeys {
     pub xai: Option<String>,
     pub cerebras: Option<String>,
     pub alibaba: Option<String>,
+    pub nvidia: Option<String>,
     pub apiradar: Option<String>,
     /// Bearer token for reverse-proxied Ollama (e.g. nginx + `OLLAMA_BEARER`).
     pub ollama: Option<String>,
@@ -335,6 +336,7 @@ pub async fn save_api_keys(
     if incoming.xai.is_some()                 { merged.xai                 = incoming.xai; }
     if incoming.cerebras.is_some()            { merged.cerebras            = incoming.cerebras; }
     if incoming.alibaba.is_some()             { merged.alibaba             = incoming.alibaba; }
+    if incoming.nvidia.is_some()              { merged.nvidia              = incoming.nvidia; }
     if incoming.apiradar.is_some()            { merged.apiradar            = incoming.apiradar; }
     if incoming.ollama.is_some()              { merged.ollama              = incoming.ollama; }
     if incoming.elevenlabs_api_key.is_some()  { merged.elevenlabs_api_key  = incoming.elevenlabs_api_key; }
@@ -364,6 +366,7 @@ pub async fn save_api_key(
         "xai" => keys.xai = Some(value),
         "cerebras" => keys.cerebras = Some(value),
         "alibaba" => keys.alibaba = Some(value),
+        "nvidia" => keys.nvidia = Some(value),
         "apiradar" => keys.apiradar = Some(value),
         "elevenlabs_api_key" => keys.elevenlabs_api_key = Some(value),
         "ollama" => keys.ollama = Some(value),

@@ -28,9 +28,6 @@ const ActivityBar: React.FC = () => {
         { id: 'debug-view', icon: 'debug-alt', title: 'Run and Debug' },
         { id: 'test-view', icon: 'beaker', title: 'Test Explorer' },
         { id: 'extensions-view', icon: 'extensions', title: 'Extensions' },
-        { id: 'mobile-view', icon: 'device-mobile', title: 'Mobile Emulators (Android & iOS)' },
-        { id: 'emulator-view', icon: 'device-camera', title: 'Emulator Preview (Dev Workflow)' },
-        { id: 'checkpoints-view', icon: 'history', title: 'Git Checkpoints' },
         { id: 'vector-search-view', icon: 'search-fuzzy', title: 'Codebase Search' },
         { id: 'visual-lab', icon: 'beaker', title: 'Visual Lab (JSON & Flow)' },
         ...extensionItems

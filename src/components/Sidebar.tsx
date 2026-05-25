@@ -8,12 +8,8 @@ import ExtensionsView from './ExtensionsView';
 import ScmView from './ScmView';
 import DebugView from './DebugView';
 import TestExplorer from './TestExplorer';
-import EmulatorPanel from './EmulatorPanel';
 import ProjectSpecsSidebar from './ProjectSpecsSidebar';
-import CheckpointsPanel from './CheckpointsPanel';
 import VectorSearchPanel from './VectorSearchPanel';
-import { EmulatorPreview } from './EmulatorPreview';
-import { airiMobileDev } from '../airi/mobile-dev-workflow';
 
 interface FlattenedNode {
     entry: FileEntry;
@@ -376,7 +372,6 @@ const SymbolOutlinePane: React.FC = () => {
 const Sidebar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
     const isOpen = useStore(state => state.isSidebarOpen);
-    const emulatorPanelPosition = useStore(state => state.emulatorLayout);
     const { activeRoot, activeRootName, fileTree, refreshFileTree, setActiveRoot, closeFolder, iconThemeMapping, tabs, activeTabId, setActiveTab, closeTab } = useStore();
 
     const handleOpenFolder = async () => {
@@ -491,13 +486,9 @@ const Sidebar: React.FC = () => {
         'test-view': 'TEST EXPLORER',
         'extensions-view': 'EXTENSIONS',
         'specs-view': 'SPECS',
-        'mobile-view': 'MOBILE EMULATORS',
-        'emulator-view': 'EMULATOR PREVIEW'
     };
 
     const extensionContributions = useStore(state => state.extensionContributions);
-    const isDevWorkflowActive = useStore(state => state.isDevWorkflowActive);
-
     const isCoreView = titles[activeView] !== undefined;
     const extensionContainer = !isCoreView ? extensionContributions?.viewsContainers?.activitybar?.find((c: any) => c.id === activeView) : null;
     const extensionViews = extensionContainer ? (extensionContributions?.views?.[activeView] || []) : [];
@@ -565,30 +556,7 @@ const Sidebar: React.FC = () => {
                 {activeView === 'scm-view' && <ScmView />}
                 {activeView === 'debug-view' && <DebugView />}
                 {activeView === 'test-view' && <TestExplorer />}
-                {activeView === 'emulator-view' && isDevWorkflowActive && <EmulatorPreview />}
-                {activeView === 'emulator-view' && !isDevWorkflowActive && (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#888' }}>
-                        <p style={{ fontSize: '12px' }}>Start a mobile dev workflow to see the emulator preview</p>
-                        <button 
-                            onClick={() => airiMobileDev.startRequirementsGathering()}
-                            style={{
-                                marginTop: '12px',
-                                padding: '8px 16px',
-                                background: 'var(--vscode-button-background)',
-                                color: 'var(--vscode-button-foreground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '11px'
-                            }}
-                        >
-                            Start Dev Workflow
-                        </button>
-                    </div>
-                )}
                 {activeView === 'extensions-view' && <ExtensionsView />}
-                {activeView === 'mobile-view' && emulatorPanelPosition !== 'right' && <EmulatorPanel />}
-                {activeView === 'checkpoints-view' && <CheckpointsPanel />}
                 {activeView === 'vector-search-view' && <VectorSearchPanel />}
 
                 {/* Extension Contributed Views */}

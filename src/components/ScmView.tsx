@@ -5,7 +5,7 @@ import GitGraph from './GitGraph';
 
 interface GitStatus {
     path: string;
-    status: string; // M, A, D, ??
+    status: string; // two-column porcelain status: "M ", " M", "??", etc.
 }
 
 const DiffInline: React.FC<{ content: string; loading: boolean }> = ({ content, loading }) => {
@@ -134,8 +134,9 @@ const ScmView: React.FC = () => {
         }
     };
 
-    const staged = statuses.filter(s => ['M', 'A', 'D'].includes(s.status) && !s.status.includes(' '));
-    const unstaged = statuses.filter(s => s.status === '??' || s.status.includes(' '));
+    const visibleStatus = (status: string) => status.trim() || status;
+    const staged = statuses.filter(s => s.status !== '??' && s.status[0] !== ' ' && s.status[0] !== undefined);
+    const unstaged = statuses.filter(s => s.status === '??' || (s.status[1] !== ' ' && s.status[1] !== undefined));
 
     return (
         <div className="scm-view" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -294,7 +295,7 @@ const ScmView: React.FC = () => {
                                         >
                                             <i className="codicon codicon-file" style={{ fontSize: 13, marginRight: 8, opacity: 0.4 }}></i>
                                             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.path}</span>
-                                            <span style={{ color: '#4ec9b0', width: '15px', textAlign: 'center', fontSize: 10, fontWeight: 700 }}>{s.status}</span>
+                                            <span style={{ color: '#4ec9b0', width: '15px', textAlign: 'center', fontSize: 10, fontWeight: 700 }}>{visibleStatus(s.status)}</span>
                                             <i className="codicon codicon-remove" onClick={e => { e.stopPropagation(); handleUnstage(s.path); }} style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.4 }} />
                                         </div>
                                         {diffFile === s.path && (
@@ -316,7 +317,7 @@ const ScmView: React.FC = () => {
                                         >
                                             <i className="codicon codicon-file" style={{ fontSize: 13, marginRight: 8, opacity: 0.4 }}></i>
                                             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.path}</span>
-                                            <span style={{ color: '#d16d9e', width: '15px', textAlign: 'center', fontSize: 10, fontWeight: 700 }}>{s.status}</span>
+                                            <span style={{ color: '#d16d9e', width: '15px', textAlign: 'center', fontSize: 10, fontWeight: 700 }}>{visibleStatus(s.status)}</span>
                                             <i className="codicon codicon-add" onClick={e => { e.stopPropagation(); handleStage(s.path); }} style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.4 }} />
                                         </div>
                                         {diffFile === s.path && (

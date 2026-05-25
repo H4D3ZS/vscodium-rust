@@ -15,6 +15,7 @@ const BottomPanel: React.FC = () => {
     const terminalGroups = useStore(state => state.terminalGroups);
     const activeTerminalGroupId = useStore(state => state.activeTerminalGroupId);
     const addTerminalGroup = useStore(state => state.addTerminalGroup);
+    const addAiriActivityTerminal = useStore(state => state.addAiriActivityTerminal);
     const splitTerminal = useStore(state => state.splitTerminal);
     const closeTerminalGroup = useStore(state => state.closeTerminalGroup);
 
@@ -224,6 +225,9 @@ const BottomPanel: React.FC = () => {
                             </div>
                             <div className="toolbar-icon" onClick={() => addTerminalGroup(selectedShell || undefined)} title="New Terminal (Ctrl+`)">
                                 <i className="codicon codicon-add" />
+                            </div>
+                            <div className="toolbar-icon" onClick={addAiriActivityTerminal} title="Open AIRI Activity Terminal">
+                                <i className="codicon codicon-radio-tower" />
                             </div>
                             <div className="toolbar-icon" onClick={() => activeGroup && splitTerminal(activeGroup.id, activeGroup.activeInstanceId)} title="Split Terminal">
                                 <i className="codicon codicon-split-horizontal" />

@@ -83,7 +83,6 @@ const TitleBar: React.FC = () => {
     const [activeMenu, setActiveMenu] = useState<string | null>(null);
     const agentModel = useStore(state => state.agentModel);
     const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
-    const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
 
     const menus = [
         { label: 'File', items: ['New File', 'New Window', 'Open...', 'Save', 'Close Editor'] },
@@ -266,29 +265,6 @@ const TitleBar: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Emulator Switcher */}
-                    <div
-                        className={`title-toggle-btn ${isEmulatorPanelOpen ? 'active' : ''}`}
-                        onClick={() => (window as any).useStore?.getState().openEmulatorPanel()}
-                        title="Mobile Emulator"
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '4px 10px',
-                            borderRadius: '6px',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            background: isEmulatorPanelOpen ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
-                            color: isEmulatorPanelOpen ? '#60a5fa' : 'rgba(255,255,255,0.4)',
-                            border: isEmulatorPanelOpen ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent',
-                            transition: 'all 0.2s ease'
-                        }}
-                    >
-                        <i className="codicon codicon-device-mobile" style={{ fontSize: '14px' }}></i>
-                        <span style={{ letterSpacing: '0.5px' }}>EMU</span>
-                    </div>
                 </div>
 
                 {/* Native window controls — always visible, no-drag region */}
