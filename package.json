@@ -37,7 +37,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/react-window": "^1.8.8",
     "@vitejs/plugin-react": "^5.1.4",
-    "@vscode/codicons": "^0.0.44",
+    "@vscode/codicons": "^0.0.45",
     "@xterm/addon-canvas": "^0.7.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
