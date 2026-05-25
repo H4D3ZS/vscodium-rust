@@ -10,8 +10,10 @@ mod state;
 pub use state::EditorState;
 pub mod ai_engine;
 pub mod ai_tools;
+pub mod browser_actuation;
 pub mod ane;
 pub mod process_ext;
+pub mod auth_commands;
 // use crate::process_ext::CommandExtHidden;
 
 pub mod context_quantizer;
@@ -140,6 +142,24 @@ pub fn run() {
                 fs::create_dir_all(&state.config_dir).ok();
             }
 
+            // Initialize ChatGPT bridge
+            match browser_actuation::chatgpt_bridge::ChatGPTBridge::new(&_app_handle) {
+                Ok(bridge) => {
+                    app.manage(std::sync::Arc::new(bridge));
+                }
+                Err(e) => {
+                    eprintln!("[AI] Failed to warm up ChatGPT bridge window: {}", e);
+                }
+            }
+
+            // Start background OAuth listener
+            let oauth_app_handle = _app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = auth_commands::start_oauth_listener(14285, oauth_app_handle).await {
+                    eprintln!("Failed to start OAuth listener: {}", e);
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -153,6 +173,12 @@ pub fn run() {
             ai_auth::capture_ai_session,
             ai_auth::capture_ai_session_now,
             ai_auth::provider_login_capabilities,
+
+            auth_commands::start_webui_login,
+            auth_commands::check_login_status,
+            auth_commands::get_stored_token,
+            auth_commands::send_webui_prompt,
+            auth_commands::save_webui_response,
 
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
@@ -427,6 +453,8 @@ pub fn run() {
             kortex_commands::save_kortex_memory,
             kortex_commands::load_kortex_memory,
             kortex_commands::load_kortex_metadata,
+            kortex_commands::aim_trust_manifest,
+            kortex_commands::aim_query_spans,
             kortex_commands::aim_load_telemetry,
             kortex_commands::aim_append_telemetry,
             kortex_commands::aim_telemetry_snapshot,

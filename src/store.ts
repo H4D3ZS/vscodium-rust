@@ -52,21 +52,21 @@ const DEAD_OLLAMA_HOSTS = [
 
 function readStoredOllamaUrl(): string {
     try {
-        if (typeof localStorage === 'undefined') return 'http://localhost:11434';
+        if (typeof localStorage === 'undefined') return 'http://127.0.0.1:11434';
         const raw = (localStorage.getItem('ollamaUrl') || '').trim();
-        if (!raw) return 'http://localhost:11434';
+        if (!raw) return 'http://127.0.0.1:11434';
         // Strip any of the known-dead hosts so we don't reconnect to them.
         // Users who legitimately want a custom host can re-enter it in
         // Settings → Ollama Integration; that codepath persists it back.
         for (const dead of DEAD_OLLAMA_HOSTS) {
             if (raw.includes(dead)) {
                 try { localStorage.removeItem('ollamaUrl'); } catch { /* tracking prevention */ }
-                return 'http://localhost:11434';
+                return 'http://127.0.0.1:11434';
             }
         }
         return raw;
     } catch {
-        return 'http://localhost:11434';
+        return 'http://127.0.0.1:11434';
     }
 }
 
@@ -642,6 +642,14 @@ interface AppState {
     createNewSession: () => Promise<void>;
     refreshBrainTelemetry: () => Promise<void>;
     addKairosSuggestion: (suggestion: any) => void;
+
+    // Right sidebar panel actions
+    toggleAiriPanel: () => void;
+    toggleEmulatorPanel: () => void;
+    openAiriPanel: () => void;
+    closeAiriPanel: () => void;
+    openEmulatorPanel: () => void;
+    closeEmulatorPanel: () => void;
 }
 
 export interface AgentTask {
@@ -696,7 +704,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     // commands and ships PoCs — critical for cybersecurity/bug-bounty work.
     // Chat mode forbids tool calls, which was the previous (broken) default.
     agentMode: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.mode')) || 'Agent',
-    agentModel: (typeof localStorage !== 'undefined' && localStorage.getItem('agentModel')) || 'Ollama|qwen3:35b', // Default community coding model
+    agentModel: (typeof localStorage !== 'undefined' && localStorage.getItem('agentModel')) || 'Ollama|airi-fast:latest', // Default local model (lightweight, fast)
     trustedPublishers: JSON.parse(localStorage.getItem('trustedPublishers') || '[]'),
     activeRoot: localStorage.getItem('activeRoot') || null,
     activeEditorPath: '',
@@ -730,7 +738,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     airiVisionEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.vision.enabled') === '1') || false,
     airiVisionModel: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.vision.model')) || 'qwen2.5vl:72b',
     airiConsciousnessEnabled: (typeof localStorage === 'undefined' || localStorage.getItem('airi.consciousness.enabled') !== '0'),
-    airiConsciousnessModel: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.consciousness.model')) || 'llama3.2:3b',
+    airiConsciousnessModel: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.consciousness.model')) || 'airi-fast:latest',
     agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'airi',
     ttsStrategy: (localStorage.getItem('ttsStrategy') as any) || 'elevenlabs',
     // ── Cursor-style IDE preference defaults ──────────────────────────
@@ -1457,8 +1465,17 @@ const storeImplementation: any = (set: any, get: any) => ({
             }
             if (keys.groq) providers.push('Groq');
             if (keys.xai) providers.push('xAI');
+            if (keys.cerebras) providers.push('Cerebras');
             if (keys.alibaba) providers.push('Alibaba');
             providers.push('ApiRadar'); // Always include for aggregated view
+            providers.push(
+                'OpenWebUI',
+                'Claude (WebUI)',
+                'Gemini (WebUI)',
+                'OpenAI (WebUI)',
+                'DeepSeek (WebUI)',
+                'Qwen (WebUI)',
+            ); // WebUI integrations
 
             let allModels: { id: string, provider: string }[] = [];
 
@@ -1487,9 +1504,16 @@ const storeImplementation: any = (set: any, get: any) => ({
                             ollamaConnectionMode: 'direct',
                             ollamaMode: isLocal ? 'local' : 'cloud',
                         });
+                    } // <-- Added missing brace here
+                    let models: string[] = [];
+                    if (p.includes('WebUI')) {
+                        const baseProvider = p.split(' ')[0].toLowerCase();
+                        allModels.push({ id: `WebUI Session (${baseProvider})`, provider: p.toLowerCase() });
+                        continue;
+                    } else {
+                        models = await invoke<string[]>('list_provider_models', { provider: p });
+                        allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
                     }
-                    const models = await invoke<string[]>('list_provider_models', { provider: p });
-                    allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
 
                     if (p.toLowerCase() === 'ollama') {
                         if (models.length > 0) {
@@ -1814,7 +1838,11 @@ const storeImplementation: any = (set: any, get: any) => ({
             timestamp
         }).catch((err: any) => console.error("[Persistence] Sync failed:", err));
 
-        return { agentMessages: [...state.agentMessages, newMessage] };
+        let newMessages = [...state.agentMessages, newMessage];
+        if (newMessages.length > 100) {
+            newMessages = newMessages.slice(newMessages.length - 100);
+        }
+        return { agentMessages: newMessages };
     }),
     updateLastAgentMessage: (content: any) => set((state) => {
         const messages = [...state.agentMessages];

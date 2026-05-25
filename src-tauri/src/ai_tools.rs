@@ -2600,8 +2600,8 @@ impl AiTools {
 
             // Prepare sub-agent request
             let req = crate::ai_engine::AiRequest {
-                provider: "google".to_string(), // Default fallback
-                model: "gemini-2.0-flash-exp".to_string(),
+                provider: "ollama".to_string(), // Native Local Subagent
+                model: "qwen2.5-coder-abliterate:7b".to_string(), // Or could be pulled from global state
                 messages: vec![crate::ai_engine::ChatMessage {
                     role: "user".to_string(),
                     content: Some(crate::ai_engine::MessageContent::Text(

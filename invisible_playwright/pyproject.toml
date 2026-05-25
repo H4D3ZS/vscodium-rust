@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "invisible-playwright"
+version = "0.1.8"
+description = "Playwright wrapper for a patched Firefox with deterministic stealth profile."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "feder-cr", email = "85809106+feder-cr@users.noreply.github.com" }]
+keywords = ["playwright", "firefox", "stealth", "anti-detect", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "playwright>=1.40",
+    "platformdirs>=4",
+    "requests>=2.31",
+    "tqdm>=4.66",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-mock>=3", "responses>=0.24", "build>=1"]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: pure-logic tests, no I/O or external deps",
+    "integration: multi-module tests, no browser",
+    "e2e: requires patched Firefox binary and display",
+    "slow: tests that build the wheel — opt-in only",
+    "linux_only: tests that require Linux platform",
+]
+addopts = "-m 'not slow and not e2e'"
+# tests/playwright-upstream/ is a vendored Microsoft Playwright test suite
+# used for compatibility verification on demand. It has its own deps
+# (pixelmatch with API not matching our version) and a conftest that fails
+# collection in our env. Run it explicitly with --override-ini for compat
+# audits, not on every push.
+norecursedirs = ["playwright-upstream"]
+
+[project.scripts]
+invisible-playwright = "invisible_playwright.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/feder-cr/invisible_playwright"
+Issues = "https://github.com/feder-cr/invisible_playwright/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/invisible_playwright"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/invisible_playwright", "tests", "README.md", "LICENSE", "pyproject.toml"]

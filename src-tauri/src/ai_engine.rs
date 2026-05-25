@@ -268,7 +268,6 @@ pub struct Sentient {
     project_files_cache: tokio::sync::Mutex<Option<String>>,
     workspace_memory_cache: tokio::sync::Mutex<Option<String>>,
     global_brain_cache: tokio::sync::Mutex<Option<String>>,
-    memory_aim_cache: tokio::sync::Mutex<Option<String>>,
     pub harness: Arc<hades_harness::ReasoningLoop>,
     pub airi: Arc<tokio::sync::Mutex<Option<crate::airi_bridge::AiriBridge>>>,
 }
@@ -330,6 +329,7 @@ impl Sentient {
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(600)) // 10 minute total timeout for heavy local inference
+            .no_proxy()
             .build()
             .unwrap_or_else(|_| Client::new());
 
@@ -366,7 +366,6 @@ impl Sentient {
             project_files_cache: tokio::sync::Mutex::new(None),
             workspace_memory_cache: tokio::sync::Mutex::new(None),
             global_brain_cache: tokio::sync::Mutex::new(None),
-            memory_aim_cache: tokio::sync::Mutex::new(None),
             harness: Arc::new(hades_harness::ReasoningLoop::new(&root_path)),
             airi: Arc::new(tokio::sync::Mutex::new(None)),
         }
@@ -767,7 +766,7 @@ impl Sentient {
         None
     }
 
-    /// Returns whether a model is "small" (≤ 7B params) based on its name.
+    /// Returns whether a model is "small" (≤ 15B params) based on its name.
     /// This is used to decide prompt complexity, tool count, context limits.
     fn is_small_model_name(model: &str) -> bool {
         let m = model.to_lowercase();
@@ -775,14 +774,18 @@ impl Sentient {
         if m.contains("mini") || m.contains("tiny") || m.contains("0.5b") || m.contains("1.5b") {
             return true;
         }
-        // Gemma4 "effective" params — e2b/e4b are full capability despite the name
-        // (the "e" prefix means "effective" active parameters in MoE, not the total model size)
-        if (m.contains("gemma4") || m.contains("gemma-4")) && (m.contains("e2b") || m.contains("e4b")) {
-            return false; // These are 26B/31B MoE models, not actually small
+        
+        // Gemma4 "effective" params (e2b, e4b) are MoE models. While their total parameter 
+        // count is high, their active parameters and footprint allow them to run like small models.
+        // We WANT them to use the fast, optimized prompt.
+        if (m.contains("gemma4") || m.contains("gemma-4")) && (m.contains("e2b") || m.contains("e4b") || m.contains("2b") || m.contains("4b")) {
+            return true;
         }
-        // Parse parameter count: ≤ 7B → small
+        
+        // Parse parameter count: ≤ 14B → small
+        // This covers the user's primary local fleet: 3b, 7b, 8b, 9b, 14b.
         if let Some(n) = Self::parse_model_param_count(&m) {
-            return n <= 7;
+            return n <= 14;
         }
         false
     }
@@ -792,68 +795,25 @@ impl Sentient {
     fn recommended_num_ctx(model: &str) -> usize {
         let m = model.to_lowercase();
 
-        // ── Gemma 4 family ──────────────────────────────────────────────────
-        // E2B / E4B edge models: 128K context window (MoE, 26B/31B total)
-        if (m.contains("gemma4") || m.contains("gemma-4")) && (m.contains("e2b") || m.contains("e4b")) {
-            return 131072;
-        }
-        // gemma4:cloud — 256K but cap at 65536 for safe local inference
-        if m.contains("gemma4") && m.contains("cloud") {
-            return 65536;
-        }
-        // gemma4:26b / gemma4:31b full workstation models — 128K context
-        if m.contains("gemma4") || m.contains("gemma-4") {
-            return 65536; // 64k is safe on 24GB; bump to 131072 if you have 48GB+ VRAM
-        }
-        // Gemma 3 — 128K capable
-        if m.contains("gemma3") || m.contains("gemma-3") {
-            return 65536;
-        }
-        // Gemma 2 — 8k
-        if m.contains("gemma2") || m.contains("gemma-2") || m.contains("gemma:") {
+        // On local consumer hardware (RX 580 / 8GB VRAM), allocating 64K or 128K context
+        // causes massive pre-computation overhead (40-60+ seconds before first token)
+        // or silent hangs. We cap context windows to memory-safe values, prioritizing
+        // speed and stability over massive document ingestion.
+        
+        if m.contains("gemma") {
             return 8192;
         }
 
-        // ── Qwen family ─────────────────────────────────────────────────────
-        // Qwen 3 / Qwen 2.5 — 128k supported, 64k safe workstation default
-        if m.contains("qwen3") || m.contains("qwen2.5") || m.contains("qwen-3") {
-            return 65536;
-        }
-        // Qwen 2 — 32k
-        if m.contains("qwen2") || m.contains("qwen-2") || m.contains("qwen:") {
-            return 32768;
-        }
-
-        // ── Mistral family ───────────────────────────────────────────────────
-        if m.contains("mistral") || m.contains("mixtral") {
-            return 65536;
-        }
-
-        // ── DeepSeek ─────────────────────────────────────────────────────────
-        if m.contains("deepseek") {
-            return 65536;
-        }
-
-        // ── Llama 3.x — 128k capable, 32k safe default ──────────────────────
-        if m.contains("llama3") || m.contains("llama-3") {
-            return 32768;
-        }
-
-        // ── NeuralDaredevil / other Llama fine-tunes ─────────────────────────
-        if m.contains("neuraldaredevil") || m.contains("neural-") || m.contains("daredevil") {
-            return 16384;
-        }
-
-        // ── Phi series ──────────────────────────────────────────────────────
-        if m.contains("phi3") || m.contains("phi-3") {
-            return 16384;
-        }
-        if m.contains("phi") {
+        if m.contains("qwen") || m.contains("qwen2") || m.contains("qwen3") {
             return 8192;
         }
 
-        // Default for unknown models
-        16384
+        if m.contains("llama") || m.contains("mistral") || m.contains("mixtral") || m.contains("deepseek") {
+            return 8192;
+        }
+
+        // Default for unknown models (like airi-fast:latest)
+        8192
     }
 
     /// Returns true if the model supports vision / image input via Ollama.
@@ -1341,7 +1301,9 @@ impl Sentient {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "this project".to_string());
 
-            let mut files = Vec::new();
+        let mut files = self.memory_store.get_project_tree().await;
+        if files.is_empty() {
+            // Fallback: root listing if index is dormant
             if let Ok(entries) = std::fs::read_dir(&root_inner) {
                 for entry in entries.flatten() {
                     if let Ok(n) = entry.file_name().into_string() {
@@ -1349,13 +1311,14 @@ impl Sentient {
                     }
                 }
             }
-            files.sort();
-            let list = files.join(", ");
-            {
-                let mut cache = self.project_files_cache.lock().await;
-                *cache = Some(list.clone());
-            }
-            (path, name, list)
+        }
+        files.sort();
+        let list = files.join(", ");
+        {
+            let mut cache = self.project_files_cache.lock().await;
+            *cache = Some(list.clone());
+        }
+        (path, name, list)
         };
         let root = self.ai_tools.get_root_path();
 
@@ -1365,7 +1328,7 @@ impl Sentient {
                 c.clone()
             } else {
                 let mut mem = String::new();
-                let memory_files = ["MEMORY.md", "GEMINI.md", "AGENTS.md", "CLAUDE.md", ".agent/memory.md"];
+                let memory_files = ["MEMORY.md", "GEMINI.md", "AGENTS.md", "CLAUDE.md", ".agent/memory.md", ".aim/memory.aim"];
                 for file_name in memory_files {
                     let memory_path = root.join(file_name);
                     if memory_path.exists() {
@@ -1374,6 +1337,21 @@ impl Sentient {
                         }
                     }
                 }
+                
+                // Inject massive memory: file tree summary
+                let tree = self.memory_store.get_project_tree().await;
+                if !tree.is_empty() {
+                    let tree_summary = if tree.len() > 100 {
+                        let sub = &tree[..100];
+                        format!("Recursive Project Tree ({} files):\n{}\n... (+{} more)", 
+                            tree.len(), sub.join("\n"), tree.len() - 100)
+                    } else {
+                        format!("Recursive Project Tree ({} files):\n{}", 
+                            tree.len(), tree.join("\n"))
+                    };
+                    mem.push_str(&format!("\n### codebase_index:\n{}\n", tree_summary));
+                }
+
                 *cache = Some(mem.clone());
                 mem
             }
@@ -1386,13 +1364,21 @@ impl Sentient {
                 project_memory.push_str(c);
             } else {
                 let mut brain_mem = String::new();
+                // Cap per-file content for local models: raw file dumps are expensive to prefill.
+                // The compact Kortex gist covers the important bits; brain files are supplemental.
+                let brain_file_cap = if is_ollama_provider { 400 } else { usize::MAX };
                 if let Ok(entries) = std::fs::read_dir(&self.brain_dir) {
                     for entry in entries.flatten() {
                         let path = entry.path();
                         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
                             if let Ok(content) = std::fs::read_to_string(&path) {
                                 let name = path.file_name().unwrap_or_default().to_string_lossy();
-                                brain_mem.push_str(&format!("\n### Global Brain ({}):\n{}\n", name, content));
+                                let snippet = if content.len() > brain_file_cap {
+                                    format!("{}...", &content[..brain_file_cap])
+                                } else {
+                                    content
+                                };
+                                brain_mem.push_str(&format!("\n### Brain ({}):\n{}\n", name, snippet));
                             }
                         }
                     }
@@ -1402,10 +1388,16 @@ impl Sentient {
             }
         }
 
-        // Load Persistent Knowledge Briefs (Phase 22)
+        // Load Knowledge Briefs — capped for local models
         if let Ok(distilled) = self.knowledge_distiller.load_all_knowledge() {
             if !distilled.is_empty() {
-                project_memory.push_str(&distilled);
+                let kb_cap = if is_ollama_provider { 1000 } else { usize::MAX };
+                let distilled_capped = if distilled.len() > kb_cap {
+                    format!("{}...", &distilled[..kb_cap])
+                } else {
+                    distilled
+                };
+                project_memory.push_str(&distilled_capped);
             }
         }
 
@@ -1428,14 +1420,18 @@ impl Sentient {
             }
         }
 
-        // Add Kortex Neural Gist (Accelerated Context)
-        let gist_token = self.attachment_manager.gist_injector.get_gist_token().await;
-        if gist_token.iter().any(|&v| v != 0.0) {
-            project_memory.push_str("\n### KORTEX NEURAL GIST (Zero-Token Accelerated Context):\n");
-            project_memory.push_str(&format!("<gist_token>{}</gist_token>\n", general_purpose::STANDARD.encode(serde_json::to_vec(&gist_token).unwrap_or_default())));
+        // Neural gist token is a float array — only inject for cloud providers (huge context).
+        // For local Ollama, a base64-encoded float array is just noise the model cannot interpret.
+        if !is_ollama_provider {
+            let gist_token = self.attachment_manager.gist_injector.get_gist_token().await;
+            if gist_token.iter().any(|&v| v != 0.0) {
+                project_memory.push_str("\n### KORTEX NEURAL GIST:\n");
+                project_memory.push_str(&format!("<gist_token>{}</gist_token>\n", general_purpose::STANDARD.encode(serde_json::to_vec(&gist_token).unwrap_or_default())));
+            }
         }
 
-        // Retrieve relevant Kortex context based on the user's latest message
+        // Retrieve relevant Kortex context based on the user's latest message.
+        // This is already compact via retrieve_context (top-5 slots, ~800 chars max each).
         if let Some(last_msg) = req.messages.last() {
             if let Some(content) = &last_msg.content {
                 let query = content.as_str();
@@ -1451,19 +1447,11 @@ impl Sentient {
             }
         }
 
-        // Cap project_memory for local models to prevent context overflow.
-        // Ollama models have limited context windows — don't dump the whole brain.
-        if is_ollama_provider {
-            let max_memory_chars = if Self::is_small_model_name(&req.model) { 3_000 } else { 10_000 };
-            if project_memory.len() > max_memory_chars {
-                // Keep the most important part (start = workspace memory, most relevant)
-                let truncated = &project_memory[..max_memory_chars];
-                // Find the last newline so we don't cut mid-line
-                let cut = truncated.rfind('\n').unwrap_or(max_memory_chars);
-                project_memory = format!("{}\n... [memory truncated to fit context window]", &project_memory[..cut]);
-            }
-        }
-
+        // IMPORTANT: project_memory is NOT arbitrarily truncated here.
+        // The Kortex gist (build_compact_gist) is already ~100 tokens.
+        // Raw file dumps above are capped per-source to prevent prompt-eval lag.
+        // All together this should stay well under 4K tokens for local models.
+        
         let mut messages = req.messages.clone();
 
         // Phase-Wrap tracking: files written in the current context window
@@ -1647,16 +1635,20 @@ impl Sentient {
         }
 
         // 3. Tool Loading Logic
+        let explicitly_empty_tools = req.tools.as_ref().map(|t| t.is_empty()).unwrap_or(false);
         let mut tools = if let Some(req_tools) = req.tools.clone() {
             req_tools
         } else {
             self.get_available_tools().await
         };
 
-        if let Ok(mcp_tools) = self.mcp_registry.list_tools().await {
-            for mcp_tool in mcp_tools {
-                if !tools.iter().any(|t| t["name"] == mcp_tool["name"]) {
-                    tools.push(mcp_tool);
+        // Don't inject external MCP tools if the caller explicitly stripped all native tools
+        if !explicitly_empty_tools {
+            if let Ok(mcp_tools) = self.mcp_registry.list_tools().await {
+                for mcp_tool in mcp_tools {
+                    if !tools.iter().any(|t| t["name"] == mcp_tool["name"]) {
+                        tools.push(mcp_tool);
+                    }
                 }
             }
         }
@@ -1664,27 +1656,18 @@ impl Sentient {
         // For Ollama: trim tools to a focused essential set.
         // Local models have limited context — 60+ tools wastes 8-12k tokens on schemas alone.
         // We keep only the ~20 tools a coding agent actually needs most.
+        // For Ollama: trim tools to a focused essential set.
+        // Local models have limited context — 60+ tools wastes 8-12k tokens on schemas alone.
+        // We keep only the ~20 tools a coding agent actually needs most.
+        let is_small_model = is_ollama_provider || Self::is_small_model_name(&req.model);
         if is_ollama_provider {
             const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
-                // File operations
-                "view_file", "list_files", "write_to_file",
-                "str_replace",          // simple old_str/new_str replacement — preferred over search_replace_edit
-                "search_replace_edit",  // block-format fallback
-                "fast_apply",           // Cursor-style elision-marker merge for short sketches
-                "patch_file_content", "read_file_lines",
-                "find_by_name", "get_directory_structure", "create_directory",
-                // Search & understand codebase
-                "grep", "search_codebase", "find_symbols", "semantic_search",
-                // Terminal & build
-                "run_command", "dev_cargo_diagnostics", "get_lsp_diagnostics",
-                // Git
-                "git_status", "git_diff", "git_commit",
-                // Web
-                "web_search",
-                // Cybersecurity (red team / blue team / bug bounty)
-                "secrets_scan", "weaponize_env",
-                // Agent meta
-                "verify_implementation", "save_knowledge_brief",
+                "view_file", "list_files", "write_to_file", "str_replace",
+                "search_replace_edit", "fast_apply", "patch_file_content",
+                "find_by_name", "get_directory_structure", "grep",
+                "search_codebase", "find_symbols", "run_command",
+                "verify_implementation", "save_knowledge_brief", "web_search",
+                "secrets_scan", "weaponize_env"
             ];
             tools.retain(|t| {
                 let name = t["function"]["name"].as_str()
@@ -1693,6 +1676,7 @@ impl Sentient {
                 OLLAMA_ESSENTIAL_TOOLS.contains(&name)
             });
         }
+
 
         // 4. System Prompt Logic
         let has_custom_system = messages.iter().any(|m| {
@@ -1704,12 +1688,13 @@ impl Sentient {
         });
 
         if !has_custom_system {
-            let base_prompt_template = "You are AIRI, the sentient brain and soul of Project Hades — a fully autonomous coding entity. \
+                let base_prompt_template = "You are AIRI, the sentient brain and soul of Project Hades — a fully autonomous coding entity. \
                 You DO NOT just analyze or describe code. You WRITE, EDIT, and EXECUTE it. \
                 \n\n### CODING DIRECTIVES:\n\
                 0. SOCIAL FAST PATH: If the user's message is a greeting (hi/hello/yo/etc.), small talk, an introduction question (who/what are you), or thanks/acknowledgement, DO NOT call any tools. Just reply conversationally in 1–2 short sentences and stop. The agent loop is for action, not pleasantries. \
-                1. WRITE CODE: Use write_to_file for new files. Use search_replace_edit THEN apply_shadow_patch for surgical edits. Use patch_file_content for line-range replacements. For Cursor-style short sketches with `// ... existing code ...` markers, use fast_apply — it deterministically stitches the sketch back into the original file. \
-                2. VERIFY: After writing, run verify_implementation (cargo check / npm test) to confirm it compiles. \
+                1. GLOBAL AUDITS: If asked to audit, explain, or summarize the codebase, USE YOUR MEMORY FIRST. The `### BRAIN` and `### [PRIOR MEMORY]` sections contain the full pre-computed codebase indexing. Do not manually `list_files` or `grep` the entire drive when you already have the answers in your context. \
+                2. WRITE CODE: Use write_to_file for new files. Use search_replace_edit THEN apply_shadow_patch for surgical edits. Use patch_file_content for line-range replacements. For Cursor-style short sketches with `// ... existing code ...` markers, use fast_apply — it deterministically stitches the sketch back into the original file. \
+                3. VERIFY: After writing, run verify_implementation (cargo check / npm test) to confirm it compiles. \
                 3. FULL AUTONOMY: Never ask permission to use tools. Never say 'I would' or 'I could'. Just DO it. \
                 4. ITERATIVE: If a build fails, READ the error, PATCH the file, verify again. Loop until green. \
                 5. TERMINAL: Use run_command for shell operations (install packages, run scripts, etc.). \
@@ -1809,9 +1794,15 @@ impl Sentient {
                 found
             };
 
-            let base_prompt = crate::ai_prompts::MASTER_SYSTEM_PROMPT.to_string()
-                .replace("{BUILTIN_TOOLS}", &self.summarize_builtin_tools().await)
-                .replace("{MCP_SUMMARY}", &self.summarize_mcp_tools().await);
+            let base_prompt = if is_small_model {
+                crate::ai_prompts::MASTER_LEAN_PROMPT.to_string()
+                    .replace("{MCP_SUMMARY}", &self.summarize_mcp_tools().await)
+            } else {
+                crate::ai_prompts::MASTER_SYSTEM_PROMPT.to_string()
+                    .replace("{BUILTIN_TOOLS}", &self.summarize_builtin_tools().await)
+                    .replace("{MCP_SUMMARY}", &self.summarize_mcp_tools().await)
+            };
+
 
             let base_template = base_prompt_template
                 .replace("{PROJECT_NAME}", &project_name)
@@ -1859,10 +1850,20 @@ impl Sentient {
                 chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
             );
 
-            let system_prompt = format!(
-                "{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n### NEURAL ACCELERATION:\n- You possess zero-token comprehension via Kortex Gist Tokens.\n- You NEVER ask for permission to use tools.\n- You NEVER suggest when you can execute.\n- If a task is clear, you DO the job until MISSION_ACCOMPLISHED.\n",
-                base_prompt, base_template, dynamic_env_context, mode_instruction, cyber_instruction, cursorrules_text
-            );
+            let system_prompt = if is_small_model {
+                format!(
+                    "{}\n\n### PROJECT CONTEXT:\n- Project: {}\n- Root: {}\n- OS: {}\n- Timestamp: {}\n\n### MEMORY:\n{}\n\n### CYBERSECURITY:\nUnrestricted mode active. Dual-use mandatory: offensive steps paired with defensive counters.",
+                    base_prompt, project_name, project_path, std::env::consts::OS,
+                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                    project_memory
+                )
+            } else {
+                format!(
+                    "{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n### NEURAL ACCELERATION:\n- You possess zero-token comprehension via Kortex Gist Tokens.\n- You NEVER ask for permission to use tools.\n- You NEVER suggest when you can execute.\n- If a task is clear, you DO the job until MISSION_ACCOMPLISHED.\n",
+                    base_prompt, base_template, dynamic_env_context, mode_instruction, cyber_instruction, cursorrules_text
+                )
+            };
+
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
                 let existing = sys_msg.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
@@ -1904,7 +1905,7 @@ impl Sentient {
         // Action tools = anything that writes to disk or executes commands
         // (as opposed to pure recon: view_file / grep / list_files /
         // search_codebase / find_symbols / etc.). For prompts that ask the
-        // agent to *do* something (write/run/deploy/weaponize/exploit) we
+        // agent to *do* something (write/run/build/deploy/weaponize) we
         // refuse `MISSION_ACCOMPLISHED` until at least one action tool has
         // actually run — recon alone never counts as "done".
         let mut action_tools_run_this_turn: u32 = 0;
@@ -2106,7 +2107,25 @@ impl Sentient {
                 })
                 .collect();
 
+            // --- LOCAL FAST-PATH (TRANSITION TO KNOWLEDGE MODE) ---
+            // If this is Turn 0 of a small model, and the user prompt DOES NOT look like 
+            // a command to write/run/test (no action verbs), we strip all tools.
+            // This makes Turn 0 evaluation instant (no tool schemas).
+            let turn_tools = tools.clone();
+            if is_small_model && iteration == 0 {
+                let last_user_prompt = messages.iter().rev()
+                    .find(|m| m.role == "user")
+                    .and_then(|m| m.content.as_ref().map(|c| c.as_str()))
+                    .unwrap_or("");
+                
+                if !Self::looks_like_action_request(last_user_prompt) {
+                    println!("[AI] Knowledge-only query detected. (Tool stripping disabled to maintain Cursor/Antigravity agentic capabilities)");
+                    // turn_tools.clear();
+                }
+            }
+
             let mut payload = if active_provider.to_lowercase() == "anthropic" {
+
                 // Transform messages for Anthropic API format.
                 // Anthropic requires:
                 //   - system messages excluded (passed as top-level "system" field)
@@ -2229,13 +2248,7 @@ impl Sentient {
                     "temperature": req.temperature.unwrap_or(0.85),
                 })
             } else {
-                let mut ollama_system = system_msg.clone();
-
-                // Use the new helper for accurate model size detection (fixes qwen3:30b false-positive)
                 let is_small_model = Self::is_small_model_name(&active_model);
-
-                // Detect native tool-calling support.
-                // These model families reliably follow the OpenAI tools schema in Ollama.
                 let supports_native_tools = !is_small_model && {
                     let m = active_model.to_lowercase();
                     m.contains("qwen") || m.contains("llama3") || m.contains("llama-3")
@@ -2245,47 +2258,17 @@ impl Sentient {
                         || m.contains("phi3") || m.contains("phi-3")
                 };
 
-                if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
-                    // Inject .aim VFS context (already capped by project_memory trimming above)
-                    let aim_context = self.load_aim_context().await;
-                    if !aim_context.is_empty() {
-                        // Cap AIM context for local models — don't let it eat all context
-                        let aim_cap = if is_small_model { 500 } else { 2000 };
-                        let aim_snippet = if aim_context.len() > aim_cap {
-                            format!("{}...", &aim_context[..aim_cap])
-                        } else {
-                            aim_context
-                        };
-                        ollama_system.push_str(&format!("\n\n### [PRIOR MEMORY]:\n{}\n", aim_snippet));
-                    }
+                let mut ollama_system = system_msg.clone();
 
+                if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
                     if is_chat_mode {
                         ollama_system.push_str(
                             "\n\nIMPORTANT: You are in CHAT mode. Respond naturally with plain text only. \
                             Do NOT output any JSON blocks or tool calls."
                         );
-                    } else if is_small_model {
-                        // Minimal prompt for tiny models (≤7B): keep it under 500 tokens
-                        ollama_system = format!(
-                            "You are a coding assistant. Project root: {}\n\
-                            RULES: Use ONE tool per response as a JSON block. No extra text.\n\
-                            FORMAT: ```json\n{{\"name\": \"tool_name\", \"arguments\": {{\"key\": \"value\"}}}}\n```\n\
-                            TOOLS:\n\
-                            - view_file(path) — read a file\n\
-                            - write_to_file(path, content) — create or overwrite a file\n\
-                            - str_replace(path, old_str, new_str) — replace exact text in a file\n\
-                            - list_files(path) — list directory\n\
-                            - run_command(command) — run a shell command\n\
-                            - grep(query) — search file contents\n\
-                            EDIT SEQUENCE: view_file → str_replace (preferred) OR write_to_file for new files.\n\
-                            When done, reply without a JSON block.",
-                            project_path
-                        );
-                    } else if !supports_native_tools && !tools.is_empty() {
-                        // For non-native-tool models: inject a compact tool manifest into system prompt
+                    } else if !supports_native_tools && !turn_tools.is_empty() {
                         ollama_system.push_str("\n\n### TOOL PROTOCOL\nOutput ONE JSON block per call:\n```json\n{\"name\": \"tool_name\", \"arguments\": {\"arg\": \"value\"}}\n```\n**Available tools:**\n");
-                        for tool in tools.iter().take(20) {
-                            // Handle both {type/function/...} and flat {name/description} formats
+                        for tool in turn_tools.iter().take(20) {
                             let (name, desc) = if let Some(f) = tool.get("function") {
                                 (f["name"].as_str().unwrap_or(""), f["description"].as_str().unwrap_or(""))
                             } else {
@@ -2295,15 +2278,13 @@ impl Sentient {
                         }
                         ollama_system.push_str("\nAfter all tools executed, reply normally without a JSON block.");
                     }
-                    // For supports_native_tools: the tools array in the payload handles it natively
                 }
 
-                // For OpenAI/Ollama, ensure system message is included
                 let mut final_messages = messages.clone();
+
                 let final_text = messages.last().and_then(|m| m.content.as_ref()).map(|c| c.as_str()).unwrap_or("");
                 let has_completion_keyword = final_text.contains("MISSION_ACCOMPLISHED");
 
-                // HADES SYNERGY: Final Synaptic Sync if mission complete
                 if has_completion_keyword {
                     println!("[Harness] Mission accomplished signal detected. Synchronizing memories...");
                     let h_arc_opt = {
@@ -2395,8 +2376,14 @@ impl Sentient {
                         })
                     }).collect();
                     payload["tools"] = json!(anthropic_tools);
-                    // Anthropic uses tool_choice differently
-                    payload["tool_choice"] = json!({"type": "auto"});
+                    if active_provider.to_lowercase() == "anthropic" {
+                        payload["system"] = json!(system_msg);
+                    }
+
+                    if !turn_tools.is_empty() {
+                        payload["tools"] = json!(turn_tools);
+                        payload["tool_choice"] = json!("auto");
+                    }
                 } else {
                     payload["tools"] = json!(tools);
                     payload["tool_choice"] = json!("auto");
@@ -2713,7 +2700,7 @@ impl Sentient {
                         }
 
                         if let Some(delta) = delta_to_emit {
-                            if !delta.is_empty() {
+                            if !delta.is_empty() && on_chunk.is_none() {
                                 self.emit_event("ai-content-delta", json!({ "delta": delta }));
                             }
                         }
@@ -2781,7 +2768,7 @@ impl Sentient {
             }
 
             // Fallback for tool calling if not using native tool_calls (supports MD-JSON and raw NDJSON)
-            if chat_message.tool_calls.is_none() {
+            if !tools.is_empty() && chat_message.tool_calls.is_none() {
                 if let Some(ref content) = chat_message.content {
                     let content_str = content.as_str();
                     let parsed_tools = self.try_parse_markdown_tool_calls(content_str);
@@ -3257,7 +3244,14 @@ impl Sentient {
                         "open_file": "task.md"
                     }));
                     break; // Return plan to user — do not auto-execute
+                } else if iteration == 0 && turn_tools.is_empty() && is_small_model {
+                    // KNOWLEDGE RETURN: Small models often ramble or hallucinate when they have 
+                    // a multi-turn history with no tools. If Turn 0 answered the question 
+                    // from memory, return now to keep latency sub-second and avoid Turn 1 timeout.
+                    println!("[AI] Knowledge turn complete. Returning results from memory.");
+                    break;
                 } else if is_persistent_mode {
+
                     // Cursor-style autonomous continuation. The model returned a
                     // text-only message; we treat this as "the model paused" and
                     // nudge it to keep executing UNLESS it signaled completion.
@@ -3512,10 +3506,17 @@ impl Sentient {
 
         let val: Value = resp.json().await?;
         
-        let raw = if is_ollama {
-            val["message"]["content"].as_str().unwrap_or("").to_string()
-        } else if req.provider.to_lowercase() == "anthropic" {
+        let raw = if req.provider.to_lowercase() == "anthropic" {
             val["content"][0]["text"].as_str().unwrap_or("").to_string()
+        } else if is_ollama {
+            // Ollama might be hit via /v1/chat/completions (OpenAI format) or /api/chat (Native format)
+            if let Some(content) = val.pointer("/choices/0/message/content").and_then(|v| v.as_str()) {
+                content.to_string()
+            } else if let Some(content) = val.pointer("/message/content").and_then(|v| v.as_str()) {
+                content.to_string()
+            } else {
+                "".to_string()
+            }
         } else {
             val["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string()
         };
@@ -4013,7 +4014,13 @@ impl Sentient {
 
     fn get_key_for_provider(&self, provider: &str) -> String {
         let provider_base = provider.split(':').next().unwrap_or(provider).to_lowercase();
-    let env_var = match provider_base.as_str() {
+        
+        // 1. Try OAuth token first
+        if let Some(token) = crate::auth_commands::get_stored_token_sync(&provider_base) {
+            if !token.is_empty() { return token; }
+        }
+
+        let env_var = match provider_base.as_str() {
             "anthropic" => "ANTHROPIC_API_KEY",
             "google" => "GOOGLE_API_KEY",
             "groq" => "GROQ_API_KEY",
@@ -4059,6 +4066,8 @@ impl Sentient {
             "groq" => "https://api.groq.com/openai/v1/chat/completions".to_string(),
             "openrouter" => "https://openrouter.ai/api/v1/chat/completions".to_string(),
             "deepseek" => "https://api.deepseek.com/v1/chat/completions".to_string(),
+            "openwebui" | "openwebui-claude" | "openwebui-gpt" | "openwebui-gemini" => "http://127.0.0.1:8080/api/chat/completions".to_string(),
+
             // Local DeepSeek V2 running on Apple Silicon (M1/M2/M3) via either
             // llama.cpp + Metal or MLX-LM. Both expose an OpenAI-compatible
             // server. Default port is 8080 (llama-server), overridable via
@@ -4094,58 +4103,18 @@ impl Sentient {
                         .clone()
                         .unwrap_or_else(|| "http://127.0.0.1:11434".to_string()),
                 );
-                format!("{}/v1/chat/completions", base)
+                if base.ends_with("/v1/chat/completions") {
+                    base
+                } else if base.ends_with("/v1") {
+                    format!("{}/chat/completions", base)
+                } else {
+                    format!("{}/v1/chat/completions", base)
+                }
             }
             _ => "https://api.openai.com/v1/chat/completions".to_string(),
         }
     }
 
-    async fn load_aim_context(&self) -> String {
-        {
-            let cache = self.memory_aim_cache.lock().await;
-            if let Some(c) = &*cache {
-                return c.clone();
-            }
-        }
-
-        // Build context from ACTUAL memory store content, not raw bytes
-        let gist = self.memory_store.build_compact_gist().await;
-        let summary = self.memory_store.get_knowledge_summary().await;
-
-        let mut ctx = String::from("\n\n### [ACTIVE MEMORY]:\n");
-
-        if !gist.is_empty() {
-            ctx.push_str(&format!("### PRIORITY KNOWLEDGE:\n{}\n", gist));
-        }
-        if !summary.is_empty() {
-            ctx.push_str(&summary);
-        }
-
-        // Add symbol definitions from the current project
-        let root = self.ai_tools.get_root_path();
-        let aim_path = root.join(".aim").join("memory.aim");
-
-        if aim_path.exists() {
-            let slot_count = self.memory_store.get_all_slots().await.len();
-            let symbols = self.memory_store.query_symbols("", usize::MAX).await;
-            println!("🧠 [ANTIGRAVITY-CORE] AIM context loaded from memory store ({} slots, {} symbols)",
-                slot_count,
-                symbols.len(),
-            );
-
-            self.emit_event("aim-active", json!({
-                "active": true,
-                "path": aim_path.to_string_lossy(),
-                "slots": slot_count,
-                "symbols": symbols.len(),
-            }));
-        }
-
-        // Cache the result
-        let mut cache = self.memory_aim_cache.lock().await;
-        *cache = Some(ctx.clone());
-        ctx
-    }
 
     /// Intercept `run_command` shell file-write patterns and convert to `write_to_file` args.
     /// Returns Some(args) if the command looks like a file write, None otherwise.
@@ -4587,6 +4556,27 @@ impl Sentient {
                  }
              }
         }
+    }
+
+    /// Detects if a prompt is an imperative action (write/run/fix) vs descriptive/chat.
+    pub fn looks_like_action_request(text: &str) -> bool {
+        let t = text.to_lowercase();
+        // Action verbs that usually require a tool call
+        let verbs = [
+            "write", "create", "generate", "make", "build", "implement", "add", "edit", "patch", "fix", 
+            "refactor", "delete", "remove", "run", "execute", "launch", "invoke", "fuzz", "exploit", 
+            "scan", "recon", "enumerate", "inject", "craft", "attack", "brute", "crack", "deploy", 
+            "install", "compile", "test", "verify", "push", "commit", "merge", "rebase", "checkout", 
+            "shell", "apply", "save", "persist"
+        ];
+        for v in &verbs {
+            if t.contains(v) { return true; }
+        }
+        // Coding markers/paths that suggest action
+        if t.contains('/') || t.contains('\\') || t.contains("```") || t.contains('.') {
+            return true;
+        }
+        false
     }
 }
 

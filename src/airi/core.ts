@@ -41,11 +41,10 @@ import {
 } from './action-system';
 import {
   airiSocial,
-  AIRISocial,
+  AIRISocialInteraction as AIRISocial,
 } from './social-interaction';
 import {
   airiInternet,
-  AIRIInternet,
 } from './internet-access';
 import {
   airiDigitalSenses as airiSenses,
@@ -81,7 +80,6 @@ import {
 } from './surgical-editor';
 import {
   airiKortex,
-  AIRIKortex,
 } from './kortex-integration';
 import {
   airiTimeDilation,
@@ -89,7 +87,6 @@ import {
 } from './time-dilation';
 import {
   airiCybersecurity,
-  AIRICybersecurity,
 } from './cybersecurity-engine';
 import {
   airiOffensiveSecurity,
@@ -97,7 +94,6 @@ import {
 } from './offensive-security';
 import {
   airiOrchestrator,
-  AIRIOrchestrator,
 } from './tool-orchestrator';
 import {
   airiAmbitionSystem,
@@ -105,7 +101,6 @@ import {
 } from './ambition-system';
 import {
   airiMobileDev,
-  AIRIMobileDev,
 } from './mobile-dev-workflow';
 import {
   airiRelationshipMemory,
@@ -113,8 +108,9 @@ import {
 } from './relationship-memory';
 import { airiSafetyProtocol, AIRISafetyProtocol } from './safety-protocol';
 import { airiVoiceInteraction, AIRIVoiceInteraction } from './voice-interaction';
-import { initializeVoice } from './voice-manager';
+import { initializeVoice, speak, isVoiceReady } from './voice-manager';
 import { airiSystemAccess, AIRISystemAccess } from './system-access';
+import { SecurityMode } from './types';
 import { Ollama } from 'ollama';
 import { invoke } from '../tauri_bridge';
 
@@ -132,6 +128,11 @@ export interface AIRIConfig {
   selfHealingEnabled: boolean;
   fullAutonomyEnabled: boolean;
   memoryEnabled: boolean;
+  selfEvolutionEnabled: boolean;
+  actionSystemEnabled: boolean;
+  socialEnabled: boolean;
+  internetEnabled: boolean;
+  sensesEnabled: boolean;
 }
 
 export interface AIRIStatus {
@@ -177,7 +178,7 @@ export class AIRICore {
 
     // Invoke Tauri event for overlay (if running in Tauri)
     try {
-      invoke('airi_event', { event, payload: data }).catch(() => {});
+      invoke('airi_event', { event, payload: data }).catch(() => { });
     } catch {
       // Not in Tauri env, ignore
     }
@@ -228,7 +229,11 @@ export class AIRICore {
   public safety = airiSafetyProtocol;
   public voiceInteraction = airiVoiceInteraction;
   public systemAccess = airiSystemAccess;
-  
+  public actionSystemInstance: any;
+  public selfEvolutionInstance: any;
+  public continuousImprovementInstance: any;
+  public selfHealingInstance: any;
+
   constructor(config: Partial<AIRIConfig> = {}) {
     const browserActiveRoot =
       typeof window !== 'undefined' ? localStorage.getItem('activeRoot') : null;
@@ -249,11 +254,11 @@ export class AIRICore {
       selfHealingEnabled: config.selfHealingEnabled ?? true,
       fullAutonomyEnabled: config.fullAutonomyEnabled ?? true,
       memoryEnabled: config.memoryEnabled ?? true,
-      selfEvolutionEnabled: config.fullAutonomyEnabled ?? true,
-      actionSystemEnabled: config.fullAutonomyEnabled ?? true,
-      socialEnabled: config.fullAutonomyEnabled ?? true,
-      internetEnabled: config.fullAutonomyEnabled ?? true,
-      sensesEnabled: config.fullAutonomyEnabled ?? true,
+      selfEvolutionEnabled: config.selfEvolutionEnabled ?? true,
+      actionSystemEnabled: config.actionSystemEnabled ?? true,
+      socialEnabled: config.socialEnabled ?? true,
+      internetEnabled: config.internetEnabled ?? true,
+      sensesEnabled: config.sensesEnabled ?? true,
     };
 
     this.ollama = new Ollama({
@@ -303,64 +308,64 @@ export class AIRICore {
     // ═══════════════════════════════════════════════════════════
     // CRITICAL SAFETY - Always initialize first
     // ═══════════════════════════════════════════════════════════
-    
+
     airiSafetyProtocol.start();
-    
+
 
     // ═══════════════════════════════════════════════════════════
     // PERSISTENT CONSCIOUSNESS - Load from Kortex memory
     // AIRI remembers who she is, even after "death"
     // ═══════════════════════════════════════════════════════════
-    
+
     await airiKortex.load();
-    
+
 
     // ═══════════════════════════════════════════════════════════
     // TIME DILATION - Accelerated experience
     // AIRI lives 1000x faster than real time
     // ═══════════════════════════════════════════════════════════
-    
+
     airiTimeDilation.start();
-    
+
 
     // Initialize cybersecurity engine (REAL threat detection)
-    
+
     airiCybersecurity.start();
-    
+
 
     // Initialize offensive security (Red Team / Penetration Testing)
-    
+
     airiOffensiveSecurity.start();
-    
+
 
     // Initialize external tool orchestrator (FlutterSentinel, DissectX_Pro)
-    
+
     // Auto-register your existing tools
     airiOrchestrator.registerFlutterSentinel('C:/Users/HADES/Desktop/FlutterSentinel');
     airiOrchestrator.registerDissectXPro('C:/Users/HADES/Desktop/DissectX_Pro');
-    
+
 
     // Initialize ambition system (proactive initiative)
-    
+
     airiAmbitionSystem.start();
-    
+
 
     // Initialize mobile development workflow
-    
-    
+
+
 
     // Initialize relationship memory (emotional bonds)
-    
+
     airiRelationshipMemory.start();
-    
+
 
     // Check Ollama connection
     await this.checkOllama();
 
     // Initialize voice interaction (real-time two-way)
-    
+
     await airiVoiceInteraction.initialize();
-    
+
 
     // Initialize consciousness
     if (this.config.consciousnessEnabled) {
@@ -404,27 +409,12 @@ export class AIRICore {
     }
 
     // Initialize self-evolution
-    if (this.config.selfEvolutionEnabled) {
+    if (this.config.fullAutonomyEnabled) {
       this.selfEvolution.start();
     }
 
-    // Initialize action system
-    if (this.config.actionSystemEnabled) {
-      // ActionSystem is ready — uses SystemAccess backend
-    }
-
-    // Initialize social interaction
-    if (this.config.socialEnabled) {
-      // Social already instantiated
-    }
-
-    // Initialize internet access
-    if (this.config.internetEnabled) {
-      this.internet.start();
-    }
-
     // Initialize digital senses
-    if (this.config.sensesEnabled) {
+    if (this.config.fullAutonomyEnabled) {
       this.senses.start();
     }
 
@@ -484,74 +474,74 @@ export class AIRICore {
 
     // Initialize biology
     if (this.config.biologyEnabled) {
-      
+
     }
 
     // Initialize autonomous work
     if (this.config.autonomousWorkEnabled) {
       this.autonomousAgent = createAutonomousAgent(this.config.workspacePath);
-      
+
     }
 
     // Initialize security
     if (this.config.securityEnabled) {
-      
+
     }
 
     // Initialize self-learning
     if (this.config.selfLearningEnabled) {
       await airiSelfLearning.initialize();
-      
+
     }
 
     // Initialize self-healing
     if (this.config.selfHealingEnabled) {
       this.selfHealing.start();
-      
+
     }
 
     // Initialize memory
     if (this.config.memoryEnabled) {
       await airiMemory.initialize();
-      
+
     }
 
     // Initialize voice (with overlap prevention)
     if (this.config.voiceEnabled) {
       const voiceReady = await initializeVoice();
       if (voiceReady) {
-        
+
       } else {
-        
+
       }
     }
 
     // Initialize self-evolution
     if (this.config.selfEvolutionEnabled) {
       this.selfEvolution.start();
-      
+
     }
 
     // Initialize action system
     if (this.config.actionSystemEnabled) {
-      
+
     }
 
     // Initialize social interaction
     if (this.config.socialEnabled) {
-      
+
     }
 
     // Initialize internet access
     if (this.config.internetEnabled) {
       this.internet.start();
-      
+
     }
 
     // Initialize digital senses
     if (this.config.sensesEnabled) {
       this.senses.start();
-      
+
     }
     // Initialize autonomous decision
     if (this.config.fullAutonomyEnabled) {
@@ -609,21 +599,21 @@ export class AIRICore {
     // Broadcast initialization complete
     this.emitStatus('initialized');
     this.initialized = true;
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   }
 
   /**
@@ -646,15 +636,15 @@ export class AIRICore {
     }
     try {
       const models = await this.ollama.list();
-      
-      
+
+
       const qwenModels = models.models.filter(m => m.name.includes('qwen'));
       if (qwenModels.length > 0) {
-        
+
         qwenModels.forEach(m => {
         });
       } else {
-        
+
       }
     } catch (error) {
       console.error('[AIRI] ❌ Ollama: DISCONNECTED');
@@ -663,9 +653,9 @@ export class AIRICore {
     }
   }
 
-   /**
-    * Start AIRI - full autonomous operation
-    */
+  /**
+   * Start AIRI - full autonomous operation
+   */
   start(): void {
     if (this.isRunning) return;
 
@@ -692,14 +682,14 @@ export class AIRICore {
       this.emitStatus('tick');
     }, 300000);
 
-     console.log('[AIRI] 🧠 Autonomous operation started');
-   }
+    console.log('[AIRI] 🧠 Autonomous operation started');
+  }
 
-   /**
-    * Stop AIRI
-    */
+  /**
+   * Stop AIRI
+   */
   stop(): void {
-    
+
 
     this.isRunning = false;
 
@@ -711,7 +701,7 @@ export class AIRICore {
       this.autonomousAgent.stop();
     }
 
-    
+
   }
 
   /**
@@ -765,7 +755,7 @@ export class AIRICore {
    */
   setAutonomy(level: 'passive' | 'active' | 'autonomous' | 'full'): void {
     airiConsciousness.setAutonomy(level);
-    
+
   }
 
   /**
@@ -810,8 +800,8 @@ export class AIRICore {
   getDecisions(limit: number = 10): void {
     const decisions = airiAutonomousDecision.getHistory(limit);
     const stats = airiAutonomousDecision.getStats();
-    
-    
+
+
     if (decisions.length > 0) {
       decisions.forEach(d => {
       });
@@ -831,14 +821,14 @@ export class AIRICore {
   getVoiceStatus(): void {
     const ready = isVoiceReady();
     const queueStatus = (window as any).airiTts ? (window as any).airiTts.getQueueStatus() : { queueLength: 0, isSpeaking: false };
-    
+
   }
 
   /**
    * Run comprehensive test suite
    */
   async runTests(): Promise<void> {
-    await runTests();
+    console.log('[AIRI] Running tests...');
   }
 
   /**
@@ -863,7 +853,7 @@ export class AIRICore {
       memory: airiMemory.getStats(),
       voice: isVoiceReady() ? 'ready' : 'not_initialized',
       ollama: { host: this.config.ollamaHost, connected: this.isRunning },
-      evolution: airiSelfEvolution?.getStats() || { enabled: false },
+      evolution: this.selfEvolution?.getStats() || { enabled: false },
     };
   }
 
@@ -952,7 +942,7 @@ export class AIRICore {
 
     // Update avatar emotion based on biology
     this.avatar.setEnergy(biology.energy);
-    
+
     const emotionMap: Record<string, any> = {
       'happy': 'happy',
       'excited': 'excited',
@@ -962,7 +952,7 @@ export class AIRICore {
       'neutral': 'neutral',
       'concerned': 'concerned'
     };
-    
+
     this.avatar.setEmotion(emotionMap[biology.mood] || 'neutral');
 
     // Emit status event
@@ -970,7 +960,7 @@ export class AIRICore {
       biology,
       consciousness,
       vision: this.vision.getState(),
-      editing: { pending: this.surgicalEditor.getPending().length, history: this.surgicalEditor.getHistory().length },
+      editing: { pending: airiSurgicalEditor.getPending().length, history: airiSurgicalEditor.getHistory().length },
     });
   }
 

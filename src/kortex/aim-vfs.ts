@@ -42,7 +42,79 @@ export interface AimTelemetrySnapshot {
     last_model_id: string | null;
     last_quant_signature: string | null;
     last_tokenizer_hash: string | null;
-    samples: AimTelemetrySample[];
+  samples: AimTelemetrySample[];
+}
+
+export interface AimTrustManifest {
+  schema: 'kortex.aim.trust/v1';
+  status: 'ready' | 'degraded' | 'missing';
+  path: string;
+  root: string;
+  valid: boolean;
+  confidence: number;
+  reasons: string[];
+  sha256?: string;
+  size_bytes?: number;
+  modified_unix_ms?: number | null;
+  age_ms?: number | null;
+  header_end?: number | null;
+  metadata?: Record<string, unknown>;
+  git?: {
+    head?: string | null;
+    dirty_files: number;
+  };
+}
+
+export interface AimSpan {
+  file: string;
+  absolute_path: string;
+  line_start: number;
+  line_end: number;
+  score: number;
+  hash: string;
+  summary: string;
+  snippet: string;
+}
+
+export interface AimSpanQueryResult {
+  schema: 'kortex.aim.spans/v1';
+  query: string;
+  root: string;
+  terms: string[];
+  scanned_files: number;
+  index_hits?: number;
+  source?: 'aim-index+source' | 'source-scan';
+  limit: number;
+  spans: AimSpan[];
+  reason?: string;
+}
+
+/**
+ * Return the trust envelope for the active workspace AIM memory file.
+ * This is the cheap first call every agent/provider should make before
+ * relying on compressed context. High confidence means "use the gist";
+ * degraded/missing means "fall back to exact source reads for this slice."
+ */
+export async function getAimTrustManifest(options: { path?: string; root?: string } = {}): Promise<AimTrustManifest> {
+    return invoke<AimTrustManifest>('aim_trust_manifest', {
+        path: options.path ?? null,
+        root: options.root ?? null,
+    });
+}
+
+/**
+ * Ask Kortex for exact source spans related to a query. This is the bridge
+ * from "compressed AIM map" to "verified source truth": agents should call
+ * this before broad repo grep when AIM confidence is usable.
+ */
+export async function queryAimSpans(request: {
+    query: string;
+    root?: string;
+    limit?: number;
+    max_files?: number;
+    max_bytes_per_file?: number;
+}): Promise<AimSpanQueryResult> {
+    return invoke<AimSpanQueryResult>('aim_query_spans', { request });
 }
 
 /**

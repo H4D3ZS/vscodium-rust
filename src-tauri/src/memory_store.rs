@@ -38,6 +38,10 @@ struct KortexSnapshot {
     session_messages: Vec<ChatMessage>,
     #[serde(default)]
     symbol_graph: SymbolGraph,
+    #[serde(default)]
+    pub project_tree: Vec<String>,
+    #[serde(default)]
+    pub project_metadata: HashMap<String, Value>,
 }
 
 pub struct MemoryStore {
@@ -53,6 +57,8 @@ pub struct MemoryStore {
     vfs_bridge: Arc<RwLock<Option<crate::vfs_bridge::VfsBridge>>>,
     events: Arc<tokio::sync::Mutex<Vec<Value>>>,
     vfs_cache: Arc<RwLock<HashMap<PathBuf, (String, std::time::SystemTime)>>>,
+    pub project_tree: Arc<RwLock<Vec<String>>>,
+    pub project_metadata: Arc<RwLock<HashMap<String, Value>>>,
 }
 
 impl MemoryStore {
@@ -72,6 +78,8 @@ impl MemoryStore {
             vfs_bridge: Arc::new(RwLock::new(None)),
             events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             vfs_cache: Arc::new(RwLock::new(HashMap::new())),
+            project_tree: Arc::new(RwLock::new(Vec::new())),
+            project_metadata: Arc::new(RwLock::new(HashMap::new())),
         };
 
         // Spawn background persistence task (Phase 24: Emergency Performance)
@@ -83,6 +91,8 @@ impl MemoryStore {
         let header_raw = store.binary_header_raw.clone();
         let app_handle = store.app_handle.clone();
         let symbol_graph = store.symbol_graph.clone();
+        let project_tree = store.project_tree.clone();
+        let project_metadata = store.project_metadata.clone();
         let dirty = is_dirty.clone();
         
         // Singleton background flusher: ensures only one task ever handles disk I/O per process
@@ -103,6 +113,8 @@ impl MemoryStore {
                                 entities: entities.read().await.clone(),
                                 session_messages: messages.read().await.clone(),
                                 symbol_graph: symbol_graph.read().await.clone(),
+                                project_tree: project_tree.read().await.clone(),
+                                project_metadata: project_metadata.read().await.clone(),
                             };
                             header["kortex"] = json!(snapshot);
                             header["updated_at"] = json!(std::time::SystemTime::now()
@@ -216,10 +228,17 @@ impl MemoryStore {
                                 *entities = snapshot.entities;
                                 let mut messages = self.messages.write().await;
                                 *messages = snapshot.session_messages;
+                                if let Ok(mut tree) = self.project_tree.try_write() {
+                                    *tree = snapshot.project_tree;
+                                }
+                                if let Ok(mut meta) = self.project_metadata.try_write() {
+                                    *meta = snapshot.project_metadata;
+                                }
                                 println!(
-                                    "[Kortex-AIM] Restored: {} slots, {} messages from .aim",
+                                    "[Kortex-AIM] Restored: {} slots, {} messages, {} indexed files from .aim",
                                     slots.len(),
-                                    messages.len()
+                                    messages.len(),
+                                    self.project_tree.read().await.len()
                                 );
                             }
                         }
@@ -261,6 +280,8 @@ impl MemoryStore {
                 entities: self.entities.read().await.clone(),
                 session_messages: self.messages.read().await.clone(),
                 symbol_graph: self.symbol_graph.read().await.clone(),
+                project_tree: self.project_tree.read().await.clone(),
+                project_metadata: self.project_metadata.read().await.clone(),
             };
             
             header["kortex"] = json!(snapshot);
@@ -777,6 +798,8 @@ impl MemoryStore {
                     entities: self.entities.read().await.clone(),
                     session_messages: self.messages.read().await.clone(),
                     symbol_graph: self.symbol_graph.read().await.clone(),
+                    project_tree: self.project_tree.read().await.clone(),
+                    project_metadata: self.project_metadata.read().await.clone(),
                 };
                 header["kortex"] = json!(snapshot);
                 header["updated_at"] = json!(timestamp);
@@ -803,6 +826,12 @@ impl MemoryStore {
             entities.clear();
             let mut messages = self.messages.write().await;
             messages.clear();
+            if let Ok(mut tree) = self.project_tree.try_write() {
+                tree.clear();
+            }
+            if let Ok(mut meta) = self.project_metadata.try_write() {
+                meta.clear();
+            }
         }
 
         // Reset to default memory.aim for the new session
@@ -822,8 +851,19 @@ impl MemoryStore {
         let _ = self.emit_event("memory-update", json!({
             "slots": 0,
             "entities": 0,
-            "messages": 0
+            "messages": 0,
+            "tree": 0
         })).await;
+    }
+
+    pub async fn set_project_tree(&self, tree: Vec<String>) {
+        let mut lock = self.project_tree.write().await;
+        *lock = tree;
+        self.is_dirty.store(true, Ordering::SeqCst);
+    }
+
+    pub async fn get_project_tree(&self) -> Vec<String> {
+        self.project_tree.read().await.clone()
     }
 
     pub async fn store_event(&self, event_type: &str, data: Value) -> anyhow::Result<()> {

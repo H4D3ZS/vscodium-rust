@@ -20,6 +20,7 @@ import {
     clearGitStatusCache,
     type SystemPromptConfig,
 } from './system_prompt.ts';
+import { getAimTrustManifest, queryAimSpans } from './kortex/aim-vfs';
 // AIRI Digital Entity Integration - The Sentient Core
 import { airiAgentBridge, activateAIRIAgent } from './airi_agent_bridge';
 import { airiConsciousness, airiBiology, airiSelfLearning } from './airi/core';
@@ -298,6 +299,28 @@ export async function initAgent() {
         console.error('❌ AIRI activation exception:', error);
     }
 
+    // ── Startup model validation ──────────────────────────────────────────
+    // If the stored agentModel references a model that doesn't exist locally
+    // (e.g. leftover from a destroyed cloud server), auto-correct it.
+    try {
+        const st = useStore.getState();
+        const currentModel = st.agentModel || '';
+        const modelTag = currentModel.includes('|')
+            ? currentModel.split('|').slice(1).join('|').trim()
+            : currentModel.trim();
+        if (modelTag && st.inferenceBackend === 'ollama') {
+            const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
+            const resolved = await resolveOllamaModelTag(modelTag);
+            if (resolved && resolved !== modelTag) {
+                console.warn(`[Agent] Startup: stored model "${modelTag}" not found. Auto-switched to "${resolved}".`);
+                st.setAgentModel?.(`Ollama|${resolved}`);
+                try { localStorage.setItem('agentModel', `Ollama|${resolved}`); } catch { /* tracking prevention */ }
+            }
+        }
+    } catch (e) {
+        console.warn('[Agent] Startup model validation skipped:', e);
+    }
+
     // Listen for session capture from auth flow
     await listen('session-captured', (event: any) => {
         console.log('Session captured:', event.payload);
@@ -403,6 +426,23 @@ export async function initAgent() {
         addAgentArtifact(event.payload);
     });
 
+    await listen<any>("webui-response", (event) => {
+        const payload = event.payload || {};
+        const text = String(payload.text || '').trim();
+        if (!text) return;
+
+        const key = `${payload.provider || 'webui'}:${payload.window || ''}`;
+        const cache = ((window as any).__hadesWebUiResponseCache ||= {});
+        if (cache[key] === text) return;
+        cache[key] = text;
+
+        const { addAgentMessage } = useStore.getState();
+        addAgentMessage(
+            'assistant',
+            `### ${payload.provider || 'WebUI'} response\n\n${text}`
+        );
+    });
+
     // Listen for proposed code edits
     await listen<any>("propose-edit", (event) => {
         console.log("[Agent] Proposed edit received:", event.payload);
@@ -486,6 +526,11 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
         value: "action|login|gemini",
         desc: "Use your personal Gemini subscription"
     });
+    items.push({
+        label: "🧠 Login to OpenAI (Browser)",
+        value: "action|login|openai",
+        desc: "Use your personal ChatGPT subscription"
+    });
 
     if (items.length === 0) {
         items.push({ label: "⚙️ Add API keys in settings", value: "action|settings" });
@@ -503,7 +548,7 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
         }
         if (val.startsWith("action|login|")) {
             const provider = val.split("|")[2];
-            invoke("open_ai_login", { provider }).catch(err => {
+            invoke("start_webui_login", { request: { provider } }).catch(err => {
                 console.error("Failed to open login window:", err);
             });
             return;
@@ -818,6 +863,17 @@ async function buildIdeContext(): Promise<string> {
         parts.push(`\n${projectMemory}`);
     }
 
+    try {
+        const trust = await getAimTrustManifest({ root: activeRoot || undefined });
+        const reasonText = trust.reasons?.length ? `\nReasons: ${trust.reasons.join('; ')}` : '';
+        parts.push(
+            `\n## Kortex AIM VFS Trust\n` +
+            `Status: ${trust.status}; confidence: ${Math.round((trust.confidence || 0) * 100)}%; ` +
+            `dirty files: ${trust.git?.dirty_files ?? 0}; sha256: ${trust.sha256?.slice(0, 16) || 'missing'}.${reasonText}\n` +
+            `Use AIM as the repo map when confidence is high. Before broad repo searches, call aim_query_spans for exact file/line windows, then verify those spans before editing.`
+        );
+    } catch (_) { /* AIM trust command may be unavailable during older backend runs */ }
+
     // ── Kortex .aim Memory Injection ──
     // Load the top semantic memory slots and inject as compact bullets.
     // This makes AIRI "remember" past decisions/architecture without repeating full history.
@@ -911,6 +967,75 @@ async function buildIdeContext(): Promise<string> {
     return parts.join('\n');
 }
 
+async function buildWebUiAgentPrompt(userPrompt: string, provider: string): Promise<string> {
+    const store = (window as any).useStore;
+    const state = store?.getState?.() || {};
+    const activeRoot = state.activeRoot || '';
+    const activeEditorPath = state.activeEditorPath || '';
+    const activeTab = (state.tabs || []).find((t: any) => t.path === activeEditorPath);
+    const activeSnippet = activeTab?.content
+        ? String(activeTab.content).split('\n').slice(0, 120).join('\n')
+        : '';
+
+    const parts: string[] = [
+        `You are acting as an agentic coding model inside VSCodium-Rust IDE through the ${provider} WebUI bridge.`,
+        `Use the provided Kortex AIM context as a compact repository map. Do not ask for the whole repository; request exact files or patches when needed.`,
+    ];
+
+    if (activeRoot) parts.push(`Workspace root: ${activeRoot}`);
+    if (activeEditorPath) parts.push(`Active file: ${activeEditorPath}`);
+
+    try {
+        const [trust, spans] = await Promise.all([
+            getAimTrustManifest({ root: activeRoot || undefined }),
+            queryAimSpans({
+                query: userPrompt,
+                root: activeRoot || undefined,
+                limit: 6,
+                max_files: 1000,
+            }),
+        ]);
+
+        parts.push(
+            `\n## Kortex AIM Context Pack`,
+            `trust=${trust.status}; confidence=${Math.round((trust.confidence || 0) * 100)}%; dirty=${trust.git?.dirty_files ?? 0}; sha=${trust.sha256?.slice(0, 16) || 'missing'}`,
+            `retrieval=${spans.source || 'unknown'}; index_hits=${spans.index_hits ?? 0}; scanned=${spans.scanned_files ?? 0}`
+        );
+        if (trust.reasons?.length) {
+            parts.push(`notes=${trust.reasons.join('; ')}`);
+        }
+        if (spans.spans?.length) {
+            parts.push(`\n## Exact Source Spans`);
+            for (const span of spans.spans) {
+                parts.push(
+                    `\n### ${span.file}:${span.line_start}-${span.line_end} score=${span.score} hash=${span.hash.slice(0, 12)}`,
+                    '```',
+                    String(span.snippet || '').slice(0, 2200),
+                    '```'
+                );
+            }
+        }
+    } catch (err: any) {
+        parts.push(`\n## Kortex AIM Context Pack\nunavailable=${err?.message || err}`);
+    }
+
+    if (activeSnippet) {
+        parts.push(
+            `\n## Active Editor Preview`,
+            '```',
+            activeSnippet,
+            '```'
+        );
+    }
+
+    parts.push(
+        `\n## User Task`,
+        userPrompt,
+        `\nReturn a concise agentic answer. If code must change, provide exact file paths and patch-ready instructions.`
+    );
+    return parts.join('\n');
+}
+
 /** True when the active inference backend is a local OpenAI-compatible server
  *  (Ollama or llama-server/KDKVC) — use smaller history windows and stricter
  *  attachment limits. */
@@ -929,6 +1054,18 @@ function looksLikeActionRequest(text: string): boolean {
     return ACTION_VERB_REGEX.test(text);
 }
 
+function normalizeWebUiProvider(provider: string): string {
+    const normalized = provider
+        .toLowerCase()
+        .replace(' (webui)', '')
+        .replace('-webui', '')
+        .replace('webui', '')
+        .trim();
+    if (normalized === 'gpt' || normalized === 'chatgpt') return 'openai';
+    if (normalized === 'qwen code' || normalized === 'qwen-code') return 'qwen';
+    return normalized || provider.toLowerCase();
+}
+
 // "Trivial chat" detection. Used to bypass the full autonomous loop for
 // prompts that are obviously not asking the agent to touch the codebase
 // — greetings, small-talk, name questions, single-word acks. Without
@@ -944,21 +1081,10 @@ const TRIVIAL_CHAT_REGEX = /^(hi+|hello+|hey+|yo+|sup|howdy|hola|ola|gm|gn|good\
 const CODE_INDICATOR_REGEX = /[`{}<>$]|\b\w+\.(rs|ts|tsx|js|jsx|py|go|java|cs|cpp|c|h|md|json|toml|yaml|yml|html|css|scss|sh|bash|zsh|sql)\b|[\/\\][\w.\-]+|\@\w+/;
 
 function isTrivialChat(text: string, hasAttachedContext: boolean): boolean {
-    if (!text) return false;
-    const trimmed = text.trim();
-    // Anything with attached context (an @-file, image, etc.) is by
-    // definition NOT trivial.
     if (hasAttachedContext) return false;
-    // Very short greetings/acks — always fast-path.
-    if (trimmed.length <= 24 && TRIVIAL_CHAT_REGEX.test(trimmed)) return true;
-    // Short messages without action verbs, code, paths, or @-mentions.
-    if (trimmed.length <= 80
-        && !ACTION_VERB_REGEX.test(trimmed)
-        && !CODE_INDICATOR_REGEX.test(trimmed)
-        && !trimmed.includes('\n')) {
-        return true;
-    }
-    return false;
+    if (!text) return true;
+    if (looksLikeActionRequest(text) || CODE_INDICATOR_REGEX.test(text)) return false;
+    return TRIVIAL_CHAT_REGEX.test(text.trim());
 }
 
 // ─── Security Intent Sniffer ─────────────────────────────────────────────
@@ -1099,6 +1225,34 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // Local inference uses Rust `ai_chat` with full tools — never bypass via HTTP-only helpers.
     const { agentMessages, setAiStatus, availableModels, agentModel, inferenceBackend } = store.getState();
 
+    // === Pre-flight Ollama health check =======================================
+    // If we're using Ollama, verify inference actually works before committing
+    // to a 60-120s timeout. Ollama sometimes enters a "zombie" state where it
+    // accepts connections and lists models but hangs on actual inference.
+    const selectedModelLower = String(agentModel || '').toLowerCase();
+    const selectedWebUiModel = selectedModelLower.includes('webui') && !selectedModelLower.includes('openwebui');
+    if (inferenceBackend === 'ollama' && !selectedWebUiModel) {
+        const ollamaBase = store.getState().ollamaUrl?.trim() || 'http://localhost:11434';
+        try {
+            const probe = await fetch(`${ollamaBase}/api/tags`, {
+                signal: AbortSignal.timeout(5000),
+            });
+            if (!probe.ok) throw new Error(`HTTP ${probe.status}`);
+        } catch (e: any) {
+            const msg = e?.message || String(e);
+            console.error('[Agent] ❌ Ollama pre-flight check FAILED:', msg);
+            store.getState().setIsAgentThinking?.(false);
+            store.getState().updateLastAgentMessage?.(
+                `**Ollama is not responding**\n\n` +
+                `Could not reach Ollama at \`${ollamaBase}\`.\n\n` +
+                `**Try:** Restart Ollama Desktop or run \`ollama serve\` in a terminal.\n\n` +
+                `_Error: ${msg}_`
+            );
+            setAiStatus('dead');
+            return;
+        }
+    }
+
     // === Trivial-chat fast path ============================================
     // For greetings / small talk / single-line questions with no action verbs
     // or code references, skip the entire autonomous loop and just do a single
@@ -1109,6 +1263,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     if (isTrivialChat(userPrompt, hasAttached)) {
         try {
             store.getState().setIsAgentThinking?.(true);
+            // Show immediate feedback so the user knows inference is running
+            // (on local models this can take 15-20 seconds)
+            store.getState().updateLastAgentMessage?.('⏳ *Thinking...*');
 
             // Provider/model resolution — same logic as the slow path below,
             // duplicated locally to avoid a giant refactor. Kept minimal.
@@ -1157,49 +1314,61 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             // the spinner spins forever with no error in the chat. 60s
             // is long enough for a slow first-token on a cold local model
             // but short enough that the user gets actionable feedback.
-            const fastCall = invoke<string>('ai_chat_fast', {
-                request: {
-                    provider: fastProvider.toLowerCase(),
-                    model: fastModel,
-                    messages: [
-                        {
-                            role: 'system',
-                            content: 'You are AIRI, a friendly AI coding assistant. For this message, respond conversationally in 1–2 short sentences. Do NOT call any tools or describe what you would do — just chat back.',
-                        },
-                        { role: 'user', content: userPrompt },
-                    ],
-                    temperature: 0.7,
-                    autonomous: false,
-                    mode: 'Chat',
-                    ollama_url: store.getState().ollamaUrl,
-                    tools: [], // empty array = no tool catalog at all
-                },
+            const fastOllamaUrl = store.getState().ollamaUrl;
+            console.log('[Agent] Fast-path attempt:', {
+                provider: fastProvider,
+                model: fastModel,
+                ollama_url: fastOllamaUrl,
             });
-            const timeout = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`ai_chat_fast timed out after 60s (provider=${fastProvider}, model=${fastModel})`)), 60_000)
-            );
+const fastCall = invoke<string>('ai_chat_fast', {
+request: {
+provider: fastProvider.toLowerCase(),
+model: fastModel,
+messages: [
+{
+role: 'system',
+content: 'You are AIRI, a friendly AI coding assistant. For this message, respond conversationally in 1–2 short sentences. Do NOT call any tools or describe what you would do — just chat back.',
+},
+{ role: 'user', content: userPrompt },
+],
+temperature: 0.7,
+autonomous: false,
+mode: 'Chat',
+ollama_url: fastOllamaUrl,
+tools: [],
+},
+});
+const timeout = new Promise<never>((_, reject) =>
+setTimeout(() => reject(new Error(`ai_chat(fast-path) timed out after 60s (provider=${fastProvider}, model=${fastModel})`)), 60_000)
+);
+            const t0 = Date.now();
             const fastResult = await Promise.race([fastCall, timeout]);
+            const elapsed = Date.now() - t0;
+            console.log(`[Agent] ✅ Fast-path responded in ${elapsed}ms:`, (fastResult as string)?.slice(0, 100));
 
-            // ai_chat_fast already emitted the `ai-content` event, which the
-            // global listener consumed to flip `isAgentThinking` off and call
-            // updateLastAgentMessage. We still call onUpdate for callers
-            // (Composer.tsx, /commit, /review, etc.) that pass their own.
-            try { onUpdate?.(fastResult as string); } catch (_) { /* non-fatal */ }
-            return;
-        } catch (e: any) {
-            // If the fast path fails for any reason, show the user what
-            // went wrong AND fall through to the full agent loop (better
-            // slow than nothing). The visible error is critical — without
-            // it the chat just spins and the user has no idea why.
-            const msg = e?.message ?? String(e);
-            console.warn('[agent] fast-path failed, falling back to full loop:', msg);
-            try {
-                store.getState().updateLastAgentMessage?.(
-                    `**Fast-path error:** ${msg}\n\n_Falling back to the full agent loop…_`
-                );
-            } catch { /* non-fatal */ }
+            // DIRECTLY update the chat UI. Don't rely solely on the ai-content
+            // event — it can be swallowed by race conditions or dropped events.
+            const resultText = typeof fastResult === 'string' ? fastResult.trim() : '';
+            if (resultText) {
+                store.getState().updateLastAgentMessage?.(resultText);
+            }
             store.getState().setIsAgentThinking?.(false);
-        }
+            try { onUpdate?.(resultText); } catch (_) { /* non-fatal */ }
+            return;
+} catch (e: any) {
+// If the fast path fails for any reason, show a benign message
+// and fall through to the full agent loop. A timeout usually just
+// means Ollama is taking >8s to load the model into VRAM.
+const msg = (e?.message ?? String(e)).slice(0, 300);
+console.warn('[agent] fast-path failed, falling back to full loop:', msg);
+try {
+if (msg.includes('timed out')) {
+store.getState().updateLastAgentMessage?.(`_Model loading into VRAM (<8s timeout)... falling back to full autonomous loop_`);
+} else {
+store.getState().updateLastAgentMessage?.(`**Fast-path warning:** ${msg}\n\n_Falling back to full agent loop..._`);
+}
+} catch { /* non-fatal */ }
+}
     }
     // =======================================================================
 
@@ -1225,6 +1394,62 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     }
 
     const normalizedProvider = provider.toLowerCase() === 'apiradar' ? 'apiradar' : provider.toLowerCase();
+
+    // -- WebUI Login Hook --
+    if (normalizedProvider.includes('webui')) {
+        let baseProvider = normalizeWebUiProvider(normalizedProvider);
+        let loginProvider = baseProvider;
+        if (normalizedProvider.includes('openwebui')) {
+            loginProvider = 'openwebui';
+        }
+        
+        try {
+            const hasToken = await invoke<string | null>('get_stored_token', { provider: loginProvider });
+            if (!hasToken) {
+                store.getState().updateLastAgentMessage?.(`⏳ **Login Required**\n\nPlease complete the login for ${loginProvider} in the browser window that just opened. Waiting for authorization...`);
+                await invoke('start_webui_login', { request: { provider: loginProvider } });
+                
+                // Poll for token every second for up to 2 minutes
+                let tokenFound = false;
+                for (let i = 0; i < 120; i++) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    const tokenNow = await invoke<string | null>('get_stored_token', { provider: loginProvider });
+                    if (tokenNow) {
+                        tokenFound = true;
+                        break;
+                    }
+                }
+                
+                if (!tokenFound) {
+                    store.getState().updateLastAgentMessage?.(`❌ **Login Timeout**\n\nNo token received from ${loginProvider}. Please try again.`);
+                    store.getState().setIsAgentThinking?.(false);
+                    return;
+                }
+                store.getState().updateLastAgentMessage?.(`✅ **Login Successful!**\n\nSending request to ${baseProvider}...`);
+            }
+
+            if (loginProvider !== 'openwebui') {
+                const webUiPrompt = await buildWebUiAgentPrompt(userPrompt, loginProvider);
+                const webResult = await invoke<any>('send_webui_prompt', {
+                    provider: loginProvider,
+                    prompt: webUiPrompt,
+                });
+                store.getState().updateLastAgentMessage?.(
+                    `**Sent to ${baseProvider || loginProvider} WebUI**\n\n` +
+                    `${webResult?.message || 'The provider web session is open and handling the prompt.'}\n\n` +
+                    `Kortex AIM context was packed into the request so the WebUI can act with repository evidence.`
+                );
+                store.getState().setIsAgentThinking?.(false);
+                try { onUpdate?.(webResult?.message || 'Sent to WebUI session.'); } catch (_) { /* non-fatal */ }
+                return;
+            }
+        } catch (e: any) {
+            console.error('WebUI Login hook failed:', e);
+            store.getState().updateLastAgentMessage?.(`❌ **WebUI Login Error:** ${e}`);
+            store.getState().setIsAgentThinking?.(false);
+            return;
+        }
+    }
 
     // Route full Kortex (llama-server + KDKVC) through the same OpenAI-compatible
     // stack in `ai_engine` that Ollama uses: `get_endpoint("ollama")` →
@@ -1390,18 +1615,19 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     console.log('[Agent] sendAgentMessage: isSentient=', isSentient, 'activeMode=', activeMode);
     if (isSentient) {
         try {
-            console.log('[Agent] Routing through Sentient AIRI Core...');
+            console.log('[Agent] Registering user prompt to Sentient AIRI Core...');
             if (!airiInitialized) {
                 console.log('[Agent] Initializing AIRI Bridge on demand...');
                 await airiAgentBridge.initialize();
                 airiInitialized = true;
             }
-            await airiAgentBridge.processUserMessage(userPrompt, resolvedContext);
+            // Record interaction in consciousness natively without double-triggering inference
+            airiConsciousness.recordInteraction();
             logTaskToMemory(userPrompt).catch(() => { });
-            return;
+
+            // Allow prompt to fall through to the Rust ai_chat autonomous execution loop!
         } catch (err: any) {
-            console.error('[Agent] ❌ AIRI Sentient Core failed:', err);
-            // Fall back to standard route below
+            console.error('[Agent] ❌ AIRI Sentient Core memory update failed:', err);
         }
     }
 
@@ -1493,7 +1719,11 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             model: routingModel,
             ollama_url: routingOllamaUrl
         });
-        await invoke<string>("ai_chat", {
+
+        // Race the full loop against a 120s timeout (generous for large models
+        // but prevents the UI from spinning forever if the backend or Ollama
+        // is truly unreachable).
+        const fullCall = invoke<string>("ai_chat", {
             request: {
                 provider: routingProvider,
                 model: routingModel,
@@ -1507,6 +1737,15 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 tools: toolSchemas,
             }
         });
+        const fullTimeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(
+                `ai_chat timed out after 600s.\n\n` +
+                `Provider: \`${routingProvider}\`  ·  Model: \`${routingModel}\`\n\n` +
+                `The model may still be generating output or executing a long chain of tool operations.`
+            )), 600_000)
+        );
+        await Promise.race([fullCall, fullTimeout]);
+
         console.log('[Agent] Full ai_chat loop completed successfully.');
         logTaskToMemory(userPrompt).catch(() => { });
     } catch (e: any) {
@@ -1516,7 +1755,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         // here sometimes don't bubble cleanly when the agent has already
         // emitted partial content. Write directly so the user always
         // sees what went wrong.
-        const msg = e?.message ?? String(e);
+        const msg = (e?.message ?? String(e)).slice(0, 500);
         console.error("Agent chat failed:", msg);
         try {
             store.getState().updateLastAgentMessage?.(
@@ -1525,7 +1764,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             );
         } catch { /* non-fatal */ }
         setAiStatus('dead');
-        throw e;
+    } finally {
+        // Always clear thinking state — prevents infinite spinner
+        try { store.getState().setIsAgentThinking?.(false); } catch { /* non-fatal */ }
     }
 }
 

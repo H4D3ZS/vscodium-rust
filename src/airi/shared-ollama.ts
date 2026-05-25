@@ -281,7 +281,7 @@ function chooseFallback(): string | null {
         const fuzzy = fuzzyMatchInstalled(p, installedModels);
         if (fuzzy) return fuzzy;
     }
-    const cheap = ['llama3.2:3b', 'llama3.2:1b', 'gemma2:2b', 'qwen2.5:3b'];
+    const cheap = ['airi-fast:latest', 'soft-eng-qwen:latest', 'llama3.2:3b', 'llama3.2:1b', 'gemma2:2b', 'qwen2.5:3b'];
     for (const c of cheap) if (installedModels.has(c)) return c;
     return installedModels.values().next().value ?? null;
 }
@@ -329,7 +329,7 @@ async function substituteUnknownModel(req: Record<string, unknown>): Promise<Rec
 export async function resolveOllamaModelTag(requested: string): Promise<string> {
     await refreshInstalled();
     const r = (requested || '').trim();
-    if (!r) return chooseFallback() || 'llama3.2:3b';
+    if (!r) return chooseFallback() || 'airi-fast:latest';
     const hit = resolveInstalledOrNull(r);
     if (hit) return hit;
     return chooseFallback() || r;

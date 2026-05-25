@@ -63,16 +63,18 @@ function winClose() {
 const TitleBar: React.FC = () => {
     const [activeMenu, setActiveMenu] = useState<string | null>(null);
     const agentModel = useStore(state => state.agentModel);
+    const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
+    const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
 
     const menus = [
-        { label: 'File',      items: ['New File', 'New Window', 'Open...', 'Save', 'Close Editor'] },
-        { label: 'Edit',      items: ['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Find', 'Replace'] },
+        { label: 'File', items: ['New File', 'New Window', 'Open...', 'Save', 'Close Editor'] },
+        { label: 'Edit', items: ['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Find', 'Replace'] },
         { label: 'Selection', items: ['Select All', 'Expand Selection', 'Shrink Selection'] },
-        { label: 'View',      items: ['Command Palette...', 'Explorer', 'Search', 'Source Control', 'Run', 'Extensions'] },
-        { label: 'Go',        items: ['Back', 'Forward', 'Go to File...', 'Go to Symbol...'] },
-        { label: 'Run',       items: ['Start Debugging', 'Run Without Debugging', 'Stop Debugging'] },
-        { label: 'Terminal',  items: ['New Terminal', 'Split Terminal', 'Run Build Task...', 'Run Selected Text'] },
-        { label: 'Help',      items: ['Welcome', 'Documentation', 'Show All Commands', 'About'] }
+        { label: 'View', items: ['Command Palette...', 'Explorer', 'Search', 'Source Control', 'Run', 'Extensions'] },
+        { label: 'Go', items: ['Back', 'Forward', 'Go to File...', 'Go to Symbol...'] },
+        { label: 'Run', items: ['Start Debugging', 'Run Without Debugging', 'Stop Debugging'] },
+        { label: 'Terminal', items: ['New Terminal', 'Split Terminal', 'Run Build Task...', 'Run Selected Text'] },
+        { label: 'Help', items: ['Welcome', 'Documentation', 'Show All Commands', 'About'] }
     ];
 
     const handleMenuClick = (menu: string) => {
@@ -84,29 +86,38 @@ const TitleBar: React.FC = () => {
         if (!execute) { console.error('Command system not initialized'); return; }
 
         switch (item) {
-            case 'New File':           execute('explorer.newFile'); break;
-            case 'New Folder':         execute('explorer.newFolder'); break;
-            case 'Open...':            execute('explorer.openFolder'); break;
-            case 'Save':               execute('workbench.action.files.save'); break;
+            case 'New File': execute('explorer.newFile'); break;
+            case 'New Folder': execute('explorer.newFolder'); break;
+            case 'Open...': execute('explorer.openFolder'); break;
+            case 'Save': execute('workbench.action.files.save'); break;
             case 'Command Palette...': execute('workbench.action.showCommands'); break;
-            case 'Welcome':            execute('workbench.action.showWelcome'); break;
-            case 'New Terminal':       (window as any).spawnTerminal?.(); break;
-            default:                   console.log(`Menu item clicked: ${item}`);
+            case 'Welcome': execute('workbench.action.showWelcome'); break;
+            case 'New Terminal': (window as any).spawnTerminal?.(); break;
+            default: console.log(`Menu item clicked: ${item}`);
         }
         setActiveMenu(null);
     };
 
     return (
-        <div id="title-bar" data-tauri-drag-region>
+        <div
+            id="title-bar"
+            data-tauri-drag-region
+            style={{
+                background: isAiriPanelOpen ? 'linear-gradient(to right, #1a1a1a, #2d1b4e)' : '#1e1e1e',
+                borderBottom: isAiriPanelOpen ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid #2b2b2b',
+                boxShadow: isAiriPanelOpen ? '0 4px 20px rgba(168, 85, 247, 0.15)' : 'none',
+                transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                zIndex: 100
+            }}
+        >
             {/* Left: nav + menus */}
             <div className="title-bar-left">
                 {/* IDE Icon instead of nav arrows */}
-                <div className="ide-logo hoverable" title="vscodium-rust ide" style={{ display: 'flex', alignItems: 'center', marginRight: '8px', padding: '4px 8px' }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ marginRight: '6px' }}>
-                        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#c084fc"/>
-                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke="#c084fc" strokeWidth="2"/>
+                <div className="ide-logo hoverable" title="Antigravity IDE" style={{ display: 'flex', alignItems: 'center', marginRight: '4px', padding: '4px 8px' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z" fill={isAiriPanelOpen ? "#a855f7" : "rgba(255,255,255,0.75)"} />
+                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke={isAiriPanelOpen ? "#c084fc" : "rgba(255,255,255,0.75)"} strokeWidth="2" />
                     </svg>
-                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>vscodium-rust ide</span>
                 </div>
 
                 <div className="menu-items-container">
@@ -138,14 +149,34 @@ const TitleBar: React.FC = () => {
             </div>
 
             {/* Center: command palette / title */}
+            {/* Center: command palette / title */}
             <div
                 className="command-center"
                 onClick={() => (window as any).showCommandPalette?.()}
                 data-tauri-drag-region="false"
+                style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    flex: 1
+                }}
             >
-                <div className="command-box">
-                    <i className="codicon codicon-search" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
-                    <div className="text">
+                <div className="command-box" style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '8px',
+                    padding: '4px 16px',
+                    minWidth: '280px',
+                    maxWidth: '500px',
+                    cursor: 'text',
+                    transition: 'all 0.2s',
+                    fontSize: '11px',
+                    color: 'rgba(255,255,255,0.6)'
+                }}>
+                    <i className="codicon codicon-search" style={{ fontSize: '11px', marginRight: '10px', opacity: 0.5 }}></i>
+                    <div style={{ flex: 1 }}>
                         {(window as any).activeRootName || 'vscodium-rust'}
                     </div>
                 </div>
@@ -153,22 +184,92 @@ const TitleBar: React.FC = () => {
 
             {/* Right: layout toggles + window controls */}
             <div className="title-bar-right" data-tauri-drag-region="false">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div title="Privacy Guard Active" style={{ display: 'flex', alignItems: 'center', padding: '4px', opacity: 0.4, cursor: 'help' }}>
-                        <i className="codicon codicon-shield" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '12px' }}>
+                    <div title="Sentient Guard Active" style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '4px',
+                        opacity: isAiriPanelOpen ? 1 : 0.3,
+                        color: isAiriPanelOpen ? '#a855f7' : 'inherit',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                    }}>
+                        <i className="codicon codicon-shield" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
                     </div>
-                    <i
-                        className="codicon codicon-robot hoverable"
-                        style={{ fontFamily: 'codicon', fontStyle: 'normal' }}
-                        title="Toggle AIRI Panel"
-                        onClick={() => (window as any).useStore?.getState().toggleAiriPanel()}
-                    ></i>
-                    <i
-                        className="codicon codicon-device-mobile hoverable"
-                        style={{ fontFamily: 'codicon', fontStyle: 'normal' }}
-                        title="Toggle Emulator Panel"
-                        onClick={() => (window as any).useStore?.getState().toggleEmulatorPanel()}
-                    ></i>
+
+                    {/* AIRI Switcher + Status */}
+                    <div
+                        className={`title-toggle-btn ${isAiriPanelOpen ? 'active' : ''}`}
+                        title="AIRI Sentient Core"
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            background: isAiriPanelOpen ? 'rgba(168, 85, 247, 0.15)' : 'transparent',
+                            color: isAiriPanelOpen ? '#c084fc' : 'rgba(255,255,255,0.4)',
+                            border: isAiriPanelOpen ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid transparent',
+                            transition: 'all 0.2s ease',
+                            position: 'relative'
+                        }}
+                    >
+                        <div
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                            onClick={() => (window as any).useStore?.getState().openAiriPanel()}
+                        >
+                            {useStore.getState().isAgentThinking ? (
+                                <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: '14px', color: '#c084fc' }}></i>
+                            ) : (
+                                <i className="codicon codicon-robot" style={{ fontSize: '14px' }}></i>
+                            )}
+                            <span style={{ letterSpacing: '0.5px' }}>AIRI</span>
+                        </div>
+
+                        {isAiriPanelOpen && (
+                            <i
+                                className="codicon codicon-add hoverable"
+                                title="New Chat"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    (window as any).useStore?.getState().createNewSession?.();
+                                }}
+                                style={{
+                                    fontSize: '13px',
+                                    paddingLeft: '6px',
+                                    marginLeft: '6px',
+                                    borderLeft: '1px solid rgba(168, 85, 247, 0.3)',
+                                    color: 'rgba(255,255,255,0.6)'
+                                }}
+                            ></i>
+                        )}
+                    </div>
+
+                    {/* Emulator Switcher */}
+                    <div
+                        className={`title-toggle-btn ${isEmulatorPanelOpen ? 'active' : ''}`}
+                        onClick={() => (window as any).useStore?.getState().openEmulatorPanel()}
+                        title="Mobile Emulator"
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            background: isEmulatorPanelOpen ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                            color: isEmulatorPanelOpen ? '#60a5fa' : 'rgba(255,255,255,0.4)',
+                            border: isEmulatorPanelOpen ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        <i className="codicon codicon-device-mobile" style={{ fontSize: '14px' }}></i>
+                        <span style={{ letterSpacing: '0.5px' }}>EMU</span>
+                    </div>
                 </div>
 
                 {/* Native window controls — always visible, no-drag region */}

@@ -1930,6 +1930,116 @@ export const ContextAwarenessTool: ToolDef = {
 };
 
 // ---------------------------------------------------------------------------
+// 38. Kortex AIM Spans — compressed-map to exact-source bridge
+// ---------------------------------------------------------------------------
+export const AimQuerySpansTool: ToolDef = {
+    name: 'aim_query_spans',
+    description: `Query Kortex AIM VFS for exact source spans relevant to a task. Use this before broad grep/search in large workspaces. It returns bounded file/line windows with hashes so you can verify exact source after using the compressed AIM map.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            query: {
+                type: 'string',
+                description: 'Natural language or symbol query describing the code area to locate.',
+            },
+            limit: {
+                type: 'number',
+                description: 'Maximum number of spans to return.',
+                default: 8,
+            },
+            max_files: {
+                type: 'number',
+                description: 'Safety cap for how many candidate files AIM may scan.',
+                default: 2000,
+            },
+        },
+        required: ['query'],
+    },
+    isReadOnly: true,
+    execute: async (input, ctx) => {
+        try {
+            const result = await invoke<any>('aim_query_spans', {
+                request: {
+                    query: input.query,
+                    root: ctx.activeRoot || undefined,
+                    limit: input.limit || 8,
+                    max_files: input.max_files || 2000,
+                },
+            });
+            return ok(result);
+        } catch (e: any) {
+            return fail(`AIM span query failed: ${e.message || e}`);
+        }
+    },
+};
+
+export const AimPackContextTool: ToolDef = {
+    name: 'aim_pack_context',
+    description: `Build a compact, provider-neutral Kortex AIM context packet for a task. This combines the AIM trust envelope with exact source spans, suitable for OpenAI, Anthropic, Gemini, Ollama, Qwen, DeepSeek, and WebUI routing.`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            query: {
+                type: 'string',
+                description: 'Task, bug, symbol, or feature area to pack context for.',
+            },
+            limit: {
+                type: 'number',
+                description: 'Maximum number of exact spans to include.',
+                default: 6,
+            },
+        },
+        required: ['query'],
+    },
+    isReadOnly: true,
+    execute: async (input, ctx) => {
+        try {
+            const [trust, spans] = await Promise.all([
+                invoke<any>('aim_trust_manifest', {
+                    path: null,
+                    root: ctx.activeRoot || null,
+                }),
+                invoke<any>('aim_query_spans', {
+                    request: {
+                        query: input.query,
+                        root: ctx.activeRoot || undefined,
+                        limit: input.limit || 6,
+                        max_files: 1000,
+                    },
+                }),
+            ]);
+
+            const lines: string[] = [
+                '## Kortex AIM Context Pack',
+                `query: ${input.query}`,
+                `trust: ${trust.status}; confidence=${Math.round((trust.confidence || 0) * 100)}%; dirty=${trust.git?.dirty_files ?? 0}; sha=${trust.sha256?.slice(0, 16) || 'missing'}`,
+                `retrieval: ${spans.source || 'unknown'}; index_hits=${spans.index_hits ?? 0}; scanned=${spans.scanned_files ?? 0}`,
+            ];
+            if (trust.reasons?.length) {
+                lines.push(`notes: ${trust.reasons.join('; ')}`);
+            }
+            lines.push('', 'Exact spans:');
+            for (const span of spans.spans || []) {
+                lines.push(
+                    `- ${span.file}:${span.line_start}-${span.line_end} score=${span.score} hash=${String(span.hash || '').slice(0, 12)}`
+                );
+                lines.push('```');
+                lines.push(String(span.snippet || '').slice(0, 1800));
+                lines.push('```');
+            }
+
+            return ok({
+                trust,
+                spans,
+                compact: lines.join('\n'),
+            });
+        } catch (e: any) {
+            return fail(`AIM context pack failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
 // =============================================================================
 // TOOL REGISTRY
 // =============================================================================
@@ -2001,6 +2111,8 @@ const ALL_TOOLS: ToolDef[] = [
     MultiCursorAITool,
     ProjectRulesTool,
     PRAIReviewTool,
+    AimQuerySpansTool,
+    AimPackContextTool,
     ContextAwarenessTool,
 ];
 

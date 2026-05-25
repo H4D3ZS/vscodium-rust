@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { OAuthProvider } from '@proj-airi/stage-ui/libs/auth'
 
-import { LoginDrawer } from '@proj-airi/stage-ui/components/auth'
+import { SignInPanel } from '@proj-airi/stage-ui/components/auth'
 import { useBreakpoints } from '@proj-airi/stage-ui/composables'
 import { fetchSession, signInOIDC } from '@proj-airi/stage-ui/libs/auth'
 import { OIDC_CLIENT_ID, OIDC_REDIRECT_URI } from '@proj-airi/stage-ui/libs/auth-config'
@@ -98,6 +98,6 @@ watch(isDesktop, (val) => {
       </div>
     </div>
 
-    <LoginDrawer :open="true" />
+    <SignInPanel :open="true" />
   </div>
 </template>

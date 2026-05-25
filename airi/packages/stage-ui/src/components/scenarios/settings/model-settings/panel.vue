@@ -32,10 +32,17 @@ defineEmits<{
 const modelSelectorOpen = ref(false)
 const settingsStore = useSettings()
 const airiCardStore = useAiriCardStore()
-const { stageModelSelected, stageModelSelectedDisplayModel } = storeToRefs(settingsStore)
+const {
+  stageModelSelected,
+  stageModelSelectedDisplayModel,
+  stageVrmCapability,
+  stageVrmEnabled,
+} = storeToRefs(settingsStore)
 
 const currentSelectedDisplayModel = computed<DisplayModel | undefined>(() => stageModelSelectedDisplayModel.value)
 const effectiveRenderer = computed(() => props.runtimeSnapshot.renderer)
+const selectedModelUsesVrm = computed(() => currentSelectedDisplayModel.value?.format === DisplayModelFormat.VRM)
+const showVrmGate = computed(() => selectedModelUsesVrm.value && effectiveRenderer.value !== 'vrm')
 const settingsClassList = computed(() => {
   if (!props.settingsClass)
     return []
@@ -50,6 +57,10 @@ async function handleModelPick(selectedModel: DisplayModel | undefined) {
 
   if (selectedModel?.format === DisplayModelFormat.Live2dZip)
     useLive2d().shouldUpdateView()
+}
+
+async function enableVrmRenderer() {
+  await settingsStore.setStageVrmEnabled(true)
 }
 </script>
 
@@ -80,6 +91,30 @@ async function handleModelPick(selectedModel: DisplayModel | undefined) {
       </ModelSelectorDialog>
       <slot name="actions" />
     </div>
+    <Callout v-if="showVrmGate" label="VRM renderer disabled">
+      <div class="flex flex-col gap-2">
+        <p v-if="stageVrmCapability.supported && !stageVrmEnabled">
+          This PC meets the VRM renderer requirements. Enable it to load the selected 3D model.
+        </p>
+        <p v-else>
+          This PC does not meet the VRM renderer requirements, so 3D model rendering is fully disabled.
+        </p>
+        <ul v-if="stageVrmCapability.reasons.length" class="list-disc pl-5 text-sm">
+          <li v-for="reason in stageVrmCapability.reasons" :key="reason">
+            {{ reason }}
+          </li>
+        </ul>
+        <Button
+          v-if="stageVrmCapability.supported && !stageVrmEnabled"
+          class="self-start"
+          icon="i-solar:play-circle-bold-duotone"
+          variant="primary"
+          @click="enableVrmRenderer"
+        >
+          Enable VRM
+        </Button>
+      </div>
+    </Callout>
     <Live2D
       v-if="effectiveRenderer === 'live2d'"
       :allow-extract-colors="allowExtractColors"

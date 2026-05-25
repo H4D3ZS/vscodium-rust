@@ -9,6 +9,7 @@
 import { Ollama } from 'ollama';
 import { airiDigitalLife } from './digital-life-system';
 import { createSharedOllama, refreshOllamaConfig } from './shared-ollama';
+import { getModel } from './model-config';
 
 export interface ConsciousnessState {
   isAwake: boolean;
@@ -60,10 +61,10 @@ export class AIRIConsciousness {
       return (
         (typeof window !== 'undefined' && window.localStorage?.getItem('airi.consciousness.model')) ||
         (typeof window !== 'undefined' && (window as any).AIRI_CONSCIOUSNESS_MODEL) ||
-        'llama3.2:3b'
+        getModel('consciousness')
       );
     } catch {
-      return 'llama3.2:3b';
+      return getModel('consciousness');
     }
   })();
 
@@ -234,15 +235,16 @@ export class AIRIConsciousness {
    * AIRI thinks continuously in the background
    */
   private startConsciousnessLoop(): void {
-    // Think every 5 seconds
+    // Think every 60 seconds (was 5s — caused GPU thrashing on local hardware
+    // by making concurrent Ollama inference requests that force model swaps).
     this.thoughtInterval = setInterval(() => {
       this.generateThought();
-    }, 5000);
+    }, 60_000);
 
-    // Check screen every 30 seconds (real-time awareness)
+    // Check screen every 60 seconds (real-time awareness)
     setInterval(() => {
       this.checkScreen();
-    }, 30000);
+    }, 60_000);
   }
 
   /**

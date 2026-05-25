@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useStore } from '../store';
 import { speak, stop, isSpeaking, initTTS, getProvider, type VoicePreset } from '../voice';
 import { airiVoiceActivation } from '../airi/voice-activation';
+import { airiVRMAvatar } from '../airi/vrm-avatar';
 
 interface AiriPanelProps {
     className?: string;
@@ -36,7 +37,7 @@ function splitSentences(text: string): string[] {
 let _ttsSpeaking = false;
 let _ttsPreset: VoicePreset = 'airi';
 
-async function ttsSpeak(iframeRef: React.RefObject<HTMLIFrameElement | null>, text: string) {
+async function ttsSpeak(text: string) {
     if (!text.trim()) return;
 
     // Strip markdown for cleaner speech synthesis
@@ -51,36 +52,14 @@ async function ttsSpeak(iframeRef: React.RefObject<HTMLIFrameElement | null>, te
 
     if (!clean) return;
 
-    // Send to iframe for VRM lip sync animation. We deliberately don't log
-    // per-chunk: TTS streams in word-sized chunks, so logging here floods the
-    // console and obscures real errors. One warn-per-minute is plenty.
-    if (iframeRef.current?.contentWindow) {
-        iframeRef.current.contentWindow.postMessage({
-            type: 'airi-speak',
-            payload: {
-                text: clean,
-                timestamp: Date.now()
-            }
-        }, '*');
-        return;
-    }
-
-    const now = Date.now();
-    if (now - (ttsSpeak as any)._lastWarn > 60_000) {
-        (ttsSpeak as any)._lastWarn = now;
-        console.warn('[AiriPanel] VRM iframe not ready — lip sync messages dropped silently.');
-    }
+    ensureTtsInit().then(() => {
+        speak(clean, 'airi');
+    }).catch(err => console.error('[AiriPanel] TTS speak failed:', err));
 }
-(ttsSpeak as any)._lastWarn = 0;
 
-function ttsStop(iframeRef: React.RefObject<HTMLIFrameElement | null>) {
+function ttsStop() {
     stop();
     _ttsSpeaking = false;
-
-    // Stop iframe TTS
-    iframeRef.current?.contentWindow?.postMessage({
-        type: 'airi-speak-stop'
-    }, '*');
 }
 
 // ── ANSI color strip ─────────────────────────────────────────────────────────
@@ -146,29 +125,14 @@ function useTypewriter(text: string, speed = 18): string {
 }
 
 export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, yOffset, transparent, character = 'airi' }) => {
-    /** Plain browser / dev without Tauri — skip heavy VRM iframe */
-    const isWebDemo = typeof window !== 'undefined' && !(window as any).__TAURI__;
-    const iframeRef = useRef<HTMLIFrameElement>(null);
+    const vrmContainerRef = useRef<HTMLDivElement>(null);
     const avatar3dConfig = useStore(state => state.avatar3dConfig);
     const [isAiriLoading, setAiriLoading] = useState(true);
+    const [vrmFailed, setVrmFailed] = useState(false);
     const [isHibernating, setIsHibernating] = useState(false);
     const [lastActivityTime, setLastActivityTime] = useState(Date.now());
     const [isTtsEnabled, setTtsEnabled] = useState(true); // ENABLED by default - AIRI should speak!
     const [isListening, setIsListening] = useState(false);
-    // The AIRI 3D iframe lives at localhost:5174. If the airi/ pnpm workspace
-    // hasn't been installed the service isn't running and the iframe sits
-    // blank forever; probe once and fall back to the web-demo placeholder.
-    const [is3dReachable, setIs3dReachable] = useState<boolean | null>(null);
-    useEffect(() => {
-        let aborted = false;
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 1500);
-        fetch('http://localhost:5174/', { method: 'HEAD', mode: 'no-cors', signal: ctrl.signal })
-            .then(() => { if (!aborted) setIs3dReachable(true); })
-            .catch(() => { if (!aborted) setIs3dReachable(false); })
-            .finally(() => clearTimeout(timer));
-        return () => { aborted = true; ctrl.abort(); clearTimeout(timer); };
-    }, []);
 
     const IDLE_TIMEOUT = 60000; // 1 minute
 
@@ -191,11 +155,6 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     const agentMessages = useStore(s => s.agentMessages);
 
     // Track activity and manage hibernation.
-    //
-    // We keep `lastActivityTime` in a ref so the hibernation timer can read it
-    // without putting it in the dep array. Previously, `wakeUp()` updated
-    // `lastActivityTime` every render → effect re-ran → wakeUp() → infinite
-    // "Maximum update depth exceeded" loop while the agent was thinking.
     const lastActivityRef = useRef(lastActivityTime);
     useEffect(() => {
         lastActivityRef.current = lastActivityTime;
@@ -213,70 +172,74 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
             }
         }, 10000);
         return () => clearInterval(iv);
-        // wakeUp is intentionally referenced via closure only; including it in
-        // deps would re-arm the interval every time `isHibernating` flipped.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isAgentThinking, isHibernating]);
 
     const uiStatus = useStore(s => s.aiStatus);
 
+    // ── Initialize Native VRM Avatar ─────────────────────────────────────────
+    useEffect(() => {
+        if (isHibernating) return;
+
+        let active = true;
+        if (vrmContainerRef.current) {
+            setAiriLoading(true);
+            setVrmFailed(false);
+            const modelUrl = selectedModelUrl || '/models/airi.vrm';
+            airiVRMAvatar.initialize(vrmContainerRef.current, modelUrl)
+                .then((success) => {
+                    if (active) {
+                        setAiriLoading(false);
+                        if (!success) setVrmFailed(true);
+                    }
+                })
+                .catch(_err => {
+                    if (active) {
+                        setAiriLoading(false);
+                        setVrmFailed(true);
+                    }
+                });
+        }
+
+        // Setup ResizeObserver to adapt to side-panel sizing
+        let resizeObserver: ResizeObserver | null = null;
+        if (vrmContainerRef.current) {
+            resizeObserver = new ResizeObserver(() => {
+                airiVRMAvatar.onResize();
+            });
+            resizeObserver.observe(vrmContainerRef.current);
+        }
+
+        return () => {
+            active = false;
+            if (resizeObserver) {
+                resizeObserver.disconnect();
+            }
+            airiVRMAvatar.dispose();
+        };
+    }, [selectedModelUrl, isHibernating]);
+
     // ── Lip Sync Integration ──────────────────────────────────────────────
     useEffect(() => {
-        // Listen for TTS start/stop events
         const handleLipSyncStart = (e: any) => {
             console.log('[AiriPanel] 🎭 Lip sync STARTED');
-            // Send text to VRM for lip sync
-            const text = e.detail?.text || '';
-            ttsSpeak(iframeRef, text);
+            airiVRMAvatar.setSpeaking(true);
         };
 
         const handleLipSyncStop = () => {
             console.log('[AiriPanel] 🎭 Lip sync STOPPED');
-            ttsStop(iframeRef);
+            airiVRMAvatar.setSpeaking(false);
         };
 
-        // Listen for model change events from settings
         const handleModelChange = (e: any) => {
             console.log('[AiriPanel] 🎭 Model change requested:', e.detail);
-            const iframe = iframeRef.current;
-            if (iframe?.contentWindow) {
+            if (vrmContainerRef.current) {
                 setAiriLoading(true);
-
-                // Build new URL with model parameters
-                const baseUrl = 'http://localhost:5174/';
-                const params = new URLSearchParams();
-                params.set('headless', 'true');
-                params.set('transparent', 'true');
-
-                if (e.detail.modelId) {
-                    params.set('char', e.detail.modelId);
-                    console.log('[AiriPanel] Setting character:', e.detail.modelId);
-                }
-                if (e.detail.modelUrl) {
-                    params.set('modelUrl', e.detail.modelUrl);
-                    console.log('[AiriPanel] Setting model URL:', e.detail.modelUrl);
-                }
-
-                // Add cache-busting timestamp
-                params.set('t', Date.now().toString());
-
-                // Force complete reload
-                iframe.src = `${baseUrl}?${params.toString()}`;
-                console.log('[AiriPanel] 🔄 Reloading iframe with new model:', iframe.src);
-
-                // Also send postMessage in case AIRI app supports it
-                try {
-                    iframe.contentWindow.postMessage({
-                        type: 'change-model',
-                        modelId: e.detail.modelId,
-                        modelUrl: e.detail.modelUrl,
-                    }, '*');
-                    console.log('[AiriPanel] ✅ Sent postMessage to AIRI app');
-                } catch (err) {
-                    console.warn('[AiriPanel] postMessage failed:', err);
-                }
-            } else {
-                console.warn('[AiriPanel] ⚠️ Iframe not ready for model change');
+                airiVRMAvatar.initialize(vrmContainerRef.current, e.detail.modelUrl)
+                    .then(() => setAiriLoading(false))
+                    .catch(err => {
+                        console.error('[AiriPanel] Model change failed:', err);
+                        setAiriLoading(false);
+                    });
             }
         };
 
@@ -304,17 +267,13 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
 
     // ── Derive activity from agent state ─────────────────────────────────────
     useEffect(() => {
-        // Signal thinking state change to bridge
-        if (isAgentThinking !== prevThinkingRef.current) {
-            iframeRef.current?.contentWindow?.postMessage({
-                type: 'airi-thinking-state',
-                payload: { active: isAgentThinking }
-            }, '*');
+        airiVRMAvatar.setThinking(isAgentThinking);
 
+        if (isAgentThinking !== prevThinkingRef.current) {
             if (isAgentThinking) {
                 lastSpokenIndexRef.current = 0;
                 setThoughtText(''); // Clear previous turn's text
-                ttsStop(iframeRef);  // Kill any lingering speech
+                ttsStop();  // Kill any lingering speech
             }
             prevThinkingRef.current = isAgentThinking;
         }
@@ -357,7 +316,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
             // High-quality Voice (Incremental)
             if (isTtsEnabled && fullContent.length > lastSpokenIndexRef.current) {
                 const newPart = fullContent.slice(lastSpokenIndexRef.current);
-                ttsSpeak(iframeRef, newPart);
+                ttsSpeak(newPart);
                 lastSpokenIndexRef.current = fullContent.length;
             }
         }
@@ -393,10 +352,8 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                 else if (cmd) setThoughtText(`${label}: ${cmd.slice(0, 60)}`);
                 else setThoughtText(`${label}...`);
 
-                // Forward to VRM manifold
-                iframeRef.current?.contentWindow?.postMessage({
-                    type: 'airi-activity', payload: { activity: act, tool: name, file, cmd }
-                }, '*');
+                // Set avatar emotion directly
+                airiVRMAvatar.setEmotion(act === 'coding' ? 'focused' : 'thinking');
             });
             subs.push(u1);
 
@@ -410,30 +367,21 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                 wakeUp(); // Interaction wake
             });
             subs.push(u2);
-
-            const u3 = await listenEv('hades-sync', (event) => {
-                iframeRef.current?.contentWindow?.postMessage(
-                    { type: 'hades-sync', payload: event.payload }, '*'
-                );
-            });
-            subs.push(u3);
         }
 
         setupSubscriptions();
 
-        // ── Inbound from Vue (Transcription/Input) ──────────────────────
+        // ── Inbound from Voice (Transcription/Input) ──────────────────────
         const handleMessage = (e: MessageEvent) => {
             if (e.data?.type === 'airi-transcription') {
                 const { text, isFinal } = e.data.payload || {};
                 if (text && isFinal) {
-                    // Trigger mission start from spoken word
-                    // Note: We'd ideally want to invoke onSend from RightSidebar context
-                    // For now, emit a custom event that RightSidebar can catch or use window export
                     window.dispatchEvent(new CustomEvent('airi-voice-mission', { detail: { text } }));
                 }
             }
             if (e.data?.type === 'airi-hearing-state') {
                 setIsListening(!!e.data.payload?.enabled);
+                airiVRMAvatar.setListening(!!e.data.payload?.enabled);
             }
         };
         window.addEventListener('message', handleMessage);
@@ -449,12 +397,6 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             wakeUp();
-            if (!iframeRef.current?.contentWindow) return;
-            const rect = iframeRef.current.getBoundingClientRect();
-            iframeRef.current.contentWindow.postMessage({
-                type: 'hades-focus',
-                payload: { x: e.clientX - rect.left, y: e.clientY - rect.top }
-            }, '*');
         };
         window.addEventListener('mousemove', handleMouseMove);
         return () => window.removeEventListener('mousemove', handleMouseMove);
@@ -462,28 +404,18 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
 
     // ── TTS stop when agent stops ─────────────────────────────────────────────
     useEffect(() => {
-        if (!isAgentThinking) ttsStop(iframeRef);
+        if (!isAgentThinking) ttsStop();
     }, [isAgentThinking]);
 
     const meta = ACTIVITY_META[activity];
     const isSmall = (style?.width as number || 400) < 200;
-
-    const url = useMemo(() => {
-        const base = "http://localhost:5174/?headless=true";  // AIRI 3D VRM app
-        const scaleParam = scale ? `&scale=${scale}` : "";
-        const yOffsetParam = yOffset ? `&yOffset=${encodeURIComponent(yOffset)}` : "";
-        const transparentParam = transparent ? `&transparent=true` : "";
-        const charParam = selectedCharacter ? `&char=${selectedCharacter}` : "";
-        const modelUrlParam = selectedModelUrl ? `&modelUrl=${encodeURIComponent(selectedModelUrl)}` : "";
-        return `${base}${scaleParam}${yOffsetParam}${transparentParam}${charParam}${modelUrlParam}`;
-    }, [scale, yOffset, transparent, selectedCharacter, selectedModelUrl]);
 
     return (
         <div
             className={`airi-panel ${className || ''}`}
             style={{ width: '100%', height: '100%', position: 'relative', background: 'transparent', border: 'none', ...style }}
         >
-            {/* ── VRM Manifold Iframe ────────────────────────────────────── */}
+            {/* ── VRM Manifold Canvas ────────────────────────────────────── */}
             {isHibernating ? (
                 <div
                     onClick={wakeUp}
@@ -502,6 +434,51 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         Click to wake AIRI
                     </div>
                 </div>
+            ) : vrmFailed ? (
+                /* ── Glowing orb fallback when VRM model isn't available ────── */
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'flex-start',
+                    paddingTop: '16px',
+                    pointerEvents: 'none',
+                }}>
+                    <div style={{ position: 'relative', width: '88px', height: '88px' }}>
+                        {/* Outer glow ring */}
+                        <div style={{
+                            position: 'absolute', inset: '-12px',
+                            borderRadius: '50%',
+                            background: `radial-gradient(circle, ${meta.glow} 0%, transparent 70%)`,
+                            animation: activity === 'thinking' ? 'airiGlowPulse 1.4s ease-in-out infinite' : 'none',
+                        }} />
+                        {/* Core orb */}
+                        <div style={{
+                            width: '88px', height: '88px', borderRadius: '50%',
+                            background: `radial-gradient(circle at 35% 35%, ${meta.color}cc, ${meta.color}44 60%, transparent)`,
+                            border: `1.5px solid ${meta.color}66`,
+                            boxShadow: `0 0 24px 6px ${meta.glow}, inset 0 0 16px ${meta.color}33`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'all 0.5s ease',
+                        }}>
+                            <span style={{ fontSize: '28px', filter: 'drop-shadow(0 0 8px currentColor)', color: meta.color }}>
+                                {meta.emoji}
+                            </span>
+                        </div>
+                        {/* Small inner sparkle */}
+                        <div style={{
+                            position: 'absolute', top: '14px', left: '18px',
+                            width: '14px', height: '14px', borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.55)',
+                            filter: 'blur(3px)',
+                        }} />
+                    </div>
+                    {/* AIRI label under orb */}
+                    <div style={{
+                        marginTop: '10px', fontSize: '9px', fontWeight: 700,
+                        letterSpacing: '2px', textTransform: 'uppercase',
+                        color: meta.color, opacity: 0.7,
+                    }}>AIRI</div>
+                </div>
             ) : (
                 <>
                     {isAiriLoading && (
@@ -512,49 +489,18 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                             {isSmall ? '...' : 'Syncing Manifold...'}
                         </div>
                     )}
-                    {isWebDemo || is3dReachable === false ? (
-                        <div
-                            style={{
-                                width: '100%',
-                                height: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '12px',
-                                background: 'radial-gradient(circle at 50% 35%, rgba(192,132,252,0.20), rgba(0,0,0,0.18) 55%, rgba(0,0,0,0.32) 100%)',
-                                border: '1px solid rgba(192,132,252,0.2)',
-                            }}
-                        >
-                            <div style={{ textAlign: 'center', padding: '12px' }}>
-                                <div style={{ fontSize: '56px', marginBottom: '8px' }}>🤖</div>
-                                <div style={{ fontSize: '11px', fontWeight: 700, color: '#c084fc', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                                    AIRI Avatar
-                                </div>
-                                <div style={{ fontSize: '10px', opacity: 0.65, marginTop: '6px', maxWidth: '240px', lineHeight: 1.4 }}>
-                                    {isWebDemo
-                                        ? '3D VRM runtime is desktop-only. Voice and chat stay active.'
-                                        : 'AIRI 3D service is not running on :5174. Run `cd airi && pnpm install && pnpm dev:web` to enable the avatar.'}
-                                </div>
-                            </div>
-                        </div>
-                    ) : is3dReachable === null ? (
-                        <div style={{
-                            width: '100%', height: '100%', display: 'flex',
-                            alignItems: 'center', justifyContent: 'center',
-                            color: meta.color, fontSize: '9px', opacity: 0.5,
-                            letterSpacing: '1px', textTransform: 'uppercase',
-                        }}>
-                            probing avatar service…
-                        </div>
-                    ) : (
-                        <iframe
-                            ref={iframeRef}
-                            src={url}
-                            allow="autoplay; microphone; camera"
-                            style={{ width: '100%', height: '100%', border: 'none', opacity: isAiriLoading ? 0 : 1, background: 'transparent' }}
-                            onLoad={() => setAiriLoading(false)}
-                        />
-                    )}
+                    <div
+                        ref={vrmContainerRef}
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            opacity: isAiriLoading ? 0 : 1,
+                            background: 'transparent',
+                            transition: 'opacity 0.3s ease',
+                            transform: `scale(${scale ?? 1}) translateY(${yOffset ?? '0px'})`,
+                            transformOrigin: 'top center'
+                        }}
+                    />
                 </>
             )}
 
@@ -683,7 +629,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                         onClick={() => {
                             const newState = !isTtsEnabled;
                             setTtsEnabled(newState);
-                            if (!newState) ttsStop(iframeRef);
+                            if (!newState) ttsStop();
                         }}
                         style={{
                             marginLeft: '4px', cursor: 'pointer', fontSize: '10px',
@@ -709,11 +655,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
                                 airiVoiceActivation.stopListening();
                             }
 
-                            // Also notify iframe for 3D avatar
-                            iframeRef.current?.contentWindow?.postMessage({
-                                type: 'airi-listen',
-                                payload: { enabled: newState }
-                            }, '*');
+                            airiVRMAvatar.setListening(newState);
                         }}
                         style={{
                             marginLeft: '8px', cursor: 'pointer', fontSize: '10px',

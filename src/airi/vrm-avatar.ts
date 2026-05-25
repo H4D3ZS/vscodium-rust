@@ -31,25 +31,19 @@ export type AvatarEmotion =
 
 export class AIRIVRMAvatar {
   private scene: THREE.Scene;
-  private camera: THREE.Camera;
-  private renderer: THREE.WebGLRenderer;
-  private vrm: VRM | null;
-  private mixer: THREE.AnimationMixer | null;
+  private camera: THREE.PerspectiveCamera;
+  private renderer: THREE.WebGLRenderer | null = null;
+  private vrm: VRM | null = null;
+  private mixer: THREE.AnimationMixer | null = null;
   private clock: THREE.Clock;
   private state: AvatarState;
   private isInitialized: boolean = false;
+  private animationFrameId: number | null = null;
+  private container: HTMLDivElement | null = null;
 
   constructor() {
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(
-      30,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      20
-    );
-    this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-    this.vrm = null;
-    this.mixer = null;
+    this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
     this.clock = new THREE.Clock();
     
     this.state = {
@@ -61,36 +55,53 @@ export class AIRIVRMAvatar {
       blinkTimer: 0,
       lastBlink: 0
     };
-
   }
 
   /**
-   * Initialize the VRM avatar
-   *
-   * NOTE: The real 3D avatar is rendered by the AIRI iframe (port 5174) inside
-   * AiriPanel.tsx. This in-process VRM was a prototype that appends a renderer
-   * to `document.body`, overlays the IDE, and trips `@pixiv/three-vrm` +
-   * Three.js 0.183 texture incompatibilities (colorSpace TypeError). Disable
-   * it by default so it cannot break the host page; pass `vrmUrl` explicitly
-   * to opt back in.
+   * Initialize the VRM avatar natively inside a WebGL Canvas
    */
-  async initialize(vrmUrl?: string): Promise<boolean> {
-    if (!vrmUrl) {
-      this.isInitialized = true;
-      return true;
+  async initialize(container: HTMLDivElement, vrmUrl?: string): Promise<boolean> {
+    // RAM OPTIMIZATION: Disable heavy 3D WebGL VRM rendering by default.
+    // This drops the VSCodium IDE memory footprint back under 200MB.
+    console.log('[VRM] 3D Renderer disabled to save memory (<200MB target).');
+    this.container = container;
+    this.isInitialized = true;
+    return true;
+
+    this.dispose();
+
+    // Guard: container must be a mounted DOM node with layout
+    if (!container || !container.isConnected) {
+      console.warn('[VRM] initialize() called with unmounted container; skipping.');
+      return false;
     }
 
     try {
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
-      this.renderer.setPixelRatio(window.devicePixelRatio);
+      this.container = container;
+      const width = container.clientWidth || 300;
+      const height = container.clientHeight || 300;
+
+      this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      this.renderer.setSize(width, height);
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-      document.body.appendChild(this.renderer.domElement);
+      
+      // Clear container and append canvas
+      container.innerHTML = '';
+      container.appendChild(this.renderer.domElement);
 
-      // Setup camera
-      this.camera.position.set(0, 1.4, 0.7);
-      this.camera.lookAt(0, 1.2, 0);
+      // Setup camera — tighter framing: look at upper chest so head fills frame
+      this.camera.aspect = width / height;
+      this.camera.updateProjectionMatrix();
+      this.camera.position.set(0, 1.55, 0.65);
+      this.camera.lookAt(0, 1.45, 0);
 
-      // Setup lights
+      // Setup lights (clear scene first to prevent duplicate lights)
+      while (this.scene.children.length > 0) {
+        const obj = this.scene.children[0];
+        this.scene.remove(obj);
+      }
+
       const light = new THREE.DirectionalLight(0xffffff, 0.6);
       light.position.set(1, 1, 1);
       this.scene.add(light);
@@ -112,6 +123,7 @@ export class AIRIVRMAvatar {
       const isLikelyVrm = vrmUrlOrDefault.toLowerCase().endsWith('.vrm');
       if (!isLikelyVrm) {
         console.warn('[VRM] Invalid model URL (expected .vrm):', vrmUrlOrDefault);
+        this._cleanupRenderer(container);
         return false;
       }
       
@@ -119,13 +131,17 @@ export class AIRIVRMAvatar {
         loader.load(
           vrmUrlOrDefault,
           resolve,
-          (progress) => {
-          },
+          (_progress) => {},
           reject
         );
       });
 
       this.vrm = gltf.userData.vrm;
+      if (!this.vrm) {
+        console.warn('[VRM] Loaded GLTF but no VRM data found; skipping.');
+        this._cleanupRenderer(container);
+        return false;
+      }
       this.scene.add(this.vrm.scene);
 
       // Setup animation mixer
@@ -134,7 +150,7 @@ export class AIRIVRMAvatar {
       // Look at camera
       if (this.vrm.meta?.metaVersion === '0' || this.vrm.meta?.metaVersion === '1') {
         const lookAtTarget = new THREE.Object3D();
-        lookAtTarget.position.set(0, 1.4, 0);
+        lookAtTarget.position.set(0, 1.55, 0);
         this.scene.add(lookAtTarget);
         
         if (this.vrm.lookAt) {
@@ -145,25 +161,60 @@ export class AIRIVRMAvatar {
       this.isInitialized = true;
       this.animate();
 
-      
       return true;
 
     } catch (error: any) {
       const msg = String(error?.message || error || '');
       if (msg.includes('Unrecognized token') || msg.includes('<')) {
         console.warn('[VRM] Model URL returned HTML/non-VRM payload; avatar disabled.');
-        return false;
+      } else {
+        console.error('[VRM] ❌ Failed to load VRM:', error);
       }
-      console.error('[VRM] ❌ Failed to load VRM:', error);
+      // Always clean up the renderer canvas on failure so the DOM doesn't
+      // show an empty/transparent Three.js canvas (which causes the visual gap).
+      this._cleanupRenderer(this.container);
       return false;
     }
   }
+
+  /** Remove the WebGL canvas from the container and free GPU resources. */
+  private _cleanupRenderer(container: HTMLDivElement | null): void {
+    if (this.renderer) {
+      try {
+        if (container && this.renderer.domElement.parentElement === container) {
+          container.removeChild(this.renderer.domElement);
+        }
+        this.renderer.dispose();
+      } catch { /* ignore */ }
+      this.renderer = null;
+    }
+  }
+
+  private lastRenderTime: number = 0;
+  private targetFps: number = 24; // Throttle to 24fps to drastically save CPU
 
   /**
    * Animation loop
    */
   private animate = (): void => {
-    requestAnimationFrame(this.animate);
+    if (!this.isInitialized) return;
+    this.animationFrameId = requestAnimationFrame(this.animate);
+
+    const now = performance.now();
+    const elapsed = now - this.lastRenderTime;
+    const fpsInterval = 1000 / this.targetFps;
+
+    // Throttle rendering to save CPU
+    if (elapsed < fpsInterval && this.lastRenderTime !== 0) {
+      return;
+    }
+    
+    // Update last render time accounting for missed frames
+    if (this.lastRenderTime === 0) {
+      this.lastRenderTime = now;
+    } else {
+      this.lastRenderTime = now - (elapsed % fpsInterval);
+    }
 
     const delta = this.clock.getDelta();
 
@@ -179,12 +230,17 @@ export class AIRIVRMAvatar {
       // Blink animation
       this.updateBlink(delta);
 
+      // Speaking mouth animation
+      this.updateSpeaking(delta);
+
       // Ambient animation based on state
       this.updateAmbient(delta);
     }
 
     // Render
-    this.renderer.render(this.scene, this.camera);
+    if (this.renderer) {
+      this.renderer.render(this.scene, this.camera);
+    }
   };
 
   /**
@@ -210,6 +266,27 @@ export class AIRIVRMAvatar {
           this.vrm.expressionManager.setValue('blinkRight', 0);
         }
       }, 150);
+    }
+  }
+
+  /**
+   * Update speaking animation with smooth, natural lip sync
+   */
+  private updateSpeaking(delta: number): void {
+    if (!this.vrm || !this.vrm.expressionManager) return;
+
+    if (this.state.isSpeaking) {
+      // Dynamic mouth movement using time-based sine wave
+      const time = Date.now() * 0.012; // Adjust speed for a natural talking pace
+      const mouthOpen = 0.15 + (Math.sin(time) + 1.0) * 0.25; // values between 0.15 and 0.65
+      const mouthWidth = 0.1 + (Math.cos(time * 0.8) + 1.0) * 0.1;
+      
+      this.vrm.expressionManager.setValue('aa', mouthOpen);
+      this.vrm.expressionManager.setValue('ih', mouthWidth);
+    } else {
+      // Ensure mouth is fully closed when not speaking
+      this.vrm.expressionManager.setValue('aa', 0);
+      this.vrm.expressionManager.setValue('ih', 0);
     }
   }
 
@@ -251,14 +328,14 @@ export class AIRIVRMAvatar {
     // Set emotion-specific expressions
     switch (emotion) {
       case 'happy':
-        this.vrm.expressionManager.setValue('aa', 0.5);
-        this.vrm.expressionManager.setValue('blinkLeft', 0.2);
-        this.vrm.expressionManager.setValue('blinkRight', 0.2);
+        this.vrm.expressionManager.setValue('joy', 0.8);
+        this.vrm.expressionManager.setValue('eyeHappy', 0.6);
         break;
 
       case 'excited':
-        this.vrm.expressionManager.setValue('aa', 0.8);
-        this.vrm.expressionManager.setValue('eyeSurprised', 0.6);
+        this.vrm.expressionManager.setValue('joy', 1.0);
+        this.vrm.expressionManager.setValue('fun', 0.5);
+        this.vrm.expressionManager.setValue('eyeSurprised', 0.3);
         break;
 
       case 'thinking':
@@ -267,14 +344,14 @@ export class AIRIVRMAvatar {
         break;
 
       case 'concerned':
-        this.vrm.expressionManager.setValue('angry', 0.3);
+        this.vrm.expressionManager.setValue('sorrow', 0.5);
         this.vrm.expressionManager.setValue('mouthTight', 0.4);
         break;
 
       case 'tired':
         this.vrm.expressionManager.setValue('sorrow', 0.4);
-        this.vrm.expressionManager.setValue('blinkLeft', 0.5);
-        this.vrm.expressionManager.setValue('blinkRight', 0.5);
+        this.vrm.expressionManager.setValue('blinkLeft', 0.3);
+        this.vrm.expressionManager.setValue('blinkRight', 0.3);
         break;
 
       case 'focused':
@@ -283,14 +360,13 @@ export class AIRIVRMAvatar {
 
       case 'surprised':
         this.vrm.expressionManager.setValue('eyeSurprised', 0.8);
-        this.vrm.expressionManager.setValue('aa', 0.6);
+        this.vrm.expressionManager.setValue('aa', 0.3);
         break;
 
       default:
         // Neutral - no additional expressions
         break;
     }
-
   }
 
   /**
@@ -316,27 +392,7 @@ export class AIRIVRMAvatar {
    * Lip sync with voice
    */
   setSpeaking(isSpeaking: boolean, audioData?: Float32Array): void {
-    if (!this.vrm) return;
-
     this.state.isSpeaking = isSpeaking;
-
-    if (isSpeaking && audioData) {
-      // Analyze audio data for lip sync
-      const average = audioData.reduce((a, b) => a + Math.abs(b), 0) / audioData.length;
-      const mouthOpen = Math.min(1, average * 2);
-
-      this.vrm.expressionManager?.setValue('aa', mouthOpen);
-      this.vrm.expressionManager?.setValue('ih', mouthOpen * 0.5);
-    } else if (isSpeaking) {
-      // Simple talking animation without audio data
-      const time = Date.now() * 0.01;
-      const mouthOpen = (Math.sin(time) + 1) * 0.3;
-      this.vrm.expressionManager?.setValue('aa', mouthOpen);
-    } else {
-      // Close mouth
-      this.vrm.expressionManager?.setValue('aa', 0);
-      this.vrm.expressionManager?.setValue('ih', 0);
-    }
   }
 
   /**
@@ -353,6 +409,9 @@ export class AIRIVRMAvatar {
       }
     } else {
       this.setEmotion('neutral');
+      if (this.vrm?.humanoid.getNormalizedBoneNode('head')) {
+        this.vrm.humanoid.getNormalizedBoneNode('head')!.rotation.x = 0;
+      }
     }
   }
 
@@ -364,7 +423,6 @@ export class AIRIVRMAvatar {
 
     if (isThinking) {
       this.setEmotion('thinking');
-      // Hand to chin gesture (if available)
     } else {
       this.setEmotion('neutral');
     }
@@ -391,13 +449,13 @@ export class AIRIVRMAvatar {
     // Analyze text for emotional content
     const lower = text.toLowerCase();
 
-    if (lower.includes('happy') || lower.includes('great') || lower.includes('awesome')) {
+    if (lower.includes('happy') || lower.includes('great') || lower.includes('awesome') || lower.includes('perfect')) {
       this.setEmotion('happy');
-    } else if (lower.includes('sad') || lower.includes('frustrated') || lower.includes('stuck')) {
+    } else if (lower.includes('sad') || lower.includes('frustrated') || lower.includes('stuck') || lower.includes('error')) {
       this.setEmotion('concerned');
-    } else if (lower.includes('excited') || lower.includes('amazing')) {
+    } else if (lower.includes('excited') || lower.includes('amazing') || lower.includes('wow')) {
       this.setEmotion('excited');
-    } else if (lower.includes('think') || lower.includes('wonder') || lower.includes('question')) {
+    } else if (lower.includes('think') || lower.includes('wonder') || lower.includes('question') || lower.includes('why')) {
       this.setEmotion('thinking');
     }
   }
@@ -410,34 +468,53 @@ export class AIRIVRMAvatar {
   }
 
   /**
-   * Resize handler
+   * Resize handler adapting to container boundaries
    */
   onResize(): void {
-    if (!this.isInitialized) return;
+    if (!this.isInitialized || !this.container || !this.renderer) return;
 
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    const width = this.container.clientWidth || 400;
+    const height = this.container.clientHeight || 400;
+    this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(width, height);
   }
 
   /**
-   * Cleanup
+   * Cleanup resources to prevent frame loops and memory leaks
    */
   dispose(): void {
+    this.isInitialized = false;
+
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+
     if (this.vrm) {
+      this.scene.remove(this.vrm.scene);
       this.vrm.scene.traverse((obj) => {
         if (obj.isMesh) {
           obj.geometry.dispose();
           if (obj.material) {
-            obj.material.dispose();
+            if (Array.isArray(obj.material)) {
+              obj.material.forEach((m) => m.dispose());
+            } else {
+              obj.material.dispose();
+            }
           }
         }
       });
+      this.vrm = null;
     }
-    
-    this.renderer.dispose();
-    this.renderer.domElement.remove();
-    this.isInitialized = false;
+
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer.domElement.remove();
+      this.renderer = null;
+    }
+
+    this.container = null;
   }
 }
 

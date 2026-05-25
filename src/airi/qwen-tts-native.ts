@@ -5,6 +5,11 @@
  * Runs as a subprocess, no Ollama needed
  * 
  * GitHub: https://github.com/QwenLM/Qwen3-TTS
+ * 
+ * IMPORTANT: This module is lazy — it does NOT auto-start or poll the server.
+ * The health check only runs when the user explicitly selects the "qwen-native"
+ * TTS strategy in Settings. This prevents console spam when the server isn't
+ * running (which is the default case).
  */
 
 export interface QwenTTSConfig {
@@ -20,6 +25,9 @@ export class Qwen3TTSServer {
     private serverUrl: string;
     private isRunning = false;
     private process: any = null;
+    /** Circuit breaker: if the server has failed N times, stop polling. */
+    private consecutiveFailures = 0;
+    private static readonly MAX_FAILURES = 3;
 
     constructor(config?: Partial<QwenTTSConfig>) {
         this.config = {
@@ -34,56 +42,61 @@ export class Qwen3TTSServer {
     }
 
     /**
-     * Start Qwen3-TTS server
+     * Start Qwen3-TTS server (only checks if the external server is reachable)
      */
     async start(): Promise<boolean> {
         if (this.isRunning) {
             return true;
         }
 
+        // Circuit breaker — avoid hammering a dead server
+        if (this.consecutiveFailures >= Qwen3TTSServer.MAX_FAILURES) {
+            return false;
+        }
 
         try {
-            // For Tauri, we'll use fetch to a Python HTTP server
-            // The Python script needs to be started separately or via Tauri command
-
-            // Check if server is ready
-            const ready = await this.waitForServer();
+            const ready = await this.checkOnce();
 
             if (ready) {
                 this.isRunning = true;
+                this.consecutiveFailures = 0;
+                console.log('[Qwen3-TTS] ✅ Native server connected on port', this.config.port);
                 return true;
             } else {
-                console.error('[Qwen3-TTS] ❌ Server failed to start');
+                this.consecutiveFailures++;
+                if (this.consecutiveFailures >= Qwen3TTSServer.MAX_FAILURES) {
+                    console.warn('[Qwen3-TTS] ⚠ Server unreachable after', this.consecutiveFailures, 'attempts. Will not retry until reset.');
+                }
                 return false;
             }
         } catch (error) {
+            this.consecutiveFailures++;
             console.error('[Qwen3-TTS] Start error:', error);
             return false;
         }
     }
 
     /**
-     * Wait for server to be ready
+     * Single health check — no loop, no retry, no spam.
      */
-    private async waitForServer(maxAttempts: number = 30): Promise<boolean> {
-        for (let i = 0; i < maxAttempts; i++) {
-            try {
-                const response = await fetch(`${this.serverUrl}/health`, {
-                    method: 'GET',
-                    signal: AbortSignal.timeout(1000),
-                });
-
-                if (response.ok) {
-                    return true;
-                }
-            } catch {
-                // Server not ready yet
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 500));
+    private async checkOnce(): Promise<boolean> {
+        try {
+            const response = await fetch(`${this.serverUrl}/health`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(2000),
+            });
+            return response.ok;
+        } catch {
+            return false;
         }
+    }
 
-        return false;
+    /**
+     * Reset the circuit breaker (e.g. when user re-selects qwen-native in Settings)
+     */
+    reset(): void {
+        this.consecutiveFailures = 0;
+        this.isRunning = false;
     }
 
     /**
@@ -131,6 +144,7 @@ export class Qwen3TTSServer {
             });
         } catch (error) {
             console.error('[Qwen3-TTS] Speak error:', error);
+            this.isRunning = false; // Mark as down so next call retries
             return false;
         }
     }
@@ -146,15 +160,7 @@ export class Qwen3TTSServer {
      * Check if server is running
      */
     async isHealthy(): Promise<boolean> {
-        try {
-            const response = await fetch(`${this.serverUrl}/health`, {
-                method: 'GET',
-                signal: AbortSignal.timeout(2000),
-            });
-            return response.ok;
-        } catch {
-            return false;
-        }
+        return this.checkOnce();
     }
 
     /**
@@ -172,12 +178,12 @@ export class Qwen3TTSServer {
 // Export singleton
 export const qwenNativeTTS = new Qwen3TTSServer();
 
-// Auto-start on module load (for Tauri)
-if (typeof window !== 'undefined') {
-    // Try to start server
-    qwenNativeTTS.start().catch(console.error);
+// NO auto-start on module load. The server is only checked when the user
+// selects "qwen-native" as their TTS strategy in Settings. This prevents
+// the flood of CORS errors in the console when the Python server isn't running.
 
-    // Clean up on page unload
+// Clean up on page unload
+if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', () => {
         qwenNativeTTS.shutdown();
     });

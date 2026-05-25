@@ -48,6 +48,8 @@ lsp-types = "0.94.1"
 axum = "0.7"
 anyhow = "1"
 reqwest = { version = "0.11", features = ["json", "stream"] }
+ripgrep = "15.1.0"
+ripgrep-api = "0.2.0"
 sysinfo = "0.30"
 lz4_flex = "0.11"
 zip = "0.6"
@@ -84,6 +86,7 @@ hades-harness = { path = "../kortex/harness" }
 tokio-tungstenite = "0.20"
 futures-util = "0.3"
 bytes = "1"
+lazy_static = "1.5.0"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

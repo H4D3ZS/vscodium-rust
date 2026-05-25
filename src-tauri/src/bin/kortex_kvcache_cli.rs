@@ -156,9 +156,11 @@ fn cmd_stats(rest: &[String]) -> anyhow::Result<()> {
         0.0
     };
     println!("entries        : {}", stats.entries);
-    println!("on-disk bytes  : {} ({:.2} GB)",
-             stats.total_bytes,
-             stats.total_bytes as f64 / (1024.0 * 1024.0 * 1024.0));
+    println!(
+        "on-disk bytes  : {} ({:.2} GB)",
+        stats.total_bytes,
+        stats.total_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+    );
     println!("hits           : {}", stats.hits);
     println!("misses         : {}", stats.misses);
     println!("hit rate       : {:.1}%", hit_rate);

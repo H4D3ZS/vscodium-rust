@@ -18,6 +18,7 @@ export * from './general'
 export * from './live2d'
 export * from './stage-model'
 export * from './theme'
+export * from './vrm-capability'
 // Export constants
 export { DEFAULT_THEME_COLORS_HUE } from './theme'
 
@@ -69,6 +70,8 @@ export const useSettings = defineStore('settings', () => {
     stageModelSelected: stageModelRefs.stageModelSelected,
     stageModelSelectedUrl: stageModelRefs.stageModelSelectedUrl,
     stageModelSelectedDisplayModel: stageModelRefs.stageModelSelectedDisplayModel,
+    stageVrmCapability: stageModelRefs.stageVrmCapability,
+    stageVrmEnabled: stageModelRefs.stageVrmEnabled,
     stageViewControlsEnabled: stageModelRefs.stageViewControlsEnabled,
 
     // Live2D settings
@@ -96,8 +99,10 @@ export const useSettings = defineStore('settings', () => {
     applyPrimaryColorFrom: theme.applyPrimaryColorFrom,
     isColorSelectedForPrimary: theme.isColorSelectedForPrimary,
     initializeStageModel: stageModel.initializeStageModel,
+    refreshStageVrmCapability: stageModel.refreshStageVrmCapability,
     restoreBuiltInStageModelRenderer: stageModel.restoreBuiltInStageModelRenderer,
     setStageModelRenderer: stageModel.setStageModelRenderer,
+    setStageVrmEnabled: stageModel.setStageVrmEnabled,
     updateStageModel: stageModel.updateStageModel,
     resetState,
   }

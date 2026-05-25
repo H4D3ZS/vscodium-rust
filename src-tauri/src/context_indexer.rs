@@ -231,12 +231,22 @@ impl ContextIndexer {
                 // 2.2 Security Analysis (Distillation)
                 let security_meta = crate::security_distiller::SecurityDistiller::get_security_metadata(&content);
 
+                // Build a meaningful content gist: file path + first 400 chars of content
+                // This makes keyword search in retrieve_context() actually useful.
+                let content_gist = if content.len() > 400 {
+                    let truncated: String = content.chars().take(400).collect();
+                    format!("{}: {}", relative_path, truncated.replace('\n', " "))
+                } else {
+                    format!("{}: {}", relative_path, content.replace('\n', " "))
+                };
+
                 ms.store_slot_sync(crate::memory_store::SemanticSlot {
                     id: format!("{}:{}", category, relative_path),
                     category: category.to_string(),
-                    content: relative_path,
+                    content: content_gist,
                     tags,
                     metadata: Some(serde_json::json!({
+                        "path": path.to_string_lossy(),
                         "extension": extension,
                         "size": content.len(),
                         "geometry_map": geometry.get(0..10).map(|s| s.to_vec()),
@@ -250,7 +260,13 @@ impl ContextIndexer {
             }
         });
 
-        println!("[CONTEXT] Parallel index cycle complete.");
+        // 3. Update the persistent Project Tree in MemoryStore
+        let tree_paths: Vec<String> = paths.iter()
+            .map(|p| p.strip_prefix(root).unwrap_or(p).to_string_lossy().to_string())
+            .collect();
+        ms.set_project_tree(tree_paths).await;
+
+        println!("[CONTEXT] Parallel index cycle complete. Indexed {} files.", paths.len());
         Ok(())
     }
 
@@ -270,30 +286,82 @@ impl ContextIndexer {
         Self::is_indexable_with(p, None)
     }
 
-    /// Indexability gate. Adds Cursor-compatible `.cursorignore` /
-    /// `.cursorindexignore` / `.gitignore` filtering on top of the
-    /// extension allow-list and the legacy hard-coded prunes.
+    /// Indexability gate for a universal IDE.
+    /// Indexes ANY text file regardless of extension, like VSCode and Cursor.
+    /// Binary files are detected by content sniffing (null bytes) and skipped.
+    /// Explicitly skips known garbage/generated directories and binary extensions.
     fn is_indexable_with(p: &Path, ignore_set: Option<&IgnoreSet>) -> bool {
         if !p.is_file() {
             return false;
         }
-        let ext_ok = p.extension().map_or(false, |ext| {
-            ext == "rs" || ext == "ts" || ext == "tsx" || ext == "json" || ext == "md"
-        });
-        if !ext_ok {
-            return false;
-        }
+
+        // 1. Hard prune directories that universally contain generated/binary artifacts
         let s = p.to_string_lossy();
-        if s.contains("node_modules") || s.contains("target") || s.contains(".git/") || s.contains("\\.git\\") {
-            return false;
+        let pruned_segments = [
+            "node_modules", ".git", "/target/", "\\target\\",
+            "/dist/", "\\dist\\", "/.cache/", "\\.cache\\",
+            "/build/", "\\build\\", "/__pycache__/", "\\__pycache__\\",
+            "/.venv/", "\\.venv\\", "/venv/", "\\venv\\",
+            "/vendor/", "\\vendor\\", "/.next/", "\\.next\\",
+            "/out/", "\\out\\", "/.turbo/", "\\.turbo\\",
+        ];
+        for seg in &pruned_segments {
+            if s.contains(seg) { return false; }
         }
-        if let Some(ig) = ignore_set {
-            if ig.is_ignored(p) {
+
+        // 2. Skip universally binary extensions — no content inspection needed
+        let binary_exts = [
+            // Images
+            "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg", "tiff", "avif",
+            // Video/Audio
+            "mp4", "mp3", "webm", "mov", "avi", "mkv", "wav", "ogg", "flac",
+            // Archives
+            "zip", "tar", "gz", "bz2", "xz", "rar", "7z",
+            // Compiled/Binary
+            "exe", "dll", "so", "dylib", "a", "lib", "wasm",
+            "class", "pyc", "pyo", "o", "obj",
+            // Fonts
+            "ttf", "otf", "woff", "woff2", "eot",
+            // Documents/DB
+            "pdf", "docx", "xlsx", "pptx", "sqlite", "db",
+            // Lock files with massive content useless to AI
+            "lock",
+        ];
+        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+            if binary_exts.contains(&ext.to_lowercase().as_str()) {
                 return false;
             }
         }
+
+        // 3. Skip files over 2MB — too large to be useful as a context gist
+        if let Ok(meta) = p.metadata() {
+            if meta.len() > 2 * 1024 * 1024 {
+                return false;
+            }
+        }
+
+        // 4. Respect user ignore files (.gitignore, .cursorignore, etc.)
+        if let Some(ig) = ignore_set {
+            if ig.is_ignored(p) { return false; }
+        }
+
+        // 5. Text detection: read first 512 bytes and check for null bytes.
+        //    If null bytes are present, it's binary. This is the same heuristic
+        //    used by git, ripgrep, and VSCode.
+        if let Ok(mut f) = std::fs::File::open(p) {
+            use std::io::Read;
+            let mut probe = [0u8; 512];
+            let n = f.read(&mut probe).unwrap_or(0);
+            if probe[..n].contains(&0u8) {
+                return false; // Binary file — skip
+            }
+        } else {
+            return false; // Can't open — skip
+        }
+
         true
     }
+
 
     async fn index_single_file(ms: &MemoryStore, root: &Path, path: &Path) -> anyhow::Result<()> {
         let relative_path = path.strip_prefix(root)?.to_string_lossy().to_string();

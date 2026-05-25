@@ -15,9 +15,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use vscode_rust_app_lib::kortex_gac::{
-    build_argv, default_profile_path, launcher, plan_tiers, planner, profile_gguf,
-    read_profile, render_args, resolve_server_binary, write_profile, LaunchOpts,
-    PlanOptions, ProfilerConfig, TierPlan,
+    build_argv, default_profile_path, launcher, plan_tiers, planner, profile_gguf, read_profile,
+    render_args, resolve_server_binary, write_profile, LaunchOpts, PlanOptions, ProfilerConfig,
+    TierPlan,
 };
 
 fn main() -> ExitCode {
@@ -205,9 +205,7 @@ fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        rt.block_on(async {
-            launcher::await_healthy(&host, port, 120).await
-        })?;
+        rt.block_on(async { launcher::await_healthy(&host, port, 120).await })?;
     }
     if let Some(info) = launcher::current_server_info() {
         println!("{}", serde_json::to_string_pretty(&info)?);

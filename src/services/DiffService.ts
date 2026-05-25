@@ -11,6 +11,24 @@ export interface DiffBlock {
     newContent: string;
 }
 
+function hashContent(value: string): string {
+    let hash = 5381;
+    for (let i = 0; i < value.length; i++) {
+        hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
+    }
+    return (hash >>> 0).toString(36);
+}
+
+function createDiffBlockId(block: Omit<DiffBlock, 'id'>): string {
+    return [
+        block.type,
+        `${block.oldStartLine}-${block.oldEndLine}`,
+        `${block.newStartLine}-${block.newEndLine}`,
+        hashContent(block.oldContent),
+        hashContent(block.newContent),
+    ].join(':');
+}
+
 export const computeDiffBlocks = (oldContent: string, newContent: string): DiffBlock[] => {
     const changes = diff.diffLines(oldContent, newContent);
     const hunks: DiffBlock[] = [];
@@ -22,8 +40,7 @@ export const computeDiffBlocks = (oldContent: string, newContent: string): DiffB
     
     const flushHunk = () => {
         if (currentHunk) {
-            hunks.push({
-                id: Math.random().toString(36).substring(7),
+            const block = {
                 type: currentHunk.type || 'modified',
                 oldStartLine: currentHunk.oldStartLine!,
                 oldEndLine: currentHunk.oldEndLine!,
@@ -31,6 +48,10 @@ export const computeDiffBlocks = (oldContent: string, newContent: string): DiffB
                 newEndLine: currentHunk.newEndLine!,
                 oldContent: currentHunk.oldContent || '',
                 newContent: currentHunk.newContent || '',
+            };
+            hunks.push({
+                id: createDiffBlockId(block),
+                ...block,
             });
             currentHunk = null;
         }

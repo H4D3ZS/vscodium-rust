@@ -713,6 +713,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63044e1ae8e69f3b5a92c736ca6269b8d12fa7efe39bf34ddb06d102cf0e2cab"
 dependencies = [
  "memchr",
+ "regex-automata",
  "serde",
 ]
 
@@ -1590,7 +1591,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1768,6 +1769,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "encoding_rs_io"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cc3c5651fb62ab8aa3103998dade57efdd028544bd300516baa31840c252a83"
+dependencies = [
+ "encoding_rs",
+]
+
+[[package]]
 name = "endi"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1850,7 +1860,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2594,6 +2604,85 @@ dependencies = [
 ]
 
 [[package]]
+name = "grep"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "309217bc53e2c691c314389c7fa91f9cd1a998cda19e25544ea47d94103880c3"
+dependencies = [
+ "grep-cli",
+ "grep-matcher",
+ "grep-printer",
+ "grep-regex",
+ "grep-searcher",
+]
+
+[[package]]
+name = "grep-cli"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf32d263c5d5cc2a23ce587097f5ddafdb188492ba2e6fb638eaccdc22453631"
+dependencies = [
+ "bstr",
+ "globset",
+ "libc",
+ "log",
+ "termcolor",
+ "winapi-util",
+]
+
+[[package]]
+name = "grep-matcher"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36d7b71093325ab22d780b40d7df3066ae4aebb518ba719d38c697a8228a8023"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "grep-printer"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd76035e87871f51c1ee5b793e32122b3ccf9c692662d9622ef1686ff5321acb"
+dependencies = [
+ "bstr",
+ "grep-matcher",
+ "grep-searcher",
+ "log",
+ "serde",
+ "serde_json",
+ "termcolor",
+]
+
+[[package]]
+name = "grep-regex"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ce0c256c3ad82bcc07b812c15a45ec1d398122e8e15124f96695234db7112ef"
+dependencies = [
+ "bstr",
+ "grep-matcher",
+ "log",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
+name = "grep-searcher"
+version = "0.1.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac63295322dc48ebb20a25348147905d816318888e64f531bfc2a2bc0577dc34"
+dependencies = [
+ "bstr",
+ "encoding_rs",
+ "encoding_rs_io",
+ "grep-matcher",
+ "log",
+ "memchr",
+ "memmap2 0.9.10",
+]
+
+[[package]]
 name = "gtk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3329,7 +3418,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3535,6 +3624,12 @@ name = "lebe"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
+
+[[package]]
+name = "lexopt"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "803ec87c9cfb29b9d2633f20cba1f488db3fd53f2158b1024cbefb47ba05d413"
 
 [[package]]
 name = "libaim"
@@ -4073,7 +4168,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4503,7 +4598,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5475,6 +5570,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "ripgrep"
+version = "15.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f388c4955f85477c28a8667355819844a06614b083c23517f0e86bd1d6d82b73"
+dependencies = [
+ "anyhow",
+ "bstr",
+ "grep",
+ "ignore",
+ "lexopt",
+ "log",
+ "serde_json",
+ "termcolor",
+ "textwrap",
+ "tikv-jemallocator",
+]
+
+[[package]]
+name = "ripgrep-api"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d29fcc33bc7afe6e6a30fa97e33f689f28f207e5e12ad52153cdd4bc8e99721"
+dependencies = [
+ "bstr",
+ "globset",
+ "grep-matcher",
+ "grep-regex",
+ "grep-searcher",
+ "ignore",
+]
+
+[[package]]
 name = "rmp"
 version = "0.8.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5560,7 +5687,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6205,7 +6332,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6941,7 +7068,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.3",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6956,6 +7083,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "termcolor"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
+dependencies = [
+ "winapi-util",
+]
+
+[[package]]
 name = "termios"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6963,6 +7099,12 @@ checksum = "d5d9cf598a6d7ce700a4e6a9199da127e6819a61e64b68609683cc9a01b5683a"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "textwrap"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c13547615a44dc9c452a8a534638acdf07120d4b6847c8178705da06306a3057"
 
 [[package]]
 name = "thiserror"
@@ -7022,6 +7164,26 @@ dependencies = [
  "flate2",
  "jpeg-decoder",
  "weezl",
+]
+
+[[package]]
+name = "tikv-jemalloc-sys"
+version = "0.6.1+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd8aa5b2ab86a2cefa406d889139c162cbb230092f7d1d7cbc1716405d852a3b"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
+name = "tikv-jemallocator"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0359b4327f954e0567e69fb191cf1436617748813819c94b8cd4a431422d053a"
+dependencies = [
+ "libc",
+ "tikv-jemalloc-sys",
 ]
 
 [[package]]
@@ -7847,6 +8009,7 @@ dependencies = [
  "headless_chrome",
  "ignore",
  "image 0.24.9",
+ "lazy_static",
  "libaim",
  "lsp-types",
  "lz4_flex",
@@ -7857,6 +8020,8 @@ dependencies = [
  "rayon",
  "regex",
  "reqwest 0.11.27",
+ "ripgrep",
+ "ripgrep-api",
  "rmp-serde",
  "ropey",
  "rusqlite",
@@ -8362,7 +8527,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

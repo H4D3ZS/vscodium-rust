@@ -102,7 +102,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 4000
                 });
             }
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('airi:phase_wrap', (e) => {
             const reports = e.payload?.reports || [];
@@ -114,7 +114,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('airi:edit_proposed', (e) => {
             const { file, description } = e.payload;
@@ -124,7 +124,7 @@ export const AiriOverlay: React.FC = () => {
                 type: 'suggestion',
                 ttl: 5000
             });
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('airi:edit_committed', (e) => {
             const { file, success } = e.payload;
@@ -137,7 +137,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('airi:error_detected', (e) => {
             const { errors } = e.payload;
@@ -154,7 +154,7 @@ export const AiriOverlay: React.FC = () => {
                     }
                 });
             }
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('airi:thought', (e) => {
             // Dedupe frequent thoughts — only show significant ones
@@ -169,7 +169,7 @@ export const AiriOverlay: React.FC = () => {
                 type: t.type === 'warning' ? 'warning' : 'action',
                 ttl: 4000
             });
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('ai-tool-result', (e) => {
             const name = e.payload?.name;
@@ -178,7 +178,7 @@ export const AiriOverlay: React.FC = () => {
                     ? { ...a, status: 'done' }
                     : a
             ));
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('hades://verity', (e) => {
             const score = e.payload?.score ?? 1.0;
@@ -195,7 +195,7 @@ export const AiriOverlay: React.FC = () => {
                 setMood(prev => prev === 'coding' ? 'success' : prev);
                 setTimeout(() => setMood('idle'), 2000);
             }
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('ai-content', (e) => {
             const content: string = e.payload?.content || '';
@@ -212,7 +212,7 @@ export const AiriOverlay: React.FC = () => {
                     setLiveActions([]);
                 }, 3000);
             }
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('task-phase-update', (e) => {
             const phase = e.payload?.phase;
@@ -225,7 +225,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('memory-update', (e) => {
             const slots = e.payload?.slots ?? 0;
@@ -240,7 +240,7 @@ export const AiriOverlay: React.FC = () => {
                     ttl: 3000
                 });
             }
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         // Capture streaming text for the thought bubble
         let streamBuf = '';
@@ -257,12 +257,12 @@ export const AiriOverlay: React.FC = () => {
                     .trim();
                 setThinkingText(cleaned.slice(-90));
             }
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         listen<any>('ai-content', () => {
             streamBuf = '';
             setThinkingText('');
-        }).then(u => subs.push(u)).catch(() => {});
+        }).then(u => subs.push(u)).catch(() => { });
 
         return () => subs.forEach(u => u());
     }, [addThought]);
@@ -313,18 +313,18 @@ export const AiriOverlay: React.FC = () => {
 
     const moodColor = {
         idle: 'rgba(255,255,255,0.2)',
-        thinking: '#3b82f6',
-        coding: '#f97316',
+        thinking: '#a855f7',
+        coding: '#7c3aed',
         success: '#10b981',
         error: '#ef4444',
     }[mood];
 
     const moodGlow = {
         idle: 'none',
-        thinking: '0 0 12px rgba(59,130,246,0.4)',
-        coding: '0 0 12px rgba(249,115,22,0.5)',
-        success: '0 0 16px rgba(16,185,129,0.5)',
-        error: '0 0 12px rgba(239,68,68,0.4)',
+        thinking: '0 0 12px rgba(168, 85, 247, 0.4)',
+        coding: '0 0 12px rgba(124, 58, 237, 0.5)',
+        success: '0 0 16px rgba(16, 185, 129, 0.5)',
+        error: '0 0 12px rgba(239, 68, 68, 0.4)',
     }[mood];
 
     if (!isAgentThinking && liveActions.length === 0 && thoughts.length === 0 && mood === 'idle') {
@@ -403,8 +403,8 @@ export const AiriOverlay: React.FC = () => {
                     <span style={{ flex: 1 }}>{thought.text}</span>
                     {thought.actionLabel && (
                         <button onClick={thought.action} style={{
-                            background: 'rgba(59,130,246,0.3)', border: '1px solid rgba(59,130,246,0.5)',
-                            color: '#93c5fd', fontSize: '10px', padding: '2px 8px',
+                            background: 'rgba(168, 85, 247, 0.3)', border: '1px solid rgba(168, 85, 247, 0.5)',
+                            color: '#e9d5ff', fontSize: '10px', padding: '2px 8px',
                             borderRadius: '5px', cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: 600
                         }}>{thought.actionLabel}</button>
                     )}

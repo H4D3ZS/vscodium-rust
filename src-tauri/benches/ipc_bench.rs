@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
 struct LargePayload {
@@ -24,32 +24,36 @@ fn create_payload() -> LargePayload {
 
 fn bench_json_serialization(c: &mut Criterion) {
     let payload = create_payload();
-    c.bench_function("json_serialize", |b| b.iter(|| {
-        serde_json::to_string(&payload).unwrap()
-    }));
+    c.bench_function("json_serialize", |b| {
+        b.iter(|| serde_json::to_string(&payload).unwrap())
+    });
 }
 
 fn bench_json_deserialization(c: &mut Criterion) {
     let payload = create_payload();
     let json_str = serde_json::to_string(&payload).unwrap();
-    c.bench_function("json_deserialize", |b| b.iter(|| {
-        let _: LargePayload = serde_json::from_str(&json_str).unwrap();
-    }));
+    c.bench_function("json_deserialize", |b| {
+        b.iter(|| {
+            let _: LargePayload = serde_json::from_str(&json_str).unwrap();
+        })
+    });
 }
 
 fn bench_msgpack_serialization(c: &mut Criterion) {
     let payload = create_payload();
-    c.bench_function("msgpack_serialize", |b| b.iter(|| {
-        rmp_serde::to_vec(&payload).unwrap()
-    }));
+    c.bench_function("msgpack_serialize", |b| {
+        b.iter(|| rmp_serde::to_vec(&payload).unwrap())
+    });
 }
 
 fn bench_msgpack_deserialization(c: &mut Criterion) {
     let payload = create_payload();
     let bin_data = rmp_serde::to_vec(&payload).unwrap();
-    c.bench_function("msgpack_deserialize", |b| b.iter(|| {
-        let _: LargePayload = rmp_serde::from_slice(&bin_data).unwrap();
-    }));
+    c.bench_function("msgpack_deserialize", |b| {
+        b.iter(|| {
+            let _: LargePayload = rmp_serde::from_slice(&bin_data).unwrap();
+        })
+    });
 }
 
 criterion_group!(

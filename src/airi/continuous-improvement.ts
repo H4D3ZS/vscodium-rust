@@ -6,83 +6,84 @@
 
 import type { Ollama } from 'ollama';
 import { createSharedOllama, resolveOllamaModelTag } from './shared-ollama';
+import { getModel } from './model-config';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 /** First balanced `{ ... }` starting at the first `{` in \`s\`. */
 function extractBalancedJsonObject(s: string): string | null {
-    const start = s.indexOf('{');
-    if (start < 0) return null;
-    let depth = 0;
-    for (let i = start; i < s.length; i++) {
-        const c = s[i];
-        if (c === '{') depth++;
-        else if (c === '}') {
-            depth--;
-            if (depth === 0) return s.slice(start, i + 1);
-        }
+  const start = s.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
     }
-    return null;
+  }
+  return null;
 }
 
 /** First balanced \`[ ... ]\` starting at the first \`[\` in \`s\`. */
 function extractBalancedJsonArray(s: string): string | null {
-    const start = s.indexOf('[');
-    if (start < 0) return null;
-    let depth = 0;
-    for (let i = start; i < s.length; i++) {
-        const c = s[i];
-        if (c === '[') depth++;
-        else if (c === ']') {
-            depth--;
-            if (depth === 0) return s.slice(start, i + 1);
-        }
+  const start = s.indexOf('[');
+  if (start < 0) return null;
+  let depth = 0;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (c === '[') depth++;
+    else if (c === ']') {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
     }
-    return null;
+  }
+  return null;
 }
 
 function extractFirstJsonObjectFromLlm(text: string): string | null {
-    if (!text) return null;
-    const t = text.trim();
-    const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fence) {
-        const inner = fence[1].trim();
-        if (inner.startsWith('{')) return extractBalancedJsonObject(inner);
-    }
-    return extractBalancedJsonObject(t);
+  if (!text) return null;
+  const t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) {
+    const inner = fence[1].trim();
+    if (inner.startsWith('{')) return extractBalancedJsonObject(inner);
+  }
+  return extractBalancedJsonObject(t);
 }
 
 function extractFirstJsonArrayFromLlm(text: string): string | null {
-    if (!text) return null;
-    const t = text.trim();
-    const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fence) {
-        const inner = fence[1].trim();
-        if (inner.startsWith('[')) return extractBalancedJsonArray(inner);
-    }
-    return extractBalancedJsonArray(t);
+  if (!text) return null;
+  const t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) {
+    const inner = fence[1].trim();
+    if (inner.startsWith('[')) return extractBalancedJsonArray(inner);
+  }
+  return extractBalancedJsonArray(t);
 }
 
 function safeParseJsonObject(text: string): Record<string, unknown> | null {
-    const blob = extractFirstJsonObjectFromLlm(text);
-    if (!blob) return null;
-    try {
-        const v = JSON.parse(blob);
-        return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-    } catch {
-        return null;
-    }
+  const blob = extractFirstJsonObjectFromLlm(text);
+  if (!blob) return null;
+  try {
+    const v = JSON.parse(blob);
+    return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
 function safeParseJsonArray(text: string): unknown[] | null {
-    const blob = extractFirstJsonArrayFromLlm(text);
-    if (!blob) return null;
-    try {
-        const v = JSON.parse(blob);
-        return Array.isArray(v) ? v : null;
-    } catch {
-        return null;
-    }
+  const blob = extractFirstJsonArrayFromLlm(text);
+  if (!blob) return null;
+  try {
+    const v = JSON.parse(blob);
+    return Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface Optimization {
@@ -119,8 +120,8 @@ export class AIRIContinuousImprovement {
   private optimizations: Optimization[];
   private evolutionHistory: EvolutionCycle[];
   private improvementInterval: NodeJS.Timeout | null;
-  private readonly MODELS = ['qwen3:35b', 'qwen3:27b', 'gemma3:27b', 'gemma3:12b'];
-  private activeModel = 'qwen3:35b';
+  private readonly MODELS: string[] = [];
+  private activeModel = getModel('self_learning');
   private codebasePath: string;
   private cycleCount: number = 0;
 
@@ -138,7 +139,7 @@ export class AIRIContinuousImprovement {
     const seeds = [...new Set([this.activeModel, ...this.MODELS])];
     for (const seed of seeds) {
       try {
-        const model = await resolveOllamaModelTag((seed || '').trim() || 'llama3.2:3b');
+        const model = await resolveOllamaModelTag((seed || '').trim() || getModel('self_learning'));
         const response = await this.ollama.generate({
           model,
           prompt,
@@ -158,7 +159,7 @@ export class AIRIContinuousImprovement {
    * Runs every 30 minutes
    */
   start(): void {
-    
+
     // Analyze and improve every 30 minutes
     this.improvementInterval = setInterval(() => {
       this.runImprovementCycle();
@@ -212,7 +213,7 @@ export class AIRIContinuousImprovement {
 
       // Record cycle
       this.evolutionHistory.push(cycle);
-      
+
       // Log results
       this.logCycleResults(cycle);
 
@@ -239,14 +240,14 @@ export class AIRIContinuousImprovement {
     for (const file of files.slice(0, 30)) {
       const content = await fs.readFile(file, 'utf-8');
       const analysis = await this.analyzeFile(content, file);
-      
+
       totalPerfScore += analysis.performanceScore;
       totalQualityScore += analysis.codeQualityScore;
       issues.push(...analysis.issues);
     }
 
     const fileCount = Math.min(files.length, 30);
-    
+
     return {
       performanceScore: Math.round(totalPerfScore / fileCount),
       codeQualityScore: Math.round(totalQualityScore / fileCount),
@@ -471,22 +472,22 @@ Format:
 
       // Verify improvement
       const performanceGain = await this.verifyImprovement(filePath, original);
-        
-        if (performanceGain > 0) {
-          optimization.performanceGain = performanceGain;
-          optimization.status = 'verified';
 
-          // Remove backup on success
-          await fs.unlink(filePath + '.backup');
+      if (performanceGain > 0) {
+        optimization.performanceGain = performanceGain;
+        optimization.status = 'verified';
 
-          return { success: true, performanceGain };
-        } else {
-          // Rollback on failure
-          await fs.writeFile(filePath, original, 'utf-8');
-          await fs.unlink(filePath + '.backup');
+        // Remove backup on success
+        await fs.unlink(filePath + '.backup');
 
-          return { success: false };
-        }
+        return { success: true, performanceGain };
+      } else {
+        // Rollback on failure
+        await fs.writeFile(filePath, original, 'utf-8');
+        await fs.unlink(filePath + '.backup');
+
+        return { success: false };
+      }
     } catch (error) {
       console.error(`   ❌ Implementation failed:`, error);
     }
@@ -499,7 +500,7 @@ Format:
    */
   private async verifyImprovement(filePath: string, originalCode: string): Promise<number> {
     const newCode = await fs.readFile(filePath, 'utf-8');
-    
+
     // Use AI to compare and estimate performance gain
     const prompt = `
 Compare these two code versions and estimate performance improvement:
@@ -534,14 +535,14 @@ Respond with just a number.
       const found: string[] = [];
       try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
-        
+
         for (const entry of entries) {
           if (entry.name.startsWith('.') || entry.name === 'node_modules') {
             continue;
           }
 
           const fullPath = path.join(dir, entry.name);
-          
+
           if (entry.isDirectory()) {
             const subFiles = await walk(fullPath);
             found.push(...subFiles);
@@ -552,7 +553,7 @@ Respond with just a number.
       } catch (error) {
         // Ignore inaccessible directories
       }
-      
+
       return found;
     }
 
@@ -564,8 +565,8 @@ Respond with just a number.
    */
   private logCycleResults(cycle: EvolutionCycle): void {
     const gain = cycle.performanceAfter - cycle.performanceBefore;
-    
-    
+
+
     if (cycle.codeChanges.length > 0) {
       cycle.codeChanges.forEach((change, i) => {
       });
@@ -590,7 +591,7 @@ Respond with just a number.
     const gains = this.evolutionHistory.map(
       cycle => cycle.performanceAfter - cycle.performanceBefore
     );
-    
+
     const averageGain = gains.length > 0
       ? gains.reduce((a, b) => a + b, 0) / gains.length
       : 0;

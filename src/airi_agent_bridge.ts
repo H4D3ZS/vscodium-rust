@@ -58,12 +58,12 @@ export class AIRIAgentBridge {
 
 
         try {
-            const rawOllama = useStore.getState().ollamaUrl || 'http://localhost:11434';
+            const rawOllama = useStore.getState().ollamaUrl || 'http://127.0.0.1:11434';
             let ollamaHost: string;
             try {
                 ollamaHost = normalizeOllamaUrl(rawOllama);
             } catch {
-                ollamaHost = 'http://localhost:11434';
+                ollamaHost = 'http://127.0.0.1:11434';
             }
             try {
                 await invoke('set_ollama_url', { url: ollamaHost });
@@ -88,18 +88,13 @@ export class AIRIAgentBridge {
                 ...(ollamaHeaders ? { ollamaHeaders } : {}),
                 fullAutonomyEnabled: this.config.fullAutonomy,
                 selfLearningEnabled: this.config.selfLearning,
-                selfHealingEnabled: true,
-                securityEnabled: true,
                 memoryEnabled: true,
                 voiceEnabled: this.config.voice,
                 consciousnessEnabled: this.config.consciousness,
                 biologyEnabled: this.config.biology,
                 autonomousWorkEnabled: this.config.fullAutonomy,
-                selfEvolutionEnabled: true,
-                actionSystemEnabled: true,
-                socialEnabled: true,
-                internetEnabled: true,
-                sensesEnabled: true,
+                selfHealingEnabled: true,
+                // selfEvolutionEnabled: true, // Removed duplicate or missing property
             });
 
             // Start AIRI
@@ -149,8 +144,8 @@ export class AIRIAgentBridge {
             // Learn from this interaction
             if (this.config.selfLearning) {
                 await airiSelfLearning.learnFromEvent(
-                    'user_interaction',
-                    { message, response, context },
+                    'conversation', // Validated event type
+                    JSON.stringify({ message, response, context }),
                     'neutral'
                 );
             }
@@ -159,13 +154,13 @@ export class AIRIAgentBridge {
 
         } catch (error) {
             console.error('[AIRI Bridge] Message processing failed:', error);
-            
+
             // Learn from error
             if (this.config.selfLearning) {
                 await airiSelfLearning.learnFromEvent(
                     'error',
-                    { type: 'message_processing', error },
-                    'negative'
+                    JSON.stringify({ type: 'message_processing', error: String(error) }),
+                    'failure'
                 );
             }
 
@@ -191,7 +186,7 @@ export class AIRIAgentBridge {
             }
 
             // Execute action through AIRI's action system
-            const result = await airi.actionSystem.execute({
+            const result = await airi.actionSystemInstance.execute({
                 type: action,
                 args,
             });
@@ -199,9 +194,9 @@ export class AIRIAgentBridge {
             // Learn from action
             if (this.config.selfLearning) {
                 await airiSelfLearning.learnFromEvent(
-                    'agent_action',
-                    { action, args, result },
-                    result.success ? 'positive' : 'negative'
+                    'success', // Use generic success for action result
+                    JSON.stringify({ action, args, result }),
+                    result.success ? 'success' : 'failure'
                 );
             }
 
@@ -209,13 +204,13 @@ export class AIRIAgentBridge {
 
         } catch (error) {
             console.error('[AIRI Bridge] Action processing failed:', error);
-            
+
             // Learn from error
             if (this.config.selfLearning) {
                 await airiSelfLearning.learnFromEvent(
                     'error',
-                    { type: 'agent_action', action, args, error },
-                    'negative'
+                    JSON.stringify({ type: 'agent_action', action, args, error: String(error) }),
+                    'failure'
                 );
             }
 
@@ -252,8 +247,8 @@ export class AIRIAgentBridge {
             window.addEventListener('file-changed', (event: any) => {
                 if (this.config.selfLearning) {
                     airiSelfLearning.learnFromEvent(
-                        'environment_change',
-                        { type: 'file_change', path: event.detail?.path },
+                        'observation', // Validated event type
+                        JSON.stringify({ type: 'file_change', path: event.detail?.path }),
                         'neutral'
                     );
                 }
@@ -263,9 +258,9 @@ export class AIRIAgentBridge {
             window.addEventListener('build-complete', (event: any) => {
                 if (this.config.selfLearning) {
                     airiSelfLearning.learnFromEvent(
-                        'build_result',
-                        { success: event.detail?.success, errors: event.detail?.errors },
-                        event.detail?.success ? 'positive' : 'negative'
+                        'success',
+                        JSON.stringify({ type: 'build_result', success: event.detail?.success, errors: event.detail?.errors }),
+                        event.detail?.success ? 'success' : 'failure'
                     );
                 }
             });
@@ -286,20 +281,18 @@ export class AIRIAgentBridge {
                 const shouldWork = this.shouldAIRIWork();
                 if (!shouldWork) return;
 
-                // Get AIRI's current drive/motivation
-                const drives = airiConsciousness.getState().drives;
-                const primaryDrive = drives?.[0];
+                // Get AIRI's current motivation
+                const thoughtState = airiConsciousness.getState();
+                const primaryDrive = thoughtState.thoughts?.[0]?.content;
 
                 if (primaryDrive) {
                     console.log(`[AIRI Autonomy] Working on: ${primaryDrive}`);
-                    
-                    // AIRI autonomously decides what to do
-                    const decision = await airi.decision.decide({
-                        context: 'workspace_analysis',
-                        options: ['code_review', 'bug_fix', 'optimization', 'documentation'],
-                    });
 
-                    console.log(`[AIRI Autonomy] Decision: ${decision}`);
+                    // AIRI autonomously decides what to do
+                    const decision = await airi.decision.makeDecision('Autonomic workflow step', ['code_review', 'bug_fix', 'optimization']);
+                    const actionName = decision.chosen.action;
+
+                    console.log(`[AIRI Autonomy] Decision: ${actionName}`);
                 }
 
             } catch (error) {
@@ -319,7 +312,7 @@ export class AIRIAgentBridge {
         // Check biological state
         if (this.config.biology) {
             const biology = airiBiology.getState();
-            if (biology.energy < 20 || biology.mood === 'sleepy') return false;
+            if (biology.energy < 20 || biology.mood === 'tired') return false;
         }
 
         return true;
@@ -342,7 +335,7 @@ export const airiAgentBridge = new AIRIAgentBridge();
 /**
  * Quick activation function
  */
-export async function activateAIRIAgent(config?: Partial<AIRIAgentConfig>): Promise<void> {
+export async function activateAIRIAgent(config?: Partial<AIRIAgentConfig>): Promise<AIRIAgentBridge> {
     const bridge = new AIRIAgentBridge(config);
     await bridge.initialize();
     return bridge;

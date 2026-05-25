@@ -114,7 +114,11 @@ pub async fn ai_tool_result(
 }
 
 #[tauri::command]
-pub async fn ai_chat(state: State<'_, EditorState>, mut request: AiRequest) -> Result<String, String> {
+pub async fn ai_chat(
+    app: AppHandle,
+    state: State<'_, EditorState>, 
+    mut request: AiRequest
+) -> Result<String, String> {
     let log_entry = format!("[ai_chat] REQUEST: {:?}\n", request);
     let _ = std::fs::OpenOptions::new()
         .create(true).append(true)
@@ -145,10 +149,16 @@ pub async fn ai_chat(state: State<'_, EditorState>, mut request: AiRequest) -> R
         }
     }
 
+    // Set up chunk callback for real-time UI streaming
+    let app_handle = std::sync::Arc::new(app);
+    let on_chunk = Some(std::sync::Arc::new(move |chunk: &str| {
+        let _ = app_handle.emit("ai-content-delta", serde_json::json!({ "delta": chunk }));
+    }) as std::sync::Arc<dyn Fn(&str) + Send + Sync>);
+
     let result = state
         .ai_engine
         .clone()
-        .autonomous_loop(request, None)
+        .autonomous_loop(request, on_chunk)
         .await
         .map_err(|e| {
             let err_log = format!("[ai_chat] ERROR: {}\n", e);

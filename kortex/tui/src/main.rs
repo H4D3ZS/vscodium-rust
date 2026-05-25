@@ -17,24 +17,36 @@ struct App {
     mission_step: String,
     verity_score: f32,
     velocity: u64,
-    node_count: usize,
+    active_subagents: usize,
 }
 
 impl App {
     fn new() -> App {
         App {
-            mission_step: "Initializing Hades-Oracle...".to_string(),
+            mission_step: "Initializing Antigravity CLI...".to_string(),
             verity_score: 0.0,
             velocity: 0,
-            node_count: 0,
+            active_subagents: 0,
         }
     }
 
     fn on_tick(&mut self) {
-        // Update physics/simulated geometric data
         self.velocity = (self.velocity + 1337) % 1000000;
-        self.node_count = 1536; // Constant for the unit hypercube manifold
         self.verity_score = (self.verity_score + 0.01).min(1.0);
+        
+        // Fetch active subagents from proxy
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_millis(100))
+            .build()
+            .unwrap_or_default();
+            
+        if let Ok(resp) = client.get("http://127.0.0.1:1536/api/subagents/status").send() {
+            if let Ok(json) = resp.json::<serde_json::Value>() {
+                if let Some(count) = json.get("active_subagents").and_then(|c| c.as_u64()) {
+                    self.active_subagents = count as usize;
+                }
+            }
+        }
     }
 }
 
@@ -108,8 +120,14 @@ fn ui(f: &mut Frame, app: &App) {
         .split(f.size());
 
     // 1. Mission Status
-    let status = Paragraph::new(format!("OBJECTIVE: {}", app.mission_step))
-        .block(Block::default().borders(Borders::ALL).title(" MISSION CONTROL [PROJECT HADES] "));
+    let status_text = if app.active_subagents > 0 {
+        format!("OBJECTIVE: {} SUBAGENTS ACTIVE IN THE BACKGROUND", app.active_subagents)
+    } else {
+        "OBJECTIVE: IDLE. WAITING FOR SUBAGENT SPAWN.".to_string()
+    };
+    
+    let status = Paragraph::new(status_text)
+        .block(Block::default().borders(Borders::ALL).title(" ANTIGRAVITY CLI - GOD PROTOCOL "));
     f.render_widget(status, chunks[0]);
 
     // 2. Main content (Geometry + Visuals)
@@ -120,10 +138,10 @@ fn ui(f: &mut Frame, app: &App) {
 
     // 2.1 Geometric Manifold Viewport
     let geometry = Paragraph::new(format!(
-        "MANIFOLD: PYTHAGOREAN\nDIMENSION: 1536 (Unit Hypercube)\nACTIVE NODES: {}\nGEOMETRIC TRUTH: ENABLED",
-        app.node_count
+        "MANIFOLD: ANTIGRAVITY ORCHESTRATOR\nDIMENSION: VFS INJECTED\nACTIVE SUBAGENTS: {}\nVISUAL ARTIFACTS: ENABLED",
+        app.active_subagents
     ))
-    .block(Block::default().borders(Borders::ALL).title(" GEOMETRIC VIEWPORT "))
+    .block(Block::default().borders(Borders::ALL).title(" ORCHESTRATOR VIEWPORT "))
     .wrap(Wrap { trim: true });
     f.render_widget(geometry, body_chunks[0]);
 

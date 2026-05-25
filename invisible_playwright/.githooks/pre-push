@@ -1,0 +1,31 @@
+#!/bin/sh
+# Pre-push hook: blocks push if the test suite isn't fully green.
+#
+# Enable once with:
+#   git config core.hooksPath .githooks
+#
+# Bypass for a known-broken WIP push (NOT for releases):
+#   git push --no-verify
+# The --no-verify flag is the only escape hatch. Use it sparingly and never
+# for branches that feed into a release.
+
+set -e
+
+echo "[pre-push] running unit + integration tests before push..."
+
+# Run from this script's directory so it works regardless of where the user
+# invoked git push from.
+cd "$(dirname "$0")/.."
+
+# Default pyproject addopts skip slow/e2e. That's the gate we want for every
+# push — fast feedback. e2e is reserved for explicit release runs.
+if ! python -m pytest -q --tb=short; then
+    echo ""
+    echo "[pre-push] TESTS FAILED — push aborted."
+    echo "[pre-push] Either fix the failure or use 'git push --no-verify' if"
+    echo "[pre-push] you really know what you're doing (NOT for release branches)."
+    exit 1
+fi
+
+echo "[pre-push] all tests green — push proceeding."
+exit 0

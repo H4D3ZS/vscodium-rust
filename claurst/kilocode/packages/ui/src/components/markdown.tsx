@@ -2,6 +2,7 @@ import { useMarked, deferredHighlight, fnv1a } from "../context/marked"
 import { useI18n } from "../context/i18n"
 import DOMPurify from "dompurify"
 import morphdom from "morphdom"
+import mermaid from "mermaid"
 import { checksum } from "@opencode-ai/util/encode"
 import { ComponentProps, createEffect, createResource, createSignal, onCleanup, splitProps } from "solid-js"
 import { isServer } from "solid-js/web"
@@ -30,10 +31,14 @@ if (typeof window !== "undefined" && DOMPurify.isSupported) {
 
 const config = {
   USE_PROFILES: { html: true, mathMl: true },
+  ADD_TAGS: ["thought"],
   SANITIZE_NAMED_PROPS: true,
   FORBID_TAGS: ["style"],
   FORBID_CONTENTS: ["style", "script"],
 }
+
+mermaid.initialize({ startOnLoad: false, theme: 'base' })
+let mermaidCounter = 0
 
 const iconPaths = {
   copy: '<path d="M6.2513 6.24935V2.91602H17.0846V13.7493H13.7513M13.7513 6.24935V17.0827H2.91797V6.24935H13.7513Z" stroke="currentColor" stroke-linecap="round"/>',
@@ -173,7 +178,75 @@ function markCodeLinks(root: HTMLDivElement) {
   }
 }
 
+function decorateThoughts(root: HTMLDivElement) {
+  const thoughts = Array.from(root.querySelectorAll("thought"))
+  for (const thought of thoughts) {
+    const details = document.createElement("details")
+    details.className = "agent-thought-block"
+    details.style.marginBottom = "12px"
+    details.style.padding = "8px"
+    details.style.backgroundColor = "var(--color-bg-secondary, rgba(128,128,128,0.1))"
+    details.style.borderRadius = "6px"
+    details.style.border = "1px solid var(--border-base, rgba(128,128,128,0.2))"
+    
+    const summary = document.createElement("summary")
+    summary.textContent = "Agent is thinking..."
+    summary.style.cursor = "pointer"
+    summary.style.fontWeight = "600"
+    summary.style.color = "var(--color-text-secondary, gray)"
+    summary.style.userSelect = "none"
+    
+    const content = document.createElement("div")
+    content.className = "thought-content"
+    content.style.paddingTop = "8px"
+    content.style.color = "var(--color-text-primary, inherit)"
+    content.style.fontSize = "0.9em"
+    
+    while (thought.firstChild) {
+      content.appendChild(thought.firstChild)
+    }
+    
+    details.appendChild(summary)
+    details.appendChild(content)
+    thought.replaceWith(details)
+  }
+}
+
+function decorateMermaid(root: HTMLDivElement) {
+  const blocks = Array.from(root.querySelectorAll("pre > code.language-mermaid"))
+  for (const block of blocks) {
+    const pre = block.parentElement
+    if (!pre) continue
+    
+    const content = block.textContent ?? ""
+    const id = `mermaid-svg-${++mermaidCounter}`
+    
+    const div = document.createElement("div")
+    div.className = "mermaid-diagram-rendered"
+    div.id = id + "-container"
+    div.setAttribute("data-mermaid-src", content)
+    div.style.background = "var(--color-bg-primary, white)"
+    div.style.padding = "16px"
+    div.style.borderRadius = "8px"
+    div.style.overflow = "auto"
+    div.style.marginBottom = "16px"
+    div.textContent = "Rendering diagram..."
+    
+    pre.replaceWith(div)
+    
+    mermaid.render(id, content).then(({ svg }) => {
+      const actualDiv = document.getElementById(id + "-container") || div
+      actualDiv.innerHTML = svg
+    }).catch(e => {
+      const actualDiv = document.getElementById(id + "-container") || div
+      actualDiv.textContent = "Mermaid rendering error: " + e.message
+    })
+  }
+}
+
 function decorate(root: HTMLDivElement, labels: CopyLabels) {
+  decorateThoughts(root)
+  decorateMermaid(root)
   const blocks = Array.from(root.querySelectorAll("pre"))
   for (const block of blocks) {
     ensureCodeWrapper(block, labels)
@@ -350,6 +423,18 @@ export function Markdown(
           // Source changed during streaming — fall through so morphdom replaces
           // the stale highlighted block with the updated plain block, which will
           // be re-highlighted on the next deferredHighlight pass.
+        }
+        if (
+          fromEl instanceof HTMLElement &&
+          fromEl.tagName === "DIV" &&
+          fromEl.classList.contains("mermaid-diagram-rendered") &&
+          toEl instanceof HTMLElement &&
+          toEl.tagName === "DIV" &&
+          toEl.classList.contains("mermaid-diagram-rendered")
+        ) {
+          const fromSrc = fromEl.getAttribute("data-mermaid-src")
+          const toSrc = toEl.getAttribute("data-mermaid-src")
+          if (fromSrc === toSrc) return false // Preserve live SVG
         }
         return true
       },

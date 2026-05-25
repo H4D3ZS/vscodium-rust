@@ -14,6 +14,8 @@ import type { AvatarState } from './agent/SentientAvatar';
 import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';
 import AiriConversation from './AiriConversation';
 import MessageBody from './agent/MessageBody';
+import UnifiedEmulatorPanel from './UnifiedEmulatorPanel';
+
 
 // ── Restore-checkpoint banner ────────────────────────────────────────────
 // Shows above the chat input whenever an agent turn just auto-snapshotted
@@ -274,11 +276,13 @@ marked.setOptions({
 const RightSidebar: React.FC = () => {
     const isOpen = useStore(state => state.isRightSidebarOpen);
     const toggle = useStore(state => state.toggleRightSidebar);
+    const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
+    const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
     const aiStatus = useStore(state => state.aiStatus || 'idle');
     // 'settings' is no longer a right-sidebar view — the gear opens the
     // unified Settings tab in the editor pane instead. We keep the union
     // narrow so renaming the right-sidebar views stays cheap.
-    const [view, setView] = useState<'chat' | 'history' | 'dashboard' | 'research' | 'context' | 'kortex'>('chat');
+    const [view, setView] = useState<'chat' | 'emulator' | 'history' | 'dashboard' | 'research' | 'context' | 'kortex'>('chat');
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mode = useStore(state => state.agentMode);
     const model = useStore(state => state.agentModel);
@@ -335,6 +339,14 @@ const RightSidebar: React.FC = () => {
             refreshChatSessions();
         }
     }, [view, refreshChatSessions]);
+
+    useEffect(() => {
+        if (isEmulatorPanelOpen && view !== 'emulator') {
+            setView('emulator');
+        } else if (isAiriPanelOpen && !isEmulatorPanelOpen && view === 'emulator') {
+            setView('chat');
+        }
+    }, [isEmulatorPanelOpen, isAiriPanelOpen, view]);
     const [inputValue, setInputValue] = useState('');
     const [isMentionDropdownOpen, setIsMentionDropdownOpen] = useState(false);
     const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
@@ -1143,90 +1155,102 @@ const RightSidebar: React.FC = () => {
                 }
             `}</style>
 
-            <div className="sidebar-header" style={{
-                padding: '12px 16px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                borderBottom: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))',
-                background: 'var(--vscode-sideBar-background)'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <SentientAvatar state={avatarState} size={28} />
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', color: avatarState === 'error' ? '#ef4444' : 'inherit' }}>AIRI CORE</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            {isAgentThinking && (
-                                <span style={{ fontSize: '9px', color: '#3b82f6', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontSize: '9px' }}></i>
-                                    Thinking
-                                </span>
-                            )}
-                            {isAttaching && (
-                                <span style={{ fontSize: '9px', color: '#10b981', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '2px', marginLeft: isAgentThinking ? '6px' : 0 }}>
-                                    <i className="codicon codicon-sync codicon-modifier-spin" style={{ fontFamily: 'codicon', fontSize: '9px' }}></i>
-                                    Neuralizing
-                                </span>
-                            )}
-                            {!isAgentThinking && !isAttaching && (
-                                <span style={{ fontSize: '9px', opacity: 0.3, textTransform: 'uppercase' }}>{aiStatus}</span>
-                            )}
+            <div className="sidebar-content" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 12px',
+                    gap: '8px',
+                    borderBottom: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))',
+                    background: 'var(--vscode-sideBar-background)',
+                    flexWrap: 'wrap'
+                }}>
+                    <div style={{ display: 'flex', gap: '2px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        {['chat', 'emulator', 'kortex', 'history', 'dashboard', 'research', 'context'].map(v => (
+                            <button
+                                key={v}
+                                onClick={() => {
+                                    setView(v as any);
+                                    if (v === 'emulator') {
+                                        useStore.getState().openEmulatorPanel();
+                                    } else {
+                                        useStore.getState().openAiriPanel();
+                                    }
+                                }}
+                                style={{
+                                    border: 'none',
+                                    background: view === v ? 'rgba(255,255,255,0.08)' : 'transparent',
+                                    color: view === v ? '#fff' : 'rgba(255,255,255,0.4)',
+                                    padding: '4px 6px',
+                                    borderRadius: '4px',
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    textTransform: 'uppercase',
+                                    transition: 'all 0.15s ease'
+                                }}
+                                className="hoverable"
+                            >
+                                {v}
+                            </button>
+                        ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: 'auto' }}>
+                        {/* UI Mode toggle: Chat ↔ AIRI 3D */}
+                        <div
+                            onClick={() => setAgentUiMode(agentUiMode === 'chat' ? 'airi' : 'chat')}
+                            style={{
+                                cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', gap: '3px',
+                                fontSize: '9px', fontWeight: 700,
+                                padding: '2px 6px', borderRadius: '5px',
+                                background: agentUiMode === 'airi' ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.06)',
+                                border: agentUiMode === 'airi' ? '1px solid rgba(168,85,247,0.4)' : '1px solid rgba(255,255,255,0.1)',
+                                color: agentUiMode === 'airi' ? '#c084fc' : 'rgba(255,255,255,0.5)',
+                                transition: 'all 0.2s'
+                            }}
+                            title={agentUiMode === 'airi' ? 'Switch to Chat mode' : 'Switch to AIRI 3D mode'}
+                        >
+                            <span>{agentUiMode === 'airi' ? '🎭' : '💬'}</span>
+                            <span>{agentUiMode === 'airi' ? 'AIRI' : 'CHAT'}</span>
+                        </div>
+                        <div
+                            onClick={() => setAiriToggleOpen(v => !v)}
+                            style={{
+                                cursor: 'pointer',
+                                opacity: airiToggleOpen ? 1 : 0.6,
+                                color: airiToggleOpen ? '#c084fc' : 'inherit',
+                                display: 'flex',
+                                alignItems: 'center'
+                            }}
+                            title="AIRI subsystems (vision / consciousness)"
+                        >
+                            <i className="codicon codicon-eye" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
+                        </div>
+                        <div
+                            onClick={() => useStore.getState().openSettings('agent')}
+                            style={{ cursor: 'pointer', opacity: 0.7, display: 'flex', alignItems: 'center' }}
+                            title="Open unified Settings (AI Agent tab)"
+                        >
+                            <i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
+                        </div>
+                        <div 
+                            onClick={() => setIsHelpOpen(true)} 
+                            style={{ cursor: 'pointer', opacity: 0.8, color: '#3b82f6', display: 'flex', alignItems: 'center' }} 
+                            title="Command Help"
+                        >
+                            <i className="codicon codicon-question" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
+                        </div>
+                        <div 
+                            onClick={toggle} 
+                            style={{ cursor: 'pointer', opacity: 0.5, display: 'flex', alignItems: 'center' }} 
+                            title="Close"
+                        >
+                            <i className="codicon codicon-close" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
                         </div>
                     </div>
-                    <div
-                        onClick={() => {
-                            createNewSession();
-                            setView('chat');
-                        }}
-                        style={{ cursor: 'pointer', opacity: 0.8, marginLeft: '8px', padding: '4px', background: 'rgba(59,130,246,0.1)', borderRadius: '4px', color: '#3b82f6' }}
-                        title="New Chat">
-                        <i className="codicon codicon-add" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', display: 'block' }}></i>
-                    </div>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                    {/* UI Mode toggle: Chat ↔ AIRI 3D */}
-                    <div
-                        onClick={() => setAgentUiMode(agentUiMode === 'chat' ? 'airi' : 'chat')}
-                        style={{
-                            cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', gap: '3px',
-                            fontSize: '9px', fontWeight: 700,
-                            padding: '2px 6px', borderRadius: '5px',
-                            background: agentUiMode === 'airi' ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.06)',
-                            border: agentUiMode === 'airi' ? '1px solid rgba(168,85,247,0.4)' : '1px solid rgba(255,255,255,0.1)',
-                            color: agentUiMode === 'airi' ? '#c084fc' : 'rgba(255,255,255,0.5)',
-                            transition: 'all 0.2s'
-                        }}
-                        title={agentUiMode === 'airi' ? 'Switch to Chat mode' : 'Switch to AIRI 3D mode'}
-                    >
-                        <span>{agentUiMode === 'airi' ? '🎭' : '💬'}</span>
-                        <span>{agentUiMode === 'airi' ? 'AIRI' : 'CHAT'}</span>
-                    </div>
-                    <div onClick={() => setView('chat')} style={{ cursor: 'pointer', opacity: view === 'chat' ? 1 : 0.4, color: view === 'chat' ? '#3b82f6' : 'inherit' }} title="Mission Hub"><i className="codicon codicon-rocket" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
-                    <div onClick={() => setView('kortex')} style={{ cursor: 'pointer', opacity: view === 'kortex' ? 1 : 0.4, color: view === 'kortex' ? '#a855f7' : 'inherit' }} title="Kortex Brain (.aim)">🧠</div>
-                    <div onClick={() => setView('history')} style={{ cursor: 'pointer', opacity: view === 'history' ? 1 : 0.4 }} title="History"><i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
-                    <div onClick={() => setView('dashboard')} style={{ cursor: 'pointer', opacity: view === 'dashboard' ? 1 : 0.4 }} title="Dashboard"><i className="codicon codicon-dashboard" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
-                    <div onClick={() => setView('context')} style={{ cursor: 'pointer', opacity: view === 'context' ? 1 : 0.4 }} title="Workspace Context"><i className="codicon codicon-hubot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
-                    <div
-                        onClick={() => useStore.getState().openSettings('agent')}
-                        style={{ cursor: 'pointer', opacity: 0.7 }}
-                        title="Open unified Settings (AI Agent tab)"
-                    >
-                        <i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
-                    </div>
-                    <div
-                        onClick={() => setAiriToggleOpen(v => !v)}
-                        style={{
-                            cursor: 'pointer',
-                            opacity: airiToggleOpen ? 1 : 0.6,
-                            color: airiToggleOpen ? '#c084fc' : 'inherit',
-                        }}
-                        title="AIRI subsystems (vision / consciousness)"
-                    >
-                        <i className="codicon codicon-eye" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
-                    </div>
-                    <div onClick={() => setIsHelpOpen(true)} style={{ cursor: 'pointer', opacity: 0.8, color: '#3b82f6' }} title="Command Help"><i className="codicon codicon-question" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
-                    <div onClick={toggle} style={{ cursor: 'pointer', opacity: 0.5 }} title="Close"><i className="codicon codicon-close" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i></div>
                 </div>
             </div>
 
@@ -1525,7 +1549,7 @@ const RightSidebar: React.FC = () => {
                                     transition: 'all 0.3s ease-in-out',
                                     height: messages.length === 0 ? '320px' : '100px',
                                     minHeight: messages.length === 0 ? '320px' : '100px',
-                                    paddingTop: messages.length === 0 ? '24px' : '8px',
+                                    paddingTop: messages.length === 0 ? '12px' : '8px',
                                     overflow: 'hidden', pointerEvents: 'none'
                                 }}>
                                     <div style={{
@@ -1533,7 +1557,7 @@ const RightSidebar: React.FC = () => {
                                         height: messages.length === 0 ? '240px' : '80px',
                                         transition: 'all 0.3s ease-in-out'
                                     }}>
-                                        <AiriPanel style={{ width: '100%', height: '100%' }} scale={0.8} yOffset={"-25%"} transparent={true} character={avatarCharacter} />
+                                        <AiriPanel style={{ width: '100%', height: '100%' }} scale={0.8} yOffset={"-38%"} transparent={true} character={avatarCharacter} />
                                     </div>
                                     {messages.length === 0 && (
                                         <div style={{ marginTop: '16px', textAlign: 'center', pointerEvents: 'auto' }}>
@@ -1818,6 +1842,10 @@ const RightSidebar: React.FC = () => {
                                         </>
                                     )}
                                 </div>
+                            </div>
+                        ) : view === 'emulator' ? (
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                <UnifiedEmulatorPanel />
                             </div>
                         ) : view === 'kortex' ? (
                             /* Kortex .aim Brain Panel */

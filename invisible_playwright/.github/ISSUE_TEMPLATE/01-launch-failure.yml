@@ -1,0 +1,98 @@
+name: Launch failure
+description: Browser or wrapper fails to start (install errors, missing deps, profile load fails, never reaches new_page)
+title: "[launch] "
+labels: ["bug", "launch-failure"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the browser never reaches a usable state.
+        If it starts and the bug appears on a site or clicking something, use the site/action template instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `python -m invisible_playwright version`.
+      placeholder: 0.1.7 (binary firefox-7)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows 10/11 x86_64
+        - Linux x86_64
+        - macOS (unsupported)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python
+      placeholder: 3.11.7
+    validations:
+      required: true
+
+  - type: input
+    id: install_cmd
+    attributes:
+      label: How you installed
+      placeholder: pip install invisible_playwright
+    validations:
+      required: true
+
+  - type: textarea
+    id: snippet
+    attributes:
+      label: What you ran
+      description: Stop at the line that errors out. Redact creds.
+      render: python
+      value: |
+        from invisible_playwright import InvisiblePlaywright
+        with InvisiblePlaywright(seed=42) as browser:
+            ctx = browser.new_context()
+    validations:
+      required: true
+
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Full traceback
+      description: The whole stack trace verbatim. Don't summarize.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Extra logs
+      description: Output of `DEBUG=pw:browser* python yourscript.py 2>&1`. Optional but speeds things up.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you already tried
+      description: Reinstall, clear cache, different Python version, different proxy, etc.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before submitting
+      options:
+        - label: Searched existing issues.
+          required: true
+        - label: On the latest released version.
+          required: true
+        - label: Removed credentials and personal paths from the snippet and logs.
+          required: true

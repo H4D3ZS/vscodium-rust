@@ -6,6 +6,7 @@ import { defineStore } from 'pinia'
 import { computed, watch } from 'vue'
 
 import { DisplayModelFormat, useDisplayModelsStore } from '../display-models'
+import { createPendingStageVrmCapability, detectStageVrmCapability } from './vrm-capability'
 
 export type StageModelRenderer = 'live2d' | 'vrm' | 'godot' | 'disabled' | undefined
 type BuiltInStageModelRenderer = Exclude<StageModelRenderer, 'godot'>
@@ -26,8 +27,16 @@ export const useSettingsStageModel = defineStore('settings-stage-model', () => {
   const stageModelSelectedUrl = refManualReset<string | undefined>(undefined)
   const stageModelRenderer = refManualReset<StageModelRenderer>(undefined)
   const stageModelBuiltInRenderer = refManualReset<BuiltInStageModelRenderer>(undefined)
+  const stageVrmCapability = refManualReset(createPendingStageVrmCapability())
+  const stageVrmEnabledState = useLocalStorageManualReset<boolean>('settings/stage/vrm/enabled', false)
 
   const stageViewControlsEnabled = refManualReset<boolean>(false)
+  const stageVrmEnabled = computed<boolean>({
+    get: () => stageVrmEnabledState.value,
+    set: (value) => {
+      stageVrmEnabledState.value = value && stageVrmCapability.value.supported
+    },
+  })
 
   function revokeStageModelUrl(url?: string) {
     if (url?.startsWith('blob:'))
@@ -51,10 +60,25 @@ export const useSettingsStageModel = defineStore('settings-stage-model', () => {
       case DisplayModelFormat.Live2dZip:
         return 'live2d'
       case DisplayModelFormat.VRM:
-        return 'vrm'
+        return stageVrmEnabled.value && stageVrmCapability.value.supported ? 'vrm' : 'disabled'
       default:
         return 'disabled'
     }
+  }
+
+  function refreshStageVrmCapability() {
+    stageVrmCapability.value = detectStageVrmCapability()
+
+    if (!stageVrmCapability.value.supported)
+      stageVrmEnabledState.value = false
+  }
+
+  async function setStageVrmEnabled(enabled: boolean) {
+    if (stageVrmCapability.value.status === 'pending')
+      refreshStageVrmCapability()
+
+    stageVrmEnabled.value = enabled
+    await updateStageModel()
   }
 
   async function updateStageModel() {
@@ -82,6 +106,9 @@ export const useSettingsStageModel = defineStore('settings-stage-model', () => {
         stageModelRenderer.value = 'disabled'
       return
     }
+
+    if (model.format === DisplayModelFormat.VRM && stageVrmCapability.value.status === 'pending')
+      refreshStageVrmCapability()
 
     const builtInRenderer = resolveBuiltInStageModelRenderer(model)
     stageModelBuiltInRenderer.value = builtInRenderer
@@ -113,6 +140,7 @@ export const useSettingsStageModel = defineStore('settings-stage-model', () => {
   }
 
   async function initializeStageModel() {
+    refreshStageVrmCapability()
     await updateStageModel()
   }
 
@@ -132,8 +160,11 @@ export const useSettingsStageModel = defineStore('settings-stage-model', () => {
     stageModelSelectedUrl.reset()
     stageModelRenderer.reset()
     stageModelBuiltInRenderer.reset()
+    stageVrmEnabledState.reset()
+    stageVrmCapability.reset()
     stageViewControlsEnabled.reset()
 
+    refreshStageVrmCapability()
     await updateStageModel()
   }
 
@@ -142,11 +173,15 @@ export const useSettingsStageModel = defineStore('settings-stage-model', () => {
     stageModelSelected,
     stageModelSelectedUrl,
     stageModelSelectedDisplayModel,
+    stageVrmCapability,
+    stageVrmEnabled,
     stageViewControlsEnabled,
 
     initializeStageModel,
+    refreshStageVrmCapability,
     restoreBuiltInStageModelRenderer,
     setStageModelRenderer,
+    setStageVrmEnabled,
     updateStageModel,
     resetState,
   }

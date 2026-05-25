@@ -1,0 +1,141 @@
+name: Stealth detection
+description: A fingerprint detector flagged the browser as a bot, VM, VPN, anti-detect, tampered, or otherwise non-human
+title: "[detect] "
+labels: ["bug", "stealth"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when something detects the browser (Fingerprint Pro, CreepJS, BotD, reCAPTCHA, Cloudflare, sannysoft, etc).
+        Bugs in operations (clicks, navigation) go to the site/action template.
+        Browser failing to start goes to the launch failure template.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: 0.1.7 (binary firefox-7)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows 10/11 x86_64
+        - Linux x86_64
+        - macOS (unsupported)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: headless
+    attributes:
+      label: headless=
+      options:
+        - "True"
+        - "False"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: proxy
+    attributes:
+      label: Proxy
+      description: Datacenter or wrong-country proxies trip most detectors regardless of the browser. Be honest about what you used.
+      options:
+        - No proxy (host network)
+        - Residential, matching target geo
+        - Residential, different geo than target
+        - Datacenter (specify provider in notes)
+        - Mobile / 4G
+    validations:
+      required: true
+
+  - type: input
+    id: detector
+    attributes:
+      label: Detector name and URL
+      description: Exact site / service / product that flagged us.
+      placeholder: Fingerprint Pro — https://demo.fingerprint.com/playground
+    validations:
+      required: true
+
+  - type: textarea
+    id: scores
+    attributes:
+      label: Detector verdict
+      description: Paste the relevant flags / scores verbatim. For Fingerprint Pro paste `bot`, `vpn`, `virtual_machine`, `tampering*`, `vm_ml_score`, `suspect_score`. For CreepJS the headless / lies / trust scores. For reCAPTCHA v3 the score number.
+      render: text
+      placeholder: |
+        bot: bad
+        vpn: true
+        virtual_machine: true
+        vm_ml_score: 0.74
+        suspect_score: 22
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot of the detector result
+      description: Drag-drop a screenshot of the detector page so we see what you see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: snippet
+    attributes:
+      label: How you launched
+      description: The InvisiblePlaywright launch + navigation that produced the result above. Redact creds.
+      render: python
+      value: |
+        from invisible_playwright import InvisiblePlaywright
+
+        with InvisiblePlaywright(seed=42, headless=True) as browser:
+            ctx = browser.new_context()
+            page = ctx.new_page()
+            page.goto("https://demo.fingerprint.com/playground")
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Most detectors will never give a perfect score for any browser. Tell us what threshold you'd accept (e.g. bot=not_detected, vm_ml_score < 0.3).
+    validations:
+      required: true
+
+  - type: textarea
+    id: full_report
+    attributes:
+      label: Full detector response
+      description: For Fingerprint Pro paste the JSON from /api/event/v4/ if you have it. For CreepJS paste the full Smart Signals block. Optional but speeds things up a lot.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before submitting
+      options:
+        - label: Searched existing issues.
+          required: true
+        - label: On the latest released version.
+          required: true
+        - label: The detector verdict above is from a real run, not a hypothesis.
+          required: true
+        - label: Removed credentials, real IPs, FpJS visitor_id values, personal file paths from the snippet and full report.
+          required: true

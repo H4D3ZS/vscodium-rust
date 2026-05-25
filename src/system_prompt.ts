@@ -440,6 +440,8 @@ export async function buildSystemPrompt(config: SystemPromptConfig): Promise<str
 | List files | list_directory | path |
 | Find by pattern | glob | pattern, path |
 | Search content | grep | pattern, path |
+| AIM exact spans | aim_query_spans | query, limit |
+| AIM compact context | aim_pack_context | query, limit |
 | Open in editor | editor_open_file | path |
 
 ### Terminal:
@@ -454,6 +456,7 @@ git_status, git_add, git_commit, git_diff, git_log
 web_search(query), browser_open(), semantic_search(query), get_lsp_diagnostics()
 
 - Always use absolute paths.
+- In huge workspaces, call aim_pack_context or aim_query_spans before broad grep/search. Treat AIM as the compressed map, then verify exact spans with file_read before editing.
 - Read files BEFORE editing — never patch blind.
 - run_command can execute: cargo, npm, python, pip, git, powershell, cmd — anything in PATH.
 `);

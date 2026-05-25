@@ -257,6 +257,16 @@ export function getProvider(): string {
 export function setProvider(provider: typeof ttsProvider): void {
     ttsProvider = provider;
     console.log(`[TTS] Provider switched to: ${provider}`);
+    // If the user explicitly selects qwen-native, reset the circuit breaker
+    // and try a single health check. This is the ONLY time we probe the server.
+    if (provider === 'qwen-native') {
+        qwenNativeTTS.reset();
+        qwenNativeTTS.start().then(ok => {
+            if (!ok) {
+                console.warn('[TTS] ⚠ Qwen3-TTS native server not reachable. Run: python Qwen3-TTS/api_server.py');
+            }
+        }).catch(() => { /* swallow */ });
+    }
 }
 
 export function setSelectedVoice(voiceId: string): void {

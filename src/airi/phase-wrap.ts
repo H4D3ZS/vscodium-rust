@@ -85,7 +85,7 @@ export class AIRIPhaseWrap {
   /**
    * Execute full Phase-Wrap cycle
    */
-  private async executeWrap(): Promise<void> {
+  public async executeWrap(): Promise<void> {
     if (!this.isEnabled) return;
 
     const start = Date.now();

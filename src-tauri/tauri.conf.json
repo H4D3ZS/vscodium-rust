@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.hades.vscode-rust-app",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm.cmd run dev",
+    "beforeBuildCommand": "npm.cmd run build",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../dist"
   },
@@ -20,7 +20,8 @@
         "height": 900,
         "resizable": true,
         "fullscreen": false,
-        "decorations": true,
+        "decorations": false,
+        "transparent": false,
         "maximized": false
       }
     ],

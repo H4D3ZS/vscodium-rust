@@ -1,0 +1,167 @@
+name: Site or action bug
+description: Browser starts fine but a navigation, click, evaluate, or other operation fails or behaves wrong
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For bugs that happen after the browser is up.
+        If the browser never launches, use the launch failure template.
+        If a fingerprint detector flags the browser, use the stealth detection template.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `python -m invisible_playwright version`.
+      placeholder: 0.1.7 (binary firefox-7)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows 10/11 x86_64
+        - Linux x86_64
+        - macOS (unsupported)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python
+      placeholder: 3.11.7
+    validations:
+      required: true
+
+  - type: dropdown
+    id: headless
+    attributes:
+      label: headless=
+      description: Some bugs only repro on Windows headless=True (hidden alt-desktop path).
+      options:
+        - "True"
+        - "False"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: proxy
+    attributes:
+      label: Proxy
+      description: Sites often vary by IP geo (e.g. GDPR consent shows only on UK/EU).
+      options:
+        - No proxy (host network)
+        - Residential, UK/GB
+        - Residential, US
+        - Residential, other country (specify in notes)
+        - Datacenter (specify provider in notes)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Profile dir
+      options:
+        - Fresh each run (no profile_dir)
+        - Persistent profile_dir, reusing across runs
+        - Persistent profile_dir, first run creating it
+    validations:
+      required: true
+
+  - type: input
+    id: url
+    attributes:
+      label: URL
+      description: The exact URL passed to `page.goto`. Not "the homepage" — the literal string.
+      placeholder: https://id.sky.com/
+    validations:
+      required: true
+
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Runnable reproduction
+      description: A complete snippet we can copy, paste, run. Stub creds with placeholders, keep everything else literal.
+      render: python
+      value: |
+        from invisible_playwright import InvisiblePlaywright
+
+        with InvisiblePlaywright(seed=42, headless=True) as browser:
+            ctx = browser.new_context()
+            page = ctx.new_page()
+            page.goto("https://example.com/")
+            # the exact operation that fails:
+            page.click("button:has-text('Accept all')")
+    validations:
+      required: true
+
+  - type: input
+    id: selector
+    attributes:
+      label: Selector or locator
+      description: The exact string passed to locator/click/frame_locator. Write N/A if not a selector bug.
+      placeholder: page.frame_locator("iframe[id^='sp_message_iframe_']").get_by_text("Accept all")
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What should happen when the snippet runs?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+      description: What happens instead? Full traceback, error string verbatim, any page.on('crash') firing.
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Drag-drop a screenshot if the bug is visual. Optional but useful.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Browser logs
+      description: Output of `DEBUG=pw:browser* python yourscript.py 2>&1 | tail -200`. Redact creds and real IPs.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything else, hypotheses, related issues, things you've already tried.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before submitting
+      options:
+        - label: Searched existing issues.
+          required: true
+        - label: On the latest released version.
+          required: true
+        - label: The snippet above runs end-to-end on a clean Python install.
+          required: true
+        - label: Removed credentials, proxy passwords, real IPs, personal file paths.
+          required: true

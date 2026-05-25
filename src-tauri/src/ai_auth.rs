@@ -284,6 +284,7 @@ pub struct ApiKeys {
     pub deepseek: Option<String>,
     pub mistral: Option<String>,
     pub xai: Option<String>,
+    pub cerebras: Option<String>,
     pub alibaba: Option<String>,
     pub apiradar: Option<String>,
     /// Bearer token for reverse-proxied Ollama (e.g. nginx + `OLLAMA_BEARER`).
@@ -332,6 +333,7 @@ pub async fn save_api_keys(
     if incoming.deepseek.is_some()           { merged.deepseek            = incoming.deepseek; }
     if incoming.mistral.is_some()             { merged.mistral             = incoming.mistral; }
     if incoming.xai.is_some()                 { merged.xai                 = incoming.xai; }
+    if incoming.cerebras.is_some()            { merged.cerebras            = incoming.cerebras; }
     if incoming.alibaba.is_some()             { merged.alibaba             = incoming.alibaba; }
     if incoming.apiradar.is_some()            { merged.apiradar            = incoming.apiradar; }
     if incoming.ollama.is_some()              { merged.ollama              = incoming.ollama; }
@@ -358,6 +360,11 @@ pub async fn save_api_key(
         "anthropic" => keys.anthropic = Some(value),
         "google" => keys.google = Some(value),
         "deepseek" => keys.deepseek = Some(value),
+        "mistral" => keys.mistral = Some(value),
+        "xai" => keys.xai = Some(value),
+        "cerebras" => keys.cerebras = Some(value),
+        "alibaba" => keys.alibaba = Some(value),
+        "apiradar" => keys.apiradar = Some(value),
         "elevenlabs_api_key" => keys.elevenlabs_api_key = Some(value),
         "ollama" => keys.ollama = Some(value),
         _ => return Err(format!("Unsupported key: {}", key)),

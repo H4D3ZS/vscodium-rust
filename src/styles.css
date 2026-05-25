@@ -316,7 +316,7 @@ body.has-airi-wallpaper #title-bar {
 }
 
 #title-bar {
-  background-color: var(--vscode-titleBar-activeBackground) !important;
+  background-color: var(--vscode-titleBar-activeBackground);
   color: var(--vscode-titleBar-activeForeground);
 }
 
@@ -700,18 +700,19 @@ body.resizing * {
   cursor: inherit !important;
 }
 
-/* Custom Title Bar */
+/* Custom Title Bar — matches VSCode Dark+ exactly, no native OS decorations */
 #title-bar {
   height: var(--title-bar-height);
-  background-color: var(--vscode-titleBar-activeBackground);
+  background-color: #1e1e1e;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0;
-  border-bottom: 1px solid var(--vscode-panel-border);
+  border-bottom: 1px solid #2b2b2b;
   font-size: 12px;
   -webkit-app-region: drag;
   user-select: none;
+  flex-shrink: 0;
 }
 
 .title-bar-left {

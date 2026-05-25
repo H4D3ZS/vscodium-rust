@@ -35,6 +35,11 @@ function visibleInCategory(cat: AgentSettingsCategory | undefined, sectionCat: A
     return cat === sectionCat;
 }
 
+function isMaskedApiKey(value?: string): boolean {
+    if (!value) return false;
+    return value.startsWith('*') || value.charCodeAt(0) === 0x2022 || value.startsWith('â');
+}
+
 const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHeader }) => {
     const ollamaUrl = useStore(state => state.ollamaUrl);
     // Cursor-style server mode picker (Local / Auto / Remote). The new
@@ -134,7 +139,20 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
     ];
 
     // API Key state
-    const [apiKeys, setApiKeys] = useState({ anthropic: '', google: '', openai: '', groq: '', openrouter: '', deepseek: '', elevenlabs: '', ollama: '' });
+    const [apiKeys, setApiKeys] = useState({
+        anthropic: '',
+        google: '',
+        openai: '',
+        groq: '',
+        openrouter: '',
+        deepseek: '',
+        mistral: '',
+        xai: '',
+        cerebras: '',
+        alibaba: '',
+        elevenlabs: '',
+        ollama: '',
+    });
     const [realApiKey, setRealApiKey] = useState(''); // Store real ElevenLabs key separately
     const [savingKeys, setSavingKeys] = useState(false);
     const [keyStatus, setKeyStatus] = useState<Record<string, string>>({});
@@ -184,6 +202,10 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         groq: (keys as any).groq ? '••••••••' + ((keys as any).groq.slice(-4)) : '',
                         openrouter: (keys as any).openrouter ? '••••••••' + ((keys as any).openrouter.slice(-4)) : '',
                         deepseek: (keys as any).deepseek ? '••••••••' + String((keys as any).deepseek).slice(-4) : '',
+                        mistral: (keys as any).mistral ? '********' + String((keys as any).mistral).slice(-4) : '',
+                        xai: (keys as any).xai ? '********' + String((keys as any).xai).slice(-4) : '',
+                        cerebras: (keys as any).cerebras ? '********' + String((keys as any).cerebras).slice(-4) : '',
+                        alibaba: (keys as any).alibaba ? '********' + String((keys as any).alibaba).slice(-4) : '',
                         elevenlabs: (keys as any).elevenlabs_api_key ? '••••••••' + ((keys as any).elevenlabs_api_key.slice(-4)) : '',
                         ollama: (keys as any).ollama ? '••••••••' + String((keys as any).ollama).slice(-4) : '',
                     };
@@ -294,6 +316,22 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                 keysToSave.deepseek = (apiKeys as any).deepseek;
                 console.log('[Settings] Adding deepseek key to save');
             }
+            if ((apiKeys as any).mistral && !isMaskedApiKey((apiKeys as any).mistral)) {
+                keysToSave.mistral = (apiKeys as any).mistral;
+                console.log('[Settings] Adding mistral key to save');
+            }
+            if ((apiKeys as any).xai && !isMaskedApiKey((apiKeys as any).xai)) {
+                keysToSave.xai = (apiKeys as any).xai;
+                console.log('[Settings] Adding xai key to save');
+            }
+            if ((apiKeys as any).cerebras && !isMaskedApiKey((apiKeys as any).cerebras)) {
+                keysToSave.cerebras = (apiKeys as any).cerebras;
+                console.log('[Settings] Adding cerebras key to save');
+            }
+            if ((apiKeys as any).alibaba && !isMaskedApiKey((apiKeys as any).alibaba)) {
+                keysToSave.alibaba = (apiKeys as any).alibaba;
+                console.log('[Settings] Adding alibaba key to save');
+            }
             if ((apiKeys as any).elevenlabs && !(apiKeys as any).elevenlabs.startsWith('•')) {
                 keysToSave.elevenlabs_api_key = (apiKeys as any).elevenlabs;
                 console.log('[Settings] ✅ Adding elevenlabs key to save:', (apiKeys as any).elevenlabs.substring(0, 10) + `... (length: ${(apiKeys as any).elevenlabs.length})`);
@@ -311,11 +349,10 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
             console.log('[Settings] ✅ Save result:', results);
 
             setKeyStatus(results);
-            // Refresh models after saving
-            for (const provider of Object.keys(results)) {
-                if (!results[provider].startsWith('Dead')) {
-                    refreshModels(provider).catch(() => { });
-                }
+            // Refresh the providers we actually changed. The backend returns a
+            // generic status object, not one result per provider.
+            for (const provider of Object.keys(keysToSave)) {
+                refreshModels(provider).catch(() => { });
             }
 
             // Reload keys to confirm they were saved
@@ -860,6 +897,10 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             { key: 'groq', label: 'Groq', placeholder: 'gsk_...' },
                             { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
                             { key: 'deepseek', label: 'DeepSeek (API)', placeholder: 'sk-… (platform.deepseek.com)' },
+                            { key: 'mistral', label: 'Mistral', placeholder: 'Mistral API key' },
+                            { key: 'xai', label: 'xAI', placeholder: 'xai-...' },
+                            { key: 'cerebras', label: 'Cerebras', placeholder: 'csk-...' },
+                            { key: 'alibaba', label: 'Alibaba DashScope', placeholder: 'sk-...' },
                             // Removed: elevenlabs - now only in VOICE & TTS section below
                         ] as { key: string; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
                             <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1314,7 +1355,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                                     keys: { elevenlabs_api_key: apiKey }
                                                 });
                                                 console.log('[ElevenLabs] ✅ Force replace result:', result);
-                                                setKeyStatus(prev => ({ ...prev, ...result }));
+                                                setKeyStatus(prev => ({ ...prev, ...(result as Record<string, string>) }));
 
                                                 // Verify save
                                                 const reloaded = await invoke('get_api_keys');

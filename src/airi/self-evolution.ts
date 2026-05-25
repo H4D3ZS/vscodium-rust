@@ -6,6 +6,7 @@
 
 import type { Ollama } from 'ollama';
 import { createSharedOllama } from './shared-ollama';
+import { getModel } from './model-config';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -114,7 +115,7 @@ export class AIRISelfEvolution {
 
       for (const file of files.slice(0, 20)) { // Limit for performance
         const content = await fs.readFile(file, 'utf-8');
-        
+
         const prompt = `
 Analyze this code for quality (0-100):
 
@@ -152,14 +153,14 @@ Respond with just a number 0-100.
    */
   private async measureResponseTime(): Promise<number> {
     const start = Date.now();
-    
+
     try {
       await this.ollama.generate({
-        model: 'llama3.2:3b',
+        model: getModel('self_learning'),
         prompt: 'Test',
         stream: false
       });
-      
+
       return Date.now() - start;
     } catch (error) {
       return -1;
@@ -365,7 +366,7 @@ CODE: [new code]
     try {
       // Test core systems
       await this.ollama.generate({
-        model: 'llama3.2:3b',
+        model: getModel('self_learning'),
         prompt: 'System self-test. Respond with "OK" if systems nominal.',
         stream: false
       });
@@ -431,14 +432,14 @@ CODE: [new code]
     async function walk(dir: string): Promise<void> {
       try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
-        
+
         for (const entry of entries) {
           if (entry.name.startsWith('.') || entry.name === 'node_modules') {
             continue;
           }
 
           const fullPath = path.join(dir, entry.name);
-          
+
           if (entry.isDirectory()) {
             await walk(fullPath);
           } else if (entry.isFile() && entry.name.endsWith('.ts')) {

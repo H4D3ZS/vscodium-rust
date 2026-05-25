@@ -14,10 +14,12 @@ const BrowserSurface: React.FC = () => {
     React.useEffect(() => {
         let interval: any;
         if (isAgentThinking && agentMode === 'sentient') {
+            /* 
             interval = setInterval(async () => {
                 const b64 = await invoke<string>('browser_screenshot');
                 if (b64) setScreenshot(`data:image/jpeg;base64,${b64}`);
             }, 2000); // Poll every 2s during autonomous work
+            */
         }
         return () => clearInterval(interval);
     }, [isAgentThinking, agentMode]);

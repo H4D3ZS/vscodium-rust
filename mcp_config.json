@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "browser-agent": {
+      "command": "c:\\Users\\HADES\\Desktop\\vscodium-rust\\kortex\\mcp-servers\\browser-agent\\.venv\\Scripts\\python.exe",
+      "args": [
+        "c:\\Users\\HADES\\Desktop\\vscodium-rust\\kortex\\mcp-servers\\browser-agent\\mcp_server.py"
+      ]
+    }
+  }
+}
