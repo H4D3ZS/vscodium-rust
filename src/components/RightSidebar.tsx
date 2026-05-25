@@ -7,7 +7,6 @@ import type { FileEntry } from '../store';
 import { invoke } from '../tauri_bridge';
 import MissionControl from './agent/MissionControl';
 import ResearchCenter from './agent/ResearchCenter';
-import ContextSidebar from './visual/ContextSidebar';
 import { AiriPanel } from './AiriPanel';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
@@ -100,6 +99,84 @@ const MultiFileReviewBanner: React.FC = () => {
 };
 
 // ── Background agents tray ───────────────────────────────────────────────
+// ── Void: Reasoning toggle + budget slider ────────────────────────────────
+const ReasoningToggle: React.FC = () => {
+    const isEnabled = useStore((s: any) => s.isReasoningEnabled ?? false);
+    const setEnabled = useStore((s: any) => s.setIsReasoningEnabled);
+    const budget = useStore((s: any) => s.currentReasoningBudget ?? 1024);
+    const setBudget = useStore((s: any) => s.setCurrentReasoningBudget);
+    const effort = useStore((s: any) => s.currentReasoningEffort ?? 'low');
+    const setEffort = useStore((s: any) => s.setCurrentReasoningEffort);
+    const model = useStore((s: any) => s.agentModel ?? '');
+    const [open, setOpen] = React.useState(false);
+
+    const ml = model.toLowerCase();
+    const isThinkTag = ml.includes('qwen3') || ml.includes('qwq') || ml.includes('deepseek-r1') || ml.includes('r1:');
+    const isAnthropicModel = ml.includes('anthropic') || ml.includes('claude');
+    const isOpenAI = ml.includes('openai') || ml.includes('gpt') || ml.includes('o1') || ml.includes('o3');
+    const supportsReasoning = isThinkTag || isAnthropicModel || isOpenAI;
+
+    if (!supportsReasoning) return null;
+
+    return (
+        <div style={{ position: 'relative' }}>
+            <span
+                onClick={() => { setEnabled(!isEnabled); if (!isEnabled) setOpen(true); }}
+                title={isEnabled ? 'Reasoning ON — click to toggle' : 'Enable reasoning / extended thinking'}
+                style={{
+                    fontSize: '10px', fontWeight: 600, cursor: 'pointer',
+                    padding: '1px 6px', borderRadius: '4px',
+                    color: isEnabled ? '#818cf8' : 'rgba(255,255,255,0.3)',
+                    background: isEnabled ? 'rgba(99,102,241,0.15)' : 'transparent',
+                    border: isEnabled ? '1px solid rgba(99,102,241,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                    transition: 'all 0.15s',
+                    userSelect: 'none',
+                }}
+            >
+                {isThinkTag ? '🧠 Think' : isAnthropicModel ? '💡 Thinking' : '⚡ Reason'}
+            </span>
+            {isEnabled && open && (
+                <div style={{
+                    position: 'absolute', bottom: '26px', left: 0, zIndex: 100,
+                    background: '#1e1e2e', border: '1px solid rgba(99,102,241,0.3)',
+                    borderRadius: '8px', padding: '10px 12px', minWidth: '200px',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#818cf8' }}>Reasoning Config</span>
+                        <i className="codicon codicon-close" onClick={() => setOpen(false)} style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', opacity: 0.5, fontSize: '11px' }} />
+                    </div>
+                    {(isAnthropicModel) && (
+                        <div style={{ marginBottom: '8px' }}>
+                            <div style={{ fontSize: '10px', opacity: 0.6, marginBottom: '4px' }}>Budget tokens: {budget}</div>
+                            <input type="range" min={1024} max={32000} step={1024} value={budget}
+                                onChange={e => setBudget(parseInt(e.target.value))}
+                                style={{ width: '100%', accentColor: '#818cf8' }} />
+                        </div>
+                    )}
+                    {(isOpenAI) && (
+                        <div style={{ marginBottom: '8px' }}>
+                            <div style={{ fontSize: '10px', opacity: 0.6, marginBottom: '4px' }}>Effort</div>
+                            {(['low', 'medium', 'high'] as const).map(e => (
+                                <span key={e} onClick={() => setEffort(e)} style={{
+                                    marginRight: '6px', fontSize: '10px', cursor: 'pointer', fontWeight: 600,
+                                    padding: '1px 6px', borderRadius: '4px',
+                                    color: effort === e ? '#818cf8' : 'rgba(255,255,255,0.5)',
+                                    background: effort === e ? 'rgba(99,102,241,0.15)' : 'transparent',
+                                    border: effort === e ? '1px solid rgba(99,102,241,0.4)' : '1px solid transparent',
+                                }}>{e}</span>
+                            ))}
+                        </div>
+                    )}
+                    {isThinkTag && (
+                        <div style={{ fontSize: '10px', opacity: 0.55 }}>Think-tag model — reasoning output will appear in the thinking trace above the response.</div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // Compact strip listing any agent runs the user fired with `/bg <prompt>`
 // or via `runBackgroundAgent`. Doesn't block the main chat.
 const BackgroundAgentsTray: React.FC = () => {
@@ -282,7 +359,7 @@ const RightSidebar: React.FC = () => {
     // 'settings' is no longer a right-sidebar view — the gear opens the
     // unified Settings tab in the editor pane instead. We keep the union
     // narrow so renaming the right-sidebar views stays cheap.
-    const [view, setView] = useState<'chat' | 'emulator' | 'history' | 'dashboard' | 'research' | 'context' | 'kortex'>('chat');
+    const [view, setView] = useState<'chat' | 'emulator' | 'history' | 'dashboard' | 'research' | 'kortex'>('chat');
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mode = useStore(state => state.agentMode);
     const model = useStore(state => state.agentModel);
@@ -968,12 +1045,13 @@ const RightSidebar: React.FC = () => {
         const m = (mode || '').toLowerCase();
         const readOnly = m === 'chat' || m === 'planning' || m.includes('source control');
         const bug = m === 'bugbounty' || m === 'bug bounty';
+        const harness = m === 'harness';
         const danger = m === 'sentient' || bug;
         return {
-            label: bug ? 'Bug Bounty' : (mode || 'Agent'),
-            color: readOnly ? '#f59e0b' : (danger ? '#ef4444' : '#10b981'),
-            background: readOnly ? 'rgba(245,158,11,0.10)' : (danger ? 'rgba(239,68,68,0.10)' : 'rgba(16,185,129,0.10)'),
-            border: readOnly ? '1px solid rgba(245,158,11,0.35)' : (danger ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(16,185,129,0.30)'),
+            label: bug ? 'Bug Bounty' : (mode || 'Harness'),
+            color: readOnly ? '#f59e0b' : (danger ? '#ef4444' : (harness ? '#38bdf8' : '#10b981')),
+            background: readOnly ? 'rgba(245,158,11,0.10)' : (danger ? 'rgba(239,68,68,0.10)' : (harness ? 'rgba(56,189,248,0.10)' : 'rgba(16,185,129,0.10)')),
+            border: readOnly ? '1px solid rgba(245,158,11,0.35)' : (danger ? '1px solid rgba(239,68,68,0.35)' : (harness ? '1px solid rgba(56,189,248,0.35)' : '1px solid rgba(16,185,129,0.30)')),
             title: readOnly
                 ? `${mode} — READ-ONLY (no tool calls). Click to switch to Agent or Bug Bounty.`
                 : `${mode} — agent will write files and run commands. Click to change.`,
@@ -984,6 +1062,13 @@ const RightSidebar: React.FC = () => {
         const target = e.currentTarget as HTMLElement;
         import('../agent').then(m => m.openModelDropdown(target, () => { }));
     };
+
+    const modelLabel = useMemo(() => {
+        const raw = (model || '').trim();
+        if (!raw) return 'Select model';
+        const id = raw.includes('|') ? raw.split('|').slice(1).join('|') : raw;
+        return id || 'Select model';
+    }, [model]);
 
     // Removed old localstorage WebUI account setter helper
 
@@ -1159,6 +1244,16 @@ const RightSidebar: React.FC = () => {
                     align-items: stretch !important;
                     scroll-padding-top: 0;
                 }
+                .right-sidebar-active-surface {
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    height: 100%;
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: flex-start !important;
+                    align-items: stretch !important;
+                }
                 .right-sidebar-scroll {
                     flex: 1 1 auto;
                     min-height: 0;
@@ -1174,6 +1269,11 @@ const RightSidebar: React.FC = () => {
                 .right-sidebar-body > * {
                     margin-top: 0 !important;
                     align-self: stretch;
+                }
+                .right-sidebar-empty-chat {
+                    flex: 0 0 auto !important;
+                    min-height: 0 !important;
+                    justify-content: flex-start !important;
                 }
                 .markdown-content p { margin: 0 0 1em 0; }
                 .markdown-content p:last-child { margin-bottom: 0; }
@@ -1224,7 +1324,7 @@ const RightSidebar: React.FC = () => {
                 }
             `}</style>
 
-            <div className="sidebar-content" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+            <div className="right-sidebar-tabs" style={{ display: 'flex', flexDirection: 'column', flex: '0 0 auto', overflow: 'visible' }}>
                 <div style={{
                     display: 'flex',
                     flexDirection: 'row',
@@ -1237,7 +1337,7 @@ const RightSidebar: React.FC = () => {
                     flexWrap: 'wrap'
                 }}>
                     <div style={{ display: 'flex', gap: '2px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        {['chat', 'emulator', 'kortex', 'history', 'dashboard', 'research', 'context'].map(v => (
+                        {['chat', 'emulator', 'kortex', 'history', 'dashboard', 'research'].map(v => (
                             <button
                                 key={v}
                                 onClick={() => {
@@ -1463,6 +1563,61 @@ const RightSidebar: React.FC = () => {
                 </div>
             )}
 
+            {view === 'chat' && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '7px 10px',
+                    borderBottom: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.06))',
+                    background: 'var(--vscode-sideBar-background)',
+                    flexShrink: 0,
+                }}>
+                    <button
+                        onClick={onModeClick}
+                        style={{
+                            height: '24px',
+                            padding: '0 8px',
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            color: modeStyle.color,
+                            background: modeStyle.background,
+                            border: modeStyle.border,
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                        }}
+                        title={modeStyle.title}
+                    >
+                        {modeStyle.label}
+                    </button>
+                    <button
+                        onClick={onModelClick}
+                        style={{
+                            height: '24px',
+                            minWidth: 0,
+                            flex: 1,
+                            padding: '0 8px',
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            color: model ? 'rgba(255,255,255,0.82)' : '#f59e0b',
+                            background: model ? 'rgba(255,255,255,0.04)' : 'rgba(245,158,11,0.10)',
+                            border: model ? '1px solid rgba(255,255,255,0.10)' : '1px solid rgba(245,158,11,0.35)',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                        }}
+                        title="Choose AI model"
+                    >
+                        <i className="codicon codicon-server-process" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 11, marginRight: 6 }} />
+                        {modelLabel}
+                    </button>
+                </div>
+            )}
+
             <div style={{ flex: '1 1 auto', height: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
 
                 {/* ── AIRI 3D FULL MODE — only available when VRM is enabled ── */}
@@ -1596,7 +1751,7 @@ const RightSidebar: React.FC = () => {
                             <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '6px' }}>
                                 <span onClick={onModeClick} style={{ fontSize: '9px', opacity: 0.35, cursor: 'pointer' }}>{mode}</span>
                                 <span style={{ fontSize: '9px', opacity: 0.2 }}>·</span>
-                                <span onClick={onModelClick} style={{ fontSize: '9px', opacity: 0.35, cursor: 'pointer' }}>{(model.split('|')[1] || model).split(':')[0]}</span>
+                                <span onClick={onModelClick} style={{ fontSize: '9px', opacity: model ? 0.35 : 0.85, cursor: 'pointer', color: model ? undefined : '#f59e0b' }}>{modelLabel}</span>
                                 <span style={{ fontSize: '9px', opacity: 0.2 }}>·</span>
                                 <span
                                     onClick={() => import('../agent').then(m => m.setYoloMode(!isYoloMode).then(() => setYoloMode(!isYoloMode)))}
@@ -1610,7 +1765,7 @@ const RightSidebar: React.FC = () => {
                     /* ── CHAT / MISSION HUB MODE ── */
                     <div className="right-sidebar-body">
                         {view === 'chat' ? (
-                            <div className="right-sidebar-messages right-sidebar-scroll">
+                            <div className={`right-sidebar-messages right-sidebar-scroll ${messages.length === 0 ? 'right-sidebar-empty-chat' : ''}`} style={{ justifyContent: 'flex-start', alignItems: 'stretch', paddingTop: 0 }}>
 
                                 {/* AIRI Sentient Header — only rendered when VRM is enabled */}
                                 {showVrmAvatar ? (
@@ -1648,7 +1803,7 @@ const RightSidebar: React.FC = () => {
                                     /* Clean minimal header when VRM is disabled — Cursor-style */
                                     messages.length === 0 ? (
                                         <div style={{
-                                            padding: '24px 16px 12px',
+                                            padding: '10px 16px 8px',
                                             textAlign: 'center',
                                         }}>
                                             <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em', opacity: 0.85 }}>Agent</div>
@@ -1661,7 +1816,7 @@ const RightSidebar: React.FC = () => {
 
                                 {/* Quick Mission Workflows — shown only on fresh session */}
                                 {messages.length === 0 && (
-                                    <div style={{ padding: '0 12px 12px' }}>
+                                    <div style={{ padding: '0 12px 12px', flexShrink: 0 }}>
                                         <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.35, marginBottom: '8px' }}>Quick Missions</div>
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                                             {[
@@ -1930,12 +2085,12 @@ const RightSidebar: React.FC = () => {
                                 </div>
                             </div>
                         ) : view === 'emulator' ? (
-                            <div style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                            <div className="right-sidebar-active-surface" style={{ justifyContent: 'flex-start', alignItems: 'stretch' }}>
                                 <UnifiedEmulatorPanel />
                             </div>
                         ) : view === 'kortex' ? (
                             /* Kortex .aim Brain Panel */
-                            <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, height: '100%' }}>
+                            <div className="right-sidebar-active-surface">
                                 <div style={{ padding: '16px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span style={{ fontSize: '16px' }}>🧠</span>
@@ -2014,7 +2169,7 @@ const RightSidebar: React.FC = () => {
                                 </div>
                             </div>
                         ) : view === 'history' ? (
-                            <div className="right-sidebar-scroll" style={{ padding: '16px', gap: '12px' }}>
+                            <div className="right-sidebar-scroll" style={{ padding: '8px 16px 16px', gap: '12px', justifyContent: 'flex-start', alignItems: 'stretch' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                     <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5 }}>Recent History</span>
                                 </div>
@@ -2052,8 +2207,6 @@ const RightSidebar: React.FC = () => {
                             <MissionControl />
                         ) : view === 'research' ? (
                             <ResearchCenter />
-                        ) : view === 'context' ? (
-                            <ContextSidebar />
                         ) : null}
                     </div>
                 )}
@@ -2183,7 +2336,9 @@ const RightSidebar: React.FC = () => {
                                     >
                                         {modeStyle.label}
                                     </span>
-                                    <span onClick={onModelClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }} className="hoverable-bg">{(model.split('|')[1] || model).split(':')[0]}</span>
+                                    <span onClick={onModelClick} style={{ fontSize: '10px', opacity: model ? 0.5 : 0.9, cursor: 'pointer', color: model ? undefined : '#f59e0b' }} className="hoverable-bg">{modelLabel}</span>
+                                    {/* Void: Reasoning toggle */}
+                                    <ReasoningToggle />
                                     {webUiProviderKey && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                             <select

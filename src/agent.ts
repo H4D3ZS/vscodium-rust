@@ -152,6 +152,7 @@ function createPopover(element: HTMLElement, items: { label: string, value: stri
 
 export function openModeDropdown(element: HTMLElement, onSelect: (label: string) => void) {
     createPopover(element, [
+        { label: "Harness", value: "Harness", icon: "sync", desc: "Engineering loop. Fresh bounded context every iteration, strict rules, verify until done." },
         { label: "Agent", value: "Agent", icon: "rocket", desc: "Default. Writes files, runs commands, executes tasks autonomously — Cursor-style." },
         { label: "Bug Bounty", value: "BugBounty", icon: "bug", desc: "Offensive cybersecurity researcher. Writes PoCs, runs exploits, saves vulnerability reports to disk. Tooling-first." },
         { label: "Chat (read-only)", value: "Chat", icon: "comment", desc: "Conversational ONLY. The agent will refuse to write files or run commands. Pair it with @mentions for analysis." },
@@ -1666,6 +1667,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const activeMode = storeState.agentMode || 'Agent';
     const persistentMode =
         activeMode === 'Agent' ||
+        activeMode === 'Harness' ||
         activeMode === 'Execution' ||
         activeMode === 'BugBounty' ||
         activeMode === 'Bug Bounty' ||
@@ -1675,11 +1677,12 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const MAX_HISTORY = isLocalRoute
         ? (persistentMode ? 40 : 16) // local + action mode → 40 turns of working memory
         : (persistentMode ? 80 : 40); // cloud + action mode → 80 turns
-    const cappedMessages: typeof agentMessages = agentMessages.length > MAX_HISTORY
+    const effectiveMaxHistory = activeMode === 'Harness' ? 12 : MAX_HISTORY;
+    const cappedMessages: typeof agentMessages = agentMessages.length > effectiveMaxHistory
         ? [
             ...agentMessages.slice(0, 2),
-            { role: 'system' as const, content: `[⚡ Phase-Wrap: ${agentMessages.length - MAX_HISTORY} earlier messages compressed to save context. Recent working memory follows.]` },
-            ...agentMessages.slice(-(MAX_HISTORY - 2))
+            { role: 'system' as const, content: `[⚡ Phase-Wrap: ${agentMessages.length - effectiveMaxHistory} earlier messages compressed to save context. Recent working memory follows.]` },
+            ...agentMessages.slice(-(effectiveMaxHistory - 2))
         ]
         : agentMessages;
 
@@ -1882,6 +1885,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         // Race the full loop against a 120s timeout (generous for large models
         // but prevents the UI from spinning forever if the backend or Ollama
         // is truly unreachable).
+        const storeSnapshot = store.getState() as any;
         const fullCall = invoke<string>("ai_chat", {
             request: {
                 provider: routingProvider,
@@ -1890,10 +1894,13 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 temperature: 0.7,
                 autonomous: true,
                 root_access: true,
-                mode: store.getState().agentMode,
+                mode: storeSnapshot.agentMode,
                 ollama_url: routingOllamaUrl,
-                // Structured tool definitions — same catalog as cloud agents.
                 tools: toolSchemas,
+                feature: 'Chat',
+                reasoning_enabled: storeSnapshot.isReasoningEnabled ?? false,
+                reasoning_budget: storeSnapshot.currentReasoningBudget ?? null,
+                reasoning_effort: storeSnapshot.currentReasoningEffort ?? null,
             }
         });
         const fullTimeout = new Promise<never>((_, reject) =>

@@ -124,6 +124,18 @@ pub struct AiRequest {
     pub root_access: Option<bool>,
     pub ollama_url: Option<String>,
     pub tools: Option<Vec<Value>>,
+    /// Anthropic/Gemini extended thinking: budget_tokens (e.g. 8000)
+    #[serde(default)]
+    pub reasoning_budget: Option<u32>,
+    /// OpenAI/xAI reasoning_effort: "low" | "medium" | "high"
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    /// Enable reasoning mode (think-tag models or native reasoning)
+    #[serde(default)]
+    pub reasoning_enabled: Option<bool>,
+    /// Per-feature model selection feature name (Chat/Apply/Autocomplete/QuickEdit/SCM)
+    #[serde(default)]
+    pub feature: Option<String>,
 }
 
 /// Bare hostnames (`ai.example.com`) are not valid bases for `reqwest` — they become
@@ -608,6 +620,10 @@ impl Sentient {
             root_access: None,
             ollama_url: Some(ollama_url),
             tools: None,
+            reasoning_budget: None,
+            reasoning_effort: None,
+            reasoning_enabled: None,
+            feature: None,
         };
 
         let result = self.clone().autonomous_loop(req, on_chunk).await?;
@@ -1465,7 +1481,9 @@ impl Sentient {
         // and looping. Bumping the floor keeps a real working window.
         let phase_wrap_every: u32 = {
             let m = req.model.to_lowercase();
-            if is_ollama_provider {
+            if req.mode.as_deref() == Some("Harness") {
+                1
+            } else if is_ollama_provider {
                 if Self::is_small_model_name(&m) { 12 } else { 18 }
             } else if Self::is_small_model_name(&m) {
                 12
@@ -1832,6 +1850,11 @@ impl Sentient {
                     PHASE 2 (DO): Write every file, fix every bug, build the entire feature in one autonomous burst. \
                     PHASE 3 (SHIP): Verify, build, and confirm success. \
                     You NEVER ask for permission. You NEVER state what you 'could' do. You just DO it until mission completion.",
+                "Harness" => "CORE OBJECTIVE: You are in HARNESS ENGINEERING mode. \
+                    You run as an engineering harness, not a chat bot. Each iteration receives a fresh, bounded context rebuilt from Kortex AIM memory, the latest user mission, recent tool results, and current diagnostics. \
+                    Strict loop: inspect the exact files needed, patch or run commands, verify, store the lesson, then continue. \
+                    Do not dump giant directory listings. Do not narrate next steps instead of executing them. Use AIM/Kortex first, then targeted file reads. \
+                    Stop only after verification passes or a concrete blocker is proven with tool output.",
                 _ => "CORE OBJECTIVE: Execute the user request with absolute autonomy and speed. Use tools proactively to achieve the goal."
             };
 
@@ -1946,7 +1969,7 @@ impl Sentient {
         // model that drifted into prose for one turn.
         let is_persistent_mode = matches!(
             mode_str,
-            "Agent" | "Execution" | "BugBounty" | "Bug Bounty" | "Fast" | "Sentient" | "Autonomous"
+            "Agent" | "Harness" | "Execution" | "BugBounty" | "Bug Bounty" | "Fast" | "Sentient" | "Autonomous"
         );
 
         // Cursor-style autonomy: in persistent action modes, the user already
@@ -1963,6 +1986,8 @@ impl Sentient {
 
         let max_iterations = if is_chat_mode {
             1 // Chat mode — single turn, no autonomous looping
+        } else if mode_str == "Harness" {
+            200
         } else if yolo_start {
             200 // Full autonomy — run until completion keyword
         } else if mode_str == "Sentient" {
@@ -2359,16 +2384,41 @@ impl Sentient {
                 payload["stream"] = json!(true);
             }
 
+            // Reasoning / extended-thinking payload injection (Void feature)
+            let provider_lc = active_provider.to_lowercase();
+            if req.reasoning_enabled.unwrap_or(false) {
+                if provider_lc == "anthropic" {
+                    let budget = req.reasoning_budget.unwrap_or(8000);
+                    payload["thinking"] = json!({ "type": "enabled", "budget_tokens": budget });
+                    // Anthropic requires temperature=1 when thinking is enabled
+                    payload["temperature"] = json!(1.0);
+                } else if provider_lc == "openai" || provider_lc == "xai" {
+                    let effort = req.reasoning_effort.as_deref().unwrap_or("medium");
+                    payload["reasoning_effort"] = json!(effort);
+                } else if provider_lc == "google" {
+                    if let Some(budget) = req.reasoning_budget {
+                        payload["generationConfig"] = json!({
+                            "thinkingConfig": { "thinkingBudget": budget }
+                        });
+                    }
+                } else if provider_lc == "ollama" {
+                    // For think-tag models (qwen3/deepseek-r1/qwq): include /think suffix
+                    let m = active_model.to_lowercase();
+                    let is_think_model = m.contains("qwen3") || m.contains("qwq")
+                        || m.contains("deepseek-r1") || m.contains("r1:");
+                    if is_think_model && !active_model.ends_with(":no-think") {
+                        // Reasoning already embedded in model output via <think> tags.
+                        // No payload change needed; stripping happens post-stream.
+                    }
+                }
+            }
+
             let is_ollama = active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity";
+            // All non-small local models support native OpenAI-style tool calls via Ollama.
+            // Previously this was gated on a keyword allowlist which caused large capable
+            // models (gemma4:27b, phi-4, etc.) to fall back to the slower MD-JSON protocol.
             let supports_native_tools_payload = !is_ollama || {
-                // Use accurate size detection (fixes qwen3:30b / qwen3:14b false-positives)
-                let small = Self::is_small_model_name(&active_model);
-                let m = active_model.to_lowercase();
-                !small && (m.contains("qwen") || m.contains("llama3") || m.contains("llama-3")
-                    || m.contains("mistral") || m.contains("mixtral") || m.contains("mistral-nemo")
-                    || m.contains("gemma") || m.contains("command-r")
-                    || m.contains("deepseek") || m.contains("yi-")
-                    || m.contains("phi3") || m.contains("phi-3"))
+                !Self::is_small_model_name(&active_model)
             };
 
             if !tools.is_empty() && supports_native_tools_payload && !is_chat_mode {
@@ -2436,9 +2486,9 @@ impl Sentient {
                 }
             }
 
-            if provider_key.is_empty() 
-                && !active_provider.to_lowercase().starts_with("ollama") 
-                && active_provider.to_lowercase() != "antigravity" {
+            let keyless_providers = ["ollama", "antigravity", "vllm", "lmstudio", "lm-studio", "lm_studio", "litellm", "lite-llm", "lite_llm", "openwebui"];
+            let is_keyless = keyless_providers.iter().any(|p| active_provider.to_lowercase().starts_with(p));
+            if provider_key.is_empty() && !is_keyless {
                 return Err(anyhow!("No API key found for provider: {}. Please run 'Hunt for Working AI Keys' from the model menu, or set it in Settings.", active_provider));
             }
 
@@ -2798,6 +2848,43 @@ impl Sentient {
                         "status": "complete",
                         "total_tokens": tokens_count
                     }));
+                }
+            }
+
+            // Think-tag stripping for Ollama reasoning models (qwen3, deepseek-r1, qwq).
+            // Extract <think>...</think> blocks → emit as ai-thinking, remove from response.
+            {
+                let m = active_model.to_lowercase();
+                let is_think_model = m.contains("qwen3") || m.contains("qwq")
+                    || m.contains("deepseek-r1") || m.contains("r1:");
+                if is_think_model && full_content.contains("<think>") {
+                    let mut clean = String::new();
+                    let mut thought_buf = String::new();
+                    let mut pos = 0usize;
+                    let fc = full_content.clone();
+                    while pos < fc.len() {
+                        if let Some(open) = fc[pos..].find("<think>") {
+                            let open_abs = pos + open;
+                            clean.push_str(&fc[pos..open_abs]);
+                            let after_open = open_abs + 7; // len("<think>") == 7
+                            if let Some(close) = fc[after_open..].find("</think>") {
+                                let close_abs = after_open + close;
+                                thought_buf.push_str(&fc[after_open..close_abs]);
+                                pos = close_abs + 8; // len("</think>") == 8
+                            } else {
+                                // Unclosed tag — treat rest as thought
+                                thought_buf.push_str(&fc[after_open..]);
+                                pos = fc.len();
+                            }
+                        } else {
+                            clean.push_str(&fc[pos..]);
+                            break;
+                        }
+                    }
+                    if !thought_buf.is_empty() {
+                        self.emit_event("ai-thinking", json!({ "thought": thought_buf.trim() }));
+                    }
+                    full_content = clean;
                 }
             }
 
@@ -4151,6 +4238,9 @@ impl Sentient {
             "mistral" => "MISTRAL_API_KEY",
             "openai" => "OPENAI_API_KEY",
             "ollama" => "OLLAMA_API_KEY",
+            "vllm" => "VLLM_API_KEY",
+            "lmstudio" | "lm-studio" | "lm_studio" => "LMSTUDIO_API_KEY",
+            "litellm" | "lite-llm" | "lite_llm" => "LITELLM_API_KEY",
             _ => "OPENAI_API_KEY",
         };
         
@@ -4213,6 +4303,39 @@ impl Sentient {
                 "https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions".to_string()
             }
             "antigravity" => "http://127.0.0.1:1536/v1/chat/completions".to_string(),
+            // vLLM — OpenAI-compat server, URL from ollama_url field or env
+            "vllm" => {
+                let base = std::env::var("VLLM_URL")
+                    .ok()
+                    .or_else(|| req.ollama_url.clone())
+                    .unwrap_or_else(|| "http://127.0.0.1:8000".to_string());
+                let base = base.trim().trim_end_matches('/').to_string();
+                if base.ends_with("/v1/chat/completions") { base }
+                else if base.ends_with("/v1") { format!("{}/chat/completions", base) }
+                else { format!("{}/v1/chat/completions", base) }
+            }
+            // LM Studio — OpenAI-compat server on port 1234 by default
+            "lmstudio" | "lm-studio" | "lm_studio" => {
+                let base = std::env::var("LMSTUDIO_URL")
+                    .ok()
+                    .or_else(|| req.ollama_url.clone())
+                    .unwrap_or_else(|| "http://127.0.0.1:1234".to_string());
+                let base = base.trim().trim_end_matches('/').to_string();
+                if base.ends_with("/v1/chat/completions") { base }
+                else if base.ends_with("/v1") { format!("{}/chat/completions", base) }
+                else { format!("{}/v1/chat/completions", base) }
+            }
+            // LiteLLM proxy — OpenAI-compat proxy on port 4000 by default
+            "litellm" | "lite-llm" | "lite_llm" => {
+                let base = std::env::var("LITELLM_URL")
+                    .ok()
+                    .or_else(|| req.ollama_url.clone())
+                    .unwrap_or_else(|| "http://127.0.0.1:4000".to_string());
+                let base = base.trim().trim_end_matches('/').to_string();
+                if base.ends_with("/v1/chat/completions") { base }
+                else if base.ends_with("/v1") { format!("{}/chat/completions", base) }
+                else { format!("{}/v1/chat/completions", base) }
+            }
             "ollama" => {
                 let base = normalize_ollama_base_url(
                     &req.ollama_url

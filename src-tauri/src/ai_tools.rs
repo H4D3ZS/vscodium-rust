@@ -2618,6 +2618,10 @@ impl AiTools {
                 root_access: Some(true),
                 ollama_url: None,
                 tools: None,
+                reasoning_budget: None,
+                reasoning_effort: None,
+                reasoning_enabled: None,
+                feature: None,
             };
 
             println!(

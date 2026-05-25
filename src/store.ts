@@ -4,6 +4,16 @@ import { listen } from '@tauri-apps/api/event';
 import { computeDiffBlocks, patchContentSelective } from './services/DiffService';
 import { terminalManager } from './terminal';
 import { initTheme } from './theme_engine';
+import {
+    type ProviderName,
+    type FeatureName,
+    type ModelSelection,
+    type ModelSelectionOptions,
+    type ModelSelectionOfFeature,
+    type GlobalSettings,
+    defaultGlobalSettings,
+    defaultModelSelectionOfFeature,
+} from './model_capabilities';
 
 /** Bare hostnames break reqwest in Rust; infer https for public FQDNs, http for localhost/LAN. */
 function ollamaShouldInferScheme(s: string): boolean {
@@ -657,6 +667,77 @@ interface AppState {
     closeAiriPanel: () => void;
     openEmulatorPanel: () => void;
     closeEmulatorPanel: () => void;
+
+    // ── Void-style per-feature model selection ────────────────────────────
+    modelSelectionOfFeature: ModelSelectionOfFeature;
+    modelSelectionOptions: Partial<Record<FeatureName, Partial<Record<ProviderName, Record<string, ModelSelectionOptions>>>>>;
+    setModelSelectionForFeature: (feature: FeatureName, selection: ModelSelection | null) => void;
+    setModelSelectionOptions: (feature: FeatureName, providerName: ProviderName, modelName: string, opts: ModelSelectionOptions) => void;
+
+    // ── Void-style global settings ────────────────────────────────────────
+    voidGlobalSettings: GlobalSettings;
+    setVoidGlobalSetting: <K extends keyof GlobalSettings>(key: K, value: GlobalSettings[K]) => void;
+
+    // ── Reasoning state (per active chat turn) ────────────────────────────
+    currentReasoningBudget: number;
+    currentReasoningEffort: string;
+    isReasoningEnabled: boolean;
+    setReasoningBudget: (v: number) => void;
+    setReasoningEffort: (v: string) => void;
+    setReasoningEnabled: (v: boolean) => void;
+
+    // ── Extra provider settings (vLLM, LM Studio, liteLLM, Vertex, Azure, Bedrock) ──
+    vllmUrl: string;
+    lmStudioUrl: string;
+    liteLLMUrl: string;
+    liteLLMApiKey: string;
+    googleVertexProject: string;
+    googleVertexRegion: string;
+    azureProject: string;
+    azureApiKey: string;
+    azureApiVersion: string;
+    awsBedrockApiKey: string;
+    awsBedrockRegion: string;
+    awsBedrockEndpoint: string;
+    setVllmUrl: (url: string) => void;
+    setLmStudioUrl: (url: string) => void;
+    setLiteLLMUrl: (url: string) => void;
+    setLiteLLMApiKey: (k: string) => void;
+    setGoogleVertexProject: (v: string) => void;
+    setGoogleVertexRegion: (v: string) => void;
+    setAzureProject: (v: string) => void;
+    setAzureApiKey: (k: string) => void;
+    setAzureApiVersion: (v: string) => void;
+    setAwsBedrockApiKey: (k: string) => void;
+    setAwsBedrockRegion: (v: string) => void;
+    setAwsBedrockEndpoint: (v: string) => void;
+
+    // ── Antigravity: Workflow/Rule editor state ───────────────────────────
+    openWorkflowFiles: string[];
+    openRuleFiles: string[];
+    openWorkflowFile: (path: string) => void;
+    closeWorkflowFile: (path: string) => void;
+    openRuleFile: (path: string) => void;
+    closeRuleFile: (path: string) => void;
+
+    // ── Antigravity: Agent hunk navigation ───────────────────────────────
+    focusedHunkId: string | null;
+    setFocusedHunk: (id: string | null) => void;
+    acceptFocusedHunk: () => void;
+    rejectFocusedHunk: () => void;
+
+    // ── Antigravity: AI commit message ────────────────────────────────────
+    isGeneratingCommitMessage: boolean;
+    lastGeneratedCommitMessage: string;
+    generateAiCommitMessage: () => Promise<string>;
+
+    // ── Antigravity: Import settings ─────────────────────────────────────
+    importFromEditor: (source: 'vscode' | 'cursor' | 'windsurf' | 'cider') => Promise<void>;
+
+    // ── Antigravity: Demo mode ────────────────────────────────────────────
+    isDemoMode: boolean;
+    startDemoMode: () => void;
+    endDemoMode: () => void;
 }
 
 export interface AgentTask {
@@ -710,7 +791,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     // Default to ACTION mode so the agent actually writes files, runs
     // commands and ships PoCs — critical for cybersecurity/bug-bounty work.
     // Chat mode forbids tool calls, which was the previous (broken) default.
-    agentMode: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.mode')) || 'Agent',
+    agentMode: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.mode')) || 'Harness',
     agentModel: (() => {
         if (typeof localStorage === 'undefined') return '';
         const saved = localStorage.getItem('agentModel') || '';
@@ -2835,6 +2916,185 @@ const storeImplementation: any = (set: any, get: any) => ({
             kairosSuggestions: [suggestion, ...state.kairosSuggestions].slice(0, 50)
         }));
     },
+
+    // ── Void-style per-feature model selection ────────────────────────────
+    modelSelectionOfFeature: (() => {
+        try {
+            const saved = localStorage.getItem('void.modelSelectionOfFeature');
+            return saved ? JSON.parse(saved) : { ...defaultModelSelectionOfFeature };
+        } catch { return { ...defaultModelSelectionOfFeature }; }
+    })(),
+    modelSelectionOptions: {},
+    setModelSelectionForFeature: (feature: FeatureName, selection: ModelSelection | null) => {
+        set((state: any) => {
+            const next = { ...state.modelSelectionOfFeature, [feature]: selection };
+            try { localStorage.setItem('void.modelSelectionOfFeature', JSON.stringify(next)); } catch { /* */ }
+            return { modelSelectionOfFeature: next };
+        });
+    },
+    setModelSelectionOptions: (feature: FeatureName, providerName: ProviderName, modelName: string, opts: ModelSelectionOptions) => {
+        set((state: any) => ({
+            modelSelectionOptions: {
+                ...state.modelSelectionOptions,
+                [feature]: {
+                    ...(state.modelSelectionOptions[feature] || {}),
+                    [providerName]: {
+                        ...((state.modelSelectionOptions[feature] || {})[providerName] || {}),
+                        [modelName]: opts,
+                    },
+                },
+            },
+        }));
+    },
+
+    // ── Void-style global settings ────────────────────────────────────────
+    voidGlobalSettings: (() => {
+        try {
+            const saved = localStorage.getItem('void.globalSettings');
+            return saved ? { ...defaultGlobalSettings, ...JSON.parse(saved) } : { ...defaultGlobalSettings };
+        } catch { return { ...defaultGlobalSettings }; }
+    })(),
+    setVoidGlobalSetting: <K extends keyof GlobalSettings>(key: K, value: GlobalSettings[K]) => {
+        set((state: any) => {
+            const next = { ...state.voidGlobalSettings, [key]: value };
+            try { localStorage.setItem('void.globalSettings', JSON.stringify(next)); } catch { /* */ }
+            return { voidGlobalSettings: next };
+        });
+    },
+
+    // ── Reasoning state ───────────────────────────────────────────────────
+    currentReasoningBudget: parseInt(localStorage.getItem('reasoning.budget') || '1024'),
+    currentReasoningEffort: localStorage.getItem('reasoning.effort') || 'low',
+    isReasoningEnabled: localStorage.getItem('reasoning.enabled') === '1',
+    setReasoningBudget: (v: number) => {
+        try { localStorage.setItem('reasoning.budget', String(v)); } catch { /* */ }
+        set({ currentReasoningBudget: v });
+    },
+    setReasoningEffort: (v: string) => {
+        try { localStorage.setItem('reasoning.effort', v); } catch { /* */ }
+        set({ currentReasoningEffort: v });
+    },
+    setReasoningEnabled: (v: boolean) => {
+        try { localStorage.setItem('reasoning.enabled', v ? '1' : '0'); } catch { /* */ }
+        set({ isReasoningEnabled: v });
+    },
+
+    // ── Extra provider settings ────────────────────────────────────────────
+    vllmUrl: localStorage.getItem('provider.vllm.url') || 'http://localhost:8000',
+    lmStudioUrl: localStorage.getItem('provider.lmstudio.url') || 'http://localhost:1234',
+    liteLLMUrl: localStorage.getItem('provider.litellm.url') || '',
+    liteLLMApiKey: localStorage.getItem('provider.litellm.apikey') || '',
+    googleVertexProject: localStorage.getItem('provider.vertex.project') || '',
+    googleVertexRegion: localStorage.getItem('provider.vertex.region') || 'us-west2',
+    azureProject: localStorage.getItem('provider.azure.project') || '',
+    azureApiKey: localStorage.getItem('provider.azure.apikey') || '',
+    azureApiVersion: localStorage.getItem('provider.azure.apiversion') || '2024-05-01-preview',
+    awsBedrockApiKey: localStorage.getItem('provider.bedrock.apikey') || '',
+    awsBedrockRegion: localStorage.getItem('provider.bedrock.region') || 'us-east-1',
+    awsBedrockEndpoint: localStorage.getItem('provider.bedrock.endpoint') || '',
+    setVllmUrl: (url: string) => { try { localStorage.setItem('provider.vllm.url', url); } catch { /* */ } set({ vllmUrl: url }); },
+    setLmStudioUrl: (url: string) => { try { localStorage.setItem('provider.lmstudio.url', url); } catch { /* */ } set({ lmStudioUrl: url }); },
+    setLiteLLMUrl: (url: string) => { try { localStorage.setItem('provider.litellm.url', url); } catch { /* */ } set({ liteLLMUrl: url }); },
+    setLiteLLMApiKey: (k: string) => { try { localStorage.setItem('provider.litellm.apikey', k); } catch { /* */ } set({ liteLLMApiKey: k }); },
+    setGoogleVertexProject: (v: string) => { try { localStorage.setItem('provider.vertex.project', v); } catch { /* */ } set({ googleVertexProject: v }); },
+    setGoogleVertexRegion: (v: string) => { try { localStorage.setItem('provider.vertex.region', v); } catch { /* */ } set({ googleVertexRegion: v }); },
+    setAzureProject: (v: string) => { try { localStorage.setItem('provider.azure.project', v); } catch { /* */ } set({ azureProject: v }); },
+    setAzureApiKey: (k: string) => { try { localStorage.setItem('provider.azure.apikey', k); } catch { /* */ } set({ azureApiKey: k }); },
+    setAzureApiVersion: (v: string) => { try { localStorage.setItem('provider.azure.apiversion', v); } catch { /* */ } set({ azureApiVersion: v }); },
+    setAwsBedrockApiKey: (k: string) => { try { localStorage.setItem('provider.bedrock.apikey', k); } catch { /* */ } set({ awsBedrockApiKey: k }); },
+    setAwsBedrockRegion: (v: string) => { try { localStorage.setItem('provider.bedrock.region', v); } catch { /* */ } set({ awsBedrockRegion: v }); },
+    setAwsBedrockEndpoint: (v: string) => { try { localStorage.setItem('provider.bedrock.endpoint', v); } catch { /* */ } set({ awsBedrockEndpoint: v }); },
+
+    // ── Antigravity: Workflow/Rule editor ────────────────────────────────
+    openWorkflowFiles: [],
+    openRuleFiles: [],
+    openWorkflowFile: (path: string) => set((state: any) => ({
+        openWorkflowFiles: state.openWorkflowFiles.includes(path) ? state.openWorkflowFiles : [...state.openWorkflowFiles, path]
+    })),
+    closeWorkflowFile: (path: string) => set((state: any) => ({
+        openWorkflowFiles: state.openWorkflowFiles.filter((p: string) => p !== path)
+    })),
+    openRuleFile: (path: string) => set((state: any) => ({
+        openRuleFiles: state.openRuleFiles.includes(path) ? state.openRuleFiles : [...state.openRuleFiles, path]
+    })),
+    closeRuleFile: (path: string) => set((state: any) => ({
+        openRuleFiles: state.openRuleFiles.filter((p: string) => p !== path)
+    })),
+
+    // ── Antigravity: Agent hunk navigation ───────────────────────────────
+    focusedHunkId: null,
+    setFocusedHunk: (id: string | null) => set({ focusedHunkId: id }),
+    acceptFocusedHunk: () => {
+        const { focusedHunkId, pendingChanges } = get();
+        if (!focusedHunkId) return;
+        // find the change containing this hunk and accept it
+        for (const change of pendingChanges) {
+            if (change.id === focusedHunkId) {
+                get().acceptPendingChange(change.id);
+                break;
+            }
+        }
+    },
+    rejectFocusedHunk: () => {
+        const { focusedHunkId, pendingChanges } = get();
+        if (!focusedHunkId) return;
+        for (const change of pendingChanges) {
+            if (change.id === focusedHunkId) {
+                get().rejectPendingChange(change.id);
+                break;
+            }
+        }
+        set({ focusedHunkId: null });
+    },
+
+    // ── Antigravity: AI commit message ────────────────────────────────────
+    isGeneratingCommitMessage: false,
+    lastGeneratedCommitMessage: '',
+    generateAiCommitMessage: async () => {
+        set({ isGeneratingCommitMessage: true });
+        try {
+            const diff = await invoke<string>('get_git_diff', { staged: true }).catch(() => '');
+            if (!diff.trim()) {
+                set({ isGeneratingCommitMessage: false });
+                return '';
+            }
+            const state = get();
+            const model = state.agentModel || '';
+            const provider = model.includes('|') ? model.split('|')[0].toLowerCase() : (state.inferenceBackend === 'ollama' ? 'ollama' : 'openai');
+            const result = await invoke<{ content: string }>('ai_chat_fast', {
+                request: {
+                    messages: [{
+                        role: 'user',
+                        content: `Write a concise git commit message for this diff. Format: <type>(<scope>): <description>\\n\\n<body if needed>\\n\\nTypes: feat|fix|refactor|docs|test|chore\\n\\nDiff:\\n${diff.slice(0, 4000)}`,
+                    }],
+                    model: model.includes('|') ? model.split('|').slice(1).join('|') : model,
+                    provider,
+                    temperature: 0.3,
+                    ollama_url: state.ollamaUrl,
+                }
+            }).catch(() => null);
+            const msg = result?.content?.trim() || '';
+            set({ lastGeneratedCommitMessage: msg, isGeneratingCommitMessage: false });
+            return msg;
+        } catch {
+            set({ isGeneratingCommitMessage: false });
+            return '';
+        }
+    },
+
+    // ── Antigravity: Import settings ─────────────────────────────────────
+    importFromEditor: async (source: 'vscode' | 'cursor' | 'windsurf' | 'cider') => {
+        try {
+            await invoke('import_editor_settings', { source });
+        } catch (e) {
+            console.warn('[ImportSettings] not implemented yet:', e);
+        }
+    },
+
+    // ── Antigravity: Demo mode ────────────────────────────────────────────
+    isDemoMode: false,
+    startDemoMode: () => set({ isDemoMode: true }),
+    endDemoMode: () => set({ isDemoMode: false }),
 });
 
 export const useStore = create<AppState>(storeImplementation);

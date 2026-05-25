@@ -1,4 +1,4 @@
-use crate::EditorState;
+﻿use crate::EditorState;
 use crate::ai_engine::{AiRequest, ChatMessage, MessageContent, AiResponse, normalize_ollama_base_url};
 use tauri::{State, AppHandle, Emitter};
 use serde_json::{Value, json};
@@ -125,10 +125,10 @@ pub async fn ai_chat(
         .open("ai_chat.log")
         .and_then(|mut f| { use std::io::Write; f.write_all(log_entry.as_bytes()) });
 
-    // Signal Kairos: user is actively using AI — reset idle timer
+    // Signal Kairos: user is actively using AI â€” reset idle timer
     state.kairos.report_activity().await;
 
-    // Update MemoryLayer state — agent is now active
+    // Update MemoryLayer state â€” agent is now active
     let _ = state.memory_layer.update_state("Active", &format!("Processing: {}", 
         request.messages.last()
             .and_then(|m| m.content.as_ref().map(|c| c.to_text()))
@@ -192,7 +192,7 @@ pub async fn ai_chat(
 /// Used by the frontend for short, action-less prompts like "hello"
 /// where running the full agent loop is gross overkill (and was making
 /// "hi" take 5+ seconds while the model dutifully ran git_status and
-/// grep). Cursor's Agent mode behaves the same way — it doesn't open
+/// grep). Cursor's Agent mode behaves the same way â€” it doesn't open
 /// the codebase index for a greeting.
 #[tauri::command]
 pub async fn ai_chat_fast(
@@ -232,7 +232,7 @@ pub async fn ai_chat_oneshot(
 ) -> Result<String, String> {
     state.kairos.report_activity().await;
 
-    // Same context injection as `ai_chat` — background work still needs
+    // Same context injection as `ai_chat` â€” background work still needs
     // the Hades memory header so the model has consistent grounding.
     if let Ok(hades_ctx) = state.memory_layer.get_aggregate_context() {
         if !hades_ctx.trim().is_empty() {
@@ -331,6 +331,10 @@ pub async fn ai_inline_complete(
         mode: Some("Completion".to_string()),
         ollama_url: comp_ollama_url,
         tools: None,
+        reasoning_budget: None,
+        reasoning_effort: None,
+        reasoning_enabled: None,
+        feature: None,
     };
 
     let result = state.ai_engine.clone()
@@ -393,6 +397,10 @@ pub async fn ai_explain_code(
         mode: Some("Explain".to_string()),
         ollama_url: None,
         tools: None,
+        reasoning_budget: None,
+        reasoning_effort: None,
+        reasoning_enabled: None,
+        feature: None,
     };
 
     state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
@@ -439,6 +447,10 @@ pub async fn ai_document_code(
         mode: Some("Document".to_string()),
         ollama_url: None,
         tools: None,
+        reasoning_budget: None,
+        reasoning_effort: None,
+        reasoning_enabled: None,
+        feature: None,
     };
 
     state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
@@ -486,6 +498,10 @@ pub async fn ai_generate_code(
         mode: Some("Generate".to_string()),
         ollama_url: None,
         tools: None,
+        reasoning_budget: None,
+        reasoning_effort: None,
+        reasoning_enabled: None,
+        feature: None,
     };
 
     state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
@@ -543,6 +559,10 @@ pub async fn ai_refactor_code(
         mode: Some("Refactor".to_string()),
         ollama_url: None,
         tools: None,
+        reasoning_budget: None,
+        reasoning_effort: None,
+        reasoning_enabled: None,
+        feature: None,
     };
 
     state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
@@ -607,6 +627,10 @@ pub async fn ai_debug_code(
         mode: Some("Debug".to_string()),
         ollama_url: None,
         tools: None,
+        reasoning_budget: None,
+        reasoning_effort: None,
+        reasoning_enabled: None,
+        feature: None,
     };
 
     let response = state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())?;
@@ -667,6 +691,10 @@ pub async fn ai_multi_cursor_edit(
         mode: Some("MultiEdit".to_string()),
         ollama_url: None,
         tools: None,
+        reasoning_budget: None,
+        reasoning_effort: None,
+        reasoning_enabled: None,
+        feature: None,
     };
 
     let modified = state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())?;
@@ -882,7 +910,7 @@ pub async fn set_ollama_url(state: State<'_, EditorState>, url: String) -> Resul
 }
 
 /// Force the context indexer to rescan the active workspace. Powers the
-/// "Re-index" button under Settings → Indexing & Docs and the `/reindex`
+/// "Re-index" button under Settings â†’ Indexing & Docs and the `/reindex`
 /// slash command. We call `reindex_if_needed` (not a hard rebuild) so
 /// large repos don't get flattened by an accidental click; the indexer
 /// itself decides if anything has changed on disk.
@@ -984,7 +1012,7 @@ pub async fn list_provider_models(
         .map_err(|e| e.to_string())
 }
 
-/// Native Ollama GET (`/api/tags`, etc.) from Rust — bypasses browser CORS on locked-down proxies.
+/// Native Ollama GET (`/api/tags`, etc.) from Rust â€” bypasses browser CORS on locked-down proxies.
 #[tauri::command]
 pub async fn ollama_native_get(state: State<'_, EditorState>, path: String) -> Result<Value, String> {
     state
@@ -994,7 +1022,7 @@ pub async fn ollama_native_get(state: State<'_, EditorState>, path: String) -> R
         .map_err(|e| e.to_string())
 }
 
-/// Native Ollama POST (`/api/generate`, `/api/chat`, …) from Rust — same CORS bypass as GET.
+/// Native Ollama POST (`/api/generate`, `/api/chat`, â€¦) from Rust â€” same CORS bypass as GET.
 #[tauri::command]
 pub async fn ollama_native_post(
     state: State<'_, EditorState>,
@@ -1062,3 +1090,5 @@ pub async fn create_new_session(state: State<'_, EditorState>) -> Result<(), Str
     state.ai_engine.memory_store.create_new_session().await;
     Ok(())
 }
+
+
