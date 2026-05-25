@@ -40,6 +40,22 @@ async function winMaximize() {
     }
     try {
         const isFullscreen = await win.isFullscreen();
+        if (!isFullscreen) {
+            // On macOS, if the window is currently in a "maximized/zoomed" state,
+            // calling setFullscreen(true) directly is silently ignored by the OS.
+            // We must restore the window first, wait for the OS animation to
+            // settle, then enter native fullscreen so the Dock auto-hides.
+            try {
+                const isMaximized = await win.isMaximized();
+                if (isMaximized) {
+                    await win.unmaximize();
+                    // Small delay for macOS window animation to settle
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                }
+            } catch (_) {
+                // isMaximized/unmaximize may not be available on all platforms — non-fatal
+            }
+        }
         await win.setFullscreen(!isFullscreen);
     } catch (e) {
         console.warn('[TitleBar] setFullscreen failed, falling back to toggleMaximize:', e);

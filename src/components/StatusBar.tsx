@@ -14,9 +14,10 @@ const StatusBar: React.FC = () => {
     const ollamaStatus = useStore(state => state.ollamaStatus);
     const toggleRightSidebar = useStore(state => state.toggleRightSidebar);
     const [modelPickerOpen, setModelPickerOpen] = useState(false);
+    const [pickerPos, setPickerPos] = useState<{ left: number; bottom: number } | null>(null);
     const modelPickerRef = useRef<HTMLDivElement>(null);
 
-    // Close picker on outside click
+    // Close picker on outside click or scroll
     useEffect(() => {
         if (!modelPickerOpen) return;
         const handler = (e: MouseEvent) => {
@@ -24,10 +25,20 @@ const StatusBar: React.FC = () => {
                 setModelPickerOpen(false);
         };
         document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
+        document.addEventListener('scroll', () => setModelPickerOpen(false), true);
+        return () => {
+            document.removeEventListener('mousedown', handler);
+            document.removeEventListener('scroll', () => setModelPickerOpen(false), true);
+        };
     }, [modelPickerOpen]);
 
     const openModelPicker = () => {
+        if (!modelPickerOpen && modelPickerRef.current) {
+            // Measure the trigger button's position so we can place the popup
+            // with position:fixed — this escapes all overflow:hidden ancestors.
+            const rect = modelPickerRef.current.getBoundingClientRect();
+            setPickerPos({ left: rect.left, bottom: window.innerHeight - rect.top });
+        }
         refreshAvailableModels();
         setModelPickerOpen(v => !v);
     };
@@ -138,19 +149,19 @@ const StatusBar: React.FC = () => {
                             />
                         )}
                     </div>
-                    {modelPickerOpen && (
+                    {modelPickerOpen && pickerPos && (
                         <div style={{
-                            position: 'absolute',
-                            bottom: '24px',
-                            left: 0,
-                            width: '280px',
-                            maxHeight: '320px',
+                            position: 'fixed',
+                            bottom: pickerPos.bottom,
+                            left: pickerPos.left,
+                            width: '300px',
+                            maxHeight: '360px',
                             overflowY: 'auto',
                             background: 'var(--vscode-menu-background, #1e1e1e)',
                             border: '1px solid var(--vscode-menu-border, rgba(255,255,255,0.15))',
                             borderRadius: '6px',
                             boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                            zIndex: 9999,
+                            zIndex: 99999,
                             padding: '4px 0',
                             fontSize: '12px',
                         }}>
