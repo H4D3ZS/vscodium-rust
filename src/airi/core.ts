@@ -629,9 +629,8 @@ export class AIRICore {
         }
         return;
       } catch (error) {
-        console.error('[AIRI] ❌ Ollama: DISCONNECTED');
-        console.error('[AIRI] Make sure Ollama is running: ollama serve');
-        throw error;
+        console.warn('[AIRI] ⚠️ Ollama: DISCONNECTED (Failed to list models). Skipping connection error to allow OpenWebUI only fallback.');
+        return;
       }
     }
     try {
@@ -647,9 +646,7 @@ export class AIRICore {
 
       }
     } catch (error) {
-      console.error('[AIRI] ❌ Ollama: DISCONNECTED');
-      console.error('[AIRI] Make sure Ollama is running: ollama serve');
-      throw error;
+      console.warn('[AIRI] ⚠️ Ollama: DISCONNECTED (Failed to list models in non-Tauri env).');
     }
   }
 

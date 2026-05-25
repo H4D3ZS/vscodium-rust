@@ -294,6 +294,7 @@ interface AppState {
     avatarCharacter: string; // Selected AI avatar character
     avatarCustomConfig?: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }; // Custom 2D avatar URLs
     avatar3dConfig?: { modelUrl?: string; modelId?: string; customModels?: Array<{ id: string; name: string; url: string }> }; // 3D VRM avatar config
+    showVrmAvatar: boolean;
     agentCurrentAction: string | null;
     isCommandPaletteOpen: boolean;
     isContextMenuOpen: boolean;
@@ -460,6 +461,7 @@ interface AppState {
     setAvatarCharacter: (avatarCharacter: string) => void;
     setAvatarCustomConfig: (config: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }) => void;
     setAvatar3dConfig: (config: { modelUrl?: string; modelId?: string; customModels?: Array<{ id: string; name: string; url: string }> }) => void;
+    setShowVrmAvatar: (show: boolean) => void;
     setExtensionContributions: (contributions: any) => void;
     refreshAvailableModels: (provider?: string) => Promise<void>;
     refreshFileTree: () => Promise<void>;
@@ -772,6 +774,13 @@ const storeImplementation: any = (set: any, get: any) => ({
     avatarCharacter: localStorage.getItem('avatarCharacter') || 'airi',
     avatarCustomConfig: JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}'),
     avatar3dConfig: JSON.parse(localStorage.getItem('avatar3dConfig') || '{}'),
+    showVrmAvatar: (() => {
+        try {
+            return localStorage.getItem('showVrmAvatar') === 'true';
+        } catch {
+            return false;
+        }
+    })(),
     ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
     ollamaMode: (localStorage.getItem('ollamaMode') as 'local' | 'cloud' | 'auto') || 'auto',
     ollamaServerMode: (() => {
@@ -2123,6 +2132,12 @@ const storeImplementation: any = (set: any, get: any) => ({
         const updated = { ...existing, ...config };
         localStorage.setItem('avatar3dConfig', JSON.stringify(updated));
         set({ avatar3dConfig: updated });
+    },
+    setShowVrmAvatar: (show) => {
+        try {
+            localStorage.setItem('showVrmAvatar', show ? 'true' : 'false');
+        } catch { }
+        set({ showVrmAvatar: show });
     },
     setAgentCurrentAction: (agentCurrentAction) => set({ agentCurrentAction }),
     addAgentFile: (path: string) => {

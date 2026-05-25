@@ -45,7 +45,7 @@ export class AIRIVRMAvatar {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
     this.clock = new THREE.Clock();
-    
+
     this.state = {
       emotion: 'neutral',
       isSpeaking: false,
@@ -60,14 +60,7 @@ export class AIRIVRMAvatar {
   /**
    * Initialize the VRM avatar natively inside a WebGL Canvas
    */
-  async initialize(container: HTMLDivElement, vrmUrl?: string): Promise<boolean> {
-    // RAM OPTIMIZATION: Disable heavy 3D WebGL VRM rendering by default.
-    // This drops the VSCodium IDE memory footprint back under 200MB.
-    console.log('[VRM] 3D Renderer disabled to save memory (<200MB target).');
-    this.container = container;
-    this.isInitialized = true;
-    return true;
-
+  async initialize(container?: HTMLDivElement, vrmUrl?: string): Promise<boolean> {
     this.dispose();
 
     // Guard: container must be a mounted DOM node with layout
@@ -85,7 +78,7 @@ export class AIRIVRMAvatar {
       this.renderer.setSize(width, height);
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-      
+
       // Clear container and append canvas
       container.innerHTML = '';
       container.appendChild(this.renderer.domElement);
@@ -126,12 +119,12 @@ export class AIRIVRMAvatar {
         this._cleanupRenderer(container);
         return false;
       }
-      
+
       const gltf = await new Promise<any>((resolve, reject) => {
         loader.load(
           vrmUrlOrDefault,
           resolve,
-          (_progress) => {},
+          (_progress) => { },
           reject
         );
       });
@@ -152,7 +145,7 @@ export class AIRIVRMAvatar {
         const lookAtTarget = new THREE.Object3D();
         lookAtTarget.position.set(0, 1.55, 0);
         this.scene.add(lookAtTarget);
-        
+
         if (this.vrm.lookAt) {
           this.vrm.lookAt.target = lookAtTarget;
         }
@@ -208,7 +201,7 @@ export class AIRIVRMAvatar {
     if (elapsed < fpsInterval && this.lastRenderTime !== 0) {
       return;
     }
-    
+
     // Update last render time accounting for missed frames
     if (this.lastRenderTime === 0) {
       this.lastRenderTime = now;
@@ -280,7 +273,7 @@ export class AIRIVRMAvatar {
       const time = Date.now() * 0.012; // Adjust speed for a natural talking pace
       const mouthOpen = 0.15 + (Math.sin(time) + 1.0) * 0.25; // values between 0.15 and 0.65
       const mouthWidth = 0.1 + (Math.cos(time * 0.8) + 1.0) * 0.1;
-      
+
       this.vrm.expressionManager.setValue('aa', mouthOpen);
       this.vrm.expressionManager.setValue('ih', mouthWidth);
     } else {

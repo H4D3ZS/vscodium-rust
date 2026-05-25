@@ -127,6 +127,7 @@ function useTypewriter(text: string, speed = 18): string {
 export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, yOffset, transparent, character = 'airi' }) => {
     const vrmContainerRef = useRef<HTMLDivElement>(null);
     const avatar3dConfig = useStore(state => state.avatar3dConfig);
+    const showVrmAvatar = useStore(state => state.showVrmAvatar);
     const [isAiriLoading, setAiriLoading] = useState(true);
     const [vrmFailed, setVrmFailed] = useState(false);
     const [isHibernating, setIsHibernating] = useState(false);
@@ -180,6 +181,12 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
     useEffect(() => {
         if (isHibernating) return;
 
+        if (!showVrmAvatar) {
+            setAiriLoading(false);
+            setVrmFailed(true);
+            return;
+        }
+
         let active = true;
         if (vrmContainerRef.current) {
             setAiriLoading(true);
@@ -216,7 +223,7 @@ export const AiriPanel: React.FC<AiriPanelProps> = ({ className, style, scale, y
             }
             airiVRMAvatar.dispose();
         };
-    }, [selectedModelUrl, isHibernating]);
+    }, [selectedModelUrl, isHibernating, showVrmAvatar]);
 
     // ── Lip Sync Integration ──────────────────────────────────────────────
     useEffect(() => {

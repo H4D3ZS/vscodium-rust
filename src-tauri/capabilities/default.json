@@ -16,9 +16,13 @@
     "core:window:allow-close",
     "core:window:allow-is-maximized",
     "core:window:allow-set-title",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-set-fullscreen",
     "shell:allow-spawn",
     "shell:allow-execute",
     "core:event:allow-listen",
-    "core:event:allow-emit"
+    "core:event:allow-emit",
+    "notification:allow-is-permission-granted",
+    "notification:default"
   ]
 }

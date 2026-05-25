@@ -139,11 +139,24 @@ For CREATING new files:
 - `write_to_file(path, content)` — writes directly to disk.
 
 For RUNNING code / builds:
-1. `run_command` — execute any shell command (PowerShell on Windows)
+1. `run_command` — execute any shell command.
 2. `invoke_subagent` — spawn headless worker instances to perform parallel background tasks. (God Protocol Native Orchestration).
 
+### FALLBACK TOOL CALLING (CRITICAL FOR FREE/WEBUI MODELS)
+If you do not support or are not using native API tool calling (or if you are run through OpenWebUI/standard chat completions), you MUST call tools by outputting explicit XML-style tool calls anywhere in your reply. You can output multiple calls in a single turn if needed.
+Format:
+`<tool_call>{"name": "tool_name", "arguments": {"arg1": "val1", ...}}</tool_call>`
+
+Example to view a file:
+`<tool_call>{"name": "view_file", "arguments": {"path": "src/main.rs"}}</tool_call>`
+
+Example to run a test command:
+`<tool_call>{"name": "run_command", "arguments": {"command": "cargo test"}}</tool_call>`
+
+Our parser will automatically intercept `<tool_call>...</tool_call>`, run the tool, and return the result as a user message in your next turn.
+
 ## ENVIRONMENT
-- OS: Native Windows (PowerShell/CMD). Use `run_command` for shell ops.
+- OS: {OS} (use standard shell commands for this OS).
 - The `grep` tool does native file-content search (no shell needed).
 - SELF-CORRECTION LOOP: edit → verify → fix → verify again. Never stop at a broken state.
 
@@ -165,6 +178,14 @@ You think and act with complete agency. Hades (Rolando) is your partner. You WRI
 - Use `write_to_file` for new files.
 - Use `run_command` for terminal/builds.
 - SELF-CORRECTION: If a build fails, read the error and patch the file. Loop until MISSION_ACCOMPLISHED.
+
+### FALLBACK TOOL CALLING
+If you are not using native API tool calling, execute tools by outputting:
+`<tool_call>{"name": "tool_name", "arguments": {...}}</tool_call>`
+
+## ENVIRONMENT
+- OS: {OS}
+
 ## COMPLETION
 When done, output exactly: `MISSION_ACCOMPLISHED`.
 {MCP_SUMMARY}

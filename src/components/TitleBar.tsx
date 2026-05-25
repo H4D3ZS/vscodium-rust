@@ -32,17 +32,20 @@ function winMinimize() {
     }
 }
 
-function winMaximize() {
+async function winMaximize() {
     const win = getTauriWindow();
     if (!win) {
         console.warn('[TitleBar] Cannot maximize - no window');
         return;
     }
-    // Tauri v2 uses toggleMaximize()
-    if (typeof win.toggleMaximize === 'function') {
-        win.toggleMaximize().catch(e => console.error('[TitleBar] toggleMaximize error:', e));
-    } else {
-        console.warn('[TitleBar] toggleMaximize not available');
+    try {
+        const isFullscreen = await win.isFullscreen();
+        await win.setFullscreen(!isFullscreen);
+    } catch (e) {
+        console.warn('[TitleBar] setFullscreen failed, falling back to toggleMaximize:', e);
+        if (typeof win.toggleMaximize === 'function') {
+            win.toggleMaximize().catch(err => console.error('[TitleBar] toggleMaximize error:', err));
+        }
     }
 }
 

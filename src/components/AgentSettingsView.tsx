@@ -69,6 +69,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
     const setAvatarCustomConfig = useStore(state => state.setAvatarCustomConfig);
     const avatar3dConfig = useStore(state => state.avatar3dConfig);
     const setAvatar3dConfig = useStore(state => state.setAvatar3dConfig);
+    const showVrmAvatar = useStore(state => state.showVrmAvatar);
+    const setShowVrmAvatar = useStore(state => state.setShowVrmAvatar);
     const [pullInput, setPullInput] = useState('');
     /** Raw bearer for nginx-proxied Ollama; persisted in api_keys.json as `ollama`. */
     const [ollamaBearerDraft, setOllamaBearerDraft] = useState('');
@@ -594,38 +596,59 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                     3D VRM Avatar (Airi Panel)
                                 </span>
                             </div>
-                            <button
-                                onClick={() => {
-                                    // Trigger iframe reload with new model
-                                    window.dispatchEvent(new CustomEvent('airi-vrm-model-change', {
-                                        detail: { modelId: vrmModelId, modelUrl: vrmModelUrl }
-                                    }));
-                                    console.log('[VRM] Model change signal sent:', { modelId: vrmModelId, modelUrl: vrmModelUrl });
-                                    // Persist selection to localStorage
-                                    localStorage.setItem('airi-vrm-model', JSON.stringify({ modelId: vrmModelId, modelUrl: vrmModelUrl }));
-                                    console.log('[VRM] Model selection saved to localStorage');
-                                }}
-                                style={{
-                                    padding: '4px 12px',
-                                    fontSize: '9px',
-                                    fontWeight: 600,
-                                    background: 'linear-gradient(135deg, #c084fc 0%, #a855f7 100%)',
-                                    color: '#fff',
-                                    border: 'none',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    textTransform: 'uppercase',
-                                }}
-                            >
-                                Apply Model
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', cursor: 'pointer', color: '#c084fc', fontWeight: 600 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={showVrmAvatar}
+                                        onChange={(e) => {
+                                            setShowVrmAvatar(e.target.checked);
+                                            if (e.target.checked) {
+                                                // Trigger event
+                                                window.dispatchEvent(new CustomEvent('airi-vrm-model-change', {
+                                                    detail: { modelId: vrmModelId, modelUrl: vrmModelUrl }
+                                                }));
+                                            }
+                                        }}
+                                        style={{ accentColor: '#a855f7' }}
+                                    />
+                                    Enable 3D Render
+                                </label>
+                                <button
+                                    onClick={() => {
+                                        if (!showVrmAvatar) return;
+                                        // Trigger iframe reload with new model
+                                        window.dispatchEvent(new CustomEvent('airi-vrm-model-change', {
+                                            detail: { modelId: vrmModelId, modelUrl: vrmModelUrl }
+                                        }));
+                                        console.log('[VRM] Model change signal sent:', { modelId: vrmModelId, modelUrl: vrmModelUrl });
+                                        // Persist selection to localStorage
+                                        localStorage.setItem('airi-vrm-model', JSON.stringify({ modelId: vrmModelId, modelUrl: vrmModelUrl }));
+                                        console.log('[VRM] Model selection saved to localStorage');
+                                    }}
+                                    disabled={!showVrmAvatar}
+                                    style={{
+                                        padding: '4px 12px',
+                                        fontSize: '9px',
+                                        fontWeight: 600,
+                                        background: showVrmAvatar ? 'linear-gradient(135deg, #c084fc 0%, #a855f7 100%)' : 'rgba(255,255,255,0.05)',
+                                        color: showVrmAvatar ? '#fff' : 'rgba(255,255,255,0.3)',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: showVrmAvatar ? 'pointer' : 'not-allowed',
+                                        textTransform: 'uppercase',
+                                    }}
+                                >
+                                    Apply Model
+                                </button>
+                            </div>
                         </div>
 
                         <div style={{ fontSize: '9px', opacity: 0.7, marginBottom: '10px', lineHeight: 1.4 }}>
                             Configure the 3D anime avatar that appears in the AIRI panel. Supports VRM 0.x/1.0 models.
                         </div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', opacity: showVrmAvatar ? 1 : 0.4, pointerEvents: showVrmAvatar ? 'auto' : 'none', transition: 'all 0.2s' }}>
                             {/* Pre-loaded Models */}
                             <div>
                                 <label style={{ fontSize: '9px', opacity: 0.7, display: 'block', marginBottom: '6px' }}>

@@ -323,6 +323,7 @@ const RightSidebar: React.FC = () => {
     const agentUiMode = useStore(state => state.agentUiMode);
     const setAgentUiMode = useStore(state => state.setAgentUiMode);
     const avatarCharacter = useStore(state => state.avatarCharacter);
+    const showVrmAvatar = useStore(state => state.showVrmAvatar);
     // AIRI subsystem toggles surfaced in the sidebar so the user can flip
     // vision / consciousness without digging into localStorage.
     const airiVisionEnabled = useStore(state => state.airiVisionEnabled);
@@ -1231,24 +1232,26 @@ const RightSidebar: React.FC = () => {
                         ))}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: 'auto' }}>
-                        {/* UI Mode toggle: Chat ↔ AIRI 3D */}
-                        <div
-                            onClick={() => setAgentUiMode(agentUiMode === 'chat' ? 'airi' : 'chat')}
-                            style={{
-                                cursor: 'pointer',
-                                display: 'flex', alignItems: 'center', gap: '3px',
-                                fontSize: '9px', fontWeight: 700,
-                                padding: '2px 6px', borderRadius: '5px',
-                                background: agentUiMode === 'airi' ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.06)',
-                                border: agentUiMode === 'airi' ? '1px solid rgba(168,85,247,0.4)' : '1px solid rgba(255,255,255,0.1)',
-                                color: agentUiMode === 'airi' ? '#c084fc' : 'rgba(255,255,255,0.5)',
-                                transition: 'all 0.2s'
-                            }}
-                            title={agentUiMode === 'airi' ? 'Switch to Chat mode' : 'Switch to AIRI 3D mode'}
-                        >
-                            <span>{agentUiMode === 'airi' ? '🎭' : '💬'}</span>
-                            <span>{agentUiMode === 'airi' ? 'AIRI' : 'CHAT'}</span>
-                        </div>
+                        {/* UI Mode toggle: Chat ↔ AIRI 3D — hidden when VRM is disabled */}
+                        {showVrmAvatar && (
+                            <div
+                                onClick={() => setAgentUiMode(agentUiMode === 'chat' ? 'airi' : 'chat')}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: '3px',
+                                    fontSize: '9px', fontWeight: 700,
+                                    padding: '2px 6px', borderRadius: '5px',
+                                    background: agentUiMode === 'airi' ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.06)',
+                                    border: agentUiMode === 'airi' ? '1px solid rgba(168,85,247,0.4)' : '1px solid rgba(255,255,255,0.1)',
+                                    color: agentUiMode === 'airi' ? '#c084fc' : 'rgba(255,255,255,0.5)',
+                                    transition: 'all 0.2s'
+                                }}
+                                title={agentUiMode === 'airi' ? 'Switch to Chat mode' : 'Switch to AIRI 3D mode'}
+                            >
+                                <span>{agentUiMode === 'airi' ? '🎭' : '💬'}</span>
+                                <span>{agentUiMode === 'airi' ? 'AIRI' : 'CHAT'}</span>
+                            </div>
+                        )}
                         <div
                             onClick={() => setAiriToggleOpen(v => !v)}
                             style={{
@@ -1427,8 +1430,8 @@ const RightSidebar: React.FC = () => {
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
 
-                {/* ── AIRI 3D FULL MODE ── */}
-                {agentUiMode === 'airi' ? (
+                {/* ── AIRI 3D FULL MODE — only available when VRM is enabled ── */}
+                {showVrmAvatar && agentUiMode === 'airi' ? (
                     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', position: 'relative' }}>
 
                         {/* Full-height 3D avatar */}
@@ -1574,37 +1577,52 @@ const RightSidebar: React.FC = () => {
                         {view === 'chat' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
-                                {/* AIRI Sentient Header — shrinks when mission is active */}
-                                <div style={{
-                                    position: 'sticky', top: 0, zIndex: 10,
-                                    background: 'linear-gradient(180deg, var(--vscode-sideBar-background) 60%, transparent)',
-                                    display: 'flex', flexDirection: 'column', alignItems: 'center',
-                                    transition: 'all 0.3s ease-in-out',
-                                    height: messages.length === 0 ? '280px' : '44px',
-                                    minHeight: messages.length === 0 ? '280px' : '44px',
-                                    paddingTop: messages.length === 0 ? '12px' : '4px',
-                                    overflow: 'hidden', pointerEvents: 'none'
-                                }}>
+                                {/* AIRI Sentient Header — only rendered when VRM is enabled */}
+                                {showVrmAvatar ? (
                                     <div style={{
-                                        width: messages.length === 0 ? '200px' : '36px',
-                                        height: messages.length === 0 ? '200px' : '36px',
-                                        borderRadius: messages.length === 0 ? '0%' : '50%',
-                                        overflow: 'hidden',
-                                        background: messages.length === 0 ? 'transparent' : 'rgba(255,255,255,0.05)',
-                                        border: messages.length === 0 ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                                        transition: 'all 0.3s ease-in-out'
+                                        position: 'sticky', top: 0, zIndex: 10,
+                                        background: 'linear-gradient(180deg, var(--vscode-sideBar-background) 60%, transparent)',
+                                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                        transition: 'all 0.3s ease-in-out',
+                                        height: messages.length === 0 ? '280px' : '44px',
+                                        minHeight: messages.length === 0 ? '280px' : '44px',
+                                        paddingTop: messages.length === 0 ? '12px' : '4px',
+                                        overflow: 'hidden', pointerEvents: 'none'
                                     }}>
-                                        <AiriPanel style={{ width: '100%', height: '100%' }} scale={messages.length === 0 ? 0.8 : 0.6} yOffset={messages.length === 0 ? "-38%" : "-44%"} transparent={true} character={avatarCharacter} />
+                                        <div style={{
+                                            width: messages.length === 0 ? '200px' : '36px',
+                                            height: messages.length === 0 ? '200px' : '36px',
+                                            borderRadius: messages.length === 0 ? '0%' : '50%',
+                                            overflow: 'hidden',
+                                            background: messages.length === 0 ? 'transparent' : 'rgba(255,255,255,0.05)',
+                                            border: messages.length === 0 ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                                            transition: 'all 0.3s ease-in-out'
+                                        }}>
+                                            <AiriPanel style={{ width: '100%', height: '100%' }} scale={messages.length === 0 ? 0.8 : 0.6} yOffset={messages.length === 0 ? "-38%" : "-44%"} transparent={true} character={avatarCharacter} />
+                                        </div>
+                                        {messages.length === 0 && (
+                                            <div style={{ marginTop: '16px', textAlign: 'center', pointerEvents: 'auto' }}>
+                                                <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em' }}>AIRI SENTIENT CORE</div>
+                                                <div style={{ fontSize: '11px', opacity: 0.4 }}>
+                                                    {isYoloMode ? '⚡ YOLO — Full autonomy' : 'Ready for your mission'}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                    {messages.length === 0 && (
-                                        <div style={{ marginTop: '16px', textAlign: 'center', pointerEvents: 'auto' }}>
-                                            <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em' }}>AIRI SENTIENT CORE</div>
+                                ) : (
+                                    /* Clean minimal header when VRM is disabled — Cursor-style */
+                                    messages.length === 0 ? (
+                                        <div style={{
+                                            padding: '24px 16px 12px',
+                                            textAlign: 'center',
+                                        }}>
+                                            <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em', opacity: 0.85 }}>Agent</div>
                                             <div style={{ fontSize: '11px', opacity: 0.4 }}>
-                                                {isYoloMode ? '⚡ YOLO — Full autonomy' : 'Ready for your mission'}
+                                                {isYoloMode ? '⚡ YOLO — Full autonomy' : 'What can I help you with?'}
                                             </div>
                                         </div>
-                                    )}
-                                </div>
+                                    ) : null
+                                )}
 
                                 {/* Quick Mission Workflows — shown only on fresh session */}
                                 {messages.length === 0 && (
