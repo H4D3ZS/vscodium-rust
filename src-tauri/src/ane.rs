@@ -1,5 +1,7 @@
 #[cfg(target_os = "macos")]
-use std::ffi::CString;
+use std::ffi::{c_void, CString};
+#[cfg(target_os = "macos")]
+use std::os::raw::{c_char, c_int};
 
 #[cfg(target_os = "macos")]
 #[repr(C)]

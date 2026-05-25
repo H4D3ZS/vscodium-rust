@@ -341,6 +341,8 @@ interface AppState {
     attachedFiles: { id: string, path: string, name: string, gist?: string, thumbnail?: string, type: 'file' | 'attachment' | 'mention' }[];
     kairosSuggestions: any[];
     kairosStatus: 'idle' | 'indexing' | 'dreaming';
+    webuiSessions: { session_id: string; provider: string; display_name: string; has_token: boolean; is_active: boolean }[];
+    activeWebuiSessionId: string | null;
 
     // Phase 8: Agentic State
     taskPlannerState: any | null;
@@ -642,6 +644,9 @@ interface AppState {
     createNewSession: () => Promise<void>;
     refreshBrainTelemetry: () => Promise<void>;
     addKairosSuggestion: (suggestion: any) => void;
+    refreshWebuiSessions: (provider?: string) => Promise<void>;
+    switchWebuiSession: (sessionId: string) => Promise<void>;
+    deleteWebuiSession: (sessionId: string) => Promise<void>;
 
     // Right sidebar panel actions
     toggleAiriPanel: () => void;
@@ -829,6 +834,8 @@ const storeImplementation: any = (set: any, get: any) => ({
     taskPlannerState: null,
     ghostRuntimeResults: [],
     currentThought: null,
+    webuiSessions: [],
+    activeWebuiSessionId: null,
 
     // Terminal Initial State
     terminalGroups: [],
@@ -1506,7 +1513,7 @@ const storeImplementation: any = (set: any, get: any) => ({
                         });
                     } // <-- Added missing brace here
                     let models: string[] = [];
-                    if (p.includes('WebUI')) {
+                    if (p.includes('WebUI') && p !== 'OpenWebUI') {
                         const baseProvider = p.split(' ')[0].toLowerCase();
                         allModels.push({ id: `WebUI Session (${baseProvider})`, provider: p.toLowerCase() });
                         continue;
@@ -1563,6 +1570,43 @@ const storeImplementation: any = (set: any, get: any) => ({
             });
         } catch (e) {
             console.error('Refresh Available Models Error:', e);
+        }
+    },
+
+    refreshWebuiSessions: async (provider?: string) => {
+        try {
+            const sessions: any = await invoke('list_webui_sessions', { provider: provider || null });
+            set({ webuiSessions: sessions || [] });
+            const active = sessions?.find((s: any) => s.is_active);
+            if (active) {
+                set({ activeWebuiSessionId: active.session_id });
+            } else if (sessions && sessions.length > 0) {
+                set({ activeWebuiSessionId: sessions[0].session_id });
+            } else {
+                set({ activeWebuiSessionId: null });
+            }
+        } catch (error) {
+            console.error('Refresh WebUI sessions error:', error);
+        }
+    },
+
+    switchWebuiSession: async (sessionId: string) => {
+        try {
+            await invoke('switch_webui_session', { sessionId });
+            set({ activeWebuiSessionId: sessionId });
+            // Refresh models list
+            await get().refreshAvailableModels();
+        } catch (error) {
+            console.error('Switch WebUI session error:', error);
+        }
+    },
+
+    deleteWebuiSession: async (sessionId: string) => {
+        try {
+            await invoke('delete_webui_session', { sessionId });
+            await get().refreshWebuiSessions();
+        } catch (error) {
+            console.error('Delete WebUI session error:', error);
         }
     },
 

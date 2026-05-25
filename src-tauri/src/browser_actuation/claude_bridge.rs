@@ -1,5 +1,5 @@
-use tauri::webview::{WebviewWindow, WebviewWindowBuilder};
 use std::sync::Arc;
+use tauri::webview::{WebviewWindow, WebviewWindowBuilder};
 use tokio::sync::Mutex;
 
 pub struct ClaudeBridge {
@@ -7,22 +7,23 @@ pub struct ClaudeBridge {
 }
 
 impl ClaudeBridge {
-    pub fn new(app_handle: &tauri::AppHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn new(
+        app_handle: &tauri::AppHandle,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let window = WebviewWindowBuilder::new(
             app_handle,
             "claude_bridge",
-            tauri::WebviewUrl::External("https://claude.ai/new".parse().unwrap())
+            tauri::WebviewUrl::External("https://claude.ai/new".parse().unwrap()),
         )
-        .transparent(true)
         .decorations(false)
         .build()?;
-        
+
         // Inject automation script
         let window_clone = window.clone();
         tauri::async_runtime::spawn(async move {
             // Wait for webview to be ready
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            
+
             let script = r#"
                 window.onload = () => {
                     const promptBox = document.querySelector('div[contenteditable="true"]');
@@ -50,15 +51,20 @@ impl ClaudeBridge {
                     });
                 };
             "#;
-            
+
             // Use eval instead of execute_script
             let _ = window_clone.eval(script);
         });
 
-        Ok(Self { window: Arc::new(Mutex::new(Some(window))) })
+        Ok(Self {
+            window: Arc::new(Mutex::new(Some(window))),
+        })
     }
 
-pub async fn send_prompt(&self, _prompt: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn send_prompt(
+        &self,
+        _prompt: &str,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let lock = self.window.lock().await;
         if let Some(ref window) = *lock {
             // Send prompt to Claude using eval with argument passing
@@ -75,13 +81,13 @@ pub async fn send_prompt(&self, _prompt: &str) -> Result<String, Box<dyn std::er
                     if (sendBtn) sendBtn.click();
                 })
             "#;
-            
+
             // Execute script with prompt argument
             window.eval(script);
-            
+
             // Wait for response
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            
+
             Ok("Response received".to_string())
         } else {
             Err("Claude bridge window not available".into())

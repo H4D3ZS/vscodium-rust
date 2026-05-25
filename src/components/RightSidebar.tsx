@@ -288,17 +288,33 @@ const RightSidebar: React.FC = () => {
     const model = useStore(state => state.agentModel);
     const webUiProviderKey = useMemo(() => {
         const lower = String(model || '').toLowerCase();
-        if (!lower.includes('webui')) return '';
+        if (!lower.includes('webui') && !lower.includes('openwebui')) return '';
         const rawProvider = model.includes('|') ? model.split('|')[0] : model;
-        return rawProvider
-            .toLowerCase()
+        const p = rawProvider.toLowerCase();
+        if (p.includes('openwebui')) return 'openwebui';
+        return p
             .replace(' (webui)', '')
             .replace('-webui', '')
             .replace('webui', '')
             .split(':')[0]
             .trim() || 'openai';
     }, [model]);
-    const [webUiAccount, setWebUiAccount] = useState('default');
+
+    const webuiSessions = useStore(state => state.webuiSessions);
+    const activeWebuiSessionId = useStore(state => state.activeWebuiSessionId);
+    const refreshWebuiSessions = useStore(state => state.refreshWebuiSessions);
+    const switchWebuiSession = useStore(state => state.switchWebuiSession);
+    const deleteWebuiSession = useStore(state => state.deleteWebuiSession);
+
+    useEffect(() => {
+        if (webUiProviderKey) {
+            refreshWebuiSessions(webUiProviderKey);
+            const interval = setInterval(() => {
+                refreshWebuiSessions(webUiProviderKey);
+            }, 5000);
+            return () => clearInterval(interval);
+        }
+    }, [webUiProviderKey, refreshWebuiSessions]);
     const messages = useStore(state => state.agentMessages);
     const isAgentThinking = useStore(state => state.isAgentThinking);
     const isAgentPaused = useStore(state => state.isAgentPaused);
@@ -353,14 +369,7 @@ const RightSidebar: React.FC = () => {
         }
     }, [view, refreshChatSessions]);
 
-    useEffect(() => {
-        if (!webUiProviderKey) return;
-        try {
-            setWebUiAccount(localStorage.getItem(`hades.webui.account.${webUiProviderKey}`) || 'default');
-        } catch {
-            setWebUiAccount('default');
-        }
-    }, [webUiProviderKey]);
+    // Removed old localstorage WebUI account sync
 
     useEffect(() => {
         if (isEmulatorPanelOpen && view !== 'emulator') {
@@ -967,14 +976,7 @@ const RightSidebar: React.FC = () => {
         import('../agent').then(m => m.openModelDropdown(target, () => { }));
     };
 
-    const setActiveWebUiAccount = (account: string) => {
-        const clean = account.trim() || 'default';
-        setWebUiAccount(clean);
-        if (!webUiProviderKey) return;
-        try {
-            localStorage.setItem(`hades.webui.account.${webUiProviderKey}`, clean);
-        } catch { /* non-fatal */ }
-    };
+    // Removed old localstorage WebUI account setter helper
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
@@ -1267,16 +1269,16 @@ const RightSidebar: React.FC = () => {
                         >
                             <i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
                         </div>
-                        <div 
-                            onClick={() => setIsHelpOpen(true)} 
-                            style={{ cursor: 'pointer', opacity: 0.8, color: '#3b82f6', display: 'flex', alignItems: 'center' }} 
+                        <div
+                            onClick={() => setIsHelpOpen(true)}
+                            style={{ cursor: 'pointer', opacity: 0.8, color: '#3b82f6', display: 'flex', alignItems: 'center' }}
                             title="Command Help"
                         >
                             <i className="codicon codicon-question" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
                         </div>
-                        <div 
-                            onClick={toggle} 
-                            style={{ cursor: 'pointer', opacity: 0.5, display: 'flex', alignItems: 'center' }} 
+                        <div
+                            onClick={toggle}
+                            style={{ cursor: 'pointer', opacity: 0.5, display: 'flex', alignItems: 'center' }}
                             title="Close"
                         >
                             <i className="codicon codicon-close" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
@@ -2130,27 +2132,64 @@ const RightSidebar: React.FC = () => {
                                     </span>
                                     <span onClick={onModelClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }} className="hoverable-bg">{(model.split('|')[1] || model).split(':')[0]}</span>
                                     {webUiProviderKey && (
-                                        <select
-                                            value={webUiAccount}
-                                            onChange={(e) => setActiveWebUiAccount(e.target.value)}
-                                            title="WebUI account slot"
-                                            style={{
-                                                height: '20px',
-                                                maxWidth: '92px',
-                                                background: 'rgba(255,255,255,0.04)',
-                                                border: '1px solid rgba(255,255,255,0.10)',
-                                                borderRadius: '4px',
-                                                color: 'rgba(255,255,255,0.72)',
-                                                fontSize: '10px',
-                                                outline: 'none',
-                                            }}
-                                        >
-                                            <option value="default">default</option>
-                                            <option value="free-1">free-1</option>
-                                            <option value="free-2">free-2</option>
-                                            <option value="free-3">free-3</option>
-                                            <option value="pro">pro</option>
-                                        </select>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <select
+                                                value={activeWebuiSessionId || ''}
+                                                onChange={async (e) => {
+                                                    const val = e.target.value;
+                                                    if (val === 'add_account') {
+                                                        try {
+                                                            await invoke('start_webui_login', { request: { provider: webUiProviderKey } });
+                                                            await refreshWebuiSessions(webUiProviderKey);
+                                                        } catch (err) {
+                                                            console.error('Failed to trigger login:', err);
+                                                        }
+                                                    } else if (val) {
+                                                        await switchWebuiSession(val);
+                                                    }
+                                                }}
+                                                title="WebUI account switcher"
+                                                style={{
+                                                    height: '20px',
+                                                    maxWidth: '120px',
+                                                    background: 'rgba(255,255,255,0.04)',
+                                                    border: '1px solid rgba(255,255,255,0.10)',
+                                                    borderRadius: '4px',
+                                                    color: 'rgba(255,255,255,0.72)',
+                                                    fontSize: '10px',
+                                                    outline: 'none',
+                                                }}
+                                            >
+                                                {webuiSessions
+                                                    .filter(s => s.provider === webUiProviderKey)
+                                                    .map(s => (
+                                                        <option key={s.session_id} value={s.session_id}>
+                                                            {s.display_name} {s.is_active ? '★' : ''}
+                                                        </option>
+                                                    ))
+                                                }
+                                                <option value="add_account">+ Add Account...</option>
+                                            </select>
+                                            {activeWebuiSessionId && (
+                                                <i
+                                                    className="codicon codicon-trash"
+                                                    onClick={async () => {
+                                                        if (confirm('Delete this account session?')) {
+                                                            await deleteWebuiSession(activeWebuiSessionId);
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        fontFamily: 'codicon',
+                                                        fontStyle: 'normal',
+                                                        cursor: 'pointer',
+                                                        opacity: 0.5,
+                                                        fontSize: '11px',
+                                                        padding: '2px',
+                                                    }}
+                                                    title="Delete session"
+                                                />
+                                            )}
+                                        </div>
                                     )}
                                     {/* Token counter */}
                                     <span style={{ fontSize: '9px', opacity: 0.35, fontVariantNumeric: 'tabular-nums' }} title="Estimated context tokens">

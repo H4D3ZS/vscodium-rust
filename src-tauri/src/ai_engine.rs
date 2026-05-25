@@ -3755,6 +3755,9 @@ impl Sentient {
             "xai" => "https://api.x.ai/models",
             "cerebras" => "https://api.cerebras.ai/v1/models",
             "apiradar" => "https://apiradar.live/api/v1/models",
+            "openwebui" | "openwebui-claude" | "openwebui-gpt" | "openwebui-gemini" => {
+                "http://127.0.0.1:8080/api/models"
+            }
             _ => {
                 return Err(anyhow!(
                     "Model listing not supported for provider: {}",
@@ -4016,7 +4019,12 @@ impl Sentient {
         let provider_base = provider.split(':').next().unwrap_or(provider).to_lowercase();
         
         // 1. Try OAuth token first
-        if let Some(token) = crate::auth_commands::get_stored_token_sync(&provider_base) {
+        let lookup_provider = if provider_base.contains("openwebui") {
+            "openwebui"
+        } else {
+            &provider_base
+        };
+        if let Some(token) = crate::auth_commands::get_stored_token_sync(lookup_provider) {
             if !token.is_empty() { return token; }
         }
 

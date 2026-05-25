@@ -2,92 +2,92 @@ use std::fs;
 use tauri::Manager;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-mod hunter;
 mod ai_auth;
 mod ai_commands;
 mod editor_commands;
+mod hunter;
 mod state;
 pub use state::EditorState;
 pub mod ai_engine;
 pub mod ai_tools;
-pub mod browser_actuation;
 pub mod ane;
-pub mod process_ext;
 pub mod auth_commands;
+pub mod browser_actuation;
+pub mod process_ext;
 // use crate::process_ext::CommandExtHidden;
 
-pub mod context_quantizer;
-pub mod domain;
-mod mcp_client;
-mod mcp_registry;
-pub mod memory_optimizer;
-mod memory_store;
-mod task_planner;
-mod ghost_runtime;
-mod context_indexer;
-mod patch_engine;
-mod tool_invoker;
-mod visual_lab;
-mod visual_commands;
-mod attachment_manager;
-mod knowledge_distiller;
-mod vision_bridge;
-mod hades_vision;
-mod workflow_engine;
-mod kairos;
-mod lsp_commands;
-mod terminal_commands;
-mod android_commands;
-mod vector_commands;
-mod file_commands;
-mod iphone_emulator;
-mod vfs_bridge;
-mod mcp_server;
-mod memory_layer;
-mod hades_harness;
+mod ai_agent_commands;
+mod ai_patch_commands;
+mod ai_project_commands;
 mod airi_bridge;
-mod security_distiller;
+mod android_commands;
+mod apex_commands;
+mod attachment_manager;
 mod binary_analyzer;
+mod context_indexer;
+pub mod context_quantizer;
+mod debug_commands;
+pub mod domain;
+mod extensions_commands;
+mod file_commands;
+mod ghost_runtime;
+mod hades_harness;
+mod hades_vision;
+mod iphone_emulator;
+mod kairos;
+mod knowledge_distiller;
 mod kortex_commands;
 pub mod kortex_gac;
 pub mod kortex_kvcache;
-mod extensions_commands;
+mod lsp_commands;
+mod mcp_client;
 mod mcp_commands;
-mod apex_commands;
-mod web_commands;
+mod mcp_registry;
+mod mcp_server;
+mod memory_layer;
+pub mod memory_optimizer;
+mod memory_store;
+mod patch_engine;
 mod performance_commands;
-mod debug_commands;
+mod security_distiller;
 mod system_commands;
-mod ai_project_commands;
-mod ai_patch_commands;
-mod ai_agent_commands;
+mod task_planner;
+mod terminal_commands;
+mod tool_invoker;
+mod vector_commands;
+mod vfs_bridge;
+mod vision_bridge;
+mod visual_commands;
+mod visual_lab;
 mod voice_commands;
+mod web_commands;
+mod workflow_engine;
 
 // ═══ APEX Intelligence Framework ═══
-pub mod apex_red_team;
+mod activation;
+mod ai_prompts;
 pub mod apex_orchestrator;
-mod lsp;
+pub mod apex_red_team;
+mod browser;
 mod context_key;
-mod extension_host;
-mod git;
-mod performance;
-mod keybindings;
 mod debug_adapter;
 mod emulator_stream;
-mod scrcpy;
-mod vision;
-mod activation;
-mod marketplace;
-mod browser;
+mod extension_host;
+mod git;
+mod git_checkpoints;
 pub mod git_commands;
-pub mod specs_db;
-mod workers;
+mod keybindings;
+mod lsp;
+mod marketplace;
+mod performance;
 mod rules_engine;
+mod scrcpy;
 mod shadow_workspace;
 mod specs_commands;
-mod ai_prompts;
+pub mod specs_db;
 mod vector_indexer;
-mod git_checkpoints;
+mod vision;
+mod workers;
 
 #[allow(dead_code)]
 extern "system" {
@@ -129,12 +129,14 @@ pub fn run() {
             );
             let state = app.state::<EditorState>();
             let _app_handle = app.handle().clone();
-            
+
             // Re-hide console if on windows and not debug
             #[cfg(all(windows, not(debug_assertions)))]
             {
                 use windows::Win32::System::Console::FreeConsole;
-                unsafe { let _ = FreeConsole(); }
+                unsafe {
+                    let _ = FreeConsole();
+                }
             }
 
             // Ensure config dir exists
@@ -168,18 +170,18 @@ pub fn run() {
             ai_auth::save_api_keys,
             ai_auth::save_api_key,
             ai_auth::hunt_api_keys,
-
             ai_auth::save_ai_session,
             ai_auth::capture_ai_session,
             ai_auth::capture_ai_session_now,
             ai_auth::provider_login_capabilities,
-
             auth_commands::start_webui_login,
+            auth_commands::list_webui_sessions,
+            auth_commands::switch_webui_session,
+            auth_commands::delete_webui_session,
             auth_commands::check_login_status,
             auth_commands::get_stored_token,
             auth_commands::send_webui_prompt,
             auth_commands::save_webui_response,
-
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
             ai_commands::ai_chat_fast,
@@ -223,23 +225,18 @@ pub fn run() {
             ai_commands::archive_chat_session,
             ai_commands::create_new_session,
             ai_commands::compress_session_data,
-
-
             // ═══ AI Project & Memory ═══
             ai_project_commands::mount_project,
             ai_project_commands::unmount_project,
             ai_project_commands::get_project_memory,
             ai_project_commands::clear_project_memory,
-
             // ═══ AI Agents ═══
             ai_agent_commands::stop_ai_agent,
             ai_agent_commands::pause_ai_agent,
             ai_agent_commands::resume_ai_agent,
-
             // ═══ AI Patching ═══
             ai_patch_commands::accept_sentient_patch,
             ai_patch_commands::reject_sentient_patch,
-
             // ═══ APEX Intelligence ═══
             apex_commands::apex_architect_design,
             apex_commands::apex_architect_scaffold,
@@ -261,7 +258,6 @@ pub fn run() {
             apex_commands::apex_simulate_attack,
             apex_commands::apex_threat_anticipate,
             apex_commands::apex_threat_simulate,
-
             // ═══ Android Commands ═══
             android_commands::adb_list_devices,
             android_commands::adb_list_emulators,
@@ -270,7 +266,6 @@ pub fn run() {
             android_commands::get_android_config,
             android_commands::set_android_sdk_path,
             android_commands::spawn_emulator,
-
             // ═══ Emulator Stream ═══
             emulator_stream::list_available_avds,
             emulator_stream::create_avd,
@@ -281,7 +276,6 @@ pub fn run() {
             emulator_stream::start_emulator_stream,
             emulator_stream::stop_emulator_stream,
             emulator_stream::get_stream_status,
-
             // ═══ Scrcpy Integration ═══
             scrcpy::spawn_emulator_headless,
             scrcpy::start_scrcpy_stream,
@@ -292,7 +286,6 @@ pub fn run() {
             scrcpy::send_emulator_text,
             scrcpy::send_emulator_key,
             scrcpy::get_scrcpy_status,
-
             // ═══ Vision System ═══
             vision::airi_vision_analyze_screen,
             vision::airi_vision_capture_screen,
@@ -301,7 +294,6 @@ pub fn run() {
             hades_vision::hades_vision_switch_to_cloud,
             hades_vision::hades_vision_switch_to_local,
             vision_bridge::capture_preview_screenshot,
-
             // ═══ Editor Commands ═══
             editor_commands::get_settings,
             editor_commands::update_settings,
@@ -315,10 +307,8 @@ pub fn run() {
             editor_commands::set_active_root,
             editor_commands::get_active_root,
             editor_commands::path_exists,
-
             extensions_commands::ext_host_init,
             extensions_commands::ext_host_send,
-
             // ═══ File Commands ═══
             file_commands::open_file,
             file_commands::save_file,
@@ -341,7 +331,6 @@ pub fn run() {
             ai_project_commands::update_project_memory,
             file_commands::get_file_tree,
             file_commands::validate_path,
-
             // ═══ Extensions ═══
             extensions_commands::install_extension,
             extensions_commands::uninstall_extension,
@@ -363,8 +352,6 @@ pub fn run() {
             extensions_commands::ext_host_send,
             extensions_commands::refresh_popular_extensions,
             extensions_commands::refresh_installed_extensions,
-
-
             // ═══ Git Commands ═══
             git_commands::git_status,
             git_commands::git_diff,
@@ -386,7 +373,6 @@ pub fn run() {
             git_commands::git_list_checkpoints,
             git_commands::git_get_checkpoint_diff,
             git_commands::git_rollback_checkpoint,
-
             // ═══ Terminal ═══
             terminal_commands::spawn_terminal,
             terminal_commands::close_terminal,
@@ -397,20 +383,16 @@ pub fn run() {
             terminal_commands::terminal_terminate,
             terminal_commands::terminal_toggle,
             terminal_commands::get_available_shells,
-
             // ═══ AI Model Commands ═══
             ai_commands::set_ai_model,
             ai_commands::set_advisor_model,
-
             // ═══ File Commands ═══
             file_commands::refresh_file_tree,
-
             // ═══ MCP ═══
             mcp_commands::add_mcp_server,
             mcp_commands::remove_mcp_server,
             mcp_commands::list_mcp_servers,
             mcp_commands::set_mcp_server_enabled,
-
             // ═══ System ═══
             system_commands::backend_ping,
             system_commands::get_config_path,
@@ -420,7 +402,6 @@ pub fn run() {
             system_commands::start_mitm_server,
             system_commands::stop_mitm_server,
             system_commands::get_mitm_status,
-
             // ═══ Performance ═══
             performance_commands::get_system_health,
             performance_commands::get_process_stats,
@@ -428,26 +409,21 @@ pub fn run() {
             performance_commands::query_performance_history,
             performance_commands::optimize_memory,
             performance_commands::get_memory_savings,
-
             // ═══ Debug ═══
             debug_commands::debug_start,
             debug_commands::debug_stop,
             debug_commands::debug_send,
             debug_commands::analyze_file_symbols,
-
             // ═══ Web ═══
             web_commands::web_fetch,
             web_commands::web_search,
-
             // ═══ Visual Lab ═══
             visual_commands::get_visual_graph,
             visual_commands::get_neural_omni_graph,
             visual_commands::get_all_memory_slots,
             visual_commands::generate_visual_graph,
-
             // ═══ Voice ═══
             voice_commands::elevenlabs_get_voices,
-
             // ═══ Workspace ═══
             attachment_manager::select_and_process_attachment,
             kortex_commands::save_kortex_memory,
@@ -462,7 +438,6 @@ pub fn run() {
             kortex_commands::aim_clear_telemetry_samples,
             kortex_commands::aim_set_bound_model,
             kortex_commands::kortex_resolve_ollama_gguf,
-
             // ═══ Kortex GAC: geometry-aware inference scheduling ═══
             kortex_gac::kortex_gac_profile,
             kortex_gac::kortex_gac_load_profile,
@@ -473,15 +448,12 @@ pub fn run() {
             kortex_gac::kortex_gac_stop,
             kortex_gac::kortex_gac_status,
             kortex_gac::kortex_gac_default_profile_path,
-
             // ═══ Kortex KV Cache: ds4-style disk-persistent prefix reuse ═══
             kortex_kvcache::kortex_kvcache_start,
             kortex_kvcache::kortex_kvcache_stop,
             kortex_kvcache::kortex_kvcache_stats,
             kortex_kvcache::kortex_kvcache_status,
             kortex_kvcache::kortex_kvcache_clear,
-
-            
             // ═══ Browser ═══
             browser::browser_open,
             browser::browser_close,
@@ -492,14 +464,12 @@ pub fn run() {
             browser::browser_screenshot,
             browser::browser_get_content_summary,
             browser::browser_capture_vision_context,
-
             // ═══ Vector Search ═══
             vector_commands::vector_index_codebase,
             vector_commands::vector_search_codebase,
             vector_commands::vector_find_symbol,
             vector_commands::vector_get_file_chunks,
             vector_commands::vector_get_index_stats,
-
             // ═══ Specs ═══
             specs_commands::cmd_specs_get_projects,
             specs_commands::cmd_specs_create_project,
@@ -513,7 +483,6 @@ pub fn run() {
             specs_commands::cmd_specs_generate_layout,
             specs_commands::cmd_specs_get_extended_project_layout,
             specs_commands::cmd_specs_clear_history,
-
             // ═══ LSP Commands ═══
             lsp_commands::lsp_start,
             lsp_commands::lsp_send_request,
@@ -534,7 +503,6 @@ pub fn run() {
             lsp_commands::lsp_workspace_symbols,
             lsp_commands::lsp_code_lens,
             lsp_commands::lsp_document_symbols,
-
             // ═══ Extra Commands ═══
             file_commands::open_folder,
             iphone_emulator::launch_iphone_emulator,

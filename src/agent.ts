@@ -1055,8 +1055,9 @@ function looksLikeActionRequest(text: string): boolean {
 }
 
 function normalizeWebUiProvider(provider: string): string {
-    const normalized = provider
-        .toLowerCase()
+    const lower = provider.toLowerCase();
+    if (lower.includes('openwebui')) return 'openwebui';
+    const normalized = lower
         .replace(' (webui)', '')
         .replace('-webui', '')
         .replace('webui', '')
@@ -1064,7 +1065,7 @@ function normalizeWebUiProvider(provider: string): string {
         .trim();
     if (normalized === 'gpt' || normalized === 'chatgpt') return 'openai';
     if (normalized === 'qwen code' || normalized === 'qwen-code') return 'qwen';
-    return normalized || provider.toLowerCase();
+    return normalized || lower;
 }
 
 function getWebUiAccount(provider: string): string {
@@ -1341,27 +1342,27 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 model: fastModel,
                 ollama_url: fastOllamaUrl,
             });
-const fastCall = invoke<string>('ai_chat_fast', {
-request: {
-provider: fastProvider.toLowerCase(),
-model: fastModel,
-messages: [
-{
-role: 'system',
-content: 'You are AIRI, a friendly AI coding assistant. For this message, respond conversationally in 1–2 short sentences. Do NOT call any tools or describe what you would do — just chat back.',
-},
-{ role: 'user', content: userPrompt },
-],
-temperature: 0.7,
-autonomous: false,
-mode: 'Chat',
-ollama_url: fastOllamaUrl,
-tools: [],
-},
-});
-const timeout = new Promise<never>((_, reject) =>
-setTimeout(() => reject(new Error(`ai_chat(fast-path) timed out after 60s (provider=${fastProvider}, model=${fastModel})`)), 60_000)
-);
+            const fastCall = invoke<string>('ai_chat_fast', {
+                request: {
+                    provider: fastProvider.toLowerCase(),
+                    model: fastModel,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are AIRI, a friendly AI coding assistant. For this message, respond conversationally in 1–2 short sentences. Do NOT call any tools or describe what you would do — just chat back.',
+                        },
+                        { role: 'user', content: userPrompt },
+                    ],
+                    temperature: 0.7,
+                    autonomous: false,
+                    mode: 'Chat',
+                    ollama_url: fastOllamaUrl,
+                    tools: [],
+                },
+            });
+            const timeout = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`ai_chat(fast-path) timed out after 60s (provider=${fastProvider}, model=${fastModel})`)), 60_000)
+            );
             const t0 = Date.now();
             const fastResult = await Promise.race([fastCall, timeout]);
             const elapsed = Date.now() - t0;
@@ -1376,20 +1377,20 @@ setTimeout(() => reject(new Error(`ai_chat(fast-path) timed out after 60s (provi
             store.getState().setIsAgentThinking?.(false);
             try { onUpdate?.(resultText); } catch (_) { /* non-fatal */ }
             return;
-} catch (e: any) {
-// If the fast path fails for any reason, show a benign message
-// and fall through to the full agent loop. A timeout usually just
-// means Ollama is taking >8s to load the model into VRAM.
-const msg = (e?.message ?? String(e)).slice(0, 300);
-console.warn('[agent] fast-path failed, falling back to full loop:', msg);
-try {
-if (msg.includes('timed out')) {
-store.getState().updateLastAgentMessage?.(`_Model loading into VRAM (<8s timeout)... falling back to full autonomous loop_`);
-} else {
-store.getState().updateLastAgentMessage?.(`**Fast-path warning:** ${msg}\n\n_Falling back to full agent loop..._`);
-}
-} catch { /* non-fatal */ }
-}
+        } catch (e: any) {
+            // If the fast path fails for any reason, show a benign message
+            // and fall through to the full agent loop. A timeout usually just
+            // means Ollama is taking >8s to load the model into VRAM.
+            const msg = (e?.message ?? String(e)).slice(0, 300);
+            console.warn('[agent] fast-path failed, falling back to full loop:', msg);
+            try {
+                if (msg.includes('timed out')) {
+                    store.getState().updateLastAgentMessage?.(`_Model loading into VRAM (<8s timeout)... falling back to full autonomous loop_`);
+                } else {
+                    store.getState().updateLastAgentMessage?.(`**Fast-path warning:** ${msg}\n\n_Falling back to full agent loop..._`);
+                }
+            } catch { /* non-fatal */ }
+        }
     }
     // =======================================================================
 
@@ -1423,13 +1424,13 @@ store.getState().updateLastAgentMessage?.(`**Fast-path warning:** ${msg}\n\n_Fal
         if (normalizedProvider.includes('openwebui')) {
             loginProvider = 'openwebui';
         }
-        
+
         try {
             const hasToken = await invoke<string | null>('get_stored_token', { provider: loginProvider });
             if (!hasToken) {
                 store.getState().updateLastAgentMessage?.(`⏳ **Login Required**\n\nPlease complete the login for ${loginProvider} in the browser window that just opened. Waiting for authorization...`);
                 await invoke('start_webui_login', { request: { provider: loginProvider } });
-                
+
                 // Poll for token every second for up to 2 minutes
                 let tokenFound = false;
                 for (let i = 0; i < 120; i++) {
@@ -1440,7 +1441,7 @@ store.getState().updateLastAgentMessage?.(`**Fast-path warning:** ${msg}\n\n_Fal
                         break;
                     }
                 }
-                
+
                 if (!tokenFound) {
                     store.getState().updateLastAgentMessage?.(`❌ **Login Timeout**\n\nNo token received from ${loginProvider}. Please try again.`);
                     store.getState().setIsAgentThinking?.(false);

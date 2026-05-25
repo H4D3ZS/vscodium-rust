@@ -1,14 +1,16 @@
-use tauri::{Emitter, Manager};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::sync::{Arc, Mutex};
+use tauri::{Emitter, Manager};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use uuid::Uuid;
 
 // Holds active OAuth sessions keyed by session_id
 lazy_static::lazy_static! {
     pub static ref OAUTH_SESSIONS: Arc<Mutex<HashMap<String, OAuthSession>>> = Arc::new(Mutex::new(HashMap::new()));
+    /// Tracks the currently "active" session_id per provider (key = provider string).
+    pub static ref ACTIVE_SESSIONS: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -18,6 +20,18 @@ pub struct OAuthSession {
     pub state: String,
     pub token: Option<String>,
     pub token_expires: Option<i64>,
+    /// Human-readable account label (e.g. "account1", user email, or "default")
+    pub display_name: String,
+}
+
+/// Public summary of a stored session (safe to send to the frontend)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub provider: String,
+    pub display_name: String,
+    pub has_token: bool,
+    pub is_active: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -52,6 +66,10 @@ pub struct WebUiResponsePayload {
 
 fn webui_canonical_provider(provider: &str) -> String {
     let provider = provider.split(':').next().unwrap_or(provider);
+    let p_lower = provider.to_ascii_lowercase();
+    if p_lower.contains("openwebui") || p_lower.contains("open-webui") {
+        return "openwebui".to_string();
+    }
     let normalized = provider
         .to_ascii_lowercase()
         .replace(" (webui)", "")
@@ -76,7 +94,13 @@ fn webui_provider_and_account(provider: &str) -> (String, String) {
         .map(|value| {
             value
                 .chars()
-                .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '_' })
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() {
+                        ch.to_ascii_lowercase()
+                    } else {
+                        '_'
+                    }
+                })
                 .collect::<String>()
                 .trim_matches('_')
                 .to_string()
@@ -94,7 +118,10 @@ pub async fn start_oauth_listener(port: u16, app: tauri::AppHandle) -> Result<()
         .await
         .map_err(|e| format!("Failed to bind OAuth listener: {}", e))?;
 
-    println!("[OAuth] Callback listener running on http://127.0.0.1:{}", port);
+    println!(
+        "[OAuth] Callback listener running on http://127.0.0.1:{}",
+        port
+    );
 
     loop {
         match listener.accept().await {
@@ -128,7 +155,7 @@ async fn handle_oauth_callback(
                 if let Some(session_id) = extract_session_id(&path) {
                     let mut success = false;
                     let mut provider_name = String::new();
-                    
+
                     // Scope for MutexGuard
                     {
                         let mut session_map = OAUTH_SESSIONS.lock().unwrap();
@@ -145,6 +172,14 @@ async fn handle_oauth_callback(
                                 success = true;
                             }
                         }
+                    }
+                    // Auto-promote: make this session the active one.
+                    // (Only sets it if not already overridden by the user.)
+                    if success && !provider_name.is_empty() {
+                        let mut active_map = ACTIVE_SESSIONS.lock().unwrap();
+                        active_map
+                            .entry(provider_name.clone())
+                            .or_insert_with(|| session_id.clone());
                     }
 
                     if success {
@@ -225,48 +260,42 @@ pub async fn start_webui_login(
 
     // Build provider-specific login URL
     let (login_url, base_url) = match provider.as_str() {
-        "claude" => (
-            "https://claude.ai/login",
-            "https://claude.ai",
-        ),
-        "gemini" => (
-            "https://gemini.google.com/app",
-            "https://gemini.google.com",
-        ),
-        "openai" | "gpt" => (
-            "https://chatgpt.com/auth/login",
-            "https://chatgpt.com",
-        ),
-        "openwebui" | "openwebui-claude" | "openwebui-gpt" | "openwebui-gemini" => (
-            "http://localhost:8080/auth",
-            "http://localhost:8080",
-        ),
+        "claude" => ("https://claude.ai/login", "https://claude.ai"),
+        "gemini" => ("https://gemini.google.com/app", "https://gemini.google.com"),
+        "openai" | "gpt" => ("https://chatgpt.com/auth/login", "https://chatgpt.com"),
+        "openwebui" | "openwebui-claude" | "openwebui-gpt" | "openwebui-gemini" => {
+            ("http://localhost:8080/auth", "http://localhost:8080")
+        }
         "deepseek" => (
             "https://chat.deepseek.com/sign_in",
             "https://chat.deepseek.com",
         ),
-        "qwen" => (
-            "https://chat.qwen.ai/",
-            "https://chat.qwen.ai",
-        ),
+        "qwen" => ("https://chat.qwen.ai/", "https://chat.qwen.ai"),
         other => return Err(format!("Unsupported provider: {}", other)),
     };
 
     // Generate session
     let session_id = Uuid::new_v4().to_string();
-    let redirect_url = format!("{}/oauth/callback?session_id={}&provider={}",
-        base_url, session_id, provider);
+    let redirect_url = format!(
+        "{}/oauth/callback?session_id={}&provider={}",
+        base_url, session_id, provider
+    );
 
     // Store session
     {
+        let display_name = format!("Account {}", &session_id[..6]);
         let mut sessions = OAUTH_SESSIONS.lock().unwrap();
-        sessions.insert(session_id.clone(), OAuthSession {
-            provider: provider.clone(),
-            redirect_url: redirect_url.clone(),
-            state: session_id.clone(),
-            token: None,
-            token_expires: None,
-        });
+        sessions.insert(
+            session_id.clone(),
+            OAuthSession {
+                provider: provider.clone(),
+                redirect_url: redirect_url.clone(),
+                state: session_id.clone(),
+                token: None,
+                token_expires: None,
+                display_name,
+            },
+        );
     }
 
     // Open popup window instead of default browser
@@ -275,7 +304,8 @@ pub async fn start_webui_login(
         let _ = existing.close();
     }
 
-    let init_script = format!(r#"
+    let init_script = format!(
+        r#"
         setInterval(async () => {{
             let url = window.location.href;
             let success = false;
@@ -329,7 +359,9 @@ pub async fn start_webui_login(
                 window.location.href = 'http://127.0.0.1:14285/oauth/callback?session_id={}&access_token=' + token + '&provider={}';
             }}
         }}, 2000);
-    "#, session_id, provider);
+    "#,
+        session_id, provider
+    );
 
     let _ = tauri::WebviewWindowBuilder::new(
         &app,
@@ -374,31 +406,110 @@ pub async fn check_login_status(session_id: String) -> Result<TokenResponse, Str
 
 #[tauri::command]
 pub async fn get_stored_token(provider: String) -> Result<Option<String>, String> {
+    Ok(get_stored_token_sync(&provider))
+}
+
+/// List all stored sessions as lightweight summaries for the frontend account switcher.
+#[tauri::command]
+pub async fn list_webui_sessions(provider: Option<String>) -> Result<Vec<SessionSummary>, String> {
     let sessions = OAUTH_SESSIONS.lock().unwrap();
-    for session in sessions.values() {
-        if session.provider == provider {
-            if let Some(token) = &session.token {
-                return Ok(Some(token.clone()));
+    let active_map = ACTIVE_SESSIONS.lock().unwrap();
+    let mut result = Vec::new();
+    for (sid, session) in sessions.iter() {
+        if let Some(ref p) = provider {
+            if &session.provider != p {
+                continue;
+            }
+        }
+        let active_sid = active_map.get(&session.provider);
+        result.push(SessionSummary {
+            session_id: sid.clone(),
+            provider: session.provider.clone(),
+            display_name: session.display_name.clone(),
+            has_token: session.token.is_some(),
+            is_active: active_sid.map(|s| s == sid).unwrap_or(false),
+        });
+    }
+    result.sort_by(|a, b| {
+        a.provider
+            .cmp(&b.provider)
+            .then(a.display_name.cmp(&b.display_name))
+    });
+    Ok(result)
+}
+
+/// Switch the active session for a provider (used by the account switcher UI).
+#[tauri::command]
+pub async fn switch_webui_session(session_id: String) -> Result<(), String> {
+    let provider = {
+        let sessions = OAUTH_SESSIONS.lock().unwrap();
+        sessions
+            .get(&session_id)
+            .map(|s| s.provider.clone())
+            .ok_or_else(|| format!("Session not found: {}", session_id))?
+    };
+    let mut active_map = ACTIVE_SESSIONS.lock().unwrap();
+    active_map.insert(provider, session_id);
+    Ok(())
+}
+
+/// Delete a stored session (logout from that account).
+#[tauri::command]
+pub async fn delete_webui_session(session_id: String) -> Result<(), String> {
+    let removed_provider = {
+        let mut sessions = OAUTH_SESSIONS.lock().unwrap();
+        sessions.remove(&session_id).map(|s| s.provider)
+    };
+    if let Some(provider) = removed_provider {
+        let mut active_map = ACTIVE_SESSIONS.lock().unwrap();
+        if active_map
+            .get(&provider)
+            .map(|s| s == &session_id)
+            .unwrap_or(false)
+        {
+            // If the deleted session was active, pick another session for that provider
+            let sessions = OAUTH_SESSIONS.lock().unwrap();
+            let fallback = sessions
+                .values()
+                .find(|s| s.provider == provider && s.token.is_some())
+                .map(|_| {
+                    sessions
+                        .iter()
+                        .find(|(_, s)| s.provider == provider && s.token.is_some())
+                        .map(|(k, _)| k.clone())
+                })
+                .flatten();
+            match fallback {
+                Some(sid) => {
+                    active_map.insert(provider, sid);
+                }
+                None => {
+                    active_map.remove(&provider);
+                }
             }
         }
     }
-    Ok(None)
+    Ok(())
 }
 
 fn webui_chat_url(provider: &str) -> Option<&'static str> {
     match provider {
         "claude" | "claude-webui" | "claude (webui)" => Some("https://claude.ai/new"),
         "gemini" | "gemini-webui" | "gemini (webui)" => Some("https://gemini.google.com/app"),
-        "openai" | "gpt" | "chatgpt" | "openai-webui" | "openai (webui)" => Some("https://chatgpt.com/"),
+        "openai" | "gpt" | "chatgpt" | "openai-webui" | "openai (webui)" => {
+            Some("https://chatgpt.com/")
+        }
         "deepseek" | "deepseek-webui" | "deepseek (webui)" => Some("https://chat.deepseek.com/"),
-        "qwen" | "qwen-webui" | "qwen (webui)" | "qwen-code" | "qwen code" => Some("https://chat.qwen.ai/"),
+        "qwen" | "qwen-webui" | "qwen (webui)" | "qwen-code" | "qwen code" => {
+            Some("https://chat.qwen.ai/")
+        }
         _ => None,
     }
 }
 
 fn webui_prompt_script(provider: &str, prompt: &str) -> Result<String, String> {
-    let prompt_json = serde_json::to_string(prompt)
-        .map_err(|e| format!("Failed to encode prompt: {}", e))?;
+    let prompt_json =
+        serde_json::to_string(prompt).map_err(|e| format!("Failed to encode prompt: {}", e))?;
 
     let selectors = match provider {
         "claude" | "claude-webui" | "claude (webui)" => (
@@ -424,7 +535,8 @@ fn webui_prompt_script(provider: &str, prompt: &str) -> Result<String, String> {
         _ => return Err(format!("Unsupported WebUI provider: {}", provider)),
     };
 
-    Ok(format!(r#"
+    Ok(format!(
+        r#"
         (() => {{
             const prompt = {prompt_json};
             const input = document.querySelector({input_selector:?});
@@ -459,8 +571,8 @@ fn webui_prompt_script(provider: &str, prompt: &str) -> Result<String, String> {
 }
 
 fn webui_response_observer_script(provider: &str, window_label: &str) -> Result<String, String> {
-    let provider_json = serde_json::to_string(provider)
-        .map_err(|e| format!("Failed to encode provider: {}", e))?;
+    let provider_json =
+        serde_json::to_string(provider).map_err(|e| format!("Failed to encode provider: {}", e))?;
     let label_json = serde_json::to_string(window_label)
         .map_err(|e| format!("Failed to encode window label: {}", e))?;
 
@@ -483,7 +595,8 @@ fn webui_response_observer_script(provider: &str, window_label: &str) -> Result<
         _ => return Err(format!("Unsupported WebUI provider: {}", provider)),
     };
 
-    Ok(format!(r#"
+    Ok(format!(
+        r#"
         (() => {{
             if (window.__hadesWebUiObserverInstalled) return true;
             window.__hadesWebUiObserverInstalled = true;
@@ -551,19 +664,22 @@ pub async fn save_webui_response(
     let provider = payload.provider.clone();
     let window = payload.window.clone();
     let url = payload.url.clone();
-    let _ = app.emit("ai-artifact", serde_json::json!({
-        "type": "record",
-        "title": format!("{} WebUI Response", provider),
-        "description": format!("Captured {} characters from {}", trimmed.len(), provider),
-        "path": url.clone().unwrap_or_else(|| window.clone()),
-        "provider": provider,
-        "window": window,
-        "url": url,
-        "metadata": {
-            "kind": "webui_response",
-            "content": trimmed,
-        },
-    }));
+    let _ = app.emit(
+        "ai-artifact",
+        serde_json::json!({
+            "type": "record",
+            "title": format!("{} WebUI Response", provider),
+            "description": format!("Captured {} characters from {}", trimmed.len(), provider),
+            "path": url.clone().unwrap_or_else(|| window.clone()),
+            "provider": provider,
+            "window": window,
+            "url": url,
+            "metadata": {
+                "kind": "webui_response",
+                "content": trimmed,
+            },
+        }),
+    );
 
     Ok(serde_json::json!({
         "success": true,
@@ -628,6 +744,16 @@ pub async fn send_webui_prompt(
 
 pub fn get_stored_token_sync(provider: &str) -> Option<String> {
     let sessions = OAUTH_SESSIONS.lock().unwrap();
+    // Prefer the active session for this provider
+    let active_map = ACTIVE_SESSIONS.lock().unwrap();
+    if let Some(active_sid) = active_map.get(provider) {
+        if let Some(session) = sessions.get(active_sid) {
+            if let Some(token) = &session.token {
+                return Some(token.clone());
+            }
+        }
+    }
+    // Fallback: find any session with a token for this provider
     for session in sessions.values() {
         if session.provider == provider {
             if let Some(token) = &session.token {
@@ -666,5 +792,4 @@ fn open_browser(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(target_env = "msvc"))]
-mod platform;
+// Removed legacy platform module decoration

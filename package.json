@@ -6,14 +6,14 @@
   "scripts": {
     "dev": "vite --configLoader native --host 0.0.0.0",
     "dev:direct": "vite --configLoader native",
-    "dev:full": "cargo tauri dev",
-    "dev:tauri": "cargo tauri dev",
+    "dev:full": "npx tauri dev",
+    "dev:tauri": "npx tauri dev",
     "dev:airi": "cd airi && pnpm dev --host",
     "typecheck": "node --stack-size=10000 node_modules/typescript/bin/tsc",
     "build": "vite build --configLoader native",
     "preview": "vite preview --configLoader native",
     "tauri": "tauri",
-    "tauri:dev": "cargo tauri dev",
+    "tauri:dev": "npx tauri dev",
     "start-mitm": "node tools/mitmserver/server.js",
     "test": "vitest run",
     "test:watch": "vitest"
