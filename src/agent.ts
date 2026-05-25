@@ -1109,6 +1109,89 @@ function isTrivialChat(text: string, hasAttachedContext: boolean): boolean {
     return TRIVIAL_CHAT_REGEX.test(text.trim());
 }
 
+const LOCAL_BOOTSTRAP_REGEX = /\b(audit|bugs?|dead\s+code|architectur(al|e)|findings?|fix\s+all|build\s*(and|&)?\s*verify|diagnos(e|is|tic)|why\s+.*slow|root\s+cause)\b/i;
+
+function shouldUseLocalAgentBootstrap(text: string, provider: string, mode: string): boolean {
+    if (provider !== 'ollama') return false;
+    if (mode === 'BugBounty' || mode === 'Bug Bounty') return false;
+    if (inferSecurityIntent(text)) return false;
+    if (!LOCAL_BOOTSTRAP_REGEX.test(text)) return false;
+    return mode !== 'Chat';
+}
+
+function clipToolResult(result: string, max = 4000): string {
+    if (!result) return '(empty)';
+    const text = result.trim();
+    if (text.length <= max) return text;
+    return `${text.slice(0, max)}\n... [truncated ${text.length - max} chars]`;
+}
+
+async function runLocalAgentBootstrap(params: {
+    store: any;
+    userPrompt: string;
+    provider: string;
+    model: string;
+    ollamaUrl: string;
+    onUpdate?: (msg: string) => void;
+}): Promise<boolean> {
+    const { store, userPrompt, provider, model, ollamaUrl, onUpdate } = params;
+    if (!shouldUseLocalAgentBootstrap(userPrompt, provider, store.getState().agentMode || 'Agent')) {
+        return false;
+    }
+
+    store.getState().updateLastAgentMessage?.(
+        '**Local agent fast path**\n\nStarting with bounded repo probes immediately, then asking Ollama to summarize from real evidence.'
+    );
+
+    const probes: Array<{ label: string; tool: string; args: any }> = [
+        { label: 'git status', tool: 'git_status', args: {} },
+        { label: 'git diff stat', tool: 'bash', args: { command: 'git diff --stat', timeout_ms: 15000 } },
+        { label: 'hotspot scan', tool: 'grep', args: { pattern: 'TODO|FIXME|HACK|XXX|unwrap\\(|expect\\(|@ts-ignore|eslint-disable|panic!\\(', include: '*.{ts,tsx,js,jsx,rs,vue}' } },
+    ];
+
+    const evidence: string[] = [];
+    for (const probe of probes) {
+        try {
+            const result = await handleToolCall(probe.tool, probe.args);
+            evidence.push(`## ${probe.label}\n${clipToolResult(result)}`);
+        } catch (err: any) {
+            evidence.push(`## ${probe.label}\nERROR: ${err?.message || err}`);
+        }
+    }
+
+    const summaryPrompt = [
+        'You are AIRI inside VSCodium-Rust. The user wants an agentic IDE response.',
+        'Use only the evidence below. Be concise. List concrete findings, exact next commands or files to inspect, and do not claim a full repo audit is complete.',
+        'If the evidence is insufficient, say what the next bounded probe should be.',
+        '',
+        `User task: ${userPrompt}`,
+        '',
+        evidence.join('\n\n'),
+    ].join('\n');
+
+    const result = await invoke<string>('ai_chat_fast', {
+        request: {
+            provider,
+            model,
+            messages: [
+                { role: 'system', content: 'Answer as a fast local coding agent. No tool calls. No filler.' },
+                { role: 'user', content: summaryPrompt },
+            ],
+            temperature: 0.2,
+            autonomous: false,
+            mode: 'Agent',
+            ollama_url: ollamaUrl,
+            tools: [],
+        },
+    });
+
+    const text = (result || '').trim() || 'Local probes completed, but the model returned an empty response.';
+    store.getState().updateLastAgentMessage?.(text);
+    store.getState().setIsAgentThinking?.(false);
+    try { onUpdate?.(text); } catch { /* non-fatal */ }
+    return true;
+}
+
 // ─── Security Intent Sniffer ─────────────────────────────────────────────
 // Local models (especially smaller ones) sometimes ignore the "auto-engage"
 // keyword list buried in the system prompt. To pin them onto the right
@@ -1540,6 +1623,27 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         toolSchemas = getToolSchemas();
     }
 
+    const securityIntent = inferSecurityIntent(userPrompt);
+    const toolMode = storeState.agentMode || 'Agent';
+    const isSecurityMode = !!securityIntent || toolMode === 'BugBounty' || toolMode === 'Bug Bounty';
+
+    if (routingProvider === 'ollama' && !isSecurityMode) {
+        const localToolNames = new Set([
+            'bash',
+            'file_read',
+            'file_edit',
+            'glob',
+            'grep',
+            'list_directory',
+            'git_status',
+            'git_diff',
+            'get_system_health',
+            'aim_query_spans',
+            'aim_pack_context',
+        ]);
+        toolSchemas = toolSchemas.filter((schema: any) => localToolNames.has(schema?.function?.name || schema?.name));
+    }
+
     // Cap history sent to model — keeps UI display full but limits context window.
     // Local servers (Ollama + llama.cpp/Kortex) get a smaller default to fit small
     // context windows, BUT autonomous action modes need real working memory across
@@ -1735,6 +1839,27 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 try { store.getState().setAgentModel?.(`Ollama|${resolved}`); } catch { /* non-fatal */ }
             }
         } catch (_) { /* fall through and let the call fail loudly */ }
+    }
+
+    try {
+        const bootstrapped = await runLocalAgentBootstrap({
+            store,
+            userPrompt,
+            provider: routingProvider,
+            model: routingModel,
+            ollamaUrl: routingOllamaUrl,
+            onUpdate,
+        });
+        if (bootstrapped) {
+            logTaskToMemory(userPrompt).catch(() => { });
+            return;
+        }
+    } catch (err: any) {
+        const msg = (err?.message || String(err)).slice(0, 300);
+        console.warn('[agent] local bootstrap failed, falling back to full loop:', msg);
+        store.getState().updateLastAgentMessage?.(
+            `**Local fast path warning:** ${msg}\n\nFalling back to the full autonomous loop...`
+        );
     }
 
     try {
