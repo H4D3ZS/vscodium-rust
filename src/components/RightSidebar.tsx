@@ -286,6 +286,19 @@ const RightSidebar: React.FC = () => {
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mode = useStore(state => state.agentMode);
     const model = useStore(state => state.agentModel);
+    const webUiProviderKey = useMemo(() => {
+        const lower = String(model || '').toLowerCase();
+        if (!lower.includes('webui')) return '';
+        const rawProvider = model.includes('|') ? model.split('|')[0] : model;
+        return rawProvider
+            .toLowerCase()
+            .replace(' (webui)', '')
+            .replace('-webui', '')
+            .replace('webui', '')
+            .split(':')[0]
+            .trim() || 'openai';
+    }, [model]);
+    const [webUiAccount, setWebUiAccount] = useState('default');
     const messages = useStore(state => state.agentMessages);
     const isAgentThinking = useStore(state => state.isAgentThinking);
     const isAgentPaused = useStore(state => state.isAgentPaused);
@@ -339,6 +352,15 @@ const RightSidebar: React.FC = () => {
             refreshChatSessions();
         }
     }, [view, refreshChatSessions]);
+
+    useEffect(() => {
+        if (!webUiProviderKey) return;
+        try {
+            setWebUiAccount(localStorage.getItem(`hades.webui.account.${webUiProviderKey}`) || 'default');
+        } catch {
+            setWebUiAccount('default');
+        }
+    }, [webUiProviderKey]);
 
     useEffect(() => {
         if (isEmulatorPanelOpen && view !== 'emulator') {
@@ -943,6 +965,15 @@ const RightSidebar: React.FC = () => {
     const onModelClick = (e: React.MouseEvent) => {
         const target = e.currentTarget as HTMLElement;
         import('../agent').then(m => m.openModelDropdown(target, () => { }));
+    };
+
+    const setActiveWebUiAccount = (account: string) => {
+        const clean = account.trim() || 'default';
+        setWebUiAccount(clean);
+        if (!webUiProviderKey) return;
+        try {
+            localStorage.setItem(`hades.webui.account.${webUiProviderKey}`, clean);
+        } catch { /* non-fatal */ }
     };
 
     const handleDragOver = (e: React.DragEvent) => {
@@ -2098,6 +2129,29 @@ const RightSidebar: React.FC = () => {
                                         {modeStyle.label}
                                     </span>
                                     <span onClick={onModelClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }} className="hoverable-bg">{(model.split('|')[1] || model).split(':')[0]}</span>
+                                    {webUiProviderKey && (
+                                        <select
+                                            value={webUiAccount}
+                                            onChange={(e) => setActiveWebUiAccount(e.target.value)}
+                                            title="WebUI account slot"
+                                            style={{
+                                                height: '20px',
+                                                maxWidth: '92px',
+                                                background: 'rgba(255,255,255,0.04)',
+                                                border: '1px solid rgba(255,255,255,0.10)',
+                                                borderRadius: '4px',
+                                                color: 'rgba(255,255,255,0.72)',
+                                                fontSize: '10px',
+                                                outline: 'none',
+                                            }}
+                                        >
+                                            <option value="default">default</option>
+                                            <option value="free-1">free-1</option>
+                                            <option value="free-2">free-2</option>
+                                            <option value="free-3">free-3</option>
+                                            <option value="pro">pro</option>
+                                        </select>
+                                    )}
                                     {/* Token counter */}
                                     <span style={{ fontSize: '9px', opacity: 0.35, fontVariantNumeric: 'tabular-nums' }} title="Estimated context tokens">
                                         ~{Math.round(messages.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0) / 4).toLocaleString()}t

@@ -1060,10 +1060,31 @@ function normalizeWebUiProvider(provider: string): string {
         .replace(' (webui)', '')
         .replace('-webui', '')
         .replace('webui', '')
+        .split(':')[0]
         .trim();
     if (normalized === 'gpt' || normalized === 'chatgpt') return 'openai';
     if (normalized === 'qwen code' || normalized === 'qwen-code') return 'qwen';
     return normalized || provider.toLowerCase();
+}
+
+function getWebUiAccount(provider: string): string {
+    const parts = provider.split(':');
+    const explicit = parts.length > 1 ? parts.slice(1).join(':').trim() : '';
+    if (explicit) return explicit;
+    try {
+        const key = `hades.webui.account.${normalizeWebUiProvider(provider)}`;
+        return localStorage.getItem(key)?.trim() || 'default';
+    } catch {
+        return 'default';
+    }
+}
+
+function withWebUiAccount(provider: string): string {
+    const base = normalizeWebUiProvider(provider);
+    const account = getWebUiAccount(provider)
+        .replace(/[^a-zA-Z0-9_.-]/g, '_')
+        .replace(/^_+|_+$/g, '') || 'default';
+    return `${base}:${account}`;
 }
 
 // "Trivial chat" detection. Used to bypass the full autonomous loop for
@@ -1431,13 +1452,14 @@ store.getState().updateLastAgentMessage?.(`**Fast-path warning:** ${msg}\n\n_Fal
             if (loginProvider !== 'openwebui') {
                 const webUiPrompt = await buildWebUiAgentPrompt(userPrompt, loginProvider);
                 const webResult = await invoke<any>('send_webui_prompt', {
-                    provider: loginProvider,
+                    provider: withWebUiAccount(loginProvider),
                     prompt: webUiPrompt,
                 });
                 store.getState().updateLastAgentMessage?.(
-                    `**Sent to ${baseProvider || loginProvider} WebUI**\n\n` +
+                    `**${baseProvider || loginProvider} WebUI is working in the background**\n\n` +
                     `${webResult?.message || 'The provider web session is open and handling the prompt.'}\n\n` +
-                    `Kortex AIM context was packed into the request so the WebUI can act with repository evidence.`
+                    `Account: \`${webResult?.account || getWebUiAccount(loginProvider)}\`\n\n` +
+                    `Kortex AIM context was packed into the request so the WebUI can act with repository evidence. Keep using this right-side AI panel; captured responses will appear here.`
                 );
                 store.getState().setIsAgentThinking?.(false);
                 try { onUpdate?.(webResult?.message || 'Sent to WebUI session.'); } catch (_) { /* non-fatal */ }

@@ -51,6 +51,7 @@ pub struct WebUiResponsePayload {
 }
 
 fn webui_canonical_provider(provider: &str) -> String {
+    let provider = provider.split(':').next().unwrap_or(provider);
     let normalized = provider
         .to_ascii_lowercase()
         .replace(" (webui)", "")
@@ -65,6 +66,24 @@ fn webui_canonical_provider(provider: &str) -> String {
         "" => provider.to_ascii_lowercase(),
         other => other.to_string(),
     }
+}
+
+fn webui_provider_and_account(provider: &str) -> (String, String) {
+    let mut parts = provider.splitn(2, ':');
+    let canonical = webui_canonical_provider(parts.next().unwrap_or(provider));
+    let account = parts
+        .next()
+        .map(|value| {
+            value
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '_' })
+                .collect::<String>()
+                .trim_matches('_')
+                .to_string()
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "default".to_string());
+    (canonical, account)
 }
 
 // ============================================================================
@@ -560,15 +579,16 @@ pub async fn send_webui_prompt(
     provider: String,
     prompt: String,
 ) -> Result<serde_json::Value, String> {
-    let provider_key = webui_canonical_provider(&provider);
+    let (provider_key, account_key) = webui_provider_and_account(&provider);
     let url = webui_chat_url(&provider_key)
         .ok_or_else(|| format!("Unsupported WebUI provider: {}", provider))?;
     let label = format!(
-        "webui_{}",
+        "webui_{}_{}",
         provider_key
             .replace(" (webui)", "")
             .replace("-webui", "")
-            .replace(' ', "_")
+            .replace(' ', "_"),
+        account_key
     );
 
     let window = if let Some(existing) = app.get_webview_window(&label) {
@@ -579,15 +599,13 @@ pub async fn send_webui_prompt(
             label.clone(),
             tauri::WebviewUrl::External(url.parse().map_err(|e| format!("Bad WebUI URL: {}", e))?),
         )
-        .title(format!("{} Web Session", provider))
+        .title(format!("{} Web Session ({})", provider_key, account_key))
         .inner_size(1100.0, 800.0)
         .resizable(true)
+        .visible(false)
         .build()
         .map_err(|e| format!("Failed to open WebUI window: {}", e))?
     };
-
-    let _ = window.show();
-    let _ = window.set_focus();
 
     let observer_script = webui_response_observer_script(&provider_key, &label)?;
     let script = webui_prompt_script(&provider_key, &prompt)?;
@@ -601,9 +619,10 @@ pub async fn send_webui_prompt(
     Ok(serde_json::json!({
         "success": true,
         "provider": provider_key,
+        "account": account_key,
         "window": label,
         "url": url,
-        "message": "Prompt sent to visible WebUI session. The response will appear in that provider window."
+        "message": "Prompt sent to background WebUI session. The response will stream back into the VSCodium-Rust AI panel."
     }))
 }
 
