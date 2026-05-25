@@ -1134,19 +1134,20 @@ async function runLocalAgentBootstrap(params: {
     ollamaUrl: string;
     onUpdate?: (msg: string) => void;
 }): Promise<boolean> {
-    const { store, userPrompt, provider, model, ollamaUrl, onUpdate } = params;
+    const { store, userPrompt, provider, onUpdate } = params;
     if (!shouldUseLocalAgentBootstrap(userPrompt, provider, store.getState().agentMode || 'Agent')) {
         return false;
     }
 
     store.getState().updateLastAgentMessage?.(
-        '**Local agent fast path**\n\nRunning bounded repo probes now. I will return deterministic findings without waiting for Ollama generation.'
+        '**Starting audit**\n\nChecking repository state, changed files, and common bug/security hotspots.'
     );
 
     const probes: Array<{ label: string; tool: string; args: any }> = [
         { label: 'git status', tool: 'git_status', args: {} },
         { label: 'git diff stat', tool: 'bash', args: { command: 'git diff --stat', timeout_ms: 15000 } },
-        { label: 'hotspot scan', tool: 'grep', args: { pattern: 'TODO|FIXME|HACK|XXX|unwrap\\(|expect\\(|@ts-ignore|eslint-disable|panic!\\(', include: '*.{ts,tsx,js,jsx,rs,vue}' } },
+        { label: 'project files', tool: 'list_directory', args: { path: '.' } },
+        { label: 'bug/security hotspots', tool: 'grep', args: { pattern: 'TODO|FIXME|HACK|XXX|unwrap\\(|expect\\(|@ts-ignore|eslint-disable|panic!\\(|password|secret|token|eval\\(|exec\\(', include: '*.{ts,tsx,js,jsx,rs,vue,py,go,java,kt,swift}' } },
     ];
 
     const evidence: string[] = [];
@@ -1160,16 +1161,16 @@ async function runLocalAgentBootstrap(params: {
     }
 
     const text = [
-        '**Local audit bootstrap complete**',
+        '**Audit started**',
         '',
-        'I skipped local model generation for this first pass because Ollama is the slow part on your machine right now. These are real tool results:',
+        'I ran the first agentic pass directly against the workspace:',
         '',
         evidence.join('\n\n'),
         '',
-        '**Next bounded probes**',
-        '- Run the project-specific build/test command for the active root.',
-        '- Inspect the highest-signal hotspot lines above before doing a wider scan.',
-        '- Switch to Bug Bounty mode for offensive/security tooling like `.env`, `secrets_scan`, and `weaponize_env`.',
+        '**Next actions**',
+        '- If this is a Rust root, run `cargo check` or `cargo test` next.',
+        '- If this is a Node root, run the package test/typecheck script next.',
+        '- For offensive/security audit, switch to Bug Bounty mode so I can use `secrets_scan` and `weaponize_env`.',
     ].join('\n');
     store.getState().updateLastAgentMessage?.(text);
     store.getState().setIsAgentThinking?.(false);

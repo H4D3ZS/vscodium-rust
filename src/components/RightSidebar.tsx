@@ -750,6 +750,10 @@ const RightSidebar: React.FC = () => {
     useEffect(() => {
         const container = document.querySelector('.right-sidebar-messages');
         if (container) {
+            if (container.scrollHeight <= container.clientHeight) {
+                container.scrollTop = 0;
+                return;
+            }
             const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
             if (isNearBottom) {
                 messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1139,6 +1143,14 @@ const RightSidebar: React.FC = () => {
                 .hoverable:hover {
                     background: rgba(255,255,255,0.1) !important;
                     color: #fff;
+                }
+                .right-sidebar-messages {
+                    justify-content: flex-start !important;
+                    align-items: stretch !important;
+                    scroll-padding-top: 0;
+                }
+                .right-sidebar-messages > div {
+                    margin-top: 0 !important;
                 }
                 .markdown-content p { margin: 0 0 1em 0; }
                 .markdown-content p:last-child { margin-bottom: 0; }
@@ -1678,10 +1690,10 @@ const RightSidebar: React.FC = () => {
                                     }
                                     return (
                                         <div style={{
-                                            margin: '0 12px 8px',
+                                            margin: '8px 10px 6px',
                                             background: 'rgba(15,15,25,0.8)',
                                             border: `1px solid ${isAgentThinking ? 'rgba(249,115,22,0.25)' : 'rgba(16,185,129,0.2)'}`,
-                                            borderRadius: '10px', padding: '8px 12px',
+                                            borderRadius: '8px', padding: '7px 10px',
                                             transition: 'border-color 0.5s'
                                         }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
@@ -1733,10 +1745,10 @@ const RightSidebar: React.FC = () => {
                                 {/* Agent task progress bars */}
                                 {agentTasks.filter((t: any) => t.status === 'running' && t.id.includes('-')).map((task: any) => (
                                     <div key={task.id} style={{
-                                        margin: '0 12px 8px',
+                                        margin: '6px 10px',
                                         background: 'rgba(59,130,246,0.05)',
                                         border: '1px solid rgba(59,130,246,0.2)',
-                                        padding: '10px 12px', borderRadius: '8px',
+                                        padding: '8px 10px', borderRadius: '8px',
                                     }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1753,7 +1765,7 @@ const RightSidebar: React.FC = () => {
                                 ))}
 
                                 {/* Mission log — agent messages */}
-                                <div style={{ display: 'flex', flexDirection: 'column', padding: '8px 12px', gap: '12px', flex: 1 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px 10px', gap: '10px', flex: 1 }}>
                                     {messages.length > 0 && (
                                         <>
                                             {messages.filter(m => (
@@ -1811,7 +1823,7 @@ const RightSidebar: React.FC = () => {
                                                         background: msg.role === 'user'
                                                             ? 'rgba(59,130,246,0.06)'
                                                             : (msg.isSubAgentResponse ? 'rgba(59,130,246,0.03)' : 'rgba(255,255,255,0.01)'),
-                                                        padding: '10px 14px', borderRadius: '10px',
+                                                        padding: '9px 12px', borderRadius: '8px',
                                                         border: msg.role === 'user'
                                                             ? '1px solid rgba(59,130,246,0.15)'
                                                             : '1px solid rgba(255,255,255,0.04)'
@@ -2029,11 +2041,11 @@ const RightSidebar: React.FC = () => {
             </div>
             {
                 view === 'chat' && agentUiMode === 'chat' && (
-                    <div style={{ padding: '16px', borderTop: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1))', position: 'relative' }}>
+                    <div style={{ padding: '8px 10px 10px', borderTop: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1))', position: 'relative' }}>
                         {/* @mention dropdown — files + special context sources */}
                         {isMentionDropdownOpen && filteredSuggestions.length > 0 && (
                             <div style={{
-                                position: 'absolute', bottom: '100%', left: '16px', right: '16px',
+                                position: 'absolute', bottom: '100%', left: '10px', right: '10px',
                                 background: 'var(--vscode-menu-background, #1e1e2e)',
                                 border: '1px solid rgba(168,85,247,0.35)',
                                 borderRadius: '10px', overflow: 'hidden',
@@ -2078,14 +2090,14 @@ const RightSidebar: React.FC = () => {
                         <BackgroundAgentsTray />
                         <div style={{
                             background: 'var(--vscode-input-background)', border: '1px solid var(--vscode-input-border, transparent)',
-                            borderRadius: '12px', padding: '8px 12px', display: 'flex', flexDirection: 'column'
+                            borderRadius: '8px', padding: '7px 10px', display: 'flex', flexDirection: 'column'
                         }}>
                             <textarea
                                 ref={inputRef} value={inputValue} onChange={handleInputChange} onKeyDown={handleKeyDown}
                                 className="agent-mission-input"
                                 placeholder={isAgentThinking ? 'Agent executing...' : 'Launch a mission...  (type @ to mention a file)'}
                                 disabled={isAgentThinking}
-                                style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', resize: 'none', fontSize: '13px', lineHeight: '1.5', width: '100%', minHeight: '32px', opacity: isAgentThinking ? 0.5 : 1 }}
+                                style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', resize: 'none', fontSize: '13px', lineHeight: '1.45', width: '100%', minHeight: '28px', opacity: isAgentThinking ? 0.5 : 1 }}
                             />
                             {attachedFiles.length > 0 && (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px', paddingBottom: '4px' }}>
@@ -2130,7 +2142,7 @@ const RightSidebar: React.FC = () => {
                                     </div>
                                 </div>
                             )}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                     <div onClick={handleAttachFile} style={{ cursor: 'pointer', opacity: 0.5, display: 'flex', alignItems: 'center' }} className="hoverable-bg" title="Attach File (Neural Gist)">
                                         <i className="codicon codicon-attach" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
