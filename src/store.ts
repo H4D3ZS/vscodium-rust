@@ -711,7 +711,22 @@ const storeImplementation: any = (set: any, get: any) => ({
     // commands and ships PoCs — critical for cybersecurity/bug-bounty work.
     // Chat mode forbids tool calls, which was the previous (broken) default.
     agentMode: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.mode')) || 'Agent',
-    agentModel: (typeof localStorage !== 'undefined' && localStorage.getItem('agentModel')) || 'Ollama|airi-fast:latest', // Default local model (lightweight, fast)
+    agentModel: (() => {
+        if (typeof localStorage === 'undefined') return '';
+        const saved = localStorage.getItem('agentModel') || '';
+        const oldDefaults = new Set([
+            'Ollama|airi-fast:latest',
+            'Ollama|qwen3:35b',
+            'qwen3:35b',
+            'huihui_ai/qwen2.5-coder-abliterate:7b',
+            'Ollama|huihui_ai/qwen2.5-coder-abliterate:7b',
+        ]);
+        if (oldDefaults.has(saved)) {
+            localStorage.removeItem('agentModel');
+            return '';
+        }
+        return saved;
+    })(),
     trustedPublishers: JSON.parse(localStorage.getItem('trustedPublishers') || '[]'),
     activeRoot: localStorage.getItem('activeRoot') || null,
     activeEditorPath: '',
@@ -740,13 +755,30 @@ const storeImplementation: any = (set: any, get: any) => ({
     isAgentThinking: false,
     isAgentPaused: false,
     isYoloMode: false,
-    // Default vision OFF (it needs an installed VL model + screen-capture
-    // permission). Default consciousness ON pointed at a lightweight model.
+    // Default local subsystems OFF/empty. They become available only after the
+    // user selects models in Settings, so startup never silently loads a 35B/VL
+    // model or burns GPU on consumer machines.
     airiVisionEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.vision.enabled') === '1') || false,
-    airiVisionModel: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.vision.model')) || 'qwen2.5vl:72b',
-    airiConsciousnessEnabled: (typeof localStorage === 'undefined' || localStorage.getItem('airi.consciousness.enabled') !== '0'),
-    airiConsciousnessModel: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.consciousness.model')) || 'airi-fast:latest',
-    agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'airi',
+    airiVisionModel: (() => {
+        if (typeof localStorage === 'undefined') return '';
+        const saved = localStorage.getItem('airi.vision.model') || '';
+        if (saved === 'qwen2.5vl:72b') {
+            localStorage.removeItem('airi.vision.model');
+            return '';
+        }
+        return saved;
+    })(),
+    airiConsciousnessEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('airi.consciousness.enabled') === '1') || false,
+    airiConsciousnessModel: (() => {
+        if (typeof localStorage === 'undefined') return '';
+        const saved = localStorage.getItem('airi.consciousness.model') || '';
+        if (saved === 'airi-fast:latest') {
+            localStorage.removeItem('airi.consciousness.model');
+            return '';
+        }
+        return saved;
+    })(),
+    agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'chat',
     ttsStrategy: (localStorage.getItem('ttsStrategy') as any) || 'elevenlabs',
     // ── Cursor-style IDE preference defaults ──────────────────────────
     // Tab predictions / fast_apply / shadow workspace default ON because
@@ -1535,10 +1567,6 @@ const storeImplementation: any = (set: any, get: any) => ({
                     if (p.toLowerCase() === 'ollama') {
                         if (models.length > 0) {
                             set({ ollamaStatus: 'running' });
-                            // Auto-select first Ollama model if none selected
-                            if (models.length > 0 && get().agentModel?.includes('Ollama')) {
-                                set({ agentModel: `Ollama|${models[0]}` });
-                            }
                         }
                     }
                 } catch (e: any) {

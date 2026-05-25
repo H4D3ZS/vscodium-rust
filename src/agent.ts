@@ -1112,6 +1112,7 @@ function isTrivialChat(text: string, hasAttachedContext: boolean): boolean {
 const LOCAL_BOOTSTRAP_REGEX = /\b(audit|bugs?|dead\s+code|architectur(al|e)|findings?|fix\s+all|build\s*(and|&)?\s*verify|diagnos(e|is|tic)|why\s+.*slow|root\s+cause)\b/i;
 
 function shouldUseLocalAgentBootstrap(text: string, provider: string, mode: string): boolean {
+    return false;
     if (provider !== 'ollama') return false;
     if (mode === 'BugBounty' || mode === 'Bug Bounty') return false;
     if (inferSecurityIntent(text)) return false;
@@ -1583,6 +1584,15 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 routingModel = id.trim();
             }
         }
+    }
+
+    if (routingProvider === 'ollama' && !String(routingModel || '').trim()) {
+        store.getState().setIsAgentThinking?.(false);
+        store.getState().updateLastAgentMessage?.(
+            '**No local model selected**\n\nOpen Settings and choose an Ollama model before starting a local agent run. I will not auto-load `qwen3:35b`, a vision model, or any fallback model silently.'
+        );
+        setAiStatus('idle');
+        return;
     }
 
     // --- Build enhanced system prompt with Claude Code-style context ---

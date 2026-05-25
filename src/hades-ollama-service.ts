@@ -37,7 +37,7 @@ export interface OllamaResponse {
 class HadesOllamaService {
   private config: HadesOllamaConfig = {
     baseUrl: 'http://localhost:11434',
-    model: 'qwen3:35b', // Default community coding model
+    model: '',
     aimVfsEnabled: true,
     thermalGovernorEnabled: true,
     jitDecompressionEnabled: true,
@@ -52,7 +52,7 @@ class HadesOllamaService {
     const s = useStore.getState();
     this.config = {
       baseUrl: s.ollamaUrl || 'http://localhost:11434',
-      model: s.agentModel?.split('|')[1] || 'huihui_ai/qwen2.5-coder-abliterate:7b', // Use selected model from UI
+      model: s.agentModel?.split('|')[1] || s.agentModel || '',
       aimVfsEnabled: (s as { aimVfsEnabled?: boolean }).aimVfsEnabled ?? true,
       thermalGovernorEnabled: (s as { thermalGovernorEnabled?: boolean }).thermalGovernorEnabled ?? true,
       jitDecompressionEnabled: (s as { jitDecompressionEnabled?: boolean }).jitDecompressionEnabled ?? true,
@@ -61,6 +61,9 @@ class HadesOllamaService {
   }
 
   private async postOllama(path: '/api/generate' | '/api/chat', body: Record<string, unknown>): Promise<OllamaResponse> {
+    if (!this.config.model.trim()) {
+      throw new Error('No Ollama model selected. Choose a local model in Settings before starting local inference.');
+    }
     const raw = (this.config.baseUrl || '').trim() || 'http://localhost:11434';
     let base: string;
     try {

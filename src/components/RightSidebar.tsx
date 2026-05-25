@@ -1150,6 +1150,7 @@ const RightSidebar: React.FC = () => {
                 }
                 .right-sidebar-body {
                     flex: 1 1 auto;
+                    height: 0;
                     min-height: 0;
                     overflow: hidden;
                     display: flex;
@@ -1169,6 +1170,10 @@ const RightSidebar: React.FC = () => {
                 }
                 .right-sidebar-messages > div {
                     margin-top: 0 !important;
+                }
+                .right-sidebar-body > * {
+                    margin-top: 0 !important;
+                    align-self: stretch;
                 }
                 .markdown-content p { margin: 0 0 1em 0; }
                 .markdown-content p:last-child { margin-bottom: 0; }
@@ -1458,7 +1463,7 @@ const RightSidebar: React.FC = () => {
                 </div>
             )}
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+            <div style={{ flex: '1 1 auto', height: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
 
                 {/* ── AIRI 3D FULL MODE — only available when VRM is enabled ── */}
                 {showVrmAvatar && agentUiMode === 'airi' ? (
