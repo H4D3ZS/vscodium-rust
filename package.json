@@ -47,7 +47,7 @@
     "@xterm/xterm": "^6.0.0",
     "diff": "^8.0.4",
     "framer-motion": "^12.38.0",
-    "lucide-react": "^1.7.0",
+    "lucide-react": "^1.16.0",
     "marked": "^17.0.5",
     "monaco-editor": "^0.55.1",
     "ollama": "^0.6.3",
