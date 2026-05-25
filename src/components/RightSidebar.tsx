@@ -2161,7 +2161,9 @@ const RightSidebar: React.FC = () => {
                                                     const val = e.target.value;
                                                     if (val === 'add_account') {
                                                         try {
-                                                            await invoke('start_webui_login', { request: { provider: webUiProviderKey } });
+                                                            const label = window.prompt('Account slot name', `free-${webuiSessions.filter(s => s.provider === webUiProviderKey).length + 1}`)?.trim();
+                                                            const account = (label || 'default').replace(/[^a-zA-Z0-9_.-]/g, '_') || 'default';
+                                                            await invoke('start_webui_login', { request: { provider: `${webUiProviderKey}:${account}` } });
                                                             await refreshWebuiSessions(webUiProviderKey);
                                                         } catch (err) {
                                                             console.error('Failed to trigger login:', err);

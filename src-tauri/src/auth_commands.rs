@@ -16,6 +16,7 @@ lazy_static::lazy_static! {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OAuthSession {
     pub provider: String,
+    pub account: String,
     pub redirect_url: String,
     pub state: String,
     pub token: Option<String>,
@@ -110,6 +111,10 @@ fn webui_provider_and_account(provider: &str) -> (String, String) {
     (canonical, account)
 }
 
+fn webui_session_key(provider: &str, account: &str) -> String {
+    format!("{}:{}", provider, account)
+}
+
 // ============================================================================
 // OAuth Callback Server – runs in background and captures the token
 // ============================================================================
@@ -168,7 +173,8 @@ async fn handle_oauth_callback(
                                         .map(|dt| dt.timestamp())
                                         .unwrap_or(0),
                                 );
-                                provider_name = session.provider.clone();
+                                provider_name =
+                                    webui_session_key(&session.provider, &session.account);
                                 success = true;
                             }
                         }
@@ -185,7 +191,7 @@ async fn handle_oauth_callback(
                     if success {
                         use tauri::Manager;
                         if !provider_name.is_empty() {
-                            let window_label = format!("login_{}", provider_name);
+                            let window_label = format!("login_{}", provider_name.replace(':', "_"));
                             if let Some(window) = app.get_webview_window(&window_label) {
                                 let _ = window.close();
                             }
@@ -256,7 +262,8 @@ pub async fn start_webui_login(
     app: tauri::AppHandle,
     request: LoginRequest,
 ) -> Result<LoginResponse, String> {
-    let provider = webui_canonical_provider(&request.provider);
+    let (provider, account) = webui_provider_and_account(&request.provider);
+    let session_key = webui_session_key(&provider, &account);
 
     // Build provider-specific login URL
     let (login_url, base_url) = match provider.as_str() {
@@ -289,17 +296,18 @@ pub async fn start_webui_login(
             session_id.clone(),
             OAuthSession {
                 provider: provider.clone(),
+                account: account.clone(),
                 redirect_url: redirect_url.clone(),
                 state: session_id.clone(),
                 token: None,
                 token_expires: None,
-                display_name,
+                display_name: if account == "default" { display_name } else { account.clone() },
             },
         );
     }
 
     // Open popup window instead of default browser
-    let window_label = format!("login_{}", provider);
+    let window_label = format!("login_{}", session_key.replace(':', "_"));
     if let Some(existing) = app.get_webview_window(&window_label) {
         let _ = existing.close();
     }
@@ -360,7 +368,7 @@ pub async fn start_webui_login(
             }}
         }}, 2000);
     "#,
-        session_id, provider
+        session_id, session_key
     );
 
     let _ = tauri::WebviewWindowBuilder::new(
@@ -368,7 +376,7 @@ pub async fn start_webui_login(
         window_label,
         tauri::WebviewUrl::External(login_url.parse().unwrap()),
     )
-    .title(format!("{} Login", provider))
+    .title(format!("{} Login ({})", provider, account))
     .inner_size(800.0, 700.0)
     .resizable(true)
     .initialization_script(&init_script)
@@ -377,7 +385,7 @@ pub async fn start_webui_login(
 
     Ok(LoginResponse {
         success: true,
-        message: format!("Browser opened for {} login", provider),
+        message: format!("Browser opened for {} login ({})", provider, account),
         session_id: Some(session_id),
         url: login_url.to_string(),
         callback_url: redirect_url,
@@ -414,14 +422,16 @@ pub async fn get_stored_token(provider: String) -> Result<Option<String>, String
 pub async fn list_webui_sessions(provider: Option<String>) -> Result<Vec<SessionSummary>, String> {
     let sessions = OAUTH_SESSIONS.lock().unwrap();
     let active_map = ACTIVE_SESSIONS.lock().unwrap();
+    let provider_filter = provider.map(|p| webui_provider_and_account(&p).0);
     let mut result = Vec::new();
     for (sid, session) in sessions.iter() {
-        if let Some(ref p) = provider {
+        if let Some(ref p) = provider_filter {
             if &session.provider != p {
                 continue;
             }
         }
-        let active_sid = active_map.get(&session.provider);
+        let key = webui_session_key(&session.provider, &session.account);
+        let active_sid = active_map.get(&key);
         result.push(SessionSummary {
             session_id: sid.clone(),
             provider: session.provider.clone(),
@@ -441,52 +451,31 @@ pub async fn list_webui_sessions(provider: Option<String>) -> Result<Vec<Session
 /// Switch the active session for a provider (used by the account switcher UI).
 #[tauri::command]
 pub async fn switch_webui_session(session_id: String) -> Result<(), String> {
-    let provider = {
+    let session_key = {
         let sessions = OAUTH_SESSIONS.lock().unwrap();
         sessions
             .get(&session_id)
-            .map(|s| s.provider.clone())
+            .map(|s| webui_session_key(&s.provider, &s.account))
             .ok_or_else(|| format!("Session not found: {}", session_id))?
     };
     let mut active_map = ACTIVE_SESSIONS.lock().unwrap();
-    active_map.insert(provider, session_id);
+    active_map.insert(session_key, session_id);
     Ok(())
 }
 
 /// Delete a stored session (logout from that account).
 #[tauri::command]
 pub async fn delete_webui_session(session_id: String) -> Result<(), String> {
-    let removed_provider = {
+    let removed_key = {
         let mut sessions = OAUTH_SESSIONS.lock().unwrap();
-        sessions.remove(&session_id).map(|s| s.provider)
+        sessions
+            .remove(&session_id)
+            .map(|s| webui_session_key(&s.provider, &s.account))
     };
-    if let Some(provider) = removed_provider {
+    if let Some(key) = removed_key {
         let mut active_map = ACTIVE_SESSIONS.lock().unwrap();
-        if active_map
-            .get(&provider)
-            .map(|s| s == &session_id)
-            .unwrap_or(false)
-        {
-            // If the deleted session was active, pick another session for that provider
-            let sessions = OAUTH_SESSIONS.lock().unwrap();
-            let fallback = sessions
-                .values()
-                .find(|s| s.provider == provider && s.token.is_some())
-                .map(|_| {
-                    sessions
-                        .iter()
-                        .find(|(_, s)| s.provider == provider && s.token.is_some())
-                        .map(|(k, _)| k.clone())
-                })
-                .flatten();
-            match fallback {
-                Some(sid) => {
-                    active_map.insert(provider, sid);
-                }
-                None => {
-                    active_map.remove(&provider);
-                }
-            }
+        if active_map.get(&key).map(|s| s == &session_id).unwrap_or(false) {
+            active_map.remove(&key);
         }
     }
     Ok(())
@@ -743,19 +732,21 @@ pub async fn send_webui_prompt(
 }
 
 pub fn get_stored_token_sync(provider: &str) -> Option<String> {
+    let (provider_key, account_key) = webui_provider_and_account(provider);
+    let session_key = webui_session_key(&provider_key, &account_key);
     let sessions = OAUTH_SESSIONS.lock().unwrap();
-    // Prefer the active session for this provider
+    // Prefer the active session for this provider+account slot.
     let active_map = ACTIVE_SESSIONS.lock().unwrap();
-    if let Some(active_sid) = active_map.get(provider) {
+    if let Some(active_sid) = active_map.get(&session_key) {
         if let Some(session) = sessions.get(active_sid) {
             if let Some(token) = &session.token {
                 return Some(token.clone());
             }
         }
     }
-    // Fallback: find any session with a token for this provider
+    // Fallback: find any session with a token for this exact provider+account.
     for session in sessions.values() {
-        if session.provider == provider {
+        if session.provider == provider_key && session.account == account_key {
             if let Some(token) = &session.token {
                 return Some(token.clone());
             }

@@ -1590,8 +1590,14 @@ const storeImplementation: any = (set: any, get: any) => ({
             const active = sessions?.find((s: any) => s.is_active);
             if (active) {
                 set({ activeWebuiSessionId: active.session_id });
+                try {
+                    localStorage.setItem(`hades.webui.account.${active.provider}`, active.display_name || 'default');
+                } catch { /* non-fatal */ }
             } else if (sessions && sessions.length > 0) {
                 set({ activeWebuiSessionId: sessions[0].session_id });
+                try {
+                    localStorage.setItem(`hades.webui.account.${sessions[0].provider}`, sessions[0].display_name || 'default');
+                } catch { /* non-fatal */ }
             } else {
                 set({ activeWebuiSessionId: null });
             }
@@ -1604,6 +1610,12 @@ const storeImplementation: any = (set: any, get: any) => ({
         try {
             await invoke('switch_webui_session', { sessionId });
             set({ activeWebuiSessionId: sessionId });
+            const session = get().webuiSessions.find((s: any) => s.session_id === sessionId);
+            if (session) {
+                try {
+                    localStorage.setItem(`hades.webui.account.${session.provider}`, session.display_name || 'default');
+                } catch { /* non-fatal */ }
+            }
             // Refresh models list
             await get().refreshAvailableModels();
         } catch (error) {

@@ -1424,18 +1424,19 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         if (normalizedProvider.includes('openwebui')) {
             loginProvider = 'openwebui';
         }
-
+        const webUiSessionProvider = withWebUiAccount(loginProvider);
+        
         try {
-            const hasToken = await invoke<string | null>('get_stored_token', { provider: loginProvider });
+            const hasToken = await invoke<string | null>('get_stored_token', { provider: webUiSessionProvider });
             if (!hasToken) {
                 store.getState().updateLastAgentMessage?.(`⏳ **Login Required**\n\nPlease complete the login for ${loginProvider} in the browser window that just opened. Waiting for authorization...`);
-                await invoke('start_webui_login', { request: { provider: loginProvider } });
-
+                await invoke('start_webui_login', { request: { provider: webUiSessionProvider } });
+                
                 // Poll for token every second for up to 2 minutes
                 let tokenFound = false;
                 for (let i = 0; i < 120; i++) {
                     await new Promise(r => setTimeout(r, 1000));
-                    const tokenNow = await invoke<string | null>('get_stored_token', { provider: loginProvider });
+                    const tokenNow = await invoke<string | null>('get_stored_token', { provider: webUiSessionProvider });
                     if (tokenNow) {
                         tokenFound = true;
                         break;
@@ -1453,7 +1454,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             if (loginProvider !== 'openwebui') {
                 const webUiPrompt = await buildWebUiAgentPrompt(userPrompt, loginProvider);
                 const webResult = await invoke<any>('send_webui_prompt', {
-                    provider: withWebUiAccount(loginProvider),
+                    provider: webUiSessionProvider,
                     prompt: webUiPrompt,
                 });
                 store.getState().updateLastAgentMessage?.(

@@ -1662,13 +1662,19 @@ impl Sentient {
         let is_small_model = is_ollama_provider || Self::is_small_model_name(&req.model);
         if is_ollama_provider {
             const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
+                // Frontend/Cursor-style schemas passed in from src/tool_registry.ts.
+                "bash", "file_read", "file_write", "file_edit", "glob",
+                "list_directory", "web_fetch", "git_status", "git_diff",
+                "terminal_read_output", "terminal_send_data", "replace_file_content",
+                "multi_replace_file_content",
+                // Native backend tool names.
                 "view_file", "list_files", "write_to_file", "str_replace",
                 "search_replace_edit", "apply_shadow_patch", "fast_apply", "patch_file_content",
                 "find_by_name", "get_directory_structure", "grep",
                 "search_codebase", "find_symbols", "create_directory", "run_command",
-                "terminal_read_output", "terminal_send_data", "verify_implementation",
+                "verify_implementation",
                 "dev_cargo_diagnostics", "get_lsp_diagnostics", "save_knowledge_brief",
-                "web_search", "secrets_scan", "weaponize_env"
+                "web_search", "secrets_scan"
             ];
             tools.retain(|t| {
                 let name = t["function"]["name"].as_str()
@@ -2614,7 +2620,7 @@ impl Sentient {
                             }
                         }
 
-                        // Extract native tool calls (OpenAI style)
+                        // Extract native tool calls (OpenAI-compatible streaming style).
                         if let Some(tool_calls) =
                             val["choices"][0]["delta"]["tool_calls"].as_array()
                         {
@@ -2644,8 +2650,58 @@ impl Sentient {
                                 }
                             }
                         }
+                        // Extract Ollama native /api/chat tool calls.
+                        //
+                        // This is the critical path for local and remote Ollama
+                        // servers that return chunks shaped like:
+                        // { "message": { "tool_calls": [{ "function": { ... } }] } }
+                        //
+                        // Before this, capable Qwen/DeepSeek/MoE models could
+                        // choose a tool successfully and the IDE would ignore it,
+                        // making the agent look alive while doing nothing.
+                        if let Some(tool_calls) = val["message"]["tool_calls"].as_array() {
+                            for tc in tool_calls {
+                                let function = &tc["function"];
+                                let name = function["name"]
+                                    .as_str()
+                                    .or_else(|| tc["name"].as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                if name.trim().is_empty() {
+                                    continue;
+                                }
+
+                                let args_value = function
+                                    .get("arguments")
+                                    .or_else(|| tc.get("arguments"))
+                                    .cloned()
+                                    .unwrap_or_else(|| json!({}));
+                                let arguments = match args_value {
+                                    Value::String(s) => s,
+                                    other => other.to_string(),
+                                };
+
+                                let id = tc["id"]
+                                    .as_str()
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| {
+                                        format!(
+                                            "ollama_call_{}_{}",
+                                            iteration,
+                                            native_tool_calls.len() + 1
+                                        )
+                                    });
+
+                                native_tool_calls.push(ToolCall {
+                                    id,
+                                    type_field: "function".to_string(),
+                                    function: ToolFunction { name, arguments },
+                                    context: None,
+                                });
+                            }
+                        }
                         // Anthropic streaming: content_block_start starts a tool_use block
-                        else if val["type"] == "content_block_start" {
+                        if val["type"] == "content_block_start" {
                             let block = &val["content_block"];
                             if block["type"] == "tool_use" {
                                 let idx = val["index"].as_u64().unwrap_or(0) as usize;
@@ -2829,6 +2885,7 @@ impl Sentient {
                     if tool_name == "write_file"
                         || tool_name == "create_file"
                         || tool_name == "save_file"
+                        || tool_name == "file_write"
                         || tool_name == "write"
                     {
                         tool_name = "write_to_file".to_string();
@@ -2875,6 +2932,7 @@ impl Sentient {
                         || tool_name == "string_replace"
                         || tool_name == "replace_in_file"
                         || tool_name == "edit_file"
+                        || tool_name == "file_edit"
                         || tool_name == "replace_code"
                     {
                         tool_name = "str_replace".to_string();
@@ -2961,7 +3019,6 @@ impl Sentient {
                         || tool_name == "search_replace"
                         || tool_name == "replace"
                         || tool_name == "str_replace_editor"
-                        || tool_name == "str_replace"
                         || tool_name == "code_edit"
                     {
                         tool_name = "search_replace_edit".to_string();
@@ -2989,6 +3046,48 @@ impl Sentient {
                     }
 
                     let mut tool_args_json: Value = serde_json::from_str(&tool_call.function.arguments).unwrap_or(json!({}));
+
+                    // Normalize frontend/Cursor-style argument names into the
+                    // backend AiTools schema. This lets a model call either
+                    // `file_write({file_path, content})` or
+                    // `write_to_file({path, content})` and get real disk IO.
+                    if tool_args_json.get("path").is_none() {
+                        if let Some(file_path) = tool_args_json.get("file_path").cloned() {
+                            tool_args_json["path"] = file_path;
+                        }
+                    }
+                    if tool_name == "str_replace" {
+                        if tool_args_json.get("old_str").is_none() {
+                            if let Some(old) = tool_args_json.get("old_string").cloned() {
+                                tool_args_json["old_str"] = old;
+                            } else if let Some(target) = tool_args_json.get("target").cloned() {
+                                tool_args_json["old_str"] = target;
+                            }
+                        }
+                        if tool_args_json.get("new_str").is_none() {
+                            if let Some(new_value) = tool_args_json.get("new_string").cloned() {
+                                tool_args_json["new_str"] = new_value;
+                            } else if let Some(replacement) = tool_args_json.get("replacement").cloned() {
+                                tool_args_json["new_str"] = replacement;
+                            }
+                        }
+                    }
+                    if tool_name == "find_by_name"
+                        && tool_args_json.get("pattern").is_none()
+                    {
+                        if let Some(pattern) = tool_args_json.get("pattern_or_path").cloned()
+                            .or_else(|| tool_args_json.get("file_pattern").cloned())
+                        {
+                            tool_args_json["pattern"] = pattern;
+                        }
+                    }
+                    if tool_name == "list_files"
+                        && tool_args_json.get("path").is_none()
+                    {
+                        if let Some(dir) = tool_args_json.get("directory").cloned() {
+                            tool_args_json["path"] = dir;
+                        }
+                    }
 
                     if tool_name == "run_command" {
                          tool_args_json["shell_hint"] = json!(tool_call.function.name);
