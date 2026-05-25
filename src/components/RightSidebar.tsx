@@ -1573,9 +1573,9 @@ const RightSidebar: React.FC = () => {
                 ) : (
 
                     /* ── CHAT / MISSION HUB MODE ── */
-                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                    <div className="right-sidebar-messages" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'stretch' }}>
                         {view === 'chat' ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
 
                                 {/* AIRI Sentient Header — only rendered when VRM is enabled */}
                                 {showVrmAvatar ? (
@@ -1584,24 +1584,24 @@ const RightSidebar: React.FC = () => {
                                         background: 'linear-gradient(180deg, var(--vscode-sideBar-background) 60%, transparent)',
                                         display: 'flex', flexDirection: 'column', alignItems: 'center',
                                         transition: 'all 0.3s ease-in-out',
-                                        height: messages.length === 0 ? '280px' : '44px',
-                                        minHeight: messages.length === 0 ? '280px' : '44px',
-                                        paddingTop: messages.length === 0 ? '12px' : '4px',
+                                        height: messages.length === 0 ? '72px' : '0px',
+                                        minHeight: messages.length === 0 ? '72px' : '0px',
+                                        paddingTop: messages.length === 0 ? '6px' : '0px',
                                         overflow: 'hidden', pointerEvents: 'none'
                                     }}>
                                         <div style={{
-                                            width: messages.length === 0 ? '200px' : '36px',
-                                            height: messages.length === 0 ? '200px' : '36px',
+                                            width: messages.length === 0 ? '52px' : '0px',
+                                            height: messages.length === 0 ? '52px' : '0px',
                                             borderRadius: messages.length === 0 ? '0%' : '50%',
                                             overflow: 'hidden',
                                             background: messages.length === 0 ? 'transparent' : 'rgba(255,255,255,0.05)',
                                             border: messages.length === 0 ? 'none' : '1px solid rgba(255,255,255,0.1)',
                                             transition: 'all 0.3s ease-in-out'
                                         }}>
-                                            <AiriPanel style={{ width: '100%', height: '100%' }} scale={messages.length === 0 ? 0.8 : 0.6} yOffset={messages.length === 0 ? "-38%" : "-44%"} transparent={true} character={avatarCharacter} />
+                                            <AiriPanel style={{ width: '100%', height: '100%' }} scale={messages.length === 0 ? 0.5 : 0.6} yOffset={messages.length === 0 ? "-44%" : "-44%"} transparent={true} character={avatarCharacter} />
                                         </div>
                                         {messages.length === 0 && (
-                                            <div style={{ marginTop: '16px', textAlign: 'center', pointerEvents: 'auto' }}>
+                                            <div style={{ marginTop: '2px', textAlign: 'center', pointerEvents: 'auto' }}>
                                                 <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em' }}>AIRI SENTIENT CORE</div>
                                                 <div style={{ fontSize: '11px', opacity: 0.4 }}>
                                                     {isYoloMode ? '⚡ YOLO — Full autonomy' : 'Ready for your mission'}

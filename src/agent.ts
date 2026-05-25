@@ -1140,7 +1140,7 @@ async function runLocalAgentBootstrap(params: {
     }
 
     store.getState().updateLastAgentMessage?.(
-        '**Local agent fast path**\n\nStarting with bounded repo probes immediately, then asking Ollama to summarize from real evidence.'
+        '**Local agent fast path**\n\nRunning bounded repo probes now. I will return deterministic findings without waiting for Ollama generation.'
     );
 
     const probes: Array<{ label: string; tool: string; args: any }> = [
@@ -1159,33 +1159,18 @@ async function runLocalAgentBootstrap(params: {
         }
     }
 
-    const summaryPrompt = [
-        'You are AIRI inside VSCodium-Rust. The user wants an agentic IDE response.',
-        'Use only the evidence below. Be concise. List concrete findings, exact next commands or files to inspect, and do not claim a full repo audit is complete.',
-        'If the evidence is insufficient, say what the next bounded probe should be.',
+    const text = [
+        '**Local audit bootstrap complete**',
         '',
-        `User task: ${userPrompt}`,
+        'I skipped local model generation for this first pass because Ollama is the slow part on your machine right now. These are real tool results:',
         '',
         evidence.join('\n\n'),
+        '',
+        '**Next bounded probes**',
+        '- Run the project-specific build/test command for the active root.',
+        '- Inspect the highest-signal hotspot lines above before doing a wider scan.',
+        '- Switch to Bug Bounty mode for offensive/security tooling like `.env`, `secrets_scan`, and `weaponize_env`.',
     ].join('\n');
-
-    const result = await invoke<string>('ai_chat_fast', {
-        request: {
-            provider,
-            model,
-            messages: [
-                { role: 'system', content: 'Answer as a fast local coding agent. No tool calls. No filler.' },
-                { role: 'user', content: summaryPrompt },
-            ],
-            temperature: 0.2,
-            autonomous: false,
-            mode: 'Agent',
-            ollama_url: ollamaUrl,
-            tools: [],
-        },
-    });
-
-    const text = (result || '').trim() || 'Local probes completed, but the model returned an empty response.';
     store.getState().updateLastAgentMessage?.(text);
     store.getState().setIsAgentThinking?.(false);
     try { onUpdate?.(text); } catch { /* non-fatal */ }
