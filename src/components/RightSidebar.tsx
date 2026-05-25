@@ -1580,17 +1580,21 @@ const RightSidebar: React.FC = () => {
                                     background: 'linear-gradient(180deg, var(--vscode-sideBar-background) 60%, transparent)',
                                     display: 'flex', flexDirection: 'column', alignItems: 'center',
                                     transition: 'all 0.3s ease-in-out',
-                                    height: messages.length === 0 ? '320px' : '100px',
-                                    minHeight: messages.length === 0 ? '320px' : '100px',
-                                    paddingTop: messages.length === 0 ? '12px' : '8px',
+                                    height: messages.length === 0 ? '280px' : '44px',
+                                    minHeight: messages.length === 0 ? '280px' : '44px',
+                                    paddingTop: messages.length === 0 ? '12px' : '4px',
                                     overflow: 'hidden', pointerEvents: 'none'
                                 }}>
                                     <div style={{
-                                        width: messages.length === 0 ? '240px' : '80px',
-                                        height: messages.length === 0 ? '240px' : '80px',
+                                        width: messages.length === 0 ? '200px' : '36px',
+                                        height: messages.length === 0 ? '200px' : '36px',
+                                        borderRadius: messages.length === 0 ? '0%' : '50%',
+                                        overflow: 'hidden',
+                                        background: messages.length === 0 ? 'transparent' : 'rgba(255,255,255,0.05)',
+                                        border: messages.length === 0 ? 'none' : '1px solid rgba(255,255,255,0.1)',
                                         transition: 'all 0.3s ease-in-out'
                                     }}>
-                                        <AiriPanel style={{ width: '100%', height: '100%' }} scale={0.8} yOffset={"-38%"} transparent={true} character={avatarCharacter} />
+                                        <AiriPanel style={{ width: '100%', height: '100%' }} scale={messages.length === 0 ? 0.8 : 0.6} yOffset={messages.length === 0 ? "-38%" : "-44%"} transparent={true} character={avatarCharacter} />
                                     </div>
                                     {messages.length === 0 && (
                                         <div style={{ marginTop: '16px', textAlign: 'center', pointerEvents: 'auto' }}>

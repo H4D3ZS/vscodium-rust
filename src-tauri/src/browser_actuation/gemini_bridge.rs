@@ -16,6 +16,7 @@ impl GeminiBridge {
             tauri::WebviewUrl::External("https://gemini.google.com/app".parse().unwrap()),
         )
         .decorations(false)
+        .visible(false)
         .build()?;
 
         // Inject automation script

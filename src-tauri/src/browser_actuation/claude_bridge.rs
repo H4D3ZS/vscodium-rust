@@ -16,6 +16,7 @@ impl ClaudeBridge {
             tauri::WebviewUrl::External("https://claude.ai/new".parse().unwrap()),
         )
         .decorations(false)
+        .visible(false)
         .build()?;
 
         // Inject automation script

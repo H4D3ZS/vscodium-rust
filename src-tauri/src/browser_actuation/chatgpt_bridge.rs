@@ -16,6 +16,7 @@ impl ChatGPTBridge {
             tauri::WebviewUrl::External("https://chat.openai.com".parse().unwrap()),
         )
         .decorations(false)
+        .visible(false)
         .build()?;
 
         // Inject automation script
