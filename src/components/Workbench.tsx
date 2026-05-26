@@ -40,6 +40,8 @@ function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: st
 
 
 
+import ComposerOverlay from './ComposerOverlay';
+
 const Workbench: React.FC = () => {
     const isSidebarOpen = useStore(state => state.isSidebarOpen);
     const isBottomPanelOpen = useStore(state => state.isBottomPanelOpen);
@@ -544,6 +546,7 @@ const Workbench: React.FC = () => {
                 
                 {/* Ollama Progress Bar */}
                 <OllamaProgressBar />
+                <ComposerOverlay />
         </div >
     );
 };

@@ -25,6 +25,7 @@ const BottomPanel: React.FC = () => {
     const shellDropdownRef = useRef<HTMLDivElement>(null);
     const [outputLogs, setOutputLogs] = useState<string[]>(['[info] vscodium-rust initialized', '[info] Tauri backend connected']);
     const outputEndRef = useRef<HTMLDivElement>(null);
+    const [backgroundJobs, setBackgroundJobs] = useState<any[]>([]);
 
     // Listen for output log events from backend
     useEffect(() => {
@@ -42,6 +43,20 @@ const BottomPanel: React.FC = () => {
     useEffect(() => {
         if (activeTab === 'OUTPUT') outputEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [outputLogs, activeTab]);
+
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (activeTab === 'JOBS') {
+            const fetchJobs = () => {
+                invoke<any[]>('get_background_jobs').then(jobs => {
+                    setBackgroundJobs(jobs);
+                }).catch(() => {});
+            };
+            fetchJobs();
+            interval = setInterval(fetchJobs, 1000);
+        }
+        return () => clearInterval(interval);
+    }, [activeTab]);
 
     // Load available shells on mount
     useEffect(() => {
@@ -119,7 +134,7 @@ const BottomPanel: React.FC = () => {
                 letterSpacing: '0.05em'
             }}>
                 <div className="panel-tabs" style={{ display: 'flex', gap: '2px', height: '100%', alignItems: 'center' }}>
-                    {['Problems', 'Output', 'Debug Console', 'Terminal', 'Composer', 'Ports'].map(tab => (
+                    {['Problems', 'Output', 'Debug Console', 'Terminal', 'Composer', 'Ports', 'Jobs'].map(tab => (
                         <div
                             key={tab}
                             className={`panel-tab ${activeTab === tab.toUpperCase() ? 'active' : ''}`}
@@ -328,6 +343,31 @@ const BottomPanel: React.FC = () => {
                 {activeTab === 'PORTS' && (
                     <div style={{ padding: '32px', color: '#666', fontSize: '12px', textAlign: 'center' }}>
                         PORTS view is currently empty.
+                    </div>
+                )}
+                {activeTab === 'JOBS' && (
+                    <div style={{ padding: '16px', color: 'var(--vscode-foreground)', fontSize: '12px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid var(--vscode-panel-border)', paddingBottom: '8px' }}>
+                            <span style={{ fontWeight: 600 }}>Active Background Jobs (Kiro)</span>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <i className="codicon codicon-refresh" style={{ cursor: 'pointer', opacity: 0.7 }} title="Refresh Jobs"></i>
+                                <i className="codicon codicon-clear-all" style={{ cursor: 'pointer', opacity: 0.7 }} title="Clear Completed"></i>
+                            </div>
+                        </div>
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {backgroundJobs.length === 0 ? (
+                                <div style={{ opacity: 0.5, fontStyle: 'italic', padding: '8px' }}>No active background jobs</div>
+                            ) : backgroundJobs.map(job => (
+                                <div key={job.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--vscode-list-hoverBackground)', padding: '8px 12px', borderRadius: '4px' }}>
+                                    <div className={job.status === 'running' ? 'animate-spin' : ''} style={{ width: '12px', height: '12px', border: '2px solid var(--terminator-accent)', borderTopColor: 'transparent', borderRadius: '50%' }}></div>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontWeight: 500 }}>{job.name}</div>
+                                        <div style={{ opacity: 0.5, fontSize: '10px' }}>{job.status}... {job.progress}%</div>
+                                    </div>
+                                    <i className="codicon codicon-stop" style={{ cursor: 'pointer', color: '#f87171' }} title="Stop Job"></i>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

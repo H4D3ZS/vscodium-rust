@@ -414,6 +414,7 @@ interface AppState {
     isVisualLabSplitView: boolean;
 
     isAiriOpen: boolean;
+    isComposerOpen: boolean;
 
     // Tab History (Alt+←/→)
     tabHistory: string[];
@@ -443,6 +444,7 @@ interface AppState {
     setIsVisualLabSplitView: (isSplit: boolean) => void;
     toggleVisualLab: (open?: boolean) => void;
     toggleAiri: (open?: boolean) => void;
+    toggleComposer: (open?: boolean) => void;
     setLayoutMode: (mode: 'editor' | 'manager' | 'browser') => void;
     setArtifactReviewPolicy: (policy: 'always_proceed' | 'request_review') => void;
     setTerminalAutoExecution: (policy: 'always_proceed' | 'request_review') => void;

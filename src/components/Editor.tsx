@@ -872,19 +872,67 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         const lang = activeTab?.language || 'unknown';
                         const selectedText = sel?.text || '';
 
-                        // Build precise prompt: use str_replace for surgical edit
-                        const fullPrompt = `INLINE EDIT (Ctrl+K)\nFile: ${filePath}\nLanguage: ${lang}\nLines: ${sel?.startLine ?? 1}–${sel?.endLine ?? 1}\n\nInstruction: ${prompt}\n\nSelected code to modify:\n\`\`\`${lang}\n${selectedText}\n\`\`\`\n\nUse str_replace(path="${filePath}", old_str=<exact code above>, new_str=<modified code>) to apply the change. Only change what the instruction asks. Keep surrounding code intact.`;
+                        // Fast path: bypass orchestrator, use ai_chat_fast directly
+                        const fastPrompt = `You are a surgical AI editor.
+Task: Modify the selected code based on the instruction.
+Return ONLY the modified selected code. DO NOT wrap it in markdown block. DO NOT explain. DO NOT output the rest of the file.
+
+File: ${filePath}
+Language: ${lang}
+
+Instruction: ${prompt}
+
+Selected code to modify:
+\`\`\`${lang}
+${selectedText}
+\`\`\`
+`;
 
                         const store = useStore.getState();
-                        store.addAgentMessage('user', `✦ ${prompt}`);
-                        store.addAgentMessage('assistant', '');
                         store.setIsAgentThinking?.(true);
 
                         try {
-                            await sendAgentMessage(fullPrompt, () => { });
+                            const { invoke } = await import('@tauri-apps/api/core');
+                            
+                            // Send fast inference request
+                            let replacement = await invoke<string>('ai_chat_fast', {
+                                request: {
+                                    messages: [{ role: 'user', content: fastPrompt }],
+                                    max_tokens: 4096,
+                                    temperature: 0.1,
+                                    provider: 'google', // auto-resolved in backend
+                                    model: store.currentModel || 'gemini-2.5-pro'
+                                }
+                            });
+                            
+                            // Clean up any markdown blocks if the model ignored instructions
+                            if (replacement.startsWith('```')) {
+                                const lines = replacement.split('\\n');
+                                if (lines[0].startsWith('```')) lines.shift();
+                                if (lines[lines.length - 1].startsWith('```')) lines.pop();
+                                replacement = lines.join('\\n');
+                            }
+
+                            const oldContent = activeTab?.content || '';
+                            const newContent = oldContent.replace(selectedText, replacement);
+
+                            // Push to backend shadow workspace so it can be accepted/rejected
+                            await invoke('propose_fast_edit', {
+                                path: filePath,
+                                newContent: newContent
+                            });
+
+                            // Tell frontend state to render DiffViewer
+                            store.proposePendingChange({
+                                path: filePath,
+                                description: prompt,
+                                oldContent: oldContent,
+                                newContent: newContent,
+                            });
                         } catch (error: any) {
-                            store.setIsAgentThinking?.(false);
                             store.updateLastAgentMessage(`**Error:** ${error.message || error}`);
+                        } finally {
+                            store.setIsAgentThinking?.(false);
                         }
                     }}
                 />

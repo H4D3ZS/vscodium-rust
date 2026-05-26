@@ -63,6 +63,7 @@ mod visual_lab;
 mod voice_commands;
 mod web_commands;
 mod workflow_engine;
+pub mod jobs;
 
 // ═══ APEX Intelligence Framework ═══
 mod activation;
@@ -119,6 +120,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             app.manage(EditorState::new(app.handle()));
+            app.manage(std::sync::Arc::new(jobs::JobManager::new()));
             let iphone_manager = iphone_emulator::IPhoneEmulatorManager::new();
             app.manage(iphone_manager);
             hades_vision::init_hades_vision(
@@ -246,6 +248,9 @@ pub fn run() {
             // ═══ AI Patching ═══
             ai_patch_commands::accept_sentient_patch,
             ai_patch_commands::reject_sentient_patch,
+            ai_patch_commands::propose_fast_edit,
+            // ═══ Background Jobs ═══
+            jobs::get_background_jobs,
             // ═══ APEX Intelligence ═══
             apex_commands::apex_architect_design,
             apex_commands::apex_architect_scaffold,

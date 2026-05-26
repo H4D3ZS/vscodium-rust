@@ -182,7 +182,7 @@ async fn main() {
 
     let state = AppState {
         http_client: Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_secs(600))
             .build()
             .expect("Failed to build HTTP client"),
         target_ollama: "http://127.0.0.1:11434".to_string(),
@@ -385,10 +385,13 @@ async fn intercept_ollama(
     println!("🟢 [AIM-PROXY] Captured Ollama request");
 
     let aim_text = get_aim_text(&state).await;
+    // For Ollama (local GPU), we MUST limit the context injection severely 
+    // to prevent memory exhaustion and hanging on cards like the RX 580.
+    // We limit to 1500 chars which is enough for the top-level repo summary.
     let gist_prefix = if aim_text.is_empty() {
         "[AIM-VFS]: No context. Run NeuralDrive.".to_string()
     } else {
-        format!("[KORTEX_GIST_INJECTED]\n{}", &aim_text[..aim_text.len().min(40_000)])
+        format!("[KORTEX_GIST_INJECTED]\n{}", &aim_text[..aim_text.len().min(1500)])
     };
 
     // Legacy prompt field (generate endpoint)

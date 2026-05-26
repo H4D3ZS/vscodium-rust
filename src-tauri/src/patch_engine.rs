@@ -157,4 +157,14 @@ impl PatchEngine {
     pub fn discard_shadow(&mut self, path: &Path) {
         self.shadow_buffers.remove(path);
     }
+
+    pub fn set_shadow_buffer(&mut self, path: &Path, content: &str) -> Result<()> {
+        let rope = Rope::from_str(content);
+        self.shadow_buffers.insert(path.to_path_buf(), rope);
+        
+        let shadow_path = self.shadow_workspace.mirror_file(path)?;
+        std::fs::write(&shadow_path, content)?;
+        
+        Ok(())
+    }
 }

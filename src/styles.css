@@ -202,16 +202,17 @@
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: "SF Mono", Monaco, Menlo, Consolas, "JetBrains Mono", monospace;
 
-  /* Native IDE Theme Tokens (Replacing glassmorphism) */
-  --panel-bg: var(--vscode-sideBar-background);
-  --panel-border: var(--vscode-sideBar-border, rgba(0, 0, 0, 0.2));
-  --sidebar-bg: var(--vscode-sideBar-background);
-  --glass-border: rgba(255, 255, 255, 0.08);
+  /* Antigravity IDE Premium Glassmorphism Tokens */
+  --panel-bg: rgba(30, 30, 30, 0.65);
+  --panel-border: rgba(255, 255, 255, 0.1);
+  --sidebar-bg: rgba(37, 37, 38, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-blur: blur(12px) saturate(180%);
 
-  /* Native-like Shadows */
-  --shadow-macos: 0 10px 30px rgba(0, 0, 0, 0.45);
-  --shadow-menu: 0 5px 15px rgba(0, 0, 0, 0.4);
-  --shadow-tooltip: 0 2px 8px rgba(0, 0, 0, 0.45);
+  /* Premium Shadows */
+  --shadow-macos: 0 12px 40px rgba(0, 0, 0, 0.65);
+  --shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.55);
+  --shadow-tooltip: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 body {
@@ -287,14 +288,16 @@ body:not(.has-airi-wallpaper)::after {
   pointer-events: none;
 }
 
-/* Centralized Native Theming (No Glassmorphism) */
+/* Antigravity IDE Glassmorphism Core */
 body.has-airi-wallpaper .sidebar,
 body.has-airi-wallpaper .bottom-panel,
 body.has-airi-wallpaper .right-sidebar,
 body.has-airi-wallpaper .activity-bar,
 body.has-airi-wallpaper #title-bar {
-  background: transparent !important;
-  /* NO BLUR, NO SATURATE */
+  background: var(--sidebar-bg) !important;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-border);
 }
 
 /* Base Panel Variables for Theme Reactivity */
@@ -380,25 +383,28 @@ body.has-airi-wallpaper #title-bar {
   color: var(--vscode-sideBar-foreground);
 }
 
-/* Global transparent state for Doki Themes */
+/* Global transparent state for Antigravity Theme */
 body.has-airi-wallpaper .sidebar,
 body.has-airi-wallpaper .activity-bar,
 body.has-airi-wallpaper .bottom-panel,
 body.has-airi-wallpaper .sidebar-section-header,
 body.has-airi-wallpaper .pane-header {
-  background: rgba(var(--vscode-sideBar-background-rgb), 0.75) !important;
+  background: rgba(30, 30, 31, 0.55) !important;
+  backdrop-filter: var(--glass-blur);
 }
 
 body.has-airi-wallpaper .right-sidebar {
-  background: rgba(var(--vscode-sideBar-background-rgb), 0.75) !important;
+  background: rgba(37, 37, 38, 0.6) !important;
+  backdrop-filter: var(--glass-blur);
 }
 
 body.has-airi-wallpaper .editor-container {
-  background: rgba(var(--vscode-editor-background-rgb), 0.75) !important;
+  background: rgba(30, 30, 30, 0.5) !important;
 }
 
 body.has-airi-wallpaper .activity-bar {
-  background-color: rgba(var(--vscode-activityBar-background-rgb, 30, 30, 31), 0.6) !important;
+  background-color: rgba(45, 45, 45, 0.5) !important;
+  backdrop-filter: var(--glass-blur);
 }
 
 .terminal-body,
