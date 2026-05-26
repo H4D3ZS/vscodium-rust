@@ -171,13 +171,19 @@ Respond with queries separated by newlines.
     return new Promise((resolve, reject) => {
       const protocol = url.startsWith('https') ? https : http;
 
-      protocol.get(url, { timeout: 10000 }, (res) => {
+      const req = protocol.get(url, (res) => {
         let data = '';
 
-        res.on('data', (chunk) => data += chunk);
+        res.on('data', (chunk: any) => data += chunk);
         res.on('end', () => resolve(data));
         res.on('error', reject);
-      }).on('error', reject);
+      });
+      
+      req.on('error', reject);
+      req.setTimeout(10000, () => {
+        req.destroy();
+        reject(new Error('Request timed out'));
+      });
     });
   }
 
