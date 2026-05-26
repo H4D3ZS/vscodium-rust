@@ -289,7 +289,8 @@ async fn intercept_anthropic(
 fn inject_aim_into_anthropic_system(payload: &mut Value, aim_text: &str) {
     let aim_block = json!({
         "type": "text",
-        "text": aim_text
+        "text": aim_text,
+        "cache_control": { "type": "ephemeral" }
     });
 
     match payload.get_mut("system") {
