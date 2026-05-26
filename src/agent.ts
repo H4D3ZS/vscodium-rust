@@ -1584,7 +1584,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // If the user has configured a dedicated Chat model, use it.
     // This fires before the generic provider/model resolution below so the
     // per-feature selection takes precedence over the global agentModel.
-    const chatModelSel = (storeState as any).modelSelectionOfFeature?.['Chat'];
+    const chatModelSel = (store.getState() as any).modelSelectionOfFeature?.['Chat'];
     const effectiveAgentModel = (chatModelSel?.modelName && chatModelSel?.providerName)
         ? `${chatModelSel.providerName}|${chatModelSel.modelName}`
         : agentModel;
