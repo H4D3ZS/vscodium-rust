@@ -57,6 +57,10 @@ api_keys.json
 .kortex/
 **/.kortex/
 
+# AIM neural memory — large binaries, never commit
+.aim/
+**/.aim/
+
 # Rust
 src-tauri/target/
 src-tauri/zed/
