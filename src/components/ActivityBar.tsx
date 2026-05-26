@@ -22,7 +22,7 @@ const ActivityBar: React.FC = () => {
     );
 
     const items = [
-        { id: 'agent-manager', icon: 'robot', title: 'Agent Manager' },
+        { id: 'agent-manager', icon: 'robot', title: 'AI Agent & Chat' },
         { id: 'explorer-view', icon: 'files', title: 'Explorer' },
         { id: 'search-view', icon: 'search', title: 'Search' },
         { id: 'scm-view', icon: 'source-control', title: 'Source Control' },
@@ -90,7 +90,7 @@ const ActivityBar: React.FC = () => {
                                     } else {
                                         store.openAiriPanel();
                                         setTimeout(() => {
-                                            window.dispatchEvent(new CustomEvent('right-sidebar:set-view', { detail: { view: 'manager' } }));
+                                            window.dispatchEvent(new CustomEvent('right-sidebar:set-view', { detail: { view: 'chat' } }));
                                         }, 10);
                                     }
                                 }

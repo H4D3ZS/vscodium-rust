@@ -365,7 +365,7 @@ interface AppState {
     currentThought: { logic: string, action: string, confidence?: number } | null;
 
     // Google Antigravity Expanded State
-    layoutMode: 'editor' | 'manager' | 'browser';
+    layoutMode: 'editor' | 'browser';
     artifactReviewPolicy: 'always_proceed' | 'request_review';
     terminalAutoExecution: 'always_proceed' | 'request_review';
     agentThreads: Record<string, {
@@ -448,7 +448,7 @@ interface AppState {
     toggleVisualLab: (open?: boolean) => void;
     toggleAiri: (open?: boolean) => void;
     toggleComposer: (open?: boolean) => void;
-    setLayoutMode: (mode: 'editor' | 'manager' | 'browser') => void;
+    setLayoutMode: (mode: 'editor' | 'browser') => void;
     setArtifactReviewPolicy: (policy: 'always_proceed' | 'request_review') => void;
     setTerminalAutoExecution: (policy: 'always_proceed' | 'request_review') => void;
     createAgentThread: (name: string) => string;

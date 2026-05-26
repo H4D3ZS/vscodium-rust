@@ -10,7 +10,7 @@ import VisualLab from './visual/VisualLab';
 import SpecsToCodeWizard from './SpecsToCodeWizard';
 import { useStore } from '../store';
 import { Sparkles, Zap, Bot, Globe, Layout as LayoutIcon } from 'lucide-react';
-import AgentManager from './AgentManager/AgentManager';
+
 import BrowserSurface from './BrowserSurface';
 import DiffViewer from './DiffViewer';
 import { PlanningPanel } from './PlanningPanel';
@@ -456,8 +456,6 @@ const Workbench: React.FC = () => {
                             </div>
                         </div>
                     </main>
-                ) : layoutMode === 'manager' ? (
-                    <AgentManager />
                 ) : (
                     <BrowserSurface />
                 )}
@@ -478,14 +476,14 @@ const Workbench: React.FC = () => {
                 className="right-sidebar-container"
                 style={{
                     display: 'flex',
-                    width: (isRightSidebarOpen && layoutMode !== 'manager') ? `${rightSidebarWidth}px` : '0px',
+                    width: isRightSidebarOpen ? `${rightSidebarWidth}px` : '0px',
                     transition: 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     position: 'relative',
                     flexShrink: 0,
                     overflow: 'visible'
                 }}
             >
-                {(isRightSidebarOpen && layoutMode !== 'manager') && (
+                {isRightSidebarOpen && (
                     <div
                         className="resizer-v"
                         id="right-sidebar-resizer"

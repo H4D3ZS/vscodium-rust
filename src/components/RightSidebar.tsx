@@ -15,7 +15,8 @@ import AiriConversation from './AiriConversation';
 import MessageBody from './agent/MessageBody';
 import UnifiedEmulatorPanel from './UnifiedEmulatorPanel';
 import SpecsManager from './SpecsManager';
-import AgentManager from './AgentManager/AgentManager';
+import RulesManager from './RulesManager';
+import { Check, Activity, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 
 
 // ── Restore-checkpoint banner ────────────────────────────────────────────
@@ -96,6 +97,67 @@ const MultiFileReviewBanner: React.FC = () => {
                 background: '#4ade80', color: '#000', padding: '2px 8px', fontSize: 10,
                 fontWeight: 600, borderRadius: 4,
             }}>Review</span>
+        </div>
+    );
+};
+
+const TaskRoadmap: React.FC = () => {
+    const currentPhase = useStore(state => state.currentPhase);
+    const status = useStore(state => state.currentPhaseStatus);
+    const isThinking = useStore(state => state.isAgentThinking);
+
+    if (currentPhase === 'IDLE' || !isThinking) return null;
+
+    const phases = ['ANALYZE', 'PLAN', 'EXECUTE', 'VERIFY', 'REPORT'];
+    const activeIndex = phases.indexOf(currentPhase);
+
+    return (
+        <div className="task-roadmap" style={{
+            margin: '8px 10px',
+            padding: '10px 12px',
+            background: 'rgba(168,85,247,0.04)',
+            border: '1px solid rgba(168,85,247,0.15)',
+            borderRadius: '6px',
+            animation: 'fadeIn 0.3s ease-out'
+        }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                {phases.map((p, i) => (
+                    <div key={p} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flex: 1, position: 'relative' }}>
+                        <div style={{
+                            width: '18px',
+                            height: '18px',
+                            borderRadius: '50%',
+                            background: i <= activeIndex ? '#c084fc' : 'var(--vscode-panel-border)',
+                            color: i <= activeIndex ? '#000' : 'var(--vscode-foreground)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '9px',
+                            fontWeight: 700,
+                            zIndex: 2,
+                            boxShadow: i === activeIndex ? '0 0 6px #c084fc' : 'none'
+                        }}>
+                            {i < activeIndex ? '✓' : i + 1}
+                        </div>
+                        <span style={{ fontSize: '7.5px', fontWeight: 600, opacity: i <= activeIndex ? 1 : 0.4 }}>{p}</span>
+                        {i < phases.length - 1 && (
+                            <div style={{
+                                position: 'absolute',
+                                left: '50%',
+                                top: '9px',
+                                width: '100%',
+                                height: '2px',
+                                background: i < activeIndex ? '#c084fc' : 'var(--vscode-panel-border)',
+                                zIndex: 1
+                            }} />
+                        )}
+                    </div>
+                ))}
+            </div>
+            <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Activity size={12} style={{ color: '#c084fc' }} className="animate-pulse" />
+                <span style={{ fontWeight: 600, fontSize: '9.5px', color: 'rgba(255,255,255,0.85)' }}>{status}</span>
+            </div>
         </div>
     );
 };
@@ -486,6 +548,66 @@ const RightSidebar: React.FC = () => {
     const [airiSpeaking, setAiriSpeaking] = useState(false);
     const [ttsEnabled, setTtsEnabled] = useState(true); // Enable by default
     const [ttsPreset, setTtsPreset] = useState<'airi' | 'sage' | 'nova' | 'kawaii' | 'yamato' | 'hana' | 'ren' | 'yuki' | 'haru' | 'sora' | 'zero' | 'aria'>('airi');
+    const [isVoiceListening, setIsVoiceListening] = useState(false);
+    const recognitionRef = useRef<any>(null);
+
+    const toggleVoiceInput = () => {
+        if (isVoiceListening) {
+            stopVoiceInput();
+        } else {
+            startVoiceInput();
+        }
+    };
+
+    const startVoiceInput = () => {
+        stop(); // Stop agent speaking before user speaks
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            console.warn('[VRD] Web Speech Recognition not supported in this environment.');
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+
+        recognition.onstart = () => {
+            setIsVoiceListening(true);
+        };
+
+        recognition.onresult = (event: any) => {
+            const transcript = Array.from(event.results)
+                .map((result: any) => result[0].transcript)
+                .join('');
+            setInputValue(transcript);
+        };
+
+        recognition.onend = () => {
+            setIsVoiceListening(false);
+            setTimeout(() => {
+                const text = inputRef.current?.value || '';
+                if (text.trim()) {
+                    onSend(text);
+                }
+            }, 200);
+        };
+
+        recognition.onerror = (e: any) => {
+            console.error('[VRD] Recognition error:', e);
+            setIsVoiceListening(false);
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+    };
+
+    const stopVoiceInput = () => {
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+        }
+        setIsVoiceListening(false);
+    };
     const [airiEmotion, setAiriEmotion] = useState<'neutral' | 'happy' | 'thinking' | 'excited' | 'concerned'>('neutral');
     const [digitalLifeActive, setDigitalLifeActive] = useState(false);
 
@@ -1415,7 +1537,7 @@ const RightSidebar: React.FC = () => {
                     flexWrap: 'wrap'
                 }}>
                     <div style={{ display: 'flex', gap: '2px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        {['chat', 'emulator', 'kortex', 'manager', 'history', 'dashboard', 'research', 'specs', 'rules'].map(v => (
+                        {['chat', 'emulator', 'kortex', 'history', 'dashboard', 'research', 'specs', 'rules'].map(v => (
                             <button
                                 key={v}
                                 onClick={() => {
@@ -1440,7 +1562,7 @@ const RightSidebar: React.FC = () => {
                                 }}
                                 className="hoverable"
                             >
-                                {v === 'manager' ? 'agent' : v}
+                                {v}
                             </button>
                         ))}
                     </div>
@@ -2010,6 +2132,9 @@ const RightSidebar: React.FC = () => {
                                     );
                                 })()}
 
+                                {/* Agent Task Roadmap */}
+                                <TaskRoadmap />
+
                                 {/* Agent task progress bars */}
                                 {agentTasks.filter((t: any) => t.status === 'running' && t.id.includes('-')).map((task: any) => (
                                     <div key={task.id} style={{
@@ -2301,10 +2426,6 @@ const RightSidebar: React.FC = () => {
                             <SpecsManager />
                         ) : view === 'rules' ? (
                             <RulesManager />
-                        ) : view === 'manager' ? (
-                            <div className="right-sidebar-active-surface" style={{ justifyContent: 'flex-start', alignItems: 'stretch' }}>
-                                <AgentManager />
-                            </div>
                         ) : null}
                     </div>
                 )}
@@ -2455,6 +2576,45 @@ const RightSidebar: React.FC = () => {
                                     <span onClick={onModelClick} style={{ fontSize: '10px', opacity: model ? 0.5 : 0.9, cursor: 'pointer', color: model ? undefined : '#f59e0b' }} className="hoverable-bg">{modelLabel}</span>
                                     {/* Void: Reasoning toggle */}
                                     <ReasoningToggle />
+                                    
+                                    <div
+                                        onClick={() => setTtsEnabled(!ttsEnabled)}
+                                        style={{ cursor: 'pointer', opacity: ttsEnabled ? 0.9 : 0.4, display: 'flex', alignItems: 'center', color: ttsEnabled ? '#c084fc' : undefined }}
+                                        className="hoverable-bg"
+                                        title={ttsEnabled ? 'Vocal Mode ON' : 'Muted'}
+                                    >
+                                        {ttsEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+                                    </div>
+                                    {ttsEnabled && (
+                                        <select
+                                            value={ttsPreset}
+                                            onChange={(e) => setTtsPreset(e.target.value as any)}
+                                            style={{
+                                                height: '20px',
+                                                background: 'rgba(255,255,255,0.04)',
+                                                border: '1px solid rgba(255,255,255,0.10)',
+                                                borderRadius: '4px',
+                                                color: 'rgba(255,255,255,0.72)',
+                                                fontSize: '9px',
+                                                outline: 'none',
+                                            }}
+                                            title="Voice Preset"
+                                        >
+                                            <option value="airi">Airi (EN)</option>
+                                            <option value="sage">Sage (EN)</option>
+                                            <option value="nova">Nova (EN)</option>
+                                            <option value="aria">Aria (EN)</option>
+                                            <option value="kawaii">Kawaii (JP)</option>
+                                            <option value="yamato">Yamato (JP)</option>
+                                            <option value="hana">Hana (JP)</option>
+                                            <option value="ren">Ren (JP)</option>
+                                            <option value="yuki">Yuki (JP)</option>
+                                            <option value="haru">Haru (JP)</option>
+                                            <option value="sora">Sora (JP)</option>
+                                            <option value="zero">Zero (JP)</option>
+                                        </select>
+                                    )}
+
                                     {webUiProviderKey && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                             <select
@@ -2497,6 +2657,21 @@ const RightSidebar: React.FC = () => {
                                                 <option value="add_account">+ Add Account...</option>
                                             </select>
                                             {activeWebuiSessionId && (
+                                                <div
+                                                    onClick={async () => {
+                                                        try {
+                                                            await invoke('toggle_webui_window_visibility', { sessionId: activeWebuiSessionId });
+                                                        } catch (err) {
+                                                            console.error('Failed to toggle window:', err);
+                                                        }
+                                                    }}
+                                                    style={{ cursor: 'pointer', opacity: 0.8, display: 'flex', alignItems: 'center', padding: '2px 4px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px' }}
+                                                    title="Show/Hide Session Window"
+                                                >
+                                                    <i className="codicon codicon-eye" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
+                                                </div>
+                                            )}
+                                            {activeWebuiSessionId && (
                                                 <i
                                                     className="codicon codicon-trash"
                                                     onClick={async () => {
@@ -2523,6 +2698,21 @@ const RightSidebar: React.FC = () => {
                                     </span>
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <div
+                                        onClick={toggleVoiceInput}
+                                        style={{
+                                            cursor: 'pointer',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            width: '24px', height: '24px', borderRadius: '4px',
+                                            background: isVoiceListening ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
+                                            color: isVoiceListening ? '#ef4444' : 'rgba(255,255,255,0.5)',
+                                            border: isVoiceListening ? '1px solid rgba(239,68,68,0.4)' : '1px solid transparent',
+                                            animation: isVoiceListening ? 'pulse 1.5s infinite' : 'none'
+                                        }}
+                                        title={isVoiceListening ? "Stop Dictation" : "Start Voice Dictation"}
+                                    >
+                                        {isVoiceListening ? <MicOff size={14} /> : <Mic size={14} />}
+                                    </div>
                                     <div style={{
                                         display: 'flex',
                                         gap: '10px',

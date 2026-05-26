@@ -185,6 +185,7 @@ pub fn run() {
             auth_commands::get_stored_token,
             auth_commands::send_webui_prompt,
             auth_commands::save_webui_response,
+            auth_commands::toggle_webui_window_visibility,
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
             ai_commands::ai_chat_fast,

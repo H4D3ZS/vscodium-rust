@@ -783,4 +783,42 @@ fn open_browser(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub async fn toggle_webui_window_visibility(
+    app: tauri::AppHandle,
+    session_id: String,
+) -> Result<bool, String> {
+    let (provider_key, account_key) = {
+        let sessions = OAUTH_SESSIONS.lock().unwrap();
+        if let Some(session) = sessions.get(&session_id) {
+            (session.provider.clone(), session.account.clone())
+        } else {
+            return Err(format!("Session not found: {}", session_id));
+        }
+    };
+
+    let label = format!(
+        "webui_{}_{}",
+        provider_key
+            .replace(" (webui)", "")
+            .replace("-webui", "")
+            .replace(' ', "_"),
+        account_key
+    );
+
+    if let Some(window) = app.get_webview_window(&label) {
+        let is_visible = window.is_visible().unwrap_or(false);
+        if is_visible {
+            let _ = window.hide();
+            Ok(false)
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+            Ok(true)
+        }
+    } else {
+        Err(format!("No active WebUI window found for session: {}", session_id))
+    }
+}
+
 // Removed legacy platform module decoration
