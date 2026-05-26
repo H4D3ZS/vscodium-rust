@@ -24,7 +24,8 @@
         "fullscreen": false,
         "decorations": false,
         "transparent": false,
-        "maximized": false
+        "maximized": false,
+        "additionalBrowserArgs": "--disable-features=msTrackingPrevention"
       }
     ],
     "security": {

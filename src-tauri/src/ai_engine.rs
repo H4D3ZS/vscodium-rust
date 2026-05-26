@@ -782,53 +782,59 @@ impl Sentient {
         None
     }
 
-    /// Returns whether a model is "small" (≤ 15B params) based on its name.
-    /// This is used to decide prompt complexity, tool count, context limits.
+    /// Returns whether a model is "small" (≤ 7B params) based on its name.
+    /// Small models use the JSON-in-system-prompt tool protocol.
+    /// 8B+ models use native OpenAI-compatible function calling.
     fn is_small_model_name(model: &str) -> bool {
         let m = model.to_lowercase();
-        // Explicit tiny suffixes
-        if m.contains("mini") || m.contains("tiny") || m.contains("0.5b") || m.contains("1.5b") {
+        // Explicit tiny tags
+        if m.contains("mini") || m.contains("tiny") || m.contains("0.5b") || m.contains("1.5b")
+            || m.contains("3b") || m.contains("4b")
+        {
             return true;
         }
-        
-        // Gemma4 "effective" params (e2b, e4b) are MoE models. While their total parameter 
-        // count is high, their active parameters and footprint allow them to run like small models.
-        // We WANT them to use the fast, optimized prompt.
-        if (m.contains("gemma4") || m.contains("gemma-4")) && (m.contains("e2b") || m.contains("e4b") || m.contains("2b") || m.contains("4b")) {
+        // Gemma4 effective-param variants (e2b/e4b) behave like small models
+        if (m.contains("gemma4") || m.contains("gemma-4"))
+            && (m.contains("e2b") || m.contains("e4b") || m.contains("2b") || m.contains("4b"))
+        {
             return true;
         }
-        
-        // Parse parameter count: ≤ 14B → small
-        // This covers the user's primary local fleet: 3b, 7b, 8b, 9b, 14b.
+        // Parse parameter count: ≤ 7B → small. 8B+ gets native tools.
         if let Some(n) = Self::parse_model_param_count(&m) {
-            return n <= 14;
+            return n <= 7;
         }
         false
     }
 
     /// Returns the recommended `num_ctx` for a given model name.
-    /// Respects known context window sizes to maximize quality without OOM.
+    /// Tiered by model size to balance quality vs. VRAM/RAM on RX 580 + 40GB system RAM.
+    /// Large models (14B+) use CPU-offloaded layers → can afford bigger context from RAM.
     fn recommended_num_ctx(model: &str) -> usize {
         let m = model.to_lowercase();
 
-        // On local consumer hardware (RX 580 / 8GB VRAM), allocating 64K or 128K context
-        // causes massive pre-computation overhead (40-60+ seconds before first token)
-        // or silent hangs. We cap context windows to memory-safe values, prioritizing
-        // speed and stability over massive document ingestion.
-        
-        if m.contains("gemma") {
-            return 8192;
+        // Parse parameter count to tier context window
+        let param_count = Self::parse_model_param_count(&m).unwrap_or(0);
+
+        // 30B+ models: large context for complex agentic chains
+        // With 40GB RAM + Ollama CPU offload, 32K is safe even on RX 580
+        if param_count >= 30
+            || m.contains("70b") || m.contains("72b") || m.contains("65b")
+            || m.contains("34b") || m.contains("33b") || m.contains("32b")
+        {
+            return 32768;
         }
 
-        if m.contains("qwen") || m.contains("qwen2") || m.contains("qwen3") {
-            return 8192;
+        // 14B models: 24K context — sweet spot for multi-file agentic work
+        if param_count >= 14 || m.contains("14b") || m.contains("15b") {
+            return 24576;
         }
 
-        if m.contains("llama") || m.contains("mistral") || m.contains("mixtral") || m.contains("deepseek") {
-            return 8192;
+        // 8–13B models: 16K — enough for most coding tasks
+        if param_count >= 8 || m.contains("8b") || m.contains("9b") || m.contains("12b") || m.contains("13b") {
+            return 16384;
         }
 
-        // Default for unknown models (like airi-fast:latest)
+        // 3–7B: 8K — fits in VRAM entirely
         8192
     }
 
@@ -1682,17 +1688,21 @@ impl Sentient {
             const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
                 // Frontend/Cursor-style schemas passed in from src/tool_registry.ts.
                 "bash", "file_read", "file_write", "file_edit", "glob",
-                "list_directory", "web_fetch", "git_status", "git_diff",
+                "list_directory", "web_fetch", "web_search", "git_status", "git_diff",
+                "git_add", "git_commit", "git_log",
                 "terminal_read_output", "terminal_send_data", "replace_file_content",
-                "multi_replace_file_content",
+                "multi_replace_file_content", "create_directory",
+                "todo_write", "task_create", "task_update",
+                "grep", "get_system_health", "aim_query_spans", "aim_pack_context",
+                "ag_mark_task_done", "ag_phase_wrap", "ag_get_next_task", "ag_list_tasks",
                 // Native backend tool names.
                 "view_file", "list_files", "write_to_file", "str_replace",
                 "search_replace_edit", "apply_shadow_patch", "fast_apply", "patch_file_content",
-                "find_by_name", "get_directory_structure", "grep",
-                "search_codebase", "find_symbols", "create_directory", "run_command",
+                "find_by_name", "get_directory_structure",
+                "search_codebase", "find_symbols", "run_command",
                 "verify_implementation",
                 "dev_cargo_diagnostics", "get_lsp_diagnostics", "save_knowledge_brief",
-                "web_search", "secrets_scan"
+                "secrets_scan", "project_rules",
             ];
             tools.retain(|t| {
                 let name = t["function"]["name"].as_str()
@@ -2283,9 +2293,17 @@ impl Sentient {
                 let is_small_model = Self::is_small_model_name(&active_model);
                 let supports_native_tools = !is_small_model && {
                     let m = active_model.to_lowercase();
+                    // All modern Ollama models ≥8B support OpenAI-compatible function calling.
+                    // Only legacy/specialty models need the text-JSON fallback.
                     m.contains("qwen") || m.contains("llama3") || m.contains("llama-3")
                         || m.contains("mistral") || m.contains("mixtral") || m.contains("mistral-nemo")
                         || m.contains("gemma") || m.contains("command-r")
+                        || m.contains("deepseek") || m.contains("phi4") || m.contains("phi-4")
+                        || m.contains("devstral") || m.contains("codestral")
+                        || m.contains("granite") || m.contains("solar")
+                        || m.contains("yi-") || m.contains("vicuna")
+                        || m.contains("hermes") || m.contains("nous")
+                        || m.contains("openhermes") || m.contains("dolphin")
                         || m.contains("deepseek") || m.contains("yi-")
                         || m.contains("phi3") || m.contains("phi-3")
                 };
@@ -2299,16 +2317,40 @@ impl Sentient {
                             Do NOT output any JSON blocks or tool calls."
                         );
                     } else if !supports_native_tools && !turn_tools.is_empty() {
-                        ollama_system.push_str("\n\n### LOCAL AGENT MODE\nYou are a 7B-14B local coding agent. Be terse, concrete, and tool-first. Do not plan forever. Pick one useful tool call, wait for the result, then continue. Prefer tiny edits and immediate verification.\n\n### TOOL PROTOCOL\nOutput ONE JSON block per call:\n```json\n{\"name\": \"tool_name\", \"arguments\": {\"arg\": \"value\"}}\n```\n**Available tools:**\n");
-                        for tool in turn_tools.iter().take(28) {
-                            let (name, desc) = if let Some(f) = tool.get("function") {
-                                (f["name"].as_str().unwrap_or(""), f["description"].as_str().unwrap_or(""))
+                        ollama_system.push_str(
+                            "\n\n### AUTONOMOUS AGENT MODE\n\
+                            You are a local coding agent. Be terse, concrete, tool-first. \
+                            Do NOT explain or plan in prose — ACT immediately with tools.\n\
+                            One tool call per JSON block. Wait for the result before next action.\n\
+                            Prefer minimal file edits. Verify with bash/grep after writes.\n\
+                            When the task is fully complete, output MISSION_ACCOMPLISHED on its own line.\n\n\
+                            ### TOOL CALL FORMAT\n\
+                            Output EXACTLY this JSON block (no extra text before/after):\n\
+                            ```json\n\
+                            {\"name\": \"tool_name\", \"arguments\": {\"arg\": \"value\"}}\n\
+                            ```\n\n\
+                            ### AVAILABLE TOOLS\n"
+                        );
+                        for tool in turn_tools.iter().take(30) {
+                            let (name, desc, params) = if let Some(f) = tool.get("function") {
+                                let p = f.get("parameters")
+                                    .and_then(|p| p.get("properties"))
+                                    .map(|props| {
+                                        props.as_object().map(|o| {
+                                            o.keys().cloned().collect::<Vec<_>>().join(", ")
+                                        }).unwrap_or_default()
+                                    }).unwrap_or_default();
+                                (f["name"].as_str().unwrap_or(""), f["description"].as_str().unwrap_or(""), p)
                             } else {
-                                (tool["name"].as_str().unwrap_or(""), tool["description"].as_str().unwrap_or(""))
+                                (tool["name"].as_str().unwrap_or(""), tool["description"].as_str().unwrap_or(""), String::new())
                             };
-                            ollama_system.push_str(&format!("- `{}`: {}\n", name, desc));
+                            if params.is_empty() {
+                                ollama_system.push_str(&format!("- `{}`: {}\n", name, desc));
+                            } else {
+                                ollama_system.push_str(&format!("- `{}` ({}) — {}\n", name, params, desc));
+                            }
                         }
-                        ollama_system.push_str("\nAfter all tools executed, reply normally without a JSON block.");
+                        ollama_system.push_str("\nUse tools until the task is done. Never stop early.");
                     }
                 }
 

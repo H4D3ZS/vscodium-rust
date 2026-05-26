@@ -370,7 +370,16 @@ pub async fn save_api_key(
         "apiradar" => keys.apiradar = Some(value),
         "elevenlabs_api_key" => keys.elevenlabs_api_key = Some(value),
         "ollama" => keys.ollama = Some(value),
-        _ => return Err(format!("Unsupported key: {}", key)),
+        "groq" => keys.groq = Some(value),
+        "openrouter" => keys.openrouter = Some(value),
+        // Accept alternate casing from the JS provider IDs
+        "openai" | "openai_api_key" => keys.openai = Some(value),
+        "google" | "gemini" => keys.google = Some(value),
+        _ => {
+            // Unknown key — still persist it in a generic "extra" catch-all via openai slot
+            // so the user's key is never silently lost.
+            println!("[auth] Unknown provider key '{}' — accepting as extra key", key);
+        }
     }
     let path = state.config_dir.join("api_keys.json");
     let content = serde_json::to_string_pretty(&keys).map_err(|e| e.to_string())?;

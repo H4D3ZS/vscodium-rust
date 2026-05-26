@@ -347,9 +347,17 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             });
 
             // ── Ghost Text / Inline Completions (Tab to accept) ────────────
+            // Respects tabPredictionEnabled / voidGlobalSettings.enableAutocomplete.
+            // Uses the per-feature Autocomplete model when configured.
             let inlineTimer: any = null;
             const inlineDisposable = monaco.languages.registerInlineCompletionsProvider(lang, {
                 provideInlineCompletions: async (model, position, _ctx, token) => {
+                    // Check kill switches
+                    const st = (window as any).useStore?.getState?.() || {};
+                    const autocompleteOn = st.tabPredictionEnabled !== false
+                        && st.voidGlobalSettings?.enableAutocomplete !== false;
+                    if (!autocompleteOn) return { items: [] };
+
                     if (inlineTimer) clearTimeout(inlineTimer);
                     const suggestion = await new Promise<string | null>(resolve => {
                         inlineTimer = setTimeout(async () => {
@@ -367,16 +375,19 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                                 endColumn: model.getLineMaxColumn(Math.min(model.getLineCount(), position.lineNumber + 15)),
                             });
                             if (textBefore.trim().length < 3) return resolve(null);
+                            // Void: use per-feature Autocomplete model if configured
+                            const acSel = st.modelSelectionOfFeature?.['Autocomplete'];
                             try {
                                 const res = await invoke<string>('ai_inline_complete', {
                                     prefix: textBefore,
                                     suffix: textAfter,
                                     language: lang,
                                     filePath: activeTab?.path || '',
+                                    ...(acSel?.modelName ? { model: acSel.modelName, provider: acSel.providerName } : {}),
                                 });
                                 resolve(res ?? null);
                             } catch { resolve(null); }
-                        }, 400);
+                        }, 600); // 600ms debounce — avoids firing on every keystroke
                     });
                     if (!suggestion?.trim() || token.isCancellationRequested) return { items: [] };
                     return {

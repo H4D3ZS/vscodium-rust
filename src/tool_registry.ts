@@ -2041,6 +2041,102 @@ export const AimPackContextTool: ToolDef = {
 
 // ---------------------------------------------------------------------------
 // =============================================================================
+// ANTIGRAVITY WORKFLOW TOOLS
+// =============================================================================
+
+const AgMarkTaskDoneTool: ToolDef = {
+    name: 'ag_mark_task_done',
+    description: 'Mark a task as complete in the Antigravity tasks.md file. Call this after successfully implementing a task. Flips `- [ ] TASK-NNN` to `- [x] TASK-NNN`.',
+    inputSchema: {
+        type: 'object',
+        properties: {
+            tasks_path: { type: 'string', description: 'Absolute path to the tasks.md file containing the task.' },
+            task_id: { type: 'string', description: 'Task ID string, e.g. "TASK-001".' },
+        },
+        required: ['tasks_path', 'task_id'],
+    },
+    execute: async ({ tasks_path, task_id }) => {
+        try {
+            await invoke('ag_mark_task_done', { tasksPath: tasks_path, taskId: task_id });
+            return ok(`Task ${task_id} marked as complete in ${tasks_path}`);
+        } catch (e: any) {
+            return fail(`ag_mark_task_done failed: ${e.message || e}`);
+        }
+    },
+};
+
+const AgPhaseWrapTool: ToolDef = {
+    name: 'ag_phase_wrap',
+    description: 'After completing a task or phase, call this to write a Phase-Wrap entry to `.hades/state.md`. Summarize what was implemented, tests written, and any decisions made.',
+    inputSchema: {
+        type: 'object',
+        properties: {
+            root: { type: 'string', description: 'Project root directory.' },
+            task_id: { type: 'string', description: 'Task ID that was just completed.' },
+            notes: { type: 'string', description: 'Summary of what was implemented, tests written, and key decisions.' },
+        },
+        required: ['root', 'task_id', 'notes'],
+    },
+    execute: async ({ root, task_id, notes }) => {
+        try {
+            await invoke('ag_phase_wrap', { root, taskId: task_id, notes });
+            return ok(`Phase-Wrap written to .hades/state.md for ${task_id}`);
+        } catch (e: any) {
+            return fail(`ag_phase_wrap failed: ${e.message || e}`);
+        }
+    },
+};
+
+const AgGetNextTaskTool: ToolDef = {
+    name: 'ag_get_next_task',
+    description: 'Get the next unchecked task from specs/*/tasks.md. Returns task details including ID, description, file reference, and phase.',
+    inputSchema: {
+        type: 'object',
+        properties: {
+            root: { type: 'string', description: 'Project root directory.' },
+        },
+        required: ['root'],
+    },
+    execute: async ({ root }) => {
+        try {
+            const task = await invoke<any>('ag_get_next_task', { root });
+            if (!task) return ok('No pending tasks found. All tasks complete!');
+            return ok(task);
+        } catch (e: any) {
+            return fail(`ag_get_next_task failed: ${e.message || e}`);
+        }
+    },
+};
+
+const AgListTasksTool: ToolDef = {
+    name: 'ag_list_tasks',
+    description: 'List all tasks (pending and completed) from all specs/*/tasks.md files in the project.',
+    inputSchema: {
+        type: 'object',
+        properties: {
+            root: { type: 'string', description: 'Project root directory.' },
+        },
+        required: ['root'],
+    },
+    execute: async ({ root }) => {
+        try {
+            const tasks = await invoke<any[]>('ag_list_all_tasks', { root });
+            const pending = tasks.filter((t: any) => !t.done);
+            const done = tasks.filter((t: any) => t.done);
+            return ok({
+                pending_count: pending.length,
+                done_count: done.length,
+                pending: pending.slice(0, 20),
+                done: done.slice(0, 10),
+            });
+        } catch (e: any) {
+            return fail(`ag_list_tasks failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// =============================================================================
 // TOOL REGISTRY
 // =============================================================================
 
@@ -2114,6 +2210,12 @@ const ALL_TOOLS: ToolDef[] = [
     AimQuerySpansTool,
     AimPackContextTool,
     ContextAwarenessTool,
+
+    // Antigravity workflow tools
+    AgMarkTaskDoneTool,
+    AgPhaseWrapTool,
+    AgGetNextTaskTool,
+    AgListTasksTool,
 ];
 
 // ---------------------------------------------------------------------------

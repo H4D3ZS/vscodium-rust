@@ -29,6 +29,8 @@ const ActivityBar: React.FC = () => {
         { id: 'test-view', icon: 'beaker', title: 'Test Explorer' },
         { id: 'extensions-view', icon: 'extensions', title: 'Extensions' },
         { id: 'vector-search-view', icon: 'search-fuzzy', title: 'Codebase Search' },
+        { id: 'tasks-view', icon: 'tasklist', title: 'Tasks & Specs (Antigravity)' },
+        { id: 'steering-view', icon: 'symbol-ruler', title: 'Steering & Hooks (Kiro)' },
         { id: 'visual-lab', icon: 'beaker', title: 'Visual Lab (JSON & Flow)' },
         ...extensionItems
             .filter((ext: any) => {

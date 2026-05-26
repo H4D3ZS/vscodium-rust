@@ -10,6 +10,8 @@ import DebugView from './DebugView';
 import TestExplorer from './TestExplorer';
 import ProjectSpecsSidebar from './ProjectSpecsSidebar';
 import VectorSearchPanel from './VectorSearchPanel';
+import AgTasksView from './AgTasksView';
+import AgSteeringView from './AgSteeringView';
 
 interface FlattenedNode {
     entry: FileEntry;
@@ -486,6 +488,8 @@ const Sidebar: React.FC = () => {
         'test-view': 'TEST EXPLORER',
         'extensions-view': 'EXTENSIONS',
         'specs-view': 'SPECS',
+        'tasks-view': 'TASKS & SPECS',
+        'steering-view': 'STEERING & HOOKS',
     };
 
     const extensionContributions = useStore(state => state.extensionContributions);
@@ -558,6 +562,8 @@ const Sidebar: React.FC = () => {
                 {activeView === 'test-view' && <TestExplorer />}
                 {activeView === 'extensions-view' && <ExtensionsView />}
                 {activeView === 'vector-search-view' && <VectorSearchPanel />}
+                {activeView === 'tasks-view' && <AgTasksView />}
+                {activeView === 'steering-view' && <AgSteeringView />}
 
                 {/* Extension Contributed Views */}
                 {extensionContainer && (

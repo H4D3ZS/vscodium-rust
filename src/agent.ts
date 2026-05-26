@@ -21,6 +21,7 @@ import {
     type SystemPromptConfig,
 } from './system_prompt.ts';
 import { getAimTrustManifest, queryAimSpans } from './kortex/aim-vfs';
+import { extractSearchReplaceBlocks } from './model_capabilities';
 // AIRI Digital Entity Integration - The Sentient Core
 import { airiAgentBridge, activateAIRIAgent } from './airi_agent_bridge';
 import { airiConsciousness, airiBiology, airiSelfLearning } from './airi/core';
@@ -235,6 +236,37 @@ export async function initAgent() {
     const { listen } = await import('@tauri-apps/api/event');
     const useStore = (window as any).useStore;
 
+    // ── Antigravity: hunk navigation keyboard shortcuts ────────────────────
+    // Alt+J  → next hunk   Alt+K  → prev hunk
+    // Alt+Enter → accept   Alt+Shift+Backspace → reject
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (!e.altKey) return;
+        const st = useStore?.getState?.() as any;
+        if (!st) return;
+        if (e.key === 'j' || e.key === 'J') {
+            e.preventDefault();
+            // Navigate to next pending change
+            const changes: any[] = st.pendingChanges || [];
+            const focusedId: string | null = st.focusedHunkId || null;
+            const idx = focusedId ? changes.findIndex((c: any) => c.path === focusedId) : -1;
+            const next = changes[idx + 1] || changes[0];
+            if (next) st.setFocusedHunk?.(next.path);
+        } else if (e.key === 'k' || e.key === 'K') {
+            e.preventDefault();
+            const changes: any[] = st.pendingChanges || [];
+            const focusedId: string | null = st.focusedHunkId || null;
+            const idx = focusedId ? changes.findIndex((c: any) => c.path === focusedId) : changes.length;
+            const prev = changes[idx - 1] || changes[changes.length - 1];
+            if (prev) st.setFocusedHunk?.(prev.path);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            st.acceptFocusedHunk?.();
+        } else if (e.key === 'Backspace' && e.shiftKey) {
+            e.preventDefault();
+            st.rejectFocusedHunk?.();
+        }
+    });
+
     // ── Setup listeners FIRST so the agent is always responsive ──────────
     // Moving this above AIRI activation ensures that if the sentient core
     // initialization hangs or takes time, the standard listeners are still
@@ -248,6 +280,22 @@ export async function initAgent() {
             ? event.payload.content
             : (typeof event.payload === 'string' ? event.payload : '');
         updateLastAgentMessage(content);
+
+        // Void: Fast Apply — parse <<<ORIGINAL/UPDATED>>> blocks and propose file changes
+        const stFa = useStore.getState() as any;
+        if (stFa.betaFastApply !== false && content.includes('<<<<<<< ORIGINAL')) {
+            const blocks = extractSearchReplaceBlocks(content);
+            const activeFile = stFa.activeEditorPath || stFa.tabs?.find((t: any) => t.id === stFa.activeTabId)?.path;
+            if (blocks.length > 0 && activeFile) {
+                blocks.forEach((blk: any) => {
+                    invoke('propose_file_change', {
+                        path: activeFile,
+                        searchText: blk.original,
+                        replaceText: blk.updated,
+                    }).catch(() => { /* non-fatal */ });
+                });
+            }
+        }
     });
 
     // Listen for streaming AI content (delta updates)
@@ -898,6 +946,59 @@ async function buildIdeContext(): Promise<string> {
         }
     } catch (_) { /* .aim not loaded yet — silently skip */ }
 
+    // ── Antigravity: inject workspace rules + active task context ──────────
+    if (activeRoot) {
+        try {
+            // Active task banner — show what task is being worked on
+            const activeTask = await invoke<any>('ag_get_next_task', { root: activeRoot }).catch(() => null);
+            if (activeTask) {
+                const specName = activeTask.spec_dir.split(/[\/\\]/).pop() || activeTask.spec_dir;
+                parts.push(
+                    `\n## Active Task (Antigravity)\n` +
+                    `Spec: ${specName} | Phase: ${activeTask.phase}\n` +
+                    `**${activeTask.task_id}**: ${activeTask.description}` +
+                    (activeTask.file_ref ? ` → \`${activeTask.file_ref}\`` : '') +
+                    `\n\nWhen you complete this task, call \`ag_mark_task_done\` and \`ag_phase_wrap\`.`
+                );
+            }
+
+            // Workspace rules injection
+            const rules = await invoke<any[]>('ag_get_rules', { root: activeRoot }).catch(() => []);
+            if (rules && rules.length > 0) {
+                parts.push(`\n## Workspace Rules (${rules.length})`);
+                for (const rule of rules.slice(0, 10)) {
+                    const trigger = rule.trigger ? ` [trigger: ${rule.trigger}]` : '';
+                    // Inject full content for small rules, summary for large ones
+                    if (rule.content.length < 800) {
+                        parts.push(`### Rule: ${rule.name}${trigger}\n${rule.content.trim()}`);
+                    } else {
+                        parts.push(`### Rule: ${rule.name}${trigger}\n${rule.description}\n*(${rule.content.length} chars — read \`${rule.path}\` for full content)*`);
+                    }
+                }
+            }
+        } catch (_) { /* antigravity commands may not be available in older builds */ }
+
+        // ── Kiro Steering: inject .agent/steering/*.md ──────────────────────
+        try {
+            const steeringDir = `${activeRoot}/.agent/steering`;
+            await invoke('create_directory', { path: steeringDir }).catch(() => null);
+            const entries = await invoke<any[]>('list_directory', { path: steeringDir }).catch(() => []);
+            const mdFiles = (entries || []).filter((e: any) => !e.is_dir && e.name.endsWith('.md'));
+            if (mdFiles.length > 0) {
+                parts.push(`\n## Project Steering (.agent/steering)`);
+                parts.push(`*(These instructions are ALWAYS active. Follow them for every response.)*`);
+                for (const entry of mdFiles.slice(0, 8)) {
+                    try {
+                        const content = await invoke<string>('read_file', { path: entry.path });
+                        if (content) {
+                            parts.push(`\n### ${entry.name.replace('.md', '')}\n${content.trim()}`);
+                        }
+                    } catch (_) {}
+                }
+            }
+        } catch (_) { /* steering dir may not exist */ }
+    }
+
     // Append user-attached context items (Attachments, Mentions, Workflows)
     const context = storeState.attachedFiles || [];
     if (context.length > 0) {
@@ -1479,24 +1580,33 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     }
     // =======================================================================
 
+    // ── Void: per-feature model routing ──────────────────────────────────────
+    // If the user has configured a dedicated Chat model, use it.
+    // This fires before the generic provider/model resolution below so the
+    // per-feature selection takes precedence over the global agentModel.
+    const chatModelSel = (storeState as any).modelSelectionOfFeature?.['Chat'];
+    const effectiveAgentModel = (chatModelSel?.modelName && chatModelSel?.providerName)
+        ? `${chatModelSel.providerName}|${chatModelSel.modelName}`
+        : agentModel;
+
     // Determine provider and model
     let provider = "OpenAI";
-    let model = agentModel;
+    let model = effectiveAgentModel;
 
     // 1. Try to find in availableModels list (most reliable)
-    const found = availableModels?.find((m: any) => m.id === agentModel || `${m.provider}|${m.id}` === agentModel);
+    const found = availableModels?.find((m: any) => m.id === effectiveAgentModel || `${m.provider}|${m.id}` === effectiveAgentModel || m.id === agentModel || `${m.provider}|${m.id}` === agentModel);
     if (found) {
         provider = found.provider;
         model = found.id;
     }
     // 2. Fallback to format parsing etc.
-    else if (agentModel.includes("|")) {
-        [provider, model] = agentModel.split("|");
-    } else if (agentModel.toLowerCase().includes("goog") || agentModel.toLowerCase().includes("gemini")) {
+    else if (effectiveAgentModel.includes("|")) {
+        [provider, model] = effectiveAgentModel.split("|");
+    } else if (effectiveAgentModel.toLowerCase().includes("goog") || effectiveAgentModel.toLowerCase().includes("gemini")) {
         provider = "Google";
-    } else if (agentModel.toLowerCase().includes("anthropic") || agentModel.toLowerCase().includes("claude")) {
+    } else if (effectiveAgentModel.toLowerCase().includes("anthropic") || effectiveAgentModel.toLowerCase().includes("claude")) {
         provider = "Anthropic";
-    } else if (agentModel.toLowerCase().includes("ollama") || agentModel.includes("/") || agentModel.includes(":")) {
+    } else if (effectiveAgentModel.toLowerCase().includes("ollama") || effectiveAgentModel.includes("/") || effectiveAgentModel.includes(":")) {
         provider = "Ollama";
     }
 
@@ -1604,6 +1714,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const resolvedContext = await resolveSpecialMentions(context || storeState.attachedFiles || [], userPrompt, activeRoot);
 
     const tabs = (storeState as any).tabs || [];
+    const aiInstructions: string = (storeState as any).voidGlobalSettings?.aiInstructions || '';
     const promptConfig: SystemPromptConfig = {
         activeRoot,
         activeFile: storeState.activeEditorPath || undefined,
@@ -1616,7 +1727,11 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         projectMemory: storeState.projectMemory || undefined,
         attachedContext: resolvedContext,
     };
-    const systemContext = await buildSystemPrompt(promptConfig);
+    let systemContext = await buildSystemPrompt(promptConfig);
+    // Void: inject user's custom AI instructions at the end of the system prompt
+    if (aiInstructions.trim()) {
+        systemContext += `\n\n## Custom Instructions (User-defined)\n${aiInstructions.trim()}`;
+    }
     const systemMessage = {
         role: 'system',
         content: systemContext,
@@ -1639,20 +1754,20 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const isSecurityMode = !!securityIntent || toolMode === 'BugBounty' || toolMode === 'Bug Bounty';
 
     if (routingProvider === 'ollama' && !isSecurityMode) {
-        const localToolNames = new Set([
-            'bash',
-            'file_read',
-            'file_edit',
-            'glob',
-            'grep',
-            'list_directory',
-            'git_status',
-            'git_diff',
-            'get_system_health',
-            'aim_query_spans',
-            'aim_pack_context',
+        // Full agentic tool set for local models — don't cripple local inference.
+        // Only strip heavy/slow tools (browser automation, multi-agent spawning).
+        const blockedLocalTools = new Set([
+            'browser_open', 'browser_navigate', 'browser_screenshot', 'browser_close',
+            'browser_subagent', 'spawn_subagent',
+            'ai_explain_code', 'ai_document_code', 'ai_generate_code', 'ai_refactor_code',
+            'ai_debug_code', 'ai_multi_cursor_edit', 'ai_pr_review',
+            'specs_to_code_pipeline', 'apply_from_chat',
+            'notebook_edit', 'mcp_call', 'skill_execute',
         ]);
-        toolSchemas = toolSchemas.filter((schema: any) => localToolNames.has(schema?.function?.name || schema?.name));
+        toolSchemas = toolSchemas.filter((schema: any) => {
+            const n = schema?.function?.name || schema?.name;
+            return !blockedLocalTools.has(n);
+        });
     }
 
     // Cap history sent to model — keeps UI display full but limits context window.
@@ -1937,6 +2052,106 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
 }
 
 // ---------------------------------------------------------------------------
+// Continuous Mode — 24/7 agentic loop.
+// Runs sendAgentMessage in a loop until:
+//   - No pending tasks remain (ag_get_next_task returns null)
+//   - The last response contains MISSION_ACCOMPLISHED or TASK_COMPLETE
+//   - User stops it (isContinuousMode flips to false)
+//   - Max 50 iterations safety cap
+// ---------------------------------------------------------------------------
+let _continuousLoopRunning = false;
+
+export async function runContinuousLoop(initialPrompt: string): Promise<void> {
+    if (_continuousLoopRunning) return;
+    _continuousLoopRunning = true;
+
+    const store = (window as any).useStore;
+    if (!store) { _continuousLoopRunning = false; return; }
+
+    const MAX_AUTO_TURNS = 50;
+    let turn = 0;
+    let currentPrompt = initialPrompt;
+
+    store.getState().addAgentMessage?.('assistant',
+        `⚡ **Continuous Mode ON** — I will keep working until all tasks are done. Say "stop" or toggle Continuous Mode to interrupt.\n\n---`
+    );
+
+    try {
+        while (turn < MAX_AUTO_TURNS) {
+            // Check stop conditions
+            const state = store.getState();
+            if (!state.isContinuousMode) {
+                state.addAgentMessage?.('assistant', '⏹ **Continuous Mode stopped** by user.');
+                break;
+            }
+            if (state.isAgentPaused) {
+                await new Promise(r => setTimeout(r, 1000));
+                continue;
+            }
+
+            turn++;
+            console.log(`[ContinuousMode] Turn ${turn}/${MAX_AUTO_TURNS}: "${currentPrompt.slice(0, 80)}"`);
+
+            // Fire the agent turn
+            store.getState().addAgentMessage?.('user', currentPrompt);
+            store.getState().setIsAgentThinking?.(true);
+
+            await sendAgentMessage(currentPrompt, undefined);
+
+            await new Promise(r => setTimeout(r, 500));
+
+            // Check if last response signals completion
+            const msgs: any[] = store.getState().agentMessages || [];
+            const lastAssistant = [...msgs].reverse().find((m: any) => m.role === 'assistant');
+            const lastText: string = lastAssistant?.content || '';
+            const upperText = lastText.toUpperCase();
+
+            if (upperText.includes('MISSION_ACCOMPLISHED') || upperText.includes('TASK_COMPLETE') || upperText.includes('ALL TASKS DONE')) {
+                store.getState().addAgentMessage?.('assistant',
+                    `✅ **Continuous Mode: All tasks complete** after ${turn} turn${turn === 1 ? '' : 's'}.`
+                );
+                break;
+            }
+
+            // Check if there are more tasks to do
+            const activeRoot = store.getState().activeRoot;
+            if (activeRoot) {
+                try {
+                    const nextTask = await invoke<any>('ag_get_next_task', { root: activeRoot });
+                    if (!nextTask) {
+                        store.getState().addAgentMessage?.('assistant',
+                            `✅ **Continuous Mode: No more pending tasks** (${turn} turn${turn === 1 ? '' : 's'} completed).`
+                        );
+                        break;
+                    }
+                    // Auto-construct next prompt from pending task
+                    const specName = nextTask.spec_dir?.split(/[\/\\]/).pop() || 'spec';
+                    currentPrompt = `Continue working. Next task: [${nextTask.task_id}] ${nextTask.description}${nextTask.file_ref ? ' in ' + nextTask.file_ref : ''}. Implement TDD-first, mark done with ag_mark_task_done, then call ag_phase_wrap.`;
+                } catch (_) {
+                    // No task system — just keep with a generic continuation
+                    currentPrompt = 'Continue the task. What is the next step? Do it now.';
+                }
+            } else {
+                currentPrompt = 'Continue. What remains to complete the task?';
+            }
+
+            // Small delay between turns to prevent rate limiting
+            await new Promise(r => setTimeout(r, 800));
+        }
+
+        if (turn >= MAX_AUTO_TURNS) {
+            store.getState().addAgentMessage?.('assistant',
+                `⚠️ **Continuous Mode: Safety cap reached** (${MAX_AUTO_TURNS} turns). Toggle Continuous Mode to restart.`
+            );
+        }
+    } finally {
+        _continuousLoopRunning = false;
+        store.getState().setContinuousMode?.(false);
+        store.getState().setIsAgentThinking?.(false);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tool Call Executor — called by the backend when the AI wants to use a tool.
 // This is the structured replacement for the old parseToolCall/executeTool.
 // ---------------------------------------------------------------------------
@@ -2121,6 +2336,21 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             invoke("clear_ai_memory").catch(err => console.error("Failed to clear AI memory:", err));
             return true;
 
+        case '/auto':
+        case '/continuous': {
+            const storeState2 = store.getState();
+            const isOn = storeState2.isContinuousMode;
+            if (isOn) {
+                storeState2.setContinuousMode?.(false);
+                addAgentMessage('assistant', '⏹ Continuous Mode disabled.');
+            } else {
+                storeState2.setContinuousMode?.(true);
+                addAgentMessage('assistant', '');
+                await runContinuousLoop(args || 'Work through all pending tasks in task.md. Implement each one TDD-first, mark done, and continue until MISSION_ACCOMPLISHED.');
+            }
+            return true;
+        }
+
         case '/settings':
             const settingsBtn = document.querySelector('.codicon-settings-gear') as HTMLElement;
             if (settingsBtn) settingsBtn.click();
@@ -2167,6 +2397,156 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
         case '/tasks':
             await runSpecCommand('tasks', args);
             return true;
+
+        // ── Antigravity Agentic Workflow Commands ──────────────────────────
+        case '/next':
+        case '/task': {
+            if (!activeRoot) {
+                addAgentMessage('assistant', '❌ No project root open. Use `/spec` to create one first.');
+                return true;
+            }
+            addAgentMessage('assistant', '🔍 Scanning `specs/*/tasks.md` for next pending task...');
+            try {
+                const task = await invoke<any>('ag_get_next_task', { root: activeRoot });
+                if (!task) {
+                    store.getState().updateLastAgentMessage('✅ All tasks complete! No pending `[ ]` items found in `specs/*/tasks.md`.');
+                    return true;
+                }
+                const specName = task.spec_dir.split(/[\/\\]/).pop() || task.spec_dir;
+                const taskPrompt =
+                    `[ANTIGRAVITY TASK EXECUTOR] Execute this task TDD-first:\n\n` +
+                    `**Spec:** ${specName}\n` +
+                    `**Phase:** ${task.phase}\n` +
+                    `**Task ID:** ${task.task_id}\n` +
+                    `**Description:** ${task.description}\n` +
+                    (task.file_ref ? `**Target File:** ${task.file_ref}\n` : '') +
+                    `\n` +
+                    `## Workflow:\n` +
+                    `1. Read the spec at \`${task.spec_dir}/spec.md\` for full context.\n` +
+                    `2. Write a **failing test** first (TDD red phase). Use the project's existing test framework.\n` +
+                    `3. Implement the **minimal code** to make the test pass (TDD green phase).\n` +
+                    `4. Refactor if needed (TDD refactor phase).\n` +
+                    `5. When done, call \`ag_mark_task_done\` with tasks_path=\`${task.tasks_path}\` and task_id=\`${task.task_id}\`.\n` +
+                    `6. Update \`.hades/state.md\` via \`ag_phase_wrap\` with a summary of what was done.\n` +
+                    `\nDo not stop until the task is marked complete and tests pass.`;
+
+                store.getState().updateLastAgentMessage(
+                    `Found **${task.task_id}**: ${task.description}\n\nPhase: ${task.phase} | Spec: ${specName}\n\nStarting TDD execution...`
+                );
+                await sendAgentMessage(taskPrompt, () => {});
+            } catch (err: any) {
+                store.getState().updateLastAgentMessage(`❌ Failed to get next task: ${err.message || err}`);
+            }
+            return true;
+        }
+
+        case '/test': {
+            if (!activeRoot) {
+                addAgentMessage('assistant', '❌ No project root open.');
+                return true;
+            }
+            const testTarget = args.trim();
+            const storeState = (window as any).useStore?.getState();
+            const activeFile = testTarget || storeState?.activeEditorPath || storeState?.tabs?.find((t: any) => t.id === storeState?.activeTabId)?.path;
+            if (!activeFile) {
+                addAgentMessage('assistant', '❌ No file selected. Open a file or pass a path: `/test src/foo.ts`.');
+                return true;
+            }
+            addAgentMessage('assistant', `🧪 Running test_task workflow for \`${activeFile}\`...`);
+            const testPrompt =
+                `[ANTIGRAVITY TEST_TASK] Write unit tests for the file below using TDD:\n\n` +
+                `**Target:** ${activeFile}\n\n` +
+                `## Steps:\n` +
+                `1. Read \`${activeFile}\` to understand the public API.\n` +
+                `2. Identify the project's test framework (grep for jest/vitest/cargo test/pytest in package.json or Cargo.toml).\n` +
+                `3. Write **failing tests** covering: happy path, edge cases, error branches.\n` +
+                `4. Save test file next to source (e.g. \`foo.test.ts\` beside \`foo.ts\`, or \`foo_test.rs\` beside \`foo.rs\`).\n` +
+                `5. Run the tests (use \`bash\` tool: \`cargo test\` / \`npm test\` / \`npx vitest\`). Report pass/fail.\n` +
+                `6. If tests fail, implement the minimal code to make them pass.\n\n` +
+                `Do not stop until tests pass. Report final test output.`;
+            await sendAgentMessage(testPrompt, () => {});
+            return true;
+        }
+
+        case '/walkthrough': {
+            if (!activeRoot) {
+                addAgentMessage('assistant', '❌ No project root open.');
+                return true;
+            }
+            addAgentMessage('assistant', '📖 Generating walkthrough.md...');
+            try {
+                const task = await invoke<any>('ag_get_next_task', { root: activeRoot }).catch(() => null);
+                const specContext = task
+                    ? `Currently executing **${task.task_id}**: ${task.description} (Phase: ${task.phase})`
+                    : args.trim() || 'the current codebase state';
+
+                const walkthroughPrompt =
+                    `[ANTIGRAVITY WALKTHROUGH] Generate a step-by-step walkthrough document.\n\n` +
+                    `**Context:** ${specContext}\n\n` +
+                    `## Requirements:\n` +
+                    `1. Read relevant source files with \`read_file\` / \`list_directory\`.\n` +
+                    `2. Write a \`walkthrough.md\` in the project root with these sections:\n` +
+                    `   - **Overview**: what this feature/change does\n` +
+                    `   - **Architecture**: key files and their roles\n` +
+                    `   - **Step-by-Step**: numbered walkthrough of the code flow\n` +
+                    `   - **Testing**: how to verify it works\n` +
+                    `   - **Gotchas**: edge cases or non-obvious behavior\n` +
+                    `3. Save to \`${activeRoot}/walkthrough.md\` using \`write_to_file\`.\n\n` +
+                    `Be specific and include actual file paths and function names.`;
+
+                await sendAgentMessage(walkthroughPrompt, () => {});
+            } catch (err: any) {
+                store.getState().updateLastAgentMessage(`❌ Failed: ${err.message || err}`);
+            }
+            return true;
+        }
+
+        case '/spec': {
+            if (!activeRoot) {
+                addAgentMessage('assistant', '❌ No project root open.');
+                return true;
+            }
+            if (!args.trim()) {
+                addAgentMessage('assistant', '**Usage:** `/spec <feature name> — <description>`\n\nExample: `/spec User Auth — Add JWT-based login with refresh tokens`');
+                return true;
+            }
+            const dashPos = args.indexOf(' — ');
+            const slug = dashPos > 0 ? args.slice(0, dashPos).trim() : args.trim().split(' ').slice(0, 4).join('-');
+            const description = dashPos > 0 ? args.slice(dashPos + 3).trim() : args.trim();
+            addAgentMessage('assistant', `📐 Creating spec for: **${slug}**...`);
+            try {
+                const specDir = await invoke<string>('ag_create_spec', { root: activeRoot, slug, description });
+                const specDirShort = specDir.replace(activeRoot, '').replace(/^[\/\\]/, '');
+                store.getState().updateLastAgentMessage(
+                    `✅ Spec created at \`${specDirShort}\`:\n\n` +
+                    `- \`spec.md\` — feature specification\n` +
+                    `- \`plan.md\` — implementation plan\n` +
+                    `- \`tasks.md\` — task checklist\n\n` +
+                    `Edit these files, then run \`/next\` to start executing tasks.`
+                );
+            } catch (err: any) {
+                store.getState().updateLastAgentMessage(`❌ Failed to create spec: ${err.message || err}`);
+            }
+            return true;
+        }
+
+        case '/phasewrap': {
+            if (!activeRoot) {
+                addAgentMessage('assistant', '❌ No project root open.');
+                return true;
+            }
+            const notes = args.trim() || 'Phase-Wrap triggered manually.';
+            addAgentMessage('assistant', '🔄 Running Phase-Wrap...');
+            try {
+                const task = await invoke<any>('ag_get_next_task', { root: activeRoot }).catch(() => null);
+                const taskId = task ? task.task_id : 'manual';
+                await invoke('ag_phase_wrap', { root: activeRoot, taskId, notes });
+                store.getState().updateLastAgentMessage(`✅ Phase-Wrap complete. Updated \`.hades/state.md\` with: ${notes}`);
+            } catch (err: any) {
+                store.getState().updateLastAgentMessage(`❌ Phase-Wrap failed: ${err.message || err}`);
+            }
+            return true;
+        }
 
         case '/implement':
             await runSpecCommand('implement', args);
@@ -2523,6 +2903,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 - \`/settings\` — Open AI configuration panel
 - \`/workflows\` — List workflows in \`.agent/workflows/\`
 - \`/bg <prompt>\` — Run an agent task in the background (non-blocking)
+- \`/auto [prompt]\` — **24/7 Continuous Mode**: agent loops until all tasks done (toggle with ∞ AUTO pill or say "stop")
 - \`/help\` — Show this list
 
 **Cybersecurity Personas** (slash commands are OPTIONAL — the agent also auto-detects from plain prompts via the intent sniffer)
@@ -2535,6 +2916,13 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 - \`/weaponize <target>\` — Alias of \`/redteam\` focused on credential abuse
 
 > Auto-detection: phrases like *"weaponize this .env"*, *"show me how this gets hacked"*, *"be a threat actor"*, *"harden this code"*, *"bug bounty PoC for X"* automatically load the matching playbook — no slash command required.
+
+**Antigravity Agentic Workflow**
+- \`/spec <name> — <desc>\` — Create a new spec dir (spec.md + plan.md + tasks.md)
+- \`/next\` — Execute the next unchecked task in \`specs/*/tasks.md\` (TDD-first)
+- \`/test [file]\` — Run test_task workflow: write failing tests, then implement
+- \`/walkthrough\` — Generate \`walkthrough.md\` for the current task/codebase
+- \`/phasewrap [notes]\` — Update \`.hades/state.md\` after completing a phase
 
 **Vibe-Coding (spec-kit)**
 - \`/specify <description>\` — Create a structured feature spec

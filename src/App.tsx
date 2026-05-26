@@ -5,6 +5,7 @@ import Workbench from './components/Workbench';
 import StatusBar from './components/StatusBar';
 import './styles.css';
 import './panes.css';
+import './settings.css';
 import { TrustDialog } from './components/TrustDialog';
 import { initSearch } from './search';
 import { initStatusBar } from './status_bar';

@@ -263,6 +263,7 @@ interface AppState {
     isAgentThinking: boolean;
     isAgentPaused: boolean;
     isYoloMode: boolean;
+    isContinuousMode: boolean;   // 24/7 auto-loop: agent re-triggers itself until all tasks done
     // AIRI subsystem toggles persisted in localStorage so they survive reloads.
     airiVisionEnabled: boolean;
     airiVisionModel: string;
@@ -556,6 +557,7 @@ interface AppState {
     setEmulatorPanelPosition: (pos: 'android' | 'iphone') => void;
     setEmulatorLayout: (layout: 'left' | 'right' | 'hidden') => void;
     setYoloMode: (enabled: boolean) => void;
+    setContinuousMode: (enabled: boolean) => void;
     setAiriVisionEnabled: (enabled: boolean) => void;
     setAiriVisionModel: (model: string) => void;
     setAiriConsciousnessEnabled: (enabled: boolean) => void;
@@ -836,6 +838,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     isAgentThinking: false,
     isAgentPaused: false,
     isYoloMode: false,
+    isContinuousMode: false,
     // Default local subsystems OFF/empty. They become available only after the
     // user selects models in Settings, so startup never silently loads a 35B/VL
     // model or burns GPU on consumer machines.
@@ -2068,20 +2071,14 @@ const storeImplementation: any = (set: any, get: any) => ({
             const currentThoughts = last.thoughts || '';
             const currentRaw = last.raw_buffer || (currentContent + currentThoughts);
 
-            // Robust Overlap Merger:
-            // Find the longest suffix of currentRaw that is a prefix of delta.
-            let overlapLength = 0;
-            const maxCheck = Math.min(currentRaw.length, delta.length);
-            for (let i = 1; i <= maxCheck; i++) {
-                if (currentRaw.slice(-i) === delta.slice(0, i)) {
-                    overlapLength = i;
-                }
-            }
+            // We use the OpenAI-compat /v1/chat/completions endpoint which emits
+            // true deltas, not accumulated content. The old "Overlap Merger" caused
+            // data loss: common English suffixes ("ing", "s", "ly") matched
+            // cross-token boundaries and were stripped. Just append directly.
+            // Guard: skip exact full-duplicate only (e.g. provider resent the chunk).
+            if (delta.length > 0 && currentRaw.endsWith(delta)) return state;
 
-            const cleanDelta = delta.slice(overlapLength);
-            if (cleanDelta.length === 0) return state;
-
-            const fullRaw = currentRaw + cleanDelta;
+            const fullRaw = currentRaw + delta;
             let newContent = currentContent;
             let newThoughts = currentThoughts;
 
@@ -2111,7 +2108,7 @@ const storeImplementation: any = (set: any, get: any) => ({
                 if (fullRaw.includes('</think>')) {
                     newContent = fullRaw.split('</think>').pop()?.trim() || '';
                 } else {
-                    newContent += cleanDelta;
+                    newContent += delta;
                 }
             }
 
@@ -2158,6 +2155,7 @@ const storeImplementation: any = (set: any, get: any) => ({
     setIsAgentThinking: (isAgentThinking) => set({ isAgentThinking }),
     setIsAgentPaused: (isAgentPaused) => set({ isAgentPaused }),
     setYoloMode: (isYoloMode) => set({ isYoloMode }),
+    setContinuousMode: (isContinuousMode: boolean) => set({ isContinuousMode }),
     setAiriVisionEnabled: (enabled) => {
         try { localStorage.setItem('airi.vision.enabled', enabled ? '1' : '0'); } catch { /* quota */ }
         set({ airiVisionEnabled: enabled });

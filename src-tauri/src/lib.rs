@@ -18,6 +18,7 @@ pub mod process_ext;
 
 mod ai_agent_commands;
 mod ai_patch_commands;
+mod antigravity_commands;
 mod ai_project_commands;
 mod airi_bridge;
 mod android_commands;
@@ -234,6 +235,14 @@ pub fn run() {
             ai_agent_commands::stop_ai_agent,
             ai_agent_commands::pause_ai_agent,
             ai_agent_commands::resume_ai_agent,
+            // ═══ Antigravity Workflow Engine ═══
+            antigravity_commands::ag_list_all_tasks,
+            antigravity_commands::ag_get_next_task,
+            antigravity_commands::ag_mark_task_done,
+            antigravity_commands::ag_create_spec,
+            antigravity_commands::ag_phase_wrap,
+            antigravity_commands::ag_get_workflows,
+            antigravity_commands::ag_get_rules,
             // ═══ AI Patching ═══
             ai_patch_commands::accept_sentient_patch,
             ai_patch_commands::reject_sentient_patch,

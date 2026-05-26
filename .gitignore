@@ -30,6 +30,14 @@ Antigravity IDE*/
 antigravity-ide*/
 antigravity_ide*/
 
+# IDE binaries — never commit these
+cursor/
+Cursor/
+Kiro/
+kiro/
+cursor-ide/
+kiro-ide/
+
 
 # Editor directories and files
 .vscode/*

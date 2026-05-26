@@ -397,6 +397,8 @@ const RightSidebar: React.FC = () => {
     const isAgentPaused = useStore(state => state.isAgentPaused);
     const isYoloMode = useStore(state => state.isYoloMode);
     const setYoloMode = useStore(state => state.setYoloMode);
+    const isContinuousMode = useStore(state => state.isContinuousMode);
+    const setContinuousMode = useStore(state => state.setContinuousMode);
     const agentUiMode = useStore(state => state.agentUiMode);
     const setAgentUiMode = useStore(state => state.setAgentUiMode);
     const avatarCharacter = useStore(state => state.avatarCharacter);
@@ -954,6 +956,13 @@ const RightSidebar: React.FC = () => {
             }
         }
 
+        // Allow "stop" to terminate continuous mode without needing a full agent turn
+        if (/^stop\b/i.test(processedVal) && isContinuousMode) {
+            setContinuousMode(false);
+            if (overrideMsg === undefined) setInputValue('');
+            return;
+        }
+
         if ((processedVal || attachedFiles.length > 0) && !isAgentThinking) {
             console.log('[DIAG] onSend: sending message, sidebar state before:', useStore.getState().isRightSidebarOpen);
             if (overrideMsg === undefined) setInputValue("");
@@ -1325,12 +1334,68 @@ const RightSidebar: React.FC = () => {
             `}</style>
 
             <div className="right-sidebar-tabs" style={{ display: 'flex', flexDirection: 'column', flex: '0 0 auto', overflow: 'visible' }}>
+                {/* ── Chat session tabs (Cursor Ctrl+T style) ── */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '4px 8px 0',
+                    background: 'var(--vscode-sideBar-background)',
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    overflowX: 'auto',
+                    gap: 2,
+                    flexShrink: 0,
+                }}>
+                    {/* Active session tab */}
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: 4,
+                        padding: '3px 8px', borderRadius: '4px 4px 0 0',
+                        background: 'rgba(255,255,255,0.07)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderBottom: '1px solid var(--vscode-sideBar-background)',
+                        fontSize: 11, cursor: 'default',
+                        whiteSpace: 'nowrap', maxWidth: 140,
+                    }}>
+                        <i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 11, opacity: 0.7 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90, opacity: 0.9 }}>
+                            {messages.length > 0 ? (messages.find((m: any) => m.role === 'user')?.content?.slice(0, 20) || 'Chat') : 'New Chat'}
+                        </span>
+                    </div>
+                    {/* New chat button (Ctrl+T) */}
+                    <button
+                        onClick={() => { clearAgentMessages(); invoke('clear_ai_memory').catch(() => {}); }}
+                        title="New Chat (Ctrl+T)"
+                        style={{
+                            background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)',
+                            borderRadius: 4, padding: '2px 6px', fontSize: 11,
+                            color: 'rgba(255,255,255,0.4)', cursor: 'pointer',
+                            transition: 'all 0.12s',
+                        }}
+                        onMouseOver={e => { (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.06)'; (e.target as HTMLElement).style.color = 'rgba(255,255,255,0.8)'; }}
+                        onMouseOut={e => { (e.target as HTMLElement).style.background = 'transparent'; (e.target as HTMLElement).style.color = 'rgba(255,255,255,0.4)'; }}
+                    >
+                        <i className="codicon codicon-add" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 11 }} />
+                    </button>
+                    <div style={{ flex: 1 }} />
+                    {/* History shortcut */}
+                    <button
+                        onClick={() => setView('history')}
+                        title="Chat History"
+                        style={{
+                            background: view === 'history' ? 'rgba(255,255,255,0.08)' : 'transparent',
+                            border: 'none', padding: '3px 5px', borderRadius: 4,
+                            color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 11,
+                        }}
+                    >
+                        <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 13 }} />
+                    </button>
+                </div>
+
                 <div style={{
                     display: 'flex',
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '8px 12px',
+                    padding: '6px 12px',
                     gap: '8px',
                     borderBottom: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))',
                     background: 'var(--vscode-sideBar-background)',
@@ -1757,6 +1822,18 @@ const RightSidebar: React.FC = () => {
                                     onClick={() => import('../agent').then(m => m.setYoloMode(!isYoloMode).then(() => setYoloMode(!isYoloMode)))}
                                     style={{ fontSize: '9px', cursor: 'pointer', color: isYoloMode ? '#f97316' : 'rgba(255,255,255,0.3)', fontWeight: isYoloMode ? 700 : 400 }}
                                 >⚡ YOLO</span>
+                                <span style={{ fontSize: '9px', opacity: 0.2 }}>·</span>
+                                <span
+                                    onClick={() => {
+                                        const next = !isContinuousMode;
+                                        setContinuousMode(next);
+                                        if (next) {
+                                            import('../agent').then(m => m.runContinuousLoop('Continue working on pending tasks. Pick the next unchecked task and implement it fully.'));
+                                        }
+                                    }}
+                                    title="Continuous Mode: agent keeps working until all tasks done"
+                                    style={{ fontSize: '9px', cursor: 'pointer', color: isContinuousMode ? '#22d3ee' : 'rgba(255,255,255,0.3)', fontWeight: isContinuousMode ? 700 : 400 }}
+                                >∞ AUTO</span>
                             </div>
                         </div>
                     </div>
@@ -2258,6 +2335,24 @@ const RightSidebar: React.FC = () => {
                             </div>
                         )}
                         <RestoreCheckpointBanner />
+                        {isContinuousMode && (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', marginBottom: 6,
+                                background: 'rgba(34,211,238,0.08)', border: '1px solid rgba(34,211,238,0.3)',
+                                borderRadius: 8, fontSize: 11,
+                            }}>
+                                <i className="codicon codicon-loading~spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#22d3ee', fontSize: 12 }} />
+                                <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)' }}>
+                                    <strong>Continuous Mode</strong> — agent is working autonomously until all tasks complete
+                                </span>
+                                <button
+                                    onClick={() => setContinuousMode(false)}
+                                    style={{ background: 'rgba(248,81,73,0.15)', border: '1px solid rgba(248,81,73,0.4)', color: '#f85149', padding: '2px 8px', fontSize: 10, fontWeight: 600, borderRadius: 4, cursor: 'pointer' }}
+                                >
+                                    Stop
+                                </button>
+                            </div>
+                        )}
                         <MultiFileReviewBanner />
                         <BackgroundAgentsTray />
                         <div style={{

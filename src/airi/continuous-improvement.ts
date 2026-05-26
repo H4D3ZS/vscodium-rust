@@ -154,19 +154,30 @@ export class AIRIContinuousImprovement {
     throw lastError ?? new Error('No available Ollama model for continuous improvement');
   }
 
+  private async isOllamaReachable(): Promise<boolean> {
+    try {
+      const r = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(2000) });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Start continuous improvement loop
    * Runs every 30 minutes
    */
   start(): void {
-
     // Analyze and improve every 30 minutes
-    this.improvementInterval = setInterval(() => {
+    this.improvementInterval = setInterval(async () => {
+      if (!(await this.isOllamaReachable())) return; // skip silently if Ollama offline
       this.runImprovementCycle();
     }, 30 * 60 * 1000);
 
-    // Run first cycle immediately
-    this.runImprovementCycle();
+    // Delay first cycle 2 min to let Ollama initialize before hitting it
+    setTimeout(async () => {
+      if (await this.isOllamaReachable()) this.runImprovementCycle();
+    }, 2 * 60 * 1000);
   }
 
   /**
@@ -393,7 +404,7 @@ Respond as JSON array:
         });
       }
     } catch (error) {
-      console.warn('[ContinuousImprovement] Optimization identification skipped:',
+      console.debug('[ContinuousImprovement] Optimization identification skipped:',
         (error as any)?.message || error);
     }
 

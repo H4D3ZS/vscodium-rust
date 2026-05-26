@@ -629,7 +629,7 @@ export class AIRICore {
         }
         return;
       } catch (error) {
-        console.warn('[AIRI] ⚠️ Ollama: DISCONNECTED (Failed to list models). Skipping connection error to allow OpenWebUI only fallback.');
+        console.debug('[AIRI] Ollama offline or not yet started — using cloud/WebUI fallback.');
         return;
       }
     }
