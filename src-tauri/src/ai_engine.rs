@@ -2573,7 +2573,9 @@ impl Sentient {
                 request = request.bearer_auth(&provider_key);
             }
 
-            let response = request
+            let mut response = request
+                .try_clone()
+                .ok_or_else(|| anyhow!("Failed to clone request builder"))?
                 .json(&payload)
                 .send()
                 .await
@@ -2582,7 +2584,28 @@ impl Sentient {
             if !response.status().is_success() {
                 let status = response.status();
                 let body = response.text().await.unwrap_or_default();
-                return Err(anyhow!("AI Provider Error ({}): {}", status, body));
+                
+                // Fallback for Ollama models that do not natively support tools via API
+                if status.as_u16() == 400 && active_provider.to_lowercase() == "ollama" && body.contains("does not support tools") {
+                    println!("[AI] Model {} does not support native tools. Retrying with markdown fallback...", active_model);
+                    if let serde_json::Value::Object(ref mut map) = payload {
+                        map.remove("tools");
+                        map.remove("tool_choice");
+                    }
+                    response = request
+                        .json(&payload)
+                        .send()
+                        .await
+                        .map_err(|e| anyhow!("HTTP fallback request failed: {}", e))?;
+                        
+                    if !response.status().is_success() {
+                        let f_status = response.status();
+                        let f_body = response.text().await.unwrap_or_default();
+                        return Err(anyhow!("AI Provider Error ({}): {}", f_status, f_body));
+                    }
+                } else {
+                    return Err(anyhow!("AI Provider Error ({}): {}", status, body));
+                }
             }
 
             let mut full_content = String::new();
