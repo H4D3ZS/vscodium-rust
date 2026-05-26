@@ -121,6 +121,7 @@ export interface Artifact {
     title?: string;
     description?: string;
     metadata?: Record<string, any>;
+    feedback?: string;
 }
 
 export interface AgentMessage {
@@ -260,6 +261,8 @@ interface AppState {
     attachedContext: AttachedContext[];
     /** Independent background-agent runs that don't claim the main chat. */
     backgroundAgents: { id: string; prompt: string; status: 'pending' | 'running' | 'done' | 'error'; result: string; startedAt: number; finishedAt?: number }[];
+    agentHooks: { id: string; pattern: string; prompt: string; enabled: boolean }[];
+    globalSteeringRule: string;
     isAgentThinking: boolean;
     isAgentPaused: boolean;
     isYoloMode: boolean;
@@ -452,6 +455,7 @@ interface AppState {
     setActiveAgentThread: (id: string) => void;
     approveArtifact: (threadId: string, artifactId: string) => void;
     rejectArtifact: (threadId: string, artifactId: string) => void;
+    submitArtifactFeedback: (threadId: string, artifactId: string, feedback: string) => void;
     setActiveSidebarView: (view: string) => void;
     toggleBottomPanel: () => void;
     setActivePanelTab: (tab: string) => void;
@@ -543,6 +547,8 @@ interface AppState {
     runBackgroundAgent: (prompt: string) => Promise<string>;
     removeBackgroundAgent: (id: string) => void;
     clearBackgroundAgents: () => void;
+    setAgentHooks: (hooks: { id: string; pattern: string; prompt: string; enabled: boolean }[]) => void;
+    setGlobalSteeringRule: (rule: string) => void;
     refreshProcessStats: () => Promise<void>;
     compressSessionData: (key: string, data: string) => Promise<void>;
     refreshMemorySavings: () => Promise<void>;
@@ -758,6 +764,16 @@ export interface AgentTask {
     task_status?: string;
 }
 
+export interface Artifact {
+    id: string;
+    title: string;
+    path: string;
+    content: string;
+    timestamp: number;
+    metadata?: { reviewed?: boolean; status?: 'approved' | 'rejected' };
+    feedback?: string;
+}
+
 function detectLanguage(filename: string): string {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
     const map: Record<string, string> = {
@@ -837,6 +853,15 @@ const storeImplementation: any = (set: any, get: any) => ({
     currentTurnId: 0,
     isMarkdownPreviewOpen: false,
     backgroundAgents: [],
+    agentHooks: [
+        { id: '1', pattern: '*.tsx', prompt: 'Check for React performance anti-patterns.', enabled: false },
+        { id: '2', pattern: 'src/backend/*.rs', prompt: 'Ensure all public functions have rustdoc comments.', enabled: false }
+    ],
+    globalSteeringRule: '',
+    triggerHooks: async (filePath: string) => {
+        const { agentHooks } = get();
+        // Hook triggering logic would go here
+    },
     isAgentThinking: false,
     isAgentPaused: false,
     isYoloMode: false,
@@ -1530,6 +1555,16 @@ const storeImplementation: any = (set: any, get: any) => ({
             set((state) => ({
                 tabs: state.tabs.map(t => t.id === activeTabId ? { ...t, isModified: false } : t),
             }));
+
+            // Check if any agent hooks match this file path and are enabled
+            const hooks = get().agentHooks;
+            const matchingHooks = hooks.filter(h => h.enabled && new RegExp(h.pattern.replace(/\*/g, '.*')).test(tab.path));
+            for (const hook of matchingHooks) {
+                // Prepend the global steering rule if it exists
+                const globalRule = get().globalSteeringRule;
+                const fullPrompt = `[Triggered by save on ${tab.path}]\n` + (globalRule ? `Global Rule: ${globalRule}\n` : '') + `Task: ${hook.prompt}`;
+                get().runBackgroundAgent(fullPrompt).catch(console.error);
+            }
         } catch (error) {
             console.error('Save File Error:', error);
         }
@@ -1961,6 +1996,8 @@ const storeImplementation: any = (set: any, get: any) => ({
         backgroundAgents: s.backgroundAgents.filter(b => b.id !== id),
     })),
     clearBackgroundAgents: () => set({ backgroundAgents: [] }),
+    setAgentHooks: (hooks) => set({ agentHooks: hooks }),
+    setGlobalSteeringRule: (rule) => set({ globalSteeringRule: rule }),
 
     refreshProcessStats: async () => {
         try {

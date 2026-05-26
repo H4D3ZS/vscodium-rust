@@ -163,6 +163,42 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             }
         });
 
+        // ── Phase 4: Kiro Diagnose ─────────────────────────────────────
+        editor.addAction({
+            id: 'kiro.diagnose',
+            label: 'Diagnose with Kiro',
+            contextMenuGroupId: 'navigation',
+            contextMenuOrder: 1.5,
+            run: (ed) => {
+                const pos = ed.getPosition();
+                if (!pos) return;
+                const model = ed.getModel();
+                if (!model) return;
+                
+                // Get the global monaco object
+                import('monaco-editor').then(monaco => {
+                    const markers = monaco.editor.getModelMarkers({ resource: model.uri });
+                    const marker = markers.find(m => m.startLineNumber <= pos.lineNumber && m.endLineNumber >= pos.lineNumber);
+                    if (marker) {
+                        const markerRange = {
+                            startLineNumber: marker.startLineNumber,
+                            startColumn: marker.startColumn,
+                            endLineNumber: marker.endLineNumber,
+                            endColumn: marker.endColumn
+                        };
+                        const text = model.getValueInRange(markerRange);
+                        const prompt = `Diagnose and fix this error: "${marker.message}" on line ${marker.startLineNumber} in ${activeTab?.path}\n\nCode context:\n\`\`\`\n${text}\n\`\`\``;
+                        useStore.getState().runBackgroundAgent(prompt).catch(console.error);
+                    } else {
+                        // Fallback if no specific marker under cursor: just diagnose the line
+                        const text = model.getLineContent(pos.lineNumber);
+                        const prompt = `Diagnose potential issues on line ${pos.lineNumber} in ${activeTab?.path}\n\nCode context:\n\`\`\`\n${text}\n\`\`\``;
+                        useStore.getState().runBackgroundAgent(prompt).catch(console.error);
+                    }
+                });
+            }
+        });
+
         // Register Inline Completions (Ghost Text) for 'Tab' modality
         import('monaco-editor').then(monaco => {
             const lang = activeTab?.language || 'plaintext';

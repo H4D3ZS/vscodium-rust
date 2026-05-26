@@ -290,7 +290,10 @@ const ToolStepItem: React.FC<{ step: any }> = ({ step }) => {
     );
 };
 
-const ArtifactCard: React.FC<{ artifact: Artifact; onApprove: () => void; onReject: () => void }> = ({ artifact, onApprove, onReject }) => {
+const ArtifactCard: React.FC<{ artifact: Artifact; threadId: string; onApprove: () => void; onReject: () => void }> = ({ artifact, threadId, onApprove, onReject }) => {
+    const [feedback, setFeedback] = useState('');
+    const submitFeedback = useStore(state => state.submitArtifactFeedback);
+    
     return (
         <div className="artifact-card" style={{ marginBottom: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
@@ -317,6 +320,41 @@ const ArtifactCard: React.FC<{ artifact: Artifact; onApprove: () => void; onReje
                 >
                     <X size={12} /> Reject
                 </button>
+            </div>
+            
+            <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '8px' }}>
+                {artifact.feedback ? (
+                    <div style={{ fontSize: '10px', color: 'var(--vscode-foreground)', fontStyle: 'italic', opacity: 0.8 }}>
+                        <strong>Feedback:</strong> {artifact.feedback}
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                        <input 
+                            type="text" 
+                            placeholder="Provide feedback..." 
+                            value={feedback}
+                            onChange={(e) => setFeedback(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && feedback.trim()) {
+                                    submitFeedback(threadId, artifact.id, feedback.trim());
+                                    setFeedback('');
+                                }
+                            }}
+                            style={{ flex: 1, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '3px', color: 'white', padding: '4px 6px', fontSize: '10px', outline: 'none' }}
+                        />
+                        <button 
+                            onClick={() => {
+                                if (feedback.trim()) {
+                                    submitFeedback(threadId, artifact.id, feedback.trim());
+                                    setFeedback('');
+                                }
+                            }}
+                            style={{ background: 'var(--terminator-accent)', border: 'none', borderRadius: '3px', color: 'white', padding: '4px 8px', cursor: 'pointer', fontSize: '10px', fontWeight: 600 }}
+                        >
+                            Send
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -600,6 +638,13 @@ const AgentManager: React.FC = () => {
                 userSelect: 'none'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button
+                        onClick={() => useStore.getState().setLayoutMode('editor')}
+                        style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                        title="Return to Editor"
+                    >
+                        <X size={14} />
+                    </button>
                     <Bot size={14} color="var(--terminator-accent)" />
                     <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'rgba(255, 255, 255, 0.85)' }}>
                         Agent Workspace
@@ -960,7 +1005,8 @@ const AgentManager: React.FC = () => {
                                     <ArtifactCard
                                         key={artifact.id}
                                         artifact={artifact}
-                                        onApprove={() => useStore.getState().approveArtifact(activeId, artifact.id)}
+                                        threadId={activeId!}
+                                        onApprove={() => useStore.getState().approveArtifact(activeId!, artifact.id)}
                                         onReject={() => useStore.getState().rejectArtifact(activeId, artifact.id)}
                                     />
                                 ))}

@@ -22,6 +22,7 @@ const ActivityBar: React.FC = () => {
     );
 
     const items = [
+        { id: 'agent-manager', icon: 'robot', title: 'Agent Manager' },
         { id: 'explorer-view', icon: 'files', title: 'Explorer' },
         { id: 'search-view', icon: 'search', title: 'Search' },
         { id: 'scm-view', icon: 'source-control', title: 'Source Control' },
@@ -80,8 +81,22 @@ const ActivityBar: React.FC = () => {
                         className={`activity-item ${activeView === item.id ? 'active' : ''}`}
                         title={item.title}
                         onClick={() => {
+                            const store = (window as any).useStore?.getState();
+                            if (item.id === 'agent-manager') {
+                                if (store) {
+                                    const isCurrentlyOpen = store.isRightSidebarOpen && store.isAiriPanelOpen;
+                                    if (isCurrentlyOpen) {
+                                        store.toggleRightSidebar();
+                                    } else {
+                                        store.openAiriPanel();
+                                        setTimeout(() => {
+                                            window.dispatchEvent(new CustomEvent('right-sidebar:set-view', { detail: { view: 'manager' } }));
+                                        }, 10);
+                                    }
+                                }
+                                return;
+                            }
                             if (item.id === 'visual-lab') {
-                                const store = (window as any).useStore?.getState();
                                 if (store) {
                                     const activeTab = store.tabs.find((t: any) => t.id === store.activeTabId);
                                     if (activeTab && (activeTab.path.endsWith('.json') || activeTab.language === 'json')) {
@@ -92,12 +107,19 @@ const ActivityBar: React.FC = () => {
                                 }
                                 return;
                             }
+                            
+                            // For regular views, ensure we are in editor mode
+                            if (store && store.layoutMode !== 'editor') {
+                                store.setLayoutMode('editor');
+                            }
                             setActiveView(item.id);
                             invoke("check_activation_event", { event: `onView:${item.id}` });
                         }}
                     >
                         <div className="activity-item-icon">
-                            {item.id === 'visual-lab' ? (
+                            {item.id === 'agent-manager' ? (
+                                <Bot size={24} style={{ opacity: ((window as any).useStore?.getState().isRightSidebarOpen && (window as any).useStore?.getState().isAiriPanelOpen) ? 1 : 0.6, color: 'var(--terminator-accent)' }} />
+                            ) : item.id === 'visual-lab' ? (
                                 <Beaker size={24} style={{ opacity: activeView === item.id ? 1 : 0.6 }} />
                             ) : item.base64_icon ? (
                                 <img src={item.base64_icon} style={{ width: '24px', height: '24px', opacity: activeView === item.id ? 1 : 0.6 }} />

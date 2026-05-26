@@ -3,6 +3,112 @@ import { marked } from 'marked';
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
 
+// ── Custom Interactive Blocks ────────────────────────────────────────────────
+const ClarifyingQuestionBlock: React.FC<{ data: any }> = ({ data }) => {
+    const [selected, setSelected] = useState<number | null>(null);
+    return (
+        <div style={{
+            background: 'var(--vscode-editor-background)',
+            border: '1px solid var(--vscode-widget-border)',
+            borderRadius: '6px',
+            margin: '12px 0',
+            overflow: 'hidden',
+            fontFamily: 'var(--vscode-font-family)'
+        }}>
+            <div style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--vscode-widget-border)',
+                fontWeight: 600,
+                fontSize: '13px'
+            }}>
+                {data.title || 'Clarifying Question'}
+            </div>
+            <div style={{ padding: '8px' }}>
+                {(data.options || []).map((opt: string, idx: number) => (
+                    <div 
+                        key={idx}
+                        onClick={() => setSelected(idx)}
+                        style={{
+                            padding: '8px 12px',
+                            margin: '4px',
+                            borderRadius: '4px',
+                            background: selected === idx ? 'var(--vscode-button-background)' : 'rgba(255,255,255,0.05)',
+                            color: selected === idx ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        <span style={{ 
+                            background: 'rgba(0,0,0,0.2)', 
+                            borderRadius: '50%', 
+                            width: '18px', 
+                            height: '18px', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            fontSize: '10px'
+                        }}>{idx + 1}</span>
+                        {opt}
+                    </div>
+                ))}
+            </div>
+            <div style={{
+                padding: '8px 12px',
+                borderTop: '1px solid var(--vscode-widget-border)',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '8px'
+            }}>
+                <button style={{ ...chipBtn, background: 'transparent', border: 'none' }}>Skip</button>
+                <button style={{ ...chipBtn, background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)', border: 'none' }}>Continue</button>
+            </div>
+        </div>
+    );
+};
+
+const SubagentsBlock: React.FC<{ data: any[] }> = ({ data }) => {
+    return (
+        <div style={{
+            background: 'var(--vscode-editor-background)',
+            border: '1px solid var(--vscode-widget-border)',
+            borderRadius: '6px',
+            margin: '12px 0',
+            padding: '12px',
+            fontFamily: 'var(--vscode-font-family)'
+        }}>
+            <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: '12px' }} />
+                Started {data.length} subagents
+            </div>
+            {data.map((agent: any, idx: number) => (
+                <div key={idx} style={{
+                    padding: '8px 12px',
+                    margin: '4px 0',
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.05)',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                }}>
+                    <i className={agent.status === 'running' ? 'codicon codicon-loading codicon-modifier-spin' : agent.status === 'done' ? 'codicon codicon-check' : 'codicon codicon-circle-large-outline'} 
+                       style={{ color: agent.status === 'done' ? '#10b981' : agent.status === 'running' ? '#3b82f6' : 'inherit', fontSize: '14px' }} />
+                    <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '12px', fontWeight: 600 }}>{agent.task}</div>
+                        <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                            <i className="codicon codicon-hubot" style={{ fontSize: '10px' }} />
+                            {agent.model}
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  MessageBody — Cursor-style chat message renderer.
 //
@@ -270,6 +376,25 @@ const MessageBody: React.FC<MessageBodyProps> = ({ content, allowApply = true })
                         />
                     );
                 }
+                if (seg.kind === 'code') {
+                    if (seg.lang === 'json:question') {
+                        try {
+                            const data = JSON.parse(seg.body);
+                            return <ClarifyingQuestionBlock key={i} data={data} />;
+                        } catch (e) {
+                            // fallback
+                        }
+                    }
+                    if (seg.lang === 'json:subagents') {
+                        try {
+                            const data = JSON.parse(seg.body);
+                            return <SubagentsBlock key={i} data={data} />;
+                        } catch (e) {
+                            // fallback
+                        }
+                    }
+                }
+
                 return (
                     <CodeBlock
                         key={i}

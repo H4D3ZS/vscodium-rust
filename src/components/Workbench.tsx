@@ -61,6 +61,7 @@ const Workbench: React.FC = () => {
 
     const tabs = useStore(state => state.tabs);
     const activeTabId = useStore(state => state.activeTabId);
+    const layoutMode = useStore(state => state.layoutMode);
     const closeTab = useStore(state => state.closeTab);
     const setActiveTab = useStore(state => state.setActiveTab);
     const isVisualLabSplitView = useStore(state => state.isVisualLabSplitView);
@@ -179,7 +180,7 @@ const Workbench: React.FC = () => {
             )}
 
             <div className="main-content" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0 }}>
-                {useStore.getState().layoutMode === 'editor' ? (
+                {layoutMode === 'editor' ? (
                     <main className="editors-layout" id="editors-layout" style={{ display: 'flex', flex: 1, overflow: 'hidden', background: 'var(--vscode-editor-background)' }}>
                         {/* Primary Editor Group */}
                         <div className="editor-group active" id="group-1" style={{ display: 'flex', flex: 1, flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
@@ -455,7 +456,7 @@ const Workbench: React.FC = () => {
                             </div>
                         </div>
                     </main>
-                ) : useStore.getState().layoutMode === 'manager' ? (
+                ) : layoutMode === 'manager' ? (
                     <AgentManager />
                 ) : (
                     <BrowserSurface />
@@ -477,14 +478,14 @@ const Workbench: React.FC = () => {
                 className="right-sidebar-container"
                 style={{
                     display: 'flex',
-                    width: isRightSidebarOpen ? `${rightSidebarWidth}px` : '0px',
+                    width: (isRightSidebarOpen && layoutMode !== 'manager') ? `${rightSidebarWidth}px` : '0px',
                     transition: 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     position: 'relative',
                     flexShrink: 0,
                     overflow: 'visible'
                 }}
             >
-                {isRightSidebarOpen && (
+                {(isRightSidebarOpen && layoutMode !== 'manager') && (
                     <div
                         className="resizer-v"
                         id="right-sidebar-resizer"

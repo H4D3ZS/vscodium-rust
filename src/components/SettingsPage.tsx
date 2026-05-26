@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
 import AgentSettingsView, { type AgentSettingsCategory } from './AgentSettingsView';
@@ -14,10 +14,10 @@ import '../settings.css';
 const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fields: string[]; keyUrl?: string; hint?: string }[] = [
     { id: 'anthropic', label: 'Anthropic', fields: ['apiKey'], keyUrl: 'https://console.anthropic.com/settings/keys', hint: 'Claude 3.5/4 — best for complex agentic tasks' },
     { id: 'openAI', label: 'OpenAI', fields: ['apiKey'], keyUrl: 'https://platform.openai.com/api-keys', hint: 'GPT-4o, o1, o3 — strong reasoning' },
-    { id: 'google', label: 'Google / Gemini', fields: ['apiKey'], keyUrl: 'https://aistudio.google.com/app/apikey', hint: 'Gemini 2.5 Pro — 1M context, free tier available' },
+    { id: 'gemini', label: 'Google / Gemini', fields: ['apiKey'], keyUrl: 'https://aistudio.google.com/app/apikey', hint: 'Gemini 2.5 Pro — 1M context, free tier available' },
     { id: 'groq', label: 'Groq', fields: ['apiKey'], keyUrl: 'https://console.groq.com/keys', hint: 'Ultra-fast inference, free tier for Llama/Mixtral' },
     { id: 'openRouter', label: 'OpenRouter', fields: ['apiKey'], keyUrl: 'https://openrouter.ai/keys', hint: 'Access 200+ models through one key' },
-    { id: 'deepSeek', label: 'DeepSeek', fields: ['apiKey'], keyUrl: 'https://platform.deepseek.com/api_keys', hint: 'DeepSeek V3/R1 — ultra-cheap, strong coder' },
+    { id: 'deepseek', label: 'DeepSeek', fields: ['apiKey'], keyUrl: 'https://platform.deepseek.com/api_keys', hint: 'DeepSeek V3/R1 — ultra-cheap, strong coder' },
     { id: 'xAI', label: 'xAI / Grok', fields: ['apiKey'], keyUrl: 'https://console.x.ai/', hint: 'Grok 3 with 128K context' },
     { id: 'mistral', label: 'Mistral', fields: ['apiKey'], keyUrl: 'https://console.mistral.ai/api-keys/', hint: 'Codestral / Devstral — best local coding models' },
     { id: 'ollama', label: 'Ollama (Local)', local: true, fields: ['endpoint'], hint: 'Free local inference — no API key needed' },
@@ -248,6 +248,8 @@ function ProvidersPanel() {
     const [keys, setKeys] = useState<Record<string, string>>({});
     const [endpoints, setEndpoints] = useState<Record<string, string>>({});
     const [saved, setSaved] = useState<string | null>(null);
+    const refreshModels = useStore(s => s.refreshAvailableModels);
+    const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         try {
@@ -261,7 +263,14 @@ function ProvidersPanel() {
             const next = { ...keys, [providerId]: value };
             setKeys(next);
             localStorage.setItem('void.providerKeys', JSON.stringify(next));
-            invoke('save_api_key', { key: providerId.toLowerCase(), value }).catch(() => {});
+            invoke('save_api_key', { key: providerId.toLowerCase(), value }).then(() => {
+                // Debounce: wait 800ms after last keystroke before refreshing
+                // so we don't spam list_provider_models on every character
+                if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+                refreshTimerRef.current = setTimeout(() => {
+                    refreshModels();
+                }, 800);
+            }).catch(() => {});
         } else {
             const next = { ...endpoints, [providerId]: value };
             setEndpoints(next);

@@ -539,13 +539,31 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
 
     const items: { label: string, value: string, desc?: string }[] = [];
 
+    // Always put a "Refresh" action at the top so users can re-scan without
+    // going all the way to Settings.
+    items.push({
+        label: '🔄 Refresh Models',
+        value: 'action|refresh_models',
+        desc: 'Re-scan all providers with saved API keys for available models'
+    });
+
     if (availableModels && availableModels.length > 0) {
-        availableModels.forEach((m: { id: string, provider: string }) => {
-            const providerName = m.provider.toLowerCase();
-            const providerLabel = providerName.charAt(0).toUpperCase() + providerName.slice(1);
-            items.push({
-                label: `${m.id} (${providerLabel})`,
-                value: `${providerLabel}|${m.id}`
+        // Group models by provider for a cleaner list
+        const byProvider = new Map<string, { id: string; provider: string }[]>();
+        availableModels.forEach((m: { id: string; provider: string }) => {
+            const key = m.provider.toLowerCase();
+            if (!byProvider.has(key)) byProvider.set(key, []);
+            byProvider.get(key)!.push(m);
+        });
+
+        byProvider.forEach((models, providerKey) => {
+            const providerLabel = providerKey.charAt(0).toUpperCase() + providerKey.slice(1);
+            models.forEach(m => {
+                items.push({
+                    label: `${m.id} (${providerLabel})`,
+                    value: `${providerLabel}|${m.id}`,
+                    desc: providerKey === 'ollama' ? 'Local — runs on your machine' : `BYOB — uses your ${providerLabel} API key`
+                });
             });
         });
     }
@@ -588,6 +606,14 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
     createPopover(element, items, (val) => {
         if (val === "action|hunt") {
             startKeyHunt();
+            return;
+        }
+        if (val === 'action|refresh_models') {
+            const s = (window as any).useStore;
+            if (s) {
+                // Full refresh — no provider arg means all providers are scanned
+                s.getState().refreshAvailableModels();
+            }
             return;
         }
         if (val === "action|check_ollama") {

@@ -174,6 +174,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
     const [vrmModelId, setVrmModelId] = useState('');
     const [customVrmModels, setCustomVrmModels] = useState<Array<{ id: string; name: string; url: string }>>([]);
 
+    const [isDetectingModels, setIsDetectingModels] = useState(false);
+    const [detectedModelCount, setDetectedModelCount] = useState<number | null>(null);
     const [newMcpName, setNewMcpName] = useState('');
     const [newMcpType, setNewMcpType] = useState<'command' | 'http'>('command');
     const [newMcpCommand, setNewMcpCommand] = useState('');
@@ -357,10 +359,26 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
             console.log('[Settings] ✅ Save result:', results);
 
             setKeyStatus(results);
-            // Refresh the providers we actually changed. The backend returns a
-            // generic status object, not one result per provider.
-            for (const provider of Object.keys(keysToSave)) {
-                refreshModels(provider).catch(() => { });
+
+            // ── Auto-detect models: full refresh after saving keys ──────────
+            // We do a FULL refreshModels() (no provider arg) so every provider
+            // that now has a valid key gets its model list populated. Calling
+            // per-provider with raw key names (e.g. 'elevenlabs_api_key') would
+            // pass an unrecognised provider to list_provider_models.
+            if (Object.keys(keysToSave).length > 0) {
+                setIsDetectingModels(true);
+                try {
+                    await refreshModels();
+                    const { availableModels } = (window as any).useStore?.getState?.() ?? {};
+                    const count = (availableModels ?? []).filter((m: any) =>
+                        m.provider !== 'ollama' && m.provider !== 'antigravity'
+                    ).length;
+                    setDetectedModelCount(count);
+                } catch (detectErr) {
+                    console.warn('[Settings] Model detection failed:', detectErr);
+                } finally {
+                    setIsDetectingModels(false);
+                }
             }
 
             // Reload keys to confirm they were saved
@@ -971,19 +989,49 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         ))}
                         <button
                             onClick={handleSaveKeys}
-                            disabled={savingKeys}
+                            disabled={savingKeys || isDetectingModels}
                             style={{
                                 marginTop: '6px',
-                                background: savingKeys ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)',
+                                background: savingKeys || isDetectingModels ? 'var(--vscode-button-secondaryBackground)' : 'var(--vscode-button-background)',
                                 color: 'var(--vscode-button-foreground)',
                                 border: 'none', padding: '6px 12px', fontSize: '12px',
-                                cursor: savingKeys ? 'wait' : 'pointer', borderRadius: '4px',
+                                cursor: savingKeys || isDetectingModels ? 'wait' : 'pointer', borderRadius: '4px',
                                 fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center'
                             }}
                         >
                             <i className="codicon codicon-save" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
-                            {savingKeys ? 'Validating & Saving...' : 'Save & Validate Keys'}
+                            {savingKeys ? 'Saving...' : isDetectingModels ? 'Detecting models...' : 'Save & Auto-Detect Models'}
                         </button>
+
+                        {/* Model detection status */}
+                        {isDetectingModels && (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                padding: '6px 10px', borderRadius: '6px',
+                                background: 'rgba(139,92,246,0.12)',
+                                border: '1px solid rgba(139,92,246,0.3)',
+                                fontSize: '11px', color: '#c084fc', fontWeight: 600
+                            }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#a855f7' }} />
+                                Scanning providers for available models...
+                            </div>
+                        )}
+                        {!isDetectingModels && detectedModelCount !== null && (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                padding: '6px 10px', borderRadius: '6px',
+                                background: detectedModelCount > 0 ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.10)',
+                                border: `1px solid ${detectedModelCount > 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                                fontSize: '11px',
+                                color: detectedModelCount > 0 ? '#4ade80' : '#f87171',
+                                fontWeight: 600
+                            }}>
+                                <i className={`codicon codicon-${detectedModelCount > 0 ? 'check-all' : 'warning'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                {detectedModelCount > 0
+                                    ? `✓ ${detectedModelCount} cloud model${detectedModelCount !== 1 ? 's' : ''} detected — pick one in the AI panel`
+                                    : 'No cloud models detected — check your API keys'}
+                            </div>
+                        )}
                         {keyStatus.error && (
                             <div style={{ fontSize: '11px', color: '#f87171', padding: '4px' }}>{keyStatus.error}</div>
                         )}

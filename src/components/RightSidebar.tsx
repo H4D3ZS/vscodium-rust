@@ -14,6 +14,8 @@ import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, g
 import AiriConversation from './AiriConversation';
 import MessageBody from './agent/MessageBody';
 import UnifiedEmulatorPanel from './UnifiedEmulatorPanel';
+import SpecsManager from './SpecsManager';
+import AgentManager from './AgentManager/AgentManager';
 
 
 // ── Restore-checkpoint banner ────────────────────────────────────────────
@@ -359,7 +361,7 @@ const RightSidebar: React.FC = () => {
     // 'settings' is no longer a right-sidebar view — the gear opens the
     // unified Settings tab in the editor pane instead. We keep the union
     // narrow so renaming the right-sidebar views stays cheap.
-    const [view, setView] = useState<'chat' | 'emulator' | 'history' | 'dashboard' | 'research' | 'kortex'>('chat');
+    const [view, setView] = useState<'chat' | 'emulator' | 'history' | 'dashboard' | 'research' | 'kortex' | 'specs' | 'rules' | 'manager'>('chat');
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mode = useStore(state => state.agentMode);
     const model = useStore(state => state.agentModel);
@@ -392,6 +394,17 @@ const RightSidebar: React.FC = () => {
             return () => clearInterval(interval);
         }
     }, [webUiProviderKey, refreshWebuiSessions]);
+
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            if (customEvent.detail && customEvent.detail.view) {
+                setView(customEvent.detail.view);
+            }
+        };
+        window.addEventListener('right-sidebar:set-view', handler);
+        return () => window.removeEventListener('right-sidebar:set-view', handler);
+    }, []);
     const messages = useStore(state => state.agentMessages);
     const isAgentThinking = useStore(state => state.isAgentThinking);
     const isAgentPaused = useStore(state => state.isAgentPaused);
@@ -1402,7 +1415,7 @@ const RightSidebar: React.FC = () => {
                     flexWrap: 'wrap'
                 }}>
                     <div style={{ display: 'flex', gap: '2px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        {['chat', 'emulator', 'kortex', 'history', 'dashboard', 'research'].map(v => (
+                        {['chat', 'emulator', 'kortex', 'manager', 'history', 'dashboard', 'research', 'specs', 'rules'].map(v => (
                             <button
                                 key={v}
                                 onClick={() => {
@@ -1427,7 +1440,7 @@ const RightSidebar: React.FC = () => {
                                 }}
                                 className="hoverable"
                             >
-                                {v}
+                                {v === 'manager' ? 'agent' : v}
                             </button>
                         ))}
                     </div>
@@ -2284,6 +2297,14 @@ const RightSidebar: React.FC = () => {
                             <MissionControl />
                         ) : view === 'research' ? (
                             <ResearchCenter />
+                        ) : view === 'specs' ? (
+                            <SpecsManager />
+                        ) : view === 'rules' ? (
+                            <RulesManager />
+                        ) : view === 'manager' ? (
+                            <div className="right-sidebar-active-surface" style={{ justifyContent: 'flex-start', alignItems: 'stretch' }}>
+                                <AgentManager />
+                            </div>
                         ) : null}
                     </div>
                 )}
