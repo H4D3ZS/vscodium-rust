@@ -2334,6 +2334,12 @@ impl AiTools {
             for entry in WalkDir::new(&full_path)
                 .max_depth(3)
                 .into_iter()
+                .filter_entry(|e| {
+                    let name = e.file_name().to_string_lossy();
+                    let is_hidden = name.starts_with('.') && name != "." && name != "..";
+                    let is_ignored = name == "node_modules" || name == "target" || name == "dist" || name == "build" || name == ".git";
+                    !is_hidden && !is_ignored
+                })
                 .filter_map(|e| e.ok())
             {
                 let rel_path = entry
