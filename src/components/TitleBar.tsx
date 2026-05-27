@@ -604,7 +604,11 @@ const TitleBar: React.FC = () => {
                 </div>
 
                 {/* Native window controls */}
-                <div className="window-controls-right">
+                <div
+                    className="window-controls-right"
+                    data-tauri-drag-region="false"
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
                     <button className="wc-btn wc-minimize" title="Minimize" onClick={winMinimize} aria-label="Minimize">
                         <svg width="10" height="1" viewBox="0 0 10 1">
                             <rect width="10" height="1" fill="currentColor" />

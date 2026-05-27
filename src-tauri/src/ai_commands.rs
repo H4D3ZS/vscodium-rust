@@ -150,6 +150,10 @@ pub async fn ai_chat(
     }
 
     // Set up chunk callback for real-time UI streaming
+    // Clone app BEFORE moving it into the Arc so we can emit the final ai-content event
+    // directly after the loop completes, bypassing the silent_emits suppression used
+    // by background AIRI autonomous tasks.
+    let app_for_final = app.clone();
     let app_handle = std::sync::Arc::new(app);
     let on_chunk = Some(std::sync::Arc::new(move |chunk: &str| {
         let _ = app_handle.emit("ai-content-delta", serde_json::json!({ "delta": chunk }));
@@ -169,6 +173,10 @@ pub async fn ai_chat(
                 .and_then(|mut f| { use std::io::Write; f.write_all(err_log.as_bytes()) });
             e.to_string()
         })?;
+
+    // Always push the final complete response to the UI regardless of silent_emits state.
+    // This is the foreground command — background tasks must not block its final emit.
+    let _ = app_for_final.emit("ai-content", serde_json::json!({ "content": result.trim() }));
 
     let done_log = format!("[ai_chat] DONE: response_len={}\n", result.len());
     eprintln!("{}", done_log.trim());
