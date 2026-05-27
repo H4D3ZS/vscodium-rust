@@ -157,6 +157,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         ollama: '',
         openai_base_url: '',
         anthropic_base_url: '',
+        google_base_url: '',
     });
     const [realApiKey, setRealApiKey] = useState(''); // Store real ElevenLabs key separately
     const [savingKeys, setSavingKeys] = useState(false);
@@ -218,6 +219,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         ollama: (keys as any).ollama ? '••••••••' + String((keys as any).ollama).slice(-4) : '',
                         openai_base_url: (keys as any).openai_base_url || '',
                         anthropic_base_url: (keys as any).anthropic_base_url || '',
+                        google_base_url: (keys as any).google_base_url || '',
                     };
                     console.log('[Settings] Setting apiKeys state:', {
                         elevenlabs: newKeys.elevenlabs ? `${newKeys.elevenlabs.substring(0, 8)}...` : 'EMPTY',
@@ -365,6 +367,10 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
             if ((apiKeys as any).anthropic_base_url !== undefined) {
                 keysToSave.anthropic_base_url = (apiKeys as any).anthropic_base_url;
                 console.log('[Settings] Adding anthropic_base_url to save');
+            }
+            if ((apiKeys as any).google_base_url !== undefined) {
+                keysToSave.google_base_url = (apiKeys as any).google_base_url;
+                console.log('[Settings] Adding google_base_url to save');
             }
 
             console.log('[Settings] Keys to save:', Object.keys(keysToSave), 'elevenlabs_api_key in payload:', !!keysToSave.elevenlabs_api_key);
@@ -960,7 +966,14 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 baseUrlLabel: 'Anthropic Compatible Base URL Override (Optional)',
                                 baseUrlPlaceholder: 'https://api.anthropic.com or custom proxy URL'
                             },
-                            { key: 'google', label: 'Google (Gemini)', placeholder: 'AIza...' },
+                            {
+                                key: 'google',
+                                label: 'Google (Gemini)',
+                                placeholder: 'AIza...',
+                                baseUrlKey: 'google_base_url',
+                                baseUrlLabel: 'Google / Gemini Compatible Base URL Override (Optional)',
+                                baseUrlPlaceholder: 'https://generativelanguage.googleapis.com or custom proxy URL'
+                            },
                             {
                                 key: 'openai',
                                 label: 'OpenAI',

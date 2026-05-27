@@ -366,6 +366,7 @@ pub struct ApiKeys {
     pub elevenlabs_voice_id: Option<String>,
     pub openai_base_url: Option<String>,
     pub anthropic_base_url: Option<String>,
+    pub google_base_url: Option<String>,
 }
 
 #[tauri::command]
@@ -417,6 +418,7 @@ pub async fn save_api_keys(
     if incoming.elevenlabs_voice_id.is_some() { merged.elevenlabs_voice_id = incoming.elevenlabs_voice_id; }
     if incoming.openai_base_url.is_some()     { merged.openai_base_url     = incoming.openai_base_url; }
     if incoming.anthropic_base_url.is_some()  { merged.anthropic_base_url  = incoming.anthropic_base_url; }
+    if incoming.google_base_url.is_some()     { merged.google_base_url     = incoming.google_base_url; }
 
     let content = serde_json::to_string_pretty(&merged).map_err(|e| e.to_string())?;
     std::fs::write(path, content).map_err(|e| e.to_string())?;
@@ -450,6 +452,7 @@ pub async fn save_api_key(
         "openrouter" => keys.openrouter = Some(value),
         "openai_base_url" => keys.openai_base_url = Some(value),
         "anthropic_base_url" => keys.anthropic_base_url = Some(value),
+        "google_base_url" => keys.google_base_url = Some(value),
         // Accept alternate casing from the JS provider IDs
         "openai" | "openai_api_key" => keys.openai = Some(value),
         "google" | "gemini" => keys.google = Some(value),

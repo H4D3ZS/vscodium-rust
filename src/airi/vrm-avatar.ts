@@ -5,9 +5,9 @@
  * Connects to voice, conversation, and biological states
  */
 
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-import { VRMLoaderPlugin, VRM } from '@pixiv/three-vrm';
+import type * as THREE_TYPES from 'three';
+import type { GLTFLoader as GLTFLoaderType } from 'three/examples/jsm/loaders/GLTFLoader';
+import type { VRMLoaderPlugin as VRMLoaderPluginType, VRM as VRMType } from '@pixiv/three-vrm';
 
 export interface AvatarState {
   emotion: AvatarEmotion;
@@ -30,22 +30,18 @@ export type AvatarEmotion =
   | 'surprised';
 
 export class AIRIVRMAvatar {
-  private scene: THREE.Scene;
-  private camera: THREE.PerspectiveCamera;
-  private renderer: THREE.WebGLRenderer | null = null;
-  private vrm: VRM | null = null;
-  private mixer: THREE.AnimationMixer | null = null;
-  private clock: THREE.Clock;
+  private scene: any = null;
+  private camera: any = null;
+  private renderer: any = null;
+  private vrm: any = null;
+  private mixer: any = null;
+  private clock: any = null;
   private state: AvatarState;
   private isInitialized: boolean = false;
   private animationFrameId: number | null = null;
   private container: HTMLDivElement | null = null;
 
   constructor() {
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
-    this.clock = new THREE.Clock();
-
     this.state = {
       emotion: 'neutral',
       isSpeaking: false,
@@ -73,6 +69,15 @@ export class AIRIVRMAvatar {
       this.container = container;
       const width = container.clientWidth || 300;
       const height = container.clientHeight || 300;
+
+      // Lazy load Three.js and plugins
+      const THREE = await import('three');
+      const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader');
+      const { VRMLoaderPlugin } = await import('@pixiv/three-vrm');
+
+      this.scene = new THREE.Scene();
+      this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
+      this.clock = new THREE.Clock();
 
       this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
       this.renderer.setSize(width, height);

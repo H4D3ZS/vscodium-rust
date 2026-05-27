@@ -66,16 +66,8 @@ impl AttachmentManager {
                  }
              }
 
-             // Generate Thumbnail for UX preview (Fast, Local)
-             let mut thumbnail_data = None;
-             if let Ok(img) = image::open(&path) {
-                 let thumb = img.thumbnail(120, 120);
-                 let mut buf = std::io::Cursor::new(Vec::new());
-                 if thumb.write_to(&mut buf, image::ImageFormat::Png).is_ok() {
-                     let b64 = general_purpose::STANDARD.encode(buf.into_inner());
-                     thumbnail_data = Some(format!("data:image/png;base64,{}", b64));
-                 }
-             }
+             // Generate Thumbnail for UX preview (Fast, Local) - Stubbed to drop heavy 'image' dependency
+             let thumbnail_data = None;
 
              // 2. Neuralize the visual state
              let gist_injector_res = if !visual_summary.is_empty() {

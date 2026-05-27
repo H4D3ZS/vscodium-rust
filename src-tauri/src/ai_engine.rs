@@ -3722,6 +3722,25 @@ impl Sentient {
         let endpoint = self.get_endpoint(&req.provider, &req);
         let key = self.get_key_for_provider(&req.provider).trim().to_string();
 
+        let mut has_google_base_url = false;
+        if let Ok(url) = std::env::var("GOOGLE_BASE_URL") {
+            if !url.is_empty() {
+                has_google_base_url = true;
+            }
+        }
+        if !has_google_base_url {
+            let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
+            if let Ok(content) = std::fs::read_to_string(&keys_path) {
+                if let Ok(keys) = serde_json::from_str::<Value>(&content) {
+                    if let Some(custom_url) = keys["google_base_url"].as_str() {
+                        if !custom_url.is_empty() {
+                            has_google_base_url = true;
+                        }
+                    }
+                }
+            }
+        }
+
         let payload = if is_ollama {
             let is_vision = Self::is_vision_model(&req.model);
             let messages = Self::build_ollama_messages(&req.messages, is_vision);
@@ -3748,7 +3767,7 @@ impl Sentient {
             request = request
                 .header("x-api-key", &key)
                 .header("anthropic-version", "2023-06-01");
-        } else if req.provider.to_lowercase() == "google" {
+        } else if req.provider.to_lowercase() == "google" && !has_google_base_url {
             let mut url = endpoint.clone();
             if url.contains('?') { url.push_str(&format!("&key={}", key)); }
             else { url.push_str(&format!("?key={}", key)); }
@@ -3788,6 +3807,28 @@ impl Sentient {
     pub async fn list_models(&self, provider: &str) -> Result<Vec<String>> {
         println!("Listing models for provider: {}", provider);
         let provider_key = self.get_key_for_provider(provider);
+
+        let mut has_google_base_url = false;
+        let mut custom_google_base = String::new();
+        if let Ok(url) = std::env::var("GOOGLE_BASE_URL") {
+            if !url.is_empty() {
+                has_google_base_url = true;
+                custom_google_base = url.trim().trim_end_matches('/').to_string();
+            }
+        }
+        if !has_google_base_url {
+            let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
+            if let Ok(content) = std::fs::read_to_string(&keys_path) {
+                if let Ok(keys) = serde_json::from_str::<Value>(&content) {
+                    if let Some(custom_url) = keys["google_base_url"].as_str() {
+                        if !custom_url.is_empty() {
+                            has_google_base_url = true;
+                            custom_google_base = custom_url.trim().trim_end_matches('/').to_string();
+                        }
+                    }
+                }
+            }
+        }
 
         // Special case for ApiRadar: allow fallback even without a key
         if provider.to_lowercase() == "apiradar" {
@@ -4009,33 +4050,47 @@ impl Sentient {
             unreachable!();
         }
 
-        let endpoint = match provider.to_lowercase().as_str() {
-            "google" => "https://generativelanguage.googleapis.com/v1beta/models",
-            "openai" => "https://api.openai.com/v1/models",
-            "anthropic" => "https://api.anthropic.com/v1/models",
-            "groq" => "https://api.groq.com/openai/v1/models",
-            "openrouter" => "https://openrouter.ai/api/v1/models",
-            "mistral" => "https://api.mistral.ai/v1/models",
-            "xai" => "https://api.x.ai/models",
-            "cerebras" => "https://api.cerebras.ai/v1/models",
-            "nvidia" => "https://integrate.api.nvidia.com/v1/models",
-            "apiradar" => "https://apiradar.live/api/v1/models",
-            "openwebui" | "openwebui-claude" | "openwebui-gpt" | "openwebui-gemini" => {
-                "http://127.0.0.1:8080/api/models"
+        let endpoint = if provider.to_lowercase() == "google" && has_google_base_url {
+            if custom_google_base.ends_with("/models") {
+                custom_google_base.clone()
+            } else if custom_google_base.ends_with("/v1") {
+                format!("{}/models", custom_google_base)
+            } else {
+                format!("{}/v1/models", custom_google_base)
             }
-            _ => {
-                return Err(anyhow!(
-                    "Model listing not supported for provider: {}",
-                    provider
-                ))
-            }
-        }
-        .to_string();
+        } else {
+            let endpoint_ref = match provider.to_lowercase().as_str() {
+                "google" => "https://generativelanguage.googleapis.com/v1beta/models",
+                "openai" => "https://api.openai.com/v1/models",
+                "anthropic" => "https://api.anthropic.com/v1/models",
+                "groq" => "https://api.groq.com/openai/v1/models",
+                "openrouter" => "https://openrouter.ai/api/v1/models",
+                "mistral" => "https://api.mistral.ai/v1/models",
+                "xai" => "https://api.x.ai/models",
+                "cerebras" => "https://api.cerebras.ai/v1/models",
+                "nvidia" => "https://integrate.api.nvidia.com/v1/models",
+                "apiradar" => "https://apiradar.live/api/v1/models",
+                "openwebui" | "openwebui-claude" | "openwebui-gpt" | "openwebui-gemini" => {
+                    "http://127.0.0.1:8080/api/models"
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "Model listing not supported for provider: {}",
+                        provider
+                    ))
+                }
+            };
+            endpoint_ref.to_string()
+        };
 
         let mut request = self.client.get(endpoint);
 
         if provider.to_lowercase() == "google" {
-            request = request.query(&[("key", &provider_key)]);
+            if has_google_base_url {
+                request = request.bearer_auth(&provider_key);
+            } else {
+                request = request.query(&[("key", &provider_key)]);
+            }
         } else if provider.to_lowercase() == "anthropic" {
             request = request
                 .header("x-api-key", &provider_key)
@@ -4071,6 +4126,18 @@ impl Sentient {
                                 && !id.contains("text-")
                             {
                                 model_ids.push(id);
+                            }
+                        }
+                    }
+                }
+                if model_ids.is_empty() {
+                    // Try OpenAI compatible parsing since it might be a custom proxy/reseller
+                    if let Some(data) = result.get("data").and_then(|d| d.as_array()) {
+                        for m in data {
+                            if let Some(id) = m.get("id").and_then(|i| i.as_str()) {
+                                if id.contains("gemini") {
+                                    model_ids.push(id.to_string());
+                                }
                             }
                         }
                     }
@@ -4336,8 +4403,30 @@ impl Sentient {
     fn get_endpoint(&self, provider: &str, req: &AiRequest) -> String {
         let provider_base = provider.split(':').next().unwrap_or(provider).to_lowercase();
         match provider_base.as_str() {
-            "google" => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-                .to_string(),
+            "google" => {
+                if let Ok(url) = std::env::var("GOOGLE_BASE_URL") {
+                    if !url.is_empty() {
+                        let base = url.trim().trim_end_matches('/').to_string();
+                        if base.ends_with("/v1/chat/completions") { return base; }
+                        else if base.ends_with("/v1") { return format!("{}/chat/completions", base); }
+                        else { return format!("{}/v1/chat/completions", base); }
+                    }
+                }
+                let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
+                if let Ok(content) = std::fs::read_to_string(&keys_path) {
+                    if let Ok(keys) = serde_json::from_str::<Value>(&content) {
+                        if let Some(custom_url) = keys["google_base_url"].as_str() {
+                            if !custom_url.is_empty() {
+                                let base = custom_url.trim().trim_end_matches('/').to_string();
+                                if base.ends_with("/v1/chat/completions") { return base; }
+                                else if base.ends_with("/v1") { return format!("{}/chat/completions", base); }
+                                else { return format!("{}/v1/chat/completions", base); }
+                            }
+                        }
+                    }
+                }
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string()
+            }
             "anthropic" => {
                 if let Ok(url) = std::env::var("ANTHROPIC_BASE_URL") {
                     if !url.is_empty() { return url; }

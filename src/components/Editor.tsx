@@ -79,6 +79,28 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
         }
     }, [effectiveTabId, activeTab?.path, setActiveEditorPath, forcedTabId]);
 
+    // Enforce hard cap of 20 active Monaco models to save RAM
+    useEffect(() => {
+        if (editorRef.current) {
+            import('monaco-editor').then((monaco) => {
+                const models = monaco.editor.getModels();
+                if (models.length > 20) {
+                    const openTabUris = new Set(tabs.map(t => pathToUri(t.path)));
+                    const inactiveModels = models.filter(m => !openTabUris.has(m.uri.toString()));
+                    
+                    if (inactiveModels.length > 0) {
+                        const toEvictCount = models.length - 20;
+                        const toEvict = inactiveModels.slice(0, toEvictCount);
+                        toEvict.forEach(m => {
+                            m.dispose();
+                            console.log(`[Monaco Eviction] Disposed inactive model: ${m.uri.toString()} to conserve RAM.`);
+                        });
+                    }
+                }
+            }).catch(console.error);
+        }
+    }, [activeTab?.path, tabs]);
+
     const handleMount: OnMount = useCallback((editor, monaco) => {
         editorRef.current = editor;
         // Announce the live editor so add-on overlays (PredictiveEditOverlay,

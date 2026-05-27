@@ -76,7 +76,7 @@ const Workbench: React.FC = () => {
     const [cursorSymbol, setCursorSymbol] = useState<string>('');
     const recentWorkspaces = useStore(state => state.recentWorkspaces);
     const removeRecentWorkspace = useStore(state => state.removeRecentWorkspace);
-    
+
     // Dev Workflow State
     const isDevWorkflowActive = useStore(state => state.isDevWorkflowActive);
     const isZenMode = useStore(state => (state as any).isZenMode ?? false);
@@ -258,7 +258,7 @@ const Workbench: React.FC = () => {
                                                     <img src="/assets/rust-logo.png" alt="Rust Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
                                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                                                         <h1 style={{ fontSize: 'min(5vw, 42px)', fontWeight: 800, marginBottom: '2px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)', lineHeight: 1, margin: 0 }}>
-                                                            PROJECT HADES <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>AIRI-CORE v0.2.0</span>
+                                                            VSCODIUM-RUST IDE <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>AIRI-CORE v0.2.0</span>
                                                         </h1>
                                                         <p style={{ fontSize: '14px', opacity: 0.6, maxWidth: '600px', margin: '8px 0 0', lineHeight: '1.4' }}>
                                                             The ultimate high-performance, native IDE optimized for speed, autonomy, and the future of software construction.
@@ -492,17 +492,17 @@ const Workbench: React.FC = () => {
                         style={{ position: 'absolute', left: 0, height: '100%' }}
                     />
                 )}
-                <div style={{ 
-                    flex: 1, 
-                    minWidth: isRightSidebarOpen ? '350px' : '0', 
-                    overflow: 'hidden', 
+                <div style={{
+                    flex: 1,
+                    minWidth: isRightSidebarOpen ? '350px' : '0',
+                    overflow: 'hidden',
                     height: '100%',
                     display: 'flex',
                     flexDirection: 'column'
                 }}>
                     {/* Panel content */}
-                    <div style={{ 
-                        flex: 1, 
+                    <div style={{
+                        flex: 1,
                         overflow: 'hidden',
                         display: 'flex',
                         flexDirection: 'column'
@@ -544,11 +544,11 @@ const Workbench: React.FC = () => {
                         </div>
                     </div>
                 )}
-                
-                {/* Ollama Progress Bar */}
-                <OllamaProgressBar />
-                <ComposerOverlay />
-                <ToastManager />
+
+            {/* Ollama Progress Bar */}
+            <OllamaProgressBar />
+            <ComposerOverlay />
+            <ToastManager />
         </div >
     );
 };

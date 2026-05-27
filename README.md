@@ -54,6 +54,14 @@ Built by a researcher for researchers. VSCodium-Rust is an elite tool for **Secu
 
 ---
 
+## ☁️ Cloud AI & Neural VFS
+
+The Cyber-Ifrit IDE client is open-source under the MIT License. 
+Cloud AI routing, Neural VFS compression, and subscription management are **proprietary services** hosted on Cyber-Ifrit infrastructure. 
+To use AI features, you must subscribe to Cyber-Ifrit Cloud at https://cyberifrit.xyz/pricing
+
+---
+
 ## 📝 License & Credits
 - **Credits:** Standing on the shoulders of giants: Zed Industries (GPUI), VSCodium Team, and Palinuro.
 - **License:** MIT

@@ -12,12 +12,10 @@ sha3 = "*"
 qdrant-client = { version = "1.17.0", default-features = false }
 tokio = { version = "1", features = ["full"] }
 rand = "=0.8.5"
-headless_chrome = "=1.0.12"
 reqwest = { version = "0.11", features = ["json", "blocking"] }
 axum = "0.7"
 candle-core = "=0.7.1"
 candle-nn = "=0.7.1"
 candle-transformers = "=0.7.1"
-image = "0.24"
 anyhow = "1.0"
 half = "=2.3.1"
