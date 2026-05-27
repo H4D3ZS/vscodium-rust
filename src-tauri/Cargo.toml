@@ -71,7 +71,7 @@ libaim = { path = "../kortex/libaim" }
 daemon = { path = "../kortex/daemon" }
 candle-core = "=0.7.1"
 half = { version = "=2.3.1", default-features = false, features = ["num-traits", "rand_distr"] }
-which = "6.0"
+which = "8.0"
 diffy = "0.3"
 notify = "6.1"
 streaming-iterator = "0.1"
