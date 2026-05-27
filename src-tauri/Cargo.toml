@@ -79,7 +79,7 @@ rayon = "1.10"
 sha2 = "0.10"
 tempfile = "3"
 hades-harness = { path = "../kortex/harness" }
-tokio-tungstenite = "0.20"
+tokio-tungstenite = "0.29"
 futures-util = "0.3"
 bytes = "1"
 lazy_static = "1.5.0"
