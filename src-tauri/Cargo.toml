@@ -73,7 +73,7 @@ candle-core = "=0.7.1"
 half = { version = "=2.3.1", default-features = false, features = ["num-traits", "rand_distr"] }
 which = "6.0"
 diffy = "0.3"
-notify = "6.1"
+notify = "8.2"
 streaming-iterator = "0.1"
 rayon = "1.10"
 sha2 = "0.10"
