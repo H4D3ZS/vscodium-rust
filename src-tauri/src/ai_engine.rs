@@ -574,7 +574,7 @@ impl Sentient {
             metadata: None,
         });
 
-        let keys_path = self.brain_dir.parent().and_then(|p| p.parent()).unwrap().join("api_keys.json");
+        let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
         let (provider, model) = if let Some(p) = provider_override {
              if let Some((prov, m)) = p.split_once(':') {
                  (prov.to_string(), m.to_string())
@@ -4314,7 +4314,7 @@ impl Sentient {
         }
 
         // Fallback to api_keys.json in config dir
-        let keys_path = self.brain_dir.parent().and_then(|p| p.parent()).unwrap().join("api_keys.json");
+        let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
         if let Ok(content) = std::fs::read_to_string(&keys_path) {
             if let Ok(keys) = serde_json::from_str::<Value>(&content) {
                 if let Some(key) = keys[provider_base.clone()].as_str() {
