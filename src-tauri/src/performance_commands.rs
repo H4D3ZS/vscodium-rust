@@ -46,9 +46,26 @@ pub async fn query_performance_history(state: State<'_, EditorState>) -> Result<
 
 }
 
+#[cfg(target_os = "windows")]
+extern "system" {
+    fn GetCurrentProcess() -> isize;
+    fn SetProcessWorkingSetSize(
+        hProcess: isize,
+        dwMinimumWorkingSetSize: usize,
+        dwMaximumWorkingSetSize: usize,
+    ) -> i32;
+}
+
 #[tauri::command]
 pub async fn optimize_memory(state: State<'_, EditorState>) -> Result<String, String> {
     state.memory_optimizer.optimize().await.map_err(|e| e.to_string())?;
+    
+    #[cfg(target_os = "windows")]
+    unsafe {
+        let handle = GetCurrentProcess();
+        let _ = SetProcessWorkingSetSize(handle, usize::MAX, usize::MAX);
+    }
+    
     Ok("Memory optimization complete".to_string())
 }
 

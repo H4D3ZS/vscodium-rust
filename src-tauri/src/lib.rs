@@ -92,7 +92,7 @@ mod vector_indexer;
 mod vision;
 mod workers;
 
-#[allow(dead_code)]
+#[cfg(target_os = "windows")]
 extern "system" {
     fn GetCurrentProcess() -> isize;
     fn SetProcessWorkingSetSize(
@@ -165,6 +165,13 @@ pub fn run() {
                     eprintln!("Failed to start OAuth listener: {}", e);
                 }
             });
+
+            // Force working set trim on Windows to drop physical RAM usage immediately on boot
+            #[cfg(target_os = "windows")]
+            unsafe {
+                let handle = GetCurrentProcess();
+                let _ = SetProcessWorkingSetSize(handle, usize::MAX, usize::MAX);
+            }
 
             Ok(())
         })
