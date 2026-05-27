@@ -436,9 +436,9 @@ pub async fn save_api_key(
 ) -> Result<(), String> {
     let mut keys = get_api_keys(state.clone()).await?;
     match key.as_str() {
-        "openai" => keys.openai = Some(value),
+        "openai" | "openai_api_key" => keys.openai = Some(value),
         "anthropic" => keys.anthropic = Some(value),
-        "google" => keys.google = Some(value),
+        "google" | "gemini" => keys.google = Some(value),
         "deepseek" => keys.deepseek = Some(value),
         "mistral" => keys.mistral = Some(value),
         "xai" => keys.xai = Some(value),
@@ -453,13 +453,9 @@ pub async fn save_api_key(
         "openai_base_url" => keys.openai_base_url = Some(value),
         "anthropic_base_url" => keys.anthropic_base_url = Some(value),
         "google_base_url" => keys.google_base_url = Some(value),
-        // Accept alternate casing from the JS provider IDs
-        "openai" | "openai_api_key" => keys.openai = Some(value),
-        "google" | "gemini" => keys.google = Some(value),
         _ => {
-            // Unknown key — still persist it in a generic "extra" catch-all via openai slot
-            // so the user's key is never silently lost.
-            println!("[auth] Unknown provider key '{}' — accepting as extra key", key);
+            // Unknown key — log but don't silently drop
+            println!("[auth] Unknown provider key '{}' — not persisted", key);
         }
     }
     let path = state.config_dir.join("api_keys.json");

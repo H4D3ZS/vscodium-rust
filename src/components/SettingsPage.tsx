@@ -11,10 +11,10 @@ import { type FeatureName, type ProviderName, defaultModelSelectionOfFeature } f
 import '../settings.css';
 
 // ── Provider list ──────────────────────────────────────────────────────────
-const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fields: string[]; keyUrl?: string; hint?: string }[] = [
-    { id: 'anthropic', label: 'Anthropic', fields: ['apiKey'], keyUrl: 'https://console.anthropic.com/settings/keys', hint: 'Claude 3.5/4 — best for complex agentic tasks' },
-    { id: 'openAI', label: 'OpenAI', fields: ['apiKey'], keyUrl: 'https://platform.openai.com/api-keys', hint: 'GPT-4o, o1, o3 — strong reasoning' },
-    { id: 'gemini', label: 'Google / Gemini', fields: ['apiKey'], keyUrl: 'https://aistudio.google.com/app/apikey', hint: 'Gemini 2.5 Pro — 1M context, free tier available' },
+const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fields: string[]; keyUrl?: string; hint?: string; baseUrlKey?: string; baseUrlPlaceholder?: string }[] = [
+    { id: 'anthropic', label: 'Anthropic', fields: ['apiKey'], keyUrl: 'https://console.anthropic.com/settings/keys', hint: 'Claude 3.5/4 — best for complex agentic tasks', baseUrlKey: 'anthropic_base_url', baseUrlPlaceholder: 'https://api.anthropic.com (or reseller proxy)' },
+    { id: 'openAI', label: 'OpenAI', fields: ['apiKey'], keyUrl: 'https://platform.openai.com/api-keys', hint: 'GPT-4o, o1, o3 — strong reasoning', baseUrlKey: 'openai_base_url', baseUrlPlaceholder: 'https://api.openai.com (or reseller proxy)' },
+    { id: 'gemini', label: 'Google / Gemini', fields: ['apiKey'], keyUrl: 'https://aistudio.google.com/app/apikey', hint: 'Gemini 2.5 Pro — 1M context, free tier available. Use Base URL if you have a reseller proxy.', baseUrlKey: 'google_base_url', baseUrlPlaceholder: 'https://generativelanguage.googleapis.com (or reseller proxy base URL)' },
     { id: 'groq', label: 'Groq', fields: ['apiKey'], keyUrl: 'https://console.groq.com/keys', hint: 'Ultra-fast inference, free tier for Llama/Mixtral' },
     { id: 'openRouter', label: 'OpenRouter', fields: ['apiKey'], keyUrl: 'https://openrouter.ai/keys', hint: 'Access 200+ models through one key' },
     { id: 'deepseek', label: 'DeepSeek', fields: ['apiKey'], keyUrl: 'https://platform.deepseek.com/api_keys', hint: 'DeepSeek V3/R1 — ultra-cheap, strong coder' },
@@ -247,30 +247,62 @@ function ModelsPanel() {
 function ProvidersPanel() {
     const [keys, setKeys] = useState<Record<string, string>>({});
     const [endpoints, setEndpoints] = useState<Record<string, string>>({});
+    const [baseUrls, setBaseUrls] = useState<Record<string, string>>({});
     const [saved, setSaved] = useState<string | null>(null);
     const refreshModels = useStore(s => s.refreshAvailableModels);
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // Load persisted keys AND base URLs from the Rust backend (api_keys.json)
     useEffect(() => {
-        try {
-            setKeys(JSON.parse(localStorage.getItem('void.providerKeys') || '{}'));
-            setEndpoints(JSON.parse(localStorage.getItem('void.providerEndpoints') || '{}'));
-        } catch { }
+        invoke<Record<string, any>>('get_api_keys').then((stored: any) => {
+            const nextKeys: Record<string, string> = {};
+            const nextBaseUrls: Record<string, string> = {};
+            // Map backend field names to provider IDs
+            if (stored.anthropic) nextKeys['anthropic'] = stored.anthropic;
+            if (stored.openai) nextKeys['openAI'] = stored.openai;
+            if (stored.google) nextKeys['gemini'] = stored.google;
+            if (stored.groq) nextKeys['groq'] = stored.groq;
+            if (stored.openrouter) nextKeys['openRouter'] = stored.openrouter;
+            if (stored.deepseek) nextKeys['deepseek'] = stored.deepseek;
+            if (stored.xai) nextKeys['xAI'] = stored.xai;
+            if (stored.mistral) nextKeys['mistral'] = stored.mistral;
+            // Base URL overrides
+            if (stored.anthropic_base_url) nextBaseUrls['anthropic'] = stored.anthropic_base_url;
+            if (stored.openai_base_url) nextBaseUrls['openAI'] = stored.openai_base_url;
+            if (stored.google_base_url) nextBaseUrls['gemini'] = stored.google_base_url;
+            setKeys(prev => ({ ...prev, ...nextKeys }));
+            setBaseUrls(prev => ({ ...prev, ...nextBaseUrls }));
+        }).catch(() => {
+            // Fallback to localStorage if backend not available
+            try {
+                setKeys(JSON.parse(localStorage.getItem('void.providerKeys') || '{}'));
+                setEndpoints(JSON.parse(localStorage.getItem('void.providerEndpoints') || '{}'));
+            } catch { }
+        });
     }, []);
 
-    const save = (providerId: string, field: 'apiKey' | 'endpoint', value: string) => {
+    const save = (providerId: string, field: 'apiKey' | 'endpoint' | 'baseUrl', value: string, baseUrlKey?: string) => {
         if (field === 'apiKey') {
             const next = { ...keys, [providerId]: value };
             setKeys(next);
-            localStorage.setItem('void.providerKeys', JSON.stringify(next));
-            invoke('save_api_key', { key: providerId.toLowerCase(), value }).then(() => {
+            // Map provider ID back to backend key name
+            const backendKey = providerId === 'openAI' ? 'openai' :
+                               providerId === 'openRouter' ? 'openrouter' :
+                               providerId === 'xAI' ? 'xai' :
+                               providerId === 'gemini' ? 'google' :
+                               providerId.toLowerCase();
+            invoke('save_api_key', { key: backendKey, value }).then(() => {
                 // Debounce: wait 800ms after last keystroke before refreshing
-                // so we don't spam list_provider_models on every character
                 if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
                 refreshTimerRef.current = setTimeout(() => {
                     refreshModels();
                 }, 800);
             }).catch(() => {});
+        } else if (field === 'baseUrl' && baseUrlKey) {
+            const next = { ...baseUrls, [providerId]: value };
+            setBaseUrls(next);
+            // Save to backend (api_keys.json) so Rust engine picks it up
+            invoke('save_api_key', { key: baseUrlKey, value }).catch(() => {});
         } else {
             const next = { ...endpoints, [providerId]: value };
             setEndpoints(next);
@@ -295,7 +327,7 @@ function ProvidersPanel() {
             </div>
             {p.hint && <div style={{ fontSize: 11, opacity: 0.45, marginBottom: 8 }}>{p.hint}</div>}
             {p.fields.includes('apiKey') && (
-                <div style={{ marginBottom: p.fields.includes('endpoint') ? 8 : 0 }}>
+                <div style={{ marginBottom: (p.fields.includes('endpoint') || p.baseUrlKey) ? 8 : 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                         <span style={{ fontSize: 11, opacity: 0.45 }}>API Key</span>
                         {p.keyUrl && (
@@ -316,6 +348,19 @@ function ProvidersPanel() {
                         placeholder={`${p.label} API key...`}
                         value={keys[p.id] || ''}
                         onChange={e => save(p.id, 'apiKey', e.target.value)}
+                    />
+                </div>
+            )}
+            {p.baseUrlKey && (
+                <div style={{ marginBottom: p.fields.includes('endpoint') ? 8 : 0 }}>
+                    <div style={{ fontSize: 11, opacity: 0.45, marginBottom: 4 }}>Base URL Override <span style={{ opacity: 0.5, fontStyle: 'italic' }}>(optional — for reseller proxies)</span></div>
+                    <input
+                        type="text"
+                        className="settings-input"
+                        style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: 11 }}
+                        placeholder={p.baseUrlPlaceholder || 'https://...'}
+                        value={baseUrls[p.id] || ''}
+                        onChange={e => save(p.id, 'baseUrl', e.target.value, p.baseUrlKey)}
                     />
                 </div>
             )}
@@ -341,7 +386,7 @@ function ProvidersPanel() {
 
     return (
         <div style={{ maxWidth: 680 }}>
-            <SectionTitle>Providers & API Keys</SectionTitle>
+            <SectionTitle>Providers &amp; API Keys</SectionTitle>
             <p className="settings-section-subtitle">Configure API keys for cloud providers and endpoints for local inference servers.</p>
 
             <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.5px', margin: '16px 0 8px' }}>
