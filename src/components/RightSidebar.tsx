@@ -478,6 +478,9 @@ const RightSidebar: React.FC = () => {
     const setAgentUiMode = useStore(state => state.setAgentUiMode);
     const avatarCharacter = useStore(state => state.avatarCharacter);
     const showVrmAvatar = useStore(state => state.showVrmAvatar);
+    const isSpecModeActive = useStore(state => state.isSpecModeActive);
+    const setSpecModeActive = useStore(state => state.setSpecModeActive);
+    const setSpecsPrompt = useStore(state => state.setSpecsPrompt);
     // AIRI subsystem toggles surfaced in the sidebar so the user can flip
     // vision / consciousness without digging into localStorage.
     const airiVisionEnabled = useStore(state => state.airiVisionEnabled);
@@ -1051,6 +1054,13 @@ const RightSidebar: React.FC = () => {
     const onSend = async (overrideMsg?: string) => {
         const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
         console.log('[DIAG] onSend called, val:', val, 'isRightSidebarOpen:', useStore.getState().isRightSidebarOpen);
+
+        if (isSpecModeActive && val) {
+            setSpecsPrompt(val);
+            setView('specs');
+            if (overrideMsg === undefined) setInputValue('');
+            return;
+        }
 
         // ── Process Slash Commands ──────────────────────────────────────────
         let processedVal = val;
@@ -2497,14 +2507,60 @@ const RightSidebar: React.FC = () => {
                         )}
                         <MultiFileReviewBanner />
                         <BackgroundAgentsTray />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', padding: '0 4px' }}>
+                            <div 
+                                onClick={() => setSpecModeActive(!isSpecModeActive)}
+                                style={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '6px', 
+                                    cursor: 'pointer',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    color: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
+                                    transition: 'all 0.2s',
+                                    userSelect: 'none'
+                                }}
+                            >
+                                <span style={{
+                                    width: '28px',
+                                    height: '14px',
+                                    background: isSpecModeActive ? 'rgba(0, 198, 255, 0.2)' : 'rgba(255,255,255,0.1)',
+                                    borderRadius: '10px',
+                                    position: 'relative',
+                                    display: 'inline-block',
+                                    border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.15)'}`
+                                }}>
+                                    <span style={{
+                                        width: '10px',
+                                        height: '10px',
+                                        background: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
+                                        borderRadius: '50%',
+                                        position: 'absolute',
+                                        top: '1px',
+                                        left: isSpecModeActive ? '15px' : '2px',
+                                        transition: 'all 0.2s'
+                                    }} />
+                                </span>
+                                <span>📋 SPEC MODE</span>
+                            </div>
+                            {isSpecModeActive && (
+                                <span style={{ fontSize: '10px', opacity: 0.6, color: 'var(--terminator-accent, #00c6ff)', textShadow: '0 0 8px rgba(0, 198, 255, 0.3)', animation: 'pulse-blue 1.5s infinite' }}>
+                                    Requirements Engine Active
+                                </span>
+                            )}
+                        </div>
                         <div style={{
-                            background: 'var(--vscode-input-background)', border: '1px solid var(--vscode-input-border, transparent)',
-                            borderRadius: '8px', padding: '7px 10px', display: 'flex', flexDirection: 'column'
+                            background: 'var(--vscode-input-background)',
+                            border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'var(--vscode-input-border, transparent)'}`,
+                            boxShadow: isSpecModeActive ? '0 0 10px rgba(0, 198, 255, 0.25)' : 'none',
+                            borderRadius: '8px', padding: '7px 10px', display: 'flex', flexDirection: 'column',
+                            transition: 'all 0.2s'
                         }}>
                             <textarea
                                 ref={inputRef} value={inputValue} onChange={handleInputChange} onKeyDown={handleKeyDown}
                                 className="agent-mission-input"
-                                placeholder={isAgentThinking ? 'Agent executing...' : 'Launch a mission...  (type @ to mention a file)'}
+                                placeholder={isAgentThinking ? 'Agent executing...' : isSpecModeActive ? 'Describe the feature to auto-generate requirements & tasks...' : 'Launch a mission...  (type @ to mention a file)'}
                                 disabled={isAgentThinking}
                                 style={{ background: 'transparent', border: 'none', outline: 'none', color: '#fff', resize: 'none', fontSize: '13px', lineHeight: '1.45', width: '100%', minHeight: '28px', opacity: isAgentThinking ? 0.5 : 1 }}
                             />

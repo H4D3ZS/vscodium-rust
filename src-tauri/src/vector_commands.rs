@@ -73,3 +73,9 @@ pub async fn vector_get_file_chunks(
         "count": chunks.len()
     }))
 }
+
+#[tauri::command]
+pub async fn vector_get_indexing_progress(state: State<'_, EditorState>) -> Result<Value, String> {
+    let progress = state.vector_indexer.get_indexing_progress();
+    Ok(json!(progress))
+}

@@ -271,7 +271,79 @@ mod tests {
         assert_eq!(v["supports_api_key"].as_bool(), Some(false));
         assert_eq!(v["supports_webview"].as_bool(), Some(false));
     }
+
+    #[test]
+    fn test_apikeys_serialization_and_merge() {
+        let mut keys = ApiKeys::default();
+        keys.openai = Some("sk-testkey".to_string());
+        keys.openai_base_url = Some("https://my-proxy.com/v1".to_string());
+        keys.anthropic_base_url = Some("https://my-proxy.com/anthropic".to_string());
+
+        let serialized = serde_json::to_string(&keys).unwrap();
+        let deserialized: ApiKeys = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized.openai, Some("sk-testkey".to_string()));
+        assert_eq!(deserialized.openai_base_url, Some("https://my-proxy.com/v1".to_string()));
+        assert_eq!(deserialized.anthropic_base_url, Some("https://my-proxy.com/anthropic".to_string()));
+    }
+
+    /// Integration test: exercises the EXACT same HTTP request path that the
+    /// IDE uses in `ai_chat_fast` → `single_shot_completion` for Ollama.
+    ///
+    /// Payload:   /api/chat  (native Ollama format, no auth header)
+    /// Model:     soft-eng-qwen:latest  (4.7 GB, always present on this machine)
+    /// Parsing:   val.pointer("/message/content")  ← same branch as the engine
+    ///
+    /// The test is marked `#[ignore]` so `cargo test` skips it by default
+    /// (requires Ollama running). Run explicitly with:
+    ///   cargo test --lib ai_auth::tests::test_ollama_via_ide_codepath -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn test_ollama_via_ide_codepath() {
+        let endpoint = "http://127.0.0.1:11434/api/chat";
+        let model    = "soft-eng-qwen:latest";
+        let prompt   = "Say hello in exactly 5 words.";
+
+        // ── Build the exact same payload the IDE sends ──────────────────────
+        let payload = serde_json::json!({
+            "model": model,
+            "messages": [{ "role": "user", "content": prompt }],
+            "temperature": 0.1,
+            "stream": false,
+            "num_ctx": 8192,
+            "num_predict": 1024
+        });
+
+        // ── Same reqwest client the IDE uses (no special headers for Ollama) ─
+        let client   = reqwest::Client::new();
+        let response = client
+            .post(endpoint)
+            .json(&payload)
+            .send()
+            .await
+            .expect("IDE Ollama HTTP request failed — is `ollama serve` running?");
+
+        let status = response.status();
+        println!("[IDE Ollama Test] HTTP status: {}", status);
+        assert!(status.is_success(), "Ollama returned non-200: {}", status);
+
+        // ── Parse response the exact same way single_shot_completion does ───
+        let val: serde_json::Value = response
+            .json()
+            .await
+            .expect("Failed to parse Ollama JSON response");
+
+        // Ollama native /api/chat uses /message/content
+        let content = val
+            .pointer("/message/content")
+            .and_then(|v| v.as_str())
+            .expect("Could not find /message/content in IDE Ollama response");
+
+        println!("[IDE Ollama Test] ✅ Model responded: \"{}\"", content.trim());
+        assert!(!content.trim().is_empty(), "IDE Ollama response content was empty");
+    }
 }
+
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct ApiKeys {
@@ -292,6 +364,8 @@ pub struct ApiKeys {
     pub ollama: Option<String>,
     pub elevenlabs_api_key: Option<String>,
     pub elevenlabs_voice_id: Option<String>,
+    pub openai_base_url: Option<String>,
+    pub anthropic_base_url: Option<String>,
 }
 
 #[tauri::command]
@@ -341,6 +415,8 @@ pub async fn save_api_keys(
     if incoming.ollama.is_some()              { merged.ollama              = incoming.ollama; }
     if incoming.elevenlabs_api_key.is_some()  { merged.elevenlabs_api_key  = incoming.elevenlabs_api_key; }
     if incoming.elevenlabs_voice_id.is_some() { merged.elevenlabs_voice_id = incoming.elevenlabs_voice_id; }
+    if incoming.openai_base_url.is_some()     { merged.openai_base_url     = incoming.openai_base_url; }
+    if incoming.anthropic_base_url.is_some()  { merged.anthropic_base_url  = incoming.anthropic_base_url; }
 
     let content = serde_json::to_string_pretty(&merged).map_err(|e| e.to_string())?;
     std::fs::write(path, content).map_err(|e| e.to_string())?;
@@ -372,6 +448,8 @@ pub async fn save_api_key(
         "ollama" => keys.ollama = Some(value),
         "groq" => keys.groq = Some(value),
         "openrouter" => keys.openrouter = Some(value),
+        "openai_base_url" => keys.openai_base_url = Some(value),
+        "anthropic_base_url" => keys.anthropic_base_url = Some(value),
         // Accept alternate casing from the JS provider IDs
         "openai" | "openai_api_key" => keys.openai = Some(value),
         "google" | "gemini" => keys.google = Some(value),

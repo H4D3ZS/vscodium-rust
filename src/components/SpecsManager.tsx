@@ -15,9 +15,20 @@ export const SpecsManager: React.FC<SpecsManagerProps> = ({ onClose }) => {
     const [activeProject, setActiveProject] = useState<any | null>(null);
     const [tasks, setTasks] = useState<any[]>([]);
 
+    const specsPrompt = useStore(state => state.specsPrompt);
+    const setSpecsPrompt = useStore(state => state.setSpecsPrompt);
+
     useEffect(() => {
         loadProjects();
     }, []);
+
+    useEffect(() => {
+        if (specsPrompt && specsPrompt.trim()) {
+            setPrompt(specsPrompt);
+            setSpecsPrompt('');
+            generateSpecsAndTasks(specsPrompt);
+        }
+    }, [specsPrompt]);
 
     const loadProjects = async () => {
         try {
@@ -37,14 +48,15 @@ export const SpecsManager: React.FC<SpecsManagerProps> = ({ onClose }) => {
         }
     };
 
-    const generateSpecsAndTasks = async () => {
-        if (!prompt.trim()) return;
+    const generateSpecsAndTasks = async (overridePrompt?: string) => {
+        const val = (overridePrompt || prompt).trim();
+        if (!val) return;
         setIsGenerating(true);
         setGeneratedSpecs('Analyzing prompt and converting to EARS notation requirements...');
         
         try {
             // Step 1: Generate EARS Requirements via AI
-            const earsPrompt = `You are the Kiro Specs Engine. Convert the following natural language request into clear requirements and acceptance criteria in EARS (Easy Approach to Requirements Syntax) notation. Keep it concise but thorough. Request: "${prompt}"`;
+            const earsPrompt = `You are the Kiro Specs Engine. Convert the following natural language request into clear requirements and acceptance criteria in EARS (Easy Approach to Requirements Syntax) notation. Keep it concise but thorough. Request: "${val}"`;
             
             let earsResult = '';
             await new Promise<void>((resolve, reject) => {
@@ -56,7 +68,7 @@ export const SpecsManager: React.FC<SpecsManagerProps> = ({ onClose }) => {
 
             // Step 2: Save to Specs DB
             const projectId = await invoke<number>('cmd_specs_create_project', {
-                name: `Feature: ${prompt.slice(0, 20)}...`,
+                name: `Feature: ${val.slice(0, 20)}...`,
                 specs: earsResult,
                 provider: null
             });
@@ -66,7 +78,7 @@ export const SpecsManager: React.FC<SpecsManagerProps> = ({ onClose }) => {
             await invoke('cmd_specs_generate_layout', { projectId });
             
             await loadProjects();
-            const newProj = { id: projectId, name: `Feature: ${prompt.slice(0, 20)}...`, description: earsResult };
+            const newProj = { id: projectId, name: `Feature: ${val.slice(0, 20)}...`, description: earsResult };
             setActiveProject(newProj);
             await loadTasks(projectId);
 
@@ -108,7 +120,7 @@ export const SpecsManager: React.FC<SpecsManagerProps> = ({ onClose }) => {
                             }}
                         />
                         <button 
-                            onClick={generateSpecsAndTasks}
+                            onClick={() => generateSpecsAndTasks()}
                             disabled={isGenerating || !prompt.trim()}
                             style={{
                                 marginTop: '8px',

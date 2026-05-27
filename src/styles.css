@@ -1,3 +1,6 @@
+@import './styles/tokens.css';
+@import './styles/components.css';
+
 @font-face {
   font-family: "codicon";
   src: url("https://cdn.jsdelivr.net/npm/@vscode/codicons@0.0.36/dist/codicon.ttf") format("truetype");
@@ -798,6 +801,32 @@ body.resizing * {
 .menu-dropdown-item:hover {
   background: var(--vscode-menu-selectionBackground, #094771);
   color: var(--vscode-menu-selectionForeground, #ffffff);
+}
+
+.menu-dropdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+
+.menu-dropdown-item.disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
+.menu-dropdown-separator {
+  height: 1px;
+  background: var(--vscode-menu-border, #454545);
+  margin: 3px 0;
+}
+
+.menu-shortcut {
+  font-size: 11px;
+  opacity: 0.55;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .menu-overlay {
@@ -3439,4 +3468,18 @@ body {
 .agent-bubble.user {
   border-left: 4px solid var(--airi-accent);
   margin-left: auto;
+}
+
+/* AI-Native IDE Upgrades Animation Classes */
+.animate-spin {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }

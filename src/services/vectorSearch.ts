@@ -60,3 +60,14 @@ export async function getFileChunks(filePath: string): Promise<{
 }> {
     return invoke<any>('vector_get_file_chunks', { file_path: filePath });
 }
+
+export async function getIndexingProgress(): Promise<{
+    is_indexing: boolean;
+    current_file: string;
+    files_processed: number;
+    total_files: number;
+    chunks_created: number;
+    progress_percent: number;
+}> {
+    return invoke<any>('vector_get_indexing_progress');
+}

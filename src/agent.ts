@@ -1758,6 +1758,13 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     if (aiInstructions.trim()) {
         systemContext += `\n\n## Custom Instructions (User-defined)\n${aiInstructions.trim()}`;
     }
+    // Spec Mode: prepend requirements-engineering persona when active
+    const isSpecModeActive = (storeState as any).isSpecModeActive ?? false;
+    const specsPrompt = (storeState as any).specsPrompt ?? '';
+    if (isSpecModeActive) {
+        const specHeader = `## SPEC MODE ACTIVE\nYou are operating as a Requirements Engineer. Your goal is to gather and formalise requirements before writing any code. For every user request:\n1. Identify ambiguities and ask clarifying questions.\n2. Produce a structured specification (Functional Requirements, Acceptance Criteria, Edge Cases).\n3. Do NOT write implementation code until the spec is approved by the user.\n${specsPrompt ? `\nCurrent spec context:\n${specsPrompt}` : ''}`;
+        systemContext = `${specHeader}\n\n${systemContext}`;
+    }
     const systemMessage = {
         role: 'system',
         content: systemContext,

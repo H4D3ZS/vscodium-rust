@@ -24,6 +24,10 @@ const Composer: React.FC = () => {
     const acceptChange = useStore(state => state.acceptPendingChange);
     const rejectChange = useStore(state => state.rejectPendingChange);
     const workspacePath = useStore(state => state.activeRoot ?? '');
+    
+    const isSpecModeActive = useStore(state => state.isSpecModeActive);
+    const setSpecModeActive = useStore(state => state.setSpecModeActive);
+    const setSpecsPrompt = useStore(state => state.setSpecsPrompt);
 
     // Multi-pane workflow state
     const [activePane, setActivePane] = useState<'chat' | 'files' | 'diff' | 'preview'>('chat');
@@ -46,6 +50,13 @@ const Composer: React.FC = () => {
         if (!input.trim() || isProcessing) return;
 
         const userText = input;
+        if (isSpecModeActive) {
+            setSpecsPrompt(userText);
+            useStore.getState().setSpecsWizardOpen(true);
+            useStore.getState().setSpecsWizardStep('generator');
+            setInput('');
+            return;
+        }
         const userMessage: ComposerMessage = {
             id: Date.now().toString(),
             role: 'user',
@@ -203,23 +214,63 @@ const Composer: React.FC = () => {
                     padding: '12px',
                     background: 'var(--vscode-input-background)'
                 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', padding: '0 4px' }}>
+                        <div 
+                            onClick={() => setSpecModeActive(!isSpecModeActive)}
+                            style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '6px', 
+                                cursor: 'pointer',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                color: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
+                                transition: 'all 0.2s',
+                                userSelect: 'none'
+                            }}
+                        >
+                            <span style={{
+                                width: '28px',
+                                height: '14px',
+                                background: isSpecModeActive ? 'rgba(0, 198, 255, 0.2)' : 'rgba(255,255,255,0.1)',
+                                borderRadius: '10px',
+                                position: 'relative',
+                                display: 'inline-block',
+                                border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.15)'}`
+                            }}>
+                                <span style={{
+                                    width: '10px',
+                                    height: '10px',
+                                    background: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
+                                    borderRadius: '50%',
+                                    position: 'absolute',
+                                    top: '1px',
+                                    left: isSpecModeActive ? '15px' : '2px',
+                                    transition: 'all 0.2s'
+                                }} />
+                            </span>
+                            <span>📋 SPEC MODE</span>
+                        </div>
+                    </div>
                     <textarea
                         ref={inputRef}
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={`Describe what you want to ${workflowMode}...`}
+                        placeholder={isSpecModeActive ? 'Describe the feature to auto-generate requirements & tasks...' : `Describe what you want to ${workflowMode}...`}
                         rows={3}
                         style={{
                             width: '100%',
                             padding: '8px 12px',
                             background: 'var(--vscode-input-background)',
                             color: 'var(--vscode-input-foreground)',
-                            border: '1px solid var(--vscode-input-border)',
+                            border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'var(--vscode-input-border)'}`,
+                            boxShadow: isSpecModeActive ? '0 0 10px rgba(0, 198, 255, 0.2)' : 'none',
                             borderRadius: '4px',
                             fontSize: '13px',
                             resize: 'vertical',
                             fontFamily: 'var(--vscode-font-family)',
+                            transition: 'all 0.2s'
                         }}
                     />
                 </div>
@@ -387,23 +438,63 @@ const Composer: React.FC = () => {
                             padding: '12px',
                             background: 'var(--vscode-input-background)'
                         }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', padding: '0 4px' }}>
+                                <div 
+                                    onClick={() => setSpecModeActive(!isSpecModeActive)}
+                                    style={{ 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        gap: '6px', 
+                                        cursor: 'pointer',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        color: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
+                                        transition: 'all 0.2s',
+                                        userSelect: 'none'
+                                    }}
+                                >
+                                    <span style={{
+                                        width: '28px',
+                                        height: '14px',
+                                        background: isSpecModeActive ? 'rgba(0, 198, 255, 0.2)' : 'rgba(255,255,255,0.1)',
+                                        borderRadius: '10px',
+                                        position: 'relative',
+                                        display: 'inline-block',
+                                        border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.15)'}`
+                                    }}>
+                                        <span style={{
+                                            width: '10px',
+                                            height: '10px',
+                                            background: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
+                                            borderRadius: '50%',
+                                            position: 'absolute',
+                                            top: '1px',
+                                            left: isSpecModeActive ? '15px' : '2px',
+                                            transition: 'all 0.2s'
+                                        }} />
+                                    </span>
+                                    <span>📋 SPEC MODE</span>
+                                </div>
+                            </div>
                             <textarea
                                 ref={inputRef}
                                 value={input}
                                 onChange={e => setInput(e.target.value)}
                                 onKeyDown={handleKeyDown}
-                                placeholder="Continue refining..."
+                                placeholder={isSpecModeActive ? 'Describe the feature to auto-generate requirements & tasks...' : 'Continue refining...'}
                                 rows={3}
                                 style={{
                                     width: '100%',
                                     padding: '8px 12px',
                                     background: 'var(--vscode-input-background)',
                                     color: 'var(--vscode-input-foreground)',
-                                    border: '1px solid var(--vscode-input-border)',
+                                    border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'var(--vscode-input-border)'}`,
+                                    boxShadow: isSpecModeActive ? '0 0 10px rgba(0, 198, 255, 0.2)' : 'none',
                                     borderRadius: '4px',
                                     fontSize: '13px',
                                     resize: 'vertical',
                                     fontFamily: 'var(--vscode-font-family)',
+                                    transition: 'all 0.2s'
                                 }}
                             />
                             <div style={{

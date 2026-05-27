@@ -813,6 +813,10 @@ impl VectorIndexer {
     pub fn get_db_path(&self) -> &Path {
         &self.db_path
     }
+
+    pub fn get_indexing_progress(&self) -> IndexingProgress {
+        self.indexing_progress.read().unwrap().clone()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

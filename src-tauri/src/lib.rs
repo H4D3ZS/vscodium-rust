@@ -486,6 +486,7 @@ pub fn run() {
             vector_commands::vector_find_symbol,
             vector_commands::vector_get_file_chunks,
             vector_commands::vector_get_index_stats,
+            vector_commands::vector_get_indexing_progress,
             // ═══ Specs ═══
             specs_commands::cmd_specs_get_projects,
             specs_commands::cmd_specs_create_project,

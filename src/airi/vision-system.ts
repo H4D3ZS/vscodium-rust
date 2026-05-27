@@ -70,8 +70,13 @@ export class AIRIVisionSystem {
     if (this.unsupportedPlatform) return;
     // Honour the user's toggle; the store persists this under airi.vision.enabled.
     try {
-      if (typeof localStorage !== 'undefined' && localStorage.getItem('airi.vision.enabled') === '0') {
-        console.log('[AIRI Vision] Skipping start — disabled in settings (airi.vision.enabled=0).');
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('airi.vision.enabled') !== '1') {
+        console.log('[AIRI Vision] Skipping start — disabled in settings (airi.vision.enabled!=1).');
+        return;
+      }
+      const model = typeof localStorage !== 'undefined' ? localStorage.getItem('airi.vision.model') : '';
+      if (!model || model.trim() === '') {
+        console.log('[AIRI Vision] Skipping start — no vision model configured in settings.');
         return;
       }
     } catch { /* no localStorage */ }

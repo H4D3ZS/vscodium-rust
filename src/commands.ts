@@ -39,6 +39,21 @@ function registerCoreCommands() {
             run: () => store.setActiveSidebarView('explorer-view'),
         },
         {
+            id: 'workbench.view.search',
+            label: 'View: Show Search',
+            run: () => store.setActiveSidebarView('search-view'),
+        },
+        {
+            id: 'workbench.view.scm',
+            label: 'View: Show Source Control',
+            run: () => store.setActiveSidebarView('scm-view'),
+        },
+        {
+            id: 'workbench.view.extensions',
+            label: 'View: Show Extensions',
+            run: () => store.setActiveSidebarView('extensions-view'),
+        },
+        {
             id: 'workbench.action.closeActiveEditor',
             label: 'File: Close Editor',
             run: () => {
@@ -49,6 +64,20 @@ function registerCoreCommands() {
         {
             id: 'workbench.action.files.save',
             label: 'File: Save',
+            run: () => {
+                getStore().saveActiveFile();
+            },
+        },
+        {
+            id: 'workbench.action.files.saveAs',
+            label: 'File: Save As...',
+            run: () => {
+                getStore().saveActiveFile();
+            },
+        },
+        {
+            id: 'workbench.action.files.saveAll',
+            label: 'File: Save All',
             run: () => {
                 getStore().saveActiveFile();
             },
@@ -113,15 +142,14 @@ function registerCoreCommands() {
                 const url = window.prompt('Enter Repository URL');
                 if (!url) return;
 
-                // Choose destination
                 const result = await invoke<string | null>('open_folder');
-                if (result) {
-                    try {
-                        await invoke('git_clone', { url, path: result });
-                        store.setActiveRoot(result);
-                    } catch (e) {
-                        alert(`Clone failed: ${e}`);
-                    }
+                if (!result) return;
+
+                try {
+                    await invoke('git_clone', { url, path: result });
+                    store.setActiveRoot(result);
+                } catch (e) {
+                    alert(`Clone failed: ${e}`);
                 }
             },
         },
@@ -130,6 +158,73 @@ function registerCoreCommands() {
             label: 'Terminal: New Terminal',
             run: () => {
                 getStore().addTerminalGroup();
+            },
+        },
+        {
+            id: 'workbench.action.tasks.build',
+            label: 'Terminal: Run Build Task',
+            run: () => {
+                const runInTerminal = (window as any).runInTerminal;
+                if (!runInTerminal) {
+                    alert('No active terminal to run build task.');
+                    return;
+                }
+                const isRust = store.activeRoot && store.activeRoot.includes('rust');
+                const cmd = isRust ? 'cargo build' : 'npm run build';
+                runInTerminal(cmd);
+            },
+        },
+        {
+            id: 'editor.action.wordWrap',
+            label: 'View: Toggle Word Wrap',
+            run: () => {
+                const editor = (window as any).activeEditor;
+                if (editor) {
+                    const current = editor.getRawOptions?.()?.wordWrap ?? 'off';
+                    editor.updateOptions?.({ wordWrap: current === 'off' ? 'on' : 'off' });
+                }
+            },
+        },
+        {
+            id: 'workbench.action.zoomIn',
+            label: 'View: Zoom In',
+            run: () => {
+                try {
+                    const el = document.documentElement;
+                    el.style.fontSize = `${parseFloat(getComputedStyle(el).fontSize) + 1}px`;
+                } catch {}
+            },
+        },
+        {
+            id: 'workbench.action.zoomOut',
+            label: 'View: Zoom Out',
+            run: () => {
+                try {
+                    const el = document.documentElement;
+                    el.style.fontSize = `${parseFloat(getComputedStyle(el).fontSize) - 1}px`;
+                } catch {}
+            },
+        },
+        {
+            id: 'editor.action.gotoLine',
+            label: 'Go: Go to Line...',
+            run: () => {
+                const editor = (window as any).activeEditor;
+                if (editor) {
+                    editor.focus();
+                    editor.trigger('menu', 'editor.action.gotoLine', null);
+                }
+            },
+        },
+        {
+            id: 'workbench.action.gotoSymbol',
+            label: 'Go: Go to Symbol...',
+            run: () => {
+                const editor = (window as any).activeEditor;
+                if (editor) {
+                    editor.focus();
+                    editor.trigger('menu', 'workbench.action.gotoSymbol', null);
+                }
             },
         },
     ];

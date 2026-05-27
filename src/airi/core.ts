@@ -460,7 +460,8 @@ export class AIRICore {
       let visionAllowed = false;
       try {
         visionAllowed = typeof localStorage !== 'undefined'
-          && localStorage.getItem('airi.vision.enabled') === '1';
+          && localStorage.getItem('airi.vision.enabled') === '1'
+          && !!localStorage.getItem('airi.vision.model')?.trim();
       } catch { /* no localStorage */ }
       if (visionAllowed) {
         await this.vision.start();
@@ -584,7 +585,8 @@ export class AIRICore {
       let visionAllowed = false;
       try {
         visionAllowed = typeof localStorage !== 'undefined'
-          && localStorage.getItem('airi.vision.enabled') === '1';
+          && localStorage.getItem('airi.vision.enabled') === '1'
+          && !!localStorage.getItem('airi.vision.model')?.trim();
       } catch { /* no localStorage */ }
       if (visionAllowed) {
         await this.vision.start();

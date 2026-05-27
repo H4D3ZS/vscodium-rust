@@ -103,7 +103,9 @@ export class AIRIConsciousness {
       // Vision awareness
       lastScreenAnalysis: undefined,
       lastVisionCheck: Date.now(),
-      visionEnabled: true
+      visionEnabled: (typeof localStorage !== 'undefined'
+          && localStorage.getItem('airi.vision.enabled') === '1'
+          && !!localStorage.getItem('airi.vision.model')?.trim()) || false
     };
 
     // Respect the user's persisted toggle. Default = enabled.

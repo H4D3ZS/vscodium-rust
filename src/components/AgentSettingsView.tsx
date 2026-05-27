@@ -155,6 +155,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         nvidia: '',
         elevenlabs: '',
         ollama: '',
+        openai_base_url: '',
+        anthropic_base_url: '',
     });
     const [realApiKey, setRealApiKey] = useState(''); // Store real ElevenLabs key separately
     const [savingKeys, setSavingKeys] = useState(false);
@@ -214,6 +216,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         nvidia: (keys as any).nvidia ? '********' + String((keys as any).nvidia).slice(-4) : '',
                         elevenlabs: (keys as any).elevenlabs_api_key ? '••••••••' + ((keys as any).elevenlabs_api_key.slice(-4)) : '',
                         ollama: (keys as any).ollama ? '••••••••' + String((keys as any).ollama).slice(-4) : '',
+                        openai_base_url: (keys as any).openai_base_url || '',
+                        anthropic_base_url: (keys as any).anthropic_base_url || '',
                     };
                     console.log('[Settings] Setting apiKeys state:', {
                         elevenlabs: newKeys.elevenlabs ? `${newKeys.elevenlabs.substring(0, 8)}...` : 'EMPTY',
@@ -351,6 +355,16 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                     starts_with_bullet: (apiKeys as any).elevenlabs?.startsWith('•'),
                     value: (apiKeys as any).elevenlabs
                 });
+            }
+
+            // Save custom base URLs verbatim since they are not secret/masked
+            if ((apiKeys as any).openai_base_url !== undefined) {
+                keysToSave.openai_base_url = (apiKeys as any).openai_base_url;
+                console.log('[Settings] Adding openai_base_url to save');
+            }
+            if ((apiKeys as any).anthropic_base_url !== undefined) {
+                keysToSave.anthropic_base_url = (apiKeys as any).anthropic_base_url;
+                console.log('[Settings] Adding anthropic_base_url to save');
             }
 
             console.log('[Settings] Keys to save:', Object.keys(keysToSave), 'elevenlabs_api_key in payload:', !!keysToSave.elevenlabs_api_key);
@@ -936,11 +950,25 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                     <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase' }}>
                         Cloud API Keys
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {([
-                            { key: 'anthropic', label: 'Anthropic (Claude / Claude Code)', placeholder: 'sk-ant-...' },
+                            {
+                                key: 'anthropic',
+                                label: 'Anthropic (Claude / Claude Code)',
+                                placeholder: 'sk-ant-...',
+                                baseUrlKey: 'anthropic_base_url',
+                                baseUrlLabel: 'Anthropic Compatible Base URL Override (Optional)',
+                                baseUrlPlaceholder: 'https://api.anthropic.com or custom proxy URL'
+                            },
                             { key: 'google', label: 'Google (Gemini)', placeholder: 'AIza...' },
-                            { key: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
+                            {
+                                key: 'openai',
+                                label: 'OpenAI',
+                                placeholder: 'sk-...',
+                                baseUrlKey: 'openai_base_url',
+                                baseUrlLabel: 'OpenAI Compatible Base URL Override (Optional)',
+                                baseUrlPlaceholder: 'https://api.openai.com/v1 or custom proxy URL'
+                            },
                             { key: 'groq', label: 'Groq', placeholder: 'gsk_...' },
                             { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
                             { key: 'deepseek', label: 'DeepSeek (API)', placeholder: 'sk-… (platform.deepseek.com)' },
@@ -950,8 +978,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             { key: 'alibaba', label: 'Alibaba DashScope', placeholder: 'sk-...' },
                             { key: 'nvidia', label: 'NVIDIA NIM', placeholder: 'nvapi-...' },
                             // Removed: elevenlabs - now only in VOICE & TTS section below
-                        ] as { key: string; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
-                            <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        ] as { key: string; label: string; placeholder: string; baseUrlKey?: string; baseUrlLabel?: string; baseUrlPlaceholder?: string }[]).map(({ key, label, placeholder, baseUrlKey, baseUrlLabel, baseUrlPlaceholder }) => (
+                            <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '8px', marginBottom: '4px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <label style={{ fontSize: '11px', opacity: 0.8 }}>{label}</label>
                                     {keyStatus[key] && (
@@ -985,6 +1013,25 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         <i className={`codicon codicon-${showKeys[key] ? 'eye-closed' : 'eye'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                                     </button>
                                 </div>
+
+                                {baseUrlKey && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '12px', marginTop: '4px' }}>
+                                        <label style={{ fontSize: '9px', opacity: 0.6 }}>{baseUrlLabel}</label>
+                                        <input
+                                            type="text"
+                                            value={(apiKeys as any)[baseUrlKey] || ''}
+                                            onChange={e => setApiKeys(prev => ({ ...prev, [baseUrlKey]: e.target.value }))}
+                                            placeholder={baseUrlPlaceholder}
+                                            style={{
+                                                background: 'var(--vscode-input-background)',
+                                                color: 'var(--vscode-input-foreground)',
+                                                border: '1px solid var(--vscode-input-border)',
+                                                padding: '3px 6px', fontSize: '10px', borderRadius: '2px', fontFamily: 'monospace',
+                                                opacity: 0.85
+                                            }}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         ))}
                         <button

@@ -41,6 +41,8 @@ function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: st
 
 
 import ComposerOverlay from './ComposerOverlay';
+import TabStrip from './workbench/TabStrip';
+import ToastManager from './ToastManager';
 
 const Workbench: React.FC = () => {
     const isSidebarOpen = useStore(state => state.isSidebarOpen);
@@ -71,6 +73,8 @@ const Workbench: React.FC = () => {
     const setSplitEditorTab = useStore(state => state.setSplitEditorTab);
     const toggleSplitEditor = useStore(state => state.toggleSplitEditor);
     const [cursorSymbol, setCursorSymbol] = useState<string>('');
+    const recentWorkspaces = useStore(state => state.recentWorkspaces);
+    const removeRecentWorkspace = useStore(state => state.removeRecentWorkspace);
     
     // Dev Workflow State
     const isDevWorkflowActive = useStore(state => state.isDevWorkflowActive);
@@ -186,46 +190,7 @@ const Workbench: React.FC = () => {
                         <div className="editor-group active" id="group-1" style={{ display: 'flex', flex: 1, flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
                             <div className="editor-main" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', width: '100%', height: '100%' }}>
                                 {/* Tab strip */}
-                                <div className="tabs-row">
-                                    {tabs.map(tab => {
-                                        const isActive = tab.id === activeTabId;
-                                        const icon = detectLanguageIcon(tab.filename);
-                                        return (
-                                            <div
-                                                key={tab.id}
-                                                className={`tab${isActive ? ' active' : ''}`}
-                                                onClick={() => setActiveTab(tab.id)}
-                                                title={tab.path}
-                                            >
-                                                {detectLanguageIcon(tab.filename).type === 'img' ? (
-                                                    <img src={detectLanguageIcon(tab.filename).value} style={{ width: '14px', height: '14px', marginRight: '6px', opacity: isActive ? 1 : 0.6 }} />
-                                                ) : (
-                                                    <i className={`${detectLanguageIcon(tab.filename).value} tab-icon`} style={{
-                                                        fontFamily: 'codicon',
-                                                        fontStyle: 'normal',
-                                                        fontSize: '14px',
-                                                        marginRight: '6px',
-                                                        color: isActive ? 'inherit' : 'var(--vscode-tab-activeForeground)',
-                                                        opacity: isActive ? 1 : 0.6
-                                                    }} />
-                                                )}
-
-                                                <span className="tab-label">{tab.filename}</span>
-                                                <div className="tab-actions">
-                                                    {tab.isModified ? (
-                                                        <span className="dirty-indicator" />
-                                                    ) : (
-                                                        <i
-                                                            className="codicon codicon-close"
-                                                            style={{ fontFamily: 'codicon', fontStyle: 'normal' }}
-                                                            onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                                                        />
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                <TabStrip />
 
                                 {/* Breadcrumbs */}
                                 {hasOpenFile && (
@@ -376,10 +341,35 @@ const Workbench: React.FC = () => {
 
                                                     <div className="welcome-recent-section" style={{ textAlign: 'left' }}>
                                                         <h3 className="section-title" style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', opacity: 0.5, marginBottom: '12px' }}>Recent Workspaces</h3>
-                                                        <div className="recent-empty-state" style={{ padding: '20px 16px', borderRadius: '10px', background: 'var(--vscode-editor-background)', border: '1px dashed var(--vscode-panel-border)', fontSize: '11px', opacity: 0.4, textAlign: 'center' }}>
-                                                            <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '18px', display: 'block', marginBottom: '6px' }} />
-                                                            No recent folders found
-                                                        </div>
+                                                        {recentWorkspaces.length === 0 ? (
+                                                            <div className="recent-empty-state" style={{ padding: '20px 16px', borderRadius: '10px', background: 'var(--vscode-editor-background)', border: '1px dashed var(--vscode-panel-border)', fontSize: '11px', opacity: 0.4, textAlign: 'center' }}>
+                                                                <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '18px', display: 'block', marginBottom: '6px' }} />
+                                                                No recent folders found
+                                                            </div>
+                                                        ) : (
+                                                            <div style={{ display: 'grid', gap: '6px' }}>
+                                                                {recentWorkspaces.map(ws => (
+                                                                    <div key={ws.path}
+                                                                        style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', gap: '10px', cursor: 'pointer', transition: 'background 0.15s' }}
+                                                                        onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
+                                                                        onMouseLeave={e => e.currentTarget.style.background = 'var(--vscode-sideBar-background)'}
+                                                                        onClick={() => useStore.getState().setActiveRoot(ws.path)}
+                                                                    >
+                                                                        <i className="codicon codicon-folder" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '16px', color: 'var(--terminator-accent)', flexShrink: 0 }} />
+                                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                                            <div style={{ fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.name}</div>
+                                                                            <div style={{ fontSize: '10px', opacity: 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{ws.path.replace(/\\/g, '/')}</div>
+                                                                        </div>
+                                                                        <i
+                                                                            className="codicon codicon-close"
+                                                                            style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', opacity: 0.4, flexShrink: 0 }}
+                                                                            title="Remove from recents"
+                                                                            onClick={e => { e.stopPropagation(); removeRecentWorkspace(ws.path); }}
+                                                                        />
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -546,6 +536,7 @@ const Workbench: React.FC = () => {
                 {/* Ollama Progress Bar */}
                 <OllamaProgressBar />
                 <ComposerOverlay />
+                <ToastManager />
         </div >
     );
 };

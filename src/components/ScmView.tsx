@@ -33,6 +33,7 @@ const ScmView: React.FC = () => {
     const [statuses, setStatuses] = useState<GitStatus[]>([]);
     const [commitMessage, setCommitMessage] = useState('');
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isGeneratingMsg, setIsGeneratingMsg] = useState(false);
     const [activeTab, setActiveTab] = useState<'changes' | 'graph'>('changes');
     const [conflicts, setConflicts] = useState<string[]>([]);
     const [diffFile, setDiffFile] = useState<string | null>(null);
@@ -217,19 +218,46 @@ const ScmView: React.FC = () => {
 
             {/* Commit input (always visible) */}
             <div style={{ padding: '10px 10px 0 10px', flexShrink: 0 }}>
-                <textarea
-                    value={commitMessage}
-                    onChange={(e) => setCommitMessage(e.target.value)}
-                    placeholder="Commit message (Ctrl+Enter to commit)"
-                    style={{
-                        width: '100%', height: '50px',
-                        background: 'var(--vscode-input-background)',
-                        color: 'var(--vscode-input-foreground)',
-                        border: '1px solid var(--vscode-input-border, var(--vscode-panel-border))',
-                        padding: '6px', fontSize: '11px', outline: 'none',
-                        resize: 'none', borderRadius: '4px'
-                    }}
-                />
+                <div style={{ position: 'relative' }}>
+                    <textarea
+                        value={commitMessage}
+                        onChange={(e) => setCommitMessage(e.target.value)}
+                        placeholder="Commit message (Ctrl+Enter to commit)"
+                        style={{
+                            width: '100%', height: '50px',
+                            background: 'var(--vscode-input-background)',
+                            color: 'var(--vscode-input-foreground)',
+                            border: '1px solid var(--vscode-input-border, var(--vscode-panel-border))',
+                            padding: '6px 32px 6px 6px', fontSize: '11px', outline: 'none',
+                            resize: 'none', borderRadius: '4px', boxSizing: 'border-box'
+                        }}
+                    />
+                    {/* Sparkle button: AI commit message */}
+                    <button
+                        title="Generate AI commit message from staged diff"
+                        disabled={isGeneratingMsg}
+                        onClick={async () => {
+                            setIsGeneratingMsg(true);
+                            try {
+                                const msg = await useStore.getState().generateAiCommitMessage();
+                                if (msg) setCommitMessage(msg);
+                            } finally {
+                                setIsGeneratingMsg(false);
+                            }
+                        }}
+                        style={{
+                            position: 'absolute', top: '6px', right: '6px',
+                            background: 'none', border: 'none', cursor: isGeneratingMsg ? 'wait' : 'pointer',
+                            color: '#a78bfa', fontSize: '14px', padding: '0', opacity: isGeneratingMsg ? 0.5 : 1,
+                            transition: 'opacity 0.2s',
+                        }}
+                    >
+                        {isGeneratingMsg
+                            ? <i className="codicon codicon-sync" style={{ fontFamily: 'codicon', fontStyle: 'normal', animation: 'spin 1s linear infinite', display: 'inline-block' }} />
+                            : <i className="codicon codicon-sparkle" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                        }
+                    </button>
+                </div>
                 <button
                     onClick={handleCommit}
                     disabled={!commitMessage}
@@ -244,6 +272,7 @@ const ScmView: React.FC = () => {
                     Commit to Main
                 </button>
             </div>
+
 
             {/* Tab bar (Changes / Visual Graph) */}
             <div style={{

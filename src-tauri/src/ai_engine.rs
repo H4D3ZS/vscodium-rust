@@ -4331,7 +4331,20 @@ impl Sentient {
         match provider_base.as_str() {
             "google" => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                 .to_string(),
-            "anthropic" => "https://api.anthropic.com/v1/messages".to_string(),
+            "anthropic" => {
+                if let Ok(url) = std::env::var("ANTHROPIC_BASE_URL") {
+                    if !url.is_empty() { return url; }
+                }
+                let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
+                if let Ok(content) = std::fs::read_to_string(&keys_path) {
+                    if let Ok(keys) = serde_json::from_str::<Value>(&content) {
+                        if let Some(custom_url) = keys["anthropic_base_url"].as_str() {
+                            if !custom_url.is_empty() { return custom_url.to_string(); }
+                        }
+                    }
+                }
+                "https://api.anthropic.com/v1/messages".to_string()
+            }
             "mistral" => "https://api.mistral.ai/v1/chat/completions".to_string(),
             "groq" => "https://api.groq.com/openai/v1/chat/completions".to_string(),
             "openrouter" => "https://openrouter.ai/api/v1/chat/completions".to_string(),
@@ -4415,7 +4428,25 @@ impl Sentient {
                     format!("{}/v1/chat/completions", base)
                 }
             }
-            _ => "https://api.openai.com/v1/chat/completions".to_string(),
+            _ => {
+                if let Ok(url) = std::env::var("OPENAI_BASE_URL") {
+                    if !url.is_empty() { return url; }
+                }
+                let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
+                if let Ok(content) = std::fs::read_to_string(&keys_path) {
+                    if let Ok(keys) = serde_json::from_str::<Value>(&content) {
+                        if let Some(custom_url) = keys["openai_base_url"].as_str() {
+                            if !custom_url.is_empty() {
+                                let base = custom_url.trim().trim_end_matches('/').to_string();
+                                if base.ends_with("/v1/chat/completions") { return base; }
+                                else if base.ends_with("/v1") { return format!("{}/chat/completions", base); }
+                                else { return format!("{}/v1/chat/completions", base); }
+                            }
+                        }
+                    }
+                }
+                "https://api.openai.com/v1/chat/completions".to_string()
+            }
         }
     }
 

@@ -131,12 +131,40 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
         editor.addCommand(ALT_LEFT, () => useStore.getState().navigateBack?.());
         editor.addCommand(ALT_RIGHT, () => useStore.getState().navigateForward?.());
 
-        // Track cursor position → emit for breadcrumb symbol context
+        // Track cursor position → emit for breadcrumb symbol context and StatusBar
         editor.onDidChangeCursorPosition((e) => {
+            const selection = editor.getSelection();
+            const selectionLength = selection && !selection.isEmpty()
+                ? editor.getModel()?.getValueInRange(selection)?.length ?? 0
+                : 0;
             window.dispatchEvent(new CustomEvent('editor:cursor-position', {
-                detail: { line: e.position.lineNumber, column: e.position.column }
+                detail: { line: e.position.lineNumber, column: e.position.column, selectionLength }
             }));
         });
+
+        // StatusBar: Go to line
+        const gotoHandler = (ev: Event) => {
+            const { line } = (ev as CustomEvent).detail ?? {};
+            if (typeof line === 'number') {
+                editor.revealLineInCenter(line);
+                editor.setPosition({ lineNumber: line, column: 1 });
+                editor.focus();
+            }
+        };
+        window.addEventListener('editor:goto-line', gotoHandler);
+
+        // StatusBar: Set indentation
+        const indentHandler = (ev: Event) => {
+            const { insertSpaces } = (ev as CustomEvent).detail ?? {};
+            editor.getModel()?.updateOptions({ insertSpaces });
+        };
+        window.addEventListener('editor:set-indent', indentHandler);
+
+        const tabSizeHandler = (ev: Event) => {
+            const { size } = (ev as CustomEvent).detail ?? {};
+            if (typeof size === 'number') editor.getModel()?.updateOptions({ tabSize: size });
+        };
+        window.addEventListener('editor:set-tab-size', tabSizeHandler);
 
         // Ctrl+K = Cursor-style inline edit (primary binding)
         editor.addCommand(CTRL_K, openInlineEdit);
@@ -892,7 +920,123 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             )}
 
             {activeFilePendingChange && (
-                <DiffViewer />
+                <>
+                    <div style={{
+                        position: 'absolute',
+                        top: '40px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        zIndex: 2000,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        padding: '10px 20px',
+                        borderRadius: '12px',
+                        background: 'rgba(18, 18, 29, 0.82)',
+                        backdropFilter: 'blur(16px)',
+                        WebkitBackdropFilter: 'blur(16px)',
+                        border: '1px solid rgba(0, 198, 255, 0.35)',
+                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 198, 255, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.05)',
+                        color: '#ffffff',
+                        fontSize: '12px',
+                        fontFamily: 'var(--font-ui, sans-serif)',
+                        animation: 'bannerSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '24px',
+                                height: '24px',
+                                borderRadius: '50%',
+                                background: 'rgba(0, 198, 255, 0.18)',
+                                color: '#00c6ff',
+                                fontSize: '13px',
+                                textShadow: '0 0 8px #00c6ff',
+                                alignSelf: 'center',
+                                paddingLeft: '4px'
+                            }}>✨</span>
+                            <span style={{ fontWeight: 500, letterSpacing: '0.3px', textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
+                                AI suggested edits for <span style={{ color: '#00c6ff', fontWeight: 600 }}>{activeTab?.filename}</span> are pending review
+                            </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <button
+                                onClick={async () => {
+                                    await useStore.getState().acceptPendingChange(activeFilePendingChange.id);
+                                }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '6px 14px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: 'linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)',
+                                    color: '#ffffff',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    boxShadow: '0 2px 10px rgba(0, 198, 255, 0.35)',
+                                    transition: 'all 0.2s',
+                                    letterSpacing: '0.3px'
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.filter = 'brightness(1.15)';
+                                    e.currentTarget.style.boxShadow = '0 4px 14px rgba(0, 198, 255, 0.5)';
+                                    e.currentTarget.style.transform = 'translateY(-1px)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.filter = 'none';
+                                    e.currentTarget.style.boxShadow = '0 2px 10px rgba(0, 198, 255, 0.35)';
+                                    e.currentTarget.style.transform = 'none';
+                                }}
+                            >
+                                ✓ Accept Changes
+                            </button>
+                            <button
+                                onClick={() => {
+                                    useStore.getState().rejectPendingChange(activeFilePendingChange.id);
+                                }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '6px 14px',
+                                    borderRadius: '6px',
+                                    border: '1px solid rgba(244, 63, 94, 0.45)',
+                                    background: 'rgba(244, 63, 94, 0.15)',
+                                    color: '#f43f5e',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s',
+                                    letterSpacing: '0.3px'
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(244, 63, 94, 0.25)';
+                                    e.currentTarget.style.borderColor = 'rgba(244, 63, 94, 0.6)';
+                                    e.currentTarget.style.transform = 'translateY(-1px)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'rgba(244, 63, 94, 0.15)';
+                                    e.currentTarget.style.borderColor = 'rgba(244, 63, 94, 0.45)';
+                                    e.currentTarget.style.transform = 'none';
+                                }}
+                            >
+                                ✗ Reject Changes
+                            </button>
+                        </div>
+                        <style>{`
+                            @keyframes bannerSlideIn {
+                                from { transform: translate(-50%, -30px); opacity: 0; }
+                                to { transform: translate(-50%, 0); opacity: 1; }
+                            }
+                        `}</style>
+                    </div>
+                    <DiffViewer />
+                </>
             )}
 
             {isInlineEditOpen && (
