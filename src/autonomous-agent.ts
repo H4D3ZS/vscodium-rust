@@ -18,6 +18,7 @@ export interface AutonomousTask {
   timestamp: number;
   progress: number;
   result?: string;
+  file?: string;
 }
 
 export class AutonomousAgent {
@@ -162,7 +163,7 @@ export class AutonomousAgent {
         const funcs = Array.from(publicFuncs);
         
         const undocumented = funcs.filter(f => {
-          const funcIndex = f.index || 0;
+          const funcIndex = (f as any).index || 0;
           const precedingLines = activeTab.content.substring(
             Math.max(0, funcIndex - 200),
             funcIndex

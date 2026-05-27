@@ -9,7 +9,7 @@ import ScmView from './ScmView';
 import DebugView from './DebugView';
 import TestExplorer from './TestExplorer';
 import ProjectSpecsSidebar from './ProjectSpecsSidebar';
-import VectorSearchPanel from './VectorSearchPanel';
+import VectorSearchPanel from './vectorSearchPanel';
 import AgTasksView from './AgTasksView';
 import AgSteeringView from './AgSteeringView';
 

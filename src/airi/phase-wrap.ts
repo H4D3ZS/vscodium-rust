@@ -97,15 +97,15 @@ export class AIRIPhaseWrap {
 
       // ── PHASE 2: SUTURE ──────────────────────────────────────
       const sutureResult = await this.suture(reflection);
-      this.recordReport('suture', sutureResult);
+      this.recordReport('suture', `Memories added: ${sutureResult.memoriesAdded}`);
 
       // ── PHASE 3: SYNC ────────────────────────────────────────
       const syncResult = await this.sync(reflection);
-      this.recordReport('sync', syncResult);
+      this.recordReport('sync', `Aim updated: ${syncResult.aimUpdated}, regions: ${syncResult.regions.join(', ')}`);
 
       // ── PHASE 4: SIGNAL ──────────────────────────────────────
       const signalResult = await this.signal();
-      this.recordReport('signal', signalResult);
+      this.recordReport('signal', `Avatar state: ${signalResult.avatarState}, strength: ${signalResult.pulseStrength}`);
 
       const duration = Date.now() - start;
       console.log(`[PhaseWrap] ✅ Complete in ${duration}ms`);
@@ -297,6 +297,18 @@ NEXT_ATTENTION: [what to focus on next]
    */
   getReports(limit: number = 10): PhaseWrapReport[] {
     return this.reports.slice(0, limit);
+  }
+
+  private emit(event: string, data: any): void {
+    console.log(`[PhaseWrap Event] ${event}:`, data);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(`airi:${event}`, { detail: data }));
+    }
+    try {
+      invoke('airi_event', { event, payload: data }).catch(() => { });
+    } catch {
+      // Not in Tauri env, ignore
+    }
   }
 
   /**

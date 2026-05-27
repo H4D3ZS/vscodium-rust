@@ -103,14 +103,15 @@ export interface AgentStep {
 export interface PendingChange {
     id: string;
     path: string;
-    originalContent: string;
-    proposedContent: string;
+    originalContent?: string;
+    proposedContent?: string;
     newContent: string; // The draft with some hunks possibly accepted/rejected
     description?: string;
     additions?: number;
     deletions?: number;
     acceptedHunkIds?: string[];
     rejectedHunkIds?: string[];
+    oldContent?: string;
 }
 
 export interface Artifact {
@@ -305,6 +306,22 @@ interface AppState {
     networkAllowInsecureTls: boolean;
     indexingEnabled: boolean;
     indexingDocsUrls: string[];
+    kortexGacEnabled: boolean;
+    kortexVramTotalMb: number;
+    kortexTheta: number;
+    kortexBackend: string;
+    kortexServerBinary: string;
+    kvCacheEnabled: boolean;
+    kvCacheBaseDir: string;
+    kvCacheMaxBytes: number;
+    kvCacheProxyPort: number;
+    kvCacheStats: any;
+    ccetEnabled: boolean;
+    ccetTauSkip: number;
+    ccetTauCompress: number;
+    ccetMaxSkipFraction: number;
+    ccetEfficiency: any;
+    kortexTelemetry: any;
     avatarCharacter: string; // Selected AI avatar character
     avatarCustomConfig?: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }; // Custom 2D avatar URLs
     avatar3dConfig?: { modelUrl?: string; modelId?: string; customModels?: Array<{ id: string; name: string; url: string }> }; // 3D VRM avatar config
@@ -588,6 +605,21 @@ interface AppState {
     setNetworkAllowInsecureTls: (v: boolean) => void;
     setIndexingEnabled: (v: boolean) => void;
     setIndexingDocsUrls: (urls: string[]) => void;
+    setKortexGacEnabled: (v: boolean) => void;
+    setKortexVramTotalMb: (v: number) => void;
+    setKortexTheta: (v: number) => void;
+    setKortexBackend: (v: string) => void;
+    setKortexServerBinary: (v: string) => void;
+    setKvCacheEnabled: (v: boolean) => void;
+    setKvCacheBaseDir: (v: string) => void;
+    setKvCacheMaxBytes: (v: number) => void;
+    setKvCacheProxyPort: (v: number) => void;
+    refreshKvCacheStats: () => Promise<void>;
+    setCcetEnabled: (v: boolean) => void;
+    setCcetTauSkip: (v: number) => void;
+    setCcetTauCompress: (v: number) => void;
+    setCcetMaxSkipFraction: (v: number) => void;
+    refreshCcetEfficiency: () => void;
     setAgentCurrentAction: (action: string | null) => void;
     attachFile: (file: any | any[]) => void;
     removeFile: (path: string) => void;
@@ -759,12 +791,12 @@ export interface AgentTask {
     progress: number;
     createdAt: number;
     updatedAt: number;
-    artifacts: Artifact[];
+    artifacts: TaskArtifact[];
     mode?: string;
     task_status?: string;
 }
 
-export interface Artifact {
+export interface TaskArtifact {
     id: string;
     title: string;
     path: string;
@@ -772,6 +804,7 @@ export interface Artifact {
     timestamp: number;
     metadata?: { reviewed?: boolean; status?: 'approved' | 'rejected' };
     feedback?: string;
+    type?: string;
 }
 
 function detectLanguage(filename: string): string {
@@ -947,6 +980,23 @@ const storeImplementation: any = (set: any, get: any) => ({
     llamaCppModelPath: localStorage.getItem('llamaCppModelPath') || '',
     llamaCppNgl: parseInt(localStorage.getItem('llamaCppNgl') || '99'),
     llamaCppHadesEnabled: localStorage.getItem('llamaCppHadesEnabled') !== 'false',
+
+    kortexGacEnabled: (() => { try { return localStorage.getItem('kortex.gacEnabled') !== '0'; } catch { return true; } })(),
+    kortexVramTotalMb: (() => { try { return parseInt(localStorage.getItem('kortex.vramTotalMb') || '8192'); } catch { return 8192; } })(),
+    kortexTheta: (() => { try { return parseFloat(localStorage.getItem('kortex.theta') || '0.85'); } catch { return 0.85; } })(),
+    kortexBackend: (() => { try { return localStorage.getItem('kortex.backend') || 'vulkan'; } catch { return 'vulkan'; } })(),
+    kortexServerBinary: (() => { try { return localStorage.getItem('kortex.serverBinary') || ''; } catch { return ''; } })(),
+    kvCacheEnabled: (() => { try { return localStorage.getItem('kvcache.enabled') !== '0'; } catch { return true; } })(),
+    kvCacheBaseDir: (() => { try { return localStorage.getItem('kvcache.baseDir') || ''; } catch { return ''; } })(),
+    kvCacheMaxBytes: (() => { try { return parseInt(localStorage.getItem('kvcache.maxBytes') || '17179869184'); } catch { return 17179869184; } })(),
+    kvCacheProxyPort: (() => { try { return parseInt(localStorage.getItem('kvcache.proxyPort') || '1537'); } catch { return 1537; } })(),
+    kvCacheStats: null,
+    ccetEnabled: (() => { try { return localStorage.getItem('ccet.enabled') !== '0'; } catch { return true; } })(),
+    ccetTauSkip: (() => { try { return parseFloat(localStorage.getItem('ccet.tauSkip') || '0.05'); } catch { return 0.05; } })(),
+    ccetTauCompress: (() => { try { return parseFloat(localStorage.getItem('ccet.tauCompress') || '0.30'); } catch { return 0.30; } })(),
+    ccetMaxSkipFraction: (() => { try { return parseFloat(localStorage.getItem('ccet.maxSkipFraction') || '0.40'); } catch { return 0.40; } })(),
+    ccetEfficiency: null,
+    kortexTelemetry: null,
 
     // HADES Intelligence Layer (works with any backend)
     aimVfsEnabled: localStorage.getItem('aimVfsEnabled') !== 'false',  // .aim VFS context injection
@@ -2286,6 +2336,37 @@ const storeImplementation: any = (set: any, get: any) => ({
     setNetworkAllowInsecureTls: (v) => { try { localStorage.setItem('network.allowInsecureTls', v ? '1' : '0'); } catch { } set({ networkAllowInsecureTls: v }); },
     setIndexingEnabled: (v) => { try { localStorage.setItem('indexing.enabled', v ? '1' : '0'); } catch { } set({ indexingEnabled: v }); },
     setIndexingDocsUrls: (urls) => { try { localStorage.setItem('indexing.docsUrls', JSON.stringify(urls)); } catch { } set({ indexingDocsUrls: urls }); },
+    setKortexGacEnabled: (v) => { try { localStorage.setItem('kortex.gacEnabled', v ? '1' : '0'); } catch { } set({ kortexGacEnabled: v }); },
+    setKortexVramTotalMb: (v) => { try { localStorage.setItem('kortex.vramTotalMb', String(v)); } catch { } set({ kortexVramTotalMb: v }); },
+    setKortexTheta: (v) => { try { localStorage.setItem('kortex.theta', String(v)); } catch { } set({ kortexTheta: v }); },
+    setKortexBackend: (v) => { try { localStorage.setItem('kortex.backend', v); } catch { } set({ kortexBackend: v }); },
+    setKortexServerBinary: (v) => { try { localStorage.setItem('kortex.serverBinary', v); } catch { } set({ kortexServerBinary: v }); },
+    setKvCacheEnabled: (v) => { try { localStorage.setItem('kvcache.enabled', v ? '1' : '0'); } catch { } set({ kvCacheEnabled: v }); },
+    setKvCacheBaseDir: (v) => { try { localStorage.setItem('kvcache.baseDir', v); } catch { } set({ kvCacheBaseDir: v }); },
+    setKvCacheMaxBytes: (v) => { try { localStorage.setItem('kvcache.maxBytes', String(v)); } catch { } set({ kvCacheMaxBytes: v }); },
+    setKvCacheProxyPort: (v) => { try { localStorage.setItem('kvcache.proxyPort', String(v)); } catch { } set({ kvCacheProxyPort: v }); },
+    refreshKvCacheStats: async () => {
+        try {
+            const { getKvCacheStats } = await import('./kortex/kvcache-orchestrator');
+            const stats = await getKvCacheStats();
+            set({ kvCacheStats: stats });
+        } catch (e) {
+            console.error('Failed to refresh KV cache stats:', e);
+        }
+    },
+    setCcetEnabled: (v) => { try { localStorage.setItem('ccet.enabled', v ? '1' : '0'); } catch { } set({ ccetEnabled: v }); },
+    setCcetTauSkip: (v) => { try { localStorage.setItem('ccet.tauSkip', String(v)); } catch { } set({ ccetTauSkip: v }); },
+    setCcetTauCompress: (v) => { try { localStorage.setItem('ccet.tauCompress', String(v)); } catch { } set({ ccetTauCompress: v }); },
+    setCcetMaxSkipFraction: (v) => { try { localStorage.setItem('ccet.maxSkipFraction', String(v)); } catch { } set({ ccetMaxSkipFraction: v }); },
+    refreshCcetEfficiency: async () => {
+        try {
+            const { summarizeEfficiency } = await import('./kortex/ccet');
+            const eff = summarizeEfficiency();
+            set({ ccetEfficiency: eff || { sample_size: 0, avg_eta: 0, avg_saved_fraction: 0, total_skipped_segments: 0 } });
+        } catch (e) {
+            console.error('Failed to refresh CCET efficiency:', e);
+        }
+    },
     setAvatarCharacter: (avatarCharacter) => { localStorage.setItem('avatarCharacter', avatarCharacter); set({ avatarCharacter }); },
     setAvatarCustomConfig: (config: { stickerUrl?: string; wallpaperUrl?: string; enabled?: boolean }) => {
         const existing = JSON.parse(localStorage.getItem('avatarCustomConfig') || '{}');

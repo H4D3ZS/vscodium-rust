@@ -5,8 +5,7 @@
  * Integrates with HADES Bridge for 8GB VRAM optimization.
  */
 
-import { get } from 'svelte/store';
-import { store } from './store';
+import { useStore } from './store';
 
 export interface LlamaCppConfig {
   enabled: boolean;
@@ -75,7 +74,7 @@ class LlamaCppService {
    */
   async checkStatus(): Promise<LlamaCppStatus> {
     this.status = { status: 'connecting' };
-    store.setOllamaStatus('checking');
+    useStore.setState({ ollamaStatus: 'checking' });
 
     try {
       const response = await fetch(`${this.baseUrl}/health`, {
@@ -88,7 +87,7 @@ class LlamaCppService {
           status: 'connected',
           model: 'llama.cpp',
         };
-        store.setOllamaStatus('running');
+        useStore.setState({ ollamaStatus: 'running' });
       } else {
         throw new Error('Server returned unhealthy status');
       }
@@ -97,7 +96,7 @@ class LlamaCppService {
         status: 'error',
         error: error instanceof Error ? error.message : 'Connection failed',
       };
-      store.setOllamaStatus('error');
+      useStore.setState({ ollamaStatus: 'error' });
     }
 
     return this.status;

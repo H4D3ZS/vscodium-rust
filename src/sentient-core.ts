@@ -193,14 +193,15 @@ export class SentientCore {
    */
   private monitorUserActivity(): void {
     // Track when user interacts
-    const store = useStore.getState();
-    
-    // Listen for user messages
-    const unsubscribe = store.subscribe(
-      (state) => state.agentMessages,
-      (messages) => {
+    let lastMsgId: string | number | null = null;
+    useStore.subscribe(
+      (state) => {
+        const messages = state.agentMessages;
+        if (messages.length === 0) return;
         const lastMsg = messages[messages.length - 1];
-        if (lastMsg?.role === 'user') {
+        const msgId = lastMsg?.timestamp || messages.length;
+        if (lastMsg?.role === 'user' && msgId !== lastMsgId) {
+          lastMsgId = msgId;
           this.lastInteraction = Date.now();
           this.emotionalState.urgency = 0; // Reset urgency on interaction
           
@@ -209,8 +210,6 @@ export class SentientCore {
         }
       }
     );
-
-    return unsubscribe;
   }
 
   /**

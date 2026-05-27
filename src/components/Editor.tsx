@@ -937,7 +937,7 @@ ${selectedText}
                                     max_tokens: 4096,
                                     temperature: 0.1,
                                     provider: 'google', // auto-resolved in backend
-                                    model: store.currentModel || 'gemini-2.5-pro'
+                                    model: store.agentModel || 'gemini-2.5-pro'
                                 }
                             });
                             

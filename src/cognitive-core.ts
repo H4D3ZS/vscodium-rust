@@ -586,7 +586,7 @@ export class CognitiveCore {
     conscious: boolean;
     thoughts: number;
     selfAwareness: number;
-    drives: typeof this.state.drives;
+    drives: CognitiveState['drives'];
   } {
     return {
       conscious: this.state.isConscious,

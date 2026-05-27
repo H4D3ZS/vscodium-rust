@@ -110,7 +110,7 @@ import { airiSafetyProtocol, AIRISafetyProtocol } from './safety-protocol';
 import { airiVoiceInteraction, AIRIVoiceInteraction } from './voice-interaction';
 import { initializeVoice, speak, isVoiceReady } from './voice-manager';
 import { airiSystemAccess, AIRISystemAccess } from './system-access';
-import { SecurityMode } from './types';
+import type { SecurityMode } from './types';
 import { Ollama } from 'ollama';
 import { invoke } from '../tauri_bridge';
 

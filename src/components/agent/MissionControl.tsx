@@ -1,8 +1,8 @@
 import React from 'react';
-import { useStore, type AgentTask, type Artifact, type AgentStep } from '../../store';
+import { useStore, type AgentTask, type TaskArtifact, type AgentStep } from '../../store';
 import AnePerformancePane from '../visual/AnePerformancePane';
 
-const ArtifactCard: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
+const ArtifactCard: React.FC<{ artifact: TaskArtifact }> = ({ artifact }) => {
     const isImage = artifact.type === 'screenshot';
 
     return (

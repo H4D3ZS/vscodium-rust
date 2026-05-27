@@ -685,10 +685,31 @@ export async function speak(
         isPlaying = false;
         window.dispatchEvent(new CustomEvent('airi-tts-error', { detail: { error } }));
 
-        // Fallback to browser TTS if ElevenLabs fails (quota exceeded, etc.)
-        if (ttsProvider === 'elevenlabs') {
-            console.log('[TTS] ⚠️ ElevenLabs failed, falling back to browser TTS');
-            ttsProvider = 'browser';
+        // Fallback to active provider (or qwen/browser) if ElevenLabs or others fail
+        console.log(`[TTS] ⚠️ Speech failed, falling back to ${ttsProvider}`);
+        if (ttsProvider === 'qwen') {
+            try {
+                await qwenTTS.speak(text, preset);
+                onEnd?.();
+                window.dispatchEvent(new CustomEvent('airi-tts-end'));
+            } catch (err) {
+                console.error('[TTS] Qwen fallback failed:', err);
+                const utterance = speakBrowser(text, preset);
+                utterance.onend = () => { isPlaying = false; onEnd?.(); };
+                window.speechSynthesis.speak(utterance);
+            }
+        } else if (ttsProvider === 'qwen-native') {
+            try {
+                await qwenNativeTTS.speak(text, preset);
+                onEnd?.();
+                window.dispatchEvent(new CustomEvent('airi-tts-end'));
+            } catch (err) {
+                console.error('[TTS] Qwen native fallback failed:', err);
+                const utterance = speakBrowser(text, preset);
+                utterance.onend = () => { isPlaying = false; onEnd?.(); };
+                window.speechSynthesis.speak(utterance);
+            }
+        } else {
             const utterance = speakBrowser(text, preset);
             utterance.onend = () => { isPlaying = false; onEnd?.(); };
             window.speechSynthesis.speak(utterance);
