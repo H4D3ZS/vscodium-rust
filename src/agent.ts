@@ -349,15 +349,24 @@ export async function initAgent() {
     }
 
     // ── Startup model validation ──────────────────────────────────────────
-    // If the stored agentModel references a model that doesn't exist locally
-    // (e.g. leftover from a destroyed cloud server), auto-correct it.
+    // If the stored agentModel references an Ollama model that no longer exists
+    // locally (e.g. leftover after a purge), auto-correct it.
+    // Skip entirely for cloud providers — never remap google|gemini-* to Ollama.
     try {
         const st = useStore.getState();
         const currentModel = st.agentModel || '';
+        const providerPrefix = currentModel.includes('|')
+            ? currentModel.split('|')[0].toLowerCase()
+            : '';
+        const CLOUD_PROVIDERS = new Set([
+            'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
+            'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
+            'apiradar', 'openrouter', 'cerebras',
+        ]);
         const modelTag = currentModel.includes('|')
             ? currentModel.split('|').slice(1).join('|').trim()
             : currentModel.trim();
-        if (modelTag && st.inferenceBackend === 'ollama') {
+        if (modelTag && st.inferenceBackend === 'ollama' && !CLOUD_PROVIDERS.has(providerPrefix)) {
             const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
             const resolved = await resolveOllamaModelTag(modelTag);
             if (resolved && resolved !== modelTag) {

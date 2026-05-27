@@ -2550,16 +2550,7 @@ impl Sentient {
             }
 
             // Send prompt to AI provider
-            let mut request_url = endpoint.clone();
-
-            // Specialized handling for Google (API key in query param)
-            if active_provider.to_lowercase() == "google" {
-                if request_url.contains('?') {
-                    request_url.push_str(&format!("&key={}", provider_key));
-                } else {
-                    request_url.push_str(&format!("?key={}", provider_key));
-                }
-            }
+            let request_url = endpoint.clone();
 
             let timeout_secs = if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
                 600 // Increased to 10 minutes for 72B model initialization
@@ -2577,8 +2568,9 @@ impl Sentient {
                     .header("x-api-key", &provider_key)
                     .header("anthropic-version", "2023-06-01");
             } else if active_provider.to_lowercase() == "google" {
-                // Already handled in URL key param, but some proxies might like the header too
-                request = request.header("x-goog-api-key", &provider_key);
+                // Google OpenAI-compat endpoint (/v1beta/openai/chat/completions) requires
+                // standard Bearer auth — NOT the ?key= query param used by native endpoints.
+                request = request.bearer_auth(&provider_key);
             } else if active_provider.to_lowercase() == "ollama" {
                 let k = self.get_key_for_provider("ollama");
                 if !k.trim().is_empty() {
