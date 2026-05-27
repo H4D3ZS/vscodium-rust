@@ -2408,17 +2408,23 @@ impl Sentient {
                 let is_vision = Self::is_vision_model(&active_model);
                 let ollama_messages = Self::build_ollama_messages(&final_messages, is_vision);
 
-                json!({
+                let is_local_inference = matches!(
+                    active_provider.to_lowercase().as_str(),
+                    "ollama" | "antigravity" | "vllm" | "lmstudio" | "lm-studio" | "lm_studio" | "openwebui"
+                );
+
+                let mut base = json!({
                     "model": active_model,
                     "messages": ollama_messages,
                     "temperature": ollama_temp,
                     "stream": true,
-                    // num_ctx expands Ollama's context window beyond its 2048 default.
-                    // Without this, qwen3:30b only sees ~512 tokens of input.
-                    "num_ctx": num_ctx,
-                    // num_predict caps output length to prevent runaway generation
-                    "num_predict": 8192,
-                })
+                });
+                if is_local_inference {
+                    // num_ctx/num_predict are Ollama-specific; cloud providers (Google, OpenAI, etc.) reject them.
+                    base["num_ctx"] = json!(num_ctx);
+                    base["num_predict"] = json!(8192);
+                }
+                base
             };
 
             // Anthropic streaming is slightly different, but we'll focus on OpenAI/Ollama first
@@ -2484,7 +2490,16 @@ impl Sentient {
                         payload["tool_choice"] = json!("auto");
                     }
                 } else {
-                    payload["tools"] = json!(tools);
+                    // Normalize to OpenAI {type:"function", function:{...}} format.
+                    // Flat tool objects (e.g. from MCP injection) cause 400s on cloud APIs.
+                    let normalized: Vec<Value> = tools.iter().map(|t| {
+                        if t.get("type").and_then(|v| v.as_str()) == Some("function") {
+                            t.clone()
+                        } else {
+                            json!({"type": "function", "function": t})
+                        }
+                    }).collect();
+                    payload["tools"] = json!(normalized);
                     payload["tool_choice"] = json!("auto");
                 }
             }
