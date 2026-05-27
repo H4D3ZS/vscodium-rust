@@ -367,6 +367,7 @@ pub fn run() {
             extensions_commands::ext_host_send,
             extensions_commands::refresh_popular_extensions,
             extensions_commands::refresh_installed_extensions,
+            extensions_commands::check_activation_event,
             // ═══ Git Commands ═══
             git_commands::git_status,
             git_commands::git_diff,

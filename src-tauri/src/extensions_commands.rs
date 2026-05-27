@@ -267,3 +267,13 @@ pub async fn refresh_installed_extensions(
     get_installed_extensions(state).await
 }
 
+#[tauri::command]
+pub async fn check_activation_event(
+    state: State<'_, EditorState>,
+    event: String,
+) -> Result<(), String> {
+    let mut am = state.activation_manager.lock().await;
+    am.check_activation_requests(&event, state.ext_host.clone()).await;
+    Ok(())
+}
+
