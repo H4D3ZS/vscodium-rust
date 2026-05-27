@@ -1451,7 +1451,19 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // accepts connections and lists models but hangs on actual inference.
     const selectedModelLower = String(agentModel || '').toLowerCase();
     const selectedWebUiModel = selectedModelLower.includes('webui') && !selectedModelLower.includes('openwebui');
-    if (inferenceBackend === 'ollama' && !selectedWebUiModel) {
+    // Skip Ollama pre-flight for cloud providers selected by the user.
+    // The agentModel string uses the format "Provider|modelId" for cloud models.
+    const selectedProviderPrefix = agentModel?.includes('|') ? agentModel.split('|')[0].toLowerCase() : '';
+    const CLOUD_PROVIDER_PREFIXES = new Set([
+        'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
+        'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
+        'cohere', 'xai', 'apiradar',
+    ]);
+    const selectedIsCloudModel = CLOUD_PROVIDER_PREFIXES.has(selectedProviderPrefix)
+        || selectedModelLower.includes('gemini') || selectedModelLower.includes('claude')
+        || selectedModelLower.includes('gpt-') || selectedModelLower.includes('o1-')
+        || selectedModelLower.includes('o3-');
+    if (inferenceBackend === 'ollama' && !selectedWebUiModel && !selectedIsCloudModel) {
         const ollamaBase = store.getState().ollamaUrl?.trim() || 'http://localhost:11434';
         try {
             const probe = await fetch(`${ollamaBase}/api/tags`, {
@@ -1712,7 +1724,17 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             if (seg) routingModel = seg;
         }
     } else if (inferenceBackend === 'ollama') {
-        routingProvider = 'ollama';
+        // Only force-route through Ollama when the selected model is actually
+        // a local model. Cloud providers (Google, Anthropic, OpenAI, …) must
+        // pass through their own provider even if the local backend is Ollama.
+        const CLOUD_PROVIDERS = new Set([
+            'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
+            'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
+            'cohere', 'xai', 'apiradar',
+        ]);
+        if (!CLOUD_PROVIDERS.has(normalizedProvider)) {
+            routingProvider = 'ollama';
+        }
         routingOllamaUrl = store.getState().ollamaUrl || '';
         const am = store.getState().agentModel || '';
         if (am.includes('|')) {
@@ -1922,7 +1944,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
 
     setAiStatus('alive');
 
-    if (inferenceBackend === 'ollama') {
+    if (routingProvider === 'ollama') {
         const raw = store.getState().ollamaUrl?.trim() || 'http://localhost:11434';
         let base: string;
         try {
