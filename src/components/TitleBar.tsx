@@ -1,46 +1,21 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useStore } from '../store';
 
 // ---------------------------------------------------------------------------
 // Tauri window helpers
 // ---------------------------------------------------------------------------
-function getTauriWindow() {
-    const t = (window as any).__TAURI__;
-    if (!t) {
-        console.warn('[TitleBar] __TAURI__ not found');
-        return null;
-    }
-    if (t.window?.getCurrentWindow) return t.window.getCurrentWindow();
-    if (t.appWindow) return t.appWindow;
-    console.warn('[TitleBar] No window API found in __TAURI__');
-    return null;
-}
-
 function winMinimize() {
-    const win = getTauriWindow();
-    if (!win) return;
-    if (typeof win.minimize === 'function') {
-        win.minimize().catch((e: unknown) => console.error('[TitleBar] minimize error:', e));
-    }
+    getCurrentWindow().minimize().catch((e: unknown) => console.error('[TitleBar] minimize error:', e));
 }
 
 async function winMaximize() {
-    const win = getTauriWindow();
-    if (!win) return;
     try {
-        if (typeof win.isFullscreen === 'function' && await win.isFullscreen()) {
+        const win = getCurrentWindow();
+        if (await win.isFullscreen()) {
             await win.setFullscreen(false);
-            return;
-        }
-        if (typeof win.toggleMaximize === 'function') {
+        } else {
             await win.toggleMaximize();
-            return;
-        }
-        const isMaximized = typeof win.isMaximized === 'function' ? await win.isMaximized() : false;
-        if (isMaximized && typeof win.unmaximize === 'function') {
-            await win.unmaximize();
-        } else if (typeof win.maximize === 'function') {
-            await win.maximize();
         }
     } catch (e) {
         console.warn('[TitleBar] maximize failed:', e);
@@ -48,11 +23,7 @@ async function winMaximize() {
 }
 
 function winClose() {
-    const win = getTauriWindow();
-    if (!win) return;
-    if (typeof win.close === 'function') {
-        win.close().catch((e: unknown) => console.error('[TitleBar] close error:', e));
-    }
+    getCurrentWindow().close().catch((e: unknown) => console.error('[TitleBar] close error:', e));
 }
 
 // ---------------------------------------------------------------------------
