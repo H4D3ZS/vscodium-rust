@@ -51,6 +51,15 @@ export interface LayoutSlice {
     closeEmulatorPanel: () => void;
     setEmulatorPanelPosition: (pos: 'android' | 'iphone') => void;
     setEmulatorLayout: (layout: 'left' | 'right' | 'hidden') => void;
+    // Zen mode
+    isZenMode: boolean;
+    toggleZenMode: () => void;
+    // Git blame gutter
+    isGitBlameVisible: boolean;
+    toggleGitBlame: () => void;
+    // Document outline
+    isOutlinePanelOpen: boolean;
+    toggleOutlinePanel: () => void;
 }
 
 export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (set) => ({
@@ -75,6 +84,9 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     isEmulatorPanelOpen: false,
     emulatorPanelPosition: 'android',
     emulatorLayout: (localStorage.getItem('emulatorLayout') as 'left' | 'right' | 'hidden') || 'left',
+    isZenMode: false,
+    isGitBlameVisible: false,
+    isOutlinePanelOpen: false,
 
     toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
     setActiveSidebarView: (view) => set({ activeSidebarView: view, isSidebarOpen: true }),
@@ -122,5 +134,8 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
         try { localStorage.setItem('emulatorLayout', layout); } catch { }
         set({ emulatorLayout: layout });
     },
+    toggleZenMode: () => set((s) => ({ isZenMode: !s.isZenMode })),
+    toggleGitBlame: () => set((s) => ({ isGitBlameVisible: !s.isGitBlameVisible })),
+    toggleOutlinePanel: () => set((s) => ({ isOutlinePanelOpen: !s.isOutlinePanelOpen })),
 });
 

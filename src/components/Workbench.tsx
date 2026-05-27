@@ -43,6 +43,7 @@ function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: st
 import ComposerOverlay from './ComposerOverlay';
 import TabStrip from './workbench/TabStrip';
 import ToastManager from './ToastManager';
+import DocumentOutline from './DocumentOutline';
 
 const Workbench: React.FC = () => {
     const isSidebarOpen = useStore(state => state.isSidebarOpen);
@@ -78,11 +79,19 @@ const Workbench: React.FC = () => {
     
     // Dev Workflow State
     const isDevWorkflowActive = useStore(state => state.isDevWorkflowActive);
+    const isZenMode = useStore(state => (state as any).isZenMode ?? false);
+    const toggleZenMode = useStore(state => (state as any).toggleZenMode);
 
     // Ctrl+\ = toggle split editor (global listener, works regardless of Monaco focus)
     // Ctrl+Shift+V = toggle the markdown side-by-side preview (VS Code parity)
+    // Ctrl+K Z = toggle zen mode; Escape exits zen mode
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && isZenMode) {
+                e.preventDefault();
+                toggleZenMode();
+                return;
+            }
             if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
                 e.preventDefault();
                 toggleSplitEditor();
@@ -172,10 +181,10 @@ const Workbench: React.FC = () => {
 
     return (
         <div id="workbench" style={{ display: 'flex', flex: 1, height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
-            <ActivityBar />
-            {isSidebarOpen && <div style={{ width: sidebarWidth, flexShrink: 0, display: 'flex' }}><Sidebar /></div>}
+            {!isZenMode && <ActivityBar />}
+            {!isZenMode && isSidebarOpen && <div style={{ width: sidebarWidth, flexShrink: 0, display: 'flex' }}><Sidebar /></div>}
 
-            {isSidebarOpen && (
+            {!isZenMode && isSidebarOpen && (
                 <div
                     className="resizer-v"
                     id="sidebar-resizer"
@@ -449,16 +458,18 @@ const Workbench: React.FC = () => {
                 ) : (
                     <BrowserSurface />
                 )}
-                {isBottomPanelOpen && (
+                {!isZenMode && isBottomPanelOpen && (
                     <div
                         className="resizer-h"
                         id="panel-resizer"
                         onMouseDown={() => startResizing('panel')}
                     />
                 )}
-                <div style={{ height: isBottomPanelOpen ? bottomPanelHeight : 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                    <BottomPanel />
-                </div>
+                {!isZenMode && (
+                    <div style={{ height: isBottomPanelOpen ? bottomPanelHeight : 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                        <BottomPanel />
+                    </div>
+                )}
             </div>
 
             {/* Right Sidebar - Contains SEPARATE AIRI and Emulator panels */}
@@ -466,7 +477,7 @@ const Workbench: React.FC = () => {
                 className="right-sidebar-container"
                 style={{
                     display: 'flex',
-                    width: isRightSidebarOpen ? `${rightSidebarWidth}px` : '0px',
+                    width: !isZenMode && isRightSidebarOpen ? `${rightSidebarWidth}px` : '0px',
                     transition: 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     position: 'relative',
                     flexShrink: 0,
@@ -502,6 +513,7 @@ const Workbench: React.FC = () => {
             </div>
 
             {!isVisualLabSplitView && <VisualLab />}
+            <DocumentOutline />
             <AiriOverlay />
             <SpecsToCodeWizard />
             {useStore(state => state.pendingChanges).length > 0 && <DiffViewer />}

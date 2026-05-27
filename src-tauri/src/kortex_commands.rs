@@ -81,6 +81,85 @@ pub async fn load_kortex_metadata(path: String) -> Result<Value, String> {
     Ok(metadata)
 }
 
+// ── AIM Store Tauri Commands ─────────────────────────────────────────────────
+
+/// Upsert a semantic gist into the workspace's `.aim/gists.aim` store.
+#[tauri::command]
+pub async fn aim_upsert_gist(
+    root: String,
+    key: String,
+    gist: String,
+    weight: f32,
+) -> Result<(), String> {
+    let aim_path = PathBuf::from(&root).join(".aim").join("gists.aim");
+    let mut store = crate::aim_store::AimStore::load(&aim_path);
+
+    // Determine file mtime for the key if it maps to a real path.
+    let mtime = {
+        let p = PathBuf::from(&root).join(&key);
+        std::fs::metadata(&p)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    };
+
+    store.insert(key, gist, mtime, weight.clamp(0.0, 1.0));
+    store.save(&aim_path).map_err(|e| e.to_string())
+}
+
+/// Load all gists from the workspace's `.aim/gists.aim` store.
+#[tauri::command]
+pub async fn aim_load_gists(root: String) -> Result<Vec<serde_json::Value>, String> {
+    let aim_path = PathBuf::from(&root).join(".aim").join("gists.aim");
+    let store = crate::aim_store::AimStore::load(&aim_path);
+    let entries: Vec<serde_json::Value> = store.entries.values().map(|e| {
+        serde_json::json!({
+            "key": e.key,
+            "gist": e.gist,
+            "mtime": e.mtime,
+            "weight": e.weight,
+        })
+    }).collect();
+    Ok(entries)
+}
+
+/// Evict stale gist entries (file mtime changed since indexing).
+#[tauri::command]
+pub async fn aim_invalidate_stale(root: String) -> Result<usize, String> {
+    let aim_path = PathBuf::from(&root).join(".aim").join("gists.aim");
+    let mut store = crate::aim_store::AimStore::load(&aim_path);
+    let before = store.entries.len();
+    store.invalidate_stale(&PathBuf::from(&root));
+    let evicted = before - store.entries.len();
+    if evicted > 0 {
+        store.save(&aim_path).map_err(|e| e.to_string())?;
+    }
+    Ok(evicted)
+}
+
+/// Atomic VFS write — copy-on-write semantics, crash-safe.
+#[tauri::command]
+pub async fn vfs_write_atomic(root: String, relative_path: String, content: String) -> Result<(), String> {
+    let bridge = crate::vfs_bridge::VfsBridge::new(PathBuf::from(&root));
+    bridge.write_atomic(std::path::Path::new(&relative_path), &content)
+        .map_err(|e| e.to_string())
+}
+
+/// Surgical patch: search/replace with copy-on-write. Returns new content.
+#[tauri::command]
+pub async fn vfs_apply_patch(
+    root: String,
+    relative_path: String,
+    search: String,
+    replace: String,
+) -> Result<String, String> {
+    let bridge = crate::vfs_bridge::VfsBridge::new(PathBuf::from(&root));
+    bridge.apply_patch(std::path::Path::new(&relative_path), &search, &replace)
+        .map_err(|e| e.to_string())
+}
+
 fn default_workspace_aim_path(root: Option<String>) -> PathBuf {
     root.map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))

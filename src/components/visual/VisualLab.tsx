@@ -241,6 +241,90 @@ const DraggableNode = ({ type, label, color, onClick }: any) => {
     );
 };
 
+// --- Dependency Graph View ---
+
+const DependencyGraphView: React.FC = () => {
+    const [depNodes, setDepNodes, onDepNodesChange] = useNodesState([]);
+    const [depEdges, setDepEdges, onDepEdgesChange] = useEdgesState([]);
+    const [loading, setLoading] = useState(false);
+    const { fitView } = useReactFlow();
+    const activeRoot = (useStore.getState() as any).activeRoot ?? '';
+
+    const loadDeps = useCallback(async () => {
+        setLoading(true);
+        try {
+            const files = await invoke<string[]>('list_project_files', { root: activeRoot, extensions: ['ts', 'tsx', 'js', 'jsx', 'rs'] }).catch(() => []);
+            const importMap: Record<string, Set<string>> = {};
+            for (const f of (files ?? []).slice(0, 80)) {
+                const content = await invoke<string>('read_file', { path: f }).catch(() => '');
+                const imports = [...content.matchAll(/(?:import|from)\s+['"]([^'"]+)['"]/g)]
+                    .map(m => m[1])
+                    .filter(p => p.startsWith('.'));
+                const short = f.replace(activeRoot, '').replace(/\\/g, '/').replace(/^\//, '');
+                importMap[short] = new Set(imports.map(p => {
+                    const parts = short.split('/');
+                    parts.pop();
+                    const base = [...parts, p].join('/').replace(/\/\.\.\//g, '/').replace(/\/\.\//g, '/');
+                    return base.split('/').slice(-1)[0];
+                }));
+            }
+            const allFiles = Object.keys(importMap);
+            const cols = 5;
+            const newNodes = allFiles.map((f, i) => ({
+                id: f,
+                type: 'default',
+                position: { x: (i % cols) * 220, y: Math.floor(i / cols) * 80 },
+                data: { label: f.split('/').pop() ?? f },
+                style: {
+                    background: '#1a1a2e', border: '1px solid rgba(0,198,255,0.3)',
+                    color: '#fff', fontSize: '10px', padding: '4px 8px', borderRadius: '4px',
+                },
+            }));
+            const newEdges: any[] = [];
+            for (const [src, deps] of Object.entries(importMap)) {
+                for (const dep of deps) {
+                    const target = allFiles.find(f => f.endsWith(dep) || f.endsWith(dep + '.ts') || f.endsWith(dep + '.tsx'));
+                    if (target && target !== src) {
+                        newEdges.push({
+                            id: `${src}->${target}`,
+                            source: src, target,
+                            markerEnd: { type: MarkerType.ArrowClosed, color: 'rgba(0,198,255,0.5)' },
+                            style: { stroke: 'rgba(0,198,255,0.25)', strokeWidth: 1 },
+                        });
+                    }
+                }
+            }
+            setDepNodes(newNodes);
+            setDepEdges(newEdges);
+            setTimeout(() => fitView({ padding: 0.1, duration: 600 }), 100);
+        } finally {
+            setLoading(false);
+        }
+    }, [activeRoot, setDepNodes, setDepEdges, fitView]);
+
+    useEffect(() => { loadDeps(); }, []);
+
+    return (
+        <div style={{ flex: 1, background: '#090909', overflow: 'hidden', position: 'relative' }}>
+            {loading && (
+                <div style={{ position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: 10, background: 'rgba(0,198,255,0.15)', border: '1px solid rgba(0,198,255,0.3)', color: '#00c6ff', padding: '4px 16px', borderRadius: '20px', fontSize: '11px', fontWeight: 600 }}>
+                    Parsing imports…
+                </div>
+            )}
+            <button
+                onClick={loadDeps}
+                style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', padding: '4px 12px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer' }}
+            >
+                Refresh
+            </button>
+            <ReactFlow nodes={depNodes} edges={depEdges} onNodesChange={onDepNodesChange} onEdgesChange={onDepEdgesChange} fitView style={{ background: '#090909' }}>
+                <Background color="#1a1a1a" gap={20} />
+                <Controls />
+            </ReactFlow>
+        </div>
+    );
+};
+
 // --- Main Component ---
 
 const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
@@ -484,6 +568,12 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
                         icon={<Activity size={14} />}
                         label="Summary"
                     />
+                    <ModeToggle
+                        active={(visualLabMode as any) === 'deps'}
+                        onClick={() => setVisualLabMode('deps' as any)}
+                        icon={<Cpu size={14} />}
+                        label="Dep Graph"
+                    />
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -672,6 +762,8 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
                     <div style={{ flex: 1, background: '#090909', overflow: 'hidden' }}>
                         <NeuralSummaryView />
                     </div>
+                ) : (visualLabMode as any) === 'deps' ? (
+                    <DependencyGraphView />
                 ) : null}
             </div>
 

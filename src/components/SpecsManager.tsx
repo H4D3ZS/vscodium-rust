@@ -10,6 +10,8 @@ interface SpecsManagerProps {
 export const SpecsManager: React.FC<SpecsManagerProps> = ({ onClose }) => {
     const [prompt, setPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isScaffolding, setIsScaffolding] = useState(false);
+    const [isGeneratingTests, setIsGeneratingTests] = useState(false);
     const [generatedSpecs, setGeneratedSpecs] = useState('');
     const [projects, setProjects] = useState<any[]>([]);
     const [activeProject, setActiveProject] = useState<any | null>(null);
@@ -87,6 +89,63 @@ export const SpecsManager: React.FC<SpecsManagerProps> = ({ onClose }) => {
             setGeneratedSpecs((prev) => prev + `\n\nError: ${error.message || String(error)}`);
         } finally {
             setIsGenerating(false);
+        }
+    };
+
+    const scaffoldProject = async () => {
+        if (!activeProject) return;
+        setIsScaffolding(true);
+        const scaffoldPrompt = `You are an autonomous project architect. Based on the following specification, generate the complete file/directory scaffold for the project.
+
+SPEC:
+${activeProject.description}
+
+TASKS:
+${tasks.map((t: any) => `- ${t.title}`).join('\n')}
+
+Instructions:
+1. List every file path that needs to be created (relative to project root).
+2. For each file, write the starter implementation — not stubs, real code.
+3. Use the existing codebase style where applicable (Tauri v2 + React + TypeScript or Rust).
+4. After listing each file, use the write_file tool to create it.
+5. Announce "SCAFFOLD COMPLETE" when done.
+
+Begin scaffolding now.`;
+        try {
+            await sendAgentMessage(scaffoldPrompt, () => {});
+        } catch (e: any) {
+            console.error('Scaffold failed', e);
+        } finally {
+            setIsScaffolding(false);
+        }
+    };
+
+    const generateTests = async () => {
+        if (!activeProject) return;
+        setIsGeneratingTests(true);
+        const testPrompt = `You are a test engineer. Based on the following specification and task list, generate a comprehensive test suite.
+
+SPEC:
+${activeProject.description}
+
+TASKS:
+${tasks.map((t: any) => `- ${t.title}`).join('\n')}
+
+Instructions:
+1. Write unit tests for each acceptance criterion in the spec.
+2. Write integration tests for the full feature flow.
+3. Use the testing framework appropriate for the detected language (Vitest for TS, cargo test for Rust).
+4. Each test must have a clear description tied to an acceptance criterion.
+5. Use write_file to create the test files.
+6. Announce "TEST GENERATION COMPLETE" when done.
+
+Begin generating tests now.`;
+        try {
+            await sendAgentMessage(testPrompt, () => {});
+        } catch (e: any) {
+            console.error('Test gen failed', e);
+        } finally {
+            setIsGeneratingTests(false);
         }
     };
 
@@ -182,6 +241,36 @@ export const SpecsManager: React.FC<SpecsManagerProps> = ({ onClose }) => {
                             {activeProject.description}
                         </div>
                     </div>
+                    {/* Scaffold + Test Gen actions */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+                        <button
+                            onClick={scaffoldProject}
+                            disabled={isScaffolding || tasks.length === 0}
+                            style={{
+                                flex: 1, padding: '7px 10px',
+                                background: isScaffolding ? 'rgba(0,198,255,0.12)' : 'rgba(0,198,255,0.18)',
+                                border: '1px solid rgba(0,198,255,0.4)',
+                                color: '#00c6ff', borderRadius: '5px', cursor: isScaffolding ? 'wait' : 'pointer',
+                                fontSize: '11px', fontWeight: 600,
+                            }}
+                        >
+                            {isScaffolding ? '⚡ Scaffolding...' : '⚡ Scaffold Project'}
+                        </button>
+                        <button
+                            onClick={generateTests}
+                            disabled={isGeneratingTests || tasks.length === 0}
+                            style={{
+                                flex: 1, padding: '7px 10px',
+                                background: isGeneratingTests ? 'rgba(74,222,128,0.08)' : 'rgba(74,222,128,0.12)',
+                                border: '1px solid rgba(74,222,128,0.3)',
+                                color: '#4ade80', borderRadius: '5px', cursor: isGeneratingTests ? 'wait' : 'pointer',
+                                fontSize: '11px', fontWeight: 600,
+                            }}
+                        >
+                            {isGeneratingTests ? '🧪 Generating...' : '🧪 Generate Tests'}
+                        </button>
+                    </div>
+
                     <div>
                         <h4 style={{ margin: '0 0 8px 0', fontSize: '12px' }}>Architectural Tasks</h4>
                         {tasks.length === 0 ? (

@@ -2,6 +2,7 @@ use std::fs;
 use tauri::Manager;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+pub mod aim_store;
 mod ai_auth;
 mod ai_commands;
 mod editor_commands;
@@ -454,6 +455,11 @@ pub fn run() {
             kortex_commands::aim_clear_telemetry_samples,
             kortex_commands::aim_set_bound_model,
             kortex_commands::kortex_resolve_ollama_gguf,
+            kortex_commands::aim_upsert_gist,
+            kortex_commands::aim_load_gists,
+            kortex_commands::aim_invalidate_stale,
+            kortex_commands::vfs_write_atomic,
+            kortex_commands::vfs_apply_patch,
             // ═══ Kortex GAC: geometry-aware inference scheduling ═══
             kortex_gac::kortex_gac_profile,
             kortex_gac::kortex_gac_load_profile,

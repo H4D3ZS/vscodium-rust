@@ -99,6 +99,31 @@ const StatusBar: React.FC = () => {
         setSelectionCount(0);
     }, [activeTabId]);
 
+    // ── Zen mode toggle ──────────────────────────────────────────────────────
+    const isZenMode = useStore(state => (state as any).isZenMode ?? false);
+    const toggleZenMode = useStore(state => (state as any).toggleZenMode);
+    const toggleOutlinePanel = useStore(state => (state as any).toggleOutlinePanel);
+
+    // ── Token budget ─────────────────────────────────────────────────────────
+    const agentMessages = useStore(state => (state as any).agentMessages ?? []);
+    const tokenBudget = React.useMemo(() => {
+        const used = agentMessages.reduce((sum: number, m: any) => {
+            const txt = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
+            return sum + Math.ceil(txt.length / 4);
+        }, 0);
+        const model = (useStore.getState() as any).agentModel ?? '';
+        const max = model.toLowerCase().includes('gemini-2.5') ? 1048576
+            : model.toLowerCase().includes('gemini') ? 131072
+            : model.toLowerCase().includes('claude') ? 200000
+            : model.toLowerCase().includes('gpt-4') ? 128000
+            : 128000;
+        return { used, max, pct: Math.min(100, Math.round((used / max) * 100)) };
+    }, [agentMessages]);
+
+    // ── Git blame ─────────────────────────────────────────────────────────────
+    const isGitBlameVisible = useStore(state => (state as any).isGitBlameVisible ?? false);
+    const toggleGitBlame = useStore(state => (state as any).toggleGitBlame);
+
     // ── Git branch ───────────────────────────────────────────────────────────
     const setGitBranch = useStore(state => state.setGitBranch);
     const activeRoot = useStore(state => state.activeRoot);
@@ -403,6 +428,53 @@ const StatusBar: React.FC = () => {
 
             {/* ── RIGHT ────────────────────────────────────────────────────── */}
             <div className="status-right" style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+
+                {/* Token budget */}
+                {agentMessages.length > 0 && (
+                    <StatusItem
+                        title={`Context: ~${tokenBudget.used.toLocaleString()} / ${tokenBudget.max.toLocaleString()} tokens (${tokenBudget.pct}%)`}
+                        danger={tokenBudget.pct > 85}
+                        accent={tokenBudget.pct < 50}
+                    >
+                        <i className="codicon codicon-symbol-keyword" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px' }} />
+                        <span style={{ fontSize: '11px' }}>
+                            {tokenBudget.used >= 1000 ? `${(tokenBudget.used / 1000).toFixed(1)}k` : tokenBudget.used}
+                            <span style={{ opacity: 0.5 }}>/{tokenBudget.max >= 1000 ? `${(tokenBudget.max / 1000).toFixed(0)}k` : tokenBudget.max}</span>
+                        </span>
+                        <div style={{
+                            width: '36px', height: '3px', borderRadius: '2px', overflow: 'hidden',
+                            background: 'rgba(255,255,255,0.15)', marginLeft: '2px',
+                        }}>
+                            <div style={{
+                                width: `${tokenBudget.pct}%`, height: '100%',
+                                background: tokenBudget.pct > 85 ? '#f87171' : tokenBudget.pct > 60 ? '#fbbf24' : '#4ade80',
+                                transition: 'width 0.3s',
+                            }} />
+                        </div>
+                    </StatusItem>
+                )}
+
+                {/* Git blame toggle */}
+                {activeTab && (
+                    <StatusItem
+                        onClick={toggleGitBlame}
+                        title={isGitBlameVisible ? 'Hide Git Blame' : 'Show Git Blame (Ctrl+Alt+B)'}
+                        accent={isGitBlameVisible}
+                    >
+                        <i className="codicon codicon-git-commit" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                        <span>Blame</span>
+                    </StatusItem>
+                )}
+
+                {/* Outline panel toggle */}
+                <StatusItem onClick={toggleOutlinePanel} title="Toggle Outline Panel">
+                    <i className="codicon codicon-list-tree" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                </StatusItem>
+
+                {/* Zen mode toggle */}
+                <StatusItem onClick={toggleZenMode} title={isZenMode ? 'Exit Zen Mode (Escape)' : 'Zen Mode (Ctrl+K Z)'} accent={isZenMode}>
+                    <i className="codicon codicon-screen-full" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                </StatusItem>
 
                 {/* Discord RPC placeholder — hide if not connected */}
                 <StatusItem title="Discord RPC — not connected">

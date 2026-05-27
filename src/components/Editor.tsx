@@ -35,12 +35,14 @@ function pathToUri(path: string): string {
     return normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`;
 }
 
-const CTRL_S = 2048 | 49; // KeyMod.CtrlCmd | KeyCode.KeyS
-const CTRL_I = 2048 | 40; // KeyMod.CtrlCmd | KeyCode.KeyI
-const CTRL_K = 2048 | 41; // KeyMod.CtrlCmd | KeyCode.KeyK  (Cursor inline edit)
-const CTRL_L = 2048 | 42; // KeyMod.CtrlCmd | KeyCode.KeyL  (Cursor chat with selection)
-const ALT_LEFT = 512 | 15;  // KeyMod.Alt | KeyCode.LeftArrow
-const ALT_RIGHT = 512 | 17; // KeyMod.Alt | KeyCode.RightArrow
+const CTRL_S = 2048 | 49;    // KeyMod.CtrlCmd | KeyCode.KeyS
+const CTRL_I = 2048 | 40;    // KeyMod.CtrlCmd | KeyCode.KeyI
+const CTRL_K = 2048 | 41;    // KeyMod.CtrlCmd | KeyCode.KeyK  (Cursor inline edit)
+const CTRL_L = 2048 | 42;    // KeyMod.CtrlCmd | KeyCode.KeyL  (Cursor chat with selection)
+const CTRL_D = 2048 | 33;    // KeyMod.CtrlCmd | KeyCode.KeyD  (multi-cursor: add next occurrence)
+const CTRL_ALT_B = 2048 | 512 | 32; // CtrlCmd+Alt+B  (git blame toggle)
+const ALT_LEFT = 512 | 15;   // KeyMod.Alt | KeyCode.LeftArrow
+const ALT_RIGHT = 512 | 17;  // KeyMod.Alt | KeyCode.RightArrow
 
 interface EditorProps {
     tabId?: string; // if provided, override activeTabId (for split pane)
@@ -56,6 +58,8 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     const setActiveEditorPath = useStore(state => state.setActiveEditorPath);
     const setVisualLabData = useStore(state => state.setVisualLabData);
     const toggleVisualLab = useStore(state => state.toggleVisualLab);
+    const isGitBlameVisible = useStore(state => (state as any).isGitBlameVisible ?? false);
+    const toggleGitBlame = useStore(state => (state as any).toggleGitBlame);
     const setVisualLabMode = useStore(state => state.setVisualLabMode);
 
     const [isInlineEditOpen, setIsInlineEditOpen] = React.useState(false);
@@ -130,6 +134,16 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
         // Alt+Left/Right = tab history navigation
         editor.addCommand(ALT_LEFT, () => useStore.getState().navigateBack?.());
         editor.addCommand(ALT_RIGHT, () => useStore.getState().navigateForward?.());
+
+        // Ctrl+D = add next occurrence to selection (multi-cursor)
+        editor.addCommand(CTRL_D, () => {
+            editor.trigger('keyboard', 'editor.action.addSelectionToNextFindMatch', null);
+        });
+
+        // Ctrl+Alt+B = toggle git blame gutter
+        editor.addCommand(CTRL_ALT_B, () => {
+            (useStore.getState() as any).toggleGitBlame?.();
+        });
 
         // Track cursor position → emit for breadcrumb symbol context and StatusBar
         editor.onDidChangeCursorPosition((e) => {
@@ -705,12 +719,21 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     useEffect(() => {
         if (!editorRef.current) return;
         const editor = editorRef.current;
+        // Clear decorations when blame is toggled off
+        if (!isGitBlameVisible) {
+            import('monaco-editor').then(() => {
+                if (editorRef.current && blameDecorationsRef.current.length) {
+                    blameDecorationsRef.current = editorRef.current.deltaDecorations(blameDecorationsRef.current, []);
+                }
+            });
+            return;
+        }
         const disposable = editor.onDidChangeCursorPosition((e: any) => {
             const line = e.position.lineNumber;
             const entry = blameDataRef.current[line - 1];
             import('monaco-editor').then(monaco => {
                 if (!editorRef.current) return;
-                const [hash, author, date, summary] = (entry ?? '').split('|');
+                const [, author, date, summary] = (entry ?? '').split('|');
                 const newDecorations = (!author || author === 'Not Committed Yet') ? [] : [{
                     range: new monaco.Range(line, 1, line, 1),
                     options: {
@@ -728,7 +751,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             });
         });
         return () => disposable.dispose();
-    }, []);
+    }, [isGitBlameVisible]);
 
     // Git gutter decorations — green added, blue modified, red deleted
     const gitDecorationsRef = useRef<string[]>([]);

@@ -1620,10 +1620,21 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
 
     // ── Void: per-feature model routing ──────────────────────────────────────
     // If the user has configured a dedicated Chat model, use it.
-    // This fires before the generic provider/model resolution below so the
-    // per-feature selection takes precedence over the global agentModel.
+    // EXCEPTION: if the global agentModel is already a cloud provider (Google,
+    // Anthropic, OpenAI…), the per-feature local-Ollama override must NOT win —
+    // that was causing Gemini to silently swap to airi-fast:latest.
     const chatModelSel = (store.getState() as any).modelSelectionOfFeature?.['Chat'];
-    const effectiveAgentModel = (chatModelSel?.modelName && chatModelSel?.providerName)
+    const _agentModelCloudCheck = (() => {
+        const am = agentModel || '';
+        const prefix = am.includes('|') ? am.split('|')[0].toLowerCase() : '';
+        const CLOUD = new Set(['google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
+            'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm', 'apiradar']);
+        return CLOUD.has(prefix)
+            || am.toLowerCase().includes('gemini') || am.toLowerCase().includes('claude')
+            || am.toLowerCase().includes('gpt-') || am.toLowerCase().includes('o1-')
+            || am.toLowerCase().includes('o3-');
+    })();
+    const effectiveAgentModel = (chatModelSel?.modelName && chatModelSel?.providerName && !_agentModelCloudCheck)
         ? `${chatModelSel.providerName}|${chatModelSel.modelName}`
         : agentModel;
 
