@@ -2171,9 +2171,18 @@ const RightSidebar: React.FC = () => {
                                 <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px 10px', gap: '10px', flex: 1 }}>
                                     {visibleMessages.length > 0 && (
                                         <>
-                                            {visibleMessages.map((msg, idx) => (
-                                                <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'relative' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: 0.5 }}>
+                                            {visibleMessages.map((msg, idx) => {
+                                                const cleanedContent = cleanAiContent(msg.content || '');
+                                                const hasContent = !!cleanedContent;
+                                                const hasThoughts = !!msg.thoughts;
+                                                const hasSteps = msg.steps && msg.steps.length > 0;
+                                                const hasContext = msg.context && msg.context.length > 0;
+                                                const shouldRender = hasContent || hasThoughts || hasSteps || hasContext;
+                                                if (!shouldRender) return null;
+
+                                                return (
+                                                    <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'relative' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: 0.5 }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                             <span style={{ fontSize: '10px' }}>{msg.role === 'assistant' ? (msg.isSubAgentResponse ? '🤖' : '✦') : '▸'}</span>
                                                             <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: msg.isSubAgentResponse ? '#3b82f6' : msg.role === 'assistant' ? 'rgba(255,255,255,0.6)' : '#3b82f6' }}>
@@ -2302,7 +2311,7 @@ const RightSidebar: React.FC = () => {
                                                         )}
                                                     </div>
                                                 </div>
-                                            ))}
+                                            );})}
                                             {/* Processing indicator handled by AiriPanel character overlay */}
                                             <div ref={messagesEndRef} />
                                         </>

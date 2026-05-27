@@ -1350,7 +1350,7 @@ impl Sentient {
                 c.clone()
             } else {
                 let mut mem = String::new();
-                let memory_files = ["MEMORY.md", "GEMINI.md", "AGENTS.md", "CLAUDE.md", ".agent/memory.md", ".aim/memory.aim"];
+                let memory_files = ["MEMORY.md", "GEMINI.md", "AGENTS.md", "CLAUDE.md", ".agent/memory.md"];
                 for file_name in memory_files {
                     let memory_path = root.join(file_name);
                     if memory_path.exists() {

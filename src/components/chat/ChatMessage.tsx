@@ -46,7 +46,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     onEditChange, onEditSave, onEditCancel,
 }) => {
     const cleaned = cleanAiContent(msg.content || '');
-    if (!cleaned && msg.role === 'assistant') return null;
+    const hasContent = !!cleaned;
+    const hasThoughts = !!msg.thoughts;
+    const hasContext = msg.context && msg.context.length > 0;
+    const shouldRender = hasContent || hasThoughts || hasContext;
+    if (!shouldRender) return null;
 
     return (
         <div className="agent-message-container" style={{ padding: '6px 10px', position: 'relative' }}>

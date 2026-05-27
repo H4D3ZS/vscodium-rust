@@ -459,7 +459,7 @@ const TitleBar: React.FC = () => {
                 <div
                     className="ide-logo hoverable"
                     title="Antigravity IDE"
-                    style={{ display: 'flex', alignItems: 'center', marginRight: '4px', padding: '4px 8px' }}
+                    style={{ display: 'flex', alignItems: 'center', marginRight: '4px', padding: '4px 8px', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                         <path d="M12 2L2 7l10 5 10-5-10-5z" fill={isAiriPanelOpen ? '#a855f7' : 'rgba(255,255,255,0.75)'} />
@@ -474,13 +474,13 @@ const TitleBar: React.FC = () => {
                             <div
                                 className={`menu-label ${activeMenu === menu.label ? 'active' : ''}`}
                                 onClick={() => handleMenuClick(menu.label)}
-                                data-tauri-drag-region="false"
+                                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                             >
                                 {menu.label}
                             </div>
 
                             {activeMenu === menu.label && (
-                                <div className="menu-dropdown" data-tauri-drag-region="false">
+                                <div className="menu-dropdown" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
                                     {menu.items.map((item, idx) =>
                                         item.separator ? (
                                             <div key={idx} className="menu-dropdown-separator" />
@@ -507,8 +507,6 @@ const TitleBar: React.FC = () => {
             {/* ── Center: command palette trigger ── */}
             <div
                 className="command-center"
-                onClick={() => executeMenuAction('Command Palette...')}
-                data-tauri-drag-region="false"
                 style={{
                     display: 'flex',
                     justifyContent: 'center',
@@ -518,6 +516,7 @@ const TitleBar: React.FC = () => {
             >
                 <div
                     className="command-box"
+                    onClick={() => executeMenuAction('Command Palette...')}
                     style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -531,7 +530,8 @@ const TitleBar: React.FC = () => {
                         transition: 'all 0.2s',
                         fontSize: '11px',
                         color: 'rgba(255,255,255,0.6)',
-                    }}
+                        WebkitAppRegion: 'no-drag',
+                    } as React.CSSProperties}
                 >
                     <i className="codicon codicon-search" style={{ fontSize: '11px', marginRight: '10px', opacity: 0.5 }} />
                     <div style={{ flex: 1 }}>{rootName}</div>
@@ -539,7 +539,7 @@ const TitleBar: React.FC = () => {
             </div>
 
             {/* ── Right: AIRI button + window controls ── */}
-            <div className="title-bar-right" data-tauri-drag-region="false">
+            <div className="title-bar-right" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '12px' }}>
 
                     {/* Sentient Guard icon */}
@@ -575,9 +575,9 @@ const TitleBar: React.FC = () => {
                             border: isAiriPanelOpen ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid transparent',
                             transition: 'all 0.2s ease',
                             position: 'relative',
-                        }}
+                            WebkitAppRegion: 'no-drag',
+                        } as React.CSSProperties}
                         onClick={handleAiriClick}
-                        data-tauri-drag-region="false"
                     >
                         {isAgentThinking ? (
                             <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: '14px', color: '#c084fc' }} />
@@ -606,20 +606,47 @@ const TitleBar: React.FC = () => {
                 {/* Native window controls */}
                 <div
                     className="window-controls-right"
-                    data-tauri-drag-region="false"
+                    style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                     onMouseDown={(e) => e.stopPropagation()}
                 >
-                    <button className="wc-btn wc-minimize" title="Minimize" onClick={winMinimize} aria-label="Minimize">
+                    <button
+                        className="wc-btn wc-minimize"
+                        title="Minimize"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            winMinimize();
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        aria-label="Minimize"
+                    >
                         <svg width="10" height="1" viewBox="0 0 10 1">
                             <rect width="10" height="1" fill="currentColor" />
                         </svg>
                     </button>
-                    <button className="wc-btn wc-maximize" title="Maximize / Restore" onClick={winMaximize} aria-label="Maximize">
+                    <button
+                        className="wc-btn wc-maximize"
+                        title="Maximize / Restore"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            winMaximize();
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        aria-label="Maximize"
+                    >
                         <svg width="10" height="10" viewBox="0 0 10 10">
                             <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1" />
                         </svg>
                     </button>
-                    <button className="wc-btn wc-close" title="Close" onClick={winClose} aria-label="Close">
+                    <button
+                        className="wc-btn wc-close"
+                        title="Close"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            winClose();
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        aria-label="Close"
+                    >
                         <svg width="10" height="10" viewBox="0 0 10 10">
                             <line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" strokeWidth="1.2" />
                             <line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" strokeWidth="1.2" />
