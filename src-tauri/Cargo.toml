@@ -76,7 +76,7 @@ diffy = "0.3"
 notify = "6.1"
 streaming-iterator = "0.1"
 rayon = "1.10"
-sha2 = "0.10"
+sha2 = "0.11"
 tempfile = "3"
 hades-harness = { path = "../kortex/harness" }
 tokio-tungstenite = "0.20"
