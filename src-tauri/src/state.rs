@@ -89,6 +89,10 @@ pub struct EditorState {
     pub iphone_manager: Arc<IPhoneEmulatorManager>,
     pub hades_vision: Arc<hades_vision::HadesVision>,
     pub apex: Arc<ApexOrchestrator>,
+    /// Pending tool-permission approvals: tool_id → oneshot sender.
+    /// Backend emits `tool_permission_request`, then awaits the sender.
+    /// Frontend responds via `respond_tool_permission` command.
+    pub tool_permission_senders: Arc<std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
 }
 
 impl EditorState {
@@ -187,7 +191,11 @@ impl EditorState {
             println!("[DEBUG] Sentient initialized");
         });
         
-        let memory_layer = Arc::new(memory_layer::MemoryLayer::new(root.clone()));
+        let memory_layer = {
+            let mut ml = memory_layer::MemoryLayer::new(root.clone());
+            ml.set_memory_store(sentient.memory_store.clone());
+            Arc::new(ml)
+        };
         let hades_harness = Arc::new(hades_harness::HadesHarness::new(
             sentient.clone(),
             memory_layer.clone(),
@@ -221,12 +229,12 @@ impl EditorState {
 
         app.manage(context_indexer.clone());
 
-        // Initialize Vector Indexer (Cursor-like codebase semantic search)
+        // Initialize Vector Indexer (Cursor-like semantic search).
+        // Memory optimization: do NOT index at startup. The context_indexer
+        // already provides AIM-based codebase awareness. Vector indexing only
+        // runs when the user explicitly invokes vector_search, which loads
+        // the SQLite-backed embeddings on demand. Saves 50-100MB at startup.
         let vector_indexer = Arc::new(VectorIndexer::new(root.clone()).expect("Failed to init vector indexer"));
-        let vi_clone = vector_indexer.clone();
-        tauri::async_runtime::spawn(async move {
-            let _ = vi_clone.index_codebase().await;
-        });
 
         // Initialize Git Checkpoints (auto-snapshot before AI edits)
         let git_checkpoints = Arc::new(GitCheckpoint::new(root.clone()));
@@ -346,6 +354,9 @@ impl EditorState {
                 });
                 apex_inst
             },
+            // Share the same Arc as Sentient so respond_tool_permission resolves
+            // the correct oneshot sender that the autonomous_loop is waiting on.
+            tool_permission_senders: sentient.permission_senders.clone(),
         }
     }
 }

@@ -33,7 +33,9 @@ export class AIRISelfEvolution {
   private ollama: Ollama;
   private goals: EvolutionGoal[];
   private improvementHistory: SelfImprovement[];
-  private readonly MODEL = 'qwen3.6:32b-q4_K_M';
+  private getModelName(): string {
+    return getModel('self_learning') || 'airi-fast:latest';
+  }
   private evolutionInterval: NodeJS.Timeout | null = null;
   private codebasePath: string;
 
@@ -132,7 +134,7 @@ Respond with just a number 0-100.
 `;
 
         const response = await this.ollama.generate({
-          model: this.MODEL,
+          model: this.getModelName(),
           prompt,
           stream: false
         });
@@ -243,7 +245,7 @@ What are the top 3 areas for improvement?
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -283,7 +285,7 @@ Examples:
 
       try {
         const response = await this.ollama.generate({
-          model: this.MODEL,
+          model: this.getModelName(),
           prompt,
           stream: false
         });
@@ -321,7 +323,7 @@ CODE: [new code]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });

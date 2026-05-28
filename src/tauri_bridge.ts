@@ -27,7 +27,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     return Promise.resolve(null as any);
 }
 
-export async function listen(event: string, handler: (event: any) => void): Promise<() => void> {
+export async function listen<T = any>(event: string, handler: (event: { payload: T; [k: string]: any }) => void): Promise<() => void> {
     const tauri = (window as any).__TAURI__;
 
     if (tauri) {

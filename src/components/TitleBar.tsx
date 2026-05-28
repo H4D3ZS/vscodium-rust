@@ -441,10 +441,24 @@ const TitleBar: React.FC = () => {
         ? activeRoot.split(/[\\/]/).filter(Boolean).pop() ?? 'vscodium-rust'
         : 'vscodium-rust';
 
+    // Programmatic drag — fire startDragging() on mousedown of the title bar
+    // center (not on buttons). This is more reliable than data-tauri-drag-region
+    // which captures OS events BEFORE React and blocks child button clicks.
+    const handleTitleBarMouseDown = useCallback(async (e: React.MouseEvent<HTMLDivElement>) => {
+        const target = e.target as HTMLElement;
+        // Only drag if the click is on the bare title bar, NOT on interactive elements
+        const isInteractive = target.closest('button, a, [role="button"], input, .menu-item-wrapper, .window-controls-right, .title-bar-right, .ide-logo');
+        if (e.button === 0 && !isInteractive) {
+            try {
+                await getCurrentWindow().startDragging();
+            } catch { /* ignore */ }
+        }
+    }, []);
+
     return (
         <div
             id="title-bar"
-            data-tauri-drag-region
+            onMouseDown={handleTitleBarMouseDown}
             style={{
                 background: isAiriPanelOpen ? 'linear-gradient(to right, #1a1a1a, #2d1b4e)' : '#1e1e1e',
                 borderBottom: isAiriPanelOpen ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid #2b2b2b',
@@ -603,16 +617,18 @@ const TitleBar: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Native window controls */}
+                {/* Native window controls — pointer-events: all ensures clicks always reach buttons */}
                 <div
                     className="window-controls-right"
-                    style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                    style={{ pointerEvents: 'all', userSelect: 'none' }}
                     onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                 >
                     <button
                         className="wc-btn wc-minimize"
                         title="Minimize"
                         onClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
                             winMinimize();
                         }}
@@ -627,6 +643,7 @@ const TitleBar: React.FC = () => {
                         className="wc-btn wc-maximize"
                         title="Maximize / Restore"
                         onClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
                             winMaximize();
                         }}
@@ -641,6 +658,7 @@ const TitleBar: React.FC = () => {
                         className="wc-btn wc-close"
                         title="Close"
                         onClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
                             winClose();
                         }}

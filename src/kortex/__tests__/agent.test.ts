@@ -63,6 +63,9 @@ export function mul(a: number, b: number) {
     if (cmd === 'ai_execute_command') {
       return { summary: 'Mock search results' };
     }
+    if (cmd === 'web_search') {
+      return [{ title: 'Mock Result', snippet: 'Mock search results', url: '' }];
+    }
     return null;
   }),
 }));

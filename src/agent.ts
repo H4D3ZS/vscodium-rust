@@ -233,7 +233,6 @@ export async function getYoloMode(): Promise<boolean> {
 
 export async function initAgent() {
     console.log("Initializing Agent global listeners...");
-    const { listen } = await import('@tauri-apps/api/event');
     const useStore = (window as any).useStore;
 
     // ── Antigravity: hunk navigation keyboard shortcuts ────────────────────
@@ -1379,10 +1378,22 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const store = (window as any).useStore;
     if (!store) throw new Error("Store not found");
 
+    let preflightOllamaUrlOverride = '';
+
     // Handle Slash Commands
     if (userPrompt.startsWith('/')) {
         const handled = await processSlashCommand(userPrompt);
         if (handled) return;
+    }
+
+    // ── Plan-before-execute mode (Claude Code / Cursor-style) ───────────
+    // When enabled, prepend a planning directive so the model generates a
+    // numbered task list and waits for [PROCEED] before touching any files.
+    const isPlanMode = store.getState().isPlanMode;
+    if (isPlanMode && !userPrompt.startsWith('[PROCEED]') && !userPrompt.includes('[PLAN_MODE')) {
+        userPrompt =
+            `[PLAN_MODE: ON]\nBefore making ANY file changes or running commands, output a numbered task plan between <TASK_PLAN> and </TASK_PLAN> XML tags. ` +
+            `List every distinct step. After outputting the plan, STOP and output exactly: AWAITING_APPROVAL\n\nUser request:\n${userPrompt}`;
     }
 
     // ── Auto-route security intent ───────────────────────────────────────
@@ -1474,20 +1485,46 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         || selectedModelLower.includes('o3-');
     if (inferenceBackend === 'ollama' && !selectedWebUiModel && !selectedIsCloudModel) {
         const ollamaBase = store.getState().ollamaUrl?.trim() || 'http://localhost:11434';
+        let probeOk = false;
+        let lastErrorMsg = '';
         try {
             const probe = await fetch(`${ollamaBase}/api/tags`, {
-                signal: AbortSignal.timeout(5000),
+                signal: AbortSignal.timeout(3000),
             });
-            if (!probe.ok) throw new Error(`HTTP ${probe.status}`);
+            if (probe.ok) {
+                probeOk = true;
+            } else {
+                lastErrorMsg = `HTTP ${probe.status}`;
+            }
         } catch (e: any) {
-            const msg = e?.message || String(e);
-            console.error('[Agent] ❌ Ollama pre-flight check FAILED:', msg);
+            lastErrorMsg = e?.message || String(e);
+        }
+
+        if (!probeOk && ollamaBase.includes(':1536')) {
+            const fallbackBase = ollamaBase.replace(':1536', ':11434');
+            console.warn(`[Agent] Proxy port 1536 unreachable, trying direct port 11434: ${fallbackBase}`);
+            try {
+                const probe = await fetch(`${fallbackBase}/api/tags`, {
+                    signal: AbortSignal.timeout(3000),
+                });
+                if (probe.ok) {
+                    probeOk = true;
+                    preflightOllamaUrlOverride = fallbackBase;
+                    console.log(`[Agent] Direct port 11434 is active! Proceeding with direct routing.`);
+                }
+            } catch (fallbackErr: any) {
+                lastErrorMsg = `Proxy down (${lastErrorMsg}) and direct port also down (${fallbackErr?.message || String(fallbackErr)})`;
+            }
+        }
+
+        if (!probeOk) {
+            console.error('[Agent] ❌ Ollama pre-flight check FAILED:', lastErrorMsg);
             store.getState().setIsAgentThinking?.(false);
             store.getState().updateLastAgentMessage?.(
                 `**Ollama is not responding**\n\n` +
-                `Could not reach Ollama at \`${ollamaBase}\`.\n\n` +
-                `**Try:** Restart Ollama Desktop or run \`ollama serve\` in a terminal.\n\n` +
-                `_Error: ${msg}_`
+                `Could not reach Ollama at \`${ollamaBase}\` (or direct fallback port 11434).\n\n` +
+                `**Try:** Restart Ollama Desktop, run \`ollama serve\` in a terminal, or make sure your AIM proxy is running.\n\n` +
+                `_Error: ${lastErrorMsg}_`
             );
             setAiStatus('dead');
             return;
@@ -1569,7 +1606,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             // the spinner spins forever with no error in the chat. 60s
             // is long enough for a slow first-token on a cold local model
             // but short enough that the user gets actionable feedback.
-            const fastOllamaUrl = store.getState().ollamaUrl;
+            const fastOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
             console.log('[Agent] Fast-path attempt:', {
                 provider: fastProvider,
                 model: fastModel,
@@ -1734,7 +1771,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // pass — Ollama Desktop vs llama.cpp URL from settings.
     let routingProvider = normalizedProvider;
     let routingModel = model;
-    let routingOllamaUrl = store.getState().ollamaUrl;
+    let routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl;
     if (inferenceBackend === 'llama-cpp') {
         routingProvider = 'ollama';
         routingOllamaUrl = store.getState().llamaCppUrl || 'http://localhost:8081';
@@ -1755,7 +1792,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         if (!CLOUD_PROVIDERS.has(normalizedProvider)) {
             routingProvider = 'ollama';
         }
-        routingOllamaUrl = store.getState().ollamaUrl || '';
+        routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl || '';
         const am = store.getState().agentModel || '';
         if (am.includes('|')) {
             const [prov, id] = am.split('|');
@@ -1783,6 +1820,22 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
 
     const tabs = (storeState as any).tabs || [];
     const aiInstructions: string = (storeState as any).voidGlobalSettings?.aiInstructions || '';
+    // Load AIM brain for system prompt (non-blocking, best-effort)
+    let kortexBrain: { summary: string; indexedFiles: number; confidence: number } | undefined;
+    try {
+        const manifest: any = await getAimTrustManifest();
+        if (manifest && manifest.confidence > 30) {
+            const packed: any = await invoke('aim_pack_context', { query: userPrompt.slice(0, 200), maxSlots: 15 }).catch(() => null);
+            if (packed) {
+                kortexBrain = {
+                    summary: packed.project_summary ?? '',
+                    indexedFiles: packed.total_indexed_files ?? 0,
+                    confidence: manifest.confidence ?? 0,
+                };
+            }
+        }
+    } catch { /* non-fatal */ }
+
     const promptConfig: SystemPromptConfig = {
         activeRoot,
         activeFile: storeState.activeEditorPath || undefined,
@@ -1794,6 +1847,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         agentMode: storeState.agentMode || 'Execution',
         projectMemory: storeState.projectMemory || undefined,
         attachedContext: resolvedContext,
+        kortexBrain,
     };
     let systemContext = await buildSystemPrompt(promptConfig);
     // Void: inject user's custom AI instructions at the end of the system prompt
@@ -2064,6 +2118,27 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             `**Local fast path warning:** ${msg}\n\nFalling back to the full autonomous loop...`
         );
     }
+
+    // ── Kortex AIM: inject pre-loaded brain context before every full loop ──
+    // Query the AIM index for spans relevant to the user's prompt and prepend
+    // as a system message. This eliminates grep/list_files calls in the first
+    // iteration ("zero-grep mode").
+    try {
+        const { getAimTrustManifest, queryAimSpans } = await import('./kortex/aim-vfs');
+        const manifest = await getAimTrustManifest();
+        if (manifest && (manifest as any).confidence > 40) {
+            const spans: any = await queryAimSpans({ query: userPrompt.slice(0, 300) });
+            const hits = spans?.spans ?? spans?.results ?? [];
+            if (hits.length > 0) {
+                const preview = hits.slice(0, 8).map((r: any) =>
+                    `- ${r.file ?? r.path ?? ''}${r.line ? ':' + r.line : ''} [${r.kind ?? r.category ?? 'code'}] ${(r.preview ?? r.snippet ?? r.summary ?? '').slice(0, 90)}`
+                ).join('\n');
+                const totalFiles = (manifest as any).total_files ?? (manifest as any).file_count ?? '?';
+                const aimMsg = `### BRAIN (AIM — ${totalFiles} files indexed, ${(manifest as any).confidence}% confidence)\nZero-grep mode: go directly to the relevant file.\n${preview}\nCall aim_pack_context for the full semantic map.`;
+                messages.unshift({ role: 'system' as const, content: aimMsg });
+            }
+        }
+    } catch { /* non-fatal — AIM enhancement is best-effort */ }
 
     try {
         console.log('[Agent] Invoking full ai_chat loop...', {
@@ -3512,11 +3587,15 @@ listen('editor_open_file', async (event: { payload: { path: string } }) => {
     }
 });
 
-// Reload open tabs when the backend writes a file to disk
+// Reload open tabs when the backend writes a file to disk.
+// Gated by isCascadeWriteMode (ON by default — Windsurf-style live streaming edits).
+// Turn OFF via the "Live" toggle in the chat toolbar to review diffs manually.
 listen('file-changed', async (event: { payload: { path: string } }) => {
     const changedPath = event.payload?.path;
     if (!changedPath) return;
     const store = useStore.getState();
+    // Respect cascade write mode toggle
+    if ((store as any).isCascadeWriteMode === false) return;
     const tab = store.tabs.find((t: any) => {
         // Normalize slashes for comparison
         const tp = (t.path || '').replace(/\\/g, '/');

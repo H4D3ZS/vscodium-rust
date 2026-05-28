@@ -34,6 +34,10 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
 }) => {
     const isSpecModeActive = useStore(state => state.isSpecModeActive);
     const setSpecModeActive = useStore(state => state.setSpecModeActive);
+    const isPlanMode = useStore(state => state.isPlanMode);
+    const togglePlanMode = useStore(state => state.togglePlanMode);
+    const isCascadeWriteMode = useStore(state => state.isCascadeWriteMode);
+    const toggleCascadeWriteMode = useStore(state => state.toggleCascadeWriteMode);
 
     return (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
@@ -53,6 +57,42 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 <span onClick={onModelClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }}>{modelLabel}</span>
 
                 {reasoningToggle}
+
+                {/* Cascade Write Mode toggle (Windsurf-style — live streaming edits) */}
+                <div
+                    onClick={toggleCascadeWriteMode}
+                    title={isCascadeWriteMode ? 'Live mode ON — edits stream directly to editor' : 'Live mode OFF — review diffs manually'}
+                    style={{
+                        cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '4px',
+                        fontSize: '10px', fontWeight: 600,
+                        padding: '1px 6px', borderRadius: '4px',
+                        color: isCascadeWriteMode ? '#34d399' : 'rgba(255,255,255,0.35)',
+                        background: isCascadeWriteMode ? 'rgba(52,211,153,0.08)' : 'transparent',
+                        border: isCascadeWriteMode ? '1px solid rgba(52,211,153,0.3)' : '1px solid rgba(255,255,255,0.1)',
+                        transition: 'all 0.15s',
+                    }}
+                >
+                    {isCascadeWriteMode ? '⚡ Live' : '⚡'}
+                </div>
+
+                {/* Plan Mode toggle (Claude Code style — plan before execute) */}
+                <div
+                    onClick={togglePlanMode}
+                    title={isPlanMode ? 'Plan Mode ON — agent generates task list before editing' : 'Enable Plan Mode'}
+                    style={{
+                        cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '4px',
+                        fontSize: '10px', fontWeight: 600,
+                        padding: '1px 6px', borderRadius: '4px',
+                        color: isPlanMode ? '#f59e0b' : 'rgba(255,255,255,0.35)',
+                        background: isPlanMode ? 'rgba(245,158,11,0.08)' : 'transparent',
+                        border: isPlanMode ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(255,255,255,0.1)',
+                        transition: 'all 0.15s',
+                    }}
+                >
+                    {isPlanMode ? '📋 Plan' : '📋'}
+                </div>
 
                 {/* Spec Mode toggle */}
                 <div

@@ -363,17 +363,21 @@ export class AutonomousAgent {
       const searchQuery = task.description.replace('Research', 'how to');
       
       // Use web search tool
-      const result: any = await invoke('ai_execute_command', {
-        command: `web_search: ${searchQuery}`,
-        cwd: store.activeRoot || '',
+      const result: any = await invoke('web_search', {
+        query: searchQuery,
       });
 
       task.progress = 60;
 
+      // Extract a summary from the array of search results
+      const summary = Array.isArray(result)
+        ? result.map((r: any) => `* ${r.title}: ${r.snippet}`).join('\n')
+        : 'Research completed';
+
       // Save findings to memory
       const findings = {
         query: searchQuery,
-        result: result?.summary || 'Research completed',
+        result: summary,
         timestamp: Date.now(),
       };
 

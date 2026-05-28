@@ -6,6 +6,7 @@
 
 import type { Ollama } from 'ollama';
 import { createSharedOllama } from './shared-ollama';
+import { getModel } from './model-config';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -38,7 +39,9 @@ export class AIRIDigitalSenses {
   private ollama: Ollama;
   private sensoryBuffer: SensoryInput[];
   private processing: SensoryProcessing;
-  private readonly MODEL = 'qwen3.6:14b-q4_K_M';
+  private getModelName(): string {
+    return getModel('social') || 'airi-fast:latest';
+  }
   private senseInterval: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -239,7 +242,7 @@ ACT: [what action to take, or "nothing"]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });

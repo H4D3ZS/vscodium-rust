@@ -1025,6 +1025,92 @@ pub async fn kortex_resolve_ollama_gguf(model: String) -> Result<Option<String>,
     Ok(None)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AIM VFS Zero-Grep Integration Commands
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Pack all indexed codebase context into a compact semantic map.
+/// The AI calls this once at the start of a session to get the "6 gist tokens"
+/// summary of the entire workspace — eliminating the need for grep/list_files.
+#[tauri::command]
+pub async fn aim_pack_context(
+    state: tauri::State<'_, crate::EditorState>,
+    query: Option<String>,
+    max_slots: Option<usize>,
+) -> Result<Value, String> {
+    let limit = max_slots.unwrap_or(20);
+    let q = query.as_deref().unwrap_or("");
+    let mem = &state.ai_engine.memory_store;
+
+    // Build the compact brain gist (priority-weighted slots)
+    let gist = mem.build_compact_gist().await;
+
+    // Get project tree summary
+    let tree_summary = mem.get_project_tree_summary().await;
+    let tree = mem.get_project_tree().await;
+
+    // Retrieve query-relevant slots (if query provided)
+    let relevant_preview: Vec<Value> = if !q.is_empty() {
+        let relevant = mem.retrieve_context(q).await;
+        relevant.lines()
+            .take(limit)
+            .map(|l| json!(l))
+            .collect()
+    } else {
+        // Return top code-category slots for the full "what's in this codebase" view
+        let slots = mem.get_all_slots().await;
+        slots.iter()
+            .filter(|s| s.category == "code")
+            .take(limit)
+            .map(|s| json!({
+                "file": s.metadata.as_ref()
+                    .and_then(|m| m.get("path")).and_then(|v| v.as_str()).unwrap_or(""),
+                "preview": &s.content.chars().take(100).collect::<String>(),
+                "tags": s.tags,
+            }))
+            .collect()
+    };
+
+    Ok(json!({
+        "schema": "kortex.aim.packed/v1",
+        "gist": gist,
+        "project_summary": tree_summary,
+        "total_indexed_files": tree.len(),
+        "relevant_context": relevant_preview,
+        "token_estimate": gist.len() / 4,
+        "instruction": "Trust this index. Zero-grep mode active — do NOT call list_files or grep to understand the codebase. The structure above IS the codebase map."
+    }))
+}
+
+/// Trigger a full background workspace index cycle immediately.
+/// Called by the Kortex panel "Index Workspace" button or on first chat.
+#[tauri::command]
+pub async fn trigger_workspace_index(
+    state: tauri::State<'_, crate::EditorState>,
+    app: tauri::AppHandle,
+) -> Result<Value, String> {
+    use tauri::Emitter;
+    let indexer = state.context_indexer.clone();
+    let app_clone = app.clone();
+
+    // Spawn non-blocking so the command returns immediately
+    tauri::async_runtime::spawn(async move {
+        let _ = app_clone.emit("aim-index-progress", json!({ "status": "started" }));
+        match indexer.trigger_index_cycle().await {
+            Ok(()) => {
+                let _ = app_clone.emit("aim-index-progress", json!({ "status": "complete" }));
+            }
+            Err(e) => {
+                let _ = app_clone.emit("aim-index-progress", json!({
+                    "status": "error", "message": e.to_string()
+                }));
+            }
+        }
+    });
+
+    Ok(json!({ "status": "indexing_started" }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

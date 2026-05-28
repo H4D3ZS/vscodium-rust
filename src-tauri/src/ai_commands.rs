@@ -188,6 +188,12 @@ pub async fn ai_chat(
     // Update MemoryLayer: agent completed the task
     let _ = state.memory_layer.update_state("Idle", "Task completed");
 
+    // Trim conversation state after each agent turn to keep RSS bounded.
+    let engine_clone = state.ai_engine.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = engine_clone.optimize_memory().await;
+    });
+
     // Satisfy AiResponse usage warning
     let _response = AiResponse { content: result.clone() };
 

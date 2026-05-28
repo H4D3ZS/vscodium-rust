@@ -215,9 +215,10 @@ impl MemoryStore {
                     if let Ok(mut header_json) = serde_json::from_slice::<Value>(&bytes[0..header_end]) {
                         let body_bytes = &bytes[header_end..];
 
-                        // Store binary body for later persistence
+                        // Store binary body for later persistence — cap at 4MB to bound RSS.
+                        // Beyond 4MB the tensor data is stale; the flusher regenerates it from slots.
                         let mut body_lock = self.binary_body.write().await;
-                        *body_lock = body_bytes.to_vec();
+                        *body_lock = body_bytes.iter().take(4 * 1024 * 1024).cloned().collect();
 
                         // Extract Kortex data if present
                         if let Some(kortex_val) = header_json.get_mut("kortex") {
@@ -357,10 +358,31 @@ impl MemoryStore {
         self.is_dirty.store(true, Ordering::SeqCst);
     }
 
+    /// Hard cap: keep at most this many slots. Evict oldest "code" slots first
+    /// since they're regenerated on the next index cycle, preserving decisions/tasks.
+    const MAX_SLOTS: usize = 800;
+
     pub async fn store_slot(&self, slot: SemanticSlot) {
         let mut lock = self.slots.write().await;
         lock.retain(|s| s.id != slot.id);
         lock.push(slot);
+        // Evict when over cap: drop oldest code-category slots first, then oldest overall
+        if lock.len() > Self::MAX_SLOTS {
+            let excess = lock.len() - Self::MAX_SLOTS;
+            // Find indices of oldest "code" slots
+            let mut code_indices: Vec<usize> = lock.iter().enumerate()
+                .filter(|(_, s)| s.category == "code")
+                .map(|(i, _)| i)
+                .collect();
+            code_indices.sort_unstable_by(|a, b| b.cmp(a)); // reverse so removal is safe
+            let to_remove = code_indices.into_iter().take(excess);
+            for i in to_remove { lock.remove(i); }
+            // If still over cap, drop the very oldest entries
+            if lock.len() > Self::MAX_SLOTS {
+                let extra = lock.len() - Self::MAX_SLOTS;
+                lock.drain(..extra);
+            }
+        }
         drop(lock);
         self.is_dirty.store(true, Ordering::SeqCst);
     }
@@ -370,6 +392,22 @@ impl MemoryStore {
         if let Ok(mut lock) = self.slots.try_write() {
             lock.retain(|s| s.id != slot.id);
             lock.push(slot);
+            // Enforce cap synchronously too
+            if lock.len() > Self::MAX_SLOTS {
+                let excess = lock.len() - Self::MAX_SLOTS;
+                // Collect code indices FIRST (ends immutable borrow), then remove in reverse
+                let mut code_indices: Vec<usize> = lock.iter().enumerate()
+                    .filter(|(_, s)| s.category == "code")
+                    .map(|(i, _)| i)
+                    .collect();
+                code_indices.sort_unstable_by(|a, b| b.cmp(a)); // reverse for safe removal
+                let to_remove: Vec<usize> = code_indices.into_iter().take(excess).collect();
+                for i in to_remove { lock.remove(i); }
+                if lock.len() > Self::MAX_SLOTS {
+                    let extra = lock.len() - Self::MAX_SLOTS;
+                    lock.drain(..extra);
+                }
+            }
             self.is_dirty.store(true, Ordering::SeqCst);
         }
     }
@@ -866,6 +904,32 @@ impl MemoryStore {
         self.project_tree.read().await.clone()
     }
 
+    /// Returns true if the workspace has never been indexed — signals that we
+    /// should trigger an immediate background index cycle on first chat.
+    pub async fn needs_initial_index(&self) -> bool {
+        self.project_tree.read().await.is_empty()
+    }
+
+    /// Build a short human-readable project structure summary from the indexed
+    /// file tree — used for the ### PROJECT STRUCTURE section in the BRAIN prompt.
+    /// Groups files by top-level directory and shows counts.
+    pub async fn get_project_tree_summary(&self) -> String {
+        let tree = self.project_tree.read().await;
+        if tree.is_empty() {
+            return "(not yet indexed — run 'Index Workspace' in Kortex panel)".to_string();
+        }
+        // Group by top-level component
+        let mut groups: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for path in tree.iter() {
+            let top = path.split(['/', '\\']).next().unwrap_or("root").to_string();
+            *groups.entry(top).or_insert(0) += 1;
+        }
+        let summary: Vec<String> = groups.iter()
+            .map(|(dir, count)| format!("{}/({} files)", dir, count))
+            .collect();
+        format!("{} total files: {}", tree.len(), summary.join(", "))
+    }
+
     pub async fn store_event(&self, event_type: &str, data: Value) -> anyhow::Result<()> {
         let mut events = self.events.lock().await;
         events.push(json!({
@@ -873,13 +937,38 @@ impl MemoryStore {
             "data": data,
             "timestamp": chrono::Utc::now().timestamp()
         }));
+        // Cap event log at 200 — telemetry should not pin RAM
+        const MAX_EVENTS: usize = 200;
+        if events.len() > MAX_EVENTS {
+            let drop = events.len() - MAX_EVENTS;
+            events.drain(..drop);
+        }
         Ok(())
     }
 
     pub async fn update_vfs_cache(&self, path: PathBuf, content: String) {
         let mut lock = self.vfs_cache.write().await;
-        lock.insert(path, (content, std::time::SystemTime::now()));
+        // Cap each cached entry to 8KB and the total cache to 64 entries.
+        // The full file is always re-readable from disk; this is just a hot-path cache.
+        const MAX_CACHE_ENTRIES: usize = 64;
+        const MAX_CACHE_BYTES: usize = 8192;
+        let trimmed = if content.len() > MAX_CACHE_BYTES {
+            content.chars().take(MAX_CACHE_BYTES).collect::<String>()
+        } else {
+            content
+        };
+        lock.insert(path, (trimmed, std::time::SystemTime::now()));
+        if lock.len() > MAX_CACHE_ENTRIES {
+            // Evict the oldest entry (lowest SystemTime)
+            if let Some((oldest_key, _)) = lock.iter()
+                .min_by_key(|(_, (_, t))| *t)
+                .map(|(k, v)| (k.clone(), v.clone()))
+            {
+                lock.remove(&oldest_key);
+            }
+        }
     }
+
 
     pub async fn get_vfs_cache(&self, path: &PathBuf) -> Option<String> {
         let lock = self.vfs_cache.read().await;

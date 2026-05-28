@@ -6,6 +6,7 @@
 
 import type { Ollama } from 'ollama';
 import { createSharedOllama } from './shared-ollama';
+import { getModel } from './model-config';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -37,7 +38,9 @@ export class AIRIDevelopmentAssistant {
   private taskQueue: DevelopmentTask[];
   private activeTasks: DevelopmentTask[];
   private completedTasks: DevelopmentTask[];
-  private readonly MODEL = 'qwen3.6:14b-q4_K_M';
+  private getModelName(): string {
+    return getModel('code_gen');
+  }
   private workspacePath: string;
 
   constructor(workspacePath: string) {
@@ -75,7 +78,7 @@ Write the full implementation.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -120,7 +123,7 @@ CODE: [fixed code]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -165,7 +168,7 @@ Provide the refactored code.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -207,7 +210,7 @@ Write complete, runnable tests.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -251,7 +254,7 @@ Write the complete updated code.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -298,7 +301,7 @@ SOLUTION: [code solution]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -346,7 +349,7 @@ BEST_PRACTICES: [numbered list]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -396,7 +399,7 @@ Write comprehensive, clear documentation.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -443,7 +446,7 @@ ESTIMATED_GAIN: [percentage or description]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });

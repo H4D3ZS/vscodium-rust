@@ -1,9 +1,41 @@
-﻿import type { StateCreator } from 'zustand';
+import type { StateCreator } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppState } from './index';
 import type {
     AgentMessage, AgentStep, Artifact, AttachedContext, AgentTask, TaskArtifact, SemanticSlot,
 } from './types';
+
+function parseThought(thought: any): { logic: string; action: string; confidence?: number } | null {
+    if (!thought) return null;
+    if (typeof thought === 'object') {
+        return {
+            logic: thought.logic || '',
+            action: thought.action || 'Reasoning',
+            confidence: thought.confidence !== undefined ? thought.confidence : 0.95
+        };
+    }
+    if (typeof thought === 'string') {
+        const trimmed = thought.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                return {
+                    logic: parsed.logic || parsed.reasoning || trimmed,
+                    action: parsed.action || 'Thinking',
+                    confidence: parsed.confidence !== undefined ? parsed.confidence : 0.95
+                };
+            } catch {
+                // fall through
+            }
+        }
+        return {
+            logic: trimmed,
+            action: 'Reasoning',
+            confidence: 0.95
+        };
+    }
+    return null;
+}
 
 export interface AgentSlice {
     // State
@@ -46,6 +78,9 @@ export interface AgentSlice {
     airiConsciousnessEnabled: boolean;
     airiConsciousnessModel: string;
     taskPlannerState: any | null;
+    isPlanMode: boolean;
+    isCascadeWriteMode: boolean;
+    pendingToolPermission: { id: string; tool: string; args: any; level: 'caution' | 'dangerous' } | null;
     ghostRuntimeResults: any[];
     agentThreads: Record<string, { id: string; name: string; messages: any[]; isThinking: boolean; tasks: any[]; artifacts: any[] }>;
     activeAgentThreadId: string;
@@ -146,6 +181,10 @@ export interface AgentSlice {
     isDemoMode: boolean;
     startDemoMode: () => void;
     endDemoMode: () => void;
+    togglePlanMode: () => void;
+    toggleCascadeWriteMode: () => void;
+    setPendingToolPermission: (req: { id: string; tool: string; args: any; level: 'caution' | 'dangerous' } | null) => void;
+    respondToolPermission: (id: string, approved: boolean) => Promise<void>;
 }
 
 export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set, get) => ({
@@ -203,6 +242,9 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         return saved;
     })(),
     taskPlannerState: null,
+    isPlanMode: false,
+    isCascadeWriteMode: true, // ON by default — agent writes stream directly to editor
+    pendingToolPermission: null,
     ghostRuntimeResults: [],
     agentThreads: {},
     activeAgentThreadId: '',
@@ -287,13 +329,13 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                 const thinkMatch = fullRaw.match(/<think>([\s\S]*?)<\/think>/);
                 if (thinkMatch) {
                     const thoughtText = thinkMatch[1].trim();
-                    if (thoughtText) set({ currentThought: thoughtText });
+                    if (thoughtText) set({ currentThought: parseThought(thoughtText) });
                     newContent = fullRaw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
                 } else {
                     const parts = fullRaw.split('<think>');
                     newContent = parts[0] || '';
                     const partialThought = parts[1] || '';
-                    if (partialThought) set({ currentThought: partialThought.trim() });
+                    if (partialThought) set({ currentThought: parseThought(partialThought.trim()) });
                 }
             } else {
                 if (fullRaw.includes('</think>')) {
@@ -308,7 +350,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         return state;
     }),
 
-    updateLastAgentThought: (thought) => { set({ currentThought: thought }); },
+    updateLastAgentThought: (thought) => { set({ currentThought: parseThought(thought) }); },
 
     addAgentStep: (name, type, args, callId) => set((state) => {
         const messages = [...state.agentMessages];
@@ -362,7 +404,17 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                 if (!artifacts.find((a: any) => a.path === artifact.path)) {
                     const msgs = [...state.agentMessages];
                     msgs[msgs.length - 1] = { ...last, artifacts: [...artifacts, artifact] };
-                    const currentTask = state.agentTask ? { ...state.agentTask, artifacts: [...state.agentTask.artifacts, artifact], updatedAt: Date.now() } : null;
+                    const taskArtifact: TaskArtifact = {
+                        id: artifact.id,
+                        title: artifact.title || 'Artifact',
+                        path: artifact.path,
+                        content: (art as any).content || artifact.description || '',
+                        timestamp: artifact.timestamp,
+                        feedback: artifact.feedback,
+                        type: artifact.type,
+                        metadata: artifact.metadata as any
+                    };
+                    const currentTask = state.agentTask ? { ...state.agentTask, artifacts: [...state.agentTask.artifacts, taskArtifact], updatedAt: Date.now() } : null;
                     return { agentMessages: msgs, agentTask: currentTask };
                 }
             }
@@ -371,7 +423,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     },
 
     pushTrajectoryEvent: (evt) => set((s) => ({
-        agentTrajectory: [...s.agentTrajectory.slice(-999), { id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ts: Date.now(), turn: s.currentTurnId, ...evt }],
+        agentTrajectory: [...s.agentTrajectory.slice(-199), { id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ts: Date.now(), turn: s.currentTurnId, ...evt }],
     })),
     clearTrajectory: () => set({ agentTrajectory: [] }),
     openTrajectory: () => set({ isTrajectoryOpen: true }),
@@ -394,7 +446,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         const { lastAgentCheckpoint } = get();
         if (!lastAgentCheckpoint) return { ok: false, message: 'No checkpoint' };
         try {
-            await invoke('git_checkout_stash', { stashId: lastAgentCheckpoint.id });
+            await invoke('git_rollback_checkpoint', { checkpointId: lastAgentCheckpoint.id });
             set({ lastAgentCheckpoint: null });
             get().refreshFileTree();
             return { ok: true, message: 'Restored' };
@@ -653,5 +705,15 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
 
     startDemoMode: () => set({ isDemoMode: true }),
     endDemoMode: () => set({ isDemoMode: false }),
+
+    togglePlanMode: () => set((s) => ({ isPlanMode: !s.isPlanMode })),
+    toggleCascadeWriteMode: () => set((s) => ({ isCascadeWriteMode: !s.isCascadeWriteMode })),
+
+    setPendingToolPermission: (req) => set({ pendingToolPermission: req }),
+
+    respondToolPermission: async (id, approved) => {
+        set({ pendingToolPermission: null });
+        try { await invoke('respond_tool_permission', { toolId: id, approved }); } catch { /* ignore */ }
+    },
 });
 

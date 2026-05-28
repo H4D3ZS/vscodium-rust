@@ -163,9 +163,14 @@ impl ContextIndexer {
     }
 
     async fn run_index_cycle(ms: &MemoryStore, root: &Path, hashes: Arc<RwLock<HashMap<PathBuf, String>>>, ignore_set: Option<IgnoreSet>) -> anyhow::Result<()> {
-        if !root.join(".aim").exists() {
-            println!("[CONTEXT] Project is dormant (No .aim detected). Skipping index cycle.");
-            return Ok(());
+        // Auto-create .aim directory so every workspace gets indexed on first open.
+        let aim_dir = root.join(".aim");
+        if !aim_dir.exists() {
+            if let Err(e) = std::fs::create_dir_all(&aim_dir) {
+                eprintln!("[CONTEXT] Could not create .aim dir: {}", e);
+            } else {
+                println!("[CONTEXT] Created .aim directory at {:?}", aim_dir);
+            }
         }
 
         println!("[CONTEXT] Starting parallel index cycle for: {:?}", root);
@@ -188,6 +193,19 @@ impl ContextIndexer {
 
         println!("[CONTEXT] Found {} indexable files. Dispatching to Rayon threadpool.", paths.len());
 
+        // Hard cap: skip indexing if we already have enough slots.
+        // This prevents a 10k-file project from filling 800 slots with stale "code" entries.
+        // The incremental watcher handles new files as they change.
+        let paths = if paths.len() > 2000 {
+            println!("[CONTEXT] Capping index cycle to first 2000 files for memory safety.");
+            paths[..2000].to_vec()
+        } else {
+            paths
+        };
+
+        // Use a bounded Rayon thread count to avoid simultaneous file reads filling RAM.
+        // Default Rayon pool = num_cpus. On 16-core machines, 16 files × 1MB = 16MB peak.
+        // That's acceptable; the real cap above (2000 files) is the main safeguard.
         let embedder = hades_harness::PythagoreanEmbedder::new(1536);
 
         // 2. Process in parallel using Rayon

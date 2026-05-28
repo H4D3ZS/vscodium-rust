@@ -198,6 +198,9 @@ async fn main() {
     let app = Router::new()
         // Anthropic API passthrough with .aim injection
         .route("/v1/messages", post(intercept_anthropic))
+        // OpenAI and Google Gemini routes with .aim injection
+        .route("/v1/chat/completions", post(intercept_openai))
+        .route("/v1beta/openai/chat/completions", post(intercept_gemini))
         // Ollama routes
         .route("/api/generate", post(intercept_ollama))
         .route("/api/chat", post(intercept_ollama))
@@ -359,6 +362,199 @@ async fn forward_to_anthropic(
                 .status(502)
                 .body(Body::from(format!("{{\"error\":\"aim-proxy forward failed: {}\"}}", e)))
                 .unwrap()
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────
+// OPENAI & GEMINI INTERCEPTORS (BYOB CLOUD PROVIDERS)
+// Injects .aim semantic context into the system prompt,
+// then forwards to the respective cloud APIs using the client's keys.
+// ──────────────────────────────────────────────────────────────
+
+async fn intercept_openai(
+    State(state): State<AppState>,
+    req: Request<Body>,
+) -> impl IntoResponse {
+    let (parts, body) = req.into_parts();
+
+    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(b) => b,
+        Err(e) => {
+            return axum::response::Response::builder()
+                .status(500)
+                .body(Body::from(format!("Failed to read request body: {}", e)))
+                .unwrap();
+        }
+    };
+
+    let mut payload: Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(_) => {
+            return forward_to_cloud(&state, parts, bytes.to_vec(), "https://api.openai.com").await;
+        }
+    };
+
+    let has_auth = parts.headers.contains_key("Authorization") 
+        || parts.headers.contains_key("authorization")
+        || parts.headers.contains_key("x-goog-api-key");
+
+    if !has_auth {
+        println!("🧠 [AIM-PROXY] No auth header found. Routing OpenAI-compatible request to local Ollama.");
+        return forward_to_ollama_openai_compat(&state, parts, payload).await;
+    }
+
+    let aim_text = get_aim_text(&state).await;
+    if !aim_text.is_empty() {
+        inject_aim_into_openai_messages(&mut payload, &aim_text);
+        println!("🧠 [AIM-PROXY] Injected {:.1}KB AIM context into OpenAI request", aim_text.len() as f32 / 1024.0);
+    }
+
+    let new_body = serde_json::to_vec(&payload).unwrap_or(bytes.to_vec());
+    forward_to_cloud(&state, parts, new_body, "https://api.openai.com").await
+}
+
+async fn intercept_gemini(
+    State(state): State<AppState>,
+    req: Request<Body>,
+) -> impl IntoResponse {
+    let (parts, body) = req.into_parts();
+
+    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(b) => b,
+        Err(e) => {
+            return axum::response::Response::builder()
+                .status(500)
+                .body(Body::from(format!("Failed to read request body: {}", e)))
+                .unwrap();
+        }
+    };
+
+    let mut payload: Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(_) => {
+            return forward_to_cloud(&state, parts, bytes.to_vec(), "https://generativelanguage.googleapis.com").await;
+        }
+    };
+
+    let aim_text = get_aim_text(&state).await;
+    if !aim_text.is_empty() {
+        inject_aim_into_openai_messages(&mut payload, &aim_text);
+        println!("🧠 [AIM-PROXY] Injected {:.1}KB AIM context into Gemini request", aim_text.len() as f32 / 1024.0);
+    }
+
+    let new_body = serde_json::to_vec(&payload).unwrap_or(bytes.to_vec());
+    forward_to_cloud(&state, parts, new_body, "https://generativelanguage.googleapis.com").await
+}
+
+fn inject_aim_into_openai_messages(payload: &mut Value, aim_text: &str) {
+    if let Some(messages) = payload.get_mut("messages").and_then(|m| m.as_array_mut()) {
+        let mut system_idx = None;
+        for (i, msg) in messages.iter().enumerate() {
+            if msg.get("role").and_then(|r| r.as_str()) == Some("system") {
+                system_idx = Some(i);
+                break;
+            }
+        }
+
+        if let Some(idx) = system_idx {
+            if let Some(content) = messages[idx].get_mut("content") {
+                if let Some(content_str) = content.as_str() {
+                    if !content_str.contains("# AIM-VFS") {
+                        let new_content = format!("{}\n\n{}", aim_text, content_str);
+                        *content = json!(new_content);
+                    }
+                }
+            }
+        } else {
+            let sys_msg = json!({
+                "role": "system",
+                "content": aim_text
+            });
+            messages.insert(0, sys_msg);
+        }
+    }
+}
+
+async fn forward_to_cloud(
+    state: &AppState,
+    parts: axum::http::request::Parts,
+    body: Vec<u8>,
+    base_url: &str,
+) -> axum::response::Response<Body> {
+    let path = parts.uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("");
+    let target_url = format!("{}{}", base_url, path);
+
+    let mut req_builder = state.http_client.post(&target_url);
+
+    for (k, v) in parts.headers.iter() {
+        let key = k.as_str();
+        if key != "host" && key != "content-length" && key != "accept-encoding" {
+            if let (Ok(hk), Ok(hv)) = (reqwest::header::HeaderName::try_from(key), reqwest::header::HeaderValue::from_bytes(v.as_bytes())) {
+                req_builder = req_builder.header(hk, hv);
+            }
+        }
+    }
+
+    let resp = req_builder.body(body).send().await;
+
+    match resp {
+        Ok(r) => {
+            let status = axum::http::StatusCode::from_u16(r.status().as_u16())
+                .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+            let mut builder = axum::response::Response::builder().status(status);
+
+            for (k, v) in r.headers() {
+                if k.as_str() != "content-length" && k.as_str() != "transfer-encoding" && k.as_str() != "content-encoding" {
+                    if let (Ok(hk), Ok(hv)) = (axum::http::HeaderName::try_from(k.as_str()), axum::http::HeaderValue::from_bytes(v.as_bytes())) {
+                        builder = builder.header(hk, hv);
+                    }
+                }
+            }
+
+            builder.body(Body::from_stream(r.bytes_stream())).unwrap()
+        }
+        Err(e) => {
+            eprintln!("🔴 [AIM-PROXY] Cloud forward error for {}: {}", target_url, e);
+            axum::response::Response::builder()
+                .status(502)
+                .body(Body::from(format!("{{\"error\":\"aim-proxy cloud forward failed: {}\"}}", e)))
+                .unwrap()
+        }
+    }
+}
+
+async fn forward_to_ollama_openai_compat(
+    state: &AppState,
+    parts: axum::http::request::Parts,
+    mut payload: Value,
+) -> axum::response::Response<Body> {
+    let aim_text = get_aim_text(&state).await;
+    let gist_prefix = if aim_text.is_empty() {
+        "[AIM-VFS]: No context. Run NeuralDrive.".to_string()
+    } else {
+        format!("[KORTEX_GIST_INJECTED]\n{}", &aim_text[..aim_text.len().min(1500)])
+    };
+
+    inject_aim_into_openai_messages(&mut payload, &gist_prefix);
+
+    let path = parts.uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("");
+    let target_url = format!("{}{}", state.target_ollama, path);
+    let new_body = serde_json::to_vec(&payload).unwrap();
+
+    match state.http_client.post(&target_url).body(new_body).send().await {
+        Ok(resp) => {
+            let mut builder = axum::response::Response::builder()
+                .status(axum::http::StatusCode::from_u16(resp.status().as_u16()).unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR));
+            for (k, v) in resp.headers() {
+                if let (Ok(key), Ok(val)) = (axum::http::HeaderName::try_from(k.as_str()), axum::http::HeaderValue::from_bytes(v.as_bytes())) {
+                    builder = builder.header(key, val);
+                }
+            }
+            builder.body(Body::from_stream(resp.bytes_stream())).unwrap()
+        }
+        Err(e) => {
+            axum::response::Response::builder().status(500).body(Body::from(format!("Proxy error: {}", e))).unwrap()
         }
     }
 }

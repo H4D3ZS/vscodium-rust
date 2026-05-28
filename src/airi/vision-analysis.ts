@@ -18,9 +18,8 @@ export interface ErrorDetectionResult {
 }
 
 const DEFAULT_HOST = 'http://localhost:11434';
-// Default to the bare-tag form your local Ollama actually uses ("qwen2.5vl"
-// not "qwen2.5-vl"). Users override via localStorage.airi.vision.model.
-const DEFAULT_MODEL = 'qwen2.5vl:72b';
+// Default to the lightweight moondream model which runs locally without thrashing the user's RX 580/Ryzen 9 local setup.
+const DEFAULT_MODEL = 'moondream:latest';
 const FAILURE_BUDGET = 3;
 
 function resolveHost(): string {

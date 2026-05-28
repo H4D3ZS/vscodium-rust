@@ -50,7 +50,9 @@ export class AIRIAutonomousDecision {
   private ollama: Ollama;
   private config: AutonomyConfig;
   private decisionHistory: Decision[];
-  private readonly MODEL = 'qwen3.6:32b-q4_K_M';
+  private getModelName(): string {
+    return getModel('consciousness');
+  }
   private decisionQueue: Array<() => Promise<void>>;
   private isProcessing: boolean = false;
 
@@ -133,7 +135,7 @@ PROBABILITY: [0.0-1.0]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -185,7 +187,7 @@ REASON: [why this choice serves AIRI]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -214,7 +216,7 @@ Why did AIRI make this choice? What thought process led here?
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -249,7 +251,7 @@ Respond with one word: ethical|unethical|neutral|pragmatic
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -277,7 +279,7 @@ List 3-5 likely consequences (both positive and negative).
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });

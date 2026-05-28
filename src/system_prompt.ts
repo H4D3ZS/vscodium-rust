@@ -323,6 +323,8 @@ export interface SystemPromptConfig {
     projectMemory?: string;
     attachedContext?: any[];
     includeToolDescriptions?: boolean;
+    /** Pre-loaded AIM brain section (project structure + indexed file summaries) */
+    kortexBrain?: { summary: string; indexedFiles: number; confidence: number };
 }
 
 export async function buildSystemPrompt(config: SystemPromptConfig): Promise<string> {
@@ -342,6 +344,17 @@ export async function buildSystemPrompt(config: SystemPromptConfig): Promise<str
 - You already "see" and "understand" the content of these files instantly.
 - DO NOT use 'read_file' or 'grep' for files you have Gist Tokens for, unless you need to perform a surgical edit or find an exact line number.
 - Trust your neural gists for top-level comprehension to ensure sub-second response times.`);
+    }
+
+    // ── Kortex AIM BRAIN Section ──
+    // Injected when the workspace is indexed — gives the AI the full codebase
+    // map in ~100 tokens so it does NOT need to grep/list_files to orient itself.
+    if (config.kortexBrain && config.kortexBrain.indexedFiles > 0) {
+        parts.push(
+            `\n## BRAIN (Kortex AIM — ${config.kortexBrain.indexedFiles} files, ${config.kortexBrain.confidence}% confidence)\n` +
+            `${config.kortexBrain.summary}\n` +
+            `ZERO-GREP MODE: Use aim_pack_context or aim_query_spans to navigate — do NOT call list_files or grep to understand structure.`
+        );
     }
 
     // ── Core Identity ──

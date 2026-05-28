@@ -9,6 +9,7 @@ import type { Ollama } from 'ollama';
 import { createSharedOllama, fetchOllama } from './shared-ollama';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { getModel } from './model-config';
 
 export interface HealthState {
   overall: number; // 0-100
@@ -49,7 +50,9 @@ export type HealthIssueType =
 export class AIRISelfHealing {
   private ollama: Ollama;
   private state: HealthState;
-  private readonly MODEL = 'qwen3.6:32b-q4_K_M';
+  private getModelName(): string {
+    return getModel('code_fix') || 'airi-fast:latest';
+  }
   private healInterval: NodeJS.Timeout | null = null;
   private workspacePath: string;
 
@@ -274,7 +277,7 @@ LINE: [approximate line number]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -452,7 +455,7 @@ FIX: [the fix]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });

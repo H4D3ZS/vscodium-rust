@@ -79,17 +79,17 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
         }
     }, [effectiveTabId, activeTab?.path, setActiveEditorPath, forcedTabId]);
 
-    // Enforce hard cap of 20 active Monaco models to save RAM
+    // Enforce hard cap of 12 active Monaco models to save RAM (~5MB each = 60MB max)
     useEffect(() => {
         if (editorRef.current) {
             import('monaco-editor').then((monaco) => {
                 const models = monaco.editor.getModels();
-                if (models.length > 20) {
+                if (models.length > 12) {
                     const openTabUris = new Set(tabs.map(t => pathToUri(t.path)));
                     const inactiveModels = models.filter(m => !openTabUris.has(m.uri.toString()));
                     
                     if (inactiveModels.length > 0) {
-                        const toEvictCount = models.length - 20;
+                        const toEvictCount = models.length - 12;
                         const toEvict = inactiveModels.slice(0, toEvictCount);
                         toEvict.forEach(m => {
                             m.dispose();
@@ -532,6 +532,40 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                 },
             });
 
+            // ── Windsurf-style slash command editor actions ───────────────
+            // These appear in the right-click context menu and can be triggered
+            // via the command palette. Each pre-fills the chat with the selected
+            // text + a command directive (matching the / commands in the sidebar).
+            const agentSlashAction = (id: string, label: string, command: string, order: number) =>
+                editor.addAction({
+                    id,
+                    label,
+                    contextMenuGroupId: 'airi-slash',
+                    contextMenuOrder: order,
+                    run: (ed) => {
+                        const selection = ed.getSelection();
+                        const model = ed.getModel();
+                        const selText = selection && !selection.isEmpty() && model
+                            ? model.getValueInRange(selection)
+                            : model?.getValue()?.slice(0, 4000) ?? '';
+                        const filePath = activeTab?.path ?? '';
+                        const store = (window as any).useStore?.getState?.();
+                        if (!store) return;
+                        const prompt = `${command}\n\nFile: \`${filePath}\`\n\`\`\`${lang}\n${selText}\n\`\`\``;
+                        store.addAgentMessage('user', prompt);
+                        store.addAgentMessage('assistant', '');
+                        store.setIsAgentThinking(true);
+                        if (!store.isRightSidebarOpen) store.toggleRightSidebar?.();
+                        import('../agent').then(({ sendAgentMessage }) => {
+                            sendAgentMessage(prompt).finally(() => store.setIsAgentThinking(false));
+                        });
+                    },
+                });
+            agentSlashAction('airi.explain', '✦ /explain — Explain this code', '/explain the following code in detail', 1);
+            agentSlashAction('airi.refactor', '✦ /refactor — Refactor this code', '/refactor the following code for clarity and performance', 2);
+            agentSlashAction('airi.test', '✦ /test — Generate tests', '/test generate comprehensive unit tests for the following code', 3);
+            agentSlashAction('airi.document', '✦ /document — Add documentation', '/document add inline documentation to the following code', 4);
+
             // ── Code Lens ────────────────────────────────────────────────
             const codeLensDisposable = monaco.languages.registerCodeLensProvider(lang, {
                 provideCodeLenses: async (model) => {
@@ -726,6 +760,176 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
         });
         return () => { unlisten.then(f => f()); };
     }, []);
+
+    // Agent "hands" indicator (Windsurf-style): show animated gutter decoration
+    // on the file the agent is currently editing.
+    const agentEditDecorationsRef = useRef<string[]>([]);
+    useEffect(() => {
+        const unlistenAgent = listen('agent_editing_file', (event: any) => {
+            const { path: editingPath } = event.payload ?? {};
+            if (!editorRef.current) return;
+            const editor = editorRef.current;
+            const model = editor.getModel();
+            if (!model) return;
+            // Only decorate if this editor's file matches what the agent is editing
+            const currentPath = model.uri.path.replace(/^\//, '').replace(/\//g, '\\');
+            const normalizedEditing = (editingPath as string ?? '').replace(/\//g, '\\');
+            if (!currentPath.toLowerCase().endsWith(normalizedEditing.toLowerCase()) &&
+                !normalizedEditing.toLowerCase().endsWith(currentPath.toLowerCase())) return;
+            import('monaco-editor').then(monaco => {
+                // Place a full-line highlight decoration on line 1 as a "writing" indicator.
+                // It will be cleared 3s after the last event.
+                agentEditDecorationsRef.current = editor.deltaDecorations(
+                    agentEditDecorationsRef.current,
+                    [{
+                        range: new monaco.Range(1, 1, 1, 1),
+                        options: {
+                            isWholeLine: true,
+                            linesDecorationsClassName: 'agent-editing-gutter',
+                            className: 'agent-editing-line',
+                        },
+                    }]
+                );
+                // Auto-clear after 3s of no new events
+                setTimeout(() => {
+                    if (editorRef.current && agentEditDecorationsRef.current.length) {
+                        agentEditDecorationsRef.current = editorRef.current.deltaDecorations(
+                            agentEditDecorationsRef.current, []
+                        );
+                    }
+                }, 3000);
+            });
+        });
+        return () => { unlistenAgent.then(f => f()); };
+    }, []);
+
+    // ── Cursor-style per-hunk gutter diff decorations + accept/reject ─────
+    // Computes line-level hunks, renders gutter decorations, and registers
+    // context-menu actions so each hunk can be accepted/rejected individually.
+    const diffDecorationsRef = useRef<string[]>([]);
+    const hunkDataRef = useRef<Array<{ startLine: number; endLine: number; type: 'added' | 'removed'; newContent: string; oldContent: string }>>([]);
+    const hunkActionDisposablesRef = useRef<any[]>([]);
+
+    useEffect(() => {
+        if (!editorRef.current) return;
+        const editor = editorRef.current;
+
+        // Clear old decorations and actions
+        if (diffDecorationsRef.current.length) {
+            diffDecorationsRef.current = editor.deltaDecorations(diffDecorationsRef.current, []);
+        }
+        hunkActionDisposablesRef.current.forEach(d => d?.dispose?.());
+        hunkActionDisposablesRef.current = [];
+        hunkDataRef.current = [];
+
+        if (!activeFilePendingChange) return;
+
+        const oldText = activeFilePendingChange.originalContent ?? activeFilePendingChange.oldContent ?? '';
+        const newText = activeFilePendingChange.newContent ?? activeFilePendingChange.proposedContent ?? '';
+        if (!oldText || !newText || oldText === newText) return;
+
+        import('monaco-editor').then(monaco => {
+            import('diff').then(({ diffLines }) => {
+                const hunks = diffLines(oldText, newText);
+                const decorations: any[] = [];
+                const hunkData: typeof hunkDataRef.current = [];
+                let newLine = 1;
+                let oldLine = 1;
+
+                // Group consecutive added/removed hunks into logical hunks
+                for (let i = 0; i < hunks.length; i++) {
+                    const hunk = hunks[i];
+                    const count = hunk.count ?? 1;
+
+                    if (hunk.added) {
+                        const startLine = newLine;
+                        for (let j = 0; j < count; j++) {
+                            decorations.push({
+                                range: new monaco.Range(newLine + j, 1, newLine + j, 1),
+                                options: {
+                                    isWholeLine: true,
+                                    className: 'agent-diff-added-line',
+                                    linesDecorationsClassName: 'agent-diff-added-gutter',
+                                    glyphMarginHoverMessage: { value: `**Added line** — right-click to accept/reject this hunk` },
+                                },
+                            });
+                        }
+                        hunkData.push({ startLine, endLine: newLine + count - 1, type: 'added', newContent: hunk.value, oldContent: '' });
+                        newLine += count;
+                    } else if (hunk.removed) {
+                        decorations.push({
+                            range: new monaco.Range(Math.max(1, newLine - 1), 1, Math.max(1, newLine - 1), 1),
+                            options: {
+                                linesDecorationsClassName: 'agent-diff-deleted-gutter',
+                                glyphMarginHoverMessage: { value: `**Deleted ${count} line(s)** — right-click to accept/reject` },
+                            },
+                        });
+                        hunkData.push({ startLine: Math.max(1, newLine - 1), endLine: Math.max(1, newLine - 1), type: 'removed', newContent: '', oldContent: hunk.value });
+                        // Removed lines don't exist in new file — don't advance newLine
+                    } else {
+                        newLine += count;
+                        oldLine += count;
+                    }
+                }
+
+                hunkDataRef.current = hunkData;
+
+                if (decorations.length > 0) {
+                    diffDecorationsRef.current = editor.deltaDecorations(
+                        diffDecorationsRef.current,
+                        decorations
+                    );
+                }
+
+                // Register context-menu actions for per-hunk accept/reject
+                const acceptAction = editor.addAction({
+                    id: 'agent-diff-accept-hunk',
+                    label: '✓ Accept this hunk',
+                    contextMenuGroupId: 'agent-diff',
+                    contextMenuOrder: 0,
+                    precondition: null,
+                    run: (ed) => {
+                        const line = ed.getPosition()?.lineNumber ?? 1;
+                        const hunk = hunkDataRef.current.find(h => line >= h.startLine && line <= h.endLine + 1);
+                        if (!hunk || !activeFilePendingChange) return;
+                        // For added hunks: accept = keep as-is (already in editor). Just mark hunk done.
+                        // For removed hunks: accept = remove those lines from original that were deleted.
+                        // Since the editor already shows the new content, accept means keep it.
+                        // Full accept of the whole file for now — per-hunk partial apply is complex.
+                        useStore.getState().acceptPendingChange(activeFilePendingChange.id).catch(console.error);
+                    },
+                });
+
+                const rejectAction = editor.addAction({
+                    id: 'agent-diff-reject-hunk',
+                    label: '✕ Reject this hunk',
+                    contextMenuGroupId: 'agent-diff',
+                    contextMenuOrder: 1,
+                    precondition: null,
+                    run: (ed) => {
+                        const line = ed.getPosition()?.lineNumber ?? 1;
+                        const hunk = hunkDataRef.current.find(h => line >= h.startLine && line <= h.endLine + 1);
+                        if (!hunk || !activeFilePendingChange) return;
+                        // Rejecting a hunk: revert that hunk's lines to original content
+                        // Get current model value, find the hunk lines, replace with original
+                        const model = ed.getModel();
+                        if (!model) return;
+                        if (hunk.type === 'added') {
+                            // Remove the added lines
+                            const range = new monaco.Range(hunk.startLine, 1, hunk.endLine + 1, 1);
+                            model.applyEdits([{ range, text: '' }]);
+                        } else if (hunk.type === 'removed') {
+                            // Re-insert the removed lines at the deletion point
+                            const pos = new monaco.Range(hunk.startLine, 1, hunk.startLine, 1);
+                            model.applyEdits([{ range: pos, text: hunk.oldContent }]);
+                        }
+                    },
+                });
+
+                hunkActionDisposablesRef.current = [acceptAction, rejectAction];
+            });
+        });
+    }, [activeFilePendingChange]);
 
     // Git blame — show "author · date · summary" as ghost text on the cursor line (GitLens style)
     const blameDataRef = useRef<string[]>([]);

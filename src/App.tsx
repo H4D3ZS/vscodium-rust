@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense, lazy } from 'react';
 import { invoke } from './tauri_bridge';
 import TitleBar from './components/TitleBar';
 import Workbench from './components/Workbench';
@@ -19,11 +19,15 @@ import { initDebugUI } from './debug_ui';
 import { initTerminal } from './terminal';
 import { initAgent } from './agent';
 import { initTheme } from './theme_engine';
-import CommandPalette from './components/CommandPalette';
-import MultiFileReview from './components/agent/MultiFileReview';
-import TrajectoryPanel from './components/agent/TrajectoryPanel';
-import QuickOpen from './components/QuickOpen';
 import RightSidebar from './components/RightSidebar';
+
+// Lazy-load modal/overlay components — they only render on user trigger,
+// keeping the initial bundle ~200KB smaller and saving renderer RAM.
+const CommandPalette = lazy(() => import('./components/CommandPalette'));
+const MultiFileReview = lazy(() => import('./components/agent/MultiFileReview'));
+const TrajectoryPanel = lazy(() => import('./components/agent/TrajectoryPanel'));
+const QuickOpen = lazy(() => import('./components/QuickOpen'));
+const ToolPermissionDialog = lazy(() => import('./components/ToolPermissionDialog'));
 
 const ContextMenu: React.FC = () => {
     const isOpen = useStore(state => state.isContextMenuOpen);
@@ -141,6 +145,20 @@ const App: React.FC = () => {
             listen('reload-window', () => {
                 window.location.reload();
             });
+
+            // Wire backend task-phase-update → taskPlannerState in store (B10)
+            listen('task-phase-update', (event: any) => {
+                const { phase, status, iteration, max_iterations } = event.payload ?? {};
+                useStore.setState((s: any) => ({
+                    taskPlannerState: {
+                        state: phase ?? s.taskPlannerState?.state ?? 'IDLE',
+                        status: status ?? '',
+                        iteration: iteration ?? 0,
+                        maxIterations: max_iterations ?? 50,
+                        steps: s.taskPlannerState?.steps ?? [],
+                    },
+                }));
+            });
         });
 
         // DIAGNOSTIC: trace every isRightSidebarOpen change to find the auto-close culprit
@@ -164,8 +182,10 @@ const App: React.FC = () => {
 
     return (
         <div id="vscodium-app-root" style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <CommandPalette />
-            <QuickOpen />
+            <Suspense fallback={null}>
+                <CommandPalette />
+                <QuickOpen />
+            </Suspense>
 
             <div className="body-backdrop"></div>
             <TitleBar />
@@ -185,8 +205,11 @@ const App: React.FC = () => {
 
             <ContextMenu />
             <TrustDialog />
-            <MultiFileReview />
-            <TrajectoryPanel />
+            <Suspense fallback={null}>
+                <ToolPermissionDialog />
+                <MultiFileReview />
+                <TrajectoryPanel />
+            </Suspense>
         </div>
     );
 };

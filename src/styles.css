@@ -931,6 +931,9 @@ body.resizing * {
   cursor: pointer;
   transition: background 0.1s, opacity 0.1s;
   -webkit-app-region: no-drag;
+  pointer-events: all !important;
+  position: relative;
+  z-index: 200;
   flex-shrink: 0;
 }
 
@@ -3482,4 +3485,49 @@ body {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ── Cursor-style inline gutter diff decorations ── */
+.agent-diff-added-line {
+    background: rgba(52, 211, 153, 0.07) !important;
+}
+.agent-diff-added-gutter {
+    background: #34d399;
+    width: 3px !important;
+    margin-left: 2px;
+    border-radius: 2px;
+}
+.agent-diff-deleted-gutter {
+    background: #f87171;
+    width: 3px !important;
+    margin-left: 2px;
+    border-radius: 2px;
+}
+.agent-diff-deleted-gutter::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 2px;
+    background: #f87171;
+    border-radius: 1px;
+}
+
+/* ── Agent "hands" editor decoration (Windsurf-style cursor indicator) ── */
+.agent-editing-line {
+    background: rgba(99, 179, 237, 0.06) !important;
+    border-left: 2px solid #63b3ed !important;
+}
+.agent-editing-gutter {
+    background: #63b3ed;
+    width: 3px !important;
+    margin-left: 2px;
+    border-radius: 2px;
+    animation: agent-pulse 1s ease-in-out infinite;
+}
+@keyframes agent-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
 }

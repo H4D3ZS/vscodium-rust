@@ -73,7 +73,9 @@ export class AIRIAutonomousAgent {
   private scanInterval: NodeJS.Timeout | null = null;
   private taskQueue: AutonomousTask[] = [];
   private isWorking: boolean = false;
-  private readonly MODEL = 'qwen3.6:14b-q4_K_M';
+  private getModelName(): string {
+    return getModel('code_gen');
+  }
 
   constructor(workspacePath: string) {
     this.ollama = createSharedOllama();
@@ -391,7 +393,7 @@ export class AIRIAutonomousAgent {
       const fullCall = invoke<string>("ai_chat", {
         request: {
           provider: "ollama",
-          model: this.MODEL,
+          model: this.getModelName() || 'airi-fast:latest',
           messages: [{
             role: "system",
             content: "You are the AIRI background autonomous agent. Your job is to proactively improve, refactor, and fix the codebase without user intervention. You have full access to tools.",
@@ -440,7 +442,7 @@ export class AIRIAutonomousAgent {
 💼 Autonomous Work Status:
   Working: ${this.isWorking}
   Queue: ${this.taskQueue.length} tasks
-  Model: ${this.MODEL}
+  Model: ${this.getModelName()}
 `.trim();
   }
 }

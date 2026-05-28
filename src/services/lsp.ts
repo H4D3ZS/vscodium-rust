@@ -59,5 +59,5 @@ export async function diagnostics(uri: string): Promise<LspDiagnostic[]> {
 }
 
 export async function format(uri: string): Promise<void> {
-    return invoke('lsp_format', { uri }).catch(() => { });
+    await invoke('lsp_format', { uri }).catch(() => { });
 }

@@ -7,6 +7,7 @@
 
 import type { Ollama } from 'ollama';
 import { createSharedOllama } from './shared-ollama';
+import { getModel } from './model-config';
 
 export type SecurityMode = 'red' | 'blue' | 'purple' | 'passive';
 
@@ -33,7 +34,9 @@ export class AIRISecurityEngine {
   private ollama: Ollama;
   private mode: SecurityMode = 'passive';
   private running = false;
-  private readonly MODEL = 'qwen3.6:14b-q4_K_M';
+  private getModelName(): string {
+    return getModel('security') || 'airi-fast:latest';
+  }
 
   constructor() {
     this.ollama = createSharedOllama();
@@ -77,7 +80,7 @@ export class AIRISecurityEngine {
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt: prompt,
         system: this.getSecuritySystemPrompt(),
         stream: false
@@ -133,7 +136,7 @@ RECOMMENDATIONS: [list actions]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         system: this.getSecuritySystemPrompt(),
         stream: false
@@ -191,7 +194,7 @@ For each issue found:
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         system: this.getSecuritySystemPrompt(),
         stream: false

@@ -166,12 +166,50 @@ pub fn run() {
                 }
             });
 
-            // Force working set trim on Windows to drop physical RAM usage immediately on boot
+            // Initial working set trim on Windows — drops paged-out memory immediately.
             #[cfg(target_os = "windows")]
             unsafe {
                 let handle = GetCurrentProcess();
                 let _ = SetProcessWorkingSetSize(handle, usize::MAX, usize::MAX);
             }
+
+            // Periodic working set trim: reclaim unused pages every 5 minutes.
+            // After heavy indexing or long agent loops, Rust may hold large amounts
+            // of paged-out heap. This forces Windows to reclaim those pages.
+            #[cfg(target_os = "windows")]
+            tauri::async_runtime::spawn(async {
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
+                    unsafe {
+                        let handle = GetCurrentProcess();
+                        let _ = SetProcessWorkingSetSize(handle, usize::MAX, usize::MAX);
+                    }
+                }
+            });
+
+            // Memory headroom watchdog — every 60s, check process RSS.
+            // If > 380MB: clear caches, force phase-wrap, trim working set.
+            // Target band: 200-400MB total RSS for the whole IDE.
+            let perf_monitor = state.perf_monitor.clone();
+            let engine_for_trim = state.ai_engine.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                    if let Some(stats) = perf_monitor.get_stats().await {
+                        if stats.memory_mb > 380 {
+                            println!("[Memory Watchdog] RSS={}MB > 380MB threshold. Emergency trim.", stats.memory_mb);
+                            // Trigger conversation state truncation
+                            let _ = engine_for_trim.optimize_memory().await;
+                            // Force Windows to reclaim unused pages
+                            #[cfg(target_os = "windows")]
+                            unsafe {
+                                let handle = GetCurrentProcess();
+                                let _ = SetProcessWorkingSetSize(handle, usize::MAX, usize::MAX);
+                            }
+                        }
+                    }
+                }
+            });
 
             Ok(())
         })
@@ -296,8 +334,6 @@ pub fn run() {
             emulator_stream::list_running_emulators,
             emulator_stream::start_emulator_stream,
             emulator_stream::stop_emulator_stream,
-            emulator_stream::start_emulator_stream,
-            emulator_stream::stop_emulator_stream,
             emulator_stream::get_stream_status,
             // ═══ Scrcpy Integration ═══
             scrcpy::spawn_emulator_headless,
@@ -419,6 +455,7 @@ pub fn run() {
             mcp_commands::set_mcp_server_enabled,
             // ═══ System ═══
             system_commands::backend_ping,
+            system_commands::respond_tool_permission,
             system_commands::get_config_path,
             system_commands::open_ai_login,
             system_commands::get_yolo_mode,
@@ -467,6 +504,8 @@ pub fn run() {
             kortex_commands::aim_invalidate_stale,
             kortex_commands::vfs_write_atomic,
             kortex_commands::vfs_apply_patch,
+            kortex_commands::aim_pack_context,
+            kortex_commands::trigger_workspace_index,
             // ═══ Kortex GAC: geometry-aware inference scheduling ═══
             kortex_gac::kortex_gac_profile,
             kortex_gac::kortex_gac_load_profile,
@@ -538,6 +577,7 @@ pub fn run() {
             iphone_emulator::launch_iphone_emulator,
             iphone_emulator::stop_iphone_emulator,
             iphone_emulator::is_iphone_emulator_running,
+            iphone_emulator::create_stub_ramdisk,
             performance_commands::get_inference_history,
             ai_project_commands::search_project,
             ai_project_commands::query_workspace_memory,

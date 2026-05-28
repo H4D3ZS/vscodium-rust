@@ -7,6 +7,7 @@
 
 import type { Ollama } from 'ollama';
 import { createSharedOllama } from './shared-ollama';
+import { getModel } from './model-config';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -68,7 +69,9 @@ export class AIRIAutonomousDevelopment {
   private ollama: Ollama;
   private goals: DevelopmentGoal[];
   private activeGoal: DevelopmentGoal | null;
-  private readonly MODEL = 'qwen3.6:32b-q4_K_M';
+  private getModelName(): string {
+    return getModel('code_gen');
+  }
   private workspacePath: string;
   private isWorking: boolean = false;
 
@@ -135,7 +138,7 @@ Respond with detailed analysis.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -193,7 +196,7 @@ API:
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -252,7 +255,7 @@ Respond as JSON array:
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -365,7 +368,7 @@ Write the complete code.
 `;
 
     const response = await this.ollama.generate({
-      model: this.MODEL,
+      model: this.getModelName(),
       prompt,
       stream: false
     });
@@ -406,7 +409,7 @@ Write complete, runnable tests.
 `;
 
     const response = await this.ollama.generate({
-      model: this.MODEL,
+      model: this.getModelName(),
       prompt,
       stream: false
     });
@@ -444,7 +447,7 @@ Write comprehensive, clear documentation.
 `;
 
     const response = await this.ollama.generate({
-      model: this.MODEL,
+      model: this.getModelName(),
       prompt,
       stream: false
     });
@@ -478,7 +481,7 @@ Respond with detailed design document.
 `;
 
     const response = await this.ollama.generate({
-      model: this.MODEL,
+      model: this.getModelName(),
       prompt,
       stream: false
     });
@@ -510,7 +513,7 @@ Write complete integration code.
 `;
 
     const response = await this.ollama.generate({
-      model: this.MODEL,
+      model: this.getModelName(),
       prompt,
       stream: false
     });
@@ -546,7 +549,7 @@ Respond with comprehensive analysis.
 `;
 
     const response = await this.ollama.generate({
-      model: this.MODEL,
+      model: this.getModelName(),
       prompt,
       stream: false
     });
@@ -576,7 +579,7 @@ Write complete deployment configuration.
 `;
 
     const response = await this.ollama.generate({
-      model: this.MODEL,
+      model: this.getModelName(),
       prompt,
       stream: false
     });

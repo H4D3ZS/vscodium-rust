@@ -275,7 +275,13 @@ function preferredFallbackTags(): string[] {
 
 function chooseFallback(): string | null {
     const prefs = preferredFallbackTags();
-    if (!installedModels || installedModels.size === 0) return prefs[0] ?? null;
+    if (!installedModels || installedModels.size === 0) {
+        const firstPref = prefs[0];
+        if (firstPref && !firstPref.toLowerCase().includes('hades') && !firstPref.toLowerCase().includes('qwen3.6')) {
+            return firstPref;
+        }
+        return 'soft-eng-qwen:latest';
+    }
     for (const p of prefs) {
         if (installedModels.has(p)) return p;
         const fuzzy = fuzzyMatchInstalled(p, installedModels);
@@ -332,7 +338,19 @@ export async function resolveOllamaModelTag(requested: string): Promise<string> 
     if (!r) return chooseFallback() || 'airi-fast:latest';
     const hit = resolveInstalledOrNull(r);
     if (hit) return hit;
-    return chooseFallback() || r;
+    
+    const fallback = chooseFallback();
+    if (fallback && installedModels && installedModels.has(fallback)) {
+        return fallback;
+    }
+    if (installedModels && installedModels.size > 0) {
+        const cheap = ['airi-fast:latest', 'soft-eng-qwen:latest', 'llama3.2:3b', 'llama3.2:1b', 'gemma2:2b', 'qwen2.5:3b'];
+        for (const c of cheap) {
+            if (installedModels.has(c)) return c;
+        }
+        return installedModels.values().next().value ?? 'airi-fast:latest';
+    }
+    return fallback || r;
 }
 
 async function tauriListRaw(): Promise<{ models: Array<{ name: string;[k: string]: unknown }> }> {

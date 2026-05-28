@@ -1,289 +1,237 @@
-import React, { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import React, { useState, useEffect, useRef } from 'react';
+import { invoke } from '../tauri_bridge';
+import { listen } from '@tauri-apps/api/event';
 
-/**
- * iPhone Emulator Panel - NATIVE WINDOWS APP
- * Launches Flutter Windows app as separate native window
- * REAL iPhone emulator for mobile developers
- */
+interface ConsoleLine {
+    text: string;
+    stream: 'stdout' | 'stderr' | 'system';
+    ts: number;
+}
+
+type ViewMode = 'console' | 'display';
+
 const IPhoneEmulatorPanel: React.FC = () => {
     const [isRunning, setIsRunning] = useState(false);
-    const [isLoading, setIsLoading] = useState(false);
-    const [status, setStatus] = useState<'disconnected' | 'connecting' | 'booting' | 'connected' | 'error'>('disconnected');
-    const [errorMessage, setErrorMessage] = useState('');
-    const [bootProgress, setBootProgress] = useState(0);
+    const [status, setStatus] = useState<'idle' | 'launching' | 'running' | 'error'>('idle');
+    const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
+    const [device, setDevice] = useState('iPhone13,2');
+    const [diskPath, setDiskPath] = useState('');
+    const [achronPath, setAchronPath] = useState('');
+    const consoleEndRef = useRef<HTMLDivElement>(null);
+    const [autoScroll, setAutoScroll] = useState(true);
+    const [viewMode, setViewMode] = useState<ViewMode>('console');
+    const [frameDataUrl, setFrameDataUrl] = useState<string | null>(null);
 
-    const handleLaunchIPhone = async () => {
-        setIsLoading(true);
-        setStatus('connecting');
-        setBootProgress(0);
-        
+    // Auto-scroll console
+    useEffect(() => {
+        if (autoScroll) consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [consoleLines, autoScroll]);
+
+    // Listen for framebuffer frames
+    useEffect(() => {
+        const unlistenFrame = listen('emulator-frame', (event: any) => {
+            const { dataUrl } = event.payload ?? {};
+            if (dataUrl) setFrameDataUrl(dataUrl);
+        });
+        return () => { unlistenFrame.then(f => f()); };
+    }, []);
+
+    // Listen for console output from emulator process
+    useEffect(() => {
+        const unlistenPromise = listen('emulator-console', (event: any) => {
+            const { line, stream } = event.payload ?? {};
+            if (!line) return;
+            setConsoleLines(prev => [...prev.slice(-1000), { text: line, stream: stream ?? 'stdout', ts: Date.now() }]);
+            if (stream === 'system' && line.includes('exited')) {
+                setIsRunning(false);
+                setStatus('idle');
+            }
+        });
+        return () => { unlistenPromise.then(f => f()); };
+    }, []);
+
+    const handleCreateStubRamdisk = async () => {
+        const outPath = (achronPath.trim() || 'C:\\Users\\HADES\\Desktop\\vscodium-rust\\Virtual-iPhone-Emulator') + '\\out\\raw\\initrd.bin';
         try {
-            const flutterPath = 'F:/Virtual-iPhone-Emulator/frontend';
-            
-            // Launch Flutter Windows app
-            const result = await invoke('launch_iphone_emulator', {
-                projectPath: flutterPath,
-            });
-            
-            console.log('[iPhone] Launch result:', result);
-            setStatus('booting');
-            
-            // Boot animation
-            const bootInterval = setInterval(() => {
-                setBootProgress(prev => {
-                    if (prev >= 100) {
-                        clearInterval(bootInterval);
-                        setStatus('connected');
-                        setIsRunning(true);
-                        return 100;
-                    }
-                    return prev + 2;
-                });
-            }, 250);
-            
-        } catch (error) {
-            setStatus('error');
-            setErrorMessage(`Failed to launch iPhone emulator: ${error}`);
-            console.error('[iPhone] Launch error:', error);
-            setIsLoading(false);
+            const result = await invoke<string>('create_stub_ramdisk', { outputPath: outPath });
+            setConsoleLines(prev => [...prev, { text: result, stream: 'system', ts: Date.now() }]);
+            setDiskPath(outPath); // auto-fill disk path
+        } catch (e) {
+            setConsoleLines(prev => [...prev, { text: `Failed: ${e}`, stream: 'system', ts: Date.now() }]);
         }
     };
 
-    const handleStopIPhone = async () => {
+    const handleLaunch = async () => {
+        setStatus('launching');
+        setConsoleLines([{ text: `Launching acheron for device ${device}…`, stream: 'system', ts: Date.now() }]);
         try {
-            await invoke('stop_iphone_emulator');
-            setIsRunning(false);
-            setStatus('disconnected');
-            setBootProgress(0);
-        } catch (error) {
-            console.error('[iPhone] Stop error:', error);
+            // Resolve project path: use the Virtual-iPhone-Emulator directory
+            const projectPath = achronPath.trim() || 'C:\\Users\\HADES\\Desktop\\vscodium-rust\\Virtual-iPhone-Emulator';
+            await invoke('launch_iphone_emulator', {
+                projectPath,
+                device: device || undefined,
+                diskPath: diskPath.trim() || undefined,
+            });
+            setIsRunning(true);
+            setStatus('running');
+        } catch (e) {
+            setStatus('error');
+            setConsoleLines(prev => [...prev, { text: `Launch failed: ${e}`, stream: 'system', ts: Date.now() }]);
         }
+    };
+
+    const handleStop = async () => {
+        try { await invoke('stop_iphone_emulator'); } catch { /* ignore */ }
+        setIsRunning(false);
+        setStatus('idle');
+        setConsoleLines(prev => [...prev, { text: 'Emulator stopped.', stream: 'system', ts: Date.now() }]);
+    };
+
+    const lineColor = (stream: string) => {
+        if (stream === 'stderr') return '#f87171';
+        if (stream === 'system') return '#94a3b8';
+        return '#d1fae5';
     };
 
     return (
-        <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            flex: '1 1 auto',
-            minHeight: 0,
-            height: '100%',
-            background: '#000',
-        }}>
-            {/* Status bar */}
-            <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '8px 12px',
-                background: '#1a1a1a',
-                borderBottom: '1px solid #333'
-            }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    color: '#fff'
-                }}>
-                    <span style={{ fontSize: '14px' }}>🍎</span>
-                    <span style={{ fontSize: '11px', fontWeight: 600 }}>iPhone Simulator</span>
-                    {status === 'connected' && (
-                        <span style={{
-                            fontSize: '9px',
-                            padding: '2px 6px',
-                            background: '#34C759',
-                            borderRadius: '3px',
-                            color: '#fff'
-                        }}>
-                            Running
-                        </span>
-                    )}
-                    {status === 'booting' && (
-                        <span style={{
-                            fontSize: '9px',
-                            padding: '2px 6px',
-                            background: '#FF9500',
-                            borderRadius: '3px',
-                            color: '#fff'
-                        }}>
-                            Booting {bootProgress}%
-                        </span>
-                    )}
-                </div>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0a0a', color: '#f0f0f0', fontFamily: 'monospace' }}>
 
-                {isRunning && (
-                    <button
-                        onClick={handleStopIPhone}
-                        style={{
-                            padding: '4px 12px',
-                            fontSize: '10px',
-                            background: '#FF3B30',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '3px',
-                            cursor: 'pointer',
-                            fontWeight: 600
-                        }}
-                    >
-                        Stop
-                    </button>
-                )}
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#111', borderBottom: '1px solid #222' }}>
+                <span style={{ fontSize: 14 }}>🍎</span>
+                <span style={{ fontSize: 11, fontWeight: 700, flex: 1 }}>iPhone Emulator (acheron)</span>
+                <span style={{
+                    fontSize: 9, padding: '2px 6px', borderRadius: 3, fontWeight: 600,
+                    background: status === 'running' ? '#166534' : status === 'launching' ? '#92400e' : status === 'error' ? '#7f1d1d' : '#1e293b',
+                    color: status === 'running' ? '#4ade80' : status === 'launching' ? '#fbbf24' : status === 'error' ? '#f87171' : '#94a3b8',
+                }}>
+                    {status === 'idle' ? 'IDLE' : status === 'launching' ? 'LAUNCHING…' : status === 'running' ? 'RUNNING' : 'ERROR'}
+                </span>
             </div>
 
-            {/* Emulator content */}
-            <div style={{
-                flex: '1 1 auto',
-                minHeight: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: '#000',
-                position: 'relative'
-            }}>
-                {!isRunning && status !== 'booting' ? (
-                    <div style={{
-                        textAlign: 'center',
-                        padding: '20px',
-                        maxWidth: '400px'
-                    }}>
-                        <div style={{ fontSize: '64px', marginBottom: '20px' }}>🍎</div>
-                        
-                        <h3 style={{
-                            fontSize: '16px',
-                            fontWeight: 600,
-                            color: 'var(--vscode-foreground)',
-                            marginBottom: '8px'
-                        }}>
-                            Virtual iPhone Emulator
-                        </h3>
-                        
-                        <p style={{
-                            fontSize: '12px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            marginBottom: '20px',
-                            lineHeight: '1.5'
-                        }}>
-                            Native Windows Flutter App<br/>
-                            Embeds directly in this panel
-                        </p>
-
-                        {status === 'error' && (
-                            <div style={{
-                                color: '#f44',
-                                fontSize: '11px',
-                                marginBottom: '16px',
-                                padding: '8px',
-                                background: 'rgba(255,0,0,0.1)',
-                                borderRadius: '4px'
-                            }}>
-                                {errorMessage}
-                            </div>
-                        )}
-
+            {/* Config (only when idle) */}
+            {!isRunning && (
+                <div style={{ padding: '10px 12px', background: '#111', borderBottom: '1px solid #222', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <label style={{ fontSize: 10, opacity: 0.7, width: 70, flexShrink: 0 }}>Device</label>
+                        <input
+                            value={device}
+                            onChange={e => setDevice(e.target.value)}
+                            placeholder="iPhone13,2"
+                            style={{ flex: 1, fontSize: 11, padding: '3px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 3, color: '#fff', outline: 'none' }}
+                        />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <label style={{ fontSize: 10, opacity: 0.7, width: 70, flexShrink: 0 }}>Disk image</label>
+                        <input
+                            value={diskPath}
+                            onChange={e => setDiskPath(e.target.value)}
+                            placeholder="Path to .img file (optional)"
+                            style={{ flex: 1, fontSize: 11, padding: '3px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 3, color: '#fff', outline: 'none' }}
+                        />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <label style={{ fontSize: 10, opacity: 0.7, width: 70, flexShrink: 0 }}>Acheron dir</label>
+                        <input
+                            value={achronPath}
+                            onChange={e => setAchronPath(e.target.value)}
+                                    placeholder="C:\...\Virtual-iPhone-Emulator"
+                            style={{ flex: 1, fontSize: 11, padding: '3px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 3, color: '#fff', outline: 'none' }}
+                        />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
                         <button
-                            onClick={handleLaunchIPhone}
-                            disabled={isLoading}
+                            onClick={handleCreateStubRamdisk}
                             style={{
-                                padding: '10px 24px',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                background: isLoading 
-                                    ? 'var(--vscode-button-secondaryBackground)' 
-                                    : '#007AFF',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '6px',
-                                cursor: isLoading ? 'not-allowed' : 'pointer',
-                                opacity: isLoading ? 0.6 : 1,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                margin: '0 auto'
+                                flex: 1, padding: '5px 0', fontSize: 10, fontWeight: 600,
+                                background: '#1e3a5f', color: '#63b3ed', border: '1px solid #2b6cb0', borderRadius: 4, cursor: 'pointer',
                             }}
+                            title="Generate a minimal test ramdisk so the kernel can reach userspace (rd=md0)"
                         >
-                            {isLoading ? (
-                                <>
-                                    <span className="codicon codicon-loading codicon-modifier-spin"></span>
-                                    Launching...
-                                </>
-                            ) : (
-                                <>
-                                    <span>🚀</span>
-                                    Launch iPhone (Native)
-                                </>
-                            )}
+                            🧪 Create Stub Ramdisk
                         </button>
+                    </div>
+                    <button
+                        onClick={handleLaunch}
+                        disabled={status === 'launching'}
+                        style={{
+                            marginTop: 4, padding: '6px 0', fontSize: 11, fontWeight: 700,
+                            background: '#166534', color: '#4ade80', border: '1px solid #14532d',
+                            borderRadius: 4, cursor: 'pointer',
+                        }}
+                    >
+                        {status === 'launching' ? '⟳ Launching…' : '▶ Launch Emulator'}
+                    </button>
+                </div>
+            )}
 
-                        <div style={{
-                            marginTop: '20px',
-                            fontSize: '10px',
-                            color: 'var(--vscode-descriptionForeground)',
-                            opacity: 0.6
-                        }}>
-                            Target: F:/Virtual-iPhone-Emulator/frontend
-                        </div>
-                    </div>
-                ) : status === 'booting' ? (
-                    <div style={{ textAlign: 'center', padding: '20px' }}>
-                        <div style={{
-                            fontSize: '80px',
-                            marginBottom: '30px',
-                            animation: 'pulse 2s infinite',
-                            display: 'inline-block'
-                        }}>
-                            🍎
-                        </div>
-                        
-                        <style>{`
-                            @keyframes pulse {
-                                0%, 100% { opacity: 0.6; transform: scale(0.95); }
-                                50% { opacity: 1; transform: scale(1.05); }
-                            }
-                        `}</style>
-                        
-                        <div style={{
-                            width: '200px',
-                            height: '4px',
-                            background: '#333',
-                            borderRadius: '2px',
-                            margin: '0 auto',
-                            overflow: 'hidden'
-                        }}>
-                            <div style={{
-                                width: `${bootProgress}%`,
-                                height: '100%',
-                                background: '#fff',
-                                transition: 'width 0.3s ease'
-                            }}></div>
-                        </div>
-                        
-                        <div style={{ marginTop: '16px', fontSize: '12px', color: '#888' }}>
-                            {bootProgress < 30 && 'Starting iOS...'}
-                            {bootProgress >= 30 && bootProgress < 60 && 'Loading system...'}
-                            {bootProgress >= 60 && bootProgress < 80 && 'Initializing services...'}
-                            {bootProgress >= 80 && bootProgress < 100 && 'Almost ready...'}
-                            {bootProgress >= 100 && 'iOS Ready!'}
-                        </div>
-                    </div>
-                ) : (
-                    /* Flutter running - will be embedded */
-                    <div style={{
-                        width: '100%',
-                        height: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#666'
+            {/* View toggle */}
+            <div style={{ display: 'flex', background: '#0a0a0a', borderBottom: '1px solid #1e293b' }}>
+                {(['console', 'display'] as ViewMode[]).map(m => (
+                    <button key={m} onClick={() => setViewMode(m)} style={{
+                        flex: 1, padding: '4px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
+                        background: viewMode === m ? '#1e3a5f' : 'transparent',
+                        color: viewMode === m ? '#63b3ed' : '#64748b',
+                        borderBottom: viewMode === m ? '2px solid #63b3ed' : '2px solid transparent',
                     }}>
-                        <div style={{ textAlign: 'center' }}>
-                            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📱</div>
-                            <div>iPhone Emulator Running</div>
-                            <div style={{ fontSize: '11px', opacity: 0.6, marginTop: '8px' }}>
-                                Embedding in panel...
-                            </div>
+                        {m === 'console' ? '📟 Serial Console' : '📺 Display'}
+                    </button>
+                ))}
+            </div>
+
+            {/* Framebuffer display */}
+            {viewMode === 'display' && (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', minHeight: 0 }}>
+                    {frameDataUrl ? (
+                        <img src={frameDataUrl} alt="Emulator display" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                    ) : (
+                        <div style={{ color: '#334155', textAlign: 'center', fontSize: 11 }}>
+                            {isRunning ? '⟳ Waiting for first frame…' : 'Launch emulator to see display output'}
                         </div>
+                    )}
+                </div>
+            )}
+
+            {/* Serial Console Output */}
+            <div style={{ flex: 1, flexDirection: 'column', minHeight: 0, display: viewMode === 'console' ? 'flex' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 12px', background: '#0f172a', borderBottom: '1px solid #1e293b' }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b' }}>DARWIN SERIAL CONSOLE</span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                            onClick={() => setAutoScroll(v => !v)}
+                            style={{ fontSize: 9, padding: '1px 6px', background: autoScroll ? '#1e3a5f' : 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}
+                        >
+                            {autoScroll ? '⬇ Auto' : 'Manual'}
+                        </button>
+                        <button
+                            onClick={() => setConsoleLines([])}
+                            style={{ fontSize: 9, padding: '1px 6px', background: 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}
+                        >
+                            Clear
+                        </button>
+                        {isRunning && (
+                            <button
+                                onClick={handleStop}
+                                style={{ fontSize: 9, padding: '1px 8px', background: '#7f1d1d', border: '1px solid #991b1b', borderRadius: 2, color: '#fca5a5', cursor: 'pointer', fontWeight: 600 }}
+                            >
+                                ■ Stop
+                            </button>
+                        )}
                     </div>
-                )}
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px', lineHeight: '1.5', fontSize: 10 }}>
+                    {consoleLines.length === 0 && (
+                        <div style={{ color: '#334155', marginTop: 20, textAlign: 'center' }}>
+                            No output yet. Launch the emulator to see Darwin boot logs.
+                        </div>
+                    )}
+                    {consoleLines.map((line, i) => (
+                        <div key={i} style={{ color: lineColor(line.stream), whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                            {line.text}
+                        </div>
+                    ))}
+                    <div ref={consoleEndRef} />
+                </div>
             </div>
         </div>
     );

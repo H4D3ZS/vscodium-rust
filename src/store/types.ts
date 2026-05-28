@@ -9,6 +9,7 @@ export interface EditorTab {
     isModified: boolean;
     language: string;
     type?: 'file' | 'settings';
+    diagnostics?: any[];
 }
 
 export interface AgentStep {
@@ -47,7 +48,7 @@ export interface Artifact {
 }
 
 export interface AgentMessage {
-    role: 'user' | 'assistant';
+    role: 'user' | 'assistant' | 'system' | 'tool';
     content: string;
     thoughts?: string;
     steps?: AgentStep[];

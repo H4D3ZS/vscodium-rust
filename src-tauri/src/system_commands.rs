@@ -6,6 +6,25 @@ pub async fn backend_ping() -> String {
     "PONG".to_string()
 }
 
+/// Resolve a pending tool-permission request.
+/// Called by the frontend ToolPermissionDialog when the user approves or denies.
+#[tauri::command]
+pub async fn respond_tool_permission(
+    state: State<'_, EditorState>,
+    tool_id: String,
+    approved: bool,
+) -> Result<(), String> {
+    let sender = {
+        let mut map = state.tool_permission_senders.lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
+        map.remove(&tool_id)
+    };
+    if let Some(tx) = sender {
+        let _ = tx.send(approved);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_config_path(state: State<'_, EditorState>) -> String {
     state.config_dir.to_string_lossy().to_string()

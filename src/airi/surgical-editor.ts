@@ -5,6 +5,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { getModel } from './model-config';
 
 export interface EditOperation {
   id: string;
@@ -33,7 +34,9 @@ export interface EditResult {
 export class AIRISurgicalEditor {
   private pendingProposals = new Map<string, EditProposal>();
   private appliedEdits: EditResult[] = [];
-  private errorDetectionModel = 'huihui_ai/qwen3.5-abliterated:35b';
+  private getModelName(): string {
+    return getModel('code_fix') || 'huihui_ai/qwen2.5-coder-abliterate:7b';
+  }
   private listeners = new Map<string, Array<(data: any) => void>>();
 
   constructor() {
@@ -176,7 +179,7 @@ REPLACE:
 DESCRIPTION: <brief explanation>`;
 
     const response = await ollama.generate({
-      model: this.errorDetectionModel,
+      model: this.getModelName(),
       messages: [{ role: 'user', content: prompt }],
       stream: false,
       options: { temperature: 0.1, num_predict: 1024 },

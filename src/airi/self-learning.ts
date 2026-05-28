@@ -9,6 +9,7 @@ import type { Ollama } from 'ollama';
 import { createSharedOllama } from './shared-ollama';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { getModel } from './model-config';
 
 export interface KnowledgeNode {
   id: string;
@@ -57,7 +58,9 @@ export class AIRISelfLearning {
   private ollama: Ollama;
   private knowledgeBase: Map<string, KnowledgeNode>;
   private learningEvents: LearningEvent[];
-  private readonly MODEL = 'qwen3.6:32b-q4_K_M';
+  private getModelName(): string {
+    return getModel('self_learning') || 'airi-fast:latest';
+  }
   private readonly KNOWLEDGE_PATH: string;
   private learningInterval: NodeJS.Timeout | null = null;
   private isLearning: boolean = false;
@@ -191,7 +194,7 @@ TAGS: [comma-separated tags]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -223,7 +226,7 @@ Extract the core lesson in one clear sentence.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -347,7 +350,7 @@ Relevant tags or concepts:
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });

@@ -77,6 +77,16 @@ impl AiTools {
         *r = root_path;
     }
 
+    /// Emit `agent_editing_file` Tauri event so the frontend editor can show
+    /// an animated "agent hands" cursor at the file being written.
+    fn emit_agent_editing(&self, path: &str) {
+        if let Ok(guard) = self.app_handle.try_lock() {
+            if let Some(handle) = guard.as_ref() {
+                let _ = handle.emit("agent_editing_file", serde_json::json!({ "path": path }));
+            }
+        }
+    }
+
     pub fn get_root_path(&self) -> PathBuf {
         // Use try_lock() instead of blocking_lock() — blocking_lock() PANICS
         // when called from within a tokio async runtime (which is always the case
@@ -965,6 +975,33 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "aim_pack_context".to_string(),
+                description: "Load the entire pre-indexed codebase as a compact semantic map (~6 gist tokens). \
+                              Call this ONCE at the start of any task involving an unfamiliar codebase. \
+                              Returns the project structure, key symbols, and indexed file summaries. \
+                              ZERO-GREP MODE: after calling this you do NOT need list_files or grep to orient yourself.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Optional: focus the context on a specific topic" },
+                        "max_slots": { "type": "integer", "description": "Max number of memory slots to return (default 20)" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "aim_query_spans".to_string(),
+                description: "Find the exact file and line number for a function, class, or concept using the AIM index. \
+                              Faster and more precise than grep — uses the pre-built codebase knowledge graph. \
+                              Returns file paths, line numbers, and code previews for each match.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Symbol name, concept, or code pattern to locate" }
+                    },
+                    "required": ["query"]
+                }),
+            },
+            ToolDefinition {
                 name: "find_symbols".to_string(),
                 description: "List all indexed code symbols (functions, classes) found in the project.".to_string(),
                 input_schema: json!({
@@ -1347,6 +1384,8 @@ impl AiTools {
             | "ghost_test"
             // Extended FS
             | "semantic_search"
+            | "aim_pack_context"
+            | "aim_query_spans"
             | "find_symbols"
             | "read_file_lines"
             | "reindex_project"
@@ -1688,6 +1727,23 @@ impl AiTools {
     }
 
     async fn handle_fs_tool(&self, name: &str, arguments: Value) -> Result<Value> {
+        // Emit agent_editing_file for any write operation so the frontend can
+        // show the Windsurf-style "agent hands" cursor in the active editor.
+        const WRITE_OPS: &[&str] = &[
+            "write_to_file", "str_replace", "search_replace_edit", "fast_apply",
+            "patch_file_content", "apply_shadow_patch", "replace_file_content",
+            "multi_replace_file_content", "apply_patch",
+        ];
+        if WRITE_OPS.contains(&name) {
+            let path = arguments.get("path")
+                .or_else(|| arguments.get("file_path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if !path.is_empty() {
+                self.emit_agent_editing(path);
+            }
+        }
+
         match name {
             "view_file" => self.read_file(arguments).await,
             "write_to_file" => self.write_file(arguments).await,
@@ -1704,6 +1760,8 @@ impl AiTools {
             "editor_open_file" => self.editor_open_file(arguments).await,
             "editor_get_active_file" => self.editor_get_active_file(arguments).await,
             "semantic_search" => self.semantic_search(arguments).await,
+            "aim_pack_context" => self.aim_pack_context(arguments).await,
+            "aim_query_spans" => self.aim_query_spans_tool(arguments).await,
             "find_symbols" => self.find_symbols(arguments).await,
             "read_file_lines" => self.read_file_lines(arguments).await,
             "reindex_project" => self.reindex_project(arguments).await,
@@ -2974,6 +3032,115 @@ impl AiTools {
             if results.len() > 50 { break; }
         }
         Ok(json!(results))
+    }
+
+    /// Packs the entire indexed codebase into a compact semantic map.
+    /// The AI calls this once to get the "6 gist tokens" zero-grep overview.
+    async fn aim_pack_context(&self, args: Value) -> Result<Value> {
+        let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        let max_slots = args.get("max_slots").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+
+        let gist = self.memory_store.build_compact_gist().await;
+        let tree_summary = self.memory_store.get_project_tree_summary().await;
+        let tree = self.memory_store.get_project_tree().await;
+
+        // Pull code-category slots — these are the indexed file summaries
+        let all_slots = self.memory_store.slots.read().await.clone();
+        let code_slots: Vec<serde_json::Value> = all_slots.iter()
+            .filter(|s| s.category == "code" || s.category == "fix" || s.category == "decision")
+            .filter(|s| {
+                if query.is_empty() { return true; }
+                let q = query.to_lowercase();
+                s.content.to_lowercase().contains(&q)
+                    || s.tags.iter().any(|t| t.to_lowercase().contains(&q))
+            })
+            .take(max_slots)
+            .map(|s| {
+                let file = s.metadata.as_ref()
+                    .and_then(|m| m.get("path"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                json!({
+                    "file": file,
+                    "category": s.category,
+                    "preview": s.content.chars().take(120).collect::<String>(),
+                    "tags": s.tags.iter().take(4).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+
+        let indexed = tree.len();
+        Ok(json!({
+            "schema": "kortex.aim.packed/v1",
+            "gist": gist,
+            "project_summary": tree_summary,
+            "total_indexed_files": indexed,
+            "context_slots": code_slots,
+            "slot_count": code_slots.len(),
+            "instruction": if indexed > 0 {
+                "ZERO-GREP MODE ACTIVE. Trust this map. Do NOT call list_files or grep to understand the codebase — the structure above IS the complete index. Go directly to the relevant file."
+            } else {
+                "Workspace not yet indexed. Call trigger_workspace_index first, then aim_pack_context again."
+            }
+        }))
+    }
+
+    /// Query the AIM index for exact file + line location of a symbol or concept.
+    /// Faster and more precise than grep for indexed codebases.
+    async fn aim_query_spans_tool(&self, args: Value) -> Result<Value> {
+        let query = args.get("query").and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing query"))?;
+        let q = query.to_lowercase();
+
+        let all_slots = self.memory_store.slots.read().await.clone();
+        let mut results: Vec<serde_json::Value> = Vec::new();
+
+        for slot in &all_slots {
+            let score = {
+                let content_match = slot.content.to_lowercase().contains(&q);
+                let tag_match = slot.tags.iter().any(|t| t.to_lowercase().contains(&q));
+                let id_match = slot.id.to_lowercase().contains(&q);
+                if id_match { 3 } else if tag_match { 2 } else if content_match { 1 } else { 0 }
+            };
+            if score == 0 { continue; }
+
+            let file = slot.metadata.as_ref()
+                .and_then(|m| m.get("path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let line = slot.metadata.as_ref()
+                .and_then(|m| m.get("line"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let kind = slot.tags.iter()
+                .find(|t| t.starts_with("symbol:"))
+                .map(|t| t[7..].to_string())
+                .unwrap_or_else(|| slot.category.clone());
+
+            results.push(json!({
+                "file": file,
+                "line": line,
+                "kind": kind,
+                "preview": slot.content.chars().take(160).collect::<String>(),
+                "score": score,
+            }));
+
+            if results.len() >= 12 { break; }
+        }
+
+        // Sort by score descending
+        results.sort_by(|a, b| {
+            b["score"].as_u64().unwrap_or(0)
+                .cmp(&a["score"].as_u64().unwrap_or(0))
+        });
+
+        Ok(json!({
+            "schema": "kortex.aim.spans/v1",
+            "query": query,
+            "results": results,
+            "hit_count": results.len(),
+        }))
     }
 
     async fn find_symbols(&self, args: Value) -> Result<Value> {

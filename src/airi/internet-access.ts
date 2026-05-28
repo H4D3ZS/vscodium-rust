@@ -6,6 +6,7 @@
 
 import type { Ollama } from 'ollama';
 import { createSharedOllama } from './shared-ollama';
+import { getModel } from './model-config';
 import * as https from 'https';
 import * as http from 'http';
 
@@ -36,7 +37,9 @@ export class AIRIInternetAccess {
   private ollama: Ollama;
   private browsingHistory: WebPage[];
   private searchHistory: SearchQuery[];
-  private readonly MODEL = 'qwen3.6:14b-q4_K_M';
+  private getModelName(): string {
+    return getModel('social');
+  }
   private autoBrowseInterval: NodeJS.Timeout | null = null;
   private knowledgeGoals: string[] = [];
 
@@ -96,7 +99,7 @@ Respond with queries separated by newlines.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -248,7 +251,7 @@ SUMMARY: [brief summary]
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });

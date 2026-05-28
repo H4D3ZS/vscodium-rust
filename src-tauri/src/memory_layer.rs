@@ -1,12 +1,15 @@
 use anyhow::Result;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct MemoryLayer {
     root_path: PathBuf,
     hades_dir: PathBuf,
+    /// Optional link to the AI engine's persistent memory store for semantic search.
+    memory_store: Option<Arc<crate::memory_store::MemoryStore>>,
 }
 
 impl MemoryLayer {
@@ -15,11 +18,18 @@ impl MemoryLayer {
         if !hades_dir.exists() {
             let _ = fs::create_dir_all(&hades_dir);
         }
-        
+
         Self {
             root_path,
             hades_dir,
+            memory_store: None,
         }
+    }
+
+    /// Wire in the persistent MemoryStore so search() and query_context()
+    /// delegate to real semantic retrieval instead of returning empty stubs.
+    pub fn set_memory_store(&mut self, store: Arc<crate::memory_store::MemoryStore>) {
+        self.memory_store = Some(store);
     }
 
     pub async fn mount_workspace(&self, path: PathBuf) -> Result<()> {
@@ -60,16 +70,34 @@ impl MemoryLayer {
     }
 
     pub async fn search(&self, query: &str) -> Result<serde_json::Value> {
-        // Mock search for now
+        if let Some(store) = &self.memory_store {
+            let context = store.retrieve_context(query).await;
+            return Ok(serde_json::json!({ "query": query, "results": context }));
+        }
         Ok(serde_json::json!({ "query": query, "results": [] }))
     }
 
     pub async fn query_context(&self, query: &str) -> Result<serde_json::Value> {
-        Ok(serde_json::json!({ "query": query, "context": self.get_aggregate_context().unwrap_or_default() }))
+        let aggregate = self.get_aggregate_context().unwrap_or_default();
+        if let Some(store) = &self.memory_store {
+            let semantic = store.retrieve_context(query).await;
+            return Ok(serde_json::json!({
+                "query": query,
+                "context": aggregate,
+                "semantic_context": semantic,
+                "gist": store.build_compact_gist().await
+            }));
+        }
+        Ok(serde_json::json!({ "query": query, "context": aggregate }))
     }
 
     pub async fn get_file_context(&self, path: &str) -> Result<serde_json::Value> {
-        Ok(serde_json::json!({ "path": path, "context": "None" }))
+        if let Some(store) = &self.memory_store {
+            if let Some(cached) = store.get_vfs_cache(&std::path::PathBuf::from(path)).await {
+                return Ok(serde_json::json!({ "path": path, "context": cached }));
+            }
+        }
+        Ok(serde_json::json!({ "path": path, "context": "Not cached — use view_file to load" }))
     }
 
     /// Appends a new decision to decisions.md

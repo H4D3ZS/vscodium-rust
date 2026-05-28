@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback, Suspense, lazy } from 'react';
 import { marked } from 'marked';
 import { airiBiology } from '../airi/biology';
 import { airiConsciousness } from '../airi/consciousness';
@@ -6,22 +6,102 @@ import { useStore } from '../store';
 import type { FileEntry } from '../store';
 import { invoke } from '../tauri_bridge';
 import MissionControl from './agent/MissionControl';
-import ResearchCenter from './agent/ResearchCenter';
-import { AiriPanel } from './AiriPanel';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
 import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';
-import AiriConversation from './AiriConversation';
 import MessageBody from './agent/MessageBody';
-import UnifiedEmulatorPanel from './UnifiedEmulatorPanel';
-import SpecsManager from './SpecsManager';
-import RulesManager from './RulesManager';
 import { Check, Activity, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+
+// Lazy-load heavy panels — only load Three.js/VRM/Emulator code when the
+// user actually opens those tabs. Keeps initial renderer RAM under 250MB.
+const AiriPanel = lazy(() => import('./AiriPanel').then(m => ({ default: m.AiriPanel })));
+const ResearchCenter = lazy(() => import('./agent/ResearchCenter'));
+const UnifiedEmulatorPanel = lazy(() => import('./UnifiedEmulatorPanel'));
+const SpecsManager = lazy(() => import('./SpecsManager'));
+const RulesManager = lazy(() => import('./RulesManager'));
 
 
 // ── Restore-checkpoint banner ────────────────────────────────────────────
 // Shows above the chat input whenever an agent turn just auto-snapshotted
 // the workspace, giving the user a one-click "undo the AI's edits" path.
+// ── Plan approval banner ──────────────────────────────────────────────────
+// Appears when the agent outputs AWAITING_APPROVAL in plan mode.
+// User reviews the plan and clicks Approve to resume execution.
+const PlanApprovalBanner: React.FC = () => {
+    const [planData, setPlanData] = React.useState<{ plan: string; iteration: number } | null>(null);
+    const [approving, setApproving] = React.useState(false);
+
+    React.useEffect(() => {
+        import('@tauri-apps/api/event').then(({ listen }) => {
+            const unlisten = listen('plan-approval-required', (event: any) => {
+                setPlanData(event.payload ?? null);
+            });
+            return () => { unlisten.then(f => f()); };
+        });
+    }, []);
+
+    if (!planData) return null;
+
+    const handleApprove = async () => {
+        setApproving(true);
+        try { await (await import('../tauri_bridge')).invoke('resume_ai_agent'); } catch { /* ignore */ }
+        setPlanData(null);
+        setApproving(false);
+    };
+
+    const handleReject = async () => {
+        try { await (await import('../tauri_bridge')).invoke('stop_ai_agent'); } catch { /* ignore */ }
+        setPlanData(null);
+    };
+
+    return (
+        <div style={{
+            display: 'flex', flexDirection: 'column', gap: 8,
+            padding: '10px 12px', marginBottom: 6,
+            background: 'rgba(245,158,11,0.07)',
+            border: '1px solid rgba(245,158,11,0.3)',
+            borderRadius: 8, fontSize: 11,
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 13 }}>📋</span>
+                <strong style={{ color: '#fbbf24' }}>Plan ready — approve to execute</strong>
+            </div>
+            {planData.plan && (
+                <pre style={{
+                    margin: 0, padding: '6px 10px',
+                    background: 'rgba(0,0,0,0.3)', borderRadius: 5,
+                    fontSize: 10, color: 'rgba(255,255,255,0.75)',
+                    maxHeight: 180, overflowY: 'auto', whiteSpace: 'pre-wrap',
+                }}>
+                    {planData.plan}
+                </pre>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                    disabled={approving}
+                    onClick={handleApprove}
+                    style={{
+                        flex: 1, padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5,
+                        background: '#d97706', color: '#fff', border: 'none', cursor: 'pointer',
+                    }}
+                >
+                    {approving ? '…' : '✓ Approve & Execute'}
+                </button>
+                <button
+                    onClick={handleReject}
+                    style={{
+                        padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5,
+                        background: 'rgba(248,113,113,0.15)', color: '#f87171',
+                        border: '1px solid rgba(248,113,113,0.3)', cursor: 'pointer',
+                    }}
+                >
+                    ✕ Cancel
+                </button>
+            </div>
+        </div>
+    );
+};
+
 const RestoreCheckpointBanner: React.FC = () => {
     const checkpoint = useStore(state => state.lastAgentCheckpoint);
     const rollback = useStore(state => state.rollbackLastAgentCheckpoint);
@@ -246,8 +326,24 @@ const ReasoningToggle: React.FC = () => {
 const BackgroundAgentsTray: React.FC = () => {
     const bgAgents = useStore(state => state.backgroundAgents);
     const remove = useStore(state => state.removeBackgroundAgent);
+    const runBackground = useStore(state => state.runBackgroundAgent);
+    const clearAll = useStore(state => state.clearBackgroundAgents);
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    if (!bgAgents || bgAgents.length === 0) return null;
+    const [spawnPrompt, setSpawnPrompt] = useState('');
+    const [spawning, setSpawning] = useState(false);
+    const [showSpawn, setShowSpawn] = useState(false);
+
+    const handleSpawn = async () => {
+        if (!spawnPrompt.trim()) return;
+        setSpawning(true);
+        await runBackground(spawnPrompt.trim()).catch(() => {});
+        setSpawnPrompt('');
+        setSpawning(false);
+        setShowSpawn(false);
+    };
+
+    const running = bgAgents.filter(b => b.status === 'running').length;
+    const done = bgAgents.filter(b => b.status === 'done' || b.status === 'error').length;
     return (
         <div style={{
             marginBottom: 6, padding: 6,
@@ -255,11 +351,49 @@ const BackgroundAgentsTray: React.FC = () => {
             border: '1px solid rgba(96,165,250,0.2)',
             borderRadius: 8, fontSize: 11,
         }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, opacity: 0.7 }}>
-                <i className="codicon codicon-cloud" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 12 }} />
-                <span style={{ fontWeight: 600 }}>Background agents</span>
-                <span style={{ opacity: 0.5 }}>({bgAgents.length})</span>
+            {/* Header with spawn button */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <i className="codicon codicon-cloud" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 12, opacity: 0.7 }} />
+                <span style={{ fontWeight: 600, flex: 1, opacity: 0.7 }}>
+                    Parallel agents
+                    {running > 0 && <span style={{ marginLeft: 4, color: '#60a5fa' }}>({running} running)</span>}
+                </span>
+                {done > 0 && (
+                    <span onClick={clearAll} style={{ cursor: 'pointer', fontSize: 9, opacity: 0.5 }} title="Clear finished">clear</span>
+                )}
+                <span
+                    onClick={() => setShowSpawn(v => !v)}
+                    style={{ cursor: 'pointer', fontSize: 16, lineHeight: 1, color: '#60a5fa', fontWeight: 300 }}
+                    title="Spawn new background agent"
+                >⊕</span>
             </div>
+            {/* Spawn input */}
+            {showSpawn && (
+                <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                    <input
+                        autoFocus
+                        value={spawnPrompt}
+                        onChange={e => setSpawnPrompt(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleSpawn(); if (e.key === 'Escape') setShowSpawn(false); }}
+                        placeholder="Task for background agent…"
+                        style={{
+                            flex: 1, fontSize: 10, padding: '3px 6px',
+                            background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(96,165,250,0.3)',
+                            borderRadius: 3, color: '#fff', outline: 'none',
+                        }}
+                    />
+                    <button
+                        disabled={spawning || !spawnPrompt.trim()}
+                        onClick={handleSpawn}
+                        style={{ padding: '3px 8px', fontSize: 10, fontWeight: 700, background: '#1e3a5f', border: '1px solid #2563eb', borderRadius: 3, color: '#60a5fa', cursor: 'pointer' }}
+                    >{spawning ? '…' : '▶'}</button>
+                </div>
+            )}
+            {bgAgents.length === 0 && !showSpawn && (
+                <div style={{ fontSize: 10, opacity: 0.35, textAlign: 'center', padding: '3px 0' }}>
+                    Click ⊕ to spawn a parallel agent
+                </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {bgAgents.map(bg => {
                     const open = expandedId === bg.id;
@@ -1836,7 +1970,9 @@ const RightSidebar: React.FC = () => {
 
                         {/* Full-height 3D avatar */}
                         <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-                            <AiriPanel style={{ width: '100%', height: '100%' }} transparent={true} character={avatarCharacter} />
+                            <Suspense fallback={<div style={{ padding: 16, opacity: 0.4, fontSize: 11 }}>Loading 3D avatar…</div>}>
+                                <AiriPanel style={{ width: '100%', height: '100%' }} transparent={true} character={avatarCharacter} />
+                            </Suspense>
 
                             {/* Active tool pill — bottom of avatar */}
                             {liveToolCalls[0] && liveToolCalls[0].status === 'running' && (
@@ -2010,7 +2146,9 @@ const RightSidebar: React.FC = () => {
                                             border: messages.length === 0 ? 'none' : '1px solid rgba(255,255,255,0.1)',
                                             transition: 'all 0.3s ease-in-out'
                                         }}>
-                                            <AiriPanel style={{ width: '100%', height: '100%' }} scale={messages.length === 0 ? 0.5 : 0.6} yOffset={messages.length === 0 ? "-44%" : "-44%"} transparent={true} character={avatarCharacter} />
+                                            <Suspense fallback={<div style={{ padding: 16, opacity: 0.4, fontSize: 11 }}>Loading 3D avatar…</div>}>
+                                                <AiriPanel style={{ width: '100%', height: '100%' }} scale={messages.length === 0 ? 0.5 : 0.6} yOffset={messages.length === 0 ? "-44%" : "-44%"} transparent={true} character={avatarCharacter} />
+                                            </Suspense>
                                         </div>
                                         {messages.length === 0 && (
                                             <div style={{ marginTop: '2px', textAlign: 'center', pointerEvents: 'auto' }}>
@@ -2320,7 +2458,9 @@ const RightSidebar: React.FC = () => {
                             </div>
                         ) : view === 'emulator' ? (
                             <div className="right-sidebar-active-surface" style={{ justifyContent: 'flex-start', alignItems: 'stretch' }}>
-                                <UnifiedEmulatorPanel />
+                                <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading emulator panel…</div>}>
+                                    <UnifiedEmulatorPanel />
+                                </Suspense>
                             </div>
                         ) : view === 'kortex' ? (
                             /* Kortex .aim Brain Panel */
@@ -2440,11 +2580,17 @@ const RightSidebar: React.FC = () => {
                         ) : view === 'dashboard' ? (
                             <MissionControl />
                         ) : view === 'research' ? (
-                            <ResearchCenter />
+                            <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading research center…</div>}>
+                                <ResearchCenter />
+                            </Suspense>
                         ) : view === 'specs' ? (
-                            <SpecsManager />
+                            <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading specs…</div>}>
+                                <SpecsManager />
+                            </Suspense>
                         ) : view === 'rules' ? (
-                            <RulesManager />
+                            <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading rules…</div>}>
+                                <RulesManager />
+                            </Suspense>
                         ) : null}
                     </div>
                 )}
@@ -2495,6 +2641,7 @@ const RightSidebar: React.FC = () => {
                                 ))}
                             </div>
                         )}
+                        <PlanApprovalBanner />
                         <RestoreCheckpointBanner />
                         {isContinuousMode && (
                             <div style={{

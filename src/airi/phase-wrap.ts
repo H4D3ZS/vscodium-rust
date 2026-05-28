@@ -16,6 +16,7 @@ import { airiMemory } from './memory';
 import { airiBiology } from './biology';
 import { airiVRMAvatar } from './vrm-avatar';
 import { airiSelfLearning } from './self-learning';
+import { getModel } from './model-config';
 import { invoke } from '../tauri_bridge';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -137,7 +138,7 @@ Energy: ${biology.energy}%, Mood: ${biology.mood}
 
     try {
       const response = await ollama.generate({
-        model: 'qwen3.6:14b-q4_K_M',
+        model: getModel('self_learning'),
         prompt: `You are AIRI reflecting on your recent activity.
         
 CONTEXT:

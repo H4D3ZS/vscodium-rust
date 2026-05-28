@@ -282,6 +282,9 @@ pub struct Sentient {
     global_brain_cache: tokio::sync::Mutex<Option<String>>,
     pub harness: Arc<hades_harness::ReasoningLoop>,
     pub airi: Arc<tokio::sync::Mutex<Option<crate::airi_bridge::AiriBridge>>>,
+    /// Shared with EditorState::tool_permission_senders.
+    /// The frontend resolves dangerous-tool approvals by sending the bool here.
+    pub permission_senders: Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
 }
 
 impl Sentient {
@@ -380,6 +383,7 @@ impl Sentient {
             global_brain_cache: tokio::sync::Mutex::new(None),
             harness: Arc::new(hades_harness::ReasoningLoop::new(&root_path)),
             airi: Arc::new(tokio::sync::Mutex::new(None)),
+            permission_senders: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -510,6 +514,8 @@ impl Sentient {
     /// and raises iteration ceiling to 200. Full sentient autonomy.
     pub fn set_yolo_mode(&self, enabled: bool) {
         self.yolo_mode.store(enabled, Ordering::SeqCst);
+        // Mirror to env var so ToolInvoker bypasses permission dialogs in yolo mode.
+        unsafe { std::env::set_var("AIRI_YOLO_MODE", if enabled { "1" } else { "0" }); }
         println!("[Sentient] Yolo mode: {}", if enabled { "ENGAGED" } else { "OFF" });
     }
 
@@ -632,6 +638,17 @@ impl Sentient {
 
     pub async fn optimize_memory(&self) -> Result<()> {
         let mut state = self.conversation_state.lock().await;
+        // Hard cap: never allow more than 100 messages in conversation state.
+        // Phase-wrap should already keep it tiny, but this catches edge cases.
+        if state.len() > 100 {
+            // Extract system message BEFORE mutating the vec
+            let sys = state.iter().find(|m| m.role == "system").cloned();
+            let keep_from = state.len().saturating_sub(50);
+            let keep: Vec<ChatMessage> = state.drain(keep_from..).collect();
+            state.clear();
+            if let Some(s) = sys { state.push(s); }
+            state.extend(keep);
+        }
         if state.len() <= 5 {
             return Ok(());
         }
@@ -806,6 +823,34 @@ impl Sentient {
         false
     }
 
+    /// Rough token estimate for a message slice (~4 chars/token + 8 overhead/msg).
+    fn estimate_messages_tokens(messages: &[ChatMessage]) -> usize {
+        messages.iter().map(|m| {
+            let content_chars = m.content.as_ref().map(|c| c.as_str().len()).unwrap_or(0);
+            let tool_chars = m.tool_calls.as_ref()
+                .map(|tc| tc.iter().map(|t| t.function.arguments.len() + 64).sum::<usize>())
+                .unwrap_or(0);
+            (content_chars + tool_chars) / 4 + 8
+        }).sum()
+    }
+
+    /// Approximate context-window token limit for a model name.
+    fn model_context_limit(model: &str) -> usize {
+        let m = model.to_lowercase();
+        if m.contains("claude") { return 180_000; }
+        if m.contains("gpt-4o") || m.contains("gpt-4-turbo") { return 128_000; }
+        if m.contains("gemini") { return 128_000; }
+        if let Some(n) = Self::parse_model_param_count(&m) {
+            return match n {
+                0..=7   => 8_192,
+                8..=13  => 16_384,
+                14..=32 => 32_768,
+                _       => 65_536,
+            };
+        }
+        32_768
+    }
+
     /// Returns the recommended `num_ctx` for a given model name.
     /// Tiered by model size to balance quality vs. VRAM/RAM on RX 580 + 40GB system RAM.
     /// Large models (14B+) use CPU-offloaded layers → can afford bigger context from RAM.
@@ -937,20 +982,26 @@ impl Sentient {
             let u = self.ollama_url.lock().await;
             normalize_ollama_base_url(&u)
         };
-        for path in ["/api/tags", "/v1/api/tags"] {
-            let mut req = self.client.get(format!("{}{}", url, path));
-            let k = self.get_key_for_provider("ollama");
-            if !k.trim().is_empty() {
-                req = req.bearer_auth(k.trim());
-            }
-            match req
-                .timeout(std::time::Duration::from_secs(3))
-                .send()
-                .await
-            {
-                Ok(r) if r.status().is_success() => return Ok(true),
-                Ok(r) if r.status().as_u16() == 404 => continue, // try /v1 fallback
-                Ok(_) | Err(_) => return Ok(false),
+        let mut urls = vec![url.clone()];
+        if url.contains(":1536") {
+            urls.push(url.replace(":1536", ":11434"));
+        }
+        for u in urls {
+            for path in ["/api/tags", "/v1/api/tags"] {
+                let mut req = self.client.get(format!("{}{}", u, path));
+                let k = self.get_key_for_provider("ollama");
+                if !k.trim().is_empty() {
+                    req = req.bearer_auth(k.trim());
+                }
+                match req
+                    .timeout(std::time::Duration::from_secs(3))
+                    .send()
+                    .await
+                {
+                    Ok(r) if r.status().is_success() => return Ok(true),
+                    Ok(r) if r.status().as_u16() == 404 => continue, // try /v1 fallback
+                    _ => {}
+                }
             }
         }
         Ok(false)
@@ -1355,22 +1406,26 @@ impl Sentient {
                     let memory_path = root.join(file_name);
                     if memory_path.exists() {
                         if let Ok(content) = std::fs::read_to_string(&memory_path) {
-                            mem.push_str(&format!("\n### Workspace Memory: {}\n{}\n", file_name, content));
+                            // Cap per memory-file to 3000 chars to keep RSS bounded
+                            let snippet = if content.len() > 3000 {
+                                format!("{}...(truncated)", &content[..3000])
+                            } else { content };
+                            mem.push_str(&format!("\n### Workspace Memory: {}\n{}\n", file_name, snippet));
                         }
                     }
                 }
                 
-                // Inject massive memory: file tree summary
+                // Inject file tree summary — hard cap at 50 entries to limit cache size.
+                // The AIM BRAIN section already contains a richer semantic summary.
                 let tree = self.memory_store.get_project_tree().await;
                 if !tree.is_empty() {
-                    let tree_summary = if tree.len() > 100 {
-                        let sub = &tree[..100];
-                        format!("Recursive Project Tree ({} files):\n{}\n... (+{} more)", 
-                            tree.len(), sub.join("\n"), tree.len() - 100)
-                    } else {
-                        format!("Recursive Project Tree ({} files):\n{}", 
-                            tree.len(), tree.join("\n"))
-                    };
+                    let display = tree.iter().take(50).cloned().collect::<Vec<_>>();
+                    let tree_summary = format!(
+                        "Project ({} files total, top 50 shown):\n{}{}",
+                        tree.len(),
+                        display.join("\n"),
+                        if tree.len() > 50 { format!("\n... +{} more", tree.len() - 50) } else { String::new() }
+                    );
                     mem.push_str(&format!("\n### codebase_index:\n{}\n", tree_summary));
                 }
 
@@ -1423,18 +1478,41 @@ impl Sentient {
             }
         }
 
-        // Inject Kortex brain into prompt.
-        // Cloud models (Anthropic/Google/OpenAI): full knowledge summary — they have huge context.
-        // Ollama models: always use compact gist to preserve context budget.
-        // Small models: use compact gist regardless of provider.
+        // ── Kortex AIM Brain Injection ────────────────────────────────────────
+        // The compact gist is ~100 tokens. Always inject for ALL providers —
+        // even 8K-context Ollama models can afford it. Only the verbose full
+        // knowledge summary (thousands of tokens) is gated to cloud models.
         {
-            let use_compact = is_ollama_provider || Self::is_small_model_name(&req.model);
-            if use_compact {
-                let compact_gist = self.memory_store.build_compact_gist().await;
-                if !compact_gist.is_empty() {
-                    project_memory.push_str(&format!("\n### BRAIN:\n{}\n", compact_gist));
-                }
+            let compact_gist = self.memory_store.build_compact_gist().await;
+            let tree_summary = self.memory_store.get_project_tree_summary().await;
+            let indexed_count = self.memory_store.get_project_tree().await.len();
+
+            // Build the zero-grep BRAIN section — always present
+            let brain_header = if indexed_count > 0 {
+                format!(
+                    "\n### BRAIN (Kortex AIM — {} files indexed, zero-grep mode)\n\
+                     DO NOT call list_files, grep, or view_file to understand structure.\n\
+                     The index below IS the codebase map. Go directly to the relevant file.\n\
+                     Use aim_pack_context for deeper context or aim_query_spans to find symbols.\n",
+                    indexed_count
+                )
             } else {
+                "\n### BRAIN (Kortex AIM — workspace not yet indexed)\n\
+                 Call aim_pack_context to load the semantic index, or proceed with normal file tools.\n"
+                .to_string()
+            };
+            project_memory.push_str(&brain_header);
+
+            if !tree_summary.is_empty() {
+                project_memory.push_str(&format!("PROJECT STRUCTURE: {}\n", tree_summary));
+            }
+
+            if !compact_gist.is_empty() {
+                project_memory.push_str(&format!("MEMORY GIST:\n{}\n", compact_gist));
+            }
+
+            // Cloud models also get the full verbose knowledge summary
+            if !is_ollama_provider && !Self::is_small_model_name(&req.model) {
                 let kortex_summary = self.memory_store.get_knowledge_summary().await;
                 if !kortex_summary.is_empty() {
                     project_memory.push_str(&kortex_summary);
@@ -1703,6 +1781,16 @@ impl Sentient {
                 "verify_implementation",
                 "dev_cargo_diagnostics", "get_lsp_diagnostics", "save_knowledge_brief",
                 "secrets_scan", "project_rules",
+                // AIM VFS zero-grep tools — always available for local models
+                "aim_pack_context", "aim_query_spans",
+                // Offensive security tools — CORE IDE STRENGTH. Always available
+                // even on small local models. Stripping these would gut the
+                // red-team/pentest/bug-bounty playbooks documented in the
+                // system prompt's CYBERSECURITY OPERATIONS section.
+                "weaponize_env", "apex_red_team_scan", "apex_quick_check",
+                "apex_threat_anticipate", "apex_simulate_attack", "apex_pentest_report",
+                "binary_mach_o_scanner", "file_entropy_analysis", "network_port_scanner",
+                "extract_strings", "hex_dump", "apex_scan_url",
             ];
             tools.retain(|t| {
                 let name = t["function"]["name"].as_str()
@@ -1710,6 +1798,61 @@ impl Sentient {
                     .unwrap_or("");
                 OLLAMA_ESSENTIAL_TOOLS.contains(&name)
             });
+
+            // Task-aware secondary filter: reduce tool set further based on task domain.
+            // Detects keywords in the first user message and drops irrelevant tool groups.
+            let task_desc = messages.iter().rev()
+                .find(|m| m.role == "user")
+                .and_then(|m| m.content.as_ref().map(|c| c.as_str().to_lowercase()))
+                .unwrap_or_default();
+            let domain_tools: Option<&[&str]> = if task_desc.contains("rust") || task_desc.contains("cargo") {
+                Some(&["view_file","list_files","write_to_file","str_replace","search_replace_edit",
+                       "apply_shadow_patch","fast_apply","patch_file_content","search_codebase",
+                       "find_symbols","grep","run_command","dev_cargo_diagnostics","verify_implementation",
+                       "git_status","git_diff","git_add","git_commit","save_knowledge_brief"])
+            } else if task_desc.contains("pentest") || task_desc.contains("exploit")
+                || task_desc.contains("vuln") || task_desc.contains("security")
+                || task_desc.contains("red team") || task_desc.contains("attack")
+                || task_desc.contains("weaponize") || task_desc.contains("payload")
+                || task_desc.contains("bug bounty") || task_desc.contains("malware")
+                || task_desc.contains("reverse") || task_desc.contains("ctf")
+            {
+                Some(&[
+                    // Recon
+                    "view_file","list_files","grep","search_codebase","find_symbols",
+                    "find_by_name","get_directory_structure","read_file_lines",
+                    // Execution (PoC builds, payload runs)
+                    "run_command","write_to_file","str_replace","search_replace_edit",
+                    "apply_shadow_patch","create_directory",
+                    // Offensive security — CORE STRENGTH, never strip
+                    "secrets_scan","weaponize_env","apex_red_team_scan","apex_quick_check",
+                    "apex_threat_anticipate","apex_simulate_attack","apex_pentest_report",
+                    "apex_scan_url","binary_mach_o_scanner","file_entropy_analysis",
+                    "network_port_scanner","extract_strings","hex_dump",
+                    // Research
+                    "web_fetch","web_search","perplexity_ask","browser_open","browser_navigate",
+                    "browser_screenshot","browser_read_dom",
+                    // Workflow
+                    "project_rules","save_knowledge_brief","verify_implementation",
+                ])
+            } else if task_desc.contains("react") || task_desc.contains("typescript") || task_desc.contains("frontend") || task_desc.contains("javascript") {
+                Some(&["view_file","list_files","write_to_file","str_replace","search_replace_edit",
+                       "apply_shadow_patch","fast_apply","search_codebase","find_symbols",
+                       "grep","run_command","verify_implementation","save_knowledge_brief"])
+            } else if task_desc.contains("android") || task_desc.contains("adb") || task_desc.contains("apk") {
+                Some(&["view_file","list_files","write_to_file","str_replace","run_command",
+                       "grep","search_codebase","save_knowledge_brief"])
+            } else {
+                None
+            };
+            if let Some(domain) = domain_tools {
+                tools.retain(|t| {
+                    let name = t["function"]["name"].as_str()
+                        .or_else(|| t["name"].as_str())
+                        .unwrap_or("");
+                    domain.contains(&name)
+                });
+            }
         }
 
 
@@ -2038,10 +2181,25 @@ impl Sentient {
                 phase_files_written.clear();
             }
 
+            // Emergency context overflow guard: catches intra-phase bloat that slips
+            // between scheduled phase-wraps. Small Ollama models (8K ctx) can overflow
+            // within a single 12-iteration phase if tool results are large.
+            {
+                let estimated = Self::estimate_messages_tokens(&messages);
+                let limit = Self::model_context_limit(&req.model);
+                if iteration > 0 && estimated > limit * 85 / 100 {
+                    println!("[AI] Context guard: ~{} tokens exceeds 85% of {} limit. Forcing early phase-wrap.",
+                        estimated, limit);
+                    self.auto_phase_wrap(&mut messages, iteration as u32, &phase_files_written).await;
+                    phase_files_written.clear();
+                }
+            }
+
             let mut active_provider = req.provider.clone();
             let mut active_model = req.model.clone();
 
             // 1. Advisor Delegation: Use more powerful model for the first planning iteration if configured
+            let mut was_advisor_iteration = false;
             if iteration == 0 {
                 let advisor = self.advisor_model.lock().await;
                 if let Some(model) = advisor.as_ref() {
@@ -2050,6 +2208,7 @@ impl Sentient {
                         model
                     );
                     active_model = model.clone();
+                    was_advisor_iteration = true;
                     // Auto-route to Anthropic if 'claude' is in the name, otherwise default to req.provider
                     if model.to_lowercase().contains("claude") {
                         active_provider = "anthropic".to_string();
@@ -2443,7 +2602,7 @@ impl Sentient {
                 } else if provider_lc == "openai" || provider_lc == "xai" {
                     let effort = req.reasoning_effort.as_deref().unwrap_or("medium");
                     payload["reasoning_effort"] = json!(effort);
-                } else if provider_lc == "google" {
+                } else if provider_lc == "google" || provider_lc == "gemini" {
                     if let Some(budget) = req.reasoning_budget {
                         payload["generationConfig"] = json!({
                             "thinkingConfig": { "thinkingBudget": budget }
@@ -2567,10 +2726,11 @@ impl Sentient {
                 request = request
                     .header("x-api-key", &provider_key)
                     .header("anthropic-version", "2023-06-01");
-            } else if active_provider.to_lowercase() == "google" {
+            } else if active_provider.to_lowercase() == "google" || active_provider.to_lowercase() == "gemini" {
                 // Google OpenAI-compat endpoint (/v1beta/openai/chat/completions) requires
                 // standard Bearer auth — NOT the ?key= query param used by native endpoints.
-                request = request.bearer_auth(&provider_key);
+                request = request.bearer_auth(&provider_key)
+                                 .header("x-goog-api-key", &provider_key);
             } else if active_provider.to_lowercase() == "ollama" {
                 let k = self.get_key_for_provider("ollama");
                 if !k.trim().is_empty() {
@@ -2580,13 +2740,62 @@ impl Sentient {
                 request = request.bearer_auth(&provider_key);
             }
 
-            let mut response = request
+            let mut response_result = request
                 .try_clone()
                 .ok_or_else(|| anyhow!("Failed to clone request builder"))?
                 .json(&payload)
                 .send()
-                .await
-                .map_err(|e| anyhow!("HTTP request failed: {}", e))?;
+                .await;
+
+            if response_result.is_err() && endpoint.contains(":1536") {
+                let provider_lc = active_provider.to_lowercase();
+                let fallback_endpoint = if provider_lc == "google" || provider_lc == "gemini" {
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string()
+                } else if provider_lc == "openai" {
+                    "https://api.openai.com/v1/chat/completions".to_string()
+                } else if provider_lc == "anthropic" {
+                    "https://api.anthropic.com/v1/messages".to_string()
+                } else {
+                    endpoint.replace(":1536", ":11434")
+                };
+
+                println!("[AI] Proxy port 1536 unreachable, retrying directly on fallback: {}", fallback_endpoint);
+                let mut fallback_request = self.client.post(fallback_endpoint);
+                
+                if provider_lc == "google" || provider_lc == "gemini" {
+                    fallback_request = fallback_request.bearer_auth(&provider_key)
+                                                         .header("x-goog-api-key", &provider_key);
+                } else if provider_lc == "ollama" {
+                    let k = self.get_key_for_provider("ollama");
+                    if !k.trim().is_empty() {
+                        fallback_request = fallback_request.bearer_auth(k.trim());
+                    }
+                } else {
+                    fallback_request = fallback_request.bearer_auth(&provider_key);
+                }
+
+                response_result = fallback_request
+                    .json(&payload)
+                    .send()
+                    .await;
+            }
+
+            let mut response = match response_result.map_err(|e| anyhow!("HTTP request failed: {}", e)) {
+                Ok(r) => r,
+                Err(e) if was_advisor_iteration => {
+                    // Advisor model unreachable or rejected — fall back to primary model.
+                    // Skip this iteration; next iteration 0 re-runs with req.model.
+                    println!("[AI] Advisor model failed ({}). Falling back to primary: {}",
+                        e, req.model);
+                    was_advisor_iteration = false;
+                    self.emit_event("ai-advisor-fallback", json!({
+                        "error": e.to_string(),
+                        "fallback_model": req.model
+                    }));
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
 
             if !response.status().is_success() {
                 let status = response.status();
@@ -3338,9 +3547,18 @@ impl Sentient {
                         action_tools_run_this_turn += 1;
                     }
 
-                    // Always execute the tool — never block
+                    // Execute the tool — with optional permission gate for dangerous ops.
+                    // The app_handle and permission_senders let the frontend dialog
+                    // approve/deny before the tool runs (B9 per-tool permission prompts).
+                    let app_handle_ref = self.app_handle.read().ok()
+                        .and_then(|g| g.clone());
                     let mut tool_result = self.tool_invoker
-                        .execute_tool(&tool_name, &tool_args_json.to_string())
+                        .execute_tool_with_permission(
+                            &tool_name,
+                            &tool_args_json.to_string(),
+                            app_handle_ref.as_ref(),
+                            Some(&self.permission_senders),
+                        )
                         .await;
 
                     // Append pre-check warning to result so AI sees it and can self-correct
@@ -3525,6 +3743,33 @@ impl Sentient {
                     // the explicit token `MISSION_ACCOMPLISHED` or `TASK_COMPLETE`
                     // (with the underscore) to stop the loop.
                     let upper = final_text.to_ascii_uppercase();
+
+                    // Plan-mode pause: model output AWAITING_APPROVAL → pause loop until
+                    // the frontend sends [PROCEED] (which calls resume_ai_agent).
+                    if upper.contains("AWAITING_APPROVAL") {
+                        // Emit plan content to the frontend panel
+                        let plan_content = {
+                            let start = final_text.find("<TASK_PLAN>").map(|i| i + 11).unwrap_or(0);
+                            let end = final_text.find("</TASK_PLAN>").unwrap_or(final_text.len());
+                            final_text[start..end].trim().to_string()
+                        };
+                        self.emit_event("plan-approval-required", json!({
+                            "plan": plan_content,
+                            "iteration": iteration
+                        }));
+                        println!("[AI] Plan mode: awaiting user approval. Loop paused.");
+                        self.pause_signal.store(true, Ordering::SeqCst);
+                        self.wait_if_paused().await; // blocks until resume_ai_agent clears the flag
+                        println!("[AI] Plan mode: user approved. Resuming execution.");
+                        // Inject PROCEED confirmation so the model knows to continue
+                        messages.push(ChatMessage {
+                            role: "user".to_string(),
+                            content: Some(MessageContent::Text("[PROCEED] Plan approved. Execute every step now.".to_string())),
+                            ..Default::default()
+                        });
+                        continue;
+                    }
+
                     let raw_completion_keyword = upper.contains("MISSION_ACCOMPLISHED")
                         || upper.contains("TASK_COMPLETE");
 
@@ -3583,6 +3828,27 @@ impl Sentient {
                              If you are truly done, write 'TASK_COMPLETE' on its own line."
                         }
                     };
+
+                    // When stuck: inject a synthetic ToolResult error for the repeated call
+                    // before the nudge message. This signals to the model that its repeated
+                    // approach actively failed, which is stronger than a plain text nudge.
+                    if stuck {
+                        let repeated_tool = recent_tool_calls.last()
+                            .and_then(|fp| fp.split("::").next())
+                            .unwrap_or("unknown_tool")
+                            .to_string();
+                        messages.push(ChatMessage {
+                            role: "tool".to_string(),
+                            content: Some(MessageContent::Text(format!(
+                                "ERROR: Tool '{}' returned the same result 3 times in a row. \
+                                 This approach is not making progress. Do NOT call '{}' again with \
+                                 the same arguments. Try a different tool or a different path.",
+                                repeated_tool, repeated_tool
+                            ))),
+                            tool_call_id: Some(format!("stuck_guard_{}", iteration)),
+                            ..Default::default()
+                        });
+                    }
 
                     let nudge_for_mode = if stuck {
                         // Concrete escape from a loop
@@ -3767,16 +4033,45 @@ impl Sentient {
             request = request
                 .header("x-api-key", &key)
                 .header("anthropic-version", "2023-06-01");
-        } else if req.provider.to_lowercase() == "google" && !has_google_base_url {
-            let mut url = endpoint.clone();
-            if url.contains('?') { url.push_str(&format!("&key={}", key)); }
-            else { url.push_str(&format!("?key={}", key)); }
-            request = self.client.post(url).header("x-goog-api-key", &key);
+        } else if req.provider.to_lowercase() == "google" || req.provider.to_lowercase() == "gemini" {
+            request = request.bearer_auth(&key)
+                             .header("x-goog-api-key", &key);
         } else if !is_ollama {
             request = request.bearer_auth(&key);
         }
 
-        let resp = request.json(&payload).send().await?;
+        let mut response_result = request
+            .try_clone()
+            .ok_or_else(|| anyhow!("Failed to clone request builder"))?
+            .json(&payload)
+            .send()
+            .await;
+
+        if response_result.is_err() && endpoint.contains(":1536") {
+            let provider_lc = req.provider.to_lowercase();
+            let fallback_endpoint = if provider_lc == "google" || provider_lc == "gemini" {
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string()
+            } else if provider_lc == "openai" {
+                "https://api.openai.com/v1/chat/completions".to_string()
+            } else if provider_lc == "anthropic" {
+                "https://api.anthropic.com/v1/messages".to_string()
+            } else {
+                endpoint.replace(":1536", ":11434")
+            };
+
+            println!("[AI] Proxy port 1536 unreachable in single_shot_completion, retrying directly on fallback: {}", fallback_endpoint);
+            let mut fallback_request = self.client.post(fallback_endpoint);
+            
+            if provider_lc == "google" || provider_lc == "gemini" {
+                fallback_request = fallback_request.bearer_auth(&key)
+                                                     .header("x-goog-api-key", &key);
+            } else if !is_ollama {
+                fallback_request = fallback_request.bearer_auth(&key);
+            }
+            response_result = fallback_request.json(&payload).send().await;
+        }
+
+        let resp = response_result.map_err(|e| anyhow!("FIM HTTP request failed: {}", e))?;
         if !resp.status().is_success() {
             let body = resp.text().await.unwrap_or_default();
             return Err(anyhow!("FIM Error: {}", body));
@@ -3988,69 +4283,67 @@ impl Sentient {
                 let u = self.ollama_url.lock().await;
                 normalize_ollama_base_url(&u)
             };
-            // Try native `/api/tags`; if the proxy only exposes /v1/, retry
-            // through `/v1/api/tags` which `tools/vps-ollama-proxy` rewrites
-            // back to `/api/tags` upstream.
+            let mut bases = vec![base.clone()];
+            if base.contains(":1536") {
+                bases.push(base.replace(":1536", ":11434"));
+            }
             let key = self.get_key_for_provider("ollama");
             let bearer = key.trim();
             let mut last_err: Option<String> = None;
 
-            'attempt: for attempt in 0u32..6u32 {
-                for path in ["/api/tags", "/v1/api/tags"] {
-                    let url = format!("{}{}", base, path);
-                    let mut req = self.client.get(&url);
-                    if !bearer.is_empty() {
-                        req = req.bearer_auth(bearer);
-                    }
-                    match req.send().await {
-                        Ok(resp) if resp.status().is_success() => {
-                            let json: Value = resp.json().await?;
-                            let mut model_names = Vec::new();
-                            if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
-                                for m in models {
-                                    if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
-                                        model_names.push(name.to_string());
+            for current_base in &bases {
+                'attempt: for attempt in 0u32..6u32 {
+                    for path in ["/api/tags", "/v1/api/tags"] {
+                        let url = format!("{}{}", current_base, path);
+                        let mut req = self.client.get(&url);
+                        if !bearer.is_empty() {
+                            req = req.bearer_auth(bearer);
+                        }
+                        match req.send().await {
+                            Ok(resp) if resp.status().is_success() => {
+                                let json: Value = resp.json().await?;
+                                let mut model_names = Vec::new();
+                                if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
+                                    for m in models {
+                                        if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
+                                            model_names.push(name.to_string());
+                                        }
                                     }
                                 }
+                                return Ok(model_names);
                             }
-                            return Ok(model_names);
-                        }
-                        Ok(resp) if resp.status().as_u16() == 404 => {
-                            last_err = Some(format!("{} returned 404", url));
-                            continue;
-                        }
-                        Ok(resp) => {
-                            let status = resp.status();
-                            let code = status.as_u16();
-                            if (code == 503 || code == 429) && attempt < 5 {
-                                let ms = 400u64 * (1u64 << attempt).min(10_000);
-                                tokio::time::sleep(Duration::from_millis(ms)).await;
-                                continue 'attempt;
+                            Ok(resp) if resp.status().as_u16() == 404 => {
+                                last_err = Some(format!("{} returned 404", url));
+                                continue;
                             }
-                            let body = resp.text().await.unwrap_or_default();
-                            return Err(anyhow!(
-                                "Ollama list_models {} -> {}: {}",
-                                url,
-                                status,
-                                body.chars().take(200).collect::<String>()
-                            ));
-                        }
-                        Err(e) => {
-                            last_err = Some(e.to_string());
-                            continue;
+                            Ok(resp) => {
+                                let status = resp.status();
+                                let code = status.as_u16();
+                                if (code == 503 || code == 429) && attempt < 5 {
+                                    let ms = 400u64 * (1u64 << attempt).min(10_000);
+                                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                                    continue 'attempt;
+                                }
+                                let body = resp.text().await.unwrap_or_default();
+                                last_err = Some(format!("{} -> {}: {}", url, status, body.chars().take(100).collect::<String>()));
+                                continue;
+                            }
+                            Err(e) => {
+                                last_err = Some(e.to_string());
+                                continue;
+                            }
                         }
                     }
                 }
-                return Err(anyhow!(
-                    "Ollama list_models: neither /api/tags nor /v1/api/tags reachable on {} ({})",
-                    base,
-                    last_err.clone().unwrap_or_default()
-                ));
             }
-            unreachable!();
+            return Err(anyhow!(
+                "Ollama list_models: neither /api/tags nor /v1/api/tags reachable on any of bases {:?} (Last error: {})",
+                bases,
+                last_err.clone().unwrap_or_default()
+            ));
         }
 
-        let endpoint = if provider.to_lowercase() == "google" && has_google_base_url {
+        let endpoint = if (provider.to_lowercase() == "google" || provider.to_lowercase() == "gemini") && has_google_base_url {
             if custom_google_base.ends_with("/models") {
                 custom_google_base.clone()
             } else if custom_google_base.ends_with("/v1") {
@@ -4060,7 +4353,7 @@ impl Sentient {
             }
         } else {
             let endpoint_ref = match provider.to_lowercase().as_str() {
-                "google" => "https://generativelanguage.googleapis.com/v1beta/models",
+                "google" | "gemini" => "https://generativelanguage.googleapis.com/v1beta/models",
                 "openai" => "https://api.openai.com/v1/models",
                 "anthropic" => "https://api.anthropic.com/v1/models",
                 "groq" => "https://api.groq.com/openai/v1/models",
@@ -4085,7 +4378,7 @@ impl Sentient {
 
         let mut request = self.client.get(endpoint);
 
-        if provider.to_lowercase() == "google" {
+        if provider.to_lowercase() == "google" || provider.to_lowercase() == "gemini" {
             if has_google_base_url {
                 request = request.bearer_auth(&provider_key);
             } else {
@@ -4114,7 +4407,7 @@ impl Sentient {
         let mut model_ids = Vec::new();
 
         match provider.to_lowercase().as_str() {
-            "google" => {
+            "google" | "gemini" => {
                 if let Some(models) = result.get("models").and_then(|m| m.as_array()) {
                     for m in models {
                         if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
@@ -4353,6 +4646,8 @@ impl Sentient {
         // 1. Try OAuth token first
         let lookup_provider = if provider_base.contains("openwebui") {
             "openwebui"
+        } else if provider_base == "gemini" {
+            "google"
         } else {
             &provider_base
         };
@@ -4362,7 +4657,7 @@ impl Sentient {
 
         let env_var = match provider_base.as_str() {
             "anthropic" => "ANTHROPIC_API_KEY",
-            "google" => "GOOGLE_API_KEY",
+            "google" | "gemini" => "GOOGLE_API_KEY",
             "groq" => "GROQ_API_KEY",
             "openrouter" => "OPENROUTER_API_KEY",
             "deepseek" => "DEEPSEEK_API_KEY",
@@ -4391,6 +4686,11 @@ impl Sentient {
         let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
         if let Ok(content) = std::fs::read_to_string(&keys_path) {
             if let Ok(keys) = serde_json::from_str::<Value>(&content) {
+                // If provider is gemini, check both "google" and "gemini" keys
+                let lookup = if provider_base == "gemini" { "google" } else { &provider_base };
+                if let Some(key) = keys[lookup].as_str() {
+                    if !key.is_empty() { return key.to_string(); }
+                }
                 if let Some(key) = keys[provider_base.clone()].as_str() {
                     if !key.is_empty() { return key.to_string(); }
                 }
@@ -4403,7 +4703,7 @@ impl Sentient {
     fn get_endpoint(&self, provider: &str, req: &AiRequest) -> String {
         let provider_base = provider.split(':').next().unwrap_or(provider).to_lowercase();
         match provider_base.as_str() {
-            "google" => {
+            "google" | "gemini" => {
                 if let Ok(url) = std::env::var("GOOGLE_BASE_URL") {
                     if !url.is_empty() {
                         let base = url.trim().trim_end_matches('/').to_string();
@@ -4425,6 +4725,16 @@ impl Sentient {
                         }
                     }
                 }
+
+                // Check if Kortex proxy is alive on 1536
+                let is_proxy_alive = "127.0.0.1:1536"
+                    .parse::<std::net::SocketAddr>()
+                    .map(|addr| std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(50)).is_ok())
+                    .unwrap_or(false);
+                if is_proxy_alive {
+                    return "http://127.0.0.1:1536/v1beta/openai/chat/completions".to_string();
+                }
+
                 "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string()
             }
             "anthropic" => {
@@ -4541,6 +4851,16 @@ impl Sentient {
                         }
                     }
                 }
+
+                // Check if Kortex proxy is alive on 1536
+                let is_proxy_alive = "127.0.0.1:1536"
+                    .parse::<std::net::SocketAddr>()
+                    .map(|addr| std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(50)).is_ok())
+                    .unwrap_or(false);
+                if is_proxy_alive {
+                    return "http://127.0.0.1:1536/v1/chat/completions".to_string();
+                }
+
                 "https://api.openai.com/v1/chat/completions".to_string()
             }
         }

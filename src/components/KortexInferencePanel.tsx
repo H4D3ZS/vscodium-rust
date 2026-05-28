@@ -11,6 +11,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
 import {
     profileModel,
@@ -248,6 +249,56 @@ const KortexInferencePanel: React.FC = () => {
     // Refresh CCET efficiency on every prop change to keep the UI fresh.
     useEffect(() => { refreshCcetEfficiency(); }, [refreshCcetEfficiency]);
 
+    // ── AIM Workspace Index state ──────────────────────────────────────────
+    const [aimIndexStatus, setAimIndexStatus] = useState<'idle' | 'indexing' | 'done' | 'error'>('idle');
+    const [aimIndexStats, setAimIndexStats] = useState<{ files: number; slots: number; confidence: number } | null>(null);
+    const activeRoot = useStore(s => (s as any).activeRoot ?? '');
+
+    // Poll AIM trust manifest to show current index status
+    useEffect(() => {
+        import('../kortex/aim-vfs').then(({ getAimTrustManifest }) => {
+            getAimTrustManifest().then((m: any) => {
+                if (m && m.confidence > 0) {
+                    setAimIndexStats({
+                        files: m.total_files ?? m.file_count ?? 0,
+                        slots: m.slot_count ?? 0,
+                        confidence: m.confidence ?? 0,
+                    });
+                    setAimIndexStatus('done');
+                }
+            }).catch(() => {});
+        });
+
+        // Listen for index progress events
+        import('@tauri-apps/api/event').then(({ listen }) => {
+            const unlisten = listen('aim-index-progress', (event: any) => {
+                const status = event.payload?.status;
+                if (status === 'started') setAimIndexStatus('indexing');
+                else if (status === 'complete') {
+                    setAimIndexStatus('done');
+                    // Refresh stats
+                    import('../kortex/aim-vfs').then(({ getAimTrustManifest }) => {
+                        getAimTrustManifest().then((m: any) => {
+                            if (m) setAimIndexStats({ files: m.total_files ?? 0, slots: m.slot_count ?? 0, confidence: m.confidence ?? 0 });
+                        }).catch(() => {});
+                    });
+                }
+                else if (status === 'error') setAimIndexStatus('error');
+            });
+            return () => { unlisten.then(f => f()); };
+        });
+    }, []);
+
+    const onIndexWorkspace = async () => {
+        setAimIndexStatus('indexing');
+        try {
+            await invoke('trigger_workspace_index');
+        } catch (e) {
+            setAimIndexStatus('error');
+            setErr(`Index failed: ${e}`);
+        }
+    };
+
     // ─── actions ───────────────────────────────────────────────────────────
 
     const wrap = async <T,>(label: string, fn: () => Promise<T>) => {
@@ -346,6 +397,40 @@ const KortexInferencePanel: React.FC = () => {
 
     return (
         <div style={{ marginTop: 24 }}>
+
+            {/* ── AIM Workspace Index ─────────────────────────────────────── */}
+            <div style={{ ...sectionStyle, marginBottom: 8, borderColor: aimIndexStatus === 'done' ? 'rgba(74,222,128,0.3)' : 'var(--vscode-panel-border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ ...sectionTitleStyle, marginBottom: 0 }}>
+                        ⚡ AIM Workspace Index
+                    </span>
+                    <span style={{ fontSize: 10, opacity: 0.6 }}>
+                        {aimIndexStatus === 'idle' && 'Not indexed'}
+                        {aimIndexStatus === 'indexing' && '⟳ Indexing…'}
+                        {aimIndexStatus === 'done' && '✓ Ready'}
+                        {aimIndexStatus === 'error' && '✗ Error'}
+                    </span>
+                </div>
+                {aimIndexStats && aimIndexStatus === 'done' && (
+                    <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 8 }}>
+                        {aimIndexStats.files} files · {aimIndexStats.slots} slots · {aimIndexStats.confidence}% confidence
+                        <span style={{ marginLeft: 8, color: '#4ade80' }}>Zero-grep mode active</span>
+                    </div>
+                )}
+                {aimIndexStatus !== 'done' && (
+                    <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 8 }}>
+                        Index the workspace so AIRI understands your codebase without grepping every file.
+                    </div>
+                )}
+                <button
+                    style={btnStyle(aimIndexStatus === 'indexing' ? 'secondary' : 'primary')}
+                    disabled={aimIndexStatus === 'indexing'}
+                    onClick={onIndexWorkspace}
+                >
+                    {aimIndexStatus === 'indexing' ? '⟳ Indexing…' : '⚡ Index Workspace'}
+                </button>
+            </div>
+
             <h3 style={{
                 fontSize: 14,
                 fontWeight: 800,

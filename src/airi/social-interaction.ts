@@ -6,6 +6,7 @@
 
 import type { Ollama } from 'ollama';
 import { createSharedOllama } from './shared-ollama';
+import { getModel } from './model-config';
 
 export interface Relationship {
   personId: string;
@@ -28,7 +29,9 @@ export interface SocialContext {
 export class AIRISocialInteraction {
   private ollama: Ollama;
   private relationships: Map<string, Relationship>;
-  private readonly MODEL = 'qwen3.6:14b-q4_K_M';
+  private getModelName(): string {
+    return getModel('social') || 'airi-fast:latest';
+  }
   private currentContext: SocialContext | null = null;
 
   constructor() {
@@ -63,7 +66,7 @@ Respond with natural, warm, human-like response.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -93,7 +96,7 @@ Respond naturally, like a caring friend.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -163,7 +166,7 @@ Respond with just a number 0-1.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -191,7 +194,7 @@ Respond with just the emotion word.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
@@ -233,7 +236,7 @@ Be helpful but not intrusive.
 
     try {
       const response = await this.ollama.generate({
-        model: this.MODEL,
+        model: this.getModelName(),
         prompt,
         stream: false
       });
