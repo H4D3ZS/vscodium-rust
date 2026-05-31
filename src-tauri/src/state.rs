@@ -67,6 +67,12 @@ pub struct EditorState {
     pub browser_state: Arc<browser::BrowserState>,
     pub mcp_registry: Arc<McpRegistry>,
     pub terminal_buffers: tokio::sync::Mutex<HashMap<String, Vec<String>>>,
+    /// Unread PTY output, drained by the frontend via `terminal_take_pending`.
+    /// This is the PRIMARY terminal transport — the global `terminal-data`
+    /// event stream does not reliably reach the webview, so the UI polls this
+    /// instead. std::sync::Mutex so the blocking reader thread can append
+    /// without dropping bytes (best-effort try_lock would lose output).
+    pub terminal_pending: std::sync::Mutex<HashMap<String, String>>,
     pub ai_tools: Arc<ai_tools::AiTools>,
     pub memory_store: Arc<memory_store::MemoryStore>,
     pub memory_optimizer: Arc<memory_optimizer::MemoryOptimizer>,
@@ -319,6 +325,7 @@ impl EditorState {
             browser_state,
             mcp_registry: Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json"))),
             terminal_buffers: tokio::sync::Mutex::new(HashMap::new()),
+            terminal_pending: std::sync::Mutex::new(HashMap::new()),
             memory_optimizer,
             advisor_model: tokio::sync::Mutex::new(None),
             specs_db,

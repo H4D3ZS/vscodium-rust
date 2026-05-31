@@ -274,6 +274,13 @@ export class TerminalManager {
   // Per-terminal write buffers used until the underlying xterm has been
   // attached and is ready to receive `term.write`.
   private pendingWrites: Map<string, string[]> = new Map();
+  // Ids that have received at least one byte of PTY output. Used by the
+  // post-spawn watchdog to tell "shell is alive and talking" apart from
+  // "spawned but silent" (the chronic blank-terminal failure mode).
+  private firstDataIds: Set<string> = new Set();
+  // Poll timers per terminal. PTY output is pulled via `terminal_take_pending`
+  // (invoke) because the `terminal-data` event stream doesn't reach the webview.
+  private pollTimers: Map<string, any> = new Map();
   // Tracks which terminals have had `term.open()` called. We defer open() until
   // the element is attached to a sized container (in `attach()`) so xterm's
   // renderer doesn't initialize blank on a detached 0×0 element.
@@ -289,27 +296,46 @@ export class TerminalManager {
     if (this.dataListenerInstalled) return;
     this.dataListenerInstalled = true;
     try {
-      await listen('terminal-data', (event: any) => {
-        // Rust emits TerminalDataPayload { term_id, data }.
-        const payload = event?.payload || {};
-        const id: string | undefined = payload.term_id || payload.termId || payload.id;
-        const data: string | undefined = payload.data;
-        if (!id || typeof data !== 'string') return;
-        const inst = this.terminals.get(id);
-        if (inst) {
-          inst.term.write(data);
-          inst.lastOutput = data;
-        } else {
-          // Terminal not yet attached — buffer until createTerminal finishes.
-          const list = this.pendingWrites.get(id) || [];
-          list.push(data);
-          this.pendingWrites.set(id, list);
-        }
+      await listen('terminal-data', (_event: any) => {
+        // Intentionally a no-op. PTY output is rendered via polling
+        // (`terminal_take_pending`) because this event stream does not reliably
+        // reach the webview. The backend still emits it as a best-effort
+        // secondary, but writing here too would double-render the output on
+        // hosts where the event DOES fire. Kept subscribed for diagnostics.
       });
     } catch (err) {
       console.warn('[terminal] Failed to subscribe to terminal-data:', err);
       this.dataListenerInstalled = false;
     }
+  }
+
+  /** Begin polling the backend pending buffer for this terminal's PTY output. */
+  private startPolling(id: string): void {
+    if (this.pollTimers.has(id)) return;
+    const tick = async () => {
+      if (!this.terminals.has(id)) { this.stopPolling(id); return; }
+      try {
+        const chunk = await invoke<string>('terminal_take_pending', { id });
+        if (chunk) {
+          const inst = this.terminals.get(id);
+          if (inst) {
+            this.firstDataIds.add(id);
+            inst.term.write(chunk);
+            inst.lastOutput = chunk;
+          }
+        }
+      } catch {
+        /* backend not ready / terminal gone — keep ticking */
+      }
+    };
+    const timer = setInterval(tick, 35);
+    this.pollTimers.set(id, timer);
+    void tick(); // immediate first pull (don't wait a full interval)
+  }
+
+  private stopPolling(id: string): void {
+    const t = this.pollTimers.get(id);
+    if (t) { clearInterval(t); this.pollTimers.delete(id); }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -496,6 +522,40 @@ export class TerminalManager {
       if (result && typeof result === 'object' && 'pid' in result) {
         instance.pid = (result as any).pid;
       }
+
+      // ── PRIMARY transport: poll the backend pending buffer ─────────────────
+      // The `terminal-data` event stream does not reach the webview, so we pull
+      // PTY output via invoke (proven to work). ~35ms feels instant for a shell
+      // and returns an empty string when idle (cheap). Stopped in closeTerminal.
+      this.startPolling(id);
+
+      // ── Post-spawn watchdog ────────────────────────────────────────────────
+      // spawn_terminal returned without throwing, so the backend accepted the
+      // request. If NO PTY bytes arrive shortly after, the shell either died on
+      // launch or the event stream is broken — surface exactly which, and nudge
+      // the PTY with a newline (wakes a stalled ConPTY prompt) instead of
+      // leaving the user staring at a blank pane.
+      setTimeout(async () => {
+        if (this.firstDataIds.has(id)) return; // healthy — shell is talking
+        try {
+          await invoke('terminal_send_data', { id, data: '\r' });
+        } catch { /* writer gone */ }
+        setTimeout(async () => {
+          if (this.firstDataIds.has(id)) return;
+          let statusStr = 'unknown';
+          try {
+            const status = await invoke<any>('terminal_get_status', { id });
+            statusStr = JSON.stringify(status);
+          } catch (e: any) {
+            statusStr = `status check failed: ${e?.message || e}`;
+          }
+          if (this.firstDataIds.has(id)) return;
+          term.writeln(`\r\n\x1b[33m[diagnostic] no shell output after ~2s.\x1b[0m`);
+          term.writeln(`\x1b[33m[diagnostic] shell=${instance.shell}  backend-status=${statusStr}\x1b[0m`);
+          term.writeln(`\x1b[90mIf status shows active:false the shell exited on launch (bad exe/cwd).`);
+          term.writeln(`If active:true but still no prompt, the terminal-data event stream isn't reaching the UI.\x1b[0m`);
+        }, 700);
+      }, 1500);
 
       const fitNow = () => {
         try {
@@ -854,6 +914,7 @@ export class TerminalManager {
   async closeTerminal(id: string): Promise<void> {
     const instance = this.terminals.get(id);
     if (instance) {
+      this.stopPolling(id);
       const isActivity = this.activityIds.has(id);
       if (!isActivity) {
         try {

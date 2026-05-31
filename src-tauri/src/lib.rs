@@ -447,6 +447,7 @@ pub fn run() {
             terminal_commands::resize_terminal,
             terminal_commands::terminal_get_status,
             terminal_commands::terminal_read_output,
+            terminal_commands::terminal_take_pending,
             terminal_commands::terminal_terminate,
             terminal_commands::terminal_toggle,
             terminal_commands::get_available_shells,
