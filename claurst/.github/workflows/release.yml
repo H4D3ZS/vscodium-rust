@@ -1,0 +1,262 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.0.8)'
+        required: true
+        type: string
+
+# Only one release at a time — prevent races on the same tag.
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Preflight: validate branch, tag, and version match ──────────────
+  preflight:
+    runs-on: ubuntu-latest
+    name: Preflight checks
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Must be on main branch
+        run: |
+          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+            echo "::error::Releases must be triggered from the main branch (got ${{ github.ref }})"
+            exit 1
+          fi
+
+      - name: Tag must not already exist
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::Tag ${{ inputs.version }} already exists"
+            exit 1
+          fi
+
+      - name: Version tag must match Cargo.toml
+        run: |
+          CARGO_VERSION=$(grep '^version' src-rust/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          TAG_VERSION="${{ inputs.version }}"
+          TAG_VERSION="${TAG_VERSION#v}"  # strip leading v
+          if [[ "$CARGO_VERSION" != "$TAG_VERSION" ]]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match Cargo.toml ($CARGO_VERSION). Update Cargo.toml first."
+            exit 1
+          fi
+          echo "Version verified: $CARGO_VERSION"
+
+  # ── Build matrix ────────────────────────────────────────────────────
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact: claurst-windows-x86_64
+            ext: .exe
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: claurst-linux-x86_64
+            ext: ""
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: claurst-linux-aarch64
+            ext: ""
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: claurst-macos-x86_64
+            ext: ""
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: claurst-macos-aarch64
+            ext: ""
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.artifact }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Linux native: install system libraries for ALSA (voice feature) and OpenSSL.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux' && !matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+
+      # Linux ARM64: use cross for reliable cross-compilation (handles
+      # sysroot, OpenSSL, pkg-config, ALSA automatically via Docker).
+      - name: Install cross (aarch64-linux)
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-rust/target
+          key: ${{ matrix.target }}-cargo-${{ hashFiles('src-rust/Cargo.lock') }}
+          restore-keys: ${{ matrix.target }}-cargo-
+
+      - name: Build release binary (native)
+        if: ${{ !matrix.cross }}
+        working-directory: src-rust
+        run: cargo build --release --locked --package claurst --target ${{ matrix.target }}
+
+      - name: Create Cross.toml for cross-compilation
+        if: matrix.cross
+        working-directory: src-rust
+        run: |
+          cat > Cross.toml << 'EOF'
+          [target.aarch64-unknown-linux-gnu]
+          pre-build = [
+            "dpkg --add-architecture $CROSS_DEB_ARCH",
+            "apt-get update",
+            "apt-get install -y pkg-config libssl-dev:$CROSS_DEB_ARCH libasound2-dev:$CROSS_DEB_ARCH"
+          ]
+          EOF
+
+      - name: Build release binary (cross)
+        if: matrix.cross
+        working-directory: src-rust
+        run: cross build --release --locked --package claurst --target ${{ matrix.target }}
+
+      - name: Verify binary exists
+        shell: bash
+        run: |
+          BINARY="src-rust/target/${{ matrix.target }}/release/claurst${{ matrix.ext }}"
+          if [[ ! -f "$BINARY" ]]; then
+            echo "::error::Binary not found at $BINARY"
+            exit 1
+          fi
+          ls -lh "$BINARY"
+
+      - name: Package binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "src-rust/target/${{ matrix.target }}/release/claurst${{ matrix.ext }}" \
+             "dist/${{ matrix.artifact }}${{ matrix.ext }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}${{ matrix.ext }}
+
+  # ── Create GitHub release ───────────────────────────────────────────
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Create Release
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Verify all expected assets exist
+        run: |
+          EXPECTED=(
+            claurst-windows-x86_64
+            claurst-linux-x86_64
+            claurst-linux-aarch64
+            claurst-macos-x86_64
+            claurst-macos-aarch64
+          )
+          MISSING=()
+          for name in "${EXPECTED[@]}"; do
+            if [[ ! -d "artifacts/$name" ]]; then
+              MISSING+=("$name")
+            fi
+          done
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "::error::Missing artifacts: ${MISSING[*]}"
+            exit 1
+          fi
+          echo "All 5 artifacts present."
+
+      - name: Prepare release archives
+        run: |
+          mkdir -p release
+          for dir in artifacts/*/; do
+            name=$(basename "$dir")
+            binary=$(find "$dir" -maxdepth 1 -type f | head -1)
+            if [[ -z "$binary" ]]; then
+              echo "::error::No file in $dir"
+              exit 1
+            fi
+            if [[ "$binary" == *.exe ]]; then
+              (cd "$dir" && zip "../../release/${name}.zip" "$(basename "$binary")")
+            else
+              chmod +x "$binary"
+              tar -czf "release/${name}.tar.gz" -C "$dir" "$(basename "$binary")"
+            fi
+          done
+          echo "Release assets:"
+          ls -lh release/
+
+      - name: Generate release notes
+        shell: bash
+        run: |
+          CURRENT_TAG="${{ inputs.version }}"
+          PREVIOUS_TAG="$(git tag --sort=-v:refname | grep -vxF "$CURRENT_TAG" | head -n 1 || true)"
+          {
+            echo "# Claurst ${CURRENT_TAG}"
+            echo
+            if [[ -n "$PREVIOUS_TAG" ]]; then
+              echo "## Changes since ${PREVIOUS_TAG}"
+              echo
+              echo "Compare: https://github.com/${{ github.repository }}/compare/${PREVIOUS_TAG}...${{ github.sha }}"
+              echo
+              COMMITS="$(git log --no-merges --pretty=format:'- %s (%h)' "${PREVIOUS_TAG}..${{ github.sha }}")"
+            else
+              echo "## Changes in this release"
+              echo
+              COMMITS="$(git log --no-merges --pretty=format:'- %s (%h)' "${{ github.sha }}")"
+            fi
+
+            if [[ -n "$COMMITS" ]]; then
+              echo "$COMMITS"
+            else
+              echo "- No non-merge commits found in the release range."
+            fi
+          } > release-notes.md
+
+          echo "Generated release notes:"
+          cat release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Claurst ${{ inputs.version }}
+          draft: false
+          prerelease: false
+          body_path: release-notes.md
+          files: release/*

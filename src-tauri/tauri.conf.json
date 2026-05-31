@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VSCodium Rust IDE",
+  "version": "0.1.0",
+  "identifier": "com.hades.vscode-rust-app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "VSCodium Rust IDE",
+        "url": "index.html",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": false,
+        "maximized": false,
+        "additionalBrowserArgs": "--disable-features=msTrackingPrevention"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:11434 http://localhost:5173 http://localhost:5175 https://*.gallery.vsassets.io https://open-vsx.org; script-src 'self' https://cdn.jsdelivr.net; frame-src 'self' http://localhost:5173 http://localhost:5175; worker-src 'self' blob: https://cdn.jsdelivr.net; img-src 'self' data: https: asset:; style-src 'self' 'unsafe-inline' data: http://localhost:5173 http://localhost:5175 https://fonts.googleapis.com asset:; font-src 'self' data: https://fonts.gstatic.com asset:;"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "ext-host/*"
+    ]
+  }
+}

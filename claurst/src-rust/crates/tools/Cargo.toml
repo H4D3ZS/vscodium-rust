@@ -1,0 +1,46 @@
+[package]
+name = "claurst-tools"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+claurst-core = { workspace = true }
+claurst-api = { workspace = true }
+claurst-mcp = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+regex = { workspace = true }
+glob = { workspace = true }
+walkdir = { workspace = true }
+similar = { workspace = true }
+tempfile = { workspace = true }
+bytes = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+which = { workspace = true }
+dirs = { workspace = true }
+reqwest = { workspace = true }
+base64 = { workspace = true }
+open = { workspace = true }
+enigo = { workspace = true, optional = true }
+xcap = { workspace = true, optional = true }
+
+# PTY support — used by PtyBashTool on Unix
+portable-pty = "0.9"
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
+
+[features]
+computer-use = ["dep:enigo", "dep:xcap"]

@@ -1,0 +1,149 @@
+/* Shared component utility classes.
+   Import tokens.css first. Use these instead of inline style={{...}}. */
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--font-size-base);
+    font-family: var(--font-ui);
+    border-radius: var(--radius-sm);
+    border: none;
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--easing-default);
+    white-space: nowrap;
+    user-select: none;
+}
+
+.btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+    pointer-events: none;
+}
+
+.btn-primary {
+    background: var(--color-accent);
+    color: #fff;
+}
+
+.btn-primary:hover { filter: brightness(1.15); }
+
+.btn-ghost {
+    background: transparent;
+    color: var(--color-text);
+}
+
+.btn-ghost:hover { background: var(--color-hover); }
+
+.btn-danger {
+    background: transparent;
+    color: var(--color-accent-red);
+}
+
+.btn-danger:hover { background: rgba(248, 113, 113, 0.1); }
+
+.btn-icon {
+    padding: var(--space-2);
+    background: transparent;
+    color: var(--color-text-muted);
+    border-radius: var(--radius-sm);
+}
+
+.btn-icon:hover { background: var(--color-hover); color: var(--color-text); }
+
+/* ── Inputs ───────────────────────────────────────────────────────────────── */
+.input {
+    background: var(--vscode-input-background, #3c3c3c);
+    color: var(--color-text);
+    border: 1px solid var(--vscode-input-border, transparent);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--font-size-base);
+    font-family: var(--font-ui);
+    outline: none;
+    width: 100%;
+}
+
+.input:focus {
+    border-color: var(--color-border-focus);
+    box-shadow: 0 0 0 1px var(--color-border-focus);
+}
+
+.input::placeholder { color: var(--color-text-muted); }
+
+/* ── Cards ────────────────────────────────────────────────────────────────── */
+.card {
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-5);
+}
+
+/* ── Badges ───────────────────────────────────────────────────────────────── */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px var(--space-3);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    line-height: 1.6;
+}
+
+.badge-green { background: rgba(74, 222, 128, 0.15); color: var(--color-accent-green); }
+.badge-red   { background: rgba(248, 113, 113, 0.15); color: var(--color-accent-red); }
+.badge-blue  { background: rgba(96, 165, 250, 0.15); color: var(--color-accent-blue); }
+.badge-yellow { background: rgba(251, 191, 36, 0.15); color: var(--color-accent-yellow); }
+
+/* ── Panel header ─────────────────────────────────────────────────────────── */
+.panel-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-5);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
+}
+
+/* ── Scroll ───────────────────────────────────────────────────────────────── */
+.scroll-y {
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.scroll-y::-webkit-scrollbar { width: 6px; }
+.scroll-y::-webkit-scrollbar-track { background: transparent; }
+.scroll-y::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+.scroll-y::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+
+/* ── Layout helpers ───────────────────────────────────────────────────────── */
+.flex-row   { display: flex; flex-direction: row; }
+.flex-col   { display: flex; flex-direction: column; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-1 { gap: var(--space-2); }
+.gap-2 { gap: var(--space-4); }
+.gap-3 { gap: var(--space-5); }
+.flex-1 { flex: 1; min-width: 0; }
+
+/* ── Text helpers ─────────────────────────────────────────────────────────── */
+.text-muted { color: var(--color-text-muted); }
+.text-xs  { font-size: var(--font-size-xs); }
+.text-sm  { font-size: var(--font-size-sm); }
+.text-base { font-size: var(--font-size-base); }
+.text-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Animation keyframes ──────────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slide-in-right { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.animate-spin { animation: spin 1s linear infinite; }
+.animate-fade-in { animation: fade-in var(--duration-base) var(--easing-default); }

@@ -1,0 +1,42 @@
+# cargo-audit configuration — documents accepted advisories with rationale.
+# Run `cargo audit` from src-tauri/ to verify.
+
+[advisories]
+ignore = [
+    # tracing-subscriber 0.2.25 — pinned by ark-relations 0.5.1 (Arkworks zk-SNARK
+    # crate chain consumed by kortex/daemon). Advisory is about ANSI-escape
+    # injection through logged user input; ark-relations only logs constraint-
+    # system math (no untrusted strings). Bumping ark-relations to 0.6 requires
+    # a full Arkworks generic-parameter rewrite. Re-evaluate when Arkworks 0.6
+    # is integrated.
+    "RUSTSEC-2025-0055",
+
+    # gtk-rs GTK3 bindings — "unmaintained" notices for Linux-only deps that
+    # tauri pulls in for the webkit2gtk backend. We ship Windows and macOS,
+    # which use WebView2 and WKWebView respectively, so this code never
+    # compiles for our targets. Tauri 3.x is expected to drop GTK3 entirely.
+    "RUSTSEC-2024-0411",  # gdkwayland-sys
+    "RUSTSEC-2024-0412",  # gdk
+    "RUSTSEC-2024-0413",  # atk
+    "RUSTSEC-2024-0414",  # gdkx11-sys
+    "RUSTSEC-2024-0416",  # atk-sys
+    "RUSTSEC-2024-0417",  # gdkx11
+    "RUSTSEC-2024-0418",  # gdk-sys
+    "RUSTSEC-2024-0419",  # gtk
+    "RUSTSEC-2024-0420",  # gtk-sys
+    "RUSTSEC-2024-0421",  # gtk3-macros
+
+    # Other unmaintained-only warnings (no known vulnerability, no upstream
+    # replacement adopted by our deps yet).
+    "RUSTSEC-2024-0388",  # derivative
+    "RUSTSEC-2024-0436",  # paste
+    "RUSTSEC-2024-0370",  # proc-macro-error
+    "RUSTSEC-2024-0432",  # rustls-pemfile
+    "RUSTSEC-2025-0057",  # fxhash
+    "RUSTSEC-2024-0376",  # serial
+    "RUSTSEC-2024-0375",  # unic-char-property
+    "RUSTSEC-2024-0427",  # unic-char-range
+    "RUSTSEC-2024-0428",  # unic-common
+    "RUSTSEC-2024-0429",  # unic-ucd-ident
+    "RUSTSEC-2024-0430",  # unic-ucd-version
+]

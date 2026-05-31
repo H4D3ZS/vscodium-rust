@@ -1,0 +1,14 @@
+/target
+/daemon/target
+/vfs_layer/target
+/neuraldrive/src-tauri/target
+/node_modules
+/neuraldrive/node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.*
+.DS_Store
+*.aim
+*.bat

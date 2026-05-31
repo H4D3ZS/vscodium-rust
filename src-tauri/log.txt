@@ -1,0 +1,59 @@
+warning: a method with this name may be added to the standard library in the future
+  --> zed/crates/rpc/src/message_stream.rs:90:53
+   |
+90 | ...copy_decode(bytes.as_slice(), &mut self.enco...
+   |                      ^^^^^^^^
+   |
+   = warning: once this associated item is added to the standard library, the ambiguity may cause an error or change in behavior!
+   = note: for more information, see issue #48919 <https://github.com/rust-lang/rust/issues/48919>
+   = help: call with fully qualified syntax `zstd::zstd_safe::WriteBuf::as_slice(...)` to keep using the current method
+   = note: `#[warn(unstable_name_collisions)]` (part of `#[warn(future_incompatible)]`) on by default
+
+warning: `rpc` (lib) generated 1 warning
+warning: use of deprecated method `futures::futures_channel::mpsc::UnboundedReceiver::<T>::try_next`: please use `try_recv` instead
+    --> zed/crates/project/src/git_store.rs:6225:55
+     |
+6225 | ...t_job)) = job_rx.try_next() {
+     |                     ^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated method `futures::futures_channel::mpsc::UnboundedReceiver::<T>::try_next`: please use `try_recv` instead
+    --> zed/crates/project/src/git_store.rs:6261:55
+     |
+6261 | ...t_job)) = job_rx.try_next() {
+     |                     ^^^^^^^^
+
+warning: `project` (lib) generated 2 warnings
+    Checking workspace v0.1.0 (/Users/hades/Desktop/vscodium-rust/src-tauri/zed/crates/workspace)
+    Checking gpui_macos v0.1.0 (/Users/hades/Desktop/vscodium-rust/src-tauri/zed/crates/gpui_macos)
+    Checking json_schema_store v0.1.0 (/Users/hades/Desktop/vscodium-rust/src-tauri/zed/crates/json_schema_store)
+error: extern blocks must be unsafe
+   --> zed/crates/gpui_macos/src/dispatcher.rs:104:17
+    |
+104 | / ...   extern "C" {
+105 | | ...       fn CFRunLoopPerformBlock(rl: CFRun...
+106 | | ...   }
+    | |_______^
+
+    Checking languages v0.1.0 (/Users/hades/Desktop/vscodium-rust/src-tauri/zed/crates/languages)
+error: could not compile `gpui_macos` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+warning: use of deprecated method `futures::futures_channel::mpsc::UnboundedReceiver::<T>::try_next`: please use `try_recv` instead
+   --> zed/crates/workspace/src/item.rs:789:72
+    |
+789 | ...ending_update_rx.try_next() {
+    |                     ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `workspace` (lib) generated 1 warning
+[CRITICAL PANIC] there is no reactor running, must be called from the context of a Tokio 1.x runtime at src/lib.rs:186:9
+[CRITICAL PANIC] panic in a function that cannot unwind at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/panicking.rs:225:5
+[CRITICAL PANIC] there is no reactor running, must be called from the context of a Tokio 1.x runtime at src\ai_engine.rs:187:13
+[CRITICAL PANIC] there is no reactor running, must be called from the context of a Tokio 1.x runtime at src\ai_engine.rs:187:13
+[CRITICAL PANIC] Cannot block the current thread from within a runtime. This happens because a function attempted to block the current thread while the thread is being used to drive asynchronous tasks. at src\ai_tools.rs:70:24
+[CRITICAL PANIC] Cannot block the current thread from within a runtime. This happens because a function attempted to block the current thread while the thread is being used to drive asynchronous tasks. at src\ai_tools.rs:70:24
+[CRITICAL PANIC] Cannot block the current thread from within a runtime. This happens because a function attempted to block the current thread while the thread is being used to drive asynchronous tasks. at src\ai_tools.rs:70:24
+[CRITICAL PANIC] Cannot block the current thread from within a runtime. This happens because a function attempted to block the current thread while the thread is being used to drive asynchronous tasks. at src\ai_tools.rs:70:24
+[CRITICAL PANIC] Cannot block the current thread from within a runtime. This happens because a function attempted to block the current thread while the thread is being used to drive asynchronous tasks. at src\ai_tools.rs:70:24

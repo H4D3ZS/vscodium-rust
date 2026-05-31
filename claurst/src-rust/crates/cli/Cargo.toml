@@ -1,0 +1,44 @@
+[package]
+name = "claurst"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "claurst"
+path = "src/main.rs"
+
+[dependencies]
+claurst-core = { workspace = true, features = ["voice"] }
+claurst-api = { workspace = true }
+claurst-acp = { workspace = true }
+claurst-tools = { workspace = true }
+claurst-query = { workspace = true }
+claurst-tui = { workspace = true }
+claurst-commands = { workspace = true }
+claurst-mcp = { workspace = true }
+claurst-bridge = { workspace = true }
+claurst-plugins = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+tokio-util = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+url = { workspace = true }
+crossterm = { workspace = true }
+parking_lot = { workspace = true }
+dirs = { workspace = true }
+nix = { workspace = true }
+base64 = "0.22"
+sha2 = "0.10"
+open = "5"
+urlencoding = "2"
+
+[build-dependencies]
+chrono = { workspace = true }

@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  DeepSeek V2 (ds2) on Apple Silicon — local OpenAI-compatible server
+# -----------------------------------------------------------------------------
+#  Runs on M1 / M2 / M3 / M4 Macs (arm64 only). Sets up a local DeepSeek-V2
+#  inference server that the IDE talks to via the `deepseek-ane` provider.
+#
+#  Two runtimes are supported. Pick one with $DS2_RUNTIME, default = llama.cpp:
+#
+#    1. llama.cpp + Metal  (DS2_RUNTIME=llama)   — fastest path, GGUF Q4_K_M
+#       Pros: rock solid, GPU-accelerated via Metal, 32k context, tiny RAM
+#       footprint at Q4_K_M (~9 GB).
+#       Cons: pure Metal — does not use the Neural Engine. On M-series the
+#       GPU is what matters for LLM inference today; the ANE has hard kernel
+#       constraints that prevent end-to-end transformer execution.
+#
+#    2. MLX-LM             (DS2_RUNTIME=mlx)     — Apple's ML framework
+#       Pros: dispatches across CPU/GPU/ANE per-kernel via unified memory.
+#       This is the closest practically available "ANE-aware" path.
+#       Cons: newer, 4-bit MLX builds for DS2-Lite are still maturing.
+#
+#  Both runtimes expose an OpenAI-compatible API on http://127.0.0.1:8080
+#  so the IDE picks whichever you launched.
+#
+#  Usage:
+#       bash tools/deepseek-ane/bootstrap.sh           # llama.cpp path (default)
+#       DS2_RUNTIME=mlx bash tools/deepseek-ane/bootstrap.sh
+#       DS2_MODEL=coder bash tools/deepseek-ane/bootstrap.sh   # use the coder model
+#
+#  After bootstrap completes, start the server with:
+#       bash tools/deepseek-ane/start-server.sh
+#
+#  In the IDE, pick the provider "deepseek-ane" and any
+#  deepseek-v2-lite-* model. No API key needed.
+# =============================================================================
+
+set -euo pipefail
+
+# Sanity: this script is Mac-only and arm64 only.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "❌ This script is for macOS (Apple Silicon) only."
+    echo "   On other platforms, use the Ollama or cloud DeepSeek provider instead."
+    exit 1
+fi
+if [[ "$(uname -m)" != "arm64" ]]; then
+    echo "❌ Detected $(uname -m). DeepSeek-ANE requires Apple Silicon (arm64)."
+    echo "   On Intel Macs use Ollama or the cloud DeepSeek provider instead."
+    exit 1
+fi
+
+# Where everything lives.
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+MODELS_DIR="${DS2_MODELS_DIR:-$HOME/.cache/deepseek-ane/models}"
+LOG_DIR="$ROOT_DIR/logs"
+mkdir -p "$MODELS_DIR" "$LOG_DIR"
+
+DS2_RUNTIME="${DS2_RUNTIME:-llama}"
+DS2_MODEL="${DS2_MODEL:-chat}"   # chat | coder
+DS2_PORT="${DS2_PORT:-8080}"
+DS2_CTX="${DS2_CTX:-32768}"
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "  DeepSeek V2 — Apple Silicon bootstrap"
+echo "═══════════════════════════════════════════════════════════════"
+echo "  Runtime:    $DS2_RUNTIME"
+echo "  Model:      $DS2_MODEL"
+echo "  Models dir: $MODELS_DIR"
+echo "  Port:       $DS2_PORT"
+echo "  Context:    $DS2_CTX"
+echo "═══════════════════════════════════════════════════════════════"
+
+# ── Homebrew prerequisite check ─────────────────────────────────────────────
+if ! command -v brew >/dev/null 2>&1; then
+    echo "❌ Homebrew not found. Install it from https://brew.sh first."
+    exit 1
+fi
+
+case "$DS2_RUNTIME" in
+    llama)
+        # ── llama.cpp + Metal path ──────────────────────────────────────────
+        echo "› Installing llama.cpp (Metal-enabled bottle)…"
+        brew list llama.cpp >/dev/null 2>&1 || brew install llama.cpp
+
+        # Model selection — Q4_K_M is the sweet spot on M1 (16 GB RAM).
+        # Upstream URLs come from bartowski's quantizations which are the
+        # community-standard GGUF builds. Pin filenames so future re-pulls
+        # are reproducible.
+        case "$DS2_MODEL" in
+            chat)
+                MODEL_FILE="DeepSeek-V2-Lite-Chat-Q4_K_M.gguf"
+                MODEL_URL="https://huggingface.co/bartowski/DeepSeek-V2-Lite-Chat-GGUF/resolve/main/DeepSeek-V2-Lite-Chat-Q4_K_M.gguf"
+                ;;
+            coder)
+                MODEL_FILE="DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf"
+                MODEL_URL="https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF/resolve/main/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf"
+                ;;
+            *)
+                echo "❌ Unknown DS2_MODEL='$DS2_MODEL'. Use 'chat' or 'coder'."
+                exit 1
+                ;;
+        esac
+
+        MODEL_PATH="$MODELS_DIR/$MODEL_FILE"
+        if [[ ! -f "$MODEL_PATH" ]]; then
+            echo "› Downloading $MODEL_FILE (~9 GB, one-time)…"
+            curl -L --fail --progress-bar -o "$MODEL_PATH.partial" "$MODEL_URL"
+            mv "$MODEL_PATH.partial" "$MODEL_PATH"
+        else
+            echo "› $MODEL_FILE already present, skipping download."
+        fi
+
+        # Drop a start helper that pins the runtime + model.
+        cat > "$ROOT_DIR/start-server.sh" <<EOF
+#!/usr/bin/env bash
+# Auto-generated by bootstrap.sh — start the local DeepSeek-V2 server.
+set -euo pipefail
+LOG_DIR="$LOG_DIR"
+mkdir -p "\$LOG_DIR"
+exec llama-server \\
+    -m "$MODEL_PATH" \\
+    -c $DS2_CTX \\
+    --host 127.0.0.1 \\
+    --port $DS2_PORT \\
+    --n-gpu-layers 999 \\
+    --metal \\
+    --chat-template deepseek2 \\
+    --log-disable \\
+    2>&1 | tee "\$LOG_DIR/deepseek-ane.log"
+EOF
+        chmod +x "$ROOT_DIR/start-server.sh"
+        ;;
+
+    mlx)
+        # ── MLX-LM path (closest to ANE-aware on Apple Silicon today) ───────
+        echo "› Installing mlx-lm…"
+        if ! command -v pipx >/dev/null 2>&1; then
+            brew list pipx >/dev/null 2>&1 || brew install pipx
+            pipx ensurepath
+        fi
+        # MLX needs a venv with Python 3.11+ and the mlx-lm package.
+        VENV_DIR="$ROOT_DIR/.venv-mlx"
+        if [[ ! -d "$VENV_DIR" ]]; then
+            python3 -m venv "$VENV_DIR"
+        fi
+        # shellcheck disable=SC1091
+        source "$VENV_DIR/bin/activate"
+        pip install --upgrade pip
+        pip install --upgrade mlx-lm
+
+        case "$DS2_MODEL" in
+            chat)  MLX_REPO="mlx-community/DeepSeek-V2-Lite-Chat-4bit" ;;
+            coder) MLX_REPO="mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit" ;;
+            *)
+                echo "❌ Unknown DS2_MODEL='$DS2_MODEL'. Use 'chat' or 'coder'."
+                exit 1
+                ;;
+        esac
+
+        # mlx-lm.server can fetch the model on first run; pre-warm it here so
+        # the first chat doesn't pay the download cost.
+        echo "› Pre-fetching $MLX_REPO via mlx-lm (cached under ~/.cache/huggingface)…"
+        python -c "from mlx_lm import load; load('$MLX_REPO')"
+
+        cat > "$ROOT_DIR/start-server.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+LOG_DIR="$LOG_DIR"
+mkdir -p "\$LOG_DIR"
+# shellcheck disable=SC1091
+source "$VENV_DIR/bin/activate"
+exec python -m mlx_lm.server \\
+    --model "$MLX_REPO" \\
+    --host 127.0.0.1 \\
+    --port $DS2_PORT \\
+    2>&1 | tee "\$LOG_DIR/deepseek-ane.log"
+EOF
+        chmod +x "$ROOT_DIR/start-server.sh"
+        ;;
+
+    *)
+        echo "❌ Unknown DS2_RUNTIME='$DS2_RUNTIME'. Use 'llama' or 'mlx'."
+        exit 1
+        ;;
+esac
+
+echo ""
+echo "✅ Bootstrap complete."
+echo ""
+echo "  Start the server:"
+echo "      bash tools/deepseek-ane/start-server.sh"
+echo ""
+echo "  In the IDE:"
+echo "    1. Open Settings → AI"
+echo "    2. Pick provider: deepseek-ane"
+echo "    3. Pick model: (auto-populated from the running server)"
+echo "    4. No API key needed."
+echo ""
+echo "  Override env vars (optional):"
+echo "      DEEPSEEK_ANE_URL=http://127.0.0.1:$DS2_PORT"
+echo "      DS2_RUNTIME=$DS2_RUNTIME    (llama | mlx)"
+echo "      DS2_MODEL=$DS2_MODEL        (chat | coder)"
+echo ""

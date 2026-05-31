@@ -1,0 +1,69 @@
+/* Design token layer — all primitives live here.
+   Components reference var(--token-name) instead of raw values.
+   VSCode variables remain as-is so Monaco themes still apply. */
+
+:root {
+    /* ── Spacing ────────────────────────────────────────────────────────── */
+    --space-1: 2px;
+    --space-2: 4px;
+    --space-3: 6px;
+    --space-4: 8px;
+    --space-5: 12px;
+    --space-6: 16px;
+    --space-7: 20px;
+    --space-8: 24px;
+    --space-10: 32px;
+    --space-12: 40px;
+
+    /* ── Border radius (native VSCode: flat; max ~5px on widgets) ────────── */
+    --radius-sm: 2px;
+    --radius-md: 3px;
+    --radius-lg: 4px;
+    --radius-full: 9999px;
+
+    /* ── Typography ─────────────────────────────────────────────────────── */
+    --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --font-mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --font-size-xs: 10px;
+    --font-size-sm: 11px;
+    --font-size-base: 12px;
+    --font-size-md: 13px;
+    --font-size-lg: 14px;
+    --font-size-xl: 16px;
+
+    /* ── Shadows (native VSCode: subtle, neutral, overlays only) ─────────── */
+    --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.36);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.36);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.44);
+
+    /* ── Animation ──────────────────────────────────────────────────────── */
+    --duration-fast: 100ms;
+    --duration-base: 150ms;
+    --duration-slow: 250ms;
+    --easing-default: ease;
+
+    /* ── Semantic palette (dark-mode defaults — overridden by VSCode vars) ─ */
+    --color-surface: var(--vscode-editor-background, #1e1e1e);
+    --color-surface-raised: var(--vscode-menu-background, #252526);
+    --color-surface-overlay: var(--vscode-dropdown-background, #2d2d30);
+    --color-border: var(--vscode-panel-border, rgba(255, 255, 255, 0.1));
+    --color-border-focus: var(--vscode-focusBorder, #007fd4);
+    --color-text: var(--vscode-editor-foreground, #cccccc);
+    --color-text-muted: rgba(204, 204, 204, 0.6);
+    --color-accent: var(--vscode-activityBarBadge-background, #007acc);
+    --color-accent-green: #4ade80;
+    --color-accent-red: #f87171;
+    --color-accent-yellow: #fbbf24;
+    --color-accent-blue: #60a5fa;
+    --color-hover: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.05));
+    --color-active: var(--vscode-list-activeSelectionBackground, rgba(0, 122, 204, 0.3));
+
+    /* ── Z-index scale ──────────────────────────────────────────────────── */
+    --z-base: 1;
+    --z-panel: 100;
+    --z-sidebar: 200;
+    --z-overlay: 500;
+    --z-modal: 1000;
+    --z-tooltip: 9999;
+    --z-statusbar: 1000;
+}
