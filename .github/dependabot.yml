@@ -1,0 +1,85 @@
+# Dependabot configuration — focuses scanning on OUR source roots only.
+#
+# Why: this monorepo vendors entire upstream projects (airi/, kortex/llama.cpp/,
+# claurst/kilocode/) which carry hundreds of their own package.json /
+# Cargo.toml files. Dependabot's default behavior is to scan every manifest
+# it finds, producing >250 alerts that mostly point to dependencies WE DO NOT
+# OWN and which upstream patches when the upstream project releases.
+#
+# This config restricts dependabot to:
+#   1. Root npm (our actual frontend)
+#   2. src-tauri Cargo (our actual Rust backend)
+#   3. GitHub Actions versions
+#
+# Vendored projects are intentionally NOT listed. Their security posture is
+# the responsibility of their upstreams (airi, llama.cpp, kilocode, etc.).
+# If you need to bump a vendored dep, do it manually after pulling upstream.
+
+version: 2
+updates:
+  # Frontend (Vite + React)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      typescript-tooling:
+        patterns:
+          - "typescript"
+          - "vite"
+          - "vitest"
+          - "@vitejs/*"
+      react-stack:
+        patterns:
+          - "react*"
+          - "@types/react*"
+      monaco-editor:
+        patterns:
+          - "monaco-editor"
+          - "@monaco-editor/*"
+      three-d:
+        patterns:
+          - "three"
+          - "@react-three/*"
+          - "@pixiv/three-vrm"
+      xterm:
+        patterns:
+          - "@xterm/*"
+    labels:
+      - "deps"
+      - "frontend"
+
+  # Tauri / Rust backend
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      tauri-stack:
+        patterns:
+          - "tauri*"
+      rustls-tls:
+        patterns:
+          - "rustls*"
+          - "ring"
+          - "webpki*"
+      tokio-async:
+        patterns:
+          - "tokio*"
+          - "futures*"
+    labels:
+      - "deps"
+      - "rust"
+
+  # GitHub Actions workflow versions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "deps"
+      - "ci"

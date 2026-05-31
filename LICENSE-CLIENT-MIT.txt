@@ -1,0 +1,30 @@
+MIT License — Cyber-Ifrit IDE (client)
+
+  TEMPLATE — apply this license ONLY to the PUBLIC client repository (cyber-ifrit-ide),
+  to the files explicitly published there. It does NOT apply to this private repository
+  or to any proprietary brain component listed in PROPRIETARY.md / SEPARATION.md.
+
+Copyright (c) 2026 Cyber-Ifrit / H4D3ZS
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+NOTE: Cloud AI routing, Neural VFS compression, and subscription management are
+proprietary services hosted on Cyber-Ifrit infrastructure and are NOT covered by
+this MIT license. To use AI features, subscribe at https://cyberifrit.xyz/pricing
