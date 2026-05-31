@@ -240,7 +240,13 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             if (keys.cerebras) providers.push('Cerebras');
             if (keys.alibaba) providers.push('Alibaba');
             if ((keys as any).nvidia) providers.push('Nvidia');
-            providers.push('OpenWebUI', 'Claude (WebUI)', 'Gemini (WebUI)', 'OpenAI (WebUI)', 'DeepSeek (WebUI)', 'Qwen (WebUI)');
+            // WebUI / personal-subscription models DISABLED — they scrape a browser session
+            // and don't work reliably. Focus is API-key (BYOK) + Cyber-Ifrit Cloud.
+            // Flip WEBUI_MODELS_ENABLED to true to re-enable.
+            const WEBUI_MODELS_ENABLED = false;
+            if (WEBUI_MODELS_ENABLED) {
+                providers.push('OpenWebUI', 'Claude (WebUI)', 'Gemini (WebUI)', 'OpenAI (WebUI)', 'DeepSeek (WebUI)', 'Qwen (WebUI)');
+            }
 
             let allModels: { id: string; provider: string }[] = [];
             const activeProviders = targetProvider

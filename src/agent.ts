@@ -1743,6 +1743,18 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
 
     const normalizedProvider = provider.toLowerCase();
 
+    // WebUI / personal-subscription path is DISABLED (browser-session scraping is
+    // unreliable). If a stale WebUI model is still selected, fall through with a clear
+    // message instead of the broken flow. Flip WEBUI_ENABLED to re-enable.
+    const WEBUI_ENABLED = false;
+    if (!WEBUI_ENABLED && (normalizedProvider.includes('webui') || normalizedProvider.includes('openwebui'))) {
+        store.getState().updateLastAgentMessage?.(
+            '**WebUI / personal-subscription models are disabled.**\n\nThey relied on browser-session scraping and were unreliable. Use an **API key** provider instead — open **Settings → Cloud API Keys** and add a key (DeepSeek, Anthropic, OpenAI, …) or **Cyber-Ifrit Cloud**, then pick that model.'
+        );
+        store.getState().setIsAgentThinking?.(false);
+        return;
+    }
+
     // -- WebUI Login Hook --
     if (normalizedProvider.includes('webui')) {
         let baseProvider = normalizeWebUiProvider(normalizedProvider);

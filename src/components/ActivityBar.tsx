@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { invoke } from '../tauri_bridge';
 import { applyTheme, type VscodeTheme } from '../theme_engine';
-import { Beaker, Layout, Bot, Globe } from 'lucide-react';
+import { Beaker, Layout, Bot, Globe, Braces } from 'lucide-react';
 
 // Stable sentinel so a missing viewsContainers entry never produces a fresh
 // array reference; otherwise Zustand's selector identity check thrashes and
@@ -32,7 +32,7 @@ const ActivityBar: React.FC = () => {
         { id: 'vector-search-view', icon: 'search-fuzzy', title: 'Codebase Search' },
         { id: 'tasks-view', icon: 'tasklist', title: 'Tasks & Specs (Antigravity)' },
         { id: 'steering-view', icon: 'symbol-ruler', title: 'Steering & Hooks (Kiro)' },
-        { id: 'visual-lab', icon: 'beaker', title: 'Visual Lab (JSON & Flow)' },
+        { id: 'visual-lab', icon: 'json', title: 'JSON Visualizer & Flow (Visual Lab)' },
         ...extensionItems
             .filter((ext: any) => {
                 const id = String(ext.id || '').toLowerCase();
@@ -120,7 +120,7 @@ const ActivityBar: React.FC = () => {
                             {item.id === 'agent-manager' ? (
                                 <Bot size={24} style={{ opacity: ((window as any).useStore?.getState().isRightSidebarOpen && (window as any).useStore?.getState().isAiriPanelOpen) ? 1 : 0.6, color: 'var(--terminator-accent)' }} />
                             ) : item.id === 'visual-lab' ? (
-                                <Beaker size={24} style={{ opacity: activeView === item.id ? 1 : 0.6 }} />
+                                <Braces size={22} strokeWidth={2.25} style={{ opacity: activeView === item.id ? 1 : 0.6 }} />
                             ) : item.base64_icon ? (
                                 <img src={item.base64_icon} style={{ width: '24px', height: '24px', opacity: activeView === item.id ? 1 : 0.6 }} />
                             ) : (
