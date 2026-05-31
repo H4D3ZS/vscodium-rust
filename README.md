@@ -8,6 +8,22 @@ VSCodium-Rust is more than an editor — it is a **full-scale, ultra-lightweight
 
 ---
 
+## ☁️ Open-Core / Cloud AI
+
+The **IDE client** is open (MIT, when published as `cyber-ifrit-ide`) and fully usable
+on its own with **local Ollama** — your data never leaves your machine.
+
+**Cloud AI routing, Neural VFS compression, and subscription management are proprietary
+services** hosted on Cyber-Ifrit infrastructure (AMD MI300X backend) — they are **not**
+part of the open client. To use cloud AI features, subscribe at
+**https://cyberifrit.xyz/pricing**. See `SEPARATION.md`, `PROPRIETARY.md`, and
+`FULL_SPLIT_PLAN.md` for the architecture.
+
+> This repository is currently **private** and **All Rights Reserved** (`PROPRIETARY.md`)
+> — it still contains the proprietary brain pending the open-core split.
+
+---
+
 ## 🚀 Key Evolutionary Features
 
 ### 🧠 1. Claude Code Integrated (42+ Tools)

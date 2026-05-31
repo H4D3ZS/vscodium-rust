@@ -5036,6 +5036,8 @@ impl Sentient {
             "groq" => "GROQ_API_KEY",
             "openrouter" => "OPENROUTER_API_KEY",
             "deepseek" => "DEEPSEEK_API_KEY",
+            // Cyber-Ifrit Cloud subscription token (a JWT, stored like an API key).
+            "cyberifrit" | "cyber-ifrit" | "cyberifrit-cloud" => "CYBERIFRIT_API_KEY",
             // Local DeepSeek-V2 server is keyless by default. If the user
             // fronted it with an auth proxy they can still set this var.
             "deepseek-ane" | "deepseek_ane" | "ds2-ane" => "DEEPSEEK_ANE_API_KEY",
@@ -5130,6 +5132,27 @@ impl Sentient {
             "groq" => "https://api.groq.com/openai/v1/chat/completions".to_string(),
             "openrouter" => "https://openrouter.ai/api/v1/chat/completions".to_string(),
             "deepseek" => "https://api.deepseek.com/v1/chat/completions".to_string(),
+            // Cyber-Ifrit Cloud — our hosted brain (Neural VFS + routing) on the AMD MI300X
+            // backend. DYNAMIC config so the production endpoint is never the only hardcoded
+            // option (anti-bypass per the open-core strategy): env CYBERIFRIT_BASE_URL →
+            // keys.cyberifrit_base_url → default. OpenAI-compatible; auth via subscription JWT.
+            "cyberifrit" | "cyber-ifrit" | "cyberifrit-cloud" => {
+                let configured = std::env::var("CYBERIFRIT_BASE_URL").ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .or_else(|| {
+                        self.brain_dir.parent()
+                            .map(|p| p.join("api_keys.json"))
+                            .and_then(|p| std::fs::read_to_string(p).ok())
+                            .and_then(|c| serde_json::from_str::<Value>(&c).ok())
+                            .and_then(|k| k["cyberifrit_base_url"].as_str().map(|s| s.to_string()))
+                            .filter(|s| !s.trim().is_empty())
+                    })
+                    .unwrap_or_else(|| "https://api.cyberifrit.xyz".to_string());
+                let base = configured.trim().trim_end_matches('/').to_string();
+                if base.ends_with("/chat/completions") { base }
+                else if base.ends_with("/v1") { format!("{}/chat/completions", base) }
+                else { format!("{}/v1/chat/completions", base) }
+            }
             "openwebui" | "openwebui-claude" | "openwebui-gpt" | "openwebui-gemini" => "http://127.0.0.1:8080/api/chat/completions".to_string(),
 
             // Local DeepSeek V2 running on Apple Silicon (M1/M2/M3) via either

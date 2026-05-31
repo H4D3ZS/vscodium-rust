@@ -1009,6 +1009,14 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {([
                             {
+                                key: 'cyberifrit',
+                                label: 'Cyber-Ifrit Cloud (subscription · AMD MI300X)',
+                                placeholder: 'subscription token / JWT',
+                                baseUrlKey: 'cyberifrit_base_url',
+                                baseUrlLabel: 'Cyber-Ifrit endpoint (dynamic — default api.cyberifrit.xyz)',
+                                baseUrlPlaceholder: 'https://api.cyberifrit.xyz'
+                            },
+                            {
                                 key: 'anthropic',
                                 label: 'Anthropic (Claude / Claude Code)',
                                 placeholder: 'sk-ant-...',

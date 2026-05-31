@@ -366,7 +366,7 @@ export async function initAgent() {
             : '';
         const CLOUD_PROVIDERS = new Set([
             'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-            'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
+            'cyberifrit', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
             'openrouter', 'cerebras',
         ]);
         const modelTag = currentModel.includes('|')
@@ -1506,7 +1506,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const selectedProviderPrefix = agentModel?.includes('|') ? agentModel.split('|')[0].toLowerCase() : '';
     const CLOUD_PROVIDER_PREFIXES = new Set([
         'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-        'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
+        'cyberifrit', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
         'cohere', 'xai',
     ]);
     const selectedIsCloudModel = CLOUD_PROVIDER_PREFIXES.has(selectedProviderPrefix)
@@ -1710,7 +1710,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         const am = agentModel || '';
         const prefix = am.includes('|') ? am.split('|')[0].toLowerCase() : '';
         const CLOUD = new Set(['google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-            'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm']);
+            'cyberifrit', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm']);
         return CLOUD.has(prefix)
             || am.toLowerCase().includes('gemini') || am.toLowerCase().includes('claude')
             || am.toLowerCase().includes('gpt-') || am.toLowerCase().includes('o1-')
@@ -1842,7 +1842,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         // pass through their own provider even if the local backend is Ollama.
         const CLOUD_PROVIDERS = new Set([
             'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-            'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
+            'cyberifrit', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
             'cohere', 'xai',
         ]);
         if (!CLOUD_PROVIDERS.has(normalizedProvider)) {
