@@ -1,0 +1,16 @@
+[package]
+name = "claurst-acp"
+version.workspace = true
+edition.workspace = true
+description = "Agent Client Protocol (ACP) server for Claurst — JSON-RPC 2.0 over stdio"
+
+[dependencies]
+claurst-core = { workspace = true }
+claurst-api = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }

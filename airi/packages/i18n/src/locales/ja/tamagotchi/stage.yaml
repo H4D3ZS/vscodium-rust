@@ -1,0 +1,98 @@
+operations:
+  load-models: モデルの読み込み
+  load-models-status:
+    loading: 読み込み中
+    ready: 準備完了
+docs:
+  theme:
+    navbar:
+      appearance:
+        title: 外観
+'controls-island':
+  'fade-on-hover':
+    enable: 自動的に隠す
+    disable: 常に表示
+  'open-settings': 設定を開く
+  'open-chat': チャットを開く
+  'refresh': 再読み込み
+  'open-hearing-controls': 聴覚コントロールを開く
+  'drag-to-move-window': ウィンドウをドラッグして移動
+  'switch-to-light-mode': ライトモードに切り替え
+  'switch-to-dark-mode': ダークモードに切り替え
+  'pin-on-top': ピン留め
+  'unpin-from-top': ピン留めを外す
+  'switch-profile': プロファイルを切り替え
+  'close': 閉じる
+  'expand': 展開
+  'collapse': 折りたたむ
+  'login': サインイン
+  'logging-in': サインイン中…
+  'account': アカウント
+  'logout': サインアウト
+widgets:
+  close: Close widget
+  empty:
+    title: No widget active
+    description: Widgets will appear here when a tool or plugin spawns one.
+  loading: Loading widget…
+  waiting: Waiting for widget data for "{id}"…
+notice:
+  'fade-on-hover':
+    title: ホバー時にフェード
+    intro: カーソルが近くを移動するとキャラクターが自動的にフェードアウトする。この仕組みは視界の妨げを抑えつつ、キャラクターを見失わないように保つ。
+    opacity: 有効にすると、カーソルが近くに来た時に、{targets} の不透明度が {value} に下がります。
+    toggle: '{controls}にカーソルを合わせて、もう一度 {icon} をクリックすることでオフに切り替えることができます。'
+    controls-label: コントロールアイランド
+    icon-label: eye-slash アイコン
+    value: '0'
+    targets: キャラクターとUI
+    confirm: 了解
+    dont-show-again: 次回から表示しない
+    preparing: 準備中…
+    read-more: 続きを読む
+    preview-title: これは何？
+about:
+  subtitle: Desktop ver.
+  current-version: Current Version
+  common:
+    cancel: Cancel
+  links:
+    title: Links
+    home: Home
+    documentation: Documentations
+    github: GitHub
+  update:
+    lane:
+      label: Update lane
+      description: Choose channel release to follow
+      placeholder: Choose update lane
+    channels:
+      auto: Auto
+      stable: Stable
+      alpha: Alpha
+      beta: Beta
+      nightly: Nightly
+      canary: Canary
+    status:
+      downloading: Downloading update...
+      error-prefix: Error
+      latest: Up to date (v{version}).
+      downloaded:
+        windows: Update ready to install silently (v{version}).
+        restart: Update ready to install on restart (v{version}).
+    actions:
+      download: Download Update
+      download-short: Download
+      confirm-download: Confirm Download
+      check-for-updates: Check for updates
+      checking: Checking...
+      latest-version: Latest version
+      disabled-dev: Updates disabled in Dev
+      retry-check: Retry Check
+      restart-silent: Restart to update silently
+      restart-install: Restart to install update
+      confirm-restart: Confirm Restart
+    dialog:
+      title: Update Available
+      description: A new version (v{version}) is available.
+      no-release-notes-markdown: _No release notes provided._

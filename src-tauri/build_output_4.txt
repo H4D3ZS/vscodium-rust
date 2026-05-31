@@ -1,0 +1,534 @@
+    Checking vscode-rust-app v0.1.0 (C:\Users\HADES\Desktop\vscodium-rust\src-tauri)
+warning: unused import: `std::path::PathBuf`
+ --> src\lib.rs:2:5
+  |
+2 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `State`
+ --> src\lib.rs:3:22
+  |
+3 | use tauri::{Manager, State};
+  |                      ^^^^^
+
+warning: unused imports: `AppHandle` and `Manager`
+ --> src\editor_commands.rs:1:13
+  |
+1 | use tauri::{AppHandle, State, Manager};
+  |             ^^^^^^^^^         ^^^^^^^
+
+warning: unused imports: `QueryCursor` and `Query`
+ --> src\editor_commands.rs:8:27
+  |
+8 | use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
+  |                           ^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `serde_json::Value`
+ --> src\state.rs:7:5
+  |
+7 | use serde_json::Value;
+  |     ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `HuntProgress`
+ --> src\state.rs:9:31
+  |
+9 | use crate::domain::{Settings, HuntProgress};
+  |                               ^^^^^^^^^^^^
+
+warning: unused import: `ContextValue`
+  --> src\state.rs:11:46
+   |
+11 | use crate::context_key::{ContextKeyRegistry, ContextValue};
+   |                                              ^^^^^^^^^^^^
+
+warning: unused import: `select_and_process_attachment`
+  --> src\state.rs:26:52
+   |
+26 | use crate::attachment_manager::{AttachmentManager, select_and_process_attachment};
+   |                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `json`
+ --> src\visual_commands.rs:5:18
+  |
+5 | use serde_json::{json, Value};
+  |                  ^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> src\terminal_commands.rs:4:5
+  |
+4 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> src\terminal_commands.rs:6:5
+  |
+6 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused imports: `Value` and `json`
+ --> src\terminal_commands.rs:7:18
+  |
+7 | use serde_json::{Value, json, json as json_serde};
+  |                  ^^^^^  ^^^^
+
+warning: unused import: `AppHandle`
+ --> src\extensions_commands.rs:1:13
+  |
+1 | use tauri::{AppHandle, State};
+  |             ^^^^^^^^^
+
+warning: unused import: `json`
+ --> src\apex_commands.rs:3:18
+  |
+3 | use serde_json::{json, Value};
+  |                  ^^^^
+
+warning: unused import: `tauri::State`
+ --> src\web_commands.rs:1:5
+  |
+1 | use tauri::State;
+  |     ^^^^^^^^^^^^
+
+warning: unused import: `crate::EditorState`
+ --> src\web_commands.rs:2:5
+  |
+2 | use crate::EditorState;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `AppHandle`
+ --> src\system_commands.rs:1:13
+  |
+1 | use tauri::{AppHandle, State, Manager};
+  |             ^^^^^^^^^
+
+warning: unused import: `StreamingIterator`
+ --> src\editor_commands.rs:8:47
+  |
+8 | use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
+  |                                               ^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `provider`
+  --> src\ai_auth.rs:26:31
+   |
+26 |     pub async fn login(&self, provider: String) -> Result<(), String> {
+   |                               ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_provider`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `diff`
+   --> src\ai_commands.rs:599:9
+    |
+599 |     let diff = diff_content.ok_or("diff_content required for PR review")?;
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_diff`
+
+warning: unused variable: `focus`
+   --> src\ai_commands.rs:600:9
+    |
+600 |     let focus = focus_areas.unwrap_or_else(|| vec!["security".to_string(), "performance".to_string(), "style".to_string()]);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_focus`
+
+warning: unused variable: `state`
+   --> src\ai_commands.rs:721:5
+    |
+721 |     state: State<'_, EditorState>,
+    |     ^^^^^ help: if this is intentional, prefix it with an underscore: `_state`
+
+warning: unused variable: `tree`
+  --> src\editor_commands.rs:45:9
+   |
+45 |     let tree = parser.parse(&code, None).ok_or("Failed to parse code")?;
+   |         ^^^^ help: if this is intentional, prefix it with an underscore: `_tree`
+
+warning: unused variable: `app_handle`
+   --> src\lib.rs:119:17
+    |
+119 |             let app_handle = app.handle().clone();
+    |                 ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_app_handle`
+
+warning: constant `ALLOWED_EXTENSIONS` is never used
+ --> src\hunter.rs:8:7
+  |
+8 | const ALLOWED_EXTENSIONS: &[&str] = &[
+  |       ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `KEYNAME_INDICATORS` is never used
+  --> src\hunter.rs:14:7
+   |
+14 | const KEYNAME_INDICATORS: &[&str] = &[
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: field `branches` is never read
+  --> src\hunter.rs:50:5
+   |
+48 | pub struct ApiRadarHunter {
+   |            -------------- field in this struct
+49 |     client: Client,
+50 |     branches: Vec<&'static str>,
+   |     ^^^^^^^^
+
+warning: methods `fetch_raw_content`, `is_relevant_file`, `contains_key_indicator`, `extract_keys`, and `validate_key` are never used
+   --> src\hunter.rs:81:18
+    |
+ 53 | impl ApiRadarHunter {
+    | ------------------- methods in this implementation
+...
+ 81 |     pub async fn fetch_raw_content(&self, repo_path: &str, file_path: &str) -> Option<String> {
+    |                  ^^^^^^^^^^^^^^^^^
+...
+ 96 |     pub fn is_relevant_file(&self, file_path: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^^
+...
+105 |     pub fn contains_key_indicator(&self, content: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+...
+110 |     pub fn extract_keys(&self, content: &str) -> Vec<(String, String)> {
+    |            ^^^^^^^^^^^^
+...
+151 |     pub async fn validate_key(&self, key_type: &str, key: &str) -> (bool, String) {
+    |                  ^^^^^^^^^^^^
+
+warning: function `open_login_window` is never used
+  --> src\ai_auth.rs:32:14
+   |
+32 | pub async fn open_login_window(app: AppHandle, provider: String) -> Result<(), String> {
+   |              ^^^^^^^^^^^^^^^^^
+
+warning: function `compress_session_data` is never used
+   --> src\ai_commands.rs:743:14
+    |
+743 | pub async fn compress_session_data(
+    |              ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `check_ollama_status` is never used
+   --> src\ai_commands.rs:757:14
+    |
+757 | pub async fn check_ollama_status(state: State<'_, EditorState>) -> Result<bool, String> {
+    |              ^^^^^^^^^^^^^^^^^^^
+
+warning: function `pull_ollama_model` is never used
+   --> src\ai_commands.rs:767:14
+    |
+767 | pub async fn pull_ollama_model(state: State<'_, EditorState>, name: String) -> Result<(), String> {
+    |              ^^^^^^^^^^^^^^^^^
+
+warning: function `set_ollama_url` is never used
+   --> src\ai_commands.rs:776:14
+    |
+776 | pub async fn set_ollama_url(state: State<'_, EditorState>, url: String) -> Result<(), String> {
+    |              ^^^^^^^^^^^^^^
+
+warning: function `unload_ollama_model` is never used
+   --> src\ai_commands.rs:787:14
+    |
+787 | pub async fn unload_ollama_model(state: State<'_, EditorState>, name: String) -> Result<(), String> {
+    |              ^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_ollama_ps` is never used
+   --> src\ai_commands.rs:797:14
+    |
+797 | pub async fn get_ollama_ps(state: State<'_, EditorState>) -> Result<Value, String> {
+    |              ^^^^^^^^^^^^^
+
+warning: function `set_ai_model` is never used
+   --> src\ai_commands.rs:807:14
+    |
+807 | pub async fn set_ai_model(state: State<'_, EditorState>, model: String) -> Result<(), String> {
+    |              ^^^^^^^^^^^^
+
+warning: function `set_advisor_model` is never used
+   --> src\ai_commands.rs:816:14
+    |
+816 | pub async fn set_advisor_model(state: State<'_, EditorState>, model: Option<String>) -> Result<(), String> {
+    |              ^^^^^^^^^^^^^^^^^
+
+warning: function `list_provider_models` is never used
+   --> src\ai_commands.rs:823:14
+    |
+823 | pub async fn list_provider_models(
+    |              ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_agent_messages` is never used
+   --> src\ai_commands.rs:834:14
+    |
+834 | pub async fn get_agent_messages(state: State<'_, EditorState>) -> Result<Value, String> {
+    |              ^^^^^^^^^^^^^^^^^^
+
+warning: function `get_brain_telemetry` is never used
+   --> src\ai_commands.rs:839:14
+    |
+839 | pub async fn get_brain_telemetry(state: State<'_, EditorState>) -> Result<Value, String> {
+    |              ^^^^^^^^^^^^^^^^^^^
+
+warning: function `store_message` is never used
+   --> src\ai_commands.rs:844:14
+    |
+844 | pub async fn store_message(
+    |              ^^^^^^^^^^^^^
+
+warning: function `sync_agent_messages` is never used
+   --> src\ai_commands.rs:855:14
+    |
+855 | pub async fn sync_agent_messages(
+    |              ^^^^^^^^^^^^^^^^^^^
+
+warning: function `list_chat_sessions` is never used
+   --> src\ai_commands.rs:866:14
+    |
+866 | pub async fn list_chat_sessions(state: State<'_, EditorState>) -> Result<Value, String> {
+    |              ^^^^^^^^^^^^^^^^^^
+
+warning: function `load_chat_session` is never used
+   --> src\ai_commands.rs:871:14
+    |
+871 | pub async fn load_chat_session(state: State<'_, EditorState>, path: String) -> Result<(), String> {
+    |              ^^^^^^^^^^^^^^^^^
+
+warning: function `archive_chat_session` is never used
+   --> src\ai_commands.rs:877:14
+    |
+877 | pub async fn archive_chat_session(state: State<'_, EditorState>) -> Result<(), String> {
+    |              ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `create_new_session` is never used
+   --> src\ai_commands.rs:883:14
+    |
+883 | pub async fn create_new_session(state: State<'_, EditorState>) -> Result<(), String> {
+    |              ^^^^^^^^^^^^^^^^^^
+
+warning: function `set_active_root` is never used
+  --> src\editor_commands.rs:62:14
+   |
+62 | pub async fn set_active_root(state: State<'_, EditorState>, path: Option<String>) -> Result<(), String> {
+   |              ^^^^^^^^^^^^^^^
+
+warning: function `get_active_root` is never used
+  --> src\editor_commands.rs:75:14
+   |
+75 | pub async fn get_active_root(state: State<'_, EditorState>) -> Result<Option<String>, String> {
+   |              ^^^^^^^^^^^^^^^
+
+warning: method `execute_tool` is never used
+   --> src\ai_engine.rs:842:14
+    |
+164 | impl Sentient {
+    | ------------- method in this implementation
+...
+842 |     async fn execute_tool(&self, name: &str, args: &str) -> Result<Value> {
+    |              ^^^^^^^^^^^^
+
+warning: method `get_flattened_files` is never used
+    --> src\ai_tools.rs:1923:8
+     |
+  37 | impl AiTools {
+     | ------------ method in this implementation
+...
+1923 |     fn get_flattened_files(&self, root: &std::path::Path) -> Vec<String> {
+     |        ^^^^^^^^^^^^^^^^^^^
+
+warning: method `update_step_status` is never used
+  --> src\task_planner.rs:62:18
+   |
+39 | impl TaskPlanner {
+   | ---------------- method in this implementation
+...
+62 |     pub async fn update_step_status(&self, step_id: &str, status: TaskStatus) {
+   |                  ^^^^^^^^^^^^^^^^^^
+
+warning: function `lsp_start` is never used
+ --> src\lsp_commands.rs:6:14
+  |
+6 | pub async fn lsp_start(
+  |              ^^^^^^^^^
+
+warning: function `lsp_send_request` is never used
+  --> src\lsp_commands.rs:16:14
+   |
+16 | pub async fn lsp_send_request(
+   |              ^^^^^^^^^^^^^^^^
+
+warning: function `lsp_stop` is never used
+  --> src\lsp_commands.rs:28:14
+   |
+28 | pub async fn lsp_stop(state: State<'_, EditorState>) -> Result<(), String> {
+   |              ^^^^^^^^
+
+warning: function `lsp_initialized` is never used
+  --> src\lsp_commands.rs:35:14
+   |
+35 | pub async fn lsp_initialized(state: State<'_, EditorState>) -> Result<(), String> {
+   |              ^^^^^^^^^^^^^^^
+
+warning: function `lsp_did_open` is never used
+  --> src\lsp_commands.rs:41:14
+   |
+41 | pub async fn lsp_did_open(
+   |              ^^^^^^^^^^^^
+
+warning: function `lsp_did_change` is never used
+  --> src\lsp_commands.rs:54:14
+   |
+54 | pub async fn lsp_did_change(
+   |              ^^^^^^^^^^^^^^
+
+warning: function `lsp_did_save` is never used
+  --> src\lsp_commands.rs:66:14
+   |
+66 | pub async fn lsp_did_save(state: State<'_, EditorState>, uri: String) -> Result<(), String> {
+   |              ^^^^^^^^^^^^
+
+warning: function `lsp_set_workspace` is never used
+  --> src\lsp_commands.rs:72:14
+   |
+72 | pub async fn lsp_set_workspace(
+   |              ^^^^^^^^^^^^^^^^^
+
+warning: function `lsp_get_diagnostics` is never used
+  --> src\lsp_commands.rs:81:14
+   |
+81 | pub async fn lsp_get_diagnostics(
+   |              ^^^^^^^^^^^^^^^^^^^
+
+warning: function `lsp_is_running` is never used
+  --> src\lsp_commands.rs:96:14
+   |
+96 | pub async fn lsp_is_running(state: State<'_, EditorState>) -> Result<bool, String> {
+   |              ^^^^^^^^^^^^^^
+
+warning: function `lsp_completion` is never used
+   --> src\lsp_commands.rs:102:14
+    |
+102 | pub async fn lsp_completion(
+    |              ^^^^^^^^^^^^^^
+
+warning: function `lsp_hover` is never used
+   --> src\lsp_commands.rs:126:14
+    |
+126 | pub async fn lsp_hover(
+    |              ^^^^^^^^^
+
+warning: function `lsp_goto_definition` is never used
+   --> src\lsp_commands.rs:144:14
+    |
+144 | pub async fn lsp_goto_definition(
+    |              ^^^^^^^^^^^^^^^^^^^
+
+warning: function `lsp_find_references` is never used
+   --> src\lsp_commands.rs:162:14
+    |
+162 | pub async fn lsp_find_references(
+    |              ^^^^^^^^^^^^^^^^^^^
+
+warning: function `lsp_rename_symbol` is never used
+   --> src\lsp_commands.rs:181:14
+    |
+181 | pub async fn lsp_rename_symbol(
+    |              ^^^^^^^^^^^^^^^^^
+
+warning: function `lsp_format_document` is never used
+   --> src\lsp_commands.rs:201:14
+    |
+201 | pub async fn lsp_format_document(state: State<'_, EditorState>, uri: String) -> Result<Value, String> {
+    |              ^^^^^^^^^^^^^^^^^^^
+
+warning: function `lsp_workspace_symbols` is never used
+   --> src\lsp_commands.rs:214:14
+    |
+214 | pub async fn lsp_workspace_symbols(
+    |              ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `lsp_code_lens` is never used
+   --> src\lsp_commands.rs:229:14
+    |
+229 | pub async fn lsp_code_lens(
+    |              ^^^^^^^^^^^^^
+
+warning: function `lsp_document_symbols` is never used
+   --> src\lsp_commands.rs:242:14
+    |
+242 | pub async fn lsp_document_symbols(
+    |              ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `open_folder` is never used
+   --> src\file_commands.rs:163:14
+    |
+163 | pub async fn open_folder(
+    |              ^^^^^^^^^^^
+
+warning: function `launch_iphone_emulator` is never used
+   --> src\iphone_emulator.rs:106:8
+    |
+106 | pub fn launch_iphone_emulator(
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `stop_iphone_emulator` is never used
+   --> src\iphone_emulator.rs:115:8
+    |
+115 | pub fn stop_iphone_emulator(
+    |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `is_iphone_emulator_running` is never used
+   --> src\iphone_emulator.rs:123:8
+    |
+123 | pub fn is_iphone_emulator_running(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `load_kortex_metadata` is never used
+  --> src\kortex_commands.rs:41:14
+   |
+41 | pub async fn load_kortex_metadata(path: String) -> Result<Value, String> {
+   |              ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `search_extensions` is never used
+  --> src\extensions_commands.rs:22:14
+   |
+22 | pub async fn search_extensions(
+   |              ^^^^^^^^^^^^^^^^^
+
+warning: function `get_inference_history` is never used
+  --> src\performance_commands.rs:39:14
+   |
+39 | pub async fn get_inference_history(state: State<'_, EditorState>) -> Result<Value, String> {
+   |              ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `search_project` is never used
+  --> src\ai_project_commands.rs:53:14
+   |
+53 | pub async fn search_project(
+   |              ^^^^^^^^^^^^^^
+
+warning: function `query_workspace_memory` is never used
+  --> src\ai_project_commands.rs:62:14
+   |
+62 | pub async fn query_workspace_memory(
+   |              ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_file_context` is never used
+  --> src\ai_project_commands.rs:71:14
+   |
+71 | pub async fn get_file_context(
+   |              ^^^^^^^^^^^^^^^^
+
+warning: function `get_emulator_cmd` is never used
+  --> src\emulator_stream.rs:49:4
+   |
+49 | fn get_emulator_cmd() -> Command {
+   |    ^^^^^^^^^^^^^^^^
+
+warning: function `capture_window` is never used
+   --> src\vision.rs:211:8
+    |
+211 | pub fn capture_window(_window_title: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    |        ^^^^^^^^^^^^^^
+
+warning: function `search_extensions` is never used
+  --> src\marketplace.rs:25:14
+   |
+25 | pub async fn search_extensions(query: String) -> Result<Vec<MarketplaceExtension>> {
+   |              ^^^^^^^^^^^^^^^^^
+
+warning: `vscode-rust-app` (lib) generated 83 warnings (run `cargo fix --lib -p vscode-rust-app` to apply 23 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.93s

@@ -1,0 +1,29 @@
+[package]
+name = "claurst-query"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+claurst-core = { workspace = true }
+claurst-api = { workspace = true }
+claurst-plugins = { workspace = true }
+claurst-tools = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+parking_lot = { workspace = true }
+tokio-util = { workspace = true }
+once_cell = { workspace = true }
+dashmap = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

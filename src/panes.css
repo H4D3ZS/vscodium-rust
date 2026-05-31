@@ -1,0 +1,207 @@
+.pane-item {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 16px; /* Native VS Code width */
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--vscode-sideBar-foreground);
+  gap: 8px; /* Slightly wider gap for icons */
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.pane-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-item:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.pane-item.active {
+  background-color: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.pane-item .codicon {
+  font-size: 16px;
+  width: 16px;
+  text-align: center;
+}
+
+.pane-item .close-icon {
+  margin-left: auto;
+  opacity: 0;
+  font-size: 14px;
+  padding: 2px;
+  border-radius: 3px;
+}
+
+.pane-item:hover .close-icon {
+  opacity: 1;
+}
+
+.pane-item .close-icon:hover {
+  background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.open-editors-list {
+  padding: 2px 0;
+}
+
+.modified-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--vscode-tab-activeForeground);
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* Pane Headers */
+.pane-header {
+  height: 22px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  background-color: var(--vscode-sideBarSectionHeader-background);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--vscode-sideBarSectionHeader-foreground);
+  cursor: pointer;
+  border-top: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border));
+  letter-spacing: 0.1px;
+  user-select: none;
+}
+
+.pane-header:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.pane-header .codicon {
+  font-size: 14px;
+  margin-right: 4px;
+  transition: transform 0.1s;
+  width: 16px;
+  text-align: center;
+  opacity: 0.8;
+}
+
+.pane-header.collapsed .codicon {
+  transform: rotate(-90deg);
+}
+
+/* Tree Rows (Explorer) */
+.tree-row {
+  transition: background-color 0.1s;
+}
+
+.tree-row:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.tree-row.active {
+  background-color: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground) !important;
+}
+
+.tree-row:focus-within {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* Bottom Panel Styles */
+.bottom-panel {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--vscode-panel-background);
+  border-top: 1px solid var(--vscode-panel-border, #454545);
+  overflow: hidden;
+}
+
+.bottom-panel .panel-header {
+  display: flex;
+  align-items: center;
+  height: 35px;
+  padding: 0 8px 0 16px;
+  background-color: var(--vscode-panel-background);
+}
+
+.bottom-panel .panel-tabs {
+  display: flex;
+  height: 100%;
+  gap: 4px;
+}
+
+.bottom-panel .panel-tab {
+  padding: 0 4px;
+  margin-right: 12px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--vscode-panelTitle-inactiveForeground, #888888);
+  height: 100%;
+  position: relative;
+  transition: color 0.1s;
+  letter-spacing: 0.2px;
+}
+
+.bottom-panel .panel-tab:hover {
+  color: var(--vscode-panelTitle-activeForeground, #ffffff);
+}
+
+.bottom-panel .panel-tab.active {
+  color: var(--vscode-panelTitle-activeForeground, #ffffff);
+}
+
+.bottom-panel .panel-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: var(--vscode-panelTitle-activeBorder, #007acc);
+}
+
+.bottom-panel .panel-toolbar {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bottom-panel .panel-toolbar .toolbar-item {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--vscode-foreground);
+  opacity: 0.8;
+  transition: background-color 0.1s, opacity 0.1s;
+}
+
+.bottom-panel .panel-toolbar .toolbar-item:hover {
+  background-color: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.1));
+  opacity: 1;
+}
+
+.bottom-panel .panel-toolbar .toolbar-item .codicon {
+  font-size: 16px;
+}
+
+.bottom-panel .panel-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--vscode-panel-background);
+}

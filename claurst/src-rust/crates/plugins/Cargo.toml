@@ -1,0 +1,52 @@
+[package]
+name = "claurst-plugins"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Plugin runtime for the Claurst CLI"
+
+[dependencies]
+claurst-core = { workspace = true }
+
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Filesystem
+walkdir = { workspace = true }
+dirs = { workspace = true }
+
+# HTTP (marketplace downloads)
+reqwest = { workspace = true }
+
+# Hash verification
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+# URL encoding for search queries
+urlencoding = { workspace = true }
+
+# Zip extraction for plugin archives
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Utilities
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true }

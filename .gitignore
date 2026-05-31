@@ -1,0 +1,117 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+antigravity-workflows/
+open-antigravity/
+vscodium/
+antigravity/
+claude-code-fork/
+manus_ai_source_code/
+manus-ai-source-code/
+manus_ai/
+manus-ai/
+Antigravity_IDE/
+Antigravity IDE/
+antigravity-ide/
+antigravity_ide/
+Antigravity-IDE/
+Antigravity_IDE*/
+Antigravity IDE*/
+antigravity-ide*/
+antigravity_ide*/
+
+# IDE binaries — never commit these
+cursor/
+Cursor/
+Kiro/
+kiro/
+cursor-ide/
+kiro-ide/
+
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+apikeys.txt
+
+# API Keys — NEVER commit
+api_keys.json
+**/api_keys.json
+.kortex/
+**/.kortex/
+
+# AIM neural memory — large binaries, never commit
+.aim/
+**/.aim/
+
+# Proprietary — has own git repo, not a submodule
+Virtual-iPhone-Emulator/
+
+# Rust
+src-tauri/target/
+src-tauri/zed/
+native/
+"config/api_keys.json"  
+"src-tauri/config/api_keys.json"  
+"*.env"  
+
+# ── Push hygiene (large vendored apps / images / nested repos) ──
+*.ipsw
+*.ipa
+/kilocode/
+claurst/kilocode/
+
+# ── Sensitive — NEVER commit ──
+financial_database.*
+config/
+mcp_config.json
+*.log
+src-tauri/trace-*.json
+src-tauri/ai_chat.log
+
+# ── Proprietary iPhone emulator (standalone app, firmware, doc) ──
+Virtual-iPhone-Emulator/
+*.ipsw
+IPHONE_EMULATOR_INTEGRATION.md
+
+# ── Vendored full apps / other IDEs / tools — not this product ──
+void/
+vscode/
+spec-kit/
+invisible_playwright/
+geometry-of-consolidation/
+turboquant-model/
+Qwen3-TTS/
+ds4/
+ANE/
+/tauri/
+/vite/
+ripgrep/
+antigravity-ide/
+test.ipynb
+test.rs
+test.md
+
+# ── Heavy AIRI media / model artifacts (not needed to build the IDE) ──
+airi/docs/
+airi/packages/font-cjkfonts-allseto/
+airi/packages/font-xiaolai/
+kortex/llama.cpp/models/*.gguf
+src/public/models/airi.vrm
