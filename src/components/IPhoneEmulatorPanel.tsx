@@ -21,7 +21,11 @@ const IPhoneEmulatorPanel: React.FC = () => {
     const [preparing, setPreparing] = useState(false);
     const consoleEndRef = useRef<HTMLDivElement>(null);
     const [autoScroll, setAutoScroll] = useState(true);
-    const [viewMode, setViewMode] = useState<ViewMode>('console');
+    // Default to the DEVICE display (Xcode-Simulator-like), not the serial console.
+    const [viewMode, setViewMode] = useState<ViewMode>('display');
+    // Low-level firmware/ramdisk/IPSW setup is hidden by default — Xcode doesn't
+    // show that. Reveal via the "Advanced setup" toggle only when needed.
+    const [showAdvanced, setShowAdvanced] = useState(false);
     const [frameDataUrl, setFrameDataUrl] = useState<string | null>(null);
     const displayImgRef = useRef<HTMLImageElement>(null);
 
@@ -168,20 +172,49 @@ const IPhoneEmulatorPanel: React.FC = () => {
         return '#d1fae5';
     };
 
+    // ── Xcode-Simulator chrome ──────────────────────────────────────────────
+    const IOS_VERSION = '26.1';
+    const DEVICE_NAMES: Record<string, string> = {
+        'iPhone13,2': 'iPhone 12', 'iPhone14,2': 'iPhone 13 Pro', 'iPhone15,2': 'iPhone 14 Pro',
+        'iPhone16,1': 'iPhone 15 Pro', 'iPhone17,1': 'iPhone 16 Pro', 'iPhone17,3': 'iPhone 16',
+    };
+    const deviceDisplayName = DEVICE_NAMES[device.trim()] || (device.trim() || 'iPhone');
+
+    const handleHome = async () => { try { await invoke('iphone_home_button'); } catch { /* best-effort */ } };
+    const handleRotate = async () => { try { await invoke('iphone_rotate'); } catch { /* best-effort */ } };
+    const handleScreenshot = () => {
+        // Save the current framebuffer — a real device screenshot, no backend needed.
+        if (!frameDataUrl) return;
+        const a = document.createElement('a');
+        a.href = frameDataUrl;
+        a.download = `${deviceDisplayName.replace(/\s+/g, '_')}_${Date.now()}.png`;
+        a.click();
+    };
+    const toolbarIcon: React.CSSProperties = { fontFamily: 'codicon', fontStyle: 'normal', fontSize: 14, cursor: 'pointer', opacity: 0.75, color: 'var(--vscode-foreground, #ddd)' };
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--vscode-editor-background, #0a0a0a)', color: 'var(--vscode-editor-foreground, #f0f0f0)', fontFamily: 'monospace' }}>
 
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--vscode-editor-background, #111)', borderBottom: '1px solid #222' }}>
-                <span style={{ fontSize: 14 }}>🍎</span>
-                <span style={{ fontSize: 11, fontWeight: 700, flex: 1 }}>iPhone Emulator (acheron)</span>
+            {/* Xcode-Simulator-style toolbar (window dots · device/iOS · home/shot/rotate) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', background: 'var(--vscode-titleBar-activeBackground, #1c1c1e)', borderBottom: '1px solid #2a2a2e', flexShrink: 0 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                    <span style={{ width: 11, height: 11, borderRadius: '50%', background: '#ff5f57' }} />
+                    <span style={{ width: 11, height: 11, borderRadius: '50%', background: '#febc2e' }} />
+                    <span style={{ width: 11, height: 11, borderRadius: '50%', background: '#28c840' }} />
+                </div>
+                <div style={{ flex: 1, textAlign: 'center', lineHeight: 1.05, fontFamily: 'var(--font-ui)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>{deviceDisplayName}</div>
+                    <div style={{ fontSize: 9, opacity: 0.55 }}>iOS {IOS_VERSION}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                    <i className="codicon codicon-home" title="Home" onClick={handleHome} style={toolbarIcon} />
+                    <i className="codicon codicon-device-camera" title="Screenshot" onClick={handleScreenshot} style={toolbarIcon} />
+                    <i className="codicon codicon-screen-normal" title="Rotate" onClick={handleRotate} style={toolbarIcon} />
+                </div>
                 <span style={{
-                    fontSize: 9, padding: '2px 6px', borderRadius: 3, fontWeight: 600,
-                    background: status === 'running' ? '#166534' : status === 'launching' ? '#92400e' : status === 'error' ? '#7f1d1d' : '#1e293b',
-                    color: status === 'running' ? '#4ade80' : status === 'launching' ? '#fbbf24' : status === 'error' ? '#f87171' : '#94a3b8',
-                }}>
-                    {status === 'idle' ? 'IDLE' : status === 'launching' ? 'LAUNCHING…' : status === 'running' ? 'RUNNING' : 'ERROR'}
-                </span>
+                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                    background: status === 'running' ? '#28c840' : status === 'launching' ? '#febc2e' : status === 'error' ? '#ff5f57' : '#555',
+                }} title={status} />
             </div>
 
             {/* Config (only when idle) */}
@@ -196,6 +229,14 @@ const IPhoneEmulatorPanel: React.FC = () => {
                             style={{ flex: 1, fontSize: 11, padding: '3px 6px', background: 'var(--vscode-editor-background, #1e1e1e)', border: '1px solid var(--vscode-panel-border, #333)', borderRadius: 3, color: 'var(--vscode-editor-foreground, #fff)', outline: 'none' }}
                         />
                     </div>
+                    <button
+                        onClick={() => setShowAdvanced(v => !v)}
+                        style={{ alignSelf: 'flex-start', fontSize: 9, padding: '2px 6px', background: 'transparent', border: '1px solid var(--vscode-panel-border, #333)', borderRadius: 3, color: '#94a3b8', cursor: 'pointer' }}
+                        title="Firmware / ramdisk / IPSW setup (advanced — most users don't need this)"
+                    >
+                        {showAdvanced ? '▾ Advanced setup' : '▸ Advanced setup (firmware · ramdisk · paths)'}
+                    </button>
+                    {showAdvanced && (<>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <label style={{ fontSize: 10, opacity: 0.7, width: 70, flexShrink: 0 }}>Disk image</label>
                         <input
@@ -247,6 +288,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
                             🧪 Stub Ramdisk
                         </button>
                     </div>
+                    </>)}
                     <button
                         onClick={handleLaunch}
                         disabled={status === 'launching'}
@@ -263,7 +305,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
 
             {/* View toggle */}
             <div style={{ display: 'flex', background: 'var(--vscode-editor-background, #0a0a0a)', borderBottom: '1px solid #1e293b' }}>
-                {(['console', 'display'] as ViewMode[]).map(m => (
+                {(['display', 'console'] as ViewMode[]).map(m => (
                     <button key={m} onClick={() => setViewMode(m)} style={{
                         flex: 1, padding: '4px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
                         background: viewMode === m ? '#1e3a5f' : 'transparent',
