@@ -345,6 +345,12 @@ const BackgroundAgentsTray: React.FC = () => {
 
     const running = bgAgents.filter(b => b.status === 'running').length;
     const done = bgAgents.filter(b => b.status === 'done' || b.status === 'error').length;
+
+    // Parallel/background agents are HIDDEN for now — not production-ready. Early-return
+    // is placed AFTER all hooks (React rules). Flip the flag (or move to Settings) later.
+    const PARALLEL_AGENTS_ENABLED = false;
+    if (!PARALLEL_AGENTS_ENABLED) return null;
+
     return (
         <div style={{
             marginBottom: 6, padding: 6,
@@ -1948,60 +1954,8 @@ const RightSidebar: React.FC = () => {
                 </div>
             )}
 
-            {view === 'chat' && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '7px 10px',
-                    borderBottom: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.06))',
-                    background: 'var(--vscode-sideBar-background)',
-                    flexShrink: 0,
-                }}>
-                    <button
-                        onClick={onModeClick}
-                        style={{
-                            height: '24px',
-                            padding: '0 8px',
-                            borderRadius: '4px',
-                            fontSize: '10px',
-                            fontWeight: 700,
-                            color: modeStyle.color,
-                            background: modeStyle.background,
-                            border: modeStyle.border,
-                            cursor: 'pointer',
-                            flexShrink: 0,
-                        }}
-                        title={modeStyle.title}
-                    >
-                        {modeStyle.label}
-                    </button>
-                    <button
-                        onClick={onModelClick}
-                        style={{
-                            height: '24px',
-                            minWidth: 0,
-                            flex: 1,
-                            padding: '0 8px',
-                            borderRadius: '4px',
-                            fontSize: '10px',
-                            fontWeight: 600,
-                            color: model ? 'rgba(255,255,255,0.82)' : '#f59e0b',
-                            background: model ? 'rgba(255,255,255,0.04)' : 'rgba(245,158,11,0.10)',
-                            border: model ? '1px solid rgba(255,255,255,0.10)' : '1px solid rgba(245,158,11,0.35)',
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                        }}
-                        title="Choose AI model"
-                    >
-                        <i className="codicon codicon-server-process" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 11, marginRight: 6 }} />
-                        {modelLabel}
-                    </button>
-                </div>
-            )}
+            {/* Top mode/model picker REMOVED — redundant with the picker in the input bar
+                at the bottom of the chat. Keeps the header clean (VSCode-like). */}
 
             <div style={{ flex: '1 1 auto', height: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
 
