@@ -87,12 +87,27 @@ export interface TerminalTheme {
 const DEFAULT_PROFILES: TerminalProfile[] = [
   // Windows
   {
+    // Windows PowerShell 5.1 — ALWAYS present on Win10/11. Must be the default:
+    // `pwsh.exe` (PowerShell 7) is NOT installed by default, and on Windows
+    // ConPTY's spawn returns Ok for a missing exe (deferred process creation),
+    // so the PTY silently produces no output → blank terminal. Use the exe that
+    // is guaranteed to exist.
     id: 'powershell',
     name: 'PowerShell',
-    path: 'pwsh.exe',
+    path: 'powershell.exe',
     args: ['-NoLogo'],
     icon: 'terminal-powershell',
     isDefault: true,
+    platform: 'win32'
+  },
+  {
+    // PowerShell 7+ (only if the user installed it). Not default.
+    id: 'pwsh',
+    name: 'PowerShell 7',
+    path: 'pwsh.exe',
+    args: ['-NoLogo'],
+    icon: 'terminal-powershell',
+    isDefault: false,
     platform: 'win32'
   },
   {
@@ -259,6 +274,10 @@ export class TerminalManager {
   // Per-terminal write buffers used until the underlying xterm has been
   // attached and is ready to receive `term.write`.
   private pendingWrites: Map<string, string[]> = new Map();
+  // Tracks which terminals have had `term.open()` called. We defer open() until
+  // the element is attached to a sized container (in `attach()`) so xterm's
+  // renderer doesn't initialize blank on a detached 0×0 element.
+  private openedIds: Set<string> = new Set();
 
   constructor() {
     this.profilesReady = this.loadProfiles();
@@ -372,12 +391,14 @@ export class TerminalManager {
     // Create terminal with VSCode-like settings
     const term = new Terminal({
       theme: getVSCodeTheme(),
-      fontSize: 14,
-      fontFamily: 'Consolas, "Courier New", monospace',
+      fontSize: 13,
+      fontFamily: '"Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace',
       fontWeight: 'normal',
-      fontWeightBold: 'bold',
+      fontWeightBold: 600,
+      lineHeight: 1.25,
+      letterSpacing: 0,
       cursorBlink: true,
-      cursorStyle: 'block',
+      cursorStyle: 'bar',
       cursorWidth: 2,
       allowProposedApi: true,
       scrollback: 2000,
@@ -406,28 +427,17 @@ export class TerminalManager {
     term.loadAddon(webLinksAddon);
     term.loadAddon(unicodeAddon);
     
-    // Try WebGL for hardware acceleration
-    try {
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => {
-        webglAddon.dispose();
-        // Fallback to canvas
-        try {
-          term.loadAddon(new CanvasAddon());
-        } catch (e) {}
-      });
-      term.loadAddon(webglAddon);
-    } catch (e) {
-      // Fallback to canvas
-      try {
-        term.loadAddon(new CanvasAddon());
-      } catch (e) {}
-    }
+    // Use xterm's default DOM renderer (no WebGL/Canvas). The GPU renderers
+    // initialize BLANK when the terminal is opened on a detached / 0-size element
+    // and don't reliably recover after attach — that was the chronic "empty
+    // terminal" bug. The DOM renderer always paints and reflows naturally; for a
+    // shell its perf is more than enough.
 
     term.unicode.activeVersion = '11';
 
-    // Open terminal
-    term.open(element);
+    // NOTE: term.open() is deferred to attach() — opening on this still-detached
+    // element renders blank (WebGL/Canvas init at 0×0). Writes before open() are
+    // buffered by xterm and flushed on open.
 
     // Create instance
     const instance: TerminalInstance = {
@@ -444,6 +454,11 @@ export class TerminalManager {
     };
 
     this.terminals.set(id, instance);
+
+    // Visible boot line. xterm buffers this until open() (in attach). If you SEE it,
+    // the renderer works and any missing shell prompt is a PTY issue; if the pane is
+    // totally blank, the element never got opened/attached.
+    try { term.writeln('\x1b[90m✓ terminal ready — ' + profile.name + '\x1b[0m'); } catch { /* */ }
 
     // If data arrived before this instance was registered, flush it now.
     const pending = this.pendingWrites.get(id);
@@ -554,6 +569,14 @@ export class TerminalManager {
     const instance = this.terminals.get(id);
     if (instance && container) {
       container.appendChild(instance.element);
+      // Open xterm NOW that the element is in a sized container (deferred from
+      // createTerminal). xterm buffers any pre-open writes and renders them here.
+      if (!this.openedIds.has(id)) {
+        try {
+          instance.term.open(instance.element);
+          this.openedIds.add(id);
+        } catch { /* element not ready; a later attach will retry */ }
+      }
       const fitNow = () => {
         try {
           instance.fitAddon.fit();
@@ -1251,10 +1274,13 @@ export const terminalManager = new TerminalManager();
 // LEGACY INIT FUNCTION (for App.tsx compatibility)
 // ═══════════════════════════════════════════════════════════════════════════
 
+let _terminalBootstrapped = false;
 export const initTerminal = async (addTerminalGroup: () => void | Promise<void>) => {
-  // Let the store allocate the canonical `term-*` id and call `createTerminal`
-  // once. A prior bug created one terminal in the manager, then a second in
-  // the store with a mismatched id — the UI attached to nothing (blank pane).
+  // Guard against double-spawn: React 18 StrictMode runs init effects TWICE in
+  // dev (mount→unmount→mount), which created two terminals. The module-level flag
+  // persists across the double-invoke so exactly ONE initial terminal is created.
+  if (_terminalBootstrapped) return;
+  _terminalBootstrapped = true;
   try {
     await addTerminalGroup();
   } catch (e: any) {

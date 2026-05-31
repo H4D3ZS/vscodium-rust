@@ -21,11 +21,10 @@ const IPhoneEmulatorPanel: React.FC = () => {
     const [preparing, setPreparing] = useState(false);
     const consoleEndRef = useRef<HTMLDivElement>(null);
     const [autoScroll, setAutoScroll] = useState(true);
-    // Default to the DEVICE display (Xcode-Simulator-like), not the serial console.
-    const [viewMode, setViewMode] = useState<ViewMode>('display');
-    // Low-level firmware/ramdisk/IPSW setup is hidden by default — Xcode doesn't
-    // show that. Reveal via the "Advanced setup" toggle only when needed.
+    // Xcode-Simulator UI: the device is always shown. Advanced setup + serial console
+    // are toggled drawers (hidden by default) so the panel reads like the real simulator.
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [showConsole, setShowConsole] = useState(false);
     const [frameDataUrl, setFrameDataUrl] = useState<string | null>(null);
     const displayImgRef = useRef<HTMLImageElement>(null);
 
@@ -130,7 +129,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
             return;
         }
         setPreparing(true);
-        setViewMode('console');
+        setShowConsole(true);
         setConsoleLines(prev => [...prev, { text: `Preparing firmware from ${ipswPath}…`, stream: 'system', ts: Date.now() }]);
         try {
             await invoke('prepare_ios_firmware', { projectPath, ipswPath: ipswPath.trim() });
@@ -191,12 +190,13 @@ const IPhoneEmulatorPanel: React.FC = () => {
         a.click();
     };
     const toolbarIcon: React.CSSProperties = { fontFamily: 'codicon', fontStyle: 'normal', fontSize: 14, cursor: 'pointer', opacity: 0.75, color: 'var(--vscode-foreground, #ddd)' };
+    const inputStyle: React.CSSProperties = { flex: 1, fontSize: 11, padding: '3px 6px', background: 'var(--vscode-editor-background, #1e1e1e)', border: '1px solid var(--vscode-panel-border, #333)', borderRadius: 3, color: 'var(--vscode-editor-foreground, #fff)', outline: 'none' };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--vscode-editor-background, #0a0a0a)', color: 'var(--vscode-editor-foreground, #f0f0f0)', fontFamily: 'monospace' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', background: 'radial-gradient(circle at 50% 22%, #15151b, #050507)', color: 'var(--vscode-foreground, #f0f0f0)', overflow: 'hidden' }}>
 
-            {/* Xcode-Simulator-style toolbar (window dots · device/iOS · home/shot/rotate) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', background: 'var(--vscode-titleBar-activeBackground, #1c1c1e)', borderBottom: '1px solid #2a2a2e', flexShrink: 0 }}>
+            {/* Xcode-Simulator toolbar: window dots · device/iOS · launch/home/shot/rotate/console/advanced */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', background: 'var(--vscode-titleBar-activeBackground, #1c1c1e)', borderBottom: '1px solid #2a2a2e', flexShrink: 0, zIndex: 5 }}>
                 <div style={{ display: 'flex', gap: 6 }}>
                     <span style={{ width: 11, height: 11, borderRadius: '50%', background: '#ff5f57' }} />
                     <span style={{ width: 11, height: 11, borderRadius: '50%', background: '#febc2e' }} />
@@ -206,205 +206,122 @@ const IPhoneEmulatorPanel: React.FC = () => {
                     <div style={{ fontSize: 12, fontWeight: 700 }}>{deviceDisplayName}</div>
                     <div style={{ fontSize: 9, opacity: 0.55 }}>iOS {IOS_VERSION}</div>
                 </div>
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                    {isRunning
+                        ? <i className="codicon codicon-debug-stop" title="Stop" onClick={handleStop} style={{ ...toolbarIcon, color: '#ff5f57', opacity: 0.9 }} />
+                        : <i className="codicon codicon-play" title="Launch" onClick={status === 'launching' ? undefined : handleLaunch} style={{ ...toolbarIcon, color: '#28c840', opacity: status === 'launching' ? 0.4 : 0.9 }} />}
                     <i className="codicon codicon-home" title="Home" onClick={handleHome} style={toolbarIcon} />
                     <i className="codicon codicon-device-camera" title="Screenshot" onClick={handleScreenshot} style={toolbarIcon} />
                     <i className="codicon codicon-screen-normal" title="Rotate" onClick={handleRotate} style={toolbarIcon} />
+                    <i className="codicon codicon-terminal" title="Serial console" onClick={() => setShowConsole(v => !v)} style={{ ...toolbarIcon, color: showConsole ? '#63b3ed' : toolbarIcon.color }} />
+                    <i className="codicon codicon-settings-gear" title="Advanced setup" onClick={() => setShowAdvanced(v => !v)} style={{ ...toolbarIcon, color: showAdvanced ? '#63b3ed' : toolbarIcon.color }} />
                 </div>
-                <span style={{
-                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                    background: status === 'running' ? '#28c840' : status === 'launching' ? '#febc2e' : status === 'error' ? '#ff5f57' : '#555',
-                }} title={status} />
             </div>
 
-            {/* Config (only when idle) */}
-            {!isRunning && (
-                <div style={{ padding: '10px 12px', background: 'var(--vscode-editor-background, #111)', borderBottom: '1px solid #222', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {/* THE DEVICE — always centered, like the real Xcode Simulator */}
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0, padding: 16 }}>
+                <div style={{
+                    position: 'relative', height: '100%', aspectRatio: '1290 / 2796',
+                    background: '#0b0b0d', borderRadius: '14% / 6.5%', padding: '2.2%',
+                    boxShadow: '0 0 0 2px #2a2a2e, 0 18px 50px rgba(0,0,0,0.7)', boxSizing: 'border-box',
+                }}>
+                    {frameDataUrl ? (
+                        <img
+                            ref={displayImgRef}
+                            src={frameDataUrl}
+                            alt="iPhone display"
+                            draggable={false}
+                            onMouseDown={handleDisplayPointerDown}
+                            onMouseMove={handleDisplayPointerMove}
+                            onMouseUp={handleDisplayPointerUp}
+                            style={{ width: '100%', height: '100%', objectFit: 'fill', borderRadius: '12% / 5.6%', cursor: 'pointer', userSelect: 'none', display: 'block' }}
+                        />
+                    ) : (
+                        <div
+                            onClick={status === 'launching' ? undefined : handleLaunch}
+                            style={{ width: '100%', height: '100%', borderRadius: '12% / 5.6%', background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, cursor: status === 'launching' ? 'default' : 'pointer' }}
+                        >
+                            {status === 'launching' ? (
+                                <>
+                                    {/* Real iPhone boot screen — black + Apple logo + boot bar.
+                                        Once the emulator streams real frames, iOS renders its own
+                                        boot; this is the placeholder until the first frame. */}
+                                    <style>{`@keyframes ios-boot{0%{width:8%}60%{width:72%}100%{width:96%}}`}</style>
+                                    <svg viewBox="0 0 814 1000" width="56" height="69" fill="#f5f5f7" aria-label="Apple">
+                                        <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.2z"/>
+                                    </svg>
+                                    <div style={{ position: 'absolute', bottom: '13%', width: '34%', height: 3, background: 'rgba(255,255,255,0.16)', borderRadius: 2, overflow: 'hidden' }}>
+                                        <div style={{ height: '100%', background: '#fff', borderRadius: 2, animation: 'ios-boot 2.4s ease-in-out infinite' }} />
+                                    </div>
+                                </>
+                            ) : isRunning ? (
+                                <div style={{ color: '#94a3b8', fontSize: 12 }}>⟳ Waiting for first frame…</div>
+                            ) : (
+                                <>
+                                    <i className="codicon codicon-play-circle" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 46, color: '#3b82f6' }} />
+                                    <div style={{ color: '#cbd5e1', fontSize: 13, fontWeight: 600 }}>Tap to launch {deviceDisplayName}</div>
+                                    <div style={{ color: '#475569', fontSize: 10 }}>iOS {IOS_VERSION} · real-time emulator</div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                    {/* Dynamic Island */}
+                    <div style={{ position: 'absolute', top: '3.2%', left: '50%', transform: 'translateX(-50%)', width: '30%', height: '3.4%', background: '#000', borderRadius: 999, pointerEvents: 'none' }} />
+                </div>
+            </div>
+
+            {/* Advanced setup — top overlay drawer (gear toggle) */}
+            {showAdvanced && (
+                <div style={{ position: 'absolute', top: 42, left: 0, right: 0, zIndex: 20, padding: '10px 12px', background: 'rgba(17,17,19,0.97)', borderBottom: '1px solid #222', display: 'flex', flexDirection: 'column', gap: 6, boxShadow: '0 10px 28px rgba(0,0,0,0.55)' }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <label style={{ fontSize: 10, opacity: 0.7, width: 70, flexShrink: 0 }}>Device</label>
-                        <input
-                            value={device}
-                            onChange={e => setDevice(e.target.value)}
-                            placeholder="iPhone13,2"
-                            style={{ flex: 1, fontSize: 11, padding: '3px 6px', background: 'var(--vscode-editor-background, #1e1e1e)', border: '1px solid var(--vscode-panel-border, #333)', borderRadius: 3, color: 'var(--vscode-editor-foreground, #fff)', outline: 'none' }}
-                        />
+                        <input value={device} onChange={e => setDevice(e.target.value)} placeholder="iPhone17,1" style={inputStyle} />
                     </div>
-                    <button
-                        onClick={() => setShowAdvanced(v => !v)}
-                        style={{ alignSelf: 'flex-start', fontSize: 9, padding: '2px 6px', background: 'transparent', border: '1px solid var(--vscode-panel-border, #333)', borderRadius: 3, color: '#94a3b8', cursor: 'pointer' }}
-                        title="Firmware / ramdisk / IPSW setup (advanced — most users don't need this)"
-                    >
-                        {showAdvanced ? '▾ Advanced setup' : '▸ Advanced setup (firmware · ramdisk · paths)'}
-                    </button>
-                    {showAdvanced && (<>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <label style={{ fontSize: 10, opacity: 0.7, width: 70, flexShrink: 0 }}>Disk image</label>
-                        <input
-                            value={diskPath}
-                            onChange={e => setDiskPath(e.target.value)}
-                            placeholder="Path to .img file (optional)"
-                            style={{ flex: 1, fontSize: 11, padding: '3px 6px', background: 'var(--vscode-editor-background, #1e1e1e)', border: '1px solid var(--vscode-panel-border, #333)', borderRadius: 3, color: 'var(--vscode-editor-foreground, #fff)', outline: 'none' }}
-                        />
+                        <input value={diskPath} onChange={e => setDiskPath(e.target.value)} placeholder="Path to .img (optional)" style={inputStyle} />
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <label style={{ fontSize: 10, opacity: 0.7, width: 70, flexShrink: 0 }}>Acheron dir</label>
-                        <input
-                            value={achronPath}
-                            onChange={e => setAchronPath(e.target.value)}
-                                    placeholder="C:\...\Virtual-iPhone-Emulator"
-                            style={{ flex: 1, fontSize: 11, padding: '3px 6px', background: 'var(--vscode-editor-background, #1e1e1e)', border: '1px solid var(--vscode-panel-border, #333)', borderRadius: 3, color: 'var(--vscode-editor-foreground, #fff)', outline: 'none' }}
-                        />
+                        <input value={achronPath} onChange={e => setAchronPath(e.target.value)} placeholder="C:\...\Virtual-iPhone-Emulator" style={inputStyle} />
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <label style={{ fontSize: 10, opacity: 0.7, width: 70, flexShrink: 0 }}>IPSW</label>
-                        <input
-                            value={ipswPath}
-                            onChange={e => setIpswPath(e.target.value)}
-                            placeholder="Path to .ipsw (real firmware → real ramdisk)"
-                            style={{ flex: 1, fontSize: 11, padding: '3px 6px', background: 'var(--vscode-editor-background, #1e1e1e)', border: '1px solid var(--vscode-panel-border, #333)', borderRadius: 3, color: 'var(--vscode-editor-foreground, #fff)', outline: 'none' }}
-                        />
+                        <input value={ipswPath} onChange={e => setIpswPath(e.target.value)} placeholder="Path to .ipsw" style={inputStyle} />
                     </div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                        <button
-                            onClick={handlePrepareFirmware}
-                            disabled={preparing}
-                            style={{
-                                flex: 2, padding: '5px 0', fontSize: 10, fontWeight: 600,
-                                background: preparing ? '#3a2f1e' : '#1e3a2f', color: preparing ? '#fbbf24' : '#4ade80',
-                                border: '1px solid #2b6c4f', borderRadius: 4, cursor: preparing ? 'wait' : 'pointer',
-                            }}
-                            title="Extract a real IPSW into a prepared firmware dir (kernelcache + devicetree + real ramdisk). The real path to genuine userspace boot."
-                        >
-                            {preparing ? '⟳ Preparing IPSW…' : '📦 Prepare Firmware (IPSW → ramdisk)'}
+                        <button onClick={handlePrepareFirmware} disabled={preparing} style={{ flex: 2, padding: '5px 0', fontSize: 10, fontWeight: 600, background: preparing ? '#3a2f1e' : '#1e3a2f', color: preparing ? '#fbbf24' : '#4ade80', border: '1px solid #2b6c4f', borderRadius: 4, cursor: preparing ? 'wait' : 'pointer' }}>
+                            {preparing ? '⟳ Preparing IPSW…' : '📦 Prepare Firmware'}
                         </button>
-                        <button
-                            onClick={handleCreateStubRamdisk}
-                            style={{
-                                flex: 1, padding: '5px 0', fontSize: 10, fontWeight: 600,
-                                background: '#1e3a5f', color: '#63b3ed', border: '1px solid #2b6cb0', borderRadius: 4, cursor: 'pointer',
-                            }}
-                            title="Generate a minimal test ramdisk so the kernel can reach userspace (rd=md0)"
-                        >
+                        <button onClick={handleCreateStubRamdisk} style={{ flex: 1, padding: '5px 0', fontSize: 10, fontWeight: 600, background: '#1e3a5f', color: '#63b3ed', border: '1px solid #2b6cb0', borderRadius: 4, cursor: 'pointer' }}>
                             🧪 Stub Ramdisk
                         </button>
                     </div>
-                    </>)}
-                    <button
-                        onClick={handleLaunch}
-                        disabled={status === 'launching'}
-                        style={{
-                            marginTop: 4, padding: '6px 0', fontSize: 11, fontWeight: 700,
-                            background: '#166534', color: '#4ade80', border: '1px solid #14532d',
-                            borderRadius: 4, cursor: 'pointer',
-                        }}
-                    >
-                        {status === 'launching' ? '⟳ Launching…' : '▶ Launch Emulator'}
-                    </button>
                 </div>
             )}
 
-            {/* View toggle */}
-            <div style={{ display: 'flex', background: 'var(--vscode-editor-background, #0a0a0a)', borderBottom: '1px solid #1e293b' }}>
-                {(['display', 'console'] as ViewMode[]).map(m => (
-                    <button key={m} onClick={() => setViewMode(m)} style={{
-                        flex: 1, padding: '4px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
-                        background: viewMode === m ? '#1e3a5f' : 'transparent',
-                        color: viewMode === m ? '#63b3ed' : '#64748b',
-                        borderBottom: viewMode === m ? '2px solid #63b3ed' : '2px solid transparent',
-                    }}>
-                        {m === 'console' ? '📟 Serial Console' : '📺 Display'}
-                    </button>
-                ))}
-            </div>
-
-            {/* Framebuffer display — wrapped in an iPhone device bezel for
-                Xcode-Simulator-style presentation. */}
-            {viewMode === 'display' && (
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at 50% 30%, #15151b, #050507)', minHeight: 0, padding: 16 }}>
-                    {frameDataUrl ? (
-                        <div
-                            style={{
-                                position: 'relative',
-                                height: '100%',
-                                aspectRatio: '1290 / 2796',
-                                background: '#000',
-                                borderRadius: '14% / 6.5%',
-                                padding: '2.2%',
-                                boxShadow: '0 0 0 2px #2a2a2e, 0 18px 50px rgba(0,0,0,0.7)',
-                                boxSizing: 'border-box',
-                            }}
-                        >
-                            <img
-                                ref={displayImgRef}
-                                src={frameDataUrl}
-                                alt="Emulator display"
-                                draggable={false}
-                                onMouseDown={handleDisplayPointerDown}
-                                onMouseMove={handleDisplayPointerMove}
-                                onMouseUp={handleDisplayPointerUp}
-                                style={{
-                                    width: '100%', height: '100%', objectFit: 'fill',
-                                    borderRadius: '12% / 5.6%',
-                                    cursor: isRunning ? 'pointer' : 'default', userSelect: 'none',
-                                    display: 'block',
-                                }}
-                            />
-                            {/* Dynamic Island */}
-                            <div style={{
-                                position: 'absolute', top: '3.2%', left: '50%', transform: 'translateX(-50%)',
-                                width: '30%', height: '3.4%', background: '#000', borderRadius: 999,
-                                pointerEvents: 'none',
-                            }} />
+            {/* Serial console — bottom overlay drawer (terminal toggle) */}
+            {showConsole && (
+                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%', zIndex: 20, display: 'flex', flexDirection: 'column', background: 'rgba(10,12,18,0.97)', borderTop: '1px solid #1e293b', boxShadow: '0 -10px 28px rgba(0,0,0,0.55)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 12px', background: '#0f172a', borderBottom: '1px solid #1e293b' }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b' }}>DARWIN SERIAL CONSOLE</span>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => setAutoScroll(v => !v)} style={{ fontSize: 9, padding: '1px 6px', background: autoScroll ? '#1e3a5f' : 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}>{autoScroll ? '⬇ Auto' : 'Manual'}</button>
+                            <button onClick={() => setConsoleLines([])} style={{ fontSize: 9, padding: '1px 6px', background: 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}>Clear</button>
+                            <button onClick={() => setShowConsole(false)} style={{ fontSize: 9, padding: '1px 6px', background: 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}>✕</button>
                         </div>
-                    ) : (
-                        <div style={{ color: '#334155', textAlign: 'center', fontSize: 11 }}>
-                            {isRunning ? '⟳ Waiting for first frame…' : 'Launch emulator to see display output'}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* Serial Console Output */}
-            <div style={{ flex: 1, flexDirection: 'column', minHeight: 0, display: viewMode === 'console' ? 'flex' : 'none' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 12px', background: '#0f172a', borderBottom: '1px solid #1e293b' }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b' }}>DARWIN SERIAL CONSOLE</span>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                        <button
-                            onClick={() => setAutoScroll(v => !v)}
-                            style={{ fontSize: 9, padding: '1px 6px', background: autoScroll ? '#1e3a5f' : 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}
-                        >
-                            {autoScroll ? '⬇ Auto' : 'Manual'}
-                        </button>
-                        <button
-                            onClick={() => setConsoleLines([])}
-                            style={{ fontSize: 9, padding: '1px 6px', background: 'transparent', border: '1px solid #334155', borderRadius: 2, color: '#94a3b8', cursor: 'pointer' }}
-                        >
-                            Clear
-                        </button>
-                        {isRunning && (
-                            <button
-                                onClick={handleStop}
-                                style={{ fontSize: 9, padding: '1px 8px', background: '#7f1d1d', border: '1px solid #991b1b', borderRadius: 2, color: '#fca5a5', cursor: 'pointer', fontWeight: 600 }}
-                            >
-                                ■ Stop
-                            </button>
+                    </div>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px', lineHeight: '1.5', fontSize: 10, fontFamily: 'var(--font-mono, monospace)' }}>
+                        {consoleLines.length === 0 && (
+                            <div style={{ color: '#334155', marginTop: 20, textAlign: 'center' }}>No output yet. Launch to see Darwin boot logs.</div>
                         )}
+                        {consoleLines.map((line, i) => (
+                            <div key={i} style={{ color: lineColor(line.stream), whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line.text}</div>
+                        ))}
+                        <div ref={consoleEndRef} />
                     </div>
                 </div>
-                <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px', lineHeight: '1.5', fontSize: 10 }}>
-                    {consoleLines.length === 0 && (
-                        <div style={{ color: '#334155', marginTop: 20, textAlign: 'center' }}>
-                            No output yet. Launch the emulator to see Darwin boot logs.
-                        </div>
-                    )}
-                    {consoleLines.map((line, i) => (
-                        <div key={i} style={{ color: lineColor(line.stream), whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                            {line.text}
-                        </div>
-                    ))}
-                    <div ref={consoleEndRef} />
-                </div>
-            </div>
+            )}
         </div>
     );
 };
