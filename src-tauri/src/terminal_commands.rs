@@ -205,7 +205,14 @@ pub async fn spawn_terminal(
             match reader.read(&mut buf) {
                 Ok(n) if n > 0 => {
                     let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    
+
+                    // PRIMARY transport: append to the pending buffer the UI
+                    // drains via `terminal_take_pending`. Blocking lock so we
+                    // never drop bytes. The legacy `terminal-data` event is kept
+                    // as a best-effort secondary for any external listeners.
+                    if let Ok(mut pend) = state.terminal_pending.lock() {
+                        pend.entry(term_id.clone()).or_default().push_str(&data);
+                    }
                     let _ = app_handle.emit(
                         "terminal-data",
                         TerminalDataPayload {
@@ -242,6 +249,9 @@ pub async fn close_terminal(state: State<'_, EditorState>, id: String) -> Result
         let _ = child.kill();
     }
     state.terminal_buffers.lock().await.remove(&id);
+    if let Ok(mut pend) = state.terminal_pending.lock() {
+        pend.remove(&id);
+    }
     Ok(())
 }
 
@@ -330,6 +340,23 @@ pub async fn terminal_read_output(state: State<'_, EditorState>, id: String) -> 
     state.terminal_read_output(id).await
 }
 
+/// Drain and return any PTY output produced since the last call. This is the
+/// primary terminal transport — the frontend polls it because the global
+/// `terminal-data` event stream does not reliably reach the webview.
+#[tauri::command]
+pub async fn terminal_take_pending(state: State<'_, EditorState>, id: String) -> Result<String, String> {
+    let out = {
+        let mut pend = state
+            .terminal_pending
+            .lock()
+            .map_err(|e| format!("pending lock poisoned: {e}"))?;
+        pend.get_mut(&id)
+            .map(std::mem::take)
+            .unwrap_or_default()
+    };
+    Ok(out)
+}
+
 #[tauri::command]
 pub fn get_available_shells() -> Result<Vec<String>, String> {
     #[cfg(windows)]
@@ -339,5 +366,66 @@ pub fn get_available_shells() -> Result<Vec<String>, String> {
     #[cfg(not(windows))]
     {
         Ok(vec!["/bin/bash".to_string(), "/bin/zsh".to_string(), "/bin/sh".to_string()])
+    }
+}
+
+#[cfg(test)]
+mod pty_smoke {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// Headless replica of `spawn_terminal`'s PTY core: open a pty, spawn the
+    /// resolved default shell, and read for up to 2s. Proves whether
+    /// portable-pty produces shell output on THIS machine, isolating PTY
+    /// mechanics from the Tauri emit/listen path. Run:
+    ///   cargo test pty_smoke -- --nocapture
+    #[test]
+    fn pty_produces_shell_output() {
+        let shell = resolve_shell_exe(if cfg!(windows) { "powershell.exe" } else { "/bin/bash" });
+        eprintln!("[pty_smoke] resolved shell = {shell}");
+
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .expect("openpty failed");
+
+        let mut cmd = CommandBuilder::new(shell.clone());
+        cmd.env("TERM", "xterm-256color");
+        if let Some(cwd) = default_terminal_cwd() {
+            cmd.cwd(cwd.as_os_str().to_owned());
+        }
+
+        let _child = pair.slave.spawn_command(cmd).expect("spawn_command failed");
+        let mut reader = pair.master.try_clone_reader().expect("clone reader failed");
+        let _master = pair.master; // keep alive while reading
+
+        let (tx, rx) = mpsc::channel::<usize>();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 8192];
+            let mut total = 0usize;
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(n) if n > 0 => {
+                        total += n;
+                        eprint!("{}", String::from_utf8_lossy(&buf[..n]));
+                        let _ = tx.send(total);
+                    }
+                    _ => break,
+                }
+            }
+        });
+
+        // Collect bytes for up to 2 seconds.
+        let mut got = 0usize;
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            if let Ok(t) = rx.recv_timeout(Duration::from_millis(200)) {
+                got = t;
+                if got > 0 { break; }
+            }
+        }
+        eprintln!("\n[pty_smoke] total bytes read in 2s = {got}");
+        assert!(got > 0, "PTY produced NO output in 2s — shell '{shell}' failed to render under portable-pty on this host");
     }
 }
