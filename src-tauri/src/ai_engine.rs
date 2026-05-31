@@ -5103,15 +5103,11 @@ impl Sentient {
                     }
                 }
 
-                // Check if Kortex proxy is alive on 1536
-                let is_proxy_alive = "127.0.0.1:1536"
-                    .parse::<std::net::SocketAddr>()
-                    .map(|addr| std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(50)).is_ok())
-                    .unwrap_or(false);
-                if is_proxy_alive {
-                    return "http://127.0.0.1:1536/v1beta/openai/chat/completions".to_string();
-                }
-
+                // Cloud goes DIRECT — never auto-route through the local :1536 AIM proxy.
+                // The proxy is for LOCAL Ollama context injection; sending a cloud request
+                // through it double-injects context the IDE already adds in-process AND
+                // hangs the request to the 60s timeout if the proxy is up but not
+                // forwarding (the cause of "Gemini just times out / takes a minute").
                 "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string()
             }
             "anthropic" => {
@@ -5250,15 +5246,8 @@ impl Sentient {
                     }
                 }
 
-                // Check if Kortex proxy is alive on 1536
-                let is_proxy_alive = "127.0.0.1:1536"
-                    .parse::<std::net::SocketAddr>()
-                    .map(|addr| std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(50)).is_ok())
-                    .unwrap_or(false);
-                if is_proxy_alive {
-                    return "http://127.0.0.1:1536/v1/chat/completions".to_string();
-                }
-
+                // Cloud goes DIRECT — never auto-route through the local :1536 AIM proxy
+                // (redundant context + hangs to the timeout if the proxy is up but stalls).
                 "https://api.openai.com/v1/chat/completions".to_string()
             }
         }

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { invoke } from '../tauri_bridge';
 import { applyTheme, type VscodeTheme } from '../theme_engine';
-import { Beaker, Layout, Bot, Globe, Braces } from 'lucide-react';
+import { Beaker, Layout, Bot, Globe, Braces, Settings } from 'lucide-react';
 
 // Stable sentinel so a missing viewsContainers entry never produces a fresh
 // array reference; otherwise Zustand's selector identity check thrashes and
@@ -22,7 +22,8 @@ const ActivityBar: React.FC = () => {
     );
 
     const items = [
-        { id: 'agent-manager', icon: 'robot', title: 'AI Agent & Chat' },
+        // AI/agent lives in the RIGHT sidebar (standard for AI IDEs) — removed the
+        // redundant left activity-bar entry. Toggle AIRI from the title-bar button.
         { id: 'explorer-view', icon: 'files', title: 'Explorer' },
         { id: 'search-view', icon: 'search', title: 'Search' },
         { id: 'scm-view', icon: 'source-control', title: 'Source Control' },
@@ -145,12 +146,12 @@ const ActivityBar: React.FC = () => {
                 </div>
                 <div
                     className="activity-item"
-                    title="Manage"
+                    title="Settings (Manage)"
                     id="activity-settings"
                     onClick={() => (window as any).useStore?.getState().openSettings()}
                 >
                     <div className="activity-item-icon">
-                        <i className="codicon codicon-settings-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
+                        <Settings size={22} strokeWidth={1.9} />
                     </div>
                 </div>
             </div>

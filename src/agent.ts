@@ -1440,18 +1440,20 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         const mode = store.getState().agentMode;
         if (mode !== 'Chat') {
             const description = userPrompt.replace(/\s+/g, ' ').slice(0, 60) || 'agent-turn';
-            const result: any = await invoke('git_auto_checkpoint', { description }).catch(() => null);
-            if (result && result.created && result.checkpoint && result.checkpoint.id) {
-                store.getState().setLastAgentCheckpoint?.({
-                    id: result.checkpoint.id,
-                    description,
-                    timestamp: Date.now(),
-                });
-                // Stamp the checkpoint id onto the user message that triggered
-                // this turn so the chat can render an inline "Restore to here"
-                // button (Cursor-style per-turn restore points).
-                store.getState().setLastUserMessageCheckpoint?.(result.checkpoint.id, description);
-            }
+            // FIRE-AND-FORGET: on a large working tree `git add/commit` takes many
+            // seconds — awaiting it here delayed EVERY response (even trivial chat) by
+            // that long. The checkpoint is best-effort; run it in the background so it
+            // never blocks time-to-first-token. The "Restore" stamp lands a beat later.
+            invoke('git_auto_checkpoint', { description }).then((result: any) => {
+                if (result && result.created && result.checkpoint && result.checkpoint.id) {
+                    store.getState().setLastAgentCheckpoint?.({
+                        id: result.checkpoint.id,
+                        description,
+                        timestamp: Date.now(),
+                    });
+                    store.getState().setLastUserMessageCheckpoint?.(result.checkpoint.id, description);
+                }
+            }).catch(() => { /* best-effort */ });
         }
     } catch (_) { /* checkpointing is best-effort; never block the turn */ }
 
