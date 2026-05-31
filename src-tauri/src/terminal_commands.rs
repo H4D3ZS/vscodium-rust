@@ -16,6 +16,49 @@ fn sanitize_no_nul(s: &str) -> String {
     s.split('\0').next().unwrap_or("").trim().to_string()
 }
 
+/// Return true if `exe` is launchable: an existing absolute/relative path, or a
+/// bare name found on PATH (trying the raw name and, on Windows, `.exe`).
+fn exe_is_resolvable(exe: &str) -> bool {
+    let p = std::path::Path::new(exe);
+    if p.components().count() > 1 || p.is_absolute() {
+        return p.exists();
+    }
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            if dir.join(exe).exists() {
+                return true;
+            }
+            #[cfg(windows)]
+            if !exe.to_lowercase().ends_with(".exe") && dir.join(format!("{exe}.exe")).exists() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// On Windows, a missing exe does NOT make ConPTY's spawn fail — it returns Ok
+/// and the child dies instantly, leaving a blank terminal. So resolve the shell
+/// up front: if the requested exe can't be found on PATH, fall back to the
+/// always-present Windows PowerShell, then cmd.exe.
+fn resolve_shell_exe(requested: &str) -> String {
+    if exe_is_resolvable(requested) {
+        return requested.to_string();
+    }
+    #[cfg(windows)]
+    {
+        println!("[Term] '{requested}' not found on PATH — falling back to powershell.exe");
+        if exe_is_resolvable("powershell.exe") {
+            return "powershell.exe".to_string();
+        }
+        return "cmd.exe".to_string();
+    }
+    #[cfg(not(windows))]
+    {
+        requested.to_string()
+    }
+}
+
 /// Best-effort fallback cwd when the configured one is missing or invalid.
 fn default_terminal_cwd() -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
@@ -78,6 +121,9 @@ pub async fn spawn_terminal(
     } else {
         shell_exe
     };
+    // Resolve missing exes up front — ConPTY won't error on them, it just
+    // produces a dead, blank terminal. (e.g. pwsh.exe → powershell.exe.)
+    let shell_exe = resolve_shell_exe(&shell_exe);
 
     let mut cmd = CommandBuilder::new(shell_exe.clone());
     cmd.env("TERM", "xterm-256color");

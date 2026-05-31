@@ -68,7 +68,11 @@ const ActivityBar: React.FC = () => {
     };
 
     const handleThemeSelect = async (theme: VscodeTheme) => {
-        const monacoTheme = await applyTheme(theme.path);
+        // Use the resolved absolutePath from get_installed_themes — `path` is the
+        // extension-relative path (e.g. "./themes/palenight.json") which the backend
+        // can't read, so themes silently failed to apply.
+        const themeFile = (theme as any).absolutePath || theme.path;
+        const monacoTheme = await applyTheme(themeFile);
         setTheme(monacoTheme);
         setIsThemePickerOpen(false);
     };

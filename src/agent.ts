@@ -2260,11 +2260,21 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     if ((store.getState() as any).agentMode === 'Chat' || _customReadOnly || _convoFastPath) {
         try {
             console.log('[Agent] Fast single round-trip (no tool loop)', { provider: routingProvider, model: routingModel, conversational: _convoFastPath });
+            // LEAN payload for local models: a short persona + the last few turns only.
+            // Sending the full AIM codebase map (built into `messages`) to a small local
+            // model means a huge prompt-eval → 120s timeouts (e.g. airi-fast). A chat
+            // doesn't need the brain; code questions go through an action prompt instead.
+            const isLocalProvider = routingProvider === 'ollama' || inferenceBackend === 'llama-cpp';
+            const leanMessages = [
+                { role: 'system', content: 'You are AIRI, a friendly, concise AI coding assistant inside the VSCodium-Rust IDE. Answer the user directly. If they ask about the codebase, suggest they use an action request so you can use your tools.', tool_calls: null, metadata: null },
+                ...messages.slice(1).slice(-6),
+            ];
+            const fastMessages = isLocalProvider ? leanMessages : messages;
             const chatCall = invoke<string>('ai_chat_fast', {
                 request: {
                     provider: routingProvider,
                     model: routingModel,
-                    messages: messages,
+                    messages: fastMessages,
                     temperature: 0.7,
                     autonomous: false,
                     mode: 'Chat',
