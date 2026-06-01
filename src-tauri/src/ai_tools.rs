@@ -53,6 +53,63 @@ fn push_activity(log: &Arc<std::sync::Mutex<Vec<String>>>, kind: &str, payload: 
     }
 }
 
+/// Best-effort JSON extraction from a model reply that may wrap the payload in
+/// ```json fences or surround it with prose. Tries the whole string, then the
+/// widest `[...]` array slice, then the widest `{...}` object slice. Used by the
+/// AI vuln-hunt pipeline where small local models rarely return clean JSON.
+fn extract_json_loose(text: &str) -> Option<Value> {
+    let mut t = text.trim();
+    if let Some(rest) = t.strip_prefix("```json") { t = rest; }
+    else if let Some(rest) = t.strip_prefix("```") { t = rest; }
+    let t = t.trim_start_matches("```").trim_end_matches("```").trim();
+    if let Ok(v) = serde_json::from_str::<Value>(t) { return Some(v); }
+    if let (Some(s), Some(e)) = (t.find('['), t.rfind(']')) {
+        if e > s {
+            if let Ok(v) = serde_json::from_str::<Value>(&t[s..=e]) { return Some(v); }
+        }
+    }
+    if let (Some(s), Some(e)) = (t.find('{'), t.rfind('}')) {
+        if e > s {
+            if let Ok(v) = serde_json::from_str::<Value>(&t[s..=e]) { return Some(v); }
+        }
+    }
+    None
+}
+
+/// Rough parameter-size hint (in billions) parsed from a model id, e.g.
+/// `qwen2.5:32b` → 32, `llama3:8b` → 8, `BugTraceAI-Apex-G4-26B-Q4` → 26.
+/// Used to rank local models into cheap/mid/strong tiers. 0 when unknown.
+fn model_size_hint(model: &str) -> u32 {
+    let lc = model.to_lowercase();
+    let bytes = lc.as_bytes();
+    let mut best = 0u32;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+            // followed by 'b' (optionally after nothing) → a parameter count
+            if i < bytes.len() && bytes[i] == b'b' {
+                if let Ok(n) = lc[start..i].parse::<u32>() {
+                    if n <= 1000 && n > best { best = n; }
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    best
+}
+
+/// True if a model id looks security-specialized (preferred for the strong
+/// confirm tier): BugTrace, APEX, SecurityEngineer, red-team, abliterated, etc.
+fn is_security_model(model: &str) -> bool {
+    let lc = model.to_lowercase();
+    ["bugtrace", "apex", "securityengineer", "security", "redteam", "red-team",
+     "pentest", "abliterat", "neuraldevil", "hacker", "exploit"]
+        .iter().any(|k| lc.contains(k))
+}
+
 impl AiTools {
     pub fn new(
         root_path: PathBuf,
@@ -1183,6 +1240,23 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "ai_vuln_hunt".to_string(),
+                description: "AI vulnerability-hunting PIPELINE (3-stage, tiered models) — the HackerOne #1-KR methodology, the strongest white-box bug-finder in the toolbox. Stage 1 chunks the codebase into analysis units; stage 2 runs a CHEAP model over every chunk for high-recall candidate generation (missing authz/IDOR, injection, SSRF, input-handling, business-logic); stage 3 validates in two passes — a MID model culls obvious false positives, then a STRONG (security-specialized if available) model confirms each real bug and writes severity/CWE/impact/PoC/remediation, honestly flagging policy_dependent and cross_component cases. Model tiers auto-resolve from installed Ollama + keyed cloud models (overridable). Writes a CWE-tagged Markdown report to reports/ and returns structured findings. Use this FIRST for 'find vulnerabilities / audit this repo / bug-bounty recon' on source you can read (complements deep_security_audit which is pattern-only, and web_security_audit which is for live URLs).".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "File or directory to hunt (relative to workspace). Use '.' for the whole project. Default '.'." },
+                        "cheap_model": { "type": "string", "description": "Override the high-recall stage-2 model, as 'provider|model' or bare model (defaults to ollama). Optional — auto-detected if omitted." },
+                        "mid_model": { "type": "string", "description": "Override the false-positive-filter (stage 3a) model. Optional." },
+                        "strong_model": { "type": "string", "description": "Override the final confirm (stage 3b) model. Optional." },
+                        "chunk_bytes": { "type": "integer", "description": "Max bytes per analysis chunk (default 24000). Smaller = more calls but finer detail." },
+                        "max_files": { "type": "integer", "description": "Cap files scanned (cost control, default 400)." },
+                        "max_chunks": { "type": "integer", "description": "Cap chunks analyzed (cost control, default 60)." },
+                        "write_report": { "type": "boolean", "description": "Write a Markdown report to reports/ (default true)." }
+                    }
+                }),
+            },
+            ToolDefinition {
                 name: "weaponize_env".to_string(),
                 description: "Red-team weaponization assessment of a .env / env-export file. Parses KEY=VALUE pairs, classifies each variable (secret / endpoint / telemetry / runtime), and produces a structured weaponization plan: which secrets are immediately actionable (DB URLs, admin passwords, API tokens, Sentry/OTLP DSNs), which endpoints are pivot targets, what the blast radius is, and what an attacker would do next. Pair with `secrets_scan` for full coverage. Output is JSON suitable for the agent to drive follow-up actions.".to_string(),
                 input_schema: json!({
@@ -1826,6 +1900,7 @@ impl AiTools {
             "weaponize_env" => self.weaponize_env(arguments).await,
             "deep_security_audit" => self.deep_security_audit(arguments).await,
             "web_security_audit" => self.web_security_audit(arguments).await,
+            "ai_vuln_hunt" => self.ai_vuln_hunt(arguments).await,
             "dev_cargo_diagnostics" => self.dev_cargo_diagnostics(arguments).await,
             "search_codebase" => self.search_codebase(arguments).await,
             "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
@@ -3586,6 +3661,586 @@ impl AiTools {
     /// report under `reports/`. One call replaces an ad-hoc grep-and-pray audit.
     /// All passes are filesystem-only — no slow/hanging external scanners — so the
     /// agent gets a structured result in seconds.
+    /// One single-shot LLM call on a chosen (provider, model) tier. Reaches the
+    /// inference engine acquired by `ai_vuln_hunt`; no tools, no agentic loop.
+    async fn vuln_llm(
+        &self,
+        engine: &Arc<crate::ai_engine::Sentient>,
+        provider: &str,
+        model: &str,
+        system: &str,
+        user: &str,
+        temp: f32,
+    ) -> Result<String> {
+        let req = crate::ai_engine::AiRequest {
+            provider: provider.to_string(),
+            model: model.to_string(),
+            messages: vec![
+                crate::ai_engine::ChatMessage {
+                    role: "system".to_string(),
+                    content: Some(crate::ai_engine::MessageContent::Text(system.to_string())),
+                    ..Default::default()
+                },
+                crate::ai_engine::ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(crate::ai_engine::MessageContent::Text(user.to_string())),
+                    ..Default::default()
+                },
+            ],
+            temperature: Some(temp),
+            autonomous: false,
+            mode: Some("Chat".to_string()),
+            cyber_mode: None,
+            root_access: None,
+            ollama_url: None,
+            tools: Some(vec![]),
+            reasoning_budget: None,
+            reasoning_effort: None,
+            reasoning_enabled: Some(false),
+            feature: Some("Chat".to_string()),
+        };
+        engine.single_shot_completion(req).await
+    }
+
+    /// Best-effort list of locally-installed Ollama model tags.
+    async fn list_ollama_tags(&self) -> Vec<String> {
+        let base = std::env::var("OLLAMA_HOST")
+            .ok()
+            .map(|h| if h.starts_with("http") { h } else { format!("http://{}", h) })
+            .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
+        let url = format!("{}/api/tags", base.trim_end_matches('/'));
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(4))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return vec![],
+        };
+        match client.get(&url).send().await {
+            Ok(r) => r
+                .json::<Value>()
+                .await
+                .ok()
+                .and_then(|v| {
+                    v.get("models").and_then(|m| m.as_array()).map(|arr| {
+                        arr.iter()
+                            .filter_map(|x| x.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                            .collect()
+                    })
+                })
+                .unwrap_or_default(),
+            Err(_) => vec![],
+        }
+    }
+
+    /// Best-effort list of model ids from an OpenAI-compatible `/v1/models`
+    /// endpoint (used to discover cyberifrit-served models like SecurityEngineer).
+    async fn list_openai_compatible_models(&self, base: &str, key: &str) -> Vec<String> {
+        let url = format!("{}/v1/models", base.trim_end_matches('/'));
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return vec![],
+        };
+        let mut req = client.get(&url);
+        if !key.is_empty() {
+            req = req.bearer_auth(key);
+        }
+        match req.send().await {
+            Ok(r) => r
+                .json::<Value>()
+                .await
+                .ok()
+                .and_then(|v| {
+                    v.get("data").and_then(|d| d.as_array()).map(|arr| {
+                        arr.iter()
+                            .filter_map(|x| x.get("id").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                            .collect()
+                    })
+                })
+                .unwrap_or_default(),
+            Err(_) => vec![],
+        }
+    }
+
+    /// Resolve the (cheap, mid, strong) model tiers for a vuln-hunt. Explicit
+    /// args win; otherwise auto-detect from installed Ollama models + keyed cloud
+    /// providers (incl. cyberifrit). The strong/confirm tier prefers a
+    /// security-specialized model, then the biggest available, so it auto-selects
+    /// the user's `SecurityEngineer` / `BugTraceAI-Apex` when api.cyberifrit.xyz
+    /// is configured. Returns `(provider, model)` per tier.
+    async fn resolve_vuln_tiers(
+        &self,
+        args: &Value,
+        config_dir: &std::path::Path,
+    ) -> ((String, String), (String, String), (String, String)) {
+        let parse_spec = |s: &str| -> (String, String) {
+            match s.split_once('|') {
+                Some((p, m)) => (p.trim().to_lowercase(), m.trim().to_string()),
+                None => ("ollama".to_string(), s.trim().to_string()),
+            }
+        };
+        let explicit = |key: &str| -> Option<(String, String)> {
+            args.get(key)
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(parse_spec)
+        };
+
+        // Candidate pool: (provider, model, size_hint, is_security).
+        let mut pool: Vec<(String, String, u32, bool)> = Vec::new();
+        for m in self.list_ollama_tags().await {
+            let sz = model_size_hint(&m);
+            let sec = is_security_model(&m);
+            pool.push(("ollama".to_string(), m, sz, sec));
+        }
+
+        let keys: Value = std::fs::read_to_string(config_dir.join("api_keys.json"))
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_else(|| json!({}));
+        let has = |k: &str| {
+            keys.get(k)
+                .and_then(|v| v.as_str())
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
+        };
+
+        if has("cyberifrit") || has("cyberifrit_base_url") {
+            let base = keys
+                .get("cyberifrit_base_url")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("https://api.cyberifrit.xyz")
+                .trim_end_matches('/')
+                .to_string();
+            let key = keys.get("cyberifrit").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            for m in self.list_openai_compatible_models(&base, &key).await {
+                let sz = model_size_hint(&m).max(20); // treat custom cloud as capable
+                let sec = is_security_model(&m);
+                pool.push(("cyberifrit".to_string(), m, sz, sec));
+            }
+        }
+
+        // Other keyed cloud providers → a sensible default model each.
+        let cloud_defaults: &[(&str, &str, &str, u32)] = &[
+            ("anthropic", "anthropic", "claude-sonnet-4-6", 100),
+            ("openai", "openai", "gpt-4o", 90),
+            ("google", "google", "gemini-2.5-pro", 85),
+            ("deepseek", "deepseek", "deepseek-chat", 70),
+            ("mimo", "mimo", "mimo-v2.5-pro", 60),
+        ];
+        for (kf, prov, model, rank) in cloud_defaults {
+            if has(kf) {
+                pool.push((prov.to_string(), model.to_string(), *rank, is_security_model(model)));
+            }
+        }
+
+        if pool.is_empty() {
+            pool.push(("ollama".to_string(), "qwen2.5-coder:7b".to_string(), 7, false));
+        }
+
+        // strong: security-named first, else biggest.
+        let strong = explicit("strong_model").unwrap_or_else(|| {
+            let mut idx = 0usize;
+            for (i, c) in pool.iter().enumerate() {
+                let cur = &pool[idx];
+                let better = (c.3 && !cur.3) || (c.3 == cur.3 && c.2 > cur.2);
+                if better {
+                    idx = i;
+                }
+            }
+            (pool[idx].0.clone(), pool[idx].1.clone())
+        });
+
+        // cheap: smallest (prefer coder); cloud (size 0) ranked as large.
+        let cheap = explicit("cheap_model").unwrap_or_else(|| {
+            let mut idx = 0usize;
+            for (i, c) in pool.iter().enumerate() {
+                let cur = &pool[idx];
+                let c_coder = c.1.to_lowercase().contains("cod");
+                let cur_coder = cur.1.to_lowercase().contains("cod");
+                let c_sz = if c.2 == 0 { 999 } else { c.2 };
+                let cur_sz = if cur.2 == 0 { 999 } else { cur.2 };
+                let better = c_sz < cur_sz || (c_sz == cur_sz && c_coder && !cur_coder);
+                if better {
+                    idx = i;
+                }
+            }
+            (pool[idx].0.clone(), pool[idx].1.clone())
+        });
+
+        // mid: largest distinct model that is neither cheap nor strong; else strong.
+        let mid = explicit("mid_model").unwrap_or_else(|| {
+            let mut best: Option<(usize, u32)> = None;
+            for (i, c) in pool.iter().enumerate() {
+                let is_strong = c.0 == strong.0 && c.1 == strong.1;
+                let is_cheap = c.0 == cheap.0 && c.1 == cheap.1;
+                if is_strong || is_cheap {
+                    continue;
+                }
+                let sz = if c.2 == 0 { 50 } else { c.2 };
+                if best.map(|(_, b)| sz > b).unwrap_or(true) {
+                    best = Some((i, sz));
+                }
+            }
+            match best {
+                Some((i, _)) => (pool[i].0.clone(), pool[i].1.clone()),
+                None => strong.clone(),
+            }
+        });
+
+        (cheap, mid, strong)
+    }
+
+    /// AI vulnerability-hunting pipeline (3-stage, tiered models) — the
+    /// HackerOne #1-KR methodology. Stage 1 chunks the codebase; stage 2 uses a
+    /// cheap model for high-recall candidate generation; stage 3 validates in two
+    /// passes (mid model culls false positives → strong model confirms + enriches),
+    /// flagging policy-dependent and cross-component cases honestly. Writes a
+    /// CWE-tagged Markdown report to `reports/` and returns structured findings.
+    async fn ai_vuln_hunt(&self, args: Value) -> Result<Value> {
+        let scope = args.get("path").and_then(|v| v.as_str()).unwrap_or(".").to_string();
+        let write_report = args.get("write_report").and_then(|v| v.as_bool()).unwrap_or(true);
+        let chunk_bytes = args
+            .get("chunk_bytes")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(24_000)
+            .max(2_000) as usize;
+        let max_files = args.get("max_files").and_then(|v| v.as_u64()).unwrap_or(400) as usize;
+        let max_chunks = args
+            .get("max_chunks")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(60)
+            .max(1) as usize;
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, &scope)?;
+        if !full_path.exists() {
+            return Err(anyhow!("Path not found: {}", scope));
+        }
+
+        // Engine + config dir; drop the app_handle lock before long LLM work.
+        let (engine, config_dir) = {
+            let h_lock = self.app_handle.lock().await;
+            let h = h_lock
+                .as_ref()
+                .ok_or_else(|| anyhow!("App handle not set (inference engine unavailable)"))?;
+            let state: tauri::State<crate::EditorState> = h.state();
+            (state.ai_engine.clone(), state.config_dir.clone())
+        };
+
+        let (cheap, mid, strong) = self.resolve_vuln_tiers(&args, &config_dir).await;
+        push_activity(
+            &self.activity_log,
+            "ai-action",
+            json!({
+                "action": format!("Vuln-hunt tiers — cheap: {}|{}  ·  mid: {}|{}  ·  strong: {}|{}",
+                    cheap.0, cheap.1, mid.0, mid.1, strong.0, strong.1),
+                "tool": "ai_vuln_hunt"
+            }),
+        );
+
+        // ── Stage 1: chunk the codebase into analysis units ──
+        let code_exts = [
+            "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "kt", "rb", "php",
+            "c", "cpp", "cs", "swift", "sh", "ps1", "sql", "html",
+        ];
+        let skip_dirs = [
+            "node_modules", "target", "dist", "build", ".git", "vendor", "third_party",
+            ".next", ".cache", "__pycache__", "reports", "exploits",
+        ];
+        struct Chunk {
+            header: String,
+            body: String,
+        }
+        let mut chunks: Vec<Chunk> = Vec::new();
+        let mut cur = String::new();
+        let mut cur_files: Vec<String> = Vec::new();
+        let mut files_scanned = 0usize;
+
+        let walker = walkdir::WalkDir::new(&full_path)
+            .max_depth(20)
+            .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                !skip_dirs.contains(&name.as_str())
+            });
+        for entry in walker.flatten() {
+            if chunks.len() >= max_chunks || files_scanned >= max_files {
+                break;
+            }
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let ext = entry
+                .path()
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if !code_exts.contains(&ext.as_str()) {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                if meta.len() > 1_500_000 {
+                    continue;
+                }
+            }
+            let content = match fs::read_to_string(entry.path()) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            files_scanned += 1;
+            let rel = entry
+                .path()
+                .strip_prefix(&*root)
+                .unwrap_or(entry.path())
+                .to_string_lossy()
+                .to_string();
+
+            let numbered: String = content
+                .lines()
+                .enumerate()
+                .map(|(i, l)| format!("{:>4}| {}\n", i + 1, l.chars().take(400).collect::<String>()))
+                .collect();
+            let piece = format!("\n=== FILE: {} ===\n{}", rel, numbered);
+
+            if cur.len() + piece.len() > chunk_bytes && !cur.is_empty() {
+                chunks.push(Chunk {
+                    header: cur_files.join(", "),
+                    body: std::mem::take(&mut cur),
+                });
+                cur_files.clear();
+                if chunks.len() >= max_chunks {
+                    break;
+                }
+            }
+            cur.push_str(&piece);
+            cur_files.push(rel);
+        }
+        if !cur.is_empty() && chunks.len() < max_chunks {
+            chunks.push(Chunk {
+                header: cur_files.join(", "),
+                body: cur,
+            });
+        }
+        if chunks.is_empty() {
+            return Ok(json!({
+                "summary": "No source files found to analyze.",
+                "scope": scope, "findings": []
+            }));
+        }
+
+        // ── Stage 2: hypothesis generation (cheap, high recall) ──
+        let hypo_sys = "You are a high-recall vulnerability hypothesis generator for a security audit. \
+For the given source chunk, list EVERY potentially attackable point. Optimize for RECALL — better to include \
+a weak candidate than miss a real bug; false positives are filtered later. Look for missing/broken \
+authorization (IDOR, missing access checks), injection (SQL/command/template/XSS), unsafe input handling, \
+SSRF, path traversal, insecure deserialization, weak crypto, auth/session flaws, and business-logic \
+inconsistencies. Reply ONLY with a JSON array; each item: \
+{\"file\":\"path\",\"line\":<int>,\"category\":\"short label\",\"cwe\":\"CWE-XXX\",\"why\":\"one sentence\"}. \
+No prose, no markdown fences.";
+        let mut candidates: Vec<Value> = Vec::new();
+        for (i, ch) in chunks.iter().enumerate() {
+            push_activity(
+                &self.activity_log,
+                "ai-action",
+                json!({
+                    "action": format!("Vuln-hunt stage 2 — scanning chunk {}/{} ({})", i + 1, chunks.len(), ch.header),
+                    "tool": "ai_vuln_hunt"
+                }),
+            );
+            let user = format!("Source chunk (files: {}):\n{}", ch.header, ch.body);
+            if let Ok(reply) = self.vuln_llm(&engine, &cheap.0, &cheap.1, hypo_sys, &user, 0.2).await {
+                if let Some(Value::Array(arr)) = extract_json_loose(&reply) {
+                    candidates.extend(arr);
+                }
+            }
+        }
+        if candidates.is_empty() {
+            return Ok(json!({
+                "summary": "Hypothesis stage produced no candidates.",
+                "scope": scope, "chunks": chunks.len(), "files_scanned": files_scanned, "findings": []
+            }));
+        }
+        if candidates.len() > 120 {
+            candidates.truncate(120);
+        }
+
+        // ── Stage 3a: mid model drops obvious false positives ──
+        push_activity(
+            &self.activity_log,
+            "ai-action",
+            json!({
+                "action": format!("Vuln-hunt stage 3a — filtering {} candidates ({})", candidates.len(), mid.1),
+                "tool": "ai_vuln_hunt"
+            }),
+        );
+        let filter_sys = "You are a triage filter in a security audit. Given a JSON array of vulnerability \
+candidates, drop the obvious false positives (no attacker-controlled input, already guarded by an upper layer, \
+not security-relevant). Keep anything plausible. Reply ONLY with a JSON array of the SURVIVING candidates \
+(the same objects you kept). No prose, no fences.";
+        let cand_json = serde_json::to_string(&candidates).unwrap_or_else(|_| "[]".to_string());
+        let mut survivors: Vec<Value> = candidates.clone();
+        if let Ok(reply) = self.vuln_llm(&engine, &mid.0, &mid.1, filter_sys, &cand_json, 0.1).await {
+            if let Some(Value::Array(arr)) = extract_json_loose(&reply) {
+                if !arr.is_empty() {
+                    survivors = arr;
+                }
+            }
+        }
+
+        // ── Stage 3b: strong model confirms + enriches ──
+        push_activity(
+            &self.activity_log,
+            "ai-action",
+            json!({
+                "action": format!("Vuln-hunt stage 3b — confirming {} survivors ({})", survivors.len(), strong.1),
+                "tool": "ai_vuln_hunt"
+            }),
+        );
+        let confirm_sys = "You are the senior validator in a security audit. For each candidate, decide if it is \
+a REAL, exploitable vulnerability. Be honest: if confirming would require undocumented service policy, set \
+policy_dependent=true; if the security control may legitimately live in another component you cannot see, set \
+cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop the rejects); each item: \
+{\"title\":\"\",\"severity\":\"CRITICAL|HIGH|MEDIUM|LOW\",\"cwe\":\"CWE-XXX\",\"category\":\"\",\"path\":\"\",\
+\"line\":<int>,\"evidence\":\"code or reason\",\"impact\":\"\",\"remediation\":\"\",\"poc\":\"steps or payload\",\
+\"confidence\":0.0,\"policy_dependent\":false,\"cross_component\":false}. No prose, no fences.";
+        let surv_json = serde_json::to_string(&survivors).unwrap_or_else(|_| "[]".to_string());
+        let mut findings: Vec<Value> = Vec::new();
+        if let Ok(reply) = self.vuln_llm(&engine, &strong.0, &strong.1, confirm_sys, &surv_json, 0.1).await {
+            if let Some(Value::Array(arr)) = extract_json_loose(&reply) {
+                findings = arr;
+            }
+        }
+        // Strong tier unavailable/unparseable → keep survivors as low-confidence findings.
+        if findings.is_empty() {
+            for c in &survivors {
+                findings.push(json!({
+                    "title": c.get("category").and_then(|v| v.as_str()).unwrap_or("Potential issue"),
+                    "severity": "LOW",
+                    "cwe": c.get("cwe").cloned().unwrap_or(json!("CWE-0")),
+                    "category": c.get("category").cloned().unwrap_or(json!("unverified")),
+                    "path": c.get("file").cloned().unwrap_or(json!("")),
+                    "line": c.get("line").cloned().unwrap_or(json!(0)),
+                    "evidence": c.get("why").cloned().unwrap_or(json!("")),
+                    "impact": "",
+                    "remediation": "Manual review required — strong-tier confirmation was unavailable.",
+                    "poc": "",
+                    "confidence": 0.3,
+                    "policy_dependent": false,
+                    "cross_component": false
+                }));
+            }
+        }
+
+        // ── Normalize + id + sort by severity ──
+        let sev_rank = |s: &str| -> u8 {
+            match s.to_uppercase().as_str() {
+                "CRITICAL" => 0,
+                "HIGH" => 1,
+                "MEDIUM" => 2,
+                "LOW" => 3,
+                _ => 4,
+            }
+        };
+        let mut fid = 0u32;
+        for f in findings.iter_mut() {
+            fid += 1;
+            if let Value::Object(m) = f {
+                m.insert("id".to_string(), json!(format!("VH-{:03}", fid)));
+            }
+        }
+        findings.sort_by_key(|f| sev_rank(f.get("severity").and_then(|v| v.as_str()).unwrap_or("INFO")));
+
+        let mut by_sev: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+        for f in &findings {
+            let s = f.get("severity").and_then(|v| v.as_str()).unwrap_or("INFO").to_uppercase();
+            *by_sev.entry(s).or_insert(0) += 1;
+        }
+
+        // ── Markdown report ──
+        let mut report_path = String::new();
+        if write_report {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let reports_dir = root.join("reports");
+            let _ = fs::create_dir_all(&reports_dir);
+            let file = reports_dir.join(format!("vuln-hunt-{}.md", ts));
+            let mut md = String::new();
+            md.push_str(&format!(
+                "# AI Vulnerability Hunt\n\n- **Scope:** `{}`\n- **Files scanned:** {}\n- **Chunks:** {}\n- **Candidates:** {}\n- **Confirmed findings:** {}\n- **Tiers:** cheap `{}|{}` → mid `{}|{}` → strong `{}|{}`\n\n",
+                scope, files_scanned, chunks.len(), candidates.len(), findings.len(),
+                cheap.0, cheap.1, mid.0, mid.1, strong.0, strong.1
+            ));
+            md.push_str("## Summary by severity\n\n| Severity | Count |\n|----------|------:|\n");
+            for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"] {
+                if let Some(c) = by_sev.get(sev) {
+                    md.push_str(&format!("| {} | {} |\n", sev, c));
+                }
+            }
+            md.push_str("\n## Findings\n\n");
+            for f in &findings {
+                let flag = |k: &str| f.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+                let mut notes = String::new();
+                if flag("policy_dependent") {
+                    notes.push_str("  ⚠️ policy-dependent (needs policy doc to confirm)");
+                }
+                if flag("cross_component") {
+                    notes.push_str("  ⚠️ cross-component (control may live elsewhere)");
+                }
+                md.push_str(&format!(
+                    "### {} — {}\n- **Severity:** {}  ·  **CWE:** {}  ·  **Confidence:** {:.2}{}\n- **Location:** `{}:{}`\n- **Evidence:** {}\n- **Impact:** {}\n- **PoC:** {}\n- **Remediation:** {}\n\n",
+                    f.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("severity").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("cwe").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    notes,
+                    f.get("path").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("line").and_then(|v| v.as_u64()).unwrap_or(0),
+                    f.get("evidence").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("impact").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("poc").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("remediation").and_then(|v| v.as_str()).unwrap_or(""),
+                ));
+            }
+            if fs::write(&file, md).is_ok() {
+                report_path = file
+                    .strip_prefix(&*root)
+                    .unwrap_or(&file)
+                    .to_string_lossy()
+                    .to_string();
+            }
+        }
+
+        Ok(json!({
+            "scope": scope,
+            "files_scanned": files_scanned,
+            "chunks": chunks.len(),
+            "candidates": candidates.len(),
+            "survivors": survivors.len(),
+            "total_findings": findings.len(),
+            "by_severity": by_sev,
+            "tiers": {
+                "cheap": format!("{}|{}", cheap.0, cheap.1),
+                "mid": format!("{}|{}", mid.0, mid.1),
+                "strong": format!("{}|{}", strong.0, strong.1)
+            },
+            "report_path": report_path,
+            "findings": findings,
+            "summary": format!("AI vuln-hunt: {} confirmed finding(s) from {} candidate(s) across {} chunk(s)/{} file(s). Report: {}",
+                findings.len(), candidates.len(), chunks.len(), files_scanned,
+                if report_path.is_empty() { "(not written)".to_string() } else { report_path.clone() }),
+        }))
+    }
+
     async fn deep_security_audit(&self, args: Value) -> Result<Value> {
         use regex::Regex;
         let scope = args.get("path").and_then(|v| v.as_str()).unwrap_or(".").to_string();

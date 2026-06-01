@@ -66,6 +66,8 @@ pub(crate) const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
     // them, so "find security bugs in <url>" had nothing to drive the browser.
     "web_security_audit", "browser_open", "browser_navigate",
     "browser_screenshot", "browser_read_dom",
+    // 3-stage AI vuln-hunting pipeline (HackerOne #1-KR methodology).
+    "ai_vuln_hunt",
 ];
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1923,7 +1925,7 @@ impl Sentient {
                 || (task_l.contains("audit") && task_l.contains("http"));
             if is_sec_turn {
                 const SEC_TOOLS: &[&str] = &[
-                    "web_security_audit", "deep_security_audit", "apex_red_team_scan",
+                    "ai_vuln_hunt", "web_security_audit", "deep_security_audit", "apex_red_team_scan",
                     "apex_quick_check", "apex_threat_anticipate", "apex_simulate_attack",
                     "apex_pentest_report", "apex_scan_url", "secrets_scan", "weaponize_env",
                     "network_port_scanner", "binary_mach_o_scanner", "file_entropy_analysis",
@@ -1991,7 +1993,7 @@ impl Sentient {
                     "apex_scan_url","binary_mach_o_scanner","file_entropy_analysis",
                     "network_port_scanner","extract_strings","hex_dump",
                     // Live web pentest — the high-value meta-tool for "audit this url"
-                    "web_security_audit","deep_security_audit",
+                    "web_security_audit","deep_security_audit","ai_vuln_hunt",
                     // Research
                     "web_fetch","web_search","perplexity_ask","browser_open","browser_navigate",
                     "browser_screenshot","browser_read_dom",
@@ -2270,18 +2272,44 @@ impl Sentient {
             .and_then(|m| m.content.as_ref())
             .map(|c| c.as_str().to_ascii_lowercase())
             .unwrap_or_default();
+        // Whether this turn needs autonomous tool use (ACTION) vs a plain answer
+        // (CHAT). We do NOT rely on a hardcoded verb list to decide — that never
+        // generalizes across the many local + cloud models this IDE runs. Instead:
+        //   1. Explicit USER signals win instantly (no model call): an offensive
+        //      MODE (Bug Bounty / Red Team) or an injected `[INTENT: …]` selector.
+        //   2. A cheap verb hint catches the obvious "write/fix/scan/exploit…" cases
+        //      with zero latency.
+        //   3. For everything the hint thinks is "chat", we ASK THE MODEL ITSELF
+        //      (classify_action_intent) — so phrasings with no known verb
+        //      ("do comprehensive penetration testing", "look into why X breaks")
+        //      are understood by intelligence, not regex. The hint is only a
+        //      fast-positive + offline fallback if the model call fails.
         let prompt_demands_action = {
-            // Keep this in sync with `ACTION_VERB_REGEX` on the frontend.
-            const ACTION_VERBS: &[&str] = &[
+            const ACTION_VERB_HINTS: &[&str] = &[
                 "write", "create", "generate", "make", "build", "implement",
                 "add", "edit", "patch", "fix", "refactor", "delete", "remove",
                 "run", "execute", "launch", "deploy", "install", "compile",
-                "weaponize", "exploit", "poc", "attack", "fuzz", "scan",
+                "weaponize", "weaponise", "exploit", "poc", "attack", "fuzz", "scan",
                 "audit", "analyze", "analyse", "inspect", "assess", "review",
                 "inject", "craft", "emit", "spawn", "bruteforce", "crack",
                 "save", "persist", "store", "push", "commit", "merge",
+                "pentest", "penetration", "recon", "reconnaissance", "enumerate",
+                "hunt", "probe", "harden", "discover", "intercept", "sniff",
+                "reverse", "decompile", "disassemble",
             ];
-            ACTION_VERBS.iter().any(|v| last_user_text.contains(v))
+            let mode_l = req.mode.as_deref().unwrap_or("").to_ascii_lowercase();
+            let sec_mode = mode_l.contains("bugbounty") || mode_l.contains("bug bounty")
+                || mode_l.contains("redteam") || mode_l.contains("red team")
+                || mode_l.contains("blueteam") || mode_l.contains("blue team");
+            let intent_tag = last_user_text.contains("[intent:");
+            let verb_hint = ACTION_VERB_HINTS.iter().any(|v| last_user_text.contains(v));
+            if sec_mode || intent_tag || verb_hint {
+                true
+            } else {
+                // Ambiguous to the heuristic — let the model decide. Falls back to
+                // CHAT only if the classification call itself fails.
+                self.classify_action_intent(&req, &last_user_text).await.unwrap_or(false)
+            }
         };
 
         let mode_str = req.mode.as_deref().unwrap_or("Agent");
@@ -3878,6 +3906,7 @@ impl Sentient {
                             // "audit my codebase" is satisfied by running it (not stuck nudging).
                             | "deep_security_audit"
                             | "web_security_audit"
+                            | "ai_vuln_hunt"
                     ) {
                         action_tools_run_this_turn += 1;
                     }
@@ -4506,6 +4535,73 @@ impl Sentient {
 
     /// Optimized single-turn completion for low-latency FIM (Fill-In-Middle).
     /// Bypasses tool loading, autonomous verification, and memory injection.
+    /// Model-driven intent routing. Ask the SAME provider/model whether the
+    /// user's latest message needs autonomous tool use (ACTION) or is plain
+    /// conversation (CHAT). This replaces brittle keyword heuristics so intent
+    /// generalizes across every local and cloud model the IDE runs. Returns
+    /// Some(true)=action, Some(false)=chat, None when the call fails/times out
+    /// (caller falls back to a cheap heuristic). Bounded by a short timeout so a
+    /// slow endpoint can never delay the agent loop.
+    async fn classify_action_intent(&self, req: &AiRequest, user_text: &str) -> Option<bool> {
+        let user_text = user_text.trim();
+        if user_text.is_empty() {
+            return Some(false);
+        }
+        let sys = "You are the intent router for an autonomous coding + security agent that can read/write files, \
+run shell commands, search a codebase, scan, recon, and exploit authorized targets. \
+Classify the user's latest message into exactly one bucket:\n\
+- ACTION: they want the agent to DO something with tools — write/edit/refactor code, run commands, build, \
+debug, investigate the codebase, scan/recon/audit/exploit a target, fix a bug, etc.\n\
+- CHAT: a greeting, small talk, or a factual/explanatory question that can be answered with words alone and needs no tools.\n\
+Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
+        let classify_req = AiRequest {
+            provider: req.provider.clone(),
+            model: req.model.clone(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: Some(MessageContent::Text(sys.to_string())),
+                    ..Default::default()
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(MessageContent::Text(format!(
+                        "User message:\n{}\n\nOne word — ACTION or CHAT:",
+                        user_text.chars().take(2000).collect::<String>()
+                    ))),
+                    ..Default::default()
+                },
+            ],
+            temperature: Some(0.0),
+            autonomous: false,
+            mode: Some("Chat".to_string()),
+            cyber_mode: None,
+            root_access: None,
+            ollama_url: req.ollama_url.clone(),
+            tools: Some(vec![]),
+            reasoning_budget: None,
+            reasoning_effort: None,
+            reasoning_enabled: Some(false),
+            feature: Some("Chat".to_string()),
+        };
+        let fut = self.single_shot_completion(classify_req);
+        match tokio::time::timeout(std::time::Duration::from_secs(15), fut).await {
+            Ok(Ok(text)) => {
+                let t = text.to_ascii_uppercase();
+                // Read the first decisive token; some models prefix reasoning.
+                let action_idx = t.find("ACTION");
+                let chat_idx = t.find("CHAT");
+                match (action_idx, chat_idx) {
+                    (Some(a), Some(c)) => Some(a <= c), // whichever appears first wins
+                    (Some(_), None) => Some(true),
+                    (None, Some(_)) => Some(false),
+                    (None, None) => None,
+                }
+            }
+            _ => None, // timeout or provider error → caller falls back
+        }
+    }
+
     pub async fn single_shot_completion(&self, req: AiRequest) -> Result<String> {
         let is_ollama = req.provider.to_lowercase() == "ollama" || req.provider.to_lowercase() == "antigravity";
         // Use standard chat endpoint for single-turn logic

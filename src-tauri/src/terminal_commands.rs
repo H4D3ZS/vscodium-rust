@@ -69,16 +69,37 @@ const POWERSHELL_SHELL_INTEGRATION_PS1: &str = r#"
 if (-not $global:__vscr_si) {
   $global:__vscr_si = $true
   $global:__vscr_orig_prompt = $function:prompt
+
+  # ── cmder-style git-aware lambda prompt ──────────────────────────────────
+  # Two lines: "<short-cwd> (branch*)" then an exit-colored lambda. Emits the
+  # OSC 133 sequences first so the Warp-style command-block tracker keeps working.
   function global:prompt {
     $code = if ($?) { 0 } else { if ($LASTEXITCODE) { $LASTEXITCODE } else { 1 } }
     $e = [char]27; $b = [char]7
     $cwd = (Get-Location).Path
     [Console]::Write("$e]133;D;$code$b$e]133;A$b$e]133;P;Cwd=$cwd$b")
-    $orig = & $global:__vscr_orig_prompt
+
+    $disp = $cwd
+    if ($HOME -and $cwd.StartsWith($HOME)) { $disp = '~' + $cwd.Substring($HOME.Length) }
+
+    $git = ''
+    try {
+      $branch = (git rev-parse --abbrev-ref HEAD 2>$null)
+      if ($LASTEXITCODE -eq 0 -and $branch) {
+        $dirty = ''
+        if (git status --porcelain 2>$null) { $dirty = '*' }
+        $git = " $e[33m($branch$dirty)$e[0m"
+      }
+    } catch { }
+
+    $lam = if ($code -eq 0) { "$e[92m" } else { "$e[91m" }
+    $lambda = [char]0x03BB
     [Console]::Write("$e]133;B$b")
-    return $orig
+    return "$e[36m$disp$e[0m$git`n$lam$lambda$e[0m "
   }
+
   if (Get-Module -ListAvailable PSReadLine) {
+    # OSC 133;E (command line) + 133;C (pre-exec) on Enter — drives the blocks.
     Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
       $line = $null; $cur = $null
       [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cur)
@@ -86,6 +107,41 @@ if (-not $global:__vscr_si) {
       [Console]::Write("$e]133;E;$line$b$e]133;C$b")
       [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
     }
+
+    # Fish/Warp-style INLINE autosuggestions from history (shell-native, not AI).
+    # Guarded: -PredictionSource/-PredictionViewStyle need PSReadLine 2.1+/2.2+;
+    # on Windows PowerShell 5.1's bundled 2.0 the try/catch degrades silently.
+    try {
+      Set-PSReadLineOption -PredictionSource History -PredictionViewStyle InlineView
+      Set-PSReadLineOption -Colors @{ InlinePrediction = "$([char]27)[38;5;240m" }
+    } catch { }
+    try {
+      Set-PSReadLineKeyHandler -Key UpArrow   -Function HistorySearchBackward
+      Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
+      Set-PSReadLineKeyHandler -Key Tab       -Function MenuComplete
+      Set-PSReadLineKeyHandler -Key Ctrl+r    -Function ReverseSearchHistory
+      Set-PSReadLineKeyHandler -Key RightArrow -Function ForwardChar
+    } catch { }
+  }
+
+  # ── cmder aliases ────────────────────────────────────────────────────────
+  function global:..    { Set-Location .. }
+  function global:...   { Set-Location ../.. }
+  function global:....  { Set-Location ../../.. }
+  function global:ll    { Get-ChildItem -Force @args }
+  function global:la    { Get-ChildItem -Force @args }
+  function global:gst   { git status @args }
+  function global:gco   { git checkout @args }
+  function global:gp    { git push @args }
+  function global:gl    { git log --oneline -20 @args }
+  function global:gd    { git diff @args }
+  function global:gaa   { git add -A @args }
+  function global:which { Get-Command @args | Select-Object -ExpandProperty Source }
+  function global:grep  { $input | Select-String @args }
+  function global:touch {
+    param($p)
+    if (Test-Path $p) { (Get-Item $p).LastWriteTime = Get-Date }
+    else { New-Item -ItemType File $p | Out-Null }
   }
 }
 "#;

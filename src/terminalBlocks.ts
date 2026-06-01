@@ -30,6 +30,8 @@ export interface CommandBlock {
   cwd: string;
   running: boolean;
   decoration?: IDecoration;
+  /** Full-width Warp-style header band at the command line. */
+  bandDecoration?: IDecoration;
 }
 
 /**
@@ -110,6 +112,7 @@ export class CommandBlockTracker {
     this.disposables = [];
     for (const b of this.blocks) {
       try { b.decoration?.dispose(); } catch { /* */ }
+      try { b.bandDecoration?.dispose(); } catch { /* */ }
     }
     this.blocks = [];
     if (this.toolbar) { try { this.toolbar.remove(); } catch { /* */ } this.toolbar = null; }
@@ -191,6 +194,7 @@ export class CommandBlockTracker {
     if (this.blocks.length > 500) {
       const dropped = this.blocks.shift();
       try { dropped?.decoration?.dispose(); } catch { /* */ }
+      try { dropped?.bandDecoration?.dispose(); } catch { /* */ }
     }
     this.current = null;
   }
@@ -201,11 +205,28 @@ export class CommandBlockTracker {
     if (!marker) return;
     const anyTerm = this.term as any;
     if (!anyTerm.registerDecoration) return;
+    const ok = block.exitCode === 0;
+
+    // Warp-style full-width header band, registered FIRST so the interactive
+    // gutter mark (below) stacks on top and still receives hover. The band is a
+    // decorative one-row strip that separates each command into its own "card".
+    const band: IDecoration | undefined = anyTerm.registerDecoration({ marker, x: 0, width: this.term.cols || 80 });
+    if (band) {
+      block.bandDecoration = band;
+      band.onRender((el: HTMLElement) => {
+        el.classList.add('vscr-block-band');
+        el.classList.toggle('vscr-band-ok', ok);
+        el.classList.toggle('vscr-band-fail', !ok);
+        // Stretch to the full terminal width regardless of column count.
+        const screen = this.term.element?.querySelector('.xterm-screen') as HTMLElement | null;
+        if (screen) el.style.width = `${screen.clientWidth}px`;
+      });
+    }
+
     const deco: IDecoration | undefined = anyTerm.registerDecoration({ marker, x: 0, width: 1 });
     if (!deco) return;
     block.decoration = deco;
 
-    const ok = block.exitCode === 0;
     deco.onRender((el: HTMLElement) => {
       el.classList.add('vscr-block-mark');
       el.classList.toggle('vscr-block-ok', ok);
@@ -215,6 +236,19 @@ export class CommandBlockTracker {
       el.onmouseleave = () => this.scheduleHide();
       el.onclick = (ev) => this.showToolbar(block, el, ev);
     });
+  }
+
+  /** Render a block as portable Markdown (command + output + exit) for sharing. */
+  private blockAsMarkdown(block: CommandBlock): string {
+    const out = this.readOutput(block);
+    const code = block.exitCode === 0 ? 'exit 0' : `exit ${block.exitCode}`;
+    const dur = block.startTime && block.endTime
+      ? ` · ${formatDuration(block.endTime - block.startTime)}`
+      : '';
+    let md = '```sh\n' + (block.commandLine || '') + '\n```\n';
+    if (out) md += '\n```\n' + out + '\n```\n';
+    md += `\n_(${code}${dur})_\n`;
+    return md;
   }
 
   private blockSummary(block: CommandBlock): string {
@@ -278,6 +312,16 @@ export class CommandBlockTracker {
     addBtn('Re-run', () => {
       if (block.commandLine) this.sendInput(block.commandLine + '\r');
     });
+    addBtn('Share', () => copyText(this.blockAsMarkdown(block)));
+    addBtn('Save', () => {
+      // Persist as a workflow (cmder task / Warp workflow). Dynamic import keeps
+      // terminalBlocks decoupled from the workflows module.
+      if (block.commandLine) {
+        import('./terminalWorkflows.ts')
+          .then((m) => m.saveWorkflowFromCommand(block.commandLine))
+          .catch(() => { /* workflows module optional */ });
+      }
+    });
     addBtn('Clear ↑', () => this.clearToBlock(block));
 
     // Position under the anchor cell, clamped into the terminal viewport.
@@ -339,6 +383,20 @@ export class CommandBlockTracker {
     if (last?.commandLine) this.sendInput(last.commandLine + '\r');
   }
 
+  /** Recent unique command lines (most recent first) — feeds the palette. */
+  getCommandHistory(): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (let i = this.blocks.length - 1; i >= 0; i--) {
+      const c = this.blocks[i].commandLine?.trim();
+      if (c && !seen.has(c)) {
+        seen.add(c);
+        out.push(c);
+      }
+    }
+    return out;
+  }
+
   // ── Styles ────────────────────────────────────────────────────────────────
   private injectStyle(): void {
     if (this.styleInjected) return;
@@ -349,11 +407,27 @@ export class CommandBlockTracker {
   margin-left: 0;
   border-radius: 2px;
   cursor: pointer;
+  z-index: 6;
   transition: width .12s ease, box-shadow .12s ease;
 }
 .vscr-block-mark:hover { width: 5px !important; }
 .vscr-block-ok   { background: #2ea043; box-shadow: 0 0 6px rgba(46,160,67,.55); }
 .vscr-block-fail { background: #f85149; box-shadow: 0 0 6px rgba(248,81,73,.55); }
+/* Warp-style per-command header band — a subtle full-width strip that turns
+   each command + its output into a visually distinct "block". Decorative only
+   (pointer-events disabled so the gutter mark keeps its hover). */
+.vscr-block-band {
+  pointer-events: none;
+  height: 100% !important;
+  z-index: 1;
+  border-top: 1px solid rgba(255,255,255,.06);
+  background: linear-gradient(90deg, rgba(255,255,255,.035), rgba(255,255,255,.012) 45%, transparent 80%);
+}
+.vscr-band-ok   { box-shadow: inset 3px 0 0 rgba(46,160,67,.45); }
+.vscr-band-fail {
+  box-shadow: inset 3px 0 0 rgba(248,81,73,.6);
+  background: linear-gradient(90deg, rgba(248,81,73,.07), transparent 70%);
+}
 .vscr-block-toolbar {
   position: absolute;
   z-index: 40;
