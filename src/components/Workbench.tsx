@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import BottomPanel from './BottomPanel';
 import RightSidebar from './RightSidebar';
 import Editor from './Editor';
+import EmptyEditorWelcome from './EmptyEditorWelcome';
 import SettingsPage from './SettingsPage';
 import VisualLab from './visual/VisualLab';
 import SpecsToCodeWizard from './SpecsToCodeWizard';
@@ -445,10 +446,8 @@ const Workbench: React.FC = () => {
                                             )}
                                         </div>
                                     ) : (
-                                        /* Fallback when a folder is open but no file is selected */
-                                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.2 }}>
-                                            <i className="codicon codicon-symbol-method" style={{ fontFamily: 'codicon', fontSize: '64px' }} />
-                                        </div>
+                                        /* Native empty state — folder open, no file selected */
+                                        <EmptyEditorWelcome />
                                     )}
                                 </div>
                             </div>

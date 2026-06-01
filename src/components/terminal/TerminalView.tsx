@@ -20,10 +20,7 @@ const TerminalView: React.FC = () => {
                 flexDirection: 'row',
                 width: '100%',
                 height: '100%',
-                // Match the Warp/cmder terminal theme background so there is no
-                // color seam around the renderer.
-                background: '#171922',
-                borderTop: '1px solid rgba(255,255,255,0.05)',
+                background: 'var(--vscode-terminal-background, var(--vscode-panel-background, #1e1e1e))',
                 color: 'var(--vscode-terminal-foreground, #cccccc)'
             }}
         >
@@ -120,14 +117,10 @@ const TerminalView: React.FC = () => {
                     height: 10px;
                 }
                 .terminal-view-host ::-webkit-scrollbar-thumb {
-                    background: rgba(122, 162, 247, 0.30);
-                    border-radius: 6px;
-                    border: 2px solid transparent;
-                    background-clip: padding-box;
+                    background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
                 }
                 .terminal-view-host ::-webkit-scrollbar-thumb:hover {
-                    background: rgba(122, 162, 247, 0.55);
-                    background-clip: padding-box;
+                    background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
                 }
             `}</style>
         </div>

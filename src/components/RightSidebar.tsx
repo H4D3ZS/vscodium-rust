@@ -1721,13 +1721,12 @@ const RightSidebar: React.FC = () => {
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '6px 12px',
+                    padding: '4px 12px 0',
                     gap: '8px',
-                    borderBottom: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))',
+                    borderBottom: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.06))',
                     background: 'var(--vscode-sideBar-background)',
-                    flexWrap: 'wrap'
                 }}>
-                    <div style={{ display: 'flex', gap: '2px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div className="vscr-agent-tabs" style={{ display: 'flex', gap: '2px', alignItems: 'center', flex: 1, minWidth: 0, overflowX: 'auto', flexWrap: 'nowrap', scrollbarWidth: 'none' as any }}>
                         {['chat', 'emulator', 'kortex', 'history', 'dashboard', 'research', 'specs', 'rules'].map(v => (
                             <button
                                 key={v}
@@ -1741,15 +1740,23 @@ const RightSidebar: React.FC = () => {
                                 }}
                                 style={{
                                     border: 'none',
-                                    background: view === v ? 'rgba(255,255,255,0.08)' : 'transparent',
-                                    color: view === v ? '#fff' : 'rgba(255,255,255,0.4)',
-                                    padding: '4px 6px',
-                                    borderRadius: '4px',
-                                    fontSize: '10px',
-                                    fontWeight: 600,
+                                    borderBottom: view === v
+                                        ? '1.5px solid var(--vscode-panelTitle-activeBorder, var(--vscode-focusBorder, #007acc))'
+                                        : '1.5px solid transparent',
+                                    background: 'transparent',
+                                    color: view === v
+                                        ? 'var(--vscode-panelTitle-activeForeground, #e7e7e7)'
+                                        : 'var(--vscode-panelTitle-inactiveForeground, rgba(231,231,231,0.55))',
+                                    padding: '6px 7px 5px',
+                                    borderRadius: 0,
+                                    fontSize: '11px',
+                                    fontWeight: 500,
+                                    letterSpacing: '0.3px',
                                     cursor: 'pointer',
                                     textTransform: 'uppercase',
-                                    transition: 'all 0.15s ease'
+                                    whiteSpace: 'nowrap',
+                                    flexShrink: 0,
+                                    transition: 'color 0.12s ease, border-color 0.12s ease'
                                 }}
                                 className="hoverable"
                             >

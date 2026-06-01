@@ -237,11 +237,15 @@ const BottomPanel: React.FC = () => {
                                 </div>
                                 {shellDropdownOpen && availableShells.length > 0 && (
                                     <div style={{
-                                        position: 'absolute', bottom: '100%', left: 0, marginBottom: '6px',
-                                        background: 'var(--vscode-menu-background, #1c1e26)',
-                                        border: '1px solid rgba(122,162,247,0.22)',
-                                        borderRadius: '8px', zIndex: 9999, minWidth: '200px',
-                                        boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
+                                        // Open DOWNWARD (into the panel). Opening upward (bottom:100%)
+                                        // put the menu above the panel header where the bottom-panel's
+                                        // overflow:hidden clipped it — so it was invisible/unclickable.
+                                        position: 'absolute', top: '100%', left: 0, marginTop: '6px',
+                                        background: 'var(--vscode-menu-background, #252526)',
+                                        color: 'var(--vscode-menu-foreground, #cccccc)',
+                                        border: '1px solid var(--vscode-menu-border, var(--vscode-panel-border, #454545))',
+                                        borderRadius: '6px', zIndex: 99999, minWidth: '200px',
+                                        boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
                                         // reset inherited uppercase/letter-spacing from panel-header
                                         textTransform: 'none', letterSpacing: 'normal',
                                         overflow: 'hidden',

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
 import AgentSettingsView, { type AgentSettingsCategory } from './AgentSettingsView';
+import AgentPermissionsPanel from './AgentPermissionsPanel';
 import KeybindingsPanel from './KeybindingsPanel';
 import SteeringPanel from './SteeringPanel';
 import HooksPanel from './HooksPanel';
@@ -872,6 +873,8 @@ const SettingsPage: React.FC = () => {
     };
 
     const agentCategories: CategoryDef[] = [
+        // Permissions / autonomy
+        { id: 'permissions', label: 'Permissions', icon: 'shield', customRender: () => <AgentPermissionsPanel />, groupStart: 'Agent' },
         // Chat & AI
         { id: 'chat', label: 'Chat & Agent', icon: 'comment-discussion', customRender: () => <ChatPanel />, groupStart: 'AI' },
         { id: 'models', label: 'Models', icon: 'circuit-board', customRender: () => <ModelsPanel /> },

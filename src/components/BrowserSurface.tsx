@@ -4,13 +4,20 @@ import { Globe, Shield, Lock, RefreshCw, ChevronLeft, ChevronRight, Search, Acti
 import { invoke } from '@tauri-apps/api/core';
 
 const BrowserSurface: React.FC = () => {
-    const [url, setUrl] = React.useState('https://google.com');
+    // Default to a local dev server (Vite). The agent edits files → the dev
+    // server hot-reloads → this live preview updates.
+    const [url, setUrl] = React.useState('http://localhost:5173');
     const [screenshot, setScreenshot] = React.useState<string | null>(null);
     const [isNavigating, setIsNavigating] = React.useState(false);
     const [isDesignMode, setIsDesignMode] = React.useState(false);
     const [selectedElement, setSelectedElement] = React.useState<{x: number, y: number} | null>(null);
+    // 'live' = interactive <iframe> (web-dev preview); 'vision' = headless-browser
+    // screenshot (the agent's automation surface, also works on sites that block framing).
+    const [mode, setMode] = React.useState<'live' | 'vision'>('live');
+    const [iframeKey, setIframeKey] = React.useState(0);
     const isAgentThinking = useStore(state => state.isAgentThinking);
     const agentMode = useStore(state => state.agentMode);
+    const setLayoutMode = useStore(state => state.setLayoutMode);
 
     // Live Polling for Agent Vision
     React.useEffect(() => {
@@ -26,9 +33,24 @@ const BrowserSurface: React.FC = () => {
         return () => clearInterval(interval);
     }, [isAgentThinking, agentMode]);
 
-    const handleNavigate = async (newUrl: string) => {
-        setIsNavigating(true);
+    const normalizeUrl = (u: string): string => {
+        const t = u.trim();
+        if (!t) return t;
+        if (/^https?:\/\//i.test(t)) return t;
+        if (/^localhost(:\d+)?(\/|$)/i.test(t) || /^\d+\.\d+\.\d+\.\d+/.test(t)) return `http://${t}`;
+        return `https://${t}`;
+    };
+
+    const handleNavigate = async (rawUrl: string) => {
+        const newUrl = normalizeUrl(rawUrl);
         setUrl(newUrl);
+        if (mode === 'live') {
+            // Interactive preview — just (re)load the iframe.
+            setIframeKey(k => k + 1);
+            return;
+        }
+        // Vision mode — drive the headless browser + grab a screenshot.
+        setIsNavigating(true);
         try {
             await invoke('browser_open'); // Ensure it's launched
             await invoke('browser_navigate', { url: newUrl });
@@ -107,7 +129,32 @@ const BrowserSurface: React.FC = () => {
                         AGENT ACTUATING
                     </div>
                 )}
-                <button 
+                {/* Live (iframe) ↔ Vision (agent screenshot) toggle */}
+                <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--vscode-panel-border)' }}>
+                    {(['live', 'vision'] as const).map(m => (
+                        <button
+                            key={m}
+                            onClick={() => setMode(m)}
+                            style={{
+                                ...navButtonStyle,
+                                width: 'auto',
+                                padding: '0 10px',
+                                borderRadius: 0,
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.4px',
+                                opacity: 1,
+                                background: mode === m ? 'var(--vscode-button-background, #0e639c)' : 'transparent',
+                                color: mode === m ? 'var(--vscode-button-foreground, #fff)' : 'var(--vscode-foreground)',
+                            }}
+                            title={m === 'live' ? 'Live preview (interactive iframe)' : 'Agent vision (headless browser screenshot)'}
+                        >
+                            {m}
+                        </button>
+                    ))}
+                </div>
+                <button
                     onClick={() => setIsDesignMode(!isDesignMode)}
                     style={{
                         ...navButtonStyle,
@@ -119,6 +166,13 @@ const BrowserSurface: React.FC = () => {
                 >
                     <i className="codicon codicon-symbol-ruler" style={{ fontSize: '14px' }} />
                 </button>
+                <button
+                    onClick={() => setLayoutMode('editor')}
+                    style={navButtonStyle}
+                    title="Close preview (back to editor)"
+                >
+                    <i className="codicon codicon-close" style={{ fontSize: '14px' }} />
+                </button>
             </div>
 
             {/* Browser Content Area (Live Vision) */}
@@ -129,7 +183,15 @@ const BrowserSurface: React.FC = () => {
                 background: '#f1f5f9',
                 position: 'relative'
             }}>
-                {screenshot ? (
+                {mode === 'live' ? (
+                    <iframe
+                        key={iframeKey}
+                        src={url}
+                        title="Live preview"
+                        style={{ flex: 1, width: '100%', height: '100%', border: 'none', background: '#fff' }}
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+                    />
+                ) : screenshot ? (
                     <div style={{ position: 'relative', width: '100%', display: 'flex', justifyContent: 'center' }}>
                         <img
                             src={screenshot}
