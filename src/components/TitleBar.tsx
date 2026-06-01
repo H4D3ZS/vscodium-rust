@@ -644,8 +644,15 @@ const TitleBar: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginRight: '6px' }}>
                     <i
                         className={`codicon codicon-globe tb-layout-btn${layoutMode === 'browser' ? ' tb-layout-active' : ''}`}
-                        title="Open Browser (Preview)"
-                        onClick={() => setLayoutMode(layoutMode === 'browser' ? 'editor' : 'browser')}
+                        title="Open Browser — real stealth Firefox the agent can drive"
+                        onClick={() => {
+                            if (layoutMode === 'browser') { setLayoutMode('editor'); return; }
+                            // Launch the REAL visible Firefox (invisible_playwright) — the
+                            // smooth browser window the agent also drives — and open the
+                            // in-IDE VISION panel as the control/monitor surface.
+                            invoke('browser_open').catch(() => { /* sidecar starts lazily on first navigate too */ });
+                            setLayoutMode('browser');
+                        }}
                     />
                     <span style={{ width: 1, height: 14, background: 'var(--vscode-panel-border, rgba(255,255,255,0.12))', margin: '0 4px' }} />
                     <i

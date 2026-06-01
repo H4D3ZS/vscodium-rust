@@ -62,6 +62,9 @@ export interface AgentSlice {
     isAgentBlocked: boolean;
     isYoloMode: boolean;
     isContinuousMode: boolean;
+    /** Live agent browser vision (screenshot polling). Default OFF — it polls the
+     *  headless browser ~1.5s and is memory/CPU-heavy on low-spec machines. */
+    isAgentVisionEnabled: boolean;
     agentMode: string;
     agentModel: string;
     /** Hybrid deep-reasoning planner: strongest model PLANS, executor (agentModel) ACTS. */
@@ -139,6 +142,7 @@ export interface AgentSlice {
     setAgentBlocked: (v: boolean) => void;
     setYoloMode: (v: boolean) => void;
     setContinuousMode: (v: boolean) => void;
+    setAgentVisionEnabled: (v: boolean) => void;
     setAgentMode: (mode: string) => void;
     setAgentModel: (model: string) => void;
     setPlannerModel: (model: string) => void;
@@ -226,6 +230,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     isAgentBlocked: false,
     isYoloMode: false,
     isContinuousMode: false,
+    isAgentVisionEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.liveVision') === '1') || false,
     agentMode: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.mode')) || 'Harness',
     agentModel: (() => {
         if (typeof localStorage === 'undefined') return '';
@@ -326,6 +331,10 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     setAgentBlocked: (isAgentBlocked) => set({ isAgentBlocked }),
     setYoloMode: (isYoloMode) => set({ isYoloMode }),
     setContinuousMode: (isContinuousMode) => set({ isContinuousMode }),
+    setAgentVisionEnabled: (v) => {
+        try { localStorage.setItem('agent.liveVision', v ? '1' : '0'); } catch { /* */ }
+        set({ isAgentVisionEnabled: v });
+    },
 
     setAgentMessages: (agentMessages) => set({ agentMessages }),
     clearAgentMessages: () => set({ agentMessages: [] }),
