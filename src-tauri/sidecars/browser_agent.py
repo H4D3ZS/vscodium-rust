@@ -41,12 +41,18 @@ def ensure_browser(args):
     if _page is not None:
         return
     from invisible_playwright import InvisiblePlaywright
-    kwargs = {"humanize": bool(args.get("humanize", True))}
+    # headless=False (default) = a REAL visible Firefox window — this is the
+    # user-facing browser. The agent drives this same instance, so what the agent
+    # does is visible. Pass headless=True only for pure background automation.
+    kwargs = {
+        "humanize": bool(args.get("humanize", True)),
+        "headless": bool(args.get("headless", False)),
+    }
     if args.get("seed") is not None:
         kwargs["seed"] = args["seed"]
     if args.get("proxy"):
         kwargs["proxy"] = args["proxy"]
-    log("[sidecar] launching stealth Firefox (first run downloads it)...")
+    log("[sidecar] launching stealth Firefox (visible window; first run downloads it)...")
     _ip = InvisiblePlaywright(**kwargs)
     _browser = _ip.__enter__()
     _page = _browser.new_page()

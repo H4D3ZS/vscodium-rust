@@ -3,35 +3,55 @@ import { useStore } from '../store';
 import { Globe, Shield, Lock, RefreshCw, ChevronLeft, ChevronRight, Search, Activity } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
+// True when the URL points at THIS IDE's own origin. In `tauri dev` the IDE's
+// frontend is served by Vite (e.g. localhost:5173), so previewing that URL would
+// just load the IDE inside itself (infinite IDE-in-IDE). We block that.
+const isSelfOrigin = (u: string): boolean => {
+    try {
+        return new URL(u).host === window.location.host;
+    } catch {
+        return false;
+    }
+};
+
 const BrowserSurface: React.FC = () => {
-    // Default to a local dev server (Vite). The agent edits files → the dev
-    // server hot-reloads → this live preview updates.
-    const [url, setUrl] = React.useState('http://localhost:5173');
+    // Start blank — show a start screen with dev-server quick-picks instead of
+    // auto-loading a guessed port (5173 is the IDE's own dev server in dev mode).
+    const [url, setUrl] = React.useState('');
     const [screenshot, setScreenshot] = React.useState<string | null>(null);
     const [isNavigating, setIsNavigating] = React.useState(false);
     const [isDesignMode, setIsDesignMode] = React.useState(false);
     const [selectedElement, setSelectedElement] = React.useState<{x: number, y: number} | null>(null);
-    // 'live' = interactive <iframe> (web-dev preview); 'vision' = headless-browser
-    // screenshot (the agent's automation surface, also works on sites that block framing).
-    const [mode, setMode] = React.useState<'live' | 'vision'>('live');
+    // 'vision' = mirror of the REAL stealth-Firefox the agent drives (screenshots;
+    // works on ANY site). 'live' = interactive <iframe> for quick localhost dev
+    // preview (limited by CSP/X-Frame-Options). Default to vision since the real
+    // browser is the Firefox window.
+    const [mode, setMode] = React.useState<'live' | 'vision'>('vision');
     const [iframeKey, setIframeKey] = React.useState(0);
     const isAgentThinking = useStore(state => state.isAgentThinking);
     const agentMode = useStore(state => state.agentMode);
     const setLayoutMode = useStore(state => state.setLayoutMode);
+    // Live screenshot polling is OFF by default (memory/CPU heavy). Enable in
+    // Settings → Permissions → Browser only if the machine can handle it.
+    const visionEnabled = useStore(state => state.isAgentVisionEnabled);
 
-    // Live Polling for Agent Vision
+    // Live mirror: while the agent is working in VISION mode, poll the real
+    // browser for a fresh screenshot so the panel shows what the agent sees/does.
     React.useEffect(() => {
         let interval: any;
-        if (isAgentThinking && agentMode === 'sentient') {
-            /* 
+        let busy = false;
+        if (isAgentThinking && mode === 'vision') {
             interval = setInterval(async () => {
-                const b64 = await invoke<string>('browser_screenshot');
-                if (b64) setScreenshot(`data:image/jpeg;base64,${b64}`);
-            }, 2000); // Poll every 2s during autonomous work
-            */
+                if (busy) return;
+                busy = true;
+                try {
+                    const b64 = await invoke<string>('browser_screenshot');
+                    if (b64) setScreenshot(`data:image/jpeg;base64,${b64}`);
+                } catch { /* browser not up yet */ } finally { busy = false; }
+            }, 1500);
         }
         return () => clearInterval(interval);
-    }, [isAgentThinking, agentMode]);
+    }, [isAgentThinking, mode]);
 
     const normalizeUrl = (u: string): string => {
         const t = u.trim();
@@ -184,13 +204,19 @@ const BrowserSurface: React.FC = () => {
                 position: 'relative'
             }}>
                 {mode === 'live' ? (
-                    <iframe
-                        key={iframeKey}
-                        src={url}
-                        title="Live preview"
-                        style={{ flex: 1, width: '100%', height: '100%', border: 'none', background: '#fff' }}
-                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-                    />
+                    !url ? (
+                        <BrowserStart onPick={(u) => { setUrl(u); setIframeKey(k => k + 1); }} />
+                    ) : isSelfOrigin(url) ? (
+                        <BrowserSelfWarning url={url} onClear={() => setUrl('')} />
+                    ) : (
+                        <iframe
+                            key={iframeKey}
+                            src={url}
+                            title="Live preview"
+                            style={{ flex: 1, width: '100%', height: '100%', border: 'none', background: '#fff' }}
+                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+                        />
+                    )
                 ) : screenshot ? (
                     <div style={{ position: 'relative', width: '100%', display: 'flex', justifyContent: 'center' }}>
                         <img
@@ -302,5 +328,69 @@ const navButtonStyle: React.CSSProperties = {
     borderRadius: '4px',
     opacity: 0.7
 };
+
+// Quick-pick dev servers. 5173 is intentionally omitted — that's the IDE's own
+// dev server in `tauri dev`. (Vite bumps a second app to 5174.)
+const QUICK_PORTS: { label: string; url: string }[] = [
+    { label: 'Vite (5174)', url: 'http://localhost:5174' },
+    { label: 'Astro (4321)', url: 'http://localhost:4321' },
+    { label: 'Next/CRA (3000)', url: 'http://localhost:3000' },
+    { label: 'Dev (8080)', url: 'http://localhost:8080' },
+    { label: 'Live Server (5500)', url: 'http://localhost:5500' },
+];
+
+const BrowserStart: React.FC<{ onPick: (u: string) => void }> = ({ onPick }) => (
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
+        <div style={{ textAlign: 'center', maxWidth: 460, padding: 24 }}>
+            <div style={{ fontSize: 44, marginBottom: 12 }}>🌐</div>
+            <h2 style={{ color: '#0f172a', margin: '0 0 6px', fontSize: 20 }}>Browser Preview</h2>
+            <p style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5, margin: '0 0 20px' }}>
+                Enter your project's dev-server URL above, or pick a common one below. The
+                agent edits your code → the dev server hot-reloads → this preview updates live.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+                {QUICK_PORTS.map(p => (
+                    <button
+                        key={p.url}
+                        onClick={() => onPick(p.url)}
+                        style={{
+                            background: '#fff', color: '#0f172a',
+                            border: '1px solid #cbd5e1', borderRadius: 8,
+                            padding: '7px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+                        }}
+                    >
+                        {p.label}
+                    </button>
+                ))}
+            </div>
+            <p style={{ color: '#94a3b8', fontSize: 11, marginTop: 18 }}>
+                Tip: port 5173 is this IDE's own dev server — use your project's port.
+                Switch to <b>VISION</b> to drive a real headless browser the agent automates.
+            </p>
+        </div>
+    </div>
+);
+
+const BrowserSelfWarning: React.FC<{ url: string; onClear: () => void }> = ({ url, onClear }) => (
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff7ed' }}>
+        <div style={{ textAlign: 'center', maxWidth: 460, padding: 24 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>♾️</div>
+            <h2 style={{ color: '#9a3412', margin: '0 0 6px', fontSize: 18 }}>That's this IDE</h2>
+            <p style={{ color: '#7c2d12', fontSize: 13, lineHeight: 1.5, margin: '0 0 18px' }}>
+                <code>{url}</code> is this IDE's own dev server — loading it here would just
+                show the IDE inside itself. Enter your <b>project's</b> dev-server URL instead.
+            </p>
+            <button
+                onClick={onClear}
+                style={{
+                    background: '#ea580c', color: '#fff', border: 'none', borderRadius: 8,
+                    padding: '8px 16px', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+                }}
+            >
+                Pick a different URL
+            </button>
+        </div>
+    </div>
+);
 
 export default BrowserSurface;
