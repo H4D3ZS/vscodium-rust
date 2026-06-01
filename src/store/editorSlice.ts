@@ -349,24 +349,37 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     },
 
     proposePendingChange: (change) => {
-        const id = Math.random().toString(36).substring(7);
-        const newChange: PendingChange = {
-            id, path: change.path,
-            originalContent: (change as any).oldContent || '',
-            proposedContent: (change as any).newContent || '',
-            newContent: (change as any).newContent || '',
+        // Merge by path: an agent run can edit one file repeatedly, and proposals
+        // arrive across separate poll-drains. Collapse into a single review entry,
+        // preserving the EARLIEST oldContent so the diff spans the whole run and
+        // reject reverts fully.
+        const path = change.path;
+        const existing = get().pendingChanges.find(c => c.path === path);
+        const oldContent = existing?.oldContent || (change as any).oldContent || '';
+        const newContent = (change as any).newContent || '';
+        const merged: PendingChange = {
+            id: existing?.id || Math.random().toString(36).substring(7),
+            path,
+            originalContent: oldContent,
+            proposedContent: newContent,
+            newContent,
             description: change.description,
             additions: change.additions,
             deletions: change.deletions,
             acceptedHunkIds: [],
             rejectedHunkIds: [],
+            oldContent,
+            applied: (change as any).applied === true || existing?.applied === true,
         };
+        const replace = (state: any) => ({
+            pendingChanges: [...state.pendingChanges.filter((c: PendingChange) => c.path !== path), merged],
+        });
         // Auto-apply when enabled OR in YOLO mode (YOLO = full autonomy, no prompts).
         if (get().autoAcceptChanges || (get() as any).isYoloMode) {
-            set((state) => ({ pendingChanges: [...state.pendingChanges, newChange] }));
-            get().acceptPendingChange(id).catch(console.error);
+            set(replace);
+            get().acceptPendingChange(merged.id).catch(console.error);
         } else {
-            set((state) => ({ pendingChanges: [...state.pendingChanges, newChange] }));
+            set(replace);
         }
     },
 
@@ -374,7 +387,11 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         const change = get().pendingChanges.find(c => c.id === id);
         if (!change) return;
         try {
-            await invoke('accept_sentient_patch', { path: change.path });
+            // `applied` proposals are already on disk (agent wrote them). Accept =
+            // keep: no backend patch to commit, just sync the open tab + drop.
+            if (!change.applied) {
+                await invoke('accept_sentient_patch', { path: change.path });
+            }
             const tab = get().tabs.find((t: any) => t.path === change.path);
             if (tab) {
                 const updatedContent = await invoke<string>('read_file', { path: change.path });
@@ -391,7 +408,15 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         const change = get().pendingChanges.find(c => c.id === id);
         if (!change) return;
         try {
-            await invoke('reject_sentient_patch', { path: change.path });
+            if (change.applied) {
+                // Revert the already-applied edit back to the pre-edit snapshot.
+                await invoke('revert_file_content', { path: change.path, content: change.oldContent || change.originalContent || '' });
+                const tab = get().tabs.find((t: any) => t.path === change.path);
+                if (tab) get().updateTabContent(tab.id, change.oldContent || change.originalContent || '');
+                await get().refreshFileTree();
+            } else {
+                await invoke('reject_sentient_patch', { path: change.path });
+            }
             set((state) => ({ pendingChanges: state.pendingChanges.filter(c => c.id !== id) }));
         } catch (error) {
             console.error('Failed to reject sentient patch:', error);

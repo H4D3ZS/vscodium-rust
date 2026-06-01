@@ -1123,6 +1123,9 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     bracketPairColorization: { enabled: true },
                     stickyScroll: { enabled: true },
                     codeLens: true,
+                    // Ghost-text AI completions: keep them visible and allow Ctrl→
+                    // word-by-word accept (Cursor-style partial accept).
+                    inlineSuggest: { enabled: true, mode: 'subwordSmart', keepOnBlur: true },
                 }}
             />
 

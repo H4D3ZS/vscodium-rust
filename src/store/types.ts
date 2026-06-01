@@ -34,6 +34,9 @@ export interface PendingChange {
     acceptedHunkIds?: string[];
     rejectedHunkIds?: string[];
     oldContent?: string;
+    /** True when the edit is already on disk (agent applied it). Accept = keep,
+     *  reject = revert to oldContent via `revert_file_content`. */
+    applied?: boolean;
 }
 
 export interface Artifact {

@@ -159,6 +159,9 @@ pub async fn ai_chat(
         let _ = app_handle.emit("ai-content-delta", serde_json::json!({ "delta": chunk }));
     }) as std::sync::Arc<dyn Fn(&str) + Send + Sync>);
 
+    // Clear any stale streamed tokens from a prior turn before this one starts.
+    if let Ok(mut b) = state.ai_engine.chat_stream_buf.lock() { b.clear(); }
+
     let result = state
         .ai_engine
         .clone()
@@ -277,13 +280,24 @@ pub async fn ai_inline_complete(
     suffix: String,
     language: String,
     file_path: String,
+    model: Option<String>,
+    provider: Option<String>,
 ) -> Result<String, String> {
     // Use active provider/model from state for completions
     let current_model = state.current_model.lock().await.clone();
     let ollama_url_val = state.ollama_url.lock().await.clone();
 
-    // Detect provider from model string
-    let (comp_provider, comp_model, comp_ollama_url) = {
+    // Honor an explicit Autocomplete-feature model when the frontend supplies one
+    // (Settings → per-feature model selection). This is usually a small fast coder
+    // model — previously these args were dropped and the heavy chat model was used.
+    let (comp_provider, comp_model, comp_ollama_url) = if let (Some(p), Some(m)) =
+        (provider.as_ref().filter(|s| !s.is_empty()), model.as_ref().filter(|s| !s.is_empty()))
+    {
+        let p_lc = p.to_lowercase();
+        let url = if p_lc == "ollama" || p_lc == "antigravity" { Some(ollama_url_val.clone()) } else { None };
+        (p_lc, m.to_string(), url)
+    } else {
+        // Detect provider from the active model string.
         let m = current_model.as_str();
         if m.contains(':') || (!m.contains('.') && m.contains('/')) || m.to_lowercase().starts_with("llama") || m.to_lowercase().starts_with("qwen") || m.to_lowercase().starts_with("deepseek") || m.to_lowercase().starts_with("gemma") || m.to_lowercase().starts_with("mistral") || m.to_lowercase().starts_with("phi") || m.to_lowercase().starts_with("codellama") {
             ("ollama".to_string(), m.to_string(), Some(ollama_url_val))
@@ -351,8 +365,12 @@ pub async fn ai_inline_complete(
         feature: None,
     };
 
-    let result = state.ai_engine.clone()
-        .autonomous_loop(request, None)
+    // Single-shot, no agentic loop: inline completion must be FAST. The old path
+    // ran the full autonomous_loop (tool parsing, memory, brain injection) for a
+    // one-line FIM call — huge latency. single_shot_completion hits the provider
+    // directly with stream:false.
+    let result = state.ai_engine
+        .single_shot_completion(request)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -1234,6 +1252,64 @@ pub async fn archive_chat_session(state: State<'_, EditorState>) -> Result<(), S
 #[tauri::command]
 pub async fn create_new_session(state: State<'_, EditorState>) -> Result<(), String> {
     state.ai_engine.memory_store.create_new_session().await;
+    Ok(())
+}
+
+/// Drain the live agent-activity buffer. The webview can't receive the Tauri
+/// event stream, so the activity terminal polls this to mirror what the agent
+/// is doing in real time. Each entry is a JSON line: `{"kind","payload"}`.
+#[tauri::command]
+pub async fn agent_activity_drain(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
+    let mut log = state
+        .ai_engine
+        .activity_log
+        .lock()
+        .map_err(|e| format!("activity_log lock poisoned: {e}"))?;
+    Ok(std::mem::take(&mut *log))
+}
+
+/// Drain buffered chat tokens (live model output). The `ai-content-delta` event
+/// is dead in the webview, so the chat panel polls this to render streamed text.
+#[tauri::command]
+pub async fn chat_stream_drain(state: State<'_, EditorState>) -> Result<String, String> {
+    let mut b = state
+        .ai_engine
+        .chat_stream_buf
+        .lock()
+        .map_err(|e| format!("chat_stream_buf lock poisoned: {e}"))?;
+    Ok(std::mem::take(&mut *b))
+}
+
+/// Drain queued edit proposals from the autonomous loop. Each is
+/// `{path, oldContent, newContent, description, additions, deletions}`. The diff-
+/// review panel polls this (the event stream is dead in the webview) and turns
+/// each into a reviewable pending change.
+#[tauri::command]
+pub async fn agent_proposals_drain(state: State<'_, EditorState>) -> Result<Vec<Value>, String> {
+    let mut q = state
+        .ai_engine
+        .pending_proposals
+        .lock()
+        .map_err(|e| format!("pending_proposals lock poisoned: {e}"))?;
+    Ok(std::mem::take(&mut *q))
+}
+
+/// Restore a file to the given content. Used by the diff-review panel to REJECT
+/// an already-applied agent edit (revert to the pre-edit snapshot). Path may be
+/// absolute or project-relative.
+#[tauri::command]
+pub async fn revert_file_content(
+    state: State<'_, EditorState>,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let root = state.ai_engine.ai_tools.get_root_path();
+    let full = if std::path::Path::new(&path).is_absolute() {
+        PathBuf::from(&path)
+    } else {
+        root.join(&path)
+    };
+    fs::write(&full, content).map_err(|e| format!("revert failed for {path}: {e}"))?;
     Ok(())
 }
 

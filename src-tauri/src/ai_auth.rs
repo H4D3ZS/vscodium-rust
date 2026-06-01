@@ -354,6 +354,10 @@ pub struct ApiKeys {
     pub openrouter: Option<String>,
     /// DeepSeek official API (`https://api.deepseek.com`). Used for `deepseek:*` models.
     pub deepseek: Option<String>,
+    /// Xiaomi MiMo Token Plan (`https://api.xiaomimimo.com/v1`), OpenAI-compatible.
+    pub mimo: Option<String>,
+    /// Cyber-Ifrit Cloud token (your hosted AMD backend), OpenAI-compatible.
+    pub cyberifrit: Option<String>,
     pub mistral: Option<String>,
     pub xai: Option<String>,
     pub cerebras: Option<String>,
@@ -367,6 +371,8 @@ pub struct ApiKeys {
     pub openai_base_url: Option<String>,
     pub anthropic_base_url: Option<String>,
     pub google_base_url: Option<String>,
+    pub mimo_base_url: Option<String>,
+    pub cyberifrit_base_url: Option<String>,
 }
 
 #[tauri::command]
@@ -407,6 +413,8 @@ pub async fn save_api_keys(
     if incoming.groq.is_some()                { merged.groq                = incoming.groq; }
     if incoming.openrouter.is_some()          { merged.openrouter          = incoming.openrouter; }
     if incoming.deepseek.is_some()           { merged.deepseek            = incoming.deepseek; }
+    if incoming.mimo.is_some()                { merged.mimo                = incoming.mimo; }
+    if incoming.cyberifrit.is_some()          { merged.cyberifrit          = incoming.cyberifrit; }
     if incoming.mistral.is_some()             { merged.mistral             = incoming.mistral; }
     if incoming.xai.is_some()                 { merged.xai                 = incoming.xai; }
     if incoming.cerebras.is_some()            { merged.cerebras            = incoming.cerebras; }
@@ -419,6 +427,8 @@ pub async fn save_api_keys(
     if incoming.openai_base_url.is_some()     { merged.openai_base_url     = incoming.openai_base_url; }
     if incoming.anthropic_base_url.is_some()  { merged.anthropic_base_url  = incoming.anthropic_base_url; }
     if incoming.google_base_url.is_some()     { merged.google_base_url     = incoming.google_base_url; }
+    if incoming.mimo_base_url.is_some()       { merged.mimo_base_url       = incoming.mimo_base_url; }
+    if incoming.cyberifrit_base_url.is_some() { merged.cyberifrit_base_url = incoming.cyberifrit_base_url; }
 
     let content = serde_json::to_string_pretty(&merged).map_err(|e| e.to_string())?;
     std::fs::write(path, content).map_err(|e| e.to_string())?;
@@ -440,6 +450,10 @@ pub async fn save_api_key(
         "anthropic" => keys.anthropic = Some(value),
         "google" | "gemini" => keys.google = Some(value),
         "deepseek" => keys.deepseek = Some(value),
+        "mimo" | "xiaomi" => keys.mimo = Some(value),
+        "cyberifrit" => keys.cyberifrit = Some(value),
+        "mimo_base_url" => keys.mimo_base_url = Some(value),
+        "cyberifrit_base_url" => keys.cyberifrit_base_url = Some(value),
         "mistral" => keys.mistral = Some(value),
         "xai" => keys.xai = Some(value),
         "cerebras" => keys.cerebras = Some(value),

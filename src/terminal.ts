@@ -11,6 +11,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { CanvasAddon } from '@xterm/addon-canvas';
+import { CommandBlockTracker, POWERSHELL_SHELL_INTEGRATION } from './terminalBlocks.ts';
 import '@xterm/xterm/css/xterm.css';
 
 export interface ISearchOptions {
@@ -47,6 +48,8 @@ export interface TerminalInstance {
   pid?: number;
   isBusy: boolean;
   lastOutput?: string;
+  /** Warp-style command-block tracker (OSC 133 driven). PTY terminals only. */
+  blocks?: CommandBlockTracker;
 }
 
 export interface TerminalGroup {
@@ -481,6 +484,17 @@ export class TerminalManager {
 
     this.terminals.set(id, instance);
 
+    // Warp-style command blocks: OSC 133 shell integration → gutter marks +
+    // hover toolbar + navigation. Parses sequences arriving through the normal
+    // write path; the PS integration script is injected after spawn below.
+    try {
+      const tracker = new CommandBlockTracker(term, (data: string) => {
+        void invoke('terminal_send_data', { id, data });
+      });
+      tracker.attach();
+      instance.blocks = tracker;
+    } catch { /* decorations are best-effort */ }
+
     // Visible boot line. xterm buffers this until open() (in attach). If you SEE it,
     // the renderer works and any missing shell prompt is a PTY issue; if the pane is
     // totally blank, the element never got opened/attached.
@@ -528,6 +542,21 @@ export class TerminalManager {
       // PTY output via invoke (proven to work). ~35ms feels instant for a shell
       // and returns an empty string when idle (cheap). Stopped in closeTerminal.
       this.startPolling(id);
+
+      // ── Shell integration (Warp-style blocks) ──────────────────────────────
+      // Inject the OSC 133 prompt hooks once the shell is up. PowerShell only for
+      // now (5.1 + 7). Sent as one line so the echo is a single throwaway; the
+      // next prompt is fully integrated. Delayed so it lands after the first
+      // prompt paints rather than racing the shell's startup.
+      const shellLc = (profile.path || '').toLowerCase();
+      if (shellLc.includes('powershell') || shellLc.includes('pwsh')) {
+        setTimeout(() => {
+          void invoke('terminal_send_data', {
+            id,
+            data: POWERSHELL_SHELL_INTEGRATION + '\r',
+          }).catch(() => { /* writer gone */ });
+        }, 600);
+      }
 
       // ── Post-spawn watchdog ────────────────────────────────────────────────
       // spawn_terminal returned without throwing, so the backend accepted the
@@ -859,21 +888,38 @@ export class TerminalManager {
       );
     };
 
-    Promise.all([
-      listen('ai-tool-call', (e: any) => writeToolCall(e?.payload ?? e)),
-      listen('ai-tool-result', (e: any) => writeToolResult(e?.payload ?? e)),
-      listen('ai-action', (e: any) => writeAction(e?.payload ?? e)),
-      listen('ai-tool-stdout-start', (e: any) => writeStdoutStart(e?.payload ?? e)),
-      listen('ai-tool-stdout', (e: any) => writeStdoutLine(e?.payload ?? e)),
-      listen('ai-tool-stdout-end', (e: any) => writeStdoutEnd(e?.payload ?? e)),
-    ]).then((handles) => {
-      for (const h of handles) {
-        if (typeof h === 'function') unsubs.push(h as () => void);
-      }
-      this.activityUnsubs.set(id, unsubs);
-    }).catch((err) => {
-      term.writeln(`\x1b[31m[activity] failed to subscribe to events: ${err}\x1b[0m`);
-    });
+    // ── Activity transport: INVOKE-POLL, not events ─────────────────────
+    // The Tauri global event stream is dead in this webview (emit→listen never
+    // delivers), so we poll the backend's activity buffer instead. Each drained
+    // line is `{kind, payload}` JSON; dispatch to the matching writer above.
+    const dispatch: Record<string, (p: any) => void> = {
+      'ai-tool-call': writeToolCall,
+      'ai-tool-result': writeToolResult,
+      'ai-action': writeAction,
+      'ai-tool-stdout-start': writeStdoutStart,
+      'ai-tool-stdout': writeStdoutLine,
+      'ai-tool-stdout-end': writeStdoutEnd,
+    };
+    let draining = false;
+    const drainTick = async () => {
+      if (draining) return;
+      draining = true;
+      try {
+        const lines = await invoke<string[]>('agent_activity_drain');
+        for (const raw of lines) {
+          try {
+            const evt = JSON.parse(raw);
+            const fn = dispatch[evt?.kind];
+            if (fn) fn(evt.payload);
+          } catch { /* skip malformed line */ }
+        }
+      } catch { /* backend not ready yet */ }
+      finally { draining = false; }
+    };
+    const activityTimer = setInterval(drainTick, 120);
+    unsubs.push(() => clearInterval(activityTimer));
+    this.activityUnsubs.set(id, unsubs);
+    void drainTick();
     // `writeChat` is reserved for a future "stream model output" wire-up; reference it
     // so esbuild doesn't yell about an unused local.
     void writeChat;
@@ -907,6 +953,17 @@ export class TerminalManager {
     return this.activityIds.has(id);
   }
 
+  // ── Warp-style command-block navigation (bind to keys if desired) ──────────
+  scrollToPreviousCommand(id: string): void {
+    this.terminals.get(id)?.blocks?.scrollToPreviousCommand();
+  }
+  scrollToNextCommand(id: string): void {
+    this.terminals.get(id)?.blocks?.scrollToNextCommand();
+  }
+  rerunLastCommand(id: string): void {
+    this.terminals.get(id)?.blocks?.rerunLastCommand();
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // TERMINAL OPERATIONS
   // ═══════════════════════════════════════════════════════════════════════
@@ -933,6 +990,7 @@ export class TerminalManager {
         this.activityIds.delete(id);
       }
 
+      try { instance.blocks?.dispose(); } catch { /* */ }
       instance.term.dispose();
       if (instance.element.parentNode) {
         instance.element.parentNode.removeChild(instance.element);

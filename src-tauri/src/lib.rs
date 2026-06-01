@@ -280,6 +280,10 @@ pub fn run() {
             ai_commands::load_chat_session,
             ai_commands::archive_chat_session,
             ai_commands::create_new_session,
+            ai_commands::agent_activity_drain,
+            ai_commands::chat_stream_drain,
+            ai_commands::agent_proposals_drain,
+            ai_commands::revert_file_content,
             ai_commands::compress_session_data,
             // ═══ AI Project & Memory ═══
             ai_project_commands::mount_project,

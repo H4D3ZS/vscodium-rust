@@ -1,5 +1,7 @@
 use serde_json::{Value, json};
 use regex::Regex;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 pub struct BrowserSession {
     pub url: String,
@@ -12,14 +14,149 @@ pub struct SendBrowser(pub BrowserSession);
 unsafe impl Send for SendBrowser {}
 unsafe impl Sync for SendBrowser {}
 
+// ───────────────────────── Real browser engine ──────────────────────────────
+// A long-lived Python sidecar drives invisible_playwright (stealth Firefox).
+// We talk to it over stdio with line-delimited JSON. The `browser` session
+// cache below mirrors the last page so existing readers keep working.
+
+/// The embedded sidecar script, written to a temp file and run on first use so
+/// it works in both `tauri dev` and a bundled build without path juggling.
+const SIDECAR_PY: &str = include_str!("../sidecars/browser_agent.py");
+
+pub struct BrowserProc {
+    child: Child,
+    stdin: ChildStdin,
+    stdout: BufReader<ChildStdout>,
+}
+
+/// Politely close the browser then kill the sidecar process. Exposed so other
+/// modules (e.g. ai_tools) can shut the live browser down without touching the
+/// private process fields.
+pub async fn shutdown_proc(p: &mut BrowserProc) -> Result<(), String> {
+    let _ = send_cmd(p, "close", json!({}), 10).await;
+    p.child.kill().await.map_err(|e| e.to_string())
+}
+
+fn sidecar_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("vscodium_browser_agent.py")
+}
+
+/// Pick a python interpreter that exists. invisible_playwright must be importable
+/// from it (the user confirmed `python -c "import invisible_playwright"` works).
+fn python_exe() -> String {
+    for cand in ["python", "py", "python3"] {
+        let ok = std::process::Command::new(cand)
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if ok {
+            return cand.to_string();
+        }
+    }
+    "python".to_string()
+}
+
+async fn start_sidecar() -> Result<BrowserProc, String> {
+    let path = sidecar_path();
+    std::fs::write(&path, SIDECAR_PY).map_err(|e| format!("write sidecar: {e}"))?;
+    let py = python_exe();
+    let mut child = Command::new(&py)
+        .arg(&path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null()) // discard Playwright logs / download progress
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| format!("spawn python browser sidecar ({py}): {e}. Install with: pip install playwright invisible_playwright"))?;
+    let stdin = child.stdin.take().ok_or("sidecar: no stdin")?;
+    let stdout = child.stdout.take().ok_or("sidecar: no stdout")?;
+    Ok(BrowserProc { child, stdin, stdout: BufReader::new(stdout) })
+}
+
+/// Send one command and read exactly one JSON response. Commands are serialized
+/// by the `proc` mutex, so strict request/response is correct here.
+async fn send_cmd(proc: &mut BrowserProc, action: &str, args: Value, timeout_s: u64) -> Result<Value, String> {
+    let line = format!("{}\n", json!({ "action": action, "args": args }));
+    proc.stdin.write_all(line.as_bytes()).await.map_err(|e| format!("sidecar write: {e}"))?;
+    proc.stdin.flush().await.map_err(|e| format!("sidecar flush: {e}"))?;
+
+    let read_fut = async {
+        loop {
+            let mut buf = String::new();
+            let n = proc.stdout.read_line(&mut buf).await.map_err(|e| format!("sidecar read: {e}"))?;
+            if n == 0 {
+                return Err("sidecar closed (python/invisible_playwright missing or crashed)".to_string());
+            }
+            let t = buf.trim();
+            if t.is_empty() { continue; }
+            match serde_json::from_str::<Value>(t) {
+                Ok(v) if v.get("ok").is_some() => return Ok(v),
+                _ => continue, // skip any stray stdout noise
+            }
+        }
+    };
+    let v = tokio::time::timeout(std::time::Duration::from_secs(timeout_s), read_fut)
+        .await
+        .map_err(|_| format!("browser action '{action}' timed out after {timeout_s}s"))??;
+
+    if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {
+        Ok(v.get("result").cloned().unwrap_or_else(|| json!({})))
+    } else {
+        Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("unknown sidecar error").to_string())
+    }
+}
+
 pub struct BrowserState {
+    /// Cached view of the current page (kept in sync so existing readers work).
     pub browser: tokio::sync::Mutex<Option<SendBrowser>>,
+    /// The live stealth-browser sidecar process.
+    pub proc: tokio::sync::Mutex<Option<BrowserProc>>,
 }
 
 impl BrowserState {
     pub fn new() -> Self {
         Self {
             browser: tokio::sync::Mutex::new(None),
+            proc: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    /// Start the stealth browser if it isn't running yet. First launch downloads
+    /// the patched Firefox, so the open timeout is generous.
+    pub async fn ensure_started(&self) -> Result<(), String> {
+        let mut guard = self.proc.lock().await;
+        if guard.is_none() {
+            let mut p = start_sidecar().await?;
+            send_cmd(&mut p, "open", json!({}), 180).await?;
+            *guard = Some(p);
+        }
+        Ok(())
+    }
+
+    /// Run a browser command against the live sidecar (auto-starts it).
+    pub async fn cmd(&self, action: &str, args: Value, timeout_s: u64) -> Result<Value, String> {
+        self.ensure_started().await?;
+        let mut guard = self.proc.lock().await;
+        let p = guard.as_mut().ok_or("browser sidecar missing")?;
+        send_cmd(p, action, args, timeout_s).await
+    }
+
+    /// Refresh the cached session from the live page so DOM/text readers see
+    /// the real rendered content.
+    pub async fn refresh_cache(&self, url_hint: &str) {
+        if let Ok(content) = self.cmd("content", json!({}), 30).await {
+            let get = |k: &str| content.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let url = {
+                let u = get("url");
+                if u.is_empty() { url_hint.to_string() } else { u }
+            };
+            *self.browser.lock().await = Some(SendBrowser(BrowserSession {
+                url,
+                html: get("html"),
+                text: get("text"),
+                title: get("title"),
+            }));
         }
     }
 }
@@ -182,80 +319,68 @@ fn get_content_summary_internal(html: &str, text: &str) -> Value {
     })
 }
 
+/// Quick security-header audit used to enrich navigate results for pentest.
+fn missing_security_headers(headers: &Value) -> Vec<String> {
+    const SEC: &[&str] = &[
+        "content-security-policy",
+        "strict-transport-security",
+        "x-frame-options",
+        "x-content-type-options",
+        "referrer-policy",
+        "permissions-policy",
+    ];
+    SEC.iter()
+        .filter(|h| headers.get(**h).is_none())
+        .map(|h| h.to_string())
+        .collect()
+}
+
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_open(state: tauri::State<'_, BrowserState>) -> Result<String, String> {
-    let mut browser_lock = state.browser.lock().await;
-    if browser_lock.is_some() {
-        return Ok("Browser already open".to_string());
-    }
-
-    *browser_lock = Some(SendBrowser(BrowserSession {
-        url: "about:blank".to_string(),
-        html: "<html><body></body></html>".to_string(),
-        text: "".to_string(),
-        title: "".to_string(),
-    }));
-
-    Ok("Browser launched successfully".to_string())
+    state.ensure_started().await?;
+    Ok("Stealth browser launched (invisible_playwright / Firefox)".to_string())
 }
 
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_navigate(state: tauri::State<'_, BrowserState>, url: String) -> Result<String, String> {
-    let mut browser_lock = state.browser.lock().await;
-    let browser_wrapper = browser_lock.as_mut().ok_or("Browser not launched")?;
-    let session = &mut browser_wrapper.0;
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-    let response = client.get(&url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to fetch URL: {}", e))?;
-
-    let html = response.text().await.map_err(|e| format!("Failed to read response body: {}", e))?;
-    
-    session.text = strip_html(&html);
-    session.title = extract_title(&html).unwrap_or_else(|| url.clone());
-    session.url = url.clone();
-    session.html = html;
-
-    Ok(format!("Navigated to {}", url))
+    let r = state.cmd("navigate", json!({ "url": url }), 60).await?;
+    state.refresh_cache(&url).await;
+    let status = r.get("status").map(|s| s.to_string()).unwrap_or_else(|| "?".into());
+    let headers = r.get("headers").cloned().unwrap_or_else(|| json!({}));
+    let missing = missing_security_headers(&headers);
+    let missing_str = if missing.is_empty() { "none".to_string() } else { missing.join(", ") };
+    Ok(format!("Navigated to {url} (HTTP {status}). Missing security headers: {missing_str}"))
 }
 
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_screenshot(state: tauri::State<'_, BrowserState>) -> Result<String, String> {
-    let browser_lock = state.browser.lock().await;
-    let _browser_wrapper = browser_lock.as_ref().ok_or("Browser not launched")?;
-    Ok("/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=".to_string())
+    let r = state.cmd("screenshot", json!({}), 30).await?;
+    Ok(r.get("screenshot").and_then(|v| v.as_str()).unwrap_or("").to_string())
 }
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_click(_state: tauri::State<'_, BrowserState>, selector: String) -> Result<String, String> {
-    Ok(format!("Clicked element (lightweight mock): {}", selector))
+pub async fn browser_click(state: tauri::State<'_, BrowserState>, selector: String) -> Result<String, String> {
+    state.cmd("click", json!({ "selector": selector }), 20).await?;
+    state.refresh_cache("").await;
+    Ok(format!("Clicked {}", selector))
 }
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_type(_state: tauri::State<'_, BrowserState>, selector: String, text: String) -> Result<String, String> {
-    Ok(format!("Typed into (lightweight mock) {}: {}", selector, text))
+pub async fn browser_type(state: tauri::State<'_, BrowserState>, selector: String, text: String) -> Result<String, String> {
+    state.cmd("fill", json!({ "selector": selector, "text": text }), 20).await?;
+    Ok(format!("Typed into {}", selector))
 }
 
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_read_dom(state: tauri::State<'_, BrowserState>) -> Result<String, String> {
-    let browser_lock = state.browser.lock().await;
-    let browser_wrapper = browser_lock.as_ref().ok_or("Browser not launched")?;
-    let session = &browser_wrapper.0;
-
-    Ok(session.html.clone())
+    let r = state.cmd("content", json!({}), 30).await?;
+    Ok(r.get("html").and_then(|v| v.as_str()).unwrap_or("").to_string())
 }
 
 #[tauri::command]
@@ -265,35 +390,35 @@ pub async fn browser_capture_vision_context(state: tauri::State<'_, BrowserState
 }
 
 pub async fn capture_vision_context_internal(state: &BrowserState) -> Result<Value, String> {
-    let browser_lock = state.browser.lock().await;
-    let browser_wrapper = browser_lock.as_ref().ok_or("Browser not launched")?;
-    let session = &browser_wrapper.0;
-    
-    let screenshot_b64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=".to_string();
-    let dom_summary = get_dom_summary(&session.html);
+    let content = state.cmd("content", json!({}), 30).await?;
+    let shot = state.cmd("screenshot", json!({}), 30).await.unwrap_or_else(|_| json!({}));
+    let html = content.get("html").and_then(|v| v.as_str()).unwrap_or("");
 
     Ok(json!({
-        "url": session.url,
-        "title": session.title,
-        "screenshot": screenshot_b64,
-        "dom_summary": dom_summary
+        "url": content.get("url").cloned().unwrap_or_else(|| json!("")),
+        "title": content.get("title").cloned().unwrap_or_else(|| json!("")),
+        "screenshot": shot.get("screenshot").cloned().unwrap_or_else(|| json!("")),
+        "dom_summary": get_dom_summary(html)
     }))
 }
 
 #[tauri::command]
 pub async fn browser_get_content_summary(state: tauri::State<'_, BrowserState>) -> Result<Value, String> {
-    let browser_lock = state.browser.lock().await;
-    let browser_wrapper = browser_lock.as_ref().ok_or("Browser not launched")?;
-    let session = &browser_wrapper.0;
-
-    Ok(get_content_summary_internal(&session.html, &session.text))
+    let content = state.cmd("content", json!({}), 30).await?;
+    let html = content.get("html").and_then(|v| v.as_str()).unwrap_or("");
+    let text = content.get("text").and_then(|v| v.as_str()).unwrap_or("");
+    Ok(get_content_summary_internal(html, text))
 }
 
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_close(state: tauri::State<'_, BrowserState>) -> Result<String, String> {
-    let mut browser_lock = state.browser.lock().await;
-    *browser_lock = None;
+    let mut guard = state.proc.lock().await;
+    if let Some(mut p) = guard.take() {
+        let _ = send_cmd(&mut p, "close", json!({}), 10).await;
+        let _ = p.child.kill().await;
+    }
+    *state.browser.lock().await = None;
     Ok("Browser closed".to_string())
 }
 

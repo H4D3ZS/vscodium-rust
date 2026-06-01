@@ -32,6 +32,25 @@ pub struct AiTools {
     pub ghost_runtime: Arc<crate::ghost_runtime::GhostRuntime>,
     pub shadow_workspace: Arc<crate::shadow_workspace::ShadowWorkspace>,
     pub apex: Arc<tokio::sync::Mutex<Option<Arc<crate::apex_orchestrator::ApexOrchestrator>>>>,
+    /// Shared live-activity buffer (same Arc as `Sentient.activity_log`). The
+    /// streamed-command reader threads push `{kind,payload}` JSON lines here so
+    /// the activity terminal can drain them — `h.emit` is dead in the webview.
+    pub activity_log: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+/// Append one `{kind,payload}` activity line to the shared buffer (capped at
+/// 1000 lines). Mirrors `Sentient::emit_event` so streamed command output shows
+/// up in the activity terminal, which polls this buffer.
+fn push_activity(log: &Arc<std::sync::Mutex<Vec<String>>>, kind: &str, payload: Value) {
+    if let Ok(mut l) = log.lock() {
+        if let Ok(line) = serde_json::to_string(&json!({ "kind": kind, "payload": payload })) {
+            l.push(line);
+            if l.len() > 1000 {
+                let drop = l.len() - 1000;
+                l.drain(0..drop);
+            }
+        }
+    }
 }
 
 impl AiTools {
@@ -46,6 +65,7 @@ impl AiTools {
         ghost_runtime: Arc<crate::ghost_runtime::GhostRuntime>,
         shadow_workspace: Arc<crate::shadow_workspace::ShadowWorkspace>,
         apex: Option<Arc<crate::apex_orchestrator::ApexOrchestrator>>,
+        activity_log: Arc<std::sync::Mutex<Vec<String>>>,
     ) -> Self {
         Self {
             root_path: Arc::new(tokio::sync::Mutex::new(root_path)),
@@ -59,6 +79,7 @@ impl AiTools {
             ghost_runtime,
             shadow_workspace,
             apex: Arc::new(tokio::sync::Mutex::new(apex)),
+            activity_log,
         }
     }
 
@@ -1150,6 +1171,18 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "web_security_audit".to_string(),
+                description: "DYNAMIC web-application security audit against a LIVE url (authorized pentest / bug-bounty only). Drives the stealth browser to fetch the target, then audits: response security headers (CSP/HSTS/X-Frame-Options/X-Content-Type-Options/Referrer-Policy/Permissions-Policy), information-disclosure headers (Server/X-Powered-By/version banners), cookie flags (Secure/HttpOnly/SameSite), HTML forms (password-over-HTTP, GET-with-credentials, missing CSRF token), and mixed content (http resources on an https page). Consolidates into CWE-tagged findings {id, title, severity, cwe, category, path, evidence, remediation, confidence}, sorts by severity, and writes a Markdown report to reports/. Use for 'audit this website/url', web pentest, and BugBounty recon of a live target (complements deep_security_audit, which is static/code-only).".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "Target URL to audit (http/https). Authorized targets only." },
+                        "write_report": { "type": "boolean", "description": "Write a Markdown report to reports/ (default true)." }
+                    },
+                    "required": ["url"]
+                }),
+            },
+            ToolDefinition {
                 name: "weaponize_env".to_string(),
                 description: "Red-team weaponization assessment of a .env / env-export file. Parses KEY=VALUE pairs, classifies each variable (secret / endpoint / telemetry / runtime), and produces a structured weaponization plan: which secrets are immediately actionable (DB URLs, admin passwords, API tokens, Sentry/OTLP DSNs), which endpoints are pivot targets, what the blast radius is, and what an attacker would do next. Pair with `secrets_scan` for full coverage. Output is JSON suitable for the agent to drive follow-up actions.".to_string(),
                 input_schema: json!({
@@ -1792,6 +1825,7 @@ impl AiTools {
             "secrets_scan" => self.secrets_scan(arguments).await,
             "weaponize_env" => self.weaponize_env(arguments).await,
             "deep_security_audit" => self.deep_security_audit(arguments).await,
+            "web_security_audit" => self.web_security_audit(arguments).await,
             "dev_cargo_diagnostics" => self.dev_cargo_diagnostics(arguments).await,
             "search_codebase" => self.search_codebase(arguments).await,
             "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
@@ -2571,12 +2605,14 @@ impl AiTools {
             h_lock.clone()
         };
 
+        let start_payload = json!({
+            "stream_id": stream_id,
+            "command": command,
+            "shell_hint": shell_hint,
+        });
+        push_activity(&self.activity_log, "ai-tool-stdout-start", start_payload.clone());
         if let Some(ref h) = app_handle {
-            let _ = h.emit("ai-tool-stdout-start", json!({
-                "stream_id": stream_id,
-                "command": command,
-                "shell_hint": shell_hint,
-            }));
+            let _ = h.emit("ai-tool-stdout-start", start_payload);
         }
 
         let mut child = std::process::Command::new(&exec_path)
@@ -2603,19 +2639,19 @@ impl AiTools {
         let h_out = app_handle.clone();
         let sid_out = stream_id.clone();
         let buf_out = stdout_buf.clone();
+        let act_out = self.activity_log.clone();
         let stdout_thread = std::thread::spawn(move || {
             let reader = BufReader::new(child_stdout);
             for line_res in reader.lines() {
                 let Ok(line) = line_res else { break; };
+                let payload = json!({
+                    "stream_id": sid_out,
+                    "line": line.clone(),
+                    "stream": "stdout",
+                });
+                push_activity(&act_out, "ai-tool-stdout", payload.clone());
                 if let Some(ref h) = h_out {
-                    let _ = h.emit(
-                        "ai-tool-stdout",
-                        json!({
-                            "stream_id": sid_out,
-                            "line": line.clone(),
-                            "stream": "stdout",
-                        }),
-                    );
+                    let _ = h.emit("ai-tool-stdout", payload);
                 }
                 if let Ok(mut b) = buf_out.lock() {
                     b.push_str(&line);
@@ -2628,19 +2664,19 @@ impl AiTools {
         let h_err = app_handle.clone();
         let sid_err = stream_id.clone();
         let buf_err = stderr_buf.clone();
+        let act_err = self.activity_log.clone();
         let stderr_thread = std::thread::spawn(move || {
             let reader = BufReader::new(child_stderr);
             for line_res in reader.lines() {
                 let Ok(line) = line_res else { break; };
+                let payload = json!({
+                    "stream_id": sid_err,
+                    "line": line.clone(),
+                    "stream": "stderr",
+                });
+                push_activity(&act_err, "ai-tool-stdout", payload.clone());
                 if let Some(ref h) = h_err {
-                    let _ = h.emit(
-                        "ai-tool-stdout",
-                        json!({
-                            "stream_id": sid_err,
-                            "line": line.clone(),
-                            "stream": "stderr",
-                        }),
-                    );
+                    let _ = h.emit("ai-tool-stdout", payload);
                 }
                 if let Ok(mut b) = buf_err.lock() {
                     b.push_str(&line);
@@ -2661,15 +2697,14 @@ impl AiTools {
         let stdout = stdout_buf.lock().map(|s| s.clone()).unwrap_or_default();
         let stderr = stderr_buf.lock().map(|s| s.clone()).unwrap_or_default();
 
+        let end_payload = json!({
+            "stream_id": stream_id,
+            "exit_code": status.code(),
+            "success": status.success(),
+        });
+        push_activity(&self.activity_log, "ai-tool-stdout-end", end_payload.clone());
         if let Some(ref h) = app_handle {
-            let _ = h.emit(
-                "ai-tool-stdout-end",
-                json!({
-                    "stream_id": stream_id,
-                    "exit_code": status.code(),
-                    "success": status.success(),
-                }),
-            );
+            let _ = h.emit("ai-tool-stdout-end", end_payload);
             let _ = h.emit(
                 "ai-artifact",
                 json!({
@@ -3722,6 +3757,260 @@ impl AiTools {
         }))
     }
 
+    /// DYNAMIC web-app audit against a live URL via the stealth browser. Audits
+    /// headers, cookie flags, forms, and mixed content into CWE-tagged findings +
+    /// a Markdown report. Authorized pentest / bug-bounty use only.
+    async fn web_security_audit(&self, args: Value) -> Result<Value> {
+        let url = args.get("url").and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing url"))?.to_string();
+        let write_report = args.get("write_report").and_then(|v| v.as_bool()).unwrap_or(true);
+
+        // Severity ordering for sort (CRITICAL highest).
+        fn rank(s: &str) -> u8 {
+            match s.to_uppercase().as_str() {
+                "CRITICAL" => 0, "HIGH" => 1, "MEDIUM" => 2, "LOW" => 3, _ => 4,
+            }
+        }
+        let mut findings: Vec<Value> = Vec::new();
+        let mut n = 0u32;
+        let mut add = |findings: &mut Vec<Value>, sev: &str, cwe: &str, cat: &str,
+                       title: &str, evidence: String, remediation: &str, confidence: &str| {
+            n += 1;
+            findings.push(json!({
+                "id": format!("WEB-{:03}", n),
+                "title": title,
+                "severity": sev,
+                "cwe": cwe,
+                "category": cat,
+                "path": url,
+                "line": 0,
+                "evidence": evidence.chars().take(300).collect::<String>(),
+                "remediation": remediation,
+                "confidence": confidence,
+            }));
+        };
+
+        // ── Fetch the target ─────────────────────────────────────────────────
+        self.browser_state.ensure_started().await.map_err(|e| anyhow!("browser start failed: {e}"))?;
+        let nav = self.browser_state
+            .cmd("navigate", json!({ "url": url }), 60).await
+            .map_err(|e| anyhow!("navigate failed: {e}"))?;
+        self.browser_state.refresh_cache(&url).await;
+
+        let final_url = nav.get("url").and_then(|v| v.as_str()).unwrap_or(&url).to_string();
+        let is_https = final_url.starts_with("https://");
+        let http_status = nav.get("status").cloned().unwrap_or(json!(null));
+        let headers = nav.get("headers").cloned().unwrap_or_else(|| json!({}));
+        let hget = |name: &str| headers.get(name).and_then(|v| v.as_str()).map(|s| s.to_string());
+
+        // ── Pass 1: response security headers ────────────────────────────────
+        if hget("content-security-policy").is_none() {
+            add(&mut findings, "MEDIUM", "CWE-693", "headers",
+                "Missing Content-Security-Policy",
+                "No `content-security-policy` response header".to_string(),
+                "Define a restrictive CSP (default-src 'self'; …) to mitigate XSS/data injection.", "high");
+        }
+        if is_https && hget("strict-transport-security").is_none() {
+            add(&mut findings, "MEDIUM", "CWE-319", "headers",
+                "Missing HSTS (Strict-Transport-Security)",
+                "HTTPS page without `strict-transport-security`".to_string(),
+                "Send `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`.", "high");
+        }
+        let csp = hget("content-security-policy").unwrap_or_default();
+        if hget("x-frame-options").is_none() && !csp.to_lowercase().contains("frame-ancestors") {
+            add(&mut findings, "MEDIUM", "CWE-1021", "headers",
+                "Clickjacking: no X-Frame-Options / frame-ancestors",
+                "Neither `x-frame-options` nor CSP `frame-ancestors` present".to_string(),
+                "Add `X-Frame-Options: DENY` or CSP `frame-ancestors 'none'`.", "high");
+        }
+        if hget("x-content-type-options").is_none() {
+            add(&mut findings, "LOW", "CWE-693", "headers",
+                "Missing X-Content-Type-Options",
+                "No `x-content-type-options: nosniff`".to_string(),
+                "Add `X-Content-Type-Options: nosniff` to stop MIME sniffing.", "high");
+        }
+        if hget("referrer-policy").is_none() {
+            add(&mut findings, "LOW", "CWE-200", "headers",
+                "Missing Referrer-Policy",
+                "No `referrer-policy` header".to_string(),
+                "Add `Referrer-Policy: strict-origin-when-cross-origin`.", "medium");
+        }
+        if hget("permissions-policy").is_none() {
+            add(&mut findings, "INFO", "CWE-693", "headers",
+                "Missing Permissions-Policy",
+                "No `permissions-policy` header".to_string(),
+                "Restrict powerful features via `Permissions-Policy`.", "medium");
+        }
+        // Information-disclosure banners.
+        for (h, label) in [("server", "Server"), ("x-powered-by", "X-Powered-By"),
+                           ("x-aspnet-version", "X-AspNet-Version"), ("x-aspnetmvc-version", "X-AspNetMvc-Version")] {
+            if let Some(v) = hget(h) {
+                if !v.trim().is_empty() {
+                    add(&mut findings, "LOW", "CWE-200", "info-disclosure",
+                        &format!("Version/tech disclosure via {} header", label),
+                        format!("{}: {}", label, v),
+                        "Suppress or genericize version banners to slow fingerprinting.", "high");
+                }
+            }
+        }
+
+        // ── Pass 2: cookie flags ─────────────────────────────────────────────
+        if let Ok(ck) = self.browser_state.cmd("cookies", json!({}), 15).await {
+            if let Some(cookies) = ck.get("cookies").and_then(|v| v.as_array()) {
+                for c in cookies {
+                    let name = c.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                    let secure = c.get("secure").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let http_only = c.get("httpOnly").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let same_site = c.get("sameSite").and_then(|v| v.as_str()).unwrap_or("");
+                    if is_https && !secure {
+                        add(&mut findings, "MEDIUM", "CWE-614", "cookies",
+                            "Cookie without Secure flag",
+                            format!("Cookie `{}` lacks Secure on an HTTPS site", name),
+                            "Set the `Secure` attribute so cookies are only sent over TLS.", "high");
+                    }
+                    if !http_only {
+                        add(&mut findings, "MEDIUM", "CWE-1004", "cookies",
+                            "Cookie without HttpOnly flag",
+                            format!("Cookie `{}` is readable from JavaScript (no HttpOnly)", name),
+                            "Set `HttpOnly` to block script access (XSS token theft).", "medium");
+                    }
+                    if same_site.is_empty() || same_site.eq_ignore_ascii_case("none") {
+                        add(&mut findings, "LOW", "CWE-1275", "cookies",
+                            "Cookie with weak SameSite policy",
+                            format!("Cookie `{}` SameSite='{}'", name, same_site),
+                            "Set `SameSite=Lax` or `Strict` to reduce CSRF exposure.", "medium");
+                    }
+                }
+            }
+        }
+
+        // ── Pass 3: forms (injection / auth surface) ─────────────────────────
+        if let Ok(fm) = self.browser_state.cmd("forms", json!({}), 15).await {
+            if let Some(forms) = fm.get("forms").and_then(|v| v.as_array()) {
+                for f in forms {
+                    let action = f.get("action").and_then(|v| v.as_str()).unwrap_or("");
+                    let method = f.get("method").and_then(|v| v.as_str()).unwrap_or("get").to_lowercase();
+                    let inputs = f.get("inputs").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    let has_password = inputs.iter().any(|i| i.get("type").and_then(|v| v.as_str()) == Some("password"));
+                    let has_csrf = inputs.iter().any(|i| {
+                        let nm = i.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                        nm.contains("csrf") || nm.contains("xsrf") || nm.contains("authenticity")
+                            || nm.contains("requestverificationtoken") || nm == "_token"
+                    });
+                    if has_password && !is_https {
+                        add(&mut findings, "HIGH", "CWE-319", "forms",
+                            "Password form served over HTTP",
+                            format!("Form action=`{}` collects a password without TLS", action),
+                            "Serve the page and submit credentials only over HTTPS.", "high");
+                    }
+                    if has_password && action.starts_with("http://") {
+                        add(&mut findings, "HIGH", "CWE-319", "forms",
+                            "Credentials submitted to an insecure (http://) endpoint",
+                            format!("Form action=`{}`", action),
+                            "Point the form action at an https:// endpoint.", "high");
+                    }
+                    if has_password && method == "get" {
+                        add(&mut findings, "MEDIUM", "CWE-598", "forms",
+                            "Credentials sent via GET (logged in URLs)",
+                            format!("Form method=GET action=`{}` with a password field", action),
+                            "Use POST for credential submission.", "high");
+                    }
+                    if method == "post" && !has_csrf {
+                        add(&mut findings, "MEDIUM", "CWE-352", "forms",
+                            "POST form without an apparent CSRF token",
+                            format!("Form action=`{}` (POST) has no hidden csrf/token field", action),
+                            "Add a per-request anti-CSRF token and verify it server-side.", "low");
+                    }
+                }
+            }
+        }
+
+        // ── Pass 4: mixed content ────────────────────────────────────────────
+        if is_https {
+            if let Ok(ct) = self.browser_state.cmd("content", json!({}), 20).await {
+                let html = ct.get("html").and_then(|v| v.as_str()).unwrap_or("");
+                let mut samples: Vec<String> = Vec::new();
+                for attr in ["src=\"http://", "href=\"http://", "src='http://", "href='http://"] {
+                    let mut idx = 0;
+                    while let Some(pos) = html[idx..].find(attr) {
+                        let start = idx + pos + attr.len();
+                        let end = html[start..].find(['"', '\'']).map(|e| start + e).unwrap_or(start);
+                        let u = &html[start..end.min(start + 120)];
+                        if !u.is_empty() && samples.len() < 5 && !samples.iter().any(|s| s == u) {
+                            samples.push(u.to_string());
+                        }
+                        idx = start;
+                        if samples.len() >= 5 { break; }
+                    }
+                }
+                if !samples.is_empty() {
+                    add(&mut findings, "MEDIUM", "CWE-319", "mixed-content",
+                        "Mixed content: insecure resources on an HTTPS page",
+                        format!("http:// resources: {}", samples.join(", ")),
+                        "Load all sub-resources over HTTPS (or protocol-relative) to prevent MITM tampering.", "high");
+                }
+            }
+        }
+
+        // ── Consolidate + sort ───────────────────────────────────────────────
+        findings.sort_by_key(|f| rank(f.get("severity").and_then(|v| v.as_str()).unwrap_or("INFO")));
+        let mut by_sev: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+        for f in &findings {
+            let s = f.get("severity").and_then(|v| v.as_str()).unwrap_or("INFO").to_uppercase();
+            *by_sev.entry(s).or_insert(0) += 1;
+        }
+
+        // ── Write Markdown report ────────────────────────────────────────────
+        let mut report_path = String::new();
+        if write_report {
+            let root = self.root_path.lock().await.clone();
+            let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs()).unwrap_or(0);
+            let reports_dir = root.join("reports");
+            let _ = fs::create_dir_all(&reports_dir);
+            let file = reports_dir.join(format!("web-audit-{}.md", ts));
+            let mut md = String::new();
+            md.push_str(&format!("# Web Security Audit Report\n\n- **Target:** `{}`\n- **Final URL:** `{}`\n- **HTTP status:** {}\n- **Total findings:** {}\n\n",
+                url, final_url, http_status, findings.len()));
+            md.push_str("## Summary by severity\n\n| Severity | Count |\n|----------|------:|\n");
+            for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] {
+                if let Some(c) = by_sev.get(sev) { md.push_str(&format!("| {} | {} |\n", sev, c)); }
+            }
+            md.push_str("\n## Findings\n\n");
+            for f in &findings {
+                md.push_str(&format!(
+                    "### {} — {} [{}]\n- **Severity:** {}  ·  **CWE:** {}  ·  **Confidence:** {}\n- **Target:** `{}`\n- **Evidence:** `{}`\n- **Remediation:** {}\n\n",
+                    f.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("category").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("severity").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("cwe").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("confidence").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("path").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("evidence").and_then(|v| v.as_str()).unwrap_or(""),
+                    f.get("remediation").and_then(|v| v.as_str()).unwrap_or(""),
+                ));
+            }
+            if fs::write(&file, md).is_ok() {
+                report_path = file.strip_prefix(&root).unwrap_or(&file).to_string_lossy().to_string();
+            }
+        }
+
+        Ok(json!({
+            "status": "success",
+            "target": url,
+            "final_url": final_url,
+            "http_status": http_status,
+            "total_findings": findings.len(),
+            "by_severity": by_sev,
+            "report_path": report_path,
+            "findings": findings,
+            "summary": format!("Web audit of {}: {} finding(s). Report: {}",
+                final_url, findings.len(),
+                if report_path.is_empty() { "(not written)".to_string() } else { report_path.clone() }),
+        }))
+    }
+
     async fn secrets_scan(&self, args: Value) -> Result<Value> {
         use regex::Regex;
         let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
@@ -4177,131 +4466,76 @@ impl AiTools {
     }
 
     async fn browser_open(&self, _args: Value) -> Result<Value> {
-        let mut browser_lock = self.browser_state.browser.lock().await;
-        if browser_lock.is_some() {
-            return Ok(serde_json::json!({"status": "already_open"}));
-        }
-
-        *browser_lock = Some(crate::browser::SendBrowser(crate::browser::BrowserSession {
-            url: "about:blank".to_string(),
-            html: "<html><body></body></html>".to_string(),
-            text: "".to_string(),
-            title: "".to_string(),
-        }));
-
-        Ok(serde_json::json!({"status": "success", "message": "Browser launched"}))
+        // Launch the real stealth browser (invisible_playwright / Firefox).
+        self.browser_state
+            .ensure_started()
+            .await
+            .map_err(|e| anyhow!("{e}"))?;
+        Ok(serde_json::json!({"status": "success", "message": "Stealth browser launched"}))
     }
 
     async fn browser_navigate(&self, args: Value) -> Result<Value> {
         let url = args
             .get("url")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing url"))?;
-        let mut browser_lock = self.browser_state.browser.lock().await;
-        let browser_wrapper = browser_lock
-            .as_mut()
-            .ok_or_else(|| anyhow!("Browser not launched"))?;
-        let session = &mut browser_wrapper.0;
+            .ok_or_else(|| anyhow!("Missing url"))?
+            .to_string();
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
-
-        let response = client.get(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            .send()
+        // Real navigation through the stealth browser — JS runs, redirects
+        // resolve, and we capture the live response status + headers.
+        let r = self
+            .browser_state
+            .cmd("navigate", serde_json::json!({ "url": url }), 60)
             .await
-            .map_err(|e| anyhow!("Failed to fetch URL: {}", e))?;
+            .map_err(|e| anyhow!("{e}"))?;
+        self.browser_state.refresh_cache(&url).await;
 
-        let html = response.text().await.map_err(|e| anyhow!("Failed to read response body: {}", e))?;
-        
-        // Strip HTML tags to get visible text
-        let mut stripped = String::new();
-        let mut in_tag = false;
-        let mut in_script_or_style = false;
-        let mut tag_buffer = String::new();
-        
-        let mut chars = html.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c == '<' {
-                in_tag = true;
-                tag_buffer.clear();
-            } else if c == '>' && in_tag {
-                in_tag = false;
-                let tag_lower = tag_buffer.to_lowercase();
-                if tag_lower.starts_with("script") {
-                    in_script_or_style = true;
-                } else if tag_lower.starts_with("/script") {
-                    in_script_or_style = false;
-                } else if tag_lower.starts_with("style") {
-                    in_script_or_style = true;
-                } else if tag_lower.starts_with("/style") {
-                    in_script_or_style = false;
-                }
-                if tag_lower.starts_with("div") || tag_lower.starts_with("/div") || 
-                   tag_lower.starts_with("p") || tag_lower.starts_with("/p") || 
-                   tag_lower.starts_with("li") || tag_lower.starts_with("/li") ||
-                   tag_lower.starts_with("br") || tag_lower.starts_with("h") {
-                    stripped.push(' ');
-                }
-            } else if in_tag {
-                tag_buffer.push(c);
-            } else if !in_script_or_style {
-                stripped.push(c);
-            }
-        }
-        
-        let mut clean = String::new();
-        let mut last_was_space = false;
-        for c in stripped.chars() {
-            if c.is_whitespace() {
-                if !last_was_space {
-                    clean.push(' ');
-                    last_was_space = true;
-                }
-            } else {
-                clean.push(c);
-                last_was_space = false;
-            }
-        }
-        let text = clean.trim().to_string();
+        let status = r.get("status").cloned().unwrap_or(serde_json::json!(null));
+        let headers = r.get("headers").cloned().unwrap_or_else(|| serde_json::json!({}));
+        let sec = [
+            "content-security-policy",
+            "strict-transport-security",
+            "x-frame-options",
+            "x-content-type-options",
+            "referrer-policy",
+            "permissions-policy",
+        ];
+        let missing: Vec<&str> = sec.iter().filter(|h| headers.get(**h).is_none()).cloned().collect();
 
-        session.url = url.to_string();
-        session.html = html.clone();
-        session.text = text.clone();
-        
-        let mut title = url.to_string();
-        if let Some(title_start) = html.to_lowercase().find("<title>") {
-            if let Some(title_end) = html.to_lowercase().find("</title>") {
-                if title_end > title_start {
-                    title = html[title_start + 7..title_end].trim().to_string();
-                }
-            }
-        }
-        session.title = title;
-
-        Ok(serde_json::json!({"status": "success", "message": format!("Navigated to {}", url)}))
+        Ok(serde_json::json!({
+            "status": "success",
+            "url": r.get("url").cloned().unwrap_or(serde_json::json!(url)),
+            "http_status": status,
+            "title": r.get("title").cloned().unwrap_or(serde_json::json!("")),
+            "missing_security_headers": missing,
+            "response_headers": headers,
+        }))
     }
 
-    async fn browser_screenshot(&self, _args: Value) -> Result<Value> {
-        let browser_lock = self.browser_state.browser.lock().await;
-        let _browser_wrapper = browser_lock
-            .as_ref()
-            .ok_or_else(|| anyhow!("Browser not launched"))?;
-        
-        let screenshot = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=".to_string();
-        Ok(
-            serde_json::json!({"status": "success", "screenshot": screenshot}),
-        )
+    async fn browser_screenshot(&self, args: Value) -> Result<Value> {
+        let full = args.get("full_page").and_then(|v| v.as_bool()).unwrap_or(false);
+        let r = self
+            .browser_state
+            .cmd("screenshot", serde_json::json!({ "full_page": full }), 30)
+            .await
+            .map_err(|e| anyhow!("{e}"))?;
+        Ok(serde_json::json!({
+            "status": "success",
+            "screenshot": r.get("screenshot").cloned().unwrap_or(serde_json::json!("")),
+        }))
     }
 
     async fn browser_click(&self, args: Value) -> Result<Value> {
         let selector = args
             .get("selector")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing selector"))?;
-        
+            .ok_or_else(|| anyhow!("Missing selector"))?
+            .to_string();
+        self.browser_state
+            .cmd("click", serde_json::json!({ "selector": selector }), 20)
+            .await
+            .map_err(|e| anyhow!("{e}"))?;
+        self.browser_state.refresh_cache("").await;
         Ok(serde_json::json!({"status": "success", "message": format!("Clicked {}", selector)}))
     }
 
@@ -4309,24 +4543,36 @@ impl AiTools {
         let selector = args
             .get("selector")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing selector"))?;
-        
+            .ok_or_else(|| anyhow!("Missing selector"))?
+            .to_string();
+        let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        self.browser_state
+            .cmd("fill", serde_json::json!({ "selector": selector, "text": text }), 20)
+            .await
+            .map_err(|e| anyhow!("{e}"))?;
         Ok(serde_json::json!({"status": "success", "message": format!("Typed into {}", selector)}))
     }
 
     async fn browser_read_dom(&self, _args: Value) -> Result<Value> {
-        let browser_lock = self.browser_state.browser.lock().await;
-        let browser_wrapper = browser_lock
-            .as_ref()
-            .ok_or_else(|| anyhow!("Browser not launched"))?;
-        let session = &browser_wrapper.0;
-
-        Ok(serde_json::json!({"status": "success", "dom": session.html}))
+        let r = self
+            .browser_state
+            .cmd("content", serde_json::json!({}), 30)
+            .await
+            .map_err(|e| anyhow!("{e}"))?;
+        Ok(serde_json::json!({
+            "status": "success",
+            "url": r.get("url").cloned().unwrap_or(serde_json::json!("")),
+            "title": r.get("title").cloned().unwrap_or(serde_json::json!("")),
+            "dom": r.get("html").cloned().unwrap_or(serde_json::json!("")),
+        }))
     }
 
     async fn browser_close(&self, _args: Value) -> Result<Value> {
-        let mut browser_lock = self.browser_state.browser.lock().await;
-        *browser_lock = None;
+        let mut guard = self.browser_state.proc.lock().await;
+        if let Some(mut p) = guard.take() {
+            let _ = crate::browser::shutdown_proc(&mut p).await;
+        }
+        *self.browser_state.browser.lock().await = None;
         Ok(serde_json::json!({"status": "success", "message": "Browser closed"}))
     }
 
