@@ -1202,7 +1202,7 @@ function isLocalInferenceRoute(store: { getState: () => any }): boolean {
 // Imperative action verbs that imply the user wants actual file writes / shell
 // execution, not just a chat response. Used to auto-escalate Chat mode to Agent
 // when YOLO is on, and to warn when Chat mode is silently swallowing actions.
-const ACTION_VERB_REGEX = /\b(write|create|generate|make|build|implement|add|edit|patch|fix|refactor|delete|remove|run|execute|launch|invoke|fuzz|exploit|scan|audit|analy[sz]e|inspect|assess|review|recon|enumerate|inject|craft|emit|attack|brute(force)?|crack|sniff|intercept|deploy|install|compile|test|verify|save|persist|store|push|commit|merge|rebase|checkout|spawn|popen|shell|payload|poc|reverse[\s-]?shell|bind[\s-]?shell|c2|callback|stager)\b/i;
+const ACTION_VERB_REGEX = /\b(write|create|generate|make|build|implement|add|edit|patch|fix|refactor|delete|remove|run|execute|launch|invoke|fuzz|exploit|scan|audit|analy[sz]e|inspect|assess|review|recon|enumerate|inject|craft|emit|attack|brute(force)?|crack|sniff|intercept|deploy|install|compile|test|verify|save|persist|store|push|commit|merge|rebase|checkout|spawn|popen|shell|payload|poc|reverse[\s-]?shell|bind[\s-]?shell|c2|callback|stager|pentest|pen[\s-]?test|hunt|probe|harden|discover|fingerprint|map\s+the|find\s+(security|vuln|bug|cve|flaw|issue))\b/i;
 
 function looksLikeActionRequest(text: string): boolean {
     if (!text || text.length < 3) return false;
@@ -2254,10 +2254,27 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // first-token brutally slow / appear stuck. Questions answer instantly from
     // the AIM codebase map already in `messages`; only true ACTION prompts
     // (write/run/fix/build/…) fall through to the full agentic loop below.
-    const _convoFastPath = !looksLikeActionRequest(userPrompt)
+    // Security/recon work ALWAYS needs the agentic tool loop (browser,
+    // web_security_audit, recon, enumerate). A target URL, a detected security
+    // intent, an injected `[INTENT: …]` selector, or an explicit security mode
+    // (BugBounty/Red Team) must NEVER short-circuit to a no-tool chat reply —
+    // that's why "find security bugs in <url>" was answering with generic
+    // "use OWASP ZAP / Burp" advice instead of actually driving the tools.
+    const _secMode = activeMode === 'BugBounty' || activeMode === 'Bug Bounty'
+        || activeMode === 'RedTeam' || activeMode === 'Red Team'
+        || activeMode === 'BlueTeam' || activeMode === 'Blue Team';
+    const _hasUrlTarget = /\bhttps?:\/\/\S+/i.test(userPrompt);
+    const _hasIntentTag = /^\s*\[INTENT\s*:/i.test(userPrompt);
+    const _forceToolLoop = _secMode || _hasUrlTarget || _hasIntentTag
+        || !!inferSecurityIntent(userPrompt);
+    const _convoFastPath = !_forceToolLoop
+        && !looksLikeActionRequest(userPrompt)
         && !(context && context.length)
         && !(store.getState().attachedFiles?.length);
-    if ((store.getState() as any).agentMode === 'Chat' || _customReadOnly || _convoFastPath) {
+    // Chat is read-only by contract, but a security mode / URL target means the
+    // user explicitly wants action — don't let Chat's fast path swallow it.
+    const _chatFastEligible = (store.getState() as any).agentMode === 'Chat' && !_forceToolLoop;
+    if (_chatFastEligible || _customReadOnly || _convoFastPath) {
         try {
             console.log('[Agent] Fast single round-trip (no tool loop)', { provider: routingProvider, model: routingModel, conversational: _convoFastPath });
             // LEAN payload for local models: a short persona + the last few turns only.
