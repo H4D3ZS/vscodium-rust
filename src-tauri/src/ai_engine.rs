@@ -60,6 +60,12 @@ pub(crate) const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
     "apex_threat_anticipate", "apex_simulate_attack", "apex_pentest_report",
     "binary_mach_o_scanner", "file_entropy_analysis", "network_port_scanner",
     "extract_strings", "hex_dump", "apex_scan_url",
+    // Live web pentest / bug-bounty against a target URL. Without these, a local
+    // security model (e.g. sec-eng-neuraldevil) gets NO web tooling — the first
+    // essential-tools retain stripped them before the domain filter could keep
+    // them, so "find security bugs in <url>" had nothing to drive the browser.
+    "web_security_audit", "browser_open", "browser_navigate",
+    "browser_screenshot", "browser_read_dom",
 ];
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1890,6 +1896,55 @@ impl Sentient {
             }
         }
 
+        // SECURITY TOOL AUGMENT. The frontend `req.tools` (Cursor-style schema list
+        // in src/tool_registry.ts) ships NONE of the native offensive-security tools
+        // — no web_security_audit, deep_security_audit, apex_*, secrets_scan,
+        // weaponize_env, network_port_scanner. Because `req.tools`, when present,
+        // SHADOWS the full backend catalog, a BugBounty / "audit this url" turn was
+        // offered only browser+file tools and never the audit arsenal — so the model
+        // fell back to telling the user to "use OWASP ZAP / Burp" instead of acting.
+        // Merge the native security tools in (OpenAI shape, matching get_available_tools)
+        // whenever the turn is a security task, deduped by name.
+        if !explicitly_empty_tools {
+            let mode_l = req.mode.as_deref().unwrap_or("").to_lowercase();
+            let task_l = messages.iter().rev()
+                .find(|m| m.role == "user")
+                .and_then(|m| m.content.as_ref().map(|c| c.as_str().to_lowercase()))
+                .unwrap_or_default();
+            let is_sec_turn = mode_l.contains("bugbounty") || mode_l.contains("bug bounty")
+                || mode_l.contains("redteam") || mode_l.contains("red team")
+                || mode_l.contains("blueteam") || mode_l.contains("blue team")
+                || task_l.contains("[intent:")
+                || task_l.contains("security") || task_l.contains("pentest")
+                || task_l.contains("pen test") || task_l.contains("vuln")
+                || task_l.contains("exploit") || task_l.contains("bug bounty")
+                || task_l.contains("recon") || task_l.contains("red team")
+                || task_l.contains("attack surface") || task_l.contains("weaponize")
+                || (task_l.contains("audit") && task_l.contains("http"));
+            if is_sec_turn {
+                const SEC_TOOLS: &[&str] = &[
+                    "web_security_audit", "deep_security_audit", "apex_red_team_scan",
+                    "apex_quick_check", "apex_threat_anticipate", "apex_simulate_attack",
+                    "apex_pentest_report", "apex_scan_url", "secrets_scan", "weaponize_env",
+                    "network_port_scanner", "binary_mach_o_scanner", "file_entropy_analysis",
+                    "extract_strings", "hex_dump", "browser_read_dom",
+                ];
+                let tool_name = |t: &Value| -> String {
+                    t["function"]["name"].as_str()
+                        .or_else(|| t["name"].as_str())
+                        .unwrap_or("").to_string()
+                };
+                for native in self.get_available_tools().await {
+                    let name = tool_name(&native);
+                    if SEC_TOOLS.contains(&name.as_str())
+                        && !tools.iter().any(|t| tool_name(t) == name)
+                    {
+                        tools.push(native);
+                    }
+                }
+            }
+        }
+
         // For Ollama: trim tools to a focused essential set.
         // Local models have limited context — 60+ tools wastes 8-12k tokens on schemas alone.
         // We keep only the ~20 tools a coding agent actually needs most.
@@ -1935,6 +1990,8 @@ impl Sentient {
                     "apex_threat_anticipate","apex_simulate_attack","apex_pentest_report",
                     "apex_scan_url","binary_mach_o_scanner","file_entropy_analysis",
                     "network_port_scanner","extract_strings","hex_dump",
+                    // Live web pentest — the high-value meta-tool for "audit this url"
+                    "web_security_audit","deep_security_audit",
                     // Research
                     "web_fetch","web_search","perplexity_ask","browser_open","browser_navigate",
                     "browser_screenshot","browser_read_dom",

@@ -59,6 +59,47 @@ fn resolve_shell_exe(requested: &str) -> String {
     }
 }
 
+/// PowerShell OSC 133 shell-integration script (Warp-style command blocks).
+/// Written to a temp .ps1 and dot-sourced at shell startup via `-Command` so it
+/// runs BEFORE the first prompt and never echoes into the command line. Typing
+/// the multi-line script over stdin made ConPTY echo the whole thing as visible
+/// garbage; injecting at launch avoids that entirely. Keep the OSC payloads in
+/// sync with the parser in `src/terminalBlocks.ts`.
+const POWERSHELL_SHELL_INTEGRATION_PS1: &str = r#"
+if (-not $global:__vscr_si) {
+  $global:__vscr_si = $true
+  $global:__vscr_orig_prompt = $function:prompt
+  function global:prompt {
+    $code = if ($?) { 0 } else { if ($LASTEXITCODE) { $LASTEXITCODE } else { 1 } }
+    $e = [char]27; $b = [char]7
+    $cwd = (Get-Location).Path
+    [Console]::Write("$e]133;D;$code$b$e]133;A$b$e]133;P;Cwd=$cwd$b")
+    $orig = & $global:__vscr_orig_prompt
+    [Console]::Write("$e]133;B$b")
+    return $orig
+  }
+  if (Get-Module -ListAvailable PSReadLine) {
+    Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
+      $line = $null; $cur = $null
+      [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cur)
+      $e = [char]27; $b = [char]7
+      [Console]::Write("$e]133;E;$line$b$e]133;C$b")
+      [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+    }
+  }
+}
+"#;
+
+/// Write the shell-integration script to a stable temp path and return it.
+/// Stable filename + identical content means concurrent terminal spawns racing
+/// the write are harmless (last writer wins, same bytes).
+fn write_shell_integration_script() -> std::io::Result<PathBuf> {
+    let path = std::env::temp_dir().join("vscr_shell_integration.ps1");
+    let mut f = std::fs::File::create(&path)?;
+    f.write_all(POWERSHELL_SHELL_INTEGRATION_PS1.as_bytes())?;
+    Ok(path)
+}
+
 /// Best-effort fallback cwd when the configured one is missing or invalid.
 fn default_terminal_cwd() -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
@@ -128,6 +169,21 @@ pub async fn spawn_terminal(
     let mut cmd = CommandBuilder::new(shell_exe.clone());
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+
+    // Warp-style command blocks: inject OSC 133 shell integration at STARTUP so it
+    // loads before the first prompt and never echoes into the command line. (Typing
+    // the script over stdin made ConPTY echo the whole multi-line thing.) PowerShell
+    // only; `-NoExit` keeps the session interactive after dot-sourcing.
+    {
+        let sl = shell_exe.to_lowercase();
+        if sl.contains("powershell") || sl.contains("pwsh") {
+            if let Ok(script_path) = write_shell_integration_script() {
+                cmd.arg("-NoExit");
+                cmd.arg("-Command");
+                cmd.arg(format!(". '{}'", script_path.display()));
+            }
+        }
+    }
 
     // Resolve a usable cwd: active project root if present and on disk,
     // otherwise the user home, otherwise the process cwd. Never pass a path

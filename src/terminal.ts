@@ -11,7 +11,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { CanvasAddon } from '@xterm/addon-canvas';
-import { CommandBlockTracker, POWERSHELL_SHELL_INTEGRATION } from './terminalBlocks.ts';
+import { CommandBlockTracker } from './terminalBlocks.ts';
 import '@xterm/xterm/css/xterm.css';
 
 export interface ISearchOptions {
@@ -544,19 +544,10 @@ export class TerminalManager {
       this.startPolling(id);
 
       // ── Shell integration (Warp-style blocks) ──────────────────────────────
-      // Inject the OSC 133 prompt hooks once the shell is up. PowerShell only for
-      // now (5.1 + 7). Sent as one line so the echo is a single throwaway; the
-      // next prompt is fully integrated. Delayed so it lands after the first
-      // prompt paints rather than racing the shell's startup.
-      const shellLc = (profile.path || '').toLowerCase();
-      if (shellLc.includes('powershell') || shellLc.includes('pwsh')) {
-        setTimeout(() => {
-          void invoke('terminal_send_data', {
-            id,
-            data: POWERSHELL_SHELL_INTEGRATION + '\r',
-          }).catch(() => { /* writer gone */ });
-        }, 600);
-      }
+      // The OSC 133 prompt hooks are injected at shell STARTUP by the backend
+      // (`spawn_terminal` launches PowerShell with `-Command ". <temp>.ps1"`), so
+      // there's nothing to type here. Injecting over stdin made ConPTY echo the
+      // whole multi-line script as visible garbage — that's why it moved to spawn.
 
       // ── Post-spawn watchdog ────────────────────────────────────────────────
       // spawn_terminal returned without throwing, so the backend accepted the
