@@ -160,16 +160,30 @@ export function registerMonacoProviders(
             const suggestion = await new Promise<string | null>(resolve => {
                 inlineTimer = setTimeout(async () => {
                     if (token.isCancellationRequested) return resolve(null);
-                    const textBefore = model.getValueInRange({
-                        startLineNumber: Math.max(1, position.lineNumber - 40), startColumn: 1,
+                    let textBefore = model.getValueInRange({
+                        startLineNumber: Math.max(1, position.lineNumber - 60), startColumn: 1,
                         endLineNumber: position.lineNumber, endColumn: position.column,
                     });
                     const textAfter = model.getValueInRange({
                         startLineNumber: position.lineNumber, startColumn: position.column,
-                        endLineNumber: Math.min(model.getLineCount(), position.lineNumber + 15),
-                        endColumn: model.getLineMaxColumn(Math.min(model.getLineCount(), position.lineNumber + 15)),
+                        endLineNumber: Math.min(model.getLineCount(), position.lineNumber + 20),
+                        endColumn: model.getLineMaxColumn(Math.min(model.getLineCount(), position.lineNumber + 20)),
                     });
-                    if (textBefore.trim().length < 3) return resolve(null);
+                    // Prepend the file's import/use header when the cursor is deep in the
+                    // file — gives the model type/symbol context it can't see in a 60-line
+                    // window, at near-zero cost. Skipped when already near the top.
+                    if (position.lineNumber > 70) {
+                        const headerEnd = Math.min(30, position.lineNumber - 1);
+                        const header = model.getValueInRange({
+                            startLineNumber: 1, startColumn: 1, endLineNumber: headerEnd,
+                            endColumn: model.getLineMaxColumn(headerEnd),
+                        });
+                        const importLines = header.split('\n')
+                            .filter((l: string) => /^\s*(import|from|use|#include|require|using)\b/.test(l))
+                            .slice(0, 40).join('\n');
+                        if (importLines) textBefore = importLines + '\n\n' + textBefore;
+                    }
+                    if (textBefore.trim().length < 2) return resolve(null);
                     const acSel = st.modelSelectionOfFeature?.['Autocomplete'];
                     try {
                         const res = await invoke<string>('ai_inline_complete', {
@@ -179,7 +193,7 @@ export function registerMonacoProviders(
                         });
                         resolve(res ?? null);
                     } catch { resolve(null); }
-                }, 600);
+                }, 220);
             });
             if (!suggestion?.trim() || token.isCancellationRequested) return { items: [] };
             return {

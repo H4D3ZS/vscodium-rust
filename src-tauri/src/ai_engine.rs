@@ -309,6 +309,21 @@ pub struct Sentient {
     /// `task-phase-update`, `ai-content-delta`, etc. The counter form lets
     /// nested oneshot calls (and the inner phase wrappers) compose safely.
     silent_emits: Arc<AtomicUsize>,
+    /// Mirror of UI activity events (tool calls/results/actions) as JSON lines,
+    /// drained by the frontend via `agent_activity_drain`. The global event
+    /// stream does not reach the webview here, so the live activity terminal
+    /// polls this instead.
+    pub activity_log: Arc<std::sync::Mutex<Vec<String>>>,
+    /// Reviewable edit proposals from the autonomous loop. Each is a JSON
+    /// `{path, oldContent, newContent, description, additions, deletions}`.
+    /// Drained by the frontend via `agent_proposals_drain` → the diff-review
+    /// panel. Same dead-event workaround as `activity_log`: edits are applied to
+    /// disk, surfaced here for accept (keep) / reject (revert to oldContent).
+    pub pending_proposals: Arc<std::sync::Mutex<Vec<Value>>>,
+    /// Live chat token stream buffer. The `ai-content-delta` event is dead in the
+    /// webview, so the frontend polls `chat_stream_drain` to render streamed
+    /// tokens in real time. Appended in the streaming parser, drained per poll.
+    pub chat_stream_buf: Arc<std::sync::Mutex<String>>,
     session_id: String,
     pub ane_engine: Arc<tokio::sync::Mutex<Option<crate::ane::AneEngine>>>,
     pub attachment_manager: Arc<crate::attachment_manager::AttachmentManager>,
@@ -359,6 +374,11 @@ impl Sentient {
         }
 
         let mcp_registry = Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json")));
+        // Shared activity buffer: the live agent feed the webview polls. AiTools
+        // gets the SAME Arc so streamed command stdout/stderr lands in it too
+        // (those emits bypass `emit_event`, and the event stream is dead anyway).
+        let activity_log: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
         let ai_tools = Arc::new(AiTools::new(
             root_path.clone(),
             browser_state.clone(),
@@ -370,6 +390,7 @@ impl Sentient {
             ghost_runtime.clone(),
             shadow_workspace.clone(),
             None,
+            activity_log.clone(),
         ));
         
         let task_planner = Arc::new(TaskPlanner::new());
@@ -415,6 +436,9 @@ impl Sentient {
             shadow_workspace,
             yolo_mode: Arc::new(AtomicBool::new(false)),
             silent_emits: Arc::new(AtomicUsize::new(0)),
+            activity_log,
+            pending_proposals: Arc::new(std::sync::Mutex::new(Vec::new())),
+            chat_stream_buf: Arc::new(std::sync::Mutex::new(String::new())),
             project_files_cache: tokio::sync::Mutex::new(None),
             workspace_memory_cache: tokio::sync::Mutex::new(None),
             global_brain_cache: tokio::sync::Mutex::new(None),
@@ -3102,7 +3126,9 @@ impl Sentient {
                             full_content.push_str(content);
                             delta_to_emit = Some(content.to_string());
                             tokens_count += content.chars().count() / 4; // Approximate token count
-                            
+
+                            // Mirror into the pollable buffer (event stream is dead).
+                            if let Ok(mut b) = self.chat_stream_buf.lock() { b.push_str(content); }
                             if let Some(ref cb) = on_chunk {
                                 cb(content);
                             }
@@ -3134,7 +3160,8 @@ impl Sentient {
                             full_content.push_str(content);
                             delta_to_emit = Some(content.to_string());
                             tokens_count += content.chars().count() / 4;
-                            
+
+                            if let Ok(mut b) = self.chat_stream_buf.lock() { b.push_str(content); }
                             if let Some(ref cb) = on_chunk {
                                 cb(content);
                             }
@@ -3793,9 +3820,29 @@ impl Sentient {
                             // Produces a real report artifact on disk — counts as action so
                             // "audit my codebase" is satisfied by running it (not stuck nudging).
                             | "deep_security_audit"
+                            | "web_security_audit"
                     ) {
                         action_tools_run_this_turn += 1;
                     }
+
+                    // Edit-review: snapshot the file BEFORE an edit tool runs so we
+                    // can surface a reviewable before/after diff afterwards. Edits
+                    // hit disk immediately (the tools write directly); the proposal
+                    // lets the user accept (keep) or reject (revert to this snapshot).
+                    const PROPOSAL_EDIT_TOOLS: &[&str] = &[
+                        "write_to_file", "search_replace_edit", "apply_shadow_patch",
+                        "patch_file_content", "fast_apply", "apply_patch", "str_replace",
+                    ];
+                    let proposal_path: Option<String> = if PROPOSAL_EDIT_TOOLS.contains(&tool_name.as_str()) {
+                        tool_args_json.get("path").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    } else {
+                        None
+                    };
+                    let proposal_old: Option<String> = proposal_path.as_ref().map(|p| {
+                        let root = self.ai_tools.get_root_path();
+                        let full = if std::path::Path::new(p).is_absolute() { std::path::PathBuf::from(p) } else { root.join(p) };
+                        std::fs::read_to_string(&full).unwrap_or_default()
+                    });
 
                     // Execute the tool — with optional permission gate for dangerous ops.
                     // The app_handle and permission_senders let the frontend dialog
@@ -3847,6 +3894,51 @@ impl Sentient {
                                             "staged_diff": staged.get("diff")
                                         }));
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    // Edit-review: now that the edit landed, capture the after-state
+                    // and queue a reviewable proposal (drained by `agent_proposals_drain`).
+                    if let (Some(path), Some(old)) = (proposal_path.as_ref(), proposal_old.as_ref()) {
+                        let succeeded = tool_result.as_ref()
+                            .map(|v| v.get("status").and_then(|s| s.as_str()) != Some("error"))
+                            .unwrap_or(false);
+                        if succeeded {
+                            let root = self.ai_tools.get_root_path();
+                            let full = if std::path::Path::new(path).is_absolute() {
+                                std::path::PathBuf::from(path)
+                            } else { root.join(path) };
+                            let new_content = std::fs::read_to_string(&full).unwrap_or_default();
+                            if new_content != *old {
+                                if let Ok(mut q) = self.pending_proposals.lock() {
+                                    // Collapse repeated edits to the same file into one entry. Keep
+                                    // the EARLIEST snapshot as `oldContent` so the diff spans the
+                                    // whole agent run (first → latest) and reject fully reverts.
+                                    let base_old = q.iter()
+                                        .find(|p| p.get("path").and_then(|v| v.as_str()) == Some(path.as_str()))
+                                        .and_then(|p| p.get("oldContent").and_then(|v| v.as_str()))
+                                        .map(|s| s.to_string())
+                                        .unwrap_or_else(|| old.clone());
+                                    let patch = diffy::create_patch(&base_old, &new_content);
+                                    let mut additions = 0u32;
+                                    let mut deletions = 0u32;
+                                    for l in patch.to_string().lines() {
+                                        if l.starts_with('+') && !l.starts_with("+++") { additions += 1; }
+                                        else if l.starts_with('-') && !l.starts_with("---") { deletions += 1; }
+                                    }
+                                    let proposal = json!({
+                                        "path": path,
+                                        "oldContent": base_old,
+                                        "newContent": new_content,
+                                        "description": format!("Agent edit via {}", tool_name),
+                                        "additions": additions,
+                                        "deletions": deletions,
+                                    });
+                                    q.retain(|p| p.get("path").and_then(|v| v.as_str()) != Some(path.as_str()));
+                                    q.push(proposal);
+                                    if q.len() > 200 { let drop = q.len() - 200; q.drain(0..drop); }
                                 }
                             }
                         }
@@ -4563,10 +4655,17 @@ impl Sentient {
             return Ok(models);
         }
 
-        if provider_key.is_empty() 
-            && provider.to_lowercase() != "ollama" 
-            && provider.to_lowercase() != "antigravity" {
-            return Err(anyhow!("API key not found for provider: {}", provider));
+        {
+            let plc = provider.to_lowercase();
+            // Keyless-friendly providers: local servers + our own OpenAI-compatible
+            // endpoints (MiMo/Cyber-Ifrit may front a keyless local AMD box; the
+            // listing has graceful fallbacks below if the fetch fails).
+            let keyless_ok = matches!(plc.as_str(),
+                "ollama" | "antigravity" | "mimo" | "xiaomi"
+                | "cyberifrit" | "cyber-ifrit" | "cyberifrit-cloud");
+            if provider_key.is_empty() && !keyless_ok {
+                return Err(anyhow!("API key not found for provider: {}", provider));
+            }
         }
 
         if provider.to_lowercase() == "deepseek" {
@@ -4592,6 +4691,64 @@ impl Sentient {
                 }
             }
             return Ok(model_ids);
+        }
+
+        // Xiaomi MiMo + Cyber-Ifrit — OpenAI-compatible. Derive `/v1/models` from
+        // the same configured chat endpoint (env/keys override aware) and parse
+        // `data[].id`. MiMo falls back to a curated list; Cyber-Ifrit hosts custom
+        // named models so it degrades to an empty list (the user types the name).
+        {
+            let plc = provider.to_lowercase();
+            let is_mimo = plc == "mimo" || plc == "xiaomi";
+            let is_cyberifrit = plc == "cyberifrit" || plc == "cyber-ifrit" || plc == "cyberifrit-cloud";
+            if is_mimo || is_cyberifrit {
+                // Resolve base: env override → api_keys.json override → default.
+                let (env_var, keys_field, default_base) = if is_mimo {
+                    ("MIMO_BASE_URL", "mimo_base_url", "https://api.xiaomimimo.com/v1")
+                } else {
+                    ("CYBERIFRIT_BASE_URL", "cyberifrit_base_url", "https://api.cyberifrit.xyz")
+                };
+                let configured = std::env::var(env_var).ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .or_else(|| {
+                        self.brain_dir.parent()
+                            .map(|p| p.join("api_keys.json"))
+                            .and_then(|p| std::fs::read_to_string(p).ok())
+                            .and_then(|c| serde_json::from_str::<Value>(&c).ok())
+                            .and_then(|k| k[keys_field].as_str().map(|s| s.to_string()))
+                            .filter(|s| !s.trim().is_empty())
+                    })
+                    .unwrap_or_else(|| default_base.to_string());
+                let base = configured.trim().trim_end_matches('/').to_string();
+                let models_url = if base.ends_with("/v1") {
+                    format!("{}/models", base)
+                } else if base.ends_with("/models") {
+                    base.clone()
+                } else {
+                    format!("{}/v1/models", base)
+                };
+                let mut req = self.client.get(&models_url);
+                if !provider_key.trim().is_empty() {
+                    req = req.bearer_auth(provider_key.trim());
+                }
+                let fetched: Vec<String> = match req.send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        let result: Value = resp.json().await.unwrap_or(json!({}));
+                        result.get("data").and_then(|d| d.as_array()).map(|arr| {
+                            arr.iter().filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(|s| s.to_string())).collect()
+                        }).unwrap_or_default()
+                    }
+                    _ => Vec::new(),
+                };
+                if !fetched.is_empty() {
+                    return Ok(fetched);
+                }
+                // Graceful fallbacks so the picker is never broken.
+                if is_mimo {
+                    return Ok(vec!["mimo-v2.5-pro".to_string(), "mimo-v2.5".to_string()]);
+                }
+                return Ok(Vec::new());
+            }
         }
 
         // Local DeepSeek-V2 over MLX or llama.cpp on Apple Silicon. Calls
@@ -5036,6 +5193,8 @@ impl Sentient {
             "groq" => "GROQ_API_KEY",
             "openrouter" => "OPENROUTER_API_KEY",
             "deepseek" => "DEEPSEEK_API_KEY",
+            // Xiaomi MiMo Token Plan key (Bearer, OpenAI-compatible).
+            "mimo" | "xiaomi" => "MIMO_API_KEY",
             // Cyber-Ifrit Cloud subscription token (a JWT, stored like an API key).
             "cyberifrit" | "cyber-ifrit" | "cyberifrit-cloud" => "CYBERIFRIT_API_KEY",
             // Local DeepSeek-V2 server is keyless by default. If the user
@@ -5128,6 +5287,26 @@ impl Sentient {
             "groq" => "https://api.groq.com/openai/v1/chat/completions".to_string(),
             "openrouter" => "https://openrouter.ai/api/v1/chat/completions".to_string(),
             "deepseek" => "https://api.deepseek.com/v1/chat/completions".to_string(),
+            // Xiaomi MiMo — OpenAI-compatible (Token Plan / coding subscription).
+            // env MIMO_BASE_URL → keys.mimo_base_url → default. Third-party use is
+            // explicitly permitted (unlike Anthropic's subscription).
+            "mimo" | "xiaomi" => {
+                let configured = std::env::var("MIMO_BASE_URL").ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .or_else(|| {
+                        self.brain_dir.parent()
+                            .map(|p| p.join("api_keys.json"))
+                            .and_then(|p| std::fs::read_to_string(p).ok())
+                            .and_then(|c| serde_json::from_str::<Value>(&c).ok())
+                            .and_then(|k| k["mimo_base_url"].as_str().map(|s| s.to_string()))
+                            .filter(|s| !s.trim().is_empty())
+                    })
+                    .unwrap_or_else(|| "https://api.xiaomimimo.com/v1".to_string());
+                let base = configured.trim().trim_end_matches('/').to_string();
+                if base.ends_with("/chat/completions") { base }
+                else if base.ends_with("/v1") { format!("{}/chat/completions", base) }
+                else { format!("{}/v1/chat/completions", base) }
+            }
             // Cyber-Ifrit Cloud — our hosted brain (Neural VFS + routing) on the AMD MI300X
             // backend. DYNAMIC config so the production endpoint is never the only hardcoded
             // option (anti-bypass per the open-core strategy): env CYBERIFRIT_BASE_URL →
@@ -5635,6 +5814,27 @@ impl Sentient {
         // background calls remain silent until the outermost finishes.
         if self.silent_emits.load(Ordering::SeqCst) > 0 {
             return;
+        }
+        // Mirror activity events into the pollable log (the webview can't receive
+        // the live event stream, so the activity terminal drains this instead).
+        if matches!(
+            event,
+            "ai-action"
+                | "ai-tool-call"
+                | "ai-tool-result"
+                | "ai-tool-stdout-start"
+                | "ai-tool-stdout"
+                | "ai-tool-stdout-end"
+        ) {
+            if let Ok(mut log) = self.activity_log.lock() {
+                if let Ok(line) = serde_json::to_string(&json!({ "kind": event, "payload": payload })) {
+                    log.push(line);
+                    if log.len() > 1000 {
+                        let drop = log.len() - 1000;
+                        log.drain(0..drop);
+                    }
+                }
+            }
         }
         use tauri::Emitter;
         if let Ok(guard) = self.app_handle.read() {

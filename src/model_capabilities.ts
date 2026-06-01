@@ -6,7 +6,7 @@ export type ProviderName =
     | 'anthropic' | 'openAI' | 'deepseek' | 'ollama' | 'vLLM' | 'openRouter'
     | 'gemini' | 'groq' | 'xAI' | 'mistral' | 'lmStudio' | 'liteLLM'
     | 'openAICompatible' | 'googleVertex' | 'microsoftAzure' | 'awsBedrock'
-    | 'antigravity';
+    | 'antigravity' | 'mimo' | 'cyberifrit';
 
 export type FeatureName = 'Chat' | 'Apply' | 'Autocomplete' | 'QuickEdit' | 'SCM';
 
@@ -82,6 +82,8 @@ export const defaultProviderEndpoints: Partial<Record<ProviderName, string>> = {
     vLLM: 'http://localhost:8000',
     lmStudio: 'http://localhost:1234',
     antigravity: 'http://127.0.0.1:1536',
+    mimo: 'https://api.xiaomimimo.com/v1',
+    cyberifrit: 'https://api.cyberifrit.xyz',
 };
 
 export const localProviders: ProviderName[] = ['ollama', 'vLLM', 'lmStudio', 'antigravity'];
@@ -279,6 +281,13 @@ const deepseekModels: Record<string, ModelCapabilities> = {
     'deepseek-v4-pro': { contextWindow: 128_000, reservedOutputTokenSpace: 8_192, cost: { cache_read: 0.003625, input: 0.435, output: 0.87 }, downloadable: false, supportsFIM: false, supportsSystemMessage: 'system-role', specialToolFormat: 'openai-style', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] } },
 };
 
+// Xiaomi MiMo — OpenAI/Anthropic-compatible coding models (Token Plan subscription
+// or metered). v2.5-pro is the current flagship; v2/Omni auto-route to v2.5.
+const mimoModels: Record<string, ModelCapabilities> = {
+    'mimo-v2.5-pro': { contextWindow: 256_000, reservedOutputTokenSpace: 16_384, cost: { input: 0.3, output: 1.2 }, downloadable: false, supportsFIM: false, supportsSystemMessage: 'system-role', specialToolFormat: 'openai-style', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] } },
+    'mimo-v2.5': { contextWindow: 256_000, reservedOutputTokenSpace: 16_384, cost: { input: 0.15, output: 0.6 }, downloadable: false, supportsFIM: false, supportsSystemMessage: 'system-role', specialToolFormat: 'openai-style', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] } },
+};
+
 const mistralModels: Record<string, ModelCapabilities> = {
     'codestral-latest': { contextWindow: 256_000, reservedOutputTokenSpace: 8_192, cost: { input: 0.30, output: 0.90 }, supportsFIM: true, downloadable: { sizeGb: 13 }, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
     'devstral-small-latest': { contextWindow: 131_000, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, supportsFIM: false, downloadable: { sizeGb: 14 }, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
@@ -311,9 +320,13 @@ const providerModelDbs: Partial<Record<ProviderName, Record<string, ModelCapabil
     gemini: geminiModels,
     xAI: xAIModels,
     deepseek: deepseekModels,
+    mimo: mimoModels,
     mistral: mistralModels,
     groq: groqModels,
     ollama: ollamaModels,
+    // Cyber-Ifrit hosts arbitrary named models (your AMD backend), so there's no
+    // fixed catalog — names resolve via fuzzyLookup / defaultCaps at runtime.
+    cyberifrit: {},
 };
 
 // ── Fuzzy fallback lookup ─────────────────────────────────────────────────────
@@ -422,10 +435,10 @@ export function getContextWindow(providerName: ProviderName, modelName: string):
 // ── Default model selections per feature ─────────────────────────────────────
 
 export const defaultModelSelectionOfFeature: ModelSelectionOfFeature = {
-    Chat: { providerName: 'gemini', modelName: 'gemini-2.5-pro-preview-05-06' },
+    Chat: { providerName: 'gemini', modelName: 'gemini-2.5-pro' },
     Apply: { providerName: 'anthropic', modelName: 'claude-3-5-sonnet-latest' },
     Autocomplete: { providerName: 'ollama', modelName: 'qwen2.5-coder:7b' },
-    QuickEdit: { providerName: 'gemini', modelName: 'gemini-2.5-flash-preview-04-17' },
+    QuickEdit: { providerName: 'gemini', modelName: 'gemini-2.5-flash' },
     SCM: { providerName: 'openAI', modelName: 'gpt-4.1-mini' },
 };
 
@@ -457,6 +470,8 @@ export const providerDisplayInfo: Record<ProviderName, { title: string; icon?: s
     microsoftAzure: { title: 'Microsoft Azure OpenAI' },
     awsBedrock: { title: 'AWS Bedrock' },
     antigravity: { title: 'Antigravity / AIM Proxy' },
+    mimo: { title: 'Xiaomi MiMo' },
+    cyberifrit: { title: 'Cyber-Ifrit Cloud' },
 };
 
 // ── Fast Apply search/replace block parser (from Void) ────────────────────────

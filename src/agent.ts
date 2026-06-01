@@ -366,7 +366,7 @@ export async function initAgent() {
             : '';
         const CLOUD_PROVIDERS = new Set([
             'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-            'cyberifrit', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
+            'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
             'openrouter', 'cerebras',
         ]);
         const modelTag = currentModel.includes('|')
@@ -1508,7 +1508,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const selectedProviderPrefix = agentModel?.includes('|') ? agentModel.split('|')[0].toLowerCase() : '';
     const CLOUD_PROVIDER_PREFIXES = new Set([
         'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-        'cyberifrit', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
+        'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
         'cohere', 'xai',
     ]);
     const selectedIsCloudModel = CLOUD_PROVIDER_PREFIXES.has(selectedProviderPrefix)
@@ -1712,7 +1712,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         const am = agentModel || '';
         const prefix = am.includes('|') ? am.split('|')[0].toLowerCase() : '';
         const CLOUD = new Set(['google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-            'cyberifrit', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm']);
+            'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm']);
         return CLOUD.has(prefix)
             || am.toLowerCase().includes('gemini') || am.toLowerCase().includes('claude')
             || am.toLowerCase().includes('gpt-') || am.toLowerCase().includes('o1-')
@@ -1856,7 +1856,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         // pass through their own provider even if the local backend is Ollama.
         const CLOUD_PROVIDERS = new Set([
             'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-            'cyberifrit', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
+            'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
             'cohere', 'xai',
         ]);
         if (!CLOUD_PROVIDERS.has(normalizedProvider)) {
@@ -2363,7 +2363,39 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 `The model may still be generating output or executing a long chain of tool operations.`
             )), 600_000)
         );
-        await Promise.race([fullCall, fullTimeout]);
+
+        // ── Live token streaming via poll ───────────────────────────────────
+        // The `ai-content-delta` event is dead in this webview, so the streamed
+        // model output never arrived — every reply rendered EMPTY. Poll the
+        // backend buffer instead and append tokens as they land. Track whether
+        // anything streamed so we can fall back to the call's return value for
+        // non-streaming providers.
+        let streamedAny = false;
+        let pollBusy = false;
+        const drainOnce = async () => {
+            if (pollBusy) return;
+            pollBusy = true;
+            try {
+                const chunk = await invoke<string>('chat_stream_drain');
+                if (chunk) { streamedAny = true; store.getState().appendLastAgentMessage?.(chunk); }
+            } catch { /* backend busy */ }
+            finally { pollBusy = false; }
+        };
+        const streamTimer = setInterval(drainOnce, 90);
+
+        let finalText = '';
+        try {
+            finalText = (await Promise.race([fullCall, fullTimeout])) as string;
+        } finally {
+            clearInterval(streamTimer);
+            await drainOnce(); // flush any tail tokens
+        }
+        // Fallback / reconcile: if nothing streamed (non-streaming provider or a
+        // dropped buffer), write the authoritative final text from the call.
+        const ft = typeof finalText === 'string' ? finalText.trim() : '';
+        if (!streamedAny && ft) {
+            store.getState().updateLastAgentMessage?.(ft);
+        }
 
         console.log('[Agent] Full ai_chat loop completed successfully.');
         logTaskToMemory(userPrompt).catch(() => { });
@@ -3763,6 +3795,37 @@ listen('ai-file-proposal', async (event: { payload: { path: string, content: str
         console.error('Failed to handle file proposal:', error);
     }
 });
+
+// ── Edit-review proposal poller ─────────────────────────────────────────────
+// The `ai-file-proposal` event above never fires (the Tauri event stream is dead
+// in this webview), so agent edits would land silently. Instead the autonomous
+// loop queues each edit as a reviewable {path, oldContent, newContent, ...}
+// proposal; we poll-drain that buffer and feed the diff-review panel. Edits are
+// already on disk, so each carries `applied: true` (accept = keep, reject =
+// revert). Auto-accept / YOLO short-circuits to keep, matching prior behavior.
+let __vscrProposalBusy = false;
+setInterval(async () => {
+    if (__vscrProposalBusy) return;
+    __vscrProposalBusy = true;
+    try {
+        const items = await invoke<any[]>('agent_proposals_drain');
+        if (items && items.length) {
+            const { proposePendingChange } = useStore.getState();
+            for (const it of items) {
+                proposePendingChange({
+                    path: it.path,
+                    oldContent: it.oldContent,
+                    newContent: it.newContent,
+                    description: it.description,
+                    additions: it.additions,
+                    deletions: it.deletions,
+                    applied: true,
+                } as any);
+            }
+        }
+    } catch { /* backend not ready yet */ }
+    finally { __vscrProposalBusy = false; }
+}, 700);
 
 // Open a file in a tab when the AI requests it
 listen('editor_open_file', async (event: { payload: { path: string } }) => {

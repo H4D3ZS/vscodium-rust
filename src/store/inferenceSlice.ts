@@ -234,6 +234,10 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             if (keys.openrouter) providers.push('Openrouter');
             if (keys.mistral) providers.push('Mistral');
             if ((keys as any).deepseek) providers.push('Deepseek');
+            if ((keys as any).mimo) providers.push('Mimo');
+            // Cyber-Ifrit may front a keyless local AMD box — list it if a key OR a
+            // custom base URL is configured.
+            if ((keys as any).cyberifrit || (keys as any).cyberifrit_base_url) providers.push('Cyberifrit');
             if (typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')) providers.push('Deepseek-ANE');
             if (keys.groq) providers.push('Groq');
             if (keys.xai) providers.push('xAI');

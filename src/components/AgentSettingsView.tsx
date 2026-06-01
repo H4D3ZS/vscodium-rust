@@ -155,6 +155,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         groq: '',
         openrouter: '',
         deepseek: '',
+        mimo: '',
+        cyberifrit: '',
         mistral: '',
         xai: '',
         cerebras: '',
@@ -165,6 +167,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         openai_base_url: '',
         anthropic_base_url: '',
         google_base_url: '',
+        mimo_base_url: '',
+        cyberifrit_base_url: '',
     });
     const [realApiKey, setRealApiKey] = useState(''); // Store real ElevenLabs key separately
     const [savingKeys, setSavingKeys] = useState(false);
@@ -217,6 +221,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         groq: (keys as any).groq ? '••••••••' + ((keys as any).groq.slice(-4)) : '',
                         openrouter: (keys as any).openrouter ? '••••••••' + ((keys as any).openrouter.slice(-4)) : '',
                         deepseek: (keys as any).deepseek ? '••••••••' + String((keys as any).deepseek).slice(-4) : '',
+                        mimo: (keys as any).mimo ? '••••••••' + String((keys as any).mimo).slice(-4) : '',
+                        cyberifrit: (keys as any).cyberifrit ? '••••••••' + String((keys as any).cyberifrit).slice(-4) : '',
                         mistral: (keys as any).mistral ? '********' + String((keys as any).mistral).slice(-4) : '',
                         xai: (keys as any).xai ? '********' + String((keys as any).xai).slice(-4) : '',
                         cerebras: (keys as any).cerebras ? '********' + String((keys as any).cerebras).slice(-4) : '',
@@ -227,6 +233,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         openai_base_url: (keys as any).openai_base_url || '',
                         anthropic_base_url: (keys as any).anthropic_base_url || '',
                         google_base_url: (keys as any).google_base_url || '',
+                        mimo_base_url: (keys as any).mimo_base_url || '',
+                        cyberifrit_base_url: (keys as any).cyberifrit_base_url || '',
                     };
                     console.log('[Settings] Setting apiKeys state:', {
                         elevenlabs: newKeys.elevenlabs ? `${newKeys.elevenlabs.substring(0, 8)}...` : 'EMPTY',
@@ -335,6 +343,14 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                 keysToSave.deepseek = (apiKeys as any).deepseek;
                 console.log('[Settings] Adding deepseek key to save');
             }
+            if ((apiKeys as any).mimo && !isMaskedApiKey((apiKeys as any).mimo)) {
+                keysToSave.mimo = (apiKeys as any).mimo;
+            }
+            if ((apiKeys as any).cyberifrit && !isMaskedApiKey((apiKeys as any).cyberifrit)) {
+                keysToSave.cyberifrit = (apiKeys as any).cyberifrit;
+            }
+            if ((apiKeys as any).mimo_base_url) { keysToSave.mimo_base_url = (apiKeys as any).mimo_base_url; }
+            if ((apiKeys as any).cyberifrit_base_url) { keysToSave.cyberifrit_base_url = (apiKeys as any).cyberifrit_base_url; }
             if ((apiKeys as any).mistral && !isMaskedApiKey((apiKeys as any).mistral)) {
                 keysToSave.mistral = (apiKeys as any).mistral;
                 console.log('[Settings] Adding mistral key to save');
@@ -1043,6 +1059,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             { key: 'groq', label: 'Groq', placeholder: 'gsk_...' },
                             { key: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
                             { key: 'deepseek', label: 'DeepSeek (API)', placeholder: 'sk-… (platform.deepseek.com)' },
+                            { key: 'mimo', label: 'Xiaomi MiMo (Token Plan)', placeholder: 'MiMo API key (platform.xiaomimimo.com)', baseUrlKey: 'mimo_base_url', baseUrlLabel: 'MiMo Base URL (Optional)', baseUrlPlaceholder: 'https://api.xiaomimimo.com/v1' },
+                            { key: 'cyberifrit', label: 'Cyber-Ifrit Cloud', placeholder: 'Cyber-Ifrit key / JWT', baseUrlKey: 'cyberifrit_base_url', baseUrlLabel: 'Cyber-Ifrit Base URL (your AMD backend)', baseUrlPlaceholder: 'https://api.cyberifrit.xyz' },
                             { key: 'mistral', label: 'Mistral', placeholder: 'Mistral API key' },
                             { key: 'xai', label: 'xAI', placeholder: 'xai-...' },
                             { key: 'cerebras', label: 'Cerebras', placeholder: 'csk-...' },
