@@ -12,6 +12,23 @@ import PredictiveEditOverlay from './PredictiveEditOverlay';
 import { invoke, listen } from '../tauri_bridge';
 import { sendAgentMessage } from '../agent';
 
+// Small keyboard-key chip for the empty-editor "Code with Agent" hint.
+const kbdChip: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '20px',
+    height: '20px',
+    padding: '0 6px',
+    fontSize: '11px',
+    fontWeight: 600,
+    lineHeight: 1,
+    color: 'var(--vscode-keybindingLabel-foreground, var(--vscode-descriptionForeground))',
+    background: 'var(--vscode-keybindingLabel-background, rgba(255,255,255,0.06))',
+    border: '1px solid var(--vscode-keybindingLabel-border, rgba(255,255,255,0.12))',
+    borderRadius: '4px',
+};
+
 // Map file extension → LSP language id
 function getLspLanguageId(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase() ?? '';
@@ -1033,6 +1050,9 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                 overflow: 'hidden',
             }}>
                 <WelcomePage />
+                {/* Native-IDE empty state: clean centered logo + product name + a
+                    "Code with Agent" shortcut hint (VSCode/Antigravity-style). No
+                    glow/animation — reads as a real IDE, themed via --vscode vars. */}
                 <div style={{
                     height: '100%',
                     width: '100%',
@@ -1040,44 +1060,36 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexDirection: 'column',
-                    gap: '20px',
+                    gap: '18px',
                     pointerEvents: 'none',
+                    userSelect: 'none',
                 }}>
-                <div style={{ 
-                    width: '200px', 
-                    height: '200px', 
-                    borderRadius: '50%', 
-                    background: 'radial-gradient(circle, rgba(124, 58, 237, 0.3) 0%, rgba(0, 0, 0, 0) 70%)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    animation: 'pulse 2s ease-in-out infinite'
-                }}>
-                    <div style={{ 
-                        width: '120px', 
-                        height: '120px', 
-                        borderRadius: '50%', 
-                        background: 'linear-gradient(135deg, #7c3aed 0%, #4c1d95 100%)',
-                        boxShadow: '0 0 60px rgba(124, 58, 237, 0.5)',
-                        animation: 'float 3s ease-in-out infinite'
-                    }} />
-                </div>
-                <div style={{ color: 'var(--vscode-editor-foreground)', fontSize: '14px', opacity: 0.7 }}>
-                    AIRI is ready for your mission
-                </div>
-                <div style={{ color: 'var(--vscode-descriptionForeground)', fontSize: '12px' }}>
-                    Speak to AIRI or start a new project
-                </div>
-                <style>{`
-                    @keyframes pulse {
-                        0%, 100% { transform: scale(1); opacity: 0.5; }
-                        50% { transform: scale(1.1); opacity: 0.8; }
-                    }
-                    @keyframes float {
-                        0%, 100% { transform: translateY(0); }
-                        50% { transform: translateY(-20px); }
-                    }
-                `}</style>
+                    {/* Original logo mark — an "agent orbit": a core with an
+                        orbiting node. Distinct identity, not a cloned logo. */}
+                    <svg width="58" height="58" viewBox="0 0 48 48" fill="none" style={{ opacity: 0.9 }}>
+                        <circle cx="24" cy="24" r="17" stroke="var(--vscode-foreground)" strokeOpacity="0.35" strokeWidth="2" />
+                        <circle cx="24" cy="24" r="6" fill="var(--vscode-foreground)" fillOpacity="0.85" />
+                        <circle cx="24" cy="7" r="3.2" fill="var(--vscode-foreground)" fillOpacity="0.85" />
+                    </svg>
+                    <div style={{
+                        fontSize: '22px', fontWeight: 600, letterSpacing: '0.4px',
+                        color: 'var(--vscode-foreground)', opacity: 0.92,
+                    }}>
+                        VSCodium-Rust
+                    </div>
+                    <div
+                        onClick={() => { try { (useStore.getState() as any).setIsRightSidebarOpen?.(true); } catch { /* */ } }}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '10px',
+                            fontSize: '13px', color: 'var(--vscode-descriptionForeground)',
+                            pointerEvents: 'auto', cursor: 'pointer',
+                        }}
+                    >
+                        <span>Code with Agent</span>
+                        <span style={kbdChip}>Ctrl</span>
+                        <span style={{ opacity: 0.5 }}>+</span>
+                        <span style={kbdChip}>L</span>
+                    </div>
                 </div>
             </div>
         );

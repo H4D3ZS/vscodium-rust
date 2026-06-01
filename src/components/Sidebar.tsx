@@ -33,7 +33,9 @@ const flattenTree = (entries: FileEntry[], depth = 0, visited = new Set<string>(
     return result;
 };
 
-const TreeItemIcon: React.FC<{ icon: { type: 'img' | 'icon'; value: string } }> = ({ icon }) => {
+type TreeIcon = { type: 'img' | 'icon'; value: string; color?: string };
+
+const TreeItemIcon: React.FC<{ icon: TreeIcon }> = ({ icon }) => {
     if (icon.type === 'img') {
         return <img src={icon.value} style={{ marginRight: '6px', width: '16px', height: '16px', opacity: 0.9, objectFit: 'contain' }} />;
     }
@@ -48,13 +50,55 @@ const TreeItemIcon: React.FC<{ icon: { type: 'img' | 'icon'; value: string } }> 
         alignItems: 'center',
         justifyContent: 'center',
         textAlign: 'center',
-        opacity: 0.85,
+        opacity: 0.95,
+        color: icon.color || 'inherit',
         fontStyle: 'normal',
         fontWeight: 'normal',
         lineHeight: 1,
         WebkitFontSmoothing: 'antialiased'
     }}></i>;
 };
+
+// Lightweight native-style file-type icons: a colored codicon per extension /
+// special filename. Avoids shipping a full icon-theme asset pack while giving
+// the explorer the typed, colored look of real VSCode.
+function fileCodicon(name: string): { cls: string; color: string } {
+    const lc = name.toLowerCase();
+    const ext = lc.includes('.') ? lc.split('.').pop() || '' : '';
+    if (lc === 'package.json') return { cls: 'codicon-json', color: '#cb3837' };
+    if (lc.endsWith('.lock') || lc === 'package-lock.json' || lc === 'pnpm-lock.yaml') return { cls: 'codicon-lock', color: '#8a8a8a' };
+    if (lc === '.gitignore' || lc === '.gitattributes') return { cls: 'codicon-source-control', color: '#e8633a' };
+    if (lc === 'dockerfile') return { cls: 'codicon-file-code', color: '#0db7ed' };
+    if (lc === 'readme.md') return { cls: 'codicon-book', color: '#519aba' };
+    if (lc === 'license' || lc === 'licence' || lc.startsWith('license')) return { cls: 'codicon-law', color: '#cdba6f' };
+    const map: Record<string, { cls: string; color: string }> = {
+        ts: { cls: 'codicon-file-code', color: '#3178c6' }, tsx: { cls: 'codicon-file-code', color: '#3178c6' },
+        js: { cls: 'codicon-file-code', color: '#e8d44d' }, jsx: { cls: 'codicon-file-code', color: '#e8d44d' },
+        mjs: { cls: 'codicon-file-code', color: '#e8d44d' },
+        rs: { cls: 'codicon-file-code', color: '#dea584' }, py: { cls: 'codicon-file-code', color: '#4b8bbe' },
+        go: { cls: 'codicon-file-code', color: '#00add8' }, java: { cls: 'codicon-file-code', color: '#e76f00' },
+        c: { cls: 'codicon-file-code', color: '#5c6bc0' }, cpp: { cls: 'codicon-file-code', color: '#5c6bc0' },
+        cs: { cls: 'codicon-file-code', color: '#9b59b6' }, rb: { cls: 'codicon-file-code', color: '#cc342d' },
+        php: { cls: 'codicon-file-code', color: '#777bb3' }, swift: { cls: 'codicon-file-code', color: '#f05138' },
+        kt: { cls: 'codicon-file-code', color: '#a97bff' }, astro: { cls: 'codicon-file-code', color: '#ff5d01' },
+        vue: { cls: 'codicon-file-code', color: '#41b883' }, svelte: { cls: 'codicon-file-code', color: '#ff3e00' },
+        html: { cls: 'codicon-file-code', color: '#e34c26' }, css: { cls: 'codicon-file-code', color: '#519aba' },
+        scss: { cls: 'codicon-file-code', color: '#cd6799' }, json: { cls: 'codicon-json', color: '#cbcb41' },
+        md: { cls: 'codicon-markdown', color: '#519aba' }, toml: { cls: 'codicon-settings-gear', color: '#9c9c9c' },
+        yaml: { cls: 'codicon-settings-gear', color: '#cb171e' }, yml: { cls: 'codicon-settings-gear', color: '#cb171e' },
+        xml: { cls: 'codicon-file-code', color: '#e37933' }, sql: { cls: 'codicon-database', color: '#dad8d8' },
+        sh: { cls: 'codicon-terminal', color: '#89e051' }, ps1: { cls: 'codicon-terminal', color: '#4b8bbe' },
+        bat: { cls: 'codicon-terminal', color: '#89e051' },
+        png: { cls: 'codicon-file-media', color: '#a074c4' }, jpg: { cls: 'codicon-file-media', color: '#a074c4' },
+        jpeg: { cls: 'codicon-file-media', color: '#a074c4' }, gif: { cls: 'codicon-file-media', color: '#a074c4' },
+        svg: { cls: 'codicon-file-media', color: '#ffb13b' }, ico: { cls: 'codicon-file-media', color: '#a074c4' },
+        webp: { cls: 'codicon-file-media', color: '#a074c4' },
+        pdf: { cls: 'codicon-file-pdf', color: '#e5252a' }, zip: { cls: 'codicon-file-zip', color: '#f5c518' },
+        gz: { cls: 'codicon-file-zip', color: '#f5c518' }, exe: { cls: 'codicon-file-binary', color: '#9c9c9c' },
+        dll: { cls: 'codicon-file-binary', color: '#9c9c9c' }, aim: { cls: 'codicon-chip', color: '#c084fc' },
+    };
+    return map[ext] || { cls: 'codicon-file', color: '#9aa0a6' };
+}
 
 const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping: any; style: React.CSSProperties }> = ({ entry, depth, iconThemeMapping, style }) => {
     const openFile = useStore(state => state.openFile);
@@ -66,10 +110,9 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
     const isExpanded = entry.is_expanded ?? false;
     const isActive = tabs.find(t => t.id === activeTabId)?.path === entry.path;
 
-    const getIcon = (): { type: 'img' | 'icon'; value: string } => {
-        // FORCE SVG for Folders and Files to bypass ALL font issues
+    const getIcon = (): TreeIcon => {
+        // FORCE SVG for Folders to bypass ALL font issues
         const folderSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3OWI4ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMjIgMTlhMiAyIDAgMCAxLTIgMkg0YTIgMiAwIDAgMS0yLTJWN2EyIDIgMCAwIDEgMi0yaDVsMiAyaDlhMiAyIDAgMCAxIDIgMnYxMHoiPjwvcGF0aD48L3N2Zz4=`;
-        const fileSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNhZGRmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTMgM0g2YTIgMiAwIDAgMC0yIDJ2MTRhMiAyIDAgMCAwIDIgMmgxMmEyIDIgMCAwIDAgMi0yVjlsLTYtNnoiPjwvcGF0aD48cG9seWxpbmUgcG9pbnRzPSIxMyAzIDEzIDkgMTkgOSI+PC9wb2x5bGluZT48L3N2Zz4=`;
 
         if (entry.is_dir) {
             return { type: 'img', value: folderSvg };
@@ -98,7 +141,9 @@ const FileTreeItem: React.FC<{ entry: FileEntry; depth: number; iconThemeMapping
             }
         }
 
-        return { type: 'img', value: fileSvg };
+        // Native-style fallback: a colored, typed codicon per extension.
+        const fc = fileCodicon(entry.name);
+        return { type: 'icon', value: `codicon ${fc.cls}`, color: fc.color };
     };
 
     const icon = getIcon();

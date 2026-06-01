@@ -454,34 +454,6 @@ const StatusBar: React.FC = () => {
                     </StatusItem>
                 )}
 
-                {/* Git blame toggle */}
-                {activeTab && (
-                    <StatusItem
-                        onClick={toggleGitBlame}
-                        title={isGitBlameVisible ? 'Hide Git Blame' : 'Show Git Blame (Ctrl+Alt+B)'}
-                        accent={isGitBlameVisible}
-                    >
-                        <i className="codicon codicon-git-commit" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
-                        <span>Blame</span>
-                    </StatusItem>
-                )}
-
-                {/* Outline panel toggle */}
-                <StatusItem onClick={toggleOutlinePanel} title="Toggle Outline Panel">
-                    <i className="codicon codicon-list-tree" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
-                </StatusItem>
-
-                {/* Zen mode toggle */}
-                <StatusItem onClick={toggleZenMode} title={isZenMode ? 'Exit Zen Mode (Escape)' : 'Zen Mode (Ctrl+K Z)'} accent={isZenMode}>
-                    <i className="codicon codicon-screen-full" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
-                </StatusItem>
-
-                {/* Discord RPC placeholder — hide if not connected */}
-                <StatusItem title="Discord RPC — not connected">
-                    <i className="codicon codicon-broadcast" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
-                    <span>RPC</span>
-                </StatusItem>
-
                 {/* Go to Line / Column */}
                 <div style={{ position: 'relative' }}>
                     <StatusItem onClick={openGotoLine} title="Go to Line/Column (Ctrl+G)">
@@ -612,34 +584,18 @@ const StatusBar: React.FC = () => {
                     </StatusItem>
                 )}
 
-                {/* RAM / CPU */}
+                {/* Memory — subtle RAM readout; click to optimize (folds the old
+                    RAM/CPU + KB-saved + Optimize trio into one native-looking item). */}
                 {processStats && (
                     <StatusItem
-                        title={`RAM: ${processStats.memory_mb.toFixed(0)}MB | CPU: ${processStats.cpu_usage.toFixed(1)}% | Available: ${processStats.available_ram_gb}GB`}
+                        onClick={handleOptimize}
+                        title={`RAM ${processStats.memory_mb.toFixed(0)}MB · CPU ${processStats.cpu_usage.toFixed(0)}% · ${processStats.available_ram_gb}GB free — click to optimize memory`}
                         danger={processStats.available_ram_gb > 0 && processStats.available_ram_gb < 1}
                     >
                         <i className="codicon codicon-pulse" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
-                        <span>{processStats.memory_mb.toFixed(0)}MB</span>
-                        <span style={{ opacity: 0.6 }}>({processStats.cpu_usage.toFixed(1)}%)</span>
+                        <span>{processStats.memory_mb.toFixed(0)} MB</span>
                     </StatusItem>
                 )}
-
-                {/* Memory savings */}
-                {memorySavings && memorySavings.original > 0 && (
-                    <StatusItem
-                        title={`LZ4 Compression: ${((1 - memorySavings.compressed / memorySavings.original) * 100).toFixed(1)}% savings`}
-                        accent
-                    >
-                        <i className="codicon codicon-file-zip" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
-                        <span>{((memorySavings.original - memorySavings.compressed) / 1024).toFixed(1)}KB Saved</span>
-                    </StatusItem>
-                )}
-
-                {/* Optimize */}
-                <StatusItem onClick={handleOptimize} title="Optimize Memory">
-                    <i className="codicon codicon-dashboard" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
-                    <span>Optimize</span>
-                </StatusItem>
             </div>
         </footer>
     );

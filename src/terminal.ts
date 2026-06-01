@@ -449,7 +449,8 @@ export class TerminalManager {
 
     // Create terminal with VSCode-like settings
     const term = new Terminal({
-      theme: getCmderWarpTheme(),
+      // Match the IDE's global VSCode theme (reads --vscode-terminal-* vars).
+      theme: getVSCodeTheme(),
       fontSize: 13,
       fontFamily: '"Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace',
       fontWeight: 'normal',

@@ -414,10 +414,23 @@ function executeMenuAction(item: string) {
 const TitleBar: React.FC = () => {
     const [activeMenu, setActiveMenu] = useState<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
+    const [gearOpen, setGearOpen] = useState(false);
+    const gearRef = useRef<HTMLDivElement>(null);
 
     const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
     const isAgentThinking = useStore(state => state.isAgentThinking);
     const activeRoot = useStore(state => state.activeRoot);
+    // Native VSCode layout toggles (primary sidebar / panel / secondary sidebar).
+    const isSidebarOpen = useStore(state => state.isSidebarOpen);
+    const isBottomPanelOpen = useStore(state => state.isBottomPanelOpen);
+    const isRightSidebarOpen = useStore(state => state.isRightSidebarOpen);
+    const toggleSidebar = useStore(state => state.toggleSidebar);
+    const toggleBottomPanel = useStore(state => state.toggleBottomPanel);
+    // Browser preview (web-dev surface the agent can automate).
+    const layoutMode = useStore(state => state.layoutMode);
+    const setLayoutMode = useStore(state => state.setLayoutMode);
+    const openSettings = useStore(state => state.openSettings);
+    const setActiveSidebarView = useStore(state => state.setActiveSidebarView);
 
     // Close menu on outside click
     useEffect(() => {
@@ -430,6 +443,25 @@ const TitleBar: React.FC = () => {
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, [activeMenu]);
+
+    // Close the gear (Manage) menu on outside click
+    useEffect(() => {
+        if (!gearOpen) return;
+        const handler = (e: MouseEvent) => {
+            if (gearRef.current && !gearRef.current.contains(e.target as Node)) setGearOpen(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [gearOpen]);
+
+    // Gear (Manage) menu actions — VSCode/Antigravity entry points.
+    const gearItems: { label: string; shortcut?: string; run: () => void; separatorBefore?: boolean }[] = [
+        { label: 'Editor Settings', run: () => openSettings('user') },
+        { label: 'Open IDE User Settings', shortcut: 'Ctrl+,', run: () => openSettings('user') },
+        { label: 'Extensions', shortcut: 'Ctrl+Shift+X', separatorBefore: true, run: () => setActiveSidebarView('extensions-view') },
+        { label: 'Keyboard Shortcuts', shortcut: 'Ctrl+K Ctrl+S', run: () => openSettings('user') },
+        { label: 'Tasks', separatorBefore: true, run: () => { try { (window as any).executeCommand?.('workbench.action.tasks.runTask'); } catch { /* */ } } },
+    ];
 
     const handleMenuClick = useCallback((label: string) => {
         setActiveMenu(prev => (prev === label ? null : label));
@@ -573,8 +605,66 @@ const TitleBar: React.FC = () => {
                 </div>
             </div>
 
-            {/* ── Right: AIRI button + window controls ── */}
+            {/* ── Right: layout toggles + AIRI button + window controls ── */}
             <div className="title-bar-right" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+                {/* Gear (Manage) menu — Antigravity-style settings entry points */}
+                <div ref={gearRef} style={{ position: 'relative', marginRight: '4px' }}>
+                    <i
+                        className={`codicon codicon-settings-gear tb-layout-btn${gearOpen ? ' tb-layout-active' : ''}`}
+                        title="Manage"
+                        onClick={() => setGearOpen(o => !o)}
+                    />
+                    {gearOpen && (
+                        <div style={{
+                            position: 'absolute', top: '100%', right: 0, marginTop: 6, minWidth: 250,
+                            background: 'var(--vscode-menu-background, #252526)',
+                            border: '1px solid var(--vscode-menu-border, rgba(255,255,255,0.12))',
+                            borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.45)', zIndex: 99999,
+                            padding: '4px 0', WebkitAppRegion: 'no-drag',
+                        } as React.CSSProperties}>
+                            {gearItems.map((it) => (
+                                <React.Fragment key={it.label}>
+                                    {it.separatorBefore && <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />}
+                                    <div
+                                        onClick={() => { it.run(); setGearOpen(false); }}
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, padding: '6px 14px', cursor: 'pointer', fontSize: 12, color: 'var(--vscode-menu-foreground, #ccc)' }}
+                                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--vscode-menu-selectionBackground, rgba(255,255,255,0.08))')}
+                                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                    >
+                                        <span>{it.label}</span>
+                                        {it.shortcut && <span style={{ opacity: 0.5, fontSize: 11 }}>{it.shortcut}</span>}
+                                    </div>
+                                </React.Fragment>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Native VSCode layout-toggle cluster */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginRight: '6px' }}>
+                    <i
+                        className={`codicon codicon-globe tb-layout-btn${layoutMode === 'browser' ? ' tb-layout-active' : ''}`}
+                        title="Open Browser (Preview)"
+                        onClick={() => setLayoutMode(layoutMode === 'browser' ? 'editor' : 'browser')}
+                    />
+                    <span style={{ width: 1, height: 14, background: 'var(--vscode-panel-border, rgba(255,255,255,0.12))', margin: '0 4px' }} />
+                    <i
+                        className={`codicon codicon-layout-sidebar-left${isSidebarOpen ? '' : '-off'} tb-layout-btn`}
+                        title="Toggle Primary Side Bar (Ctrl+B)"
+                        onClick={() => toggleSidebar()}
+                    />
+                    <i
+                        className={`codicon codicon-layout-panel${isBottomPanelOpen ? '' : '-off'} tb-layout-btn`}
+                        title="Toggle Panel (Ctrl+J)"
+                        onClick={() => toggleBottomPanel()}
+                    />
+                    <i
+                        className={`codicon codicon-layout-sidebar-right${isRightSidebarOpen ? '' : '-off'} tb-layout-btn`}
+                        title="Toggle Secondary Side Bar (Ctrl+Alt+B)"
+                        onClick={handleAiriClick}
+                    />
+                </div>
+
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '12px' }}>
 
                     {/* Sentient Guard icon */}
@@ -595,7 +685,7 @@ const TitleBar: React.FC = () => {
                     {/* AIRI toggle button */}
                     <div
                         className={`title-toggle-btn ${isAiriPanelOpen ? 'active' : ''}`}
-                        title={isAiriPanelOpen ? 'Close AIRI Panel' : 'Open AIRI Panel'}
+                        title={isAiriPanelOpen ? 'Close A.I Agent Panel' : 'Open A.I Agent Panel'}
                         style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -619,7 +709,7 @@ const TitleBar: React.FC = () => {
                         ) : (
                             <i className="codicon codicon-robot" style={{ fontSize: '14px' }} />
                         )}
-                        <span style={{ letterSpacing: '0.5px' }}>AIRI</span>
+                        <span style={{ letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>A.I Agent</span>
 
                         {isAiriPanelOpen && (
                             <i

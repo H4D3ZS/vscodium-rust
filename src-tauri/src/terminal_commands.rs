@@ -70,32 +70,17 @@ if (-not $global:__vscr_si) {
   $global:__vscr_si = $true
   $global:__vscr_orig_prompt = $function:prompt
 
-  # ── cmder-style git-aware lambda prompt ──────────────────────────────────
-  # Two lines: "<short-cwd> (branch*)" then an exit-colored lambda. Emits the
-  # OSC 133 sequences first so the Warp-style command-block tracker keeps working.
+  # ── Natural shell prompt (keep the system default, e.g. "PS C:\path>") ────
+  # We only wrap it to emit OSC 133 (which drives the command-block gutter marks);
+  # the visible prompt is whatever the shell normally shows — no custom glyphs.
   function global:prompt {
     $code = if ($?) { 0 } else { if ($LASTEXITCODE) { $LASTEXITCODE } else { 1 } }
     $e = [char]27; $b = [char]7
     $cwd = (Get-Location).Path
     [Console]::Write("$e]133;D;$code$b$e]133;A$b$e]133;P;Cwd=$cwd$b")
-
-    $disp = $cwd
-    if ($HOME -and $cwd.StartsWith($HOME)) { $disp = '~' + $cwd.Substring($HOME.Length) }
-
-    $git = ''
-    try {
-      $branch = (git rev-parse --abbrev-ref HEAD 2>$null)
-      if ($LASTEXITCODE -eq 0 -and $branch) {
-        $dirty = ''
-        if (git status --porcelain 2>$null) { $dirty = '*' }
-        $git = " $e[33m($branch$dirty)$e[0m"
-      }
-    } catch { }
-
-    $lam = if ($code -eq 0) { "$e[92m" } else { "$e[91m" }
-    $lambda = [char]0x03BB
+    $orig = & $global:__vscr_orig_prompt
     [Console]::Write("$e]133;B$b")
-    return "$e[36m$disp$e[0m$git`n$lam$lambda$e[0m "
+    return $orig
   }
 
   if (Get-Module -ListAvailable PSReadLine) {
