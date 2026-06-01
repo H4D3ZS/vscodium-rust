@@ -109,6 +109,16 @@ test.ipynb
 test.rs
 test.md
 
+# ── Reference terminals / IDEs (broken nested repos, not this product) ──
+warp-terminal/
+warp-terminal
+cmder/
+cmder
+# Stray zero-byte placeholder files
+/tauri
+/vite
+/vscode-rust-app@0.1.0
+
 # ── Heavy AIRI media / model artifacts (not needed to build the IDE) ──
 airi/docs/
 airi/packages/font-cjkfonts-allseto/
