@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useStore } from '../store';
 import TerminalView from './terminal/TerminalView';
+import TerminalCommandPalette from './terminal/TerminalCommandPalette';
 import Composer from './Composer';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '../tauri_bridge';
@@ -92,14 +93,15 @@ const BottomPanel: React.FC = () => {
 
     // Short display name for a shell path
     function shellLabel(path: string) {
-        if (!path) return 'shell';
+        if (!path) return 'Shell';
         const name = path.split(/[\\/]/).pop() || path;
-        if (name.toLowerCase().startsWith('pwsh')) return 'pwsh';
-        if (name.toLowerCase() === 'powershell.exe') return 'powershell';
-        if (name.toLowerCase() === 'cmd.exe') return 'cmd';
-        if (name.toLowerCase() === 'wsl.exe') return 'wsl';
-        if (name.toLowerCase() === 'bash.exe' || name === 'bash') return 'bash';
-        if (name.toLowerCase() === 'zsh') return 'zsh';
+        const lc = name.toLowerCase();
+        if (lc.startsWith('pwsh')) return 'PowerShell 7';
+        if (lc === 'powershell.exe') return 'PowerShell';
+        if (lc === 'cmd.exe') return 'Command Prompt';
+        if (lc === 'wsl.exe') return 'WSL';
+        if (lc === 'bash.exe' || name === 'bash') return 'Bash';
+        if (lc === 'zsh') return 'Zsh';
         return name.replace(/\.exe$/i, '');
     }
 
@@ -120,6 +122,29 @@ const BottomPanel: React.FC = () => {
                 overflow: 'hidden'
             }}
         >
+            {/* Terminal command palette (Ctrl+Shift+R) — fixed overlay, self-hides. */}
+            <TerminalCommandPalette />
+
+            <style>{`
+                .bottom-panel .panel-tabs::-webkit-scrollbar { height: 0; display: none; }
+                .bottom-panel .panel-tab { white-space: nowrap; flex-shrink: 0; }
+                .bottom-panel .vscr-shell-pill:hover {
+                    background: rgba(122,162,247,0.14) !important;
+                    border-color: rgba(122,162,247,0.4) !important;
+                }
+                .bottom-panel .toolbar-icon {
+                    display: flex; align-items: center; justify-content: center;
+                    width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
+                    color: var(--vscode-foreground, #d5d8e0); opacity: 0.7;
+                    transition: background .12s ease, opacity .12s ease;
+                    flex-shrink: 0;
+                }
+                .bottom-panel .toolbar-icon:hover {
+                    opacity: 1; background: rgba(255,255,255,0.08);
+                }
+                .bottom-panel .toolbar-icon i { font-size: 14px; }
+            `}</style>
+
             {/* Header / Tabs */}
             <div className="panel-header" style={{
                 display: 'flex',
@@ -133,7 +158,7 @@ const BottomPanel: React.FC = () => {
                 textTransform: 'uppercase',
                 letterSpacing: '0.05em'
             }}>
-                <div className="panel-tabs" style={{ display: 'flex', gap: '2px', height: '100%', alignItems: 'center' }}>
+                <div className="panel-tabs" style={{ display: 'flex', gap: '2px', height: '100%', alignItems: 'center', minWidth: 0, flexShrink: 1, overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none' as any }}>
                     {['Problems', 'Output', 'Debug Console', 'Terminal', 'Composer', 'Ports', 'Jobs'].map(tab => (
                         <div
                             key={tab}
@@ -178,37 +203,48 @@ const BottomPanel: React.FC = () => {
                     ))}
                 </div>
 
-                <div className="panel-toolbar" style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '12px' }}>
+                <div className="panel-toolbar" style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '12px', flexShrink: 0, marginLeft: '8px' }}>
                     {activeTab === 'TERMINAL' && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             {/* Shell selector dropdown */}
                             <div ref={shellDropdownRef} style={{ position: 'relative' }}>
                                 <div
-                                    className="toolbar-item"
+                                    className="vscr-shell-pill"
                                     onClick={() => setShellDropdownOpen(o => !o)}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '6px',
-                                        padding: '2px 8px', borderRadius: '4px',
+                                        padding: '3px 8px', borderRadius: '6px',
+                                        border: '1px solid ' + (shellDropdownOpen
+                                            ? 'rgba(122,162,247,0.5)'
+                                            : 'var(--vscode-panel-border, rgba(255,255,255,0.12))'),
                                         background: shellDropdownOpen
-                                            ? 'var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.1))'
-                                            : 'var(--vscode-badge-background, rgba(255,255,255,0.05))',
-                                        fontSize: '11px', cursor: 'pointer',
-                                        color: 'var(--vscode-badge-foreground, #ccc)',
+                                            ? 'rgba(122,162,247,0.18)'
+                                            : 'rgba(255,255,255,0.04)',
+                                        // The panel-header sets text-transform:uppercase + letter-spacing,
+                                        // which cascades here and mangles the shell name — reset it.
+                                        textTransform: 'none', letterSpacing: 'normal',
+                                        fontSize: '11px', fontWeight: 500, lineHeight: 1.4,
+                                        cursor: 'pointer', whiteSpace: 'nowrap',
+                                        color: 'var(--vscode-foreground, #d5d8e0)',
                                         userSelect: 'none',
+                                        transition: 'background .12s ease, border-color .12s ease',
                                     }}
                                     title="Select shell"
                                 >
-                                    <i className="codicon codicon-terminal" style={{ fontSize: '13px', opacity: 0.7 }} />
-                                    <span>{selectedShell ? shellLabel(selectedShell) : 'shell'}</span>
+                                    <i className="codicon codicon-terminal" style={{ fontSize: '13px', opacity: 0.75, color: '#7aa2f7' }} />
+                                    <span>{selectedShell ? shellLabel(selectedShell) : 'Shell'}</span>
                                     <i className="codicon codicon-chevron-down" style={{ fontSize: '10px', opacity: 0.5 }} />
                                 </div>
                                 {shellDropdownOpen && availableShells.length > 0 && (
                                     <div style={{
-                                        position: 'absolute', bottom: '100%', left: 0, marginBottom: '4px',
-                                        background: 'var(--vscode-menu-background, #252526)',
-                                        border: '1px solid var(--vscode-menu-border, var(--vscode-panel-border, #454545))',
-                                        borderRadius: '4px', zIndex: 9999, minWidth: '180px',
-                                        boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                                        position: 'absolute', bottom: '100%', left: 0, marginBottom: '6px',
+                                        background: 'var(--vscode-menu-background, #1c1e26)',
+                                        border: '1px solid rgba(122,162,247,0.22)',
+                                        borderRadius: '8px', zIndex: 9999, minWidth: '200px',
+                                        boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
+                                        // reset inherited uppercase/letter-spacing from panel-header
+                                        textTransform: 'none', letterSpacing: 'normal',
+                                        overflow: 'hidden',
                                     }}>
                                         <div style={{ padding: '4px 0' }}>
                                             <div style={{ padding: '4px 12px', fontSize: '10px', color: 'var(--vscode-editor-foreground, #888)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>

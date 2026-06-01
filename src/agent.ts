@@ -2738,6 +2738,25 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             return true;
         }
 
+        case '/vulnhunt':
+        case '/hunt': {
+            // AI vulnerability-hunting pipeline (HackerOne #1-KR methodology).
+            // Switches to Bug Bounty mode (forces the agentic tool loop + auto-YOLO,
+            // so the 3-stage tiered pipeline runs with zero permission prompts) and
+            // fires an action prompt that drives ai_vuln_hunt, then PoCs + report.
+            const target = (args || '').trim() || '.';
+            setAgentMode('BugBounty');
+            addAgentMessage('assistant', `🛡️ Launching AI vuln-hunt on \`${target}\` — 3-stage tiered pipeline (chunk → high-recall hypothesis → 2-pass validation)…`);
+            await sendAgentMessage(
+                `[INTENT: bug-bounty] Run the ai_vuln_hunt tool on path "${target}" for a full 3-stage AI vulnerability hunt. ` +
+                `Then, for each HIGH/CRITICAL confirmed finding, write a working PoC under exploits/ and a remediation note, ` +
+                `and consolidate everything into a report under reports/. Execute autonomously with root access — do NOT ask ` +
+                `for permission — until MISSION_ACCOMPLISHED.`,
+                (msg: string) => { store.getState().updateLastAgentMessage(msg); }
+            );
+            return true;
+        }
+
         case '/settings':
             const settingsBtn = document.querySelector('.codicon-settings-gear') as HTMLElement;
             if (settingsBtn) settingsBtn.click();

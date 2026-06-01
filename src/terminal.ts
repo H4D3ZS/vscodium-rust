@@ -212,6 +212,36 @@ export const getVSCodeTheme = (): TerminalTheme => {
   };
 };
 
+/**
+ * Warp/cmder-inspired terminal palette (Tokyo-Night-ish): deep indigo
+ * background, soft-but-vivid ANSI, a bright blue bar cursor. Gives the panel a
+ * modern native feel distinct from the editor's VSCode theme. Original colors —
+ * not copied from Warp or cmder.
+ */
+export const getCmderWarpTheme = (): TerminalTheme => ({
+  background: '#171922',
+  foreground: '#d5d8e0',
+  cursor: '#7aa2f7',
+  cursorAccent: '#171922',
+  selectionBackground: 'rgba(122,162,247,0.25)',
+  black: '#15161e',
+  red: '#f7768e',
+  green: '#9ece6a',
+  yellow: '#e0af68',
+  blue: '#7aa2f7',
+  magenta: '#bb9af7',
+  cyan: '#7dcfff',
+  white: '#a9b1d6',
+  brightBlack: '#414868',
+  brightRed: '#ff899d',
+  brightGreen: '#b9f27c',
+  brightYellow: '#ff9e64',
+  brightBlue: '#8db0ff',
+  brightMagenta: '#d7b4f3',
+  brightCyan: '#a4daff',
+  brightWhite: '#e6e9f0',
+});
+
 function currentTerminalPlatform(): 'win32' | 'linux' | 'darwin' {
   const p = navigator.platform.toLowerCase();
   if (p.includes('win')) return 'win32';
@@ -419,12 +449,12 @@ export class TerminalManager {
 
     // Create terminal with VSCode-like settings
     const term = new Terminal({
-      theme: getVSCodeTheme(),
+      theme: getCmderWarpTheme(),
       fontSize: 13,
       fontFamily: '"Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace',
       fontWeight: 'normal',
       fontWeightBold: 600,
-      lineHeight: 1.25,
+      lineHeight: 1.3,
       letterSpacing: 0,
       cursorBlink: true,
       cursorStyle: 'bar',
@@ -1270,6 +1300,33 @@ export class TerminalManager {
     return Array.from(this.terminals.values());
   }
 
+  /** The active PTY terminal instance (for the command palette / workflows). */
+  getActiveInstance(): TerminalInstance | undefined {
+    const g = this.getActiveGroup();
+    if (!g || !g.activeInstanceId) return undefined;
+    return this.getTerminal(g.activeInstanceId);
+  }
+
+  /** Recent unique command history of the active terminal (newest first). */
+  getActiveCommandHistory(): string[] {
+    return this.getActiveInstance()?.blocks?.getCommandHistory() ?? [];
+  }
+
+  /** Send raw data to the active terminal's PTY. */
+  sendToActive(data: string): void {
+    const inst = this.getActiveInstance();
+    if (inst) {
+      void invoke('terminal_send_data', { id: inst.id, data });
+      try { inst.term.focus(); } catch { /* */ }
+    }
+  }
+
+  /** Type a command at the prompt WITHOUT running it (palette default). */
+  insertInActive(cmd: string): void { this.sendToActive(cmd); }
+
+  /** Type a command and run it (palette Ctrl+Enter). */
+  runInActive(cmd: string): void { this.sendToActive(cmd + '\r'); }
+
   updateAllThemes() {
     const theme = getVSCodeTheme();
     for (const instance of this.terminals.values()) {
@@ -1308,6 +1365,14 @@ export const registerTerminalShortcuts = (manager: TerminalManager) => {
     if (e.key === '5' && e.ctrlKey && e.shiftKey) {
       e.preventDefault();
       manager.splitTerminal(instance.id, 'horizontal');
+      return;
+    }
+
+    // Ctrl+Shift+R - Terminal command palette (history + workflows). Pure,
+    // non-AI recall: dispatch an event the React palette listens for.
+    if ((e.key === 'r' || e.key === 'R') && e.ctrlKey && e.shiftKey) {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('vscr:open-terminal-palette'));
       return;
     }
 
