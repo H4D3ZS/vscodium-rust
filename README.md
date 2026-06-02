@@ -59,7 +59,7 @@ A powerful, **Rust-backend-driven** visualization engine for complex data struct
 Built by a researcher for researchers. VSCodium-Rust is an elite tool for **Security Audits and Malware Analysis**:
 - **Integrated Reverse Engineering:** Native **Model Context Protocol (MCP)** support for integration with tools like IDA Pro.
 - **Isolated PTY Terminals:** Full control over process spawning and network isolation.
-- **Simulator Mastery:** Integrated professional-grade emulators for **iOS (v26.3.1)** and Android directly in workspace panels.
+- **Simulator Mastery:** Integrated professional-grade emulators for **iOS (v26.3.1)** and Android directly in workspace panels. The iPhone-emulator integration ships in-repo; the heavy `acheron` hypervisor binary + iOS `.ipsw` firmware are user-provided — see **[docs/IPHONE_EMULATOR.md](docs/IPHONE_EMULATOR.md)** for how to obtain/build them.
 
 ---
 
