@@ -59,15 +59,19 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ id, groupId, active
     useEffect(() => {
         if (!containerRef.current) return;
 
+        // Refit on ANY container resize — not just when active. In a SPLIT, only
+        // one pane is "active", so gating on `active` left the other pane stuck at
+        // its old (full-width) size when the split shrank it to 50% → it rendered
+        // clipped/broken. Every pane must track its own container size.
         const observer = new ResizeObserver(() => {
-            if (active) {
-                terminalManager.resize(id);
-            }
+            terminalManager.resize(id);
         });
 
         observer.observe(containerRef.current);
+        // Fit once now (the split just changed our width).
+        terminalManager.resize(id);
         return () => observer.disconnect();
-    }, [id, active]);
+    }, [id]);
 
     // Theme updates
     const currentTheme = useStore(state => state.theme);

@@ -6,6 +6,7 @@ import BottomPanel from './BottomPanel';
 import RightSidebar from './RightSidebar';
 import Editor from './Editor';
 import EmptyEditorWelcome from './EmptyEditorWelcome';
+import AimViewer from './AimViewer';
 import SettingsPage from './SettingsPage';
 import VisualLab from './visual/VisualLab';
 import SpecsToCodeWizard from './SpecsToCodeWizard';
@@ -388,6 +389,8 @@ const Workbench: React.FC = () => {
                                         <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: (isVisualLabSplitView && isVisualLabOpen) ? 'row' : 'column' }}>
                                             {tabs.find(t => t.id === activeTabId)?.type === 'settings' ? (
                                                 <SettingsPage />
+                                            ) : (tabs.find(t => t.id === activeTabId) as any)?.type === 'aim' ? (
+                                                <AimViewer path={(tabs.find(t => t.id === activeTabId) as any)?.path} />
                                             ) : (
                                                 <div style={{ display: 'flex', flex: 1, width: '100%', height: '100%', minWidth: 0 }}>
                                                     {/* Primary editor */}

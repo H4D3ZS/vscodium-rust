@@ -2326,7 +2326,7 @@ const RightSidebar: React.FC = () => {
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                             <span style={{ fontSize: '10px' }}>{msg.role === 'assistant' ? (msg.isSubAgentResponse ? '🤖' : '✦') : '▸'}</span>
                                                             <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: msg.isSubAgentResponse ? '#3b82f6' : msg.role === 'assistant' ? 'rgba(255,255,255,0.6)' : '#3b82f6' }}>
-                                                                {msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'AIRI-MODULE' : 'AIRI') : 'MISSION'}
+                                                                {msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'PARTNER-MODULE' : 'AGENTIC PARTNER') : 'MISSION'}
                                                             </span>
                                                             {msg.role === 'assistant' && !isAgentThinking && msg.timestamp && (
                                                                 <span style={{ fontSize: '9px', opacity: 0.25 }}>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -2555,27 +2555,58 @@ const RightSidebar: React.FC = () => {
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {chatSessions.map((session: any) => (
-                                            <div
-                                                key={session.path}
-                                                onClick={() => { loadChatSession(session.path); setView('chat'); }}
-                                                style={{
-                                                    padding: '12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)',
-                                                    border: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer',
-                                                    transition: 'background 0.2s'
-                                                }}
-                                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                                                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                                            >
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                                    <span style={{ fontSize: '12px', fontWeight: 600 }}>{session.name.replace('session_', '').replace('.aim', '')}</span>
-                                                    <span style={{ fontSize: '10px', opacity: 0.4 }}>{session.messages} msgs</span>
+                                        {chatSessions.map((session: any) => {
+                                            const title = String(session.name || '').replace('session_', '').replace('.aim', '') || 'Conversation';
+                                            const ts = session.updated_at ? new Date(session.updated_at * 1000).toLocaleString() : '';
+                                            const histBtn: React.CSSProperties = {
+                                                display: 'flex', alignItems: 'center', gap: 5, flex: 1, justifyContent: 'center',
+                                                padding: '5px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                                borderRadius: 6, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.12))',
+                                                background: 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.05))',
+                                                color: 'var(--vscode-foreground, #ddd)', whiteSpace: 'nowrap',
+                                            };
+                                            return (
+                                                <div
+                                                    key={session.path}
+                                                    style={{
+                                                        padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)',
+                                                        border: '1px solid rgba(255,255,255,0.05)', transition: 'background 0.2s',
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                                >
+                                                    <div
+                                                        onClick={() => { loadChatSession(session.path); setView('chat'); }}
+                                                        style={{ cursor: 'pointer' }}
+                                                        title="Open this conversation in the chat panel"
+                                                    >
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px', gap: 8 }}>
+                                                            <span style={{ fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+                                                            <span style={{ fontSize: '10px', opacity: 0.4, flexShrink: 0 }}>{session.messages} msgs</span>
+                                                        </div>
+                                                        <div style={{ fontSize: '10px', opacity: 0.5, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                            <i className="codicon codicon-history" style={{ fontSize: 10 }} />{ts}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                                                        <div
+                                                            onClick={() => { loadChatSession(session.path); setView('chat'); }}
+                                                            style={histBtn}
+                                                            title="Open this conversation in the side chat panel"
+                                                        >
+                                                            <i className="codicon codicon-comment-discussion" style={{ fontSize: 12 }} /> Open in panel
+                                                        </div>
+                                                        <div
+                                                            onClick={() => { createNewSession?.(); setView('chat'); }}
+                                                            style={histBtn}
+                                                            title="Archive the current chat and start a fresh conversation"
+                                                        >
+                                                            <i className="codicon codicon-add" style={{ fontSize: 12 }} /> New conversation
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div style={{ fontSize: '10px', opacity: 0.5 }}>
-                                                    {new Date(session.updated_at * 1000).toLocaleString()}
-                                                </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 )}
                                 <CheckpointTimeline />

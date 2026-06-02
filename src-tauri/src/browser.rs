@@ -337,9 +337,20 @@ fn missing_security_headers(headers: &Value) -> Vec<String> {
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_open(state: tauri::State<'_, BrowserState>) -> Result<String, String> {
-    state.ensure_started().await?;
-    Ok("Stealth browser launched (invisible_playwright / Firefox)".to_string())
+pub async fn browser_open(app: tauri::AppHandle) -> Result<String, String> {
+    // FIRE-AND-FORGET. Launching the stealth Firefox — and DOWNLOADING it on first
+    // run — can take minutes. Awaiting it here blocked the UI's invoke and looked
+    // like the IDE force-quit/hung. Spawn it in the background so the UI returns
+    // instantly; the Firefox window appears when ready. Failures are logged, never
+    // fatal to the app.
+    use tauri::Manager;
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<BrowserState>();
+        if let Err(e) = state.ensure_started().await {
+            eprintln!("[browser] open failed (install: pip install playwright invisible_playwright): {e}");
+        }
+    });
+    Ok("Browser launching… a stealth-Firefox window will open shortly (first run downloads it).".to_string())
 }
 
 #[tauri::command]

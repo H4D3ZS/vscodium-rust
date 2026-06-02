@@ -1313,4 +1313,57 @@ pub async fn revert_file_content(
     Ok(())
 }
 
+/// Inspect a `.aim` Neural Weight-Map binary for the in-IDE viewer. Returns the
+/// header (magic/version/written_at/entry_count/size) plus a capped list of
+/// entries (key, weight, mtime, gist preview). Path may be absolute or
+/// workspace-relative.
+#[tauri::command]
+pub async fn aim_inspect(state: State<'_, EditorState>, path: String) -> Result<serde_json::Value, String> {
+    let root = state.ai_engine.ai_tools.get_root_path();
+    let full = if std::path::Path::new(&path).is_absolute() {
+        PathBuf::from(&path)
+    } else {
+        root.join(&path)
+    };
+    if !full.exists() {
+        return Err(format!("AIM file not found: {}", full.display()));
+    }
+    let bytes = std::fs::read(&full).map_err(|e| e.to_string())?;
+    let size = bytes.len() as u64;
+
+    // `.aim` has two on-disk flavors in this project:
+    //   • JSON   — the Kortex brain/memory (`{"kortex":{...}}`)
+    //   • binary — the aim_store Neural Weight-Map (magic `AIM\x01`)
+    // Detect by the first non-whitespace byte and handle both.
+    let first = bytes.iter().copied().find(|b| !b.is_ascii_whitespace()).unwrap_or(0);
+    if first == b'{' || first == b'[' {
+        let v: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|e| format!("AIM file looks like JSON but failed to parse: {e}"))?;
+        let mut pretty = serde_json::to_string_pretty(&v).unwrap_or_default();
+        let truncated = pretty.len() > 300_000;
+        if truncated {
+            pretty.truncate(300_000);
+            pretty.push_str("\n… [truncated for display]");
+        }
+        let entities = v.pointer("/kortex/entities").and_then(|e| e.as_object()).map(|o| o.len());
+        let tree_count = v.pointer("/kortex/project_tree").and_then(|t| t.as_array()).map(|a| a.len());
+        return Ok(serde_json::json!({
+            "format": "json",
+            "size_bytes": size,
+            "pretty": pretty,
+            "truncated": truncated,
+            "entities": entities,
+            "tree_count": tree_count,
+        }));
+    }
+
+    // Binary AIM\x01 (aim_store).
+    let insp = crate::aim_store::AimStore::inspect(&full, 2000).map_err(|e| e.to_string())?;
+    let mut val = serde_json::to_value(insp).map_err(|e| e.to_string())?;
+    if let Some(obj) = val.as_object_mut() {
+        obj.insert("format".to_string(), serde_json::json!("aim-binary"));
+    }
+    Ok(val)
+}
+
 

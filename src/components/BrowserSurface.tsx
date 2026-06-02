@@ -40,7 +40,7 @@ const BrowserSurface: React.FC = () => {
     React.useEffect(() => {
         let interval: any;
         let busy = false;
-        if (isAgentThinking && mode === 'vision') {
+        if (visionEnabled && isAgentThinking && mode === 'vision') {
             interval = setInterval(async () => {
                 if (busy) return;
                 busy = true;
@@ -51,7 +51,7 @@ const BrowserSurface: React.FC = () => {
             }, 1500);
         }
         return () => clearInterval(interval);
-    }, [isAgentThinking, mode]);
+    }, [visionEnabled, isAgentThinking, mode]);
 
     const normalizeUrl = (u: string): string => {
         const t = u.trim();

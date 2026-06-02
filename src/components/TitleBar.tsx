@@ -643,15 +643,23 @@ const TitleBar: React.FC = () => {
                 {/* Native VSCode layout-toggle cluster */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginRight: '6px' }}>
                     <i
-                        className={`codicon codicon-globe tb-layout-btn${layoutMode === 'browser' ? ' tb-layout-active' : ''}`}
-                        title="Open Browser — real stealth Firefox the agent can drive"
-                        onClick={() => {
-                            if (layoutMode === 'browser') { setLayoutMode('editor'); return; }
-                            // Launch the REAL visible Firefox (invisible_playwright) — the
-                            // smooth browser window the agent also drives — and open the
-                            // in-IDE VISION panel as the control/monitor surface.
-                            invoke('browser_open').catch(() => { /* sidecar starts lazily on first navigate too */ });
-                            setLayoutMode('browser');
+                        className="codicon codicon-globe tb-layout-btn"
+                        title="Open Browser — spawns a real external stealth-Firefox window (the agent drives it)"
+                        onClick={async () => {
+                            // Spawn the REAL external Firefox (invisible_playwright). It is a
+                            // separate OS window — NOT inside the IDE. The agent drives this
+                            // same instance. We never switch the IDE into the in-app panel.
+                            try {
+                                await invoke('browser_open');
+                            } catch (e: any) {
+                                alert(
+                                    'Could not launch the browser.\n\n' +
+                                    'The external browser uses invisible_playwright (stealth Firefox). Install it:\n' +
+                                    '  pip install playwright invisible_playwright\n\n' +
+                                    'Then click the globe again (first run downloads Firefox).\n\n' +
+                                    'Error: ' + (e?.message || e)
+                                );
+                            }
                         }}
                     />
                     <span style={{ width: 1, height: 14, background: 'var(--vscode-panel-border, rgba(255,255,255,0.12))', margin: '0 4px' }} />
@@ -735,10 +743,10 @@ const TitleBar: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Native window controls — pointer-events: all ensures clicks always reach buttons */}
+                {/* Native window controls — pointer-events + no-drag so clicks always reach buttons */}
                 <div
                     className="window-controls-right"
-                    style={{ pointerEvents: 'all', userSelect: 'none' }}
+                    style={{ pointerEvents: 'all', userSelect: 'none', flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
                 >

@@ -24,6 +24,8 @@ const MODES: { id: SecMode; title: string; desc: string }[] = [
 const AgentPermissionsPanel: React.FC = () => {
     const setYoloMode = useStore(s => s.setYoloMode);
     const setAutoAccept = useStore(s => (s as any).setAutoAcceptChanges);
+    const visionEnabled = useStore(s => s.isAgentVisionEnabled);
+    const setVision = useStore(s => s.setAgentVisionEnabled);
 
     const [mode, setMode] = useState<SecMode>(() => getLS('agent.securityMode', 'full') as SecMode);
     const [termAuto, setTermAuto] = useState(() => getLS('agent.terminalAutoExec', 'proceed'));
@@ -126,6 +128,15 @@ const AgentPermissionsPanel: React.FC = () => {
                     value={reviewPolicy}
                     options={[['proceed', 'Always Proceed'], ['ask', 'Ask First']]}
                     onChange={(v) => { setReviewPolicy(v); setLS('agent.reviewPolicy', v); }}
+                />
+            </Section>
+
+            <Section title="Browser">
+                <RowToggle
+                    title="Live Agent Vision"
+                    desc="Mirror the agent's browser into the IDE panel by polling screenshots while it works. OFF by default — it's memory/CPU-heavy on low-spec machines. Leave off if you rely on a cloud vision model (e.g. MiMo) instead."
+                    value={visionEnabled}
+                    onChange={(v) => setVision(v)}
                 />
             </Section>
         </div>

@@ -3,6 +3,7 @@ import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
 import AgentSettingsView, { type AgentSettingsCategory } from './AgentSettingsView';
 import AgentPermissionsPanel from './AgentPermissionsPanel';
+import AccountSettingsPanel from './AccountSettingsPanel';
 import KeybindingsPanel from './KeybindingsPanel';
 import SteeringPanel from './SteeringPanel';
 import HooksPanel from './HooksPanel';
@@ -873,6 +874,8 @@ const SettingsPage: React.FC = () => {
     };
 
     const agentCategories: CategoryDef[] = [
+        // Account / subscription / terms
+        { id: 'account', label: 'Account & Terms', icon: 'account', customRender: () => <AccountSettingsPanel />, groupStart: 'Account' },
         // Permissions / autonomy
         { id: 'permissions', label: 'Permissions', icon: 'shield', customRender: () => <AgentPermissionsPanel />, groupStart: 'Agent' },
         // Chat & AI

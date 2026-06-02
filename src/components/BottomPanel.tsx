@@ -257,7 +257,13 @@ const BottomPanel: React.FC = () => {
                                             {availableShells.map(shell => (
                                                 <div
                                                     key={shell}
-                                                    onClick={() => { setSelectedShell(shell); setShellDropdownOpen(false); }}
+                                                    onClick={() => {
+                                                        // VSCode behavior: picking a profile sets the default AND
+                                                        // immediately opens a NEW terminal with that shell.
+                                                        setSelectedShell(shell);
+                                                        setShellDropdownOpen(false);
+                                                        addTerminalGroup(shell);
+                                                    }}
                                                     style={{
                                                         padding: '5px 12px', fontSize: '12px', cursor: 'pointer',
                                                         color: shell === selectedShell ? 'var(--vscode-list-activeSelectionForeground, #fff)' : 'var(--vscode-menu-foreground, #cccccc)',

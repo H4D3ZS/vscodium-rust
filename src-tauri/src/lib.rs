@@ -3,6 +3,7 @@ use tauri::Manager;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 pub mod aim_store;
+pub mod account;
 mod ai_auth;
 mod ai_commands;
 mod editor_commands;
@@ -235,8 +236,16 @@ pub fn run() {
             auth_commands::save_webui_response,
             auth_commands::webui_agent_run,
             auth_commands::toggle_webui_window_visibility,
+            // ═══ Account / Subscription / ToS ═══
+            account::account_get,
+            account::account_accept_tos,
+            account::account_tos_status,
+            account::account_has_feature,
+            account::account_set_tier,
+            account::account_acquire_addon,
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
+            ai_commands::aim_inspect,
             ai_commands::ai_chat_fast,
             ai_commands::ai_chat_oneshot,
             ai_commands::ai_debug_code,

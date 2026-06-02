@@ -577,7 +577,7 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
                 items.push({
                     label: `${m.id} (${providerLabel})`,
                     value: `${providerLabel}|${m.id}`,
-                    desc: providerKey === 'ollama' ? 'Local — runs on your machine' : `BYOB — uses your ${providerLabel} API key`
+                    desc: providerKey === 'ollama' ? 'Local' : providerLabel
                 });
             });
         });
@@ -1403,6 +1403,28 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     if (userPrompt.startsWith('/')) {
         const handled = await processSlashCommand(userPrompt);
         if (handled) return;
+    }
+
+    // ── Bug Bounty / offensive-security ToS gate (tied to the account) ──────
+    // Offensive modes require accepting the authorized-use Terms of Service,
+    // recorded on the account (backend `account.rs`). Block until accepted.
+    {
+        const _mode = store.getState().agentMode;
+        const _offensive = _mode === 'BugBounty' || _mode === 'Bug Bounty'
+            || _mode === 'RedTeam' || _mode === 'Red Team';
+        if (_offensive) {
+            try {
+                const accepted = await invoke<boolean>('account_tos_status', { docId: 'bug-bounty' });
+                if (!accepted) {
+                    store.getState().addAgentMessage?.('assistant',
+                        '🛡️ **Bug Bounty Terms required.** Offensive-security features need you to accept the authorized-use Terms of Service first.\n\n' +
+                        'Open **Settings → Account & Terms → Bug Bounty**, review and accept, then resend your request.');
+                    try { store.getState().openSettings?.('agent'); } catch { /* */ }
+                    store.getState().setIsAgentThinking?.(false);
+                    return;
+                }
+            } catch { /* backend hiccup — do not hard-block on a transient error */ }
+        }
     }
 
     // ── Plan-before-execute mode (Claude Code / Cursor-style) ───────────
