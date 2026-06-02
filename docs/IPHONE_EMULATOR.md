@@ -1,0 +1,85 @@
+# iPhone Emulator — Setup & Required Files
+
+The iPhone-emulator **integration** ships with the IDE (`src-tauri/src/iphone_emulator.rs`
++ `src/components/IPhoneEmulatorPanel.tsx`). It drives the **`acheron`** C++ hypervisor,
+streams the serial console + boot logs into the IDE, captures the display, and feeds
+touch events back.
+
+What is **NOT** in this repository (intentionally — too large / device firmware /
+machine-specific) and must be provided locally:
+
+| Artifact | Why it's excluded | Where the IDE looks for it |
+|----------|-------------------|----------------------------|
+| `acheron` hypervisor binary | Built per-platform from C++ source | `<project>/build/Release/acheron[.exe]`, `<project>/build/acheron[.exe]`, or on `PATH` |
+| iOS firmware `.ipsw` | ~7–11 GB device firmware (Apple's) | You pass it to `acheron prepare`; output lands in `<project>/out/` |
+| `Virtual-iPhone-Emulator/` app + ramdisk artifacts | Standalone/proprietary, large | Generated into `<project>/out/…` by `acheron prepare` |
+
+> The repo's `.gitignore` excludes `Virtual-iPhone-Emulator/`, `*.ipsw`, and the build
+> output. Cloning gives you a **buildable IDE**; the emulator feature simply stays idle
+> until you provide these files. On a Mac (M1) the IDE compiles and runs fine without them.
+
+---
+
+## 1. Build the `acheron` hypervisor
+
+`acheron` is a CMake C++ project. From its source directory:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+This produces:
+- Windows: `build/Release/acheron.exe`
+- macOS/Linux: `build/acheron`
+
+Put the binary on your `PATH`, or keep it under the project's `build/` so the IDE's
+`find_acheron()` locates it automatically.
+
+> If you don't have the `acheron` source, obtain it from your private
+> Virtual-iPhone-Emulator repository — it is not redistributed here.
+
+## 2. Get an iOS firmware (`.ipsw`)
+
+Download the **official** restore image for the device/iOS version you want to emulate
+(e.g. from Apple's signing servers / ipsw.me). Only use firmware you are licensed to use.
+
+## 3. Prepare the firmware
+
+`acheron prepare` extracts the real ramdisk + kernelcache + devicetree the emulator boots:
+
+```bash
+acheron prepare --ipsw /path/to/iPhone..._Restore.ipsw --out out
+```
+
+This writes (under `<project>/out/`):
+- `out/raw/initrd.bin` — ramdisk (the IDE auto-fills this as the disk)
+- kernelcache + devicetree (auto-loaded by `acheron run` via `rd=md0`)
+- `out/diagnostics/` — runtime channel: `frame.raw` / `guest_frame.raw` (display),
+  `touch_in.csv` (host→guest pointer)
+
+## 4. Launch from the IDE
+
+Open the **Emulator** panel → it calls `launch_iphone_emulator(project_path)` →
+`acheron run …`, streams `emulator-console` (logs) and `emulator-frame` (display) events,
+and sends touches via `send_iphone_touch`.
+
+---
+
+## Expected layout
+
+```
+<project>/
+├── build/
+│   └── Release/acheron.exe        # (or build/acheron on macOS/Linux)
+├── out/
+│   ├── raw/initrd.bin             # from `acheron prepare`
+│   └── diagnostics/               # frame.raw, guest_frame.raw, touch_in.csv
+└── (your .ipsw lives anywhere; pass its path to `acheron prepare`)
+```
+
+## Notes
+- **macOS (Apple Silicon):** the IDE builds and runs without the emulator. To run the
+  emulator you still need an `acheron` macOS build + a firmware you can use.
+- These artifacts are user-provided for legal + size reasons; nothing here distributes
+  Apple firmware or the proprietary emulator app.
