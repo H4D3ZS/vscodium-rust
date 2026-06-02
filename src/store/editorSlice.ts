@@ -215,6 +215,19 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     openFile: async (path: string) => {
         const existingTab = get().tabs.find((t: any) => t.path === path);
         if (existingTab) { get().setActiveTab(existingTab.id); return; }
+        // .aim Neural Weight-Maps are binary (memmap2) — open them in the AIM
+        // viewer, NOT Monaco (which would show garbage / nothing).
+        if (path.toLowerCase().endsWith('.aim')) {
+            const filename = path.replace(/\\/g, '/').split('/').pop() ?? path;
+            const id = `tab-${Date.now()}-${Math.random()}`;
+            const tab = { id, filename, path, content: '', isModified: false, language: '', type: 'aim' } as unknown as EditorTab;
+            set((state) => {
+                const history = state.tabHistory.slice(0, state.tabHistoryIndex + 1);
+                history.push(id);
+                return { tabs: [...state.tabs, tab], activeTabId: id, tabHistory: history, tabHistoryIndex: history.length - 1 };
+            });
+            return;
+        }
         try {
             const content = await invoke<string>('read_file', { path });
             const filename = path.replace(/\\/g, '/').split('/').pop() ?? path;

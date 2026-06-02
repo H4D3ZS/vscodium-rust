@@ -33,6 +33,25 @@ pub struct AimEntry {
     pub weight: f32,
 }
 
+/// Read-only view of a .aim file for the in-IDE viewer.
+#[derive(Debug, serde::Serialize)]
+pub struct AimInspection {
+    pub magic_ok: bool,
+    pub version: u32,
+    pub written_at: u64,
+    pub entry_count: usize,
+    pub size_bytes: u64,
+    pub entries: Vec<AimInspectEntry>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct AimInspectEntry {
+    pub key: String,
+    pub gist: String,
+    pub mtime: u64,
+    pub weight: f32,
+}
+
 #[derive(Debug, Default)]
 pub struct AimStore {
     pub entries: HashMap<String, AimEntry>,
@@ -98,6 +117,42 @@ impl AimStore {
         }
 
         Ok(Self { entries, written_at })
+    }
+
+    /// Inspect a .aim for VIEWING — parses the header + entries WITHOUT TTL
+    /// eviction (so expired caches are still viewable) and caps the entry list
+    /// so the payload stays sane. Used by the `aim_inspect` Tauri command.
+    pub fn inspect(path: &Path, max_entries: usize) -> io::Result<AimInspection> {
+        let data = fs::read(path)?;
+        let size_bytes = data.len() as u64;
+        let mut cur = &data[..];
+
+        let mut magic = [0u8; 4];
+        cur.read_exact(&mut magic)?;
+        let magic_ok = &magic == MAGIC;
+        if !magic_ok {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Not an AIM file (bad magic)"));
+        }
+        let version = read_u32(&mut cur)?;
+        let written_at = read_u64(&mut cur)?;
+        let entry_count = read_u32(&mut cur)? as usize;
+
+        let mut entries = Vec::new();
+        for _ in 0..entry_count {
+            let key = read_string(&mut cur)?;
+            let gist = read_string(&mut cur)?;
+            let mtime = read_u64(&mut cur)?;
+            let weight = read_f32(&mut cur)?;
+            if entries.len() < max_entries {
+                entries.push(AimInspectEntry {
+                    key,
+                    gist: gist.chars().take(400).collect(),
+                    mtime,
+                    weight,
+                });
+            }
+        }
+        Ok(AimInspection { magic_ok, version, written_at, entry_count, size_bytes, entries })
     }
 
     /// Serialize to .aim file atomically (temp file + rename).
