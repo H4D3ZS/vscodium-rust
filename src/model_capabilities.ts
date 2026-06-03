@@ -6,7 +6,7 @@ export type ProviderName =
     | 'anthropic' | 'openAI' | 'deepseek' | 'ollama' | 'vLLM' | 'openRouter'
     | 'gemini' | 'groq' | 'xAI' | 'mistral' | 'lmStudio' | 'liteLLM'
     | 'openAICompatible' | 'googleVertex' | 'microsoftAzure' | 'awsBedrock'
-    | 'antigravity' | 'mimo' | 'cyberifrit';
+    | 'antigravity' | 'mimo' | 'cyberifrit' | 'highwayapi';
 
 export type FeatureName = 'Chat' | 'Apply' | 'Autocomplete' | 'QuickEdit' | 'SCM';
 
@@ -84,6 +84,9 @@ export const defaultProviderEndpoints: Partial<Record<ProviderName, string>> = {
     antigravity: 'http://127.0.0.1:1536',
     mimo: 'https://api.xiaomimimo.com/v1',
     cyberifrit: 'https://api.cyberifrit.xyz',
+    // Interface AI / highwayapi.ai — OpenAI-compatible Claude Opus 4.8.
+    // Paid base shown; free base is https://freeapi.highwayapi.ai.
+    highwayapi: 'https://api.highwayapi.ai/openai',
 };
 
 export const localProviders: ProviderName[] = ['ollama', 'vLLM', 'lmStudio', 'antigravity'];
@@ -288,6 +291,11 @@ const mimoModels: Record<string, ModelCapabilities> = {
     'mimo-v2.5': { contextWindow: 256_000, reservedOutputTokenSpace: 16_384, cost: { input: 0.15, output: 0.6 }, downloadable: false, supportsFIM: false, supportsSystemMessage: 'system-role', specialToolFormat: 'openai-style', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] } },
 };
 
+// Interface AI (highwayapi.ai) — OpenAI-compatible Claude Opus 4.8.
+const highwayapiModels: Record<string, ModelCapabilities> = {
+    'claude-opus-4-8': { contextWindow: 1_000_000, reservedOutputTokenSpace: 128_000, cost: { input: 5, output: 25, cache_read: 0.5, cache_write: 6.25 }, downloadable: false, supportsFIM: false, supportsSystemMessage: 'system-role', specialToolFormat: 'openai-style', reasoningCapabilities: false },
+};
+
 const mistralModels: Record<string, ModelCapabilities> = {
     'codestral-latest': { contextWindow: 256_000, reservedOutputTokenSpace: 8_192, cost: { input: 0.30, output: 0.90 }, supportsFIM: true, downloadable: { sizeGb: 13 }, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
     'devstral-small-latest': { contextWindow: 131_000, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, supportsFIM: false, downloadable: { sizeGb: 14 }, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
@@ -321,6 +329,7 @@ const providerModelDbs: Partial<Record<ProviderName, Record<string, ModelCapabil
     xAI: xAIModels,
     deepseek: deepseekModels,
     mimo: mimoModels,
+    highwayapi: highwayapiModels,
     mistral: mistralModels,
     groq: groqModels,
     ollama: ollamaModels,
@@ -472,6 +481,7 @@ export const providerDisplayInfo: Record<ProviderName, { title: string; icon?: s
     antigravity: { title: 'Antigravity / AIM Proxy' },
     mimo: { title: 'Xiaomi MiMo' },
     cyberifrit: { title: 'Cyber-Ifrit Cloud' },
+    highwayapi: { title: 'Interface AI (Opus 4.8)' },
 };
 
 // ── Fast Apply search/replace block parser (from Void) ────────────────────────

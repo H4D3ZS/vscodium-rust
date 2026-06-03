@@ -3135,7 +3135,8 @@ impl Sentient {
                     // Skip this iteration; next iteration 0 re-runs with req.model.
                     println!("[AI] Advisor model failed ({}). Falling back to primary: {}",
                         e, req.model);
-                    was_advisor_iteration = false;
+                    // (was_advisor_iteration is re-derived at the top of the next
+                    // iteration; no need to reset before `continue`.)
                     self.emit_event("ai-advisor-fallback", json!({
                         "error": e.to_string(),
                         "fallback_model": req.model
@@ -5500,6 +5501,9 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             "deepseek" => "DEEPSEEK_API_KEY",
             // Xiaomi MiMo Token Plan key (Bearer, OpenAI-compatible).
             "mimo" | "xiaomi" => "MIMO_API_KEY",
+            // Interface AI / highwayapi.ai — OpenAI-compatible, serves Claude
+            // Opus 4.8 (BYO key; free + paid base URLs).
+            "highwayapi" | "interfaceai" | "jiekou" => "HIGHWAYAPI_API_KEY",
             // Cyber-Ifrit Cloud subscription token (a JWT, stored like an API key).
             "cyberifrit" | "cyber-ifrit" | "cyberifrit-cloud" => "CYBERIFRIT_API_KEY",
             // Local DeepSeek-V2 server is keyless by default. If the user
@@ -5534,6 +5538,18 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                 }
                 if let Some(key) = keys[provider_base.clone()].as_str() {
                     if !key.is_empty() { return key.to_string(); }
+                }
+            }
+        }
+
+        // Cyber-Ifrit managed cloud (AMD MI300X Ollama): if no explicit key was
+        // set, authorize with the signed-in SUBSCRIPTION token (Supabase access
+        // token). This is the "pay & subscribe → managed cloud just works, no
+        // BYO key" path — the AMD gateway validates this JWT + the entitlement.
+        if matches!(provider_base.as_str(), "cyberifrit" | "cyber-ifrit" | "cyberifrit-cloud") {
+            if let Some(p) = self.brain_dir.parent() {
+                if let Some(s) = crate::auth::load_session(p) {
+                    if !s.access_token.is_empty() { return s.access_token; }
                 }
             }
         }
@@ -5587,6 +5603,27 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                     }
                 }
                 "https://api.anthropic.com/v1/messages".to_string()
+            }
+            // Interface AI (highwayapi.ai) — OpenAI-compatible Claude Opus 4.8.
+            // env HIGHWAYAPI_BASE_URL → keys.highwayapi_base_url → default paid
+            // base. Free base is https://freeapi.highwayapi.ai. The base already
+            // includes the API root (.../openai), so we append only
+            // /chat/completions (NOT /v1/chat/completions).
+            "highwayapi" | "interfaceai" | "jiekou" => {
+                let configured = std::env::var("HIGHWAYAPI_BASE_URL").ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .or_else(|| {
+                        self.brain_dir.parent()
+                            .map(|p| p.join("api_keys.json"))
+                            .and_then(|p| std::fs::read_to_string(p).ok())
+                            .and_then(|c| serde_json::from_str::<Value>(&c).ok())
+                            .and_then(|k| k["highwayapi_base_url"].as_str().map(|s| s.to_string()))
+                            .filter(|s| !s.trim().is_empty())
+                    })
+                    .unwrap_or_else(|| "https://api.highwayapi.ai/openai".to_string());
+                let base = configured.trim().trim_end_matches('/').to_string();
+                if base.ends_with("/chat/completions") { base }
+                else { format!("{}/chat/completions", base) }
             }
             "mistral" => "https://api.mistral.ai/v1/chat/completions".to_string(),
             "groq" => "https://api.groq.com/openai/v1/chat/completions".to_string(),
