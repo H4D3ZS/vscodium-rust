@@ -108,7 +108,7 @@ function registerCoreCommands() {
             id: 'explorer.newFile',
             label: 'File: New File...',
             run: async () => {
-                const path = store.activeRoot;
+                const path = getStore().activeRoot;
                 if (!path) return;
                 const name = window.prompt('Enter file name', 'untitled.txt');
                 if (!name) return;
@@ -120,7 +120,7 @@ function registerCoreCommands() {
             id: 'explorer.newFolder',
             label: 'File: New Folder...',
             run: async () => {
-                const path = store.activeRoot;
+                const path = getStore().activeRoot;
                 if (!path) return;
                 const name = window.prompt('Enter folder name', 'new_folder');
                 if (!name) return;
@@ -169,7 +169,7 @@ function registerCoreCommands() {
                     alert('No active terminal to run build task.');
                     return;
                 }
-                const isRust = store.activeRoot && store.activeRoot.includes('rust');
+                const isRust = getStore().activeRoot && getStore().activeRoot.includes('rust');
                 const cmd = isRust ? 'cargo build' : 'npm run build';
                 runInTerminal(cmd);
             },
