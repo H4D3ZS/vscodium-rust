@@ -121,6 +121,8 @@ fn trial_active(account: &Account) -> bool {
 pub struct Entitlements {
     pub daily_requests: u32,
     pub monthly_requests: u32,
+    /// Monthly token budget (input+output). 0 == unlimited.
+    pub monthly_tokens: u64,
     pub features: Vec<String>,
 }
 
@@ -131,20 +133,21 @@ fn entitlements_for(account: &Account) -> Entitlements {
         return Entitlements {
             daily_requests: 0,   // 0 == unlimited
             monthly_requests: 0, // 0 == unlimited
+            monthly_tokens: 0,   // 0 == unlimited
             features: [
                 "editor", "agentic", "neural_vfs", "local_models", "cloud_models",
                 "bug_bounty", "vuln_hunt", "web_audit", "mimo_pro", "trial",
             ].into_iter().map(String::from).collect(),
         };
     }
-    let (daily, monthly, mut features): (u32, u32, Vec<&str>) = match account.tier {
-        Tier::Community => (50, 1_500, vec!["editor", "agentic_basic", "local_models"]),
-        Tier::ProDeveloper => (0, 5_000, vec!["editor", "agentic", "neural_vfs", "local_models", "cloud_models"]),
-        Tier::SecurityResearcher => (0, 20_000, vec![
+    let (daily, monthly, tokens, mut features): (u32, u32, u64, Vec<&str>) = match account.tier {
+        Tier::Community => (50, 1_500, 200_000, vec!["editor", "agentic_basic", "local_models"]),
+        Tier::ProDeveloper => (0, 5_000, 5_000_000, vec!["editor", "agentic", "neural_vfs", "local_models", "cloud_models"]),
+        Tier::SecurityResearcher => (0, 20_000, 20_000_000, vec![
             "editor", "agentic", "neural_vfs", "local_models", "cloud_models",
             "bug_bounty", "vuln_hunt", "web_audit",
         ]),
-        Tier::Enterprise => (0, 0 /* custom */, vec![
+        Tier::Enterprise => (0, 0 /* custom */, 0 /* unlimited */, vec![
             "editor", "agentic", "neural_vfs", "local_models", "cloud_models",
             "bug_bounty", "vuln_hunt", "web_audit", "team", "amd_backend",
         ]),
@@ -160,6 +163,7 @@ fn entitlements_for(account: &Account) -> Entitlements {
     Entitlements {
         daily_requests: daily,
         monthly_requests: monthly,
+        monthly_tokens: tokens,
         features: features.into_iter().map(|s| s.to_string()).collect(),
     }
 }
@@ -478,6 +482,8 @@ struct Usage {
     month_count: u32,
     day: String, // "YYYY-MM-DD"
     day_count: u32,
+    #[serde(default)]
+    tokens_month: u64, // input+output tokens this month
 }
 
 fn usage_path(config_dir: &Path) -> PathBuf {
@@ -496,6 +502,40 @@ fn save_usage(config_dir: &Path, u: &Usage) {
     if let Ok(j) = serde_json::to_string_pretty(u) {
         let _ = std::fs::write(usage_path(config_dir), j);
     }
+}
+
+/// Add the token count of a completed AI turn to the monthly token meter. Called
+/// by the frontend after each turn (input+output). Best-effort Supabase mirror.
+#[tauri::command]
+pub async fn account_add_tokens(state: State<'_, EditorState>, tokens: u64) -> Result<(), String> {
+    let month = chrono::Local::now().format("%Y-%m").to_string();
+    let mut u = load_usage(&state.config_dir);
+    if u.month != month {
+        u.month = month.clone();
+        u.month_count = 0;
+        u.tokens_month = 0;
+    }
+    u.tokens_month = u.tokens_month.saturating_add(tokens);
+    save_usage(&state.config_dir, &u);
+
+    if let Some(sess) = crate::auth::valid_session(&state.config_dir).await {
+        let (url, anon) = crate::auth::supabase_config(&state.config_dir);
+        if !url.is_empty() {
+            let (period, toks, uid, token) = (month, u.tokens_month, sess.user_id.clone(), sess.access_token.clone());
+            tauri::async_runtime::spawn(async move {
+                let _ = reqwest::Client::new()
+                    .post(format!("{url}/rest/v1/usage_counters?on_conflict=user_id,period_yyyymm"))
+                    .header("apikey", &anon)
+                    .bearer_auth(&token)
+                    .header("Content-Type", "application/json")
+                    .header("Prefer", "resolution=merge-duplicates")
+                    .json(&serde_json::json!([{ "user_id": uid, "period_yyyymm": period, "tokens": toks }]))
+                    .send()
+                    .await;
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Check the current quota and, if allowed, increment usage. Called by the
@@ -591,6 +631,8 @@ pub async fn account_usage(state: State<'_, EditorState>) -> Result<serde_json::
         "limit_month": ent.monthly_requests,
         "used_day": if u.day == day { u.day_count } else { 0 },
         "limit_day": ent.daily_requests,
+        "used_tokens": if u.month == month { u.tokens_month } else { 0 },
+        "limit_tokens": ent.monthly_tokens,
     }))
 }
 

@@ -235,6 +235,8 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             if (keys.mistral) providers.push('Mistral');
             if ((keys as any).deepseek) providers.push('Deepseek');
             if ((keys as any).mimo) providers.push('Mimo');
+            // Interface AI / highwayapi.ai — Claude Opus 4.8 (BYO key).
+            if ((keys as any).highwayapi || (keys as any).highwayapi_base_url) providers.push('Highwayapi');
             // Cyber-Ifrit may front a keyless local AMD box — list it if a key OR a
             // custom base URL is configured.
             if ((keys as any).cyberifrit || (keys as any).cyberifrit_base_url) providers.push('Cyberifrit');
@@ -284,6 +286,11 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                 }
             }
             allModels.push({ id: 'antigravity-sentient', provider: 'antigravity' });
+            // Guarantee Opus 4.8 appears when the Interface AI key is set, even if
+            // the provider's /models listing is unavailable.
+            if (((keys as any).highwayapi) && !allModels.some(m => m.provider === 'highwayapi')) {
+                allModels.push({ id: 'claude-opus-4-8', provider: 'highwayapi' });
+            }
             set((state) => {
                 let currentModels = targetProvider ? state.availableModels.filter((m: any) => m.provider !== targetProvider.toLowerCase()) : [];
                 const newModels = allModels.filter(nm => !currentModels.some((cm: any) => cm.id === nm.id && cm.provider === nm.provider));
