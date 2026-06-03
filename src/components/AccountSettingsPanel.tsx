@@ -57,6 +57,7 @@ const TIERS = [
 
 const AccountSettingsPanel: React.FC = () => {
     const [data, setData] = useState<AccountView | null>(null);
+    const [usage, setUsage] = useState<{ used_tokens: number; limit_tokens: number; used_month: number; limit_month: number } | null>(null);
     const [tosAccepted, setTosAccepted] = useState(false);
     const [showTos, setShowTos] = useState(false);
     const [hasMimo, setHasMimo] = useState(false);
@@ -78,6 +79,7 @@ const AccountSettingsPanel: React.FC = () => {
             setHasMimo((d.account.addons || []).some((a) => a.id === 'mimo_pro'));
             window.dispatchEvent(new Event('account:changed')); // refresh status-bar chip
         }).catch(() => {});
+        invoke<{ used_tokens: number; limit_tokens: number; used_month: number; limit_month: number }>('account_usage').then(setUsage).catch(() => {});
         invoke<boolean>('account_tos_status', { docId: BUG_BOUNTY_TOS_ID }).then(setTosAccepted).catch(() => {});
     }, []);
     useEffect(() => { refresh(); }, [refresh]);
@@ -164,7 +166,14 @@ const AccountSettingsPanel: React.FC = () => {
                     {data.current_period_end && (
                         <div style={{ fontSize: 11, opacity: 0.5, marginTop: 6 }}>Renews {new Date(data.current_period_end).toLocaleDateString()}</div>
                     )}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                    {/* Usage meters */}
+                    {usage && (
+                        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <UsageBar label="Tokens this month" used={usage.used_tokens} limit={usage.limit_tokens} fmt={fmtK} />
+                            <UsageBar label="Requests this month" used={usage.used_month} limit={usage.limit_month} fmt={(n) => n.toLocaleString()} />
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
                         {data.entitlements.features.map((f) => (
                             <span key={f} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', opacity: 0.8 }}>{f}</span>
                         ))}
@@ -295,6 +304,25 @@ const btnPrimary: React.CSSProperties = {
 const btnGhost: React.CSSProperties = {
     padding: '6px 12px', borderRadius: 6, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.15))',
     background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 12,
+};
+
+const fmtK = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+
+const UsageBar: React.FC<{ label: string; used: number; limit: number; fmt: (n: number) => string }> = ({ label, used, limit, fmt }) => {
+    const unlimited = !limit || limit <= 0;
+    const pct = unlimited ? 100 : Math.min(100, Math.round((used / limit) * 100));
+    const color = unlimited ? '#9ece6a' : pct > 90 ? '#f7768e' : pct > 70 ? '#e0af68' : '#4daafc';
+    return (
+        <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.75, marginBottom: 4 }}>
+                <span>{label}</span>
+                <span>{fmt(used)}{unlimited ? ' · ∞' : ` / ${fmt(limit)}`}</span>
+            </div>
+            <div style={{ height: 6, borderRadius: 4, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                <div style={{ width: `${pct}%`, height: '100%', background: color, transition: 'width 0.3s' }} />
+            </div>
+        </div>
+    );
 };
 
 const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (

@@ -1471,6 +1471,23 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
     } catch { /* backend hiccup — don't hard-block */ }
 
+    // ── Token usage accounting (account-tied) ──────────────────────────────
+    // Count this turn against the account's monthly token budget. Each turn
+    // re-sends the full context as input + the model's output, so summing
+    // (context + output estimate) per turn approximates real token billing.
+    // Provider usage isn't reliably pushed to the webview (dead event stream),
+    // so we estimate from the conversation context (≈ chars/4).
+    try {
+        const msgs = store.getState().agentMessages || [];
+        const ctxChars = msgs.reduce((s: number, m: any) =>
+            s + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content || '').length), 0)
+            + (userPrompt?.length || 0);
+        const estTokens = Math.ceil((ctxChars / 4) * 1.3); // +30% for output
+        invoke('account_add_tokens', { tokens: estTokens })
+            .then(() => window.dispatchEvent(new Event('account:changed')))
+            .catch(() => {});
+    } catch { /* non-fatal */ }
+
     // ── Plan-before-execute mode (Claude Code / Cursor-style) ───────────
     // When enabled, prepend a planning directive so the model generates a
     // numbered task list and waits for [PROCEED] before touching any files.
