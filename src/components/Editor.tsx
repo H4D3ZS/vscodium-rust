@@ -120,6 +120,13 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
 
     const handleMount: OnMount = useCallback((editor, monaco) => {
         editorRef.current = editor;
+        // Expose the live Monaco instance globally so the title-bar menus
+        // (Edit / Selection / Go: Undo, Copy, Find, Select All, …) and command
+        // palette can drive it. Without this, every editor-backed menu item was
+        // a silent no-op. Keep it current on focus + clear on dispose.
+        (window as any).activeEditor = editor;
+        editor.onDidFocusEditorText(() => { (window as any).activeEditor = editor; });
+        editor.onDidDispose(() => { if ((window as any).activeEditor === editor) (window as any).activeEditor = null; });
         // Announce the live editor so add-on overlays (PredictiveEditOverlay,
         // future inline widgets) can attach onDidChangeModelContent listeners
         // without us having to thread the handle through React props.
