@@ -786,11 +786,13 @@ body.resizing * {
   left: 0;
   background: var(--vscode-menu-background, #252526);
   color: var(--vscode-menu-foreground, #cccccc);
-  border: 1px solid var(--vscode-menu-border, #454545);
-  border-radius: 6px;
+  border: 1px solid var(--vscode-menu-border, rgba(255, 255, 255, 0.08));
+  border-radius: 5px;
   padding: 4px 0;
   min-width: 180px;
-  box-shadow: var(--shadow-macos);
+  /* Subtle native shadow — the old --shadow-macos (0 12px 40px / 0.65) cast a
+     large dark "shadowy area" around the menu on the dark frameless window. */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
   z-index: 1000;
   margin-top: 4px;
 }
