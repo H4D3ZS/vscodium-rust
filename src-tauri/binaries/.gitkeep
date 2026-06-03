@@ -1,0 +1,2 @@
+# Frozen sidecars (e.g. browser-agent.exe from scripts/build-sidecar.ps1) land
+# here and are bundled into the installer via tauri.conf bundle.resources.

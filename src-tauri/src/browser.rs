@@ -57,18 +57,50 @@ fn python_exe() -> String {
     "python".to_string()
 }
 
+/// Locate a bundled, frozen sidecar shipped with the installer (PyInstaller
+/// `browser-agent.exe` with invisible_playwright baked in) — so a released build
+/// drives the browser WITHOUT the user installing Python. Searched next to the
+/// IDE exe and in `resources/` / `binaries/` siblings. None in dev.
+fn bundled_sidecar() -> Option<std::path::PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let names = ["browser-agent.exe", "browser-agent", "browser_agent.exe", "browser_agent"];
+    let mut roots = vec![dir.clone()];
+    for sub in ["resources", "binaries"] {
+        roots.push(dir.join(sub));
+    }
+    for root in roots {
+        for n in names {
+            let p = root.join(n);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
 async fn start_sidecar() -> Result<BrowserProc, String> {
-    let path = sidecar_path();
-    std::fs::write(&path, SIDECAR_PY).map_err(|e| format!("write sidecar: {e}"))?;
-    let py = python_exe();
-    let mut child = Command::new(&py)
-        .arg(&path)
+    // Prefer the bundled frozen sidecar (no Python needed); fall back to system
+    // Python + the embedded script for dev / source runs.
+    let (cmd, arg): (String, Option<std::path::PathBuf>) = match bundled_sidecar() {
+        Some(exe) => (exe.to_string_lossy().to_string(), None),
+        None => {
+            let path = sidecar_path();
+            std::fs::write(&path, SIDECAR_PY).map_err(|e| format!("write sidecar: {e}"))?;
+            (python_exe(), Some(path))
+        }
+    };
+    let mut command = Command::new(&cmd);
+    if let Some(p) = &arg {
+        command.arg(p);
+    }
+    let mut child = command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null()) // discard Playwright logs / download progress
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| format!("spawn python browser sidecar ({py}): {e}. Install with: pip install playwright invisible_playwright"))?;
+        .map_err(|e| format!("spawn browser sidecar ({cmd}): {e}. For source runs: pip install playwright invisible_playwright"))?;
     let stdin = child.stdin.take().ok_or("sidecar: no stdin")?;
     let stdout = child.stdout.take().ok_or("sidecar: no stdout")?;
     Ok(BrowserProc { child, stdin, stdout: BufReader::new(stdout) })
