@@ -43,6 +43,9 @@ interface AccountView {
     status?: string;
     current_period_end?: string | null;
     signed_in?: boolean;
+    trial_active?: boolean;
+    trial_ends_at?: number | null;
+    trial_used?: boolean;
 }
 
 const TIERS = [
@@ -104,6 +107,9 @@ const AccountSettingsPanel: React.FC = () => {
     };
     const openBilling = () => { invoke('account_open_billing').catch(() => {}); };
     const sync = () => { setMsg('Syncing…'); invoke('account_sync').then(() => { setMsg(''); refresh(); }).catch((e) => setMsg(String(e))); };
+    const startTrial = () => { setMsg('Starting trial…'); invoke('account_start_trial').then(() => { setMsg(''); refresh(); }).catch((e) => setMsg(String(e))); };
+
+    const trialHoursLeft = data?.trial_ends_at ? Math.max(0, Math.ceil((data.trial_ends_at * 1000 - Date.now()) / 3_600_000)) : 0;
 
     const status = data?.status || 'local';
     const statusColor = status === 'active' ? '#9ece6a' : status === 'past_due' ? '#e0af68' : status === 'unpaid' ? '#f7768e' : '#8a8a8a';
@@ -166,6 +172,33 @@ const AccountSettingsPanel: React.FC = () => {
                 </div>
             )}
 
+            {/* 1-day free trial */}
+            {data?.trial_active ? (
+                <div style={{ marginBottom: 22, padding: '14px 16px', borderRadius: 10, border: '1px solid rgba(158,206,106,0.5)', background: 'linear-gradient(135deg, rgba(158,206,106,0.15), rgba(158,206,106,0.03))' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <i className="codicon codicon-rocket" style={{ fontSize: 20, color: '#9ece6a' }} />
+                        <div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#9ece6a' }}>Free Trial active — everything unlocked</div>
+                            <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
+                                Unlimited prompts, agentic AI & full security tooling · {trialHoursLeft}h left
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : !data?.trial_used ? (
+                <div style={{ marginBottom: 22, padding: '16px', borderRadius: 10, border: '1px solid rgba(77,170,252,0.5)', background: 'linear-gradient(135deg, rgba(77,170,252,0.14), rgba(187,154,247,0.06))' }}>
+                    <div style={{ fontSize: 15, fontWeight: 700 }}>🚀 Start your 1-day free trial</div>
+                    <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4, marginBottom: 12 }}>
+                        24 hours of <b>unlimited</b> prompts, full agentic AI, autonomous tasks, and the complete security / bug-bounty suite. No card required.
+                    </div>
+                    <button onClick={startTrial} style={{ ...btnPrimary, padding: '9px 18px', fontSize: 13 }}>Activate free trial</button>
+                </div>
+            ) : (
+                <div style={{ marginBottom: 22, padding: '12px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))', opacity: 0.75 }}>
+                    <div style={{ fontSize: 12 }}>Your free trial has ended. Subscribe below to keep unlimited access.</div>
+                </div>
+            )}
+
             {/* Plan picker → PayMongo checkout */}
             <SectionLabel>Plans</SectionLabel>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 14 }}>
@@ -195,13 +228,13 @@ const AccountSettingsPanel: React.FC = () => {
             <SectionLabel>Add-ons</SectionLabel>
             <div style={{ marginBottom: 24, padding: '14px 16px', borderRadius: 10, border: '1px solid rgba(224,175,104,0.4)', background: 'linear-gradient(135deg, rgba(224,175,104,0.12), rgba(224,175,104,0.03))', position: 'relative', overflow: 'hidden' }}>
                 <span style={{ position: 'absolute', top: 10, right: 12, fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', color: '#1a1a1a', background: '#e0af68', padding: '2px 8px', borderRadius: 10 }}>
-                    TODAY ONLY · FIRST-TIME OFFER
+                    EARLY ACCESS · SOFT LAUNCH
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <i className="codicon codicon-sparkle" style={{ fontSize: 20, color: '#e0af68' }} />
                     <div>
-                        <div style={{ fontSize: 14, fontWeight: 600 }}>MiMo Pro model — <span style={{ color: '#e0af68' }}>$10</span> <span style={{ fontSize: 10, opacity: 0.6 }}>(₱692.50)</span></div>
-                        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Xiaomi MiMo (v2.5-pro) reasoning model. One-time unlock.</div>
+                        <div style={{ fontSize: 14, fontWeight: 600 }}>MiMo Pro — <span style={{ color: '#e0af68' }}>Premium</span> <span style={{ fontSize: 10, opacity: 0.6 }}>$10 · ₱692.50</span></div>
+                        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Xiaomi MiMo (v2.5-pro) reasoning model — limited early-access seats during soft launch.</div>
                     </div>
                     <button
                         onClick={openBilling}

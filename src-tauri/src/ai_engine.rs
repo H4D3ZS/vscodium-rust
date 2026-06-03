@@ -4755,6 +4755,7 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         models.into_iter().next()
     }
 
+    #[allow(unused_assignments)] // has_google_base_url flag is set in a vestigial branch
     pub async fn single_shot_completion(&self, req: AiRequest) -> Result<String> {
         let is_ollama = req.provider.to_lowercase() == "ollama" || req.provider.to_lowercase() == "antigravity";
         // Use standard chat endpoint for single-turn logic
