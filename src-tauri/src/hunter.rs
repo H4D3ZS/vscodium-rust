@@ -1,3 +1,6 @@
+// API-Radar leak hunter — wired but not yet surfaced in the UI; allow the
+// unused scaffolding rather than delete the integration point.
+#![allow(dead_code)]
 use serde::{Deserialize, Serialize};
 use reqwest::Client;
 use regex::Regex;
