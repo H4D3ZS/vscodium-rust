@@ -1427,6 +1427,27 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
     }
 
+    // ── Subscription quota gate (tied to the account) ──────────────────────
+    // Each AI turn counts against the plan's request budget (backend
+    // `account_check_and_count` — local-authoritative, mirrored to Supabase when
+    // signed in). When over the cap, block and point to upgrade. A transient
+    // backend error never hard-blocks the user.
+    try {
+        const q = await invoke<{ allowed: boolean; reason?: string; used_day?: number; limit_day?: number; used_month?: number; limit_month?: number; tier?: string }>('account_check_and_count');
+        if (q && q.allowed === false) {
+            const cap = q.reason === 'daily'
+                ? `daily limit (${q.used_day}/${q.limit_day})`
+                : `monthly limit (${q.used_month}/${q.limit_month})`;
+            store.getState().addAgentMessage?.('assistant',
+                `⏳ **Request quota reached.** You hit your ${q.tier || ''} ${cap}.\n\n` +
+                'Open **Settings → Account & Terms** to upgrade your plan for a higher budget. ' +
+                'Local Ollama models always run free — switch the model picker to a local model to keep working.');
+            try { store.getState().openSettings?.('agent'); } catch { /* */ }
+            store.getState().setIsAgentThinking?.(false);
+            return;
+        }
+    } catch { /* backend hiccup — do not hard-block on a transient error */ }
+
     // ── Plan-before-execute mode (Claude Code / Cursor-style) ───────────
     // When enabled, prepend a planning directive so the model generates a
     // numbered task list and waits for [PROCEED] before touching any files.

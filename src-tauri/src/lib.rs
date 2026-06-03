@@ -4,6 +4,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 pub mod aim_store;
 pub mod account;
+pub mod auth;
 mod ai_auth;
 mod ai_commands;
 mod editor_commands;
@@ -236,6 +237,11 @@ pub fn run() {
             auth_commands::save_webui_response,
             auth_commands::webui_agent_run,
             auth_commands::toggle_webui_window_visibility,
+            // ═══ Auth (Supabase) ═══
+            auth::auth_sign_up,
+            auth::auth_sign_in,
+            auth::auth_session,
+            auth::auth_sign_out,
             // ═══ Account / Subscription / ToS ═══
             account::account_get,
             account::account_accept_tos,
@@ -243,6 +249,10 @@ pub fn run() {
             account::account_has_feature,
             account::account_set_tier,
             account::account_acquire_addon,
+            account::account_subscribe,
+            account::account_sync,
+            account::account_check_and_count,
+            account::account_open_billing,
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
             ai_commands::aim_inspect,

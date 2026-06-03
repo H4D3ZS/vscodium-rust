@@ -179,17 +179,13 @@ impl AccountManager {
 // Commands
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Full account view (account + derived entitlements + ToS status flags).
+/// Full account view (account + derived entitlements + subscription status).
+/// When signed in, the tier/status are synced live from Supabase (the billing
+/// source of truth) and cached to `account.json`; offline / signed-out falls
+/// back to the local cache (Community by default).
 #[tauri::command]
 pub async fn account_get(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
-    let acc = AccountManager::load(&state.config_dir);
-    let ent = entitlements_for(&acc);
-    Ok(serde_json::json!({
-        "account": acc,
-        "tier_label": acc.tier.label(),
-        "tier_price_usd": acc.tier.monthly_price_usd(),
-        "entitlements": ent,
-    }))
+    Ok(build_view(&state.config_dir).await)
 }
 
 /// Record a versioned ToS acceptance on the account (idempotent per doc — the
@@ -249,6 +245,310 @@ pub async fn account_acquire_addon(
     if !acc.addons.iter().any(|a| a.id == id) {
         acc.addons.push(Addon { id, label, acquired_at: now() });
         AccountManager::save(&state.config_dir, &acc)?;
+    }
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Billing sync (Supabase = source of truth, PayMongo = money)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Website base where the Netlify billing functions live. Resolution:
+/// env `CYBERIFRIT_SITE` → api_keys.json `site_url` → `https://cyberifrit.xyz`.
+fn site_base(config_dir: &Path) -> String {
+    if let Ok(v) = std::env::var("CYBERIFRIT_SITE") {
+        if !v.is_empty() {
+            return v.trim_end_matches('/').to_string();
+        }
+    }
+    if let Ok(txt) = std::fs::read_to_string(config_dir.join("api_keys.json")) {
+        if let Ok(j) = serde_json::from_str::<serde_json::Value>(&txt) {
+            if let Some(s) = j.get("site_url").and_then(|x| x.as_str()) {
+                if !s.is_empty() {
+                    return s.trim_end_matches('/').to_string();
+                }
+            }
+        }
+    }
+    "https://cyberifrit.xyz".to_string()
+}
+
+fn tier_from_str(s: &str) -> Tier {
+    match s.to_lowercase().replace([' ', '-'], "_").as_str() {
+        "pro_developer" | "pro" => Tier::ProDeveloper,
+        "security_researcher" | "security" => Tier::SecurityResearcher,
+        "enterprise" => Tier::Enterprise,
+        _ => Tier::Community,
+    }
+}
+
+struct RemoteState {
+    tier: Tier,
+    status: String,
+    current_period_end: Option<String>,
+    addons: Vec<Addon>,
+    email: Option<String>,
+}
+
+/// Pull the user's subscription + add-ons from Supabase (RLS-scoped by the
+/// signed-in JWT). `None` when signed out / unreachable.
+async fn sync_from_supabase(config_dir: &Path) -> Option<RemoteState> {
+    let sess = crate::auth::valid_session(config_dir).await?;
+    let (url, anon) = crate::auth::supabase_config(config_dir);
+    if url.is_empty() {
+        return None;
+    }
+    let client = reqwest::Client::new();
+
+    // Subscription row (at most one per user).
+    let rows: Vec<serde_json::Value> = client
+        .get(format!(
+            "{url}/rest/v1/subscriptions?user_id=eq.{}&select=tier,status,current_period_end",
+            sess.user_id
+        ))
+        .header("apikey", &anon)
+        .bearer_auth(&sess.access_token)
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+
+    let (tier, status, current_period_end) = match rows.first() {
+        Some(r) => {
+            let st = r.get("status").and_then(|v| v.as_str()).unwrap_or("active").to_string();
+            // Only grant the paid tier while the sub is active (past_due = grace).
+            let t = if matches!(st.as_str(), "active" | "past_due" | "trialing") {
+                tier_from_str(r.get("tier").and_then(|v| v.as_str()).unwrap_or("community"))
+            } else {
+                Tier::Community
+            };
+            (t, st, r.get("current_period_end").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        }
+        None => (Tier::Community, "none".to_string(), None),
+    };
+
+    // Add-ons (e.g. mimo_pro).
+    let mut addons = Vec::new();
+    if let Ok(resp) = client
+        .get(format!("{url}/rest/v1/addons?user_id=eq.{}&select=addon_id,acquired_at", sess.user_id))
+        .header("apikey", &anon)
+        .bearer_auth(&sess.access_token)
+        .send()
+        .await
+    {
+        if let Ok(arows) = resp.json::<Vec<serde_json::Value>>().await {
+            for ar in arows {
+                if let Some(id) = ar.get("addon_id").and_then(|v| v.as_str()) {
+                    addons.push(Addon { id: id.to_string(), label: id.to_string(), acquired_at: now() });
+                }
+            }
+        }
+    }
+
+    Some(RemoteState { tier, status, current_period_end, addons, email: sess.email })
+}
+
+/// Build the account view, syncing from Supabase when signed in and caching the
+/// result to `account.json`.
+async fn build_view(config_dir: &Path) -> serde_json::Value {
+    let mut acc = AccountManager::load(config_dir);
+    let mut status = "local".to_string();
+    let mut current_period_end: Option<String> = None;
+    let mut signed_in = false;
+
+    if let Some(rs) = sync_from_supabase(config_dir).await {
+        signed_in = true;
+        acc.tier = rs.tier;
+        status = rs.status;
+        current_period_end = rs.current_period_end;
+        if rs.email.is_some() {
+            acc.email = rs.email;
+        }
+        for ra in rs.addons {
+            if !acc.addons.iter().any(|a| a.id == ra.id) {
+                acc.addons.push(ra);
+            }
+        }
+        let _ = AccountManager::save(config_dir, &acc); // cache for offline
+    }
+
+    let ent = entitlements_for(&acc);
+    serde_json::json!({
+        "account": acc,
+        "tier_label": acc.tier.label(),
+        "tier_price_usd": acc.tier.monthly_price_usd(),
+        "entitlements": ent,
+        "status": status,
+        "current_period_end": current_period_end,
+        "signed_in": signed_in,
+    })
+}
+
+/// Force a re-sync from Supabase (call after returning from checkout).
+#[tauri::command]
+pub async fn account_sync(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
+    Ok(build_view(&state.config_dir).await)
+}
+
+/// Start a PayMongo subscription for `tier`: asks the website billing function
+/// (with the user's Supabase JWT) for a hosted checkout URL, opens it in the
+/// system browser, and returns the URL.
+#[tauri::command]
+pub async fn account_subscribe(
+    state: State<'_, EditorState>,
+    tier: String,
+) -> Result<serde_json::Value, String> {
+    let sess = crate::auth::valid_session(&state.config_dir)
+        .await
+        .ok_or_else(|| "Sign in first to subscribe.".to_string())?;
+    let site = site_base(&state.config_dir);
+    let resp = reqwest::Client::new()
+        .post(format!("{site}/api/create-subscription"))
+        .bearer_auth(&sess.access_token)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "tier": tier }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let ok = resp.status().is_success();
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if !ok {
+        return Err(body.get("error").and_then(|v| v.as_str()).unwrap_or("could not start checkout").to_string());
+    }
+    let url = body.get("checkout_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if url.is_empty() {
+        return Err("billing did not return a checkout URL".into());
+    }
+    let _ = open_in_browser(&url);
+    Ok(serde_json::json!({ "checkout_url": url }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Usage metering / quota (local-authoritative MVP; best-effort Supabase mirror)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct Usage {
+    month: String, // "YYYY-MM"
+    month_count: u32,
+    day: String, // "YYYY-MM-DD"
+    day_count: u32,
+}
+
+fn usage_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("usage.json")
+}
+
+fn load_usage(config_dir: &Path) -> Usage {
+    std::fs::read_to_string(usage_path(config_dir))
+        .ok()
+        .and_then(|c| serde_json::from_str::<Usage>(&c).ok())
+        .unwrap_or_default()
+}
+
+fn save_usage(config_dir: &Path, u: &Usage) {
+    let _ = std::fs::create_dir_all(config_dir);
+    if let Ok(j) = serde_json::to_string_pretty(u) {
+        let _ = std::fs::write(usage_path(config_dir), j);
+    }
+}
+
+/// Check the current quota and, if allowed, increment usage. Called by the
+/// frontend before each AI turn (same pattern as the Bug-Bounty ToS gate). Tier
+/// limits come from the cached account (fast, no network on the hot path); a
+/// best-effort Supabase mirror runs in the background when signed in.
+#[tauri::command]
+pub async fn account_check_and_count(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
+    let acc = AccountManager::load(&state.config_dir);
+    let ent = entitlements_for(&acc); // 0 == unlimited
+    let (monthly, daily) = (ent.monthly_requests, ent.daily_requests);
+
+    let month = chrono::Local::now().format("%Y-%m").to_string();
+    let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let mut u = load_usage(&state.config_dir);
+    if u.month != month {
+        u.month = month.clone();
+        u.month_count = 0;
+    }
+    if u.day != day {
+        u.day = day.clone();
+        u.day_count = 0;
+    }
+
+    if daily > 0 && u.day_count >= daily {
+        return Ok(serde_json::json!({
+            "allowed": false, "reason": "daily",
+            "used_day": u.day_count, "limit_day": daily,
+            "used_month": u.month_count, "limit_month": monthly,
+            "tier": acc.tier.label(),
+        }));
+    }
+    if monthly > 0 && u.month_count >= monthly {
+        return Ok(serde_json::json!({
+            "allowed": false, "reason": "monthly",
+            "used_month": u.month_count, "limit_month": monthly,
+            "tier": acc.tier.label(),
+        }));
+    }
+
+    u.day_count += 1;
+    u.month_count += 1;
+    save_usage(&state.config_dir, &u);
+
+    // Best-effort Supabase mirror (does not gate the turn).
+    if let Some(sess) = crate::auth::valid_session(&state.config_dir).await {
+        let (url, anon) = crate::auth::supabase_config(&state.config_dir);
+        if !url.is_empty() {
+            let (period, count, uid, token) = (month.clone(), u.month_count, sess.user_id.clone(), sess.access_token.clone());
+            tauri::async_runtime::spawn(async move {
+                let _ = reqwest::Client::new()
+                    .post(format!("{url}/rest/v1/usage_counters?on_conflict=user_id,period_yyyymm"))
+                    .header("apikey", &anon)
+                    .bearer_auth(&token)
+                    .header("Content-Type", "application/json")
+                    .header("Prefer", "resolution=merge-duplicates")
+                    .json(&serde_json::json!([{ "user_id": uid, "period_yyyymm": period, "count": count }]))
+                    .send()
+                    .await;
+            });
+        }
+    }
+
+    Ok(serde_json::json!({
+        "allowed": true,
+        "used_day": u.day_count, "limit_day": daily,
+        "used_month": u.month_count, "limit_month": monthly,
+        "tier": acc.tier.label(),
+    }))
+}
+
+/// Open the website billing/account page in the system browser. This is where
+/// card capture + add-on (MiMo) purchases complete reliably (PayMongo.js).
+#[tauri::command]
+pub async fn account_open_billing(state: State<'_, EditorState>) -> Result<(), String> {
+    let url = format!("{}/account", site_base(&state.config_dir));
+    open_in_browser(&url)
+}
+
+/// Cross-platform "open URL in the system browser" (default browser, not the
+/// in-app webview) — used to send the user to the PayMongo checkout page.
+fn open_in_browser(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(url).spawn().map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(url).spawn().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
