@@ -253,6 +253,7 @@ pub fn run() {
             account::account_sync,
             account::account_check_and_count,
             account::account_usage,
+            account::account_start_trial,
             account::account_open_billing,
             // ═══ AI Commands ═══
             ai_commands::ai_chat,

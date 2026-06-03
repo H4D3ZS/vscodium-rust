@@ -85,6 +85,12 @@ pub struct Account {
     pub tos: Vec<TosAcceptance>,
     #[serde(default)]
     pub addons: Vec<Addon>,
+    /// Unix secs when the 1-day free trial ends (None = no trial).
+    #[serde(default)]
+    pub trial_ends_at: Option<u64>,
+    /// True once the one-time trial has been started (prevents re-trial).
+    #[serde(default)]
+    pub trial_used: bool,
 }
 
 impl Default for Account {
@@ -97,8 +103,15 @@ impl Default for Account {
             tier: Tier::Community,
             tos: Vec::new(),
             addons: Vec::new(),
+            trial_ends_at: None,
+            trial_used: false,
         }
     }
+}
+
+/// Is the 1-day free trial currently active?
+fn trial_active(account: &Account) -> bool {
+    account.trial_ends_at.map(|t| now() < t).unwrap_or(false)
 }
 
 /// Derived feature + quota entitlements for a given tier (+ add-ons). Kept as a
@@ -112,6 +125,18 @@ pub struct Entitlements {
 }
 
 fn entitlements_for(account: &Account) -> Entitlements {
+    // 1-day free trial: unlimited prompts + EVERY feature (security included), so
+    // the user gets the full agentic experience before committing.
+    if trial_active(account) {
+        return Entitlements {
+            daily_requests: 0,   // 0 == unlimited
+            monthly_requests: 0, // 0 == unlimited
+            features: [
+                "editor", "agentic", "neural_vfs", "local_models", "cloud_models",
+                "bug_bounty", "vuln_hunt", "web_audit", "mimo_pro", "trial",
+            ].into_iter().map(String::from).collect(),
+        };
+    }
     let (daily, monthly, mut features): (u32, u32, Vec<&str>) = match account.tier {
         Tier::Community => (50, 1_500, vec!["editor", "agentic_basic", "local_models"]),
         Tier::ProDeveloper => (0, 5_000, vec!["editor", "agentic", "neural_vfs", "local_models", "cloud_models"]),
@@ -375,15 +400,33 @@ async fn build_view(config_dir: &Path) -> serde_json::Value {
     }
 
     let ent = entitlements_for(&acc);
+    let on_trial = trial_active(&acc);
     serde_json::json!({
         "account": acc,
-        "tier_label": acc.tier.label(),
+        "tier_label": if on_trial { "Free Trial".to_string() } else { acc.tier.label().to_string() },
         "tier_price_usd": acc.tier.monthly_price_usd(),
         "entitlements": ent,
-        "status": status,
+        "status": if on_trial { "trialing".to_string() } else { status },
         "current_period_end": current_period_end,
         "signed_in": signed_in,
+        "trial_active": on_trial,
+        "trial_ends_at": acc.trial_ends_at,
+        "trial_used": acc.trial_used,
     })
+}
+
+/// Start the one-time 1-day free trial — unlimited prompts + all features
+/// (including security) for 24h. Idempotent: refuses if already used.
+#[tauri::command]
+pub async fn account_start_trial(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
+    let mut acc = AccountManager::load(&state.config_dir);
+    if acc.trial_used {
+        return Err("Your free trial has already been used.".to_string());
+    }
+    acc.trial_ends_at = Some(now() + 86_400); // 24 hours
+    acc.trial_used = true;
+    AccountManager::save(&state.config_dir, &acc)?;
+    Ok(build_view(&state.config_dir).await)
 }
 
 /// Force a re-sync from Supabase (call after returning from checkout).
@@ -542,7 +585,8 @@ pub async fn account_usage(state: State<'_, EditorState>) -> Result<serde_json::
     let day = chrono::Local::now().format("%Y-%m-%d").to_string();
     let u = load_usage(&state.config_dir);
     Ok(serde_json::json!({
-        "tier": acc.tier.label(),
+        "tier": if trial_active(&acc) { "Free Trial".to_string() } else { acc.tier.label().to_string() },
+        "trial_active": trial_active(&acc),
         "used_month": if u.month == month { u.month_count } else { 0 },
         "limit_month": ent.monthly_requests,
         "used_day": if u.day == day { u.day_count } else { 0 },
