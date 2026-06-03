@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { invoke } from '../tauri_bridge';
 
-// Account & Terms — subscription tier, entitlements, the Bug-Bounty Terms of
-// Service (acceptance is recorded on the account, backend `account.rs`), and the
-// MiMo pre-model promo. Local-first today; the same commands back onto a real
-// billing/auth backend later with no UI change.
+// Account & Terms — Supabase sign-in, subscription tier + entitlements (synced
+// from the billing backend), the Bug-Bounty Terms of Service, and the MiMo
+// add-on. Purchases go through PayMongo checkout (opened in the system browser);
+// the IDE reflects the server-authoritative state.
 
 const BUG_BOUNTY_TOS_ID = 'bug-bounty';
 const BUG_BOUNTY_TOS_VERSION = '1.0';
@@ -40,13 +40,16 @@ interface AccountView {
     tier_label: string;
     tier_price_usd: number;
     entitlements: { daily_requests: number; monthly_requests: number; features: string[] };
+    status?: string;
+    current_period_end?: string | null;
+    signed_in?: boolean;
 }
 
 const TIERS = [
-    { id: 'community', label: 'Community', price: 'Free', quota: '50 / day', accent: '#8a8a8a' },
-    { id: 'pro', label: 'Pro Developer', price: '$30/mo', quota: '5,000 / mo', accent: '#4daafc' },
-    { id: 'security', label: 'Security Researcher', price: '$75/mo', quota: '~20K / mo', accent: '#f7768e' },
-    { id: 'enterprise', label: 'Enterprise', price: '$225/mo', quota: 'Custom', accent: '#bb9af7' },
+    { id: 'community', sub: '', label: 'Community', price: 'Free', quota: '50 / day', accent: '#8a8a8a' },
+    { id: 'pro', sub: 'pro_developer', label: 'Pro Developer', price: '$30/mo', quota: '5,000 / mo', accent: '#4daafc' },
+    { id: 'security', sub: 'security_researcher', label: 'Security Researcher', price: '$75/mo', quota: '~20K / mo', accent: '#f7768e' },
+    { id: 'enterprise', sub: 'enterprise', label: 'Enterprise', price: '$225/mo', quota: 'Custom', accent: '#bb9af7' },
 ];
 
 const AccountSettingsPanel: React.FC = () => {
@@ -55,7 +58,18 @@ const AccountSettingsPanel: React.FC = () => {
     const [showTos, setShowTos] = useState(false);
     const [hasMimo, setHasMimo] = useState(false);
 
+    // Auth state
+    const [signedIn, setSignedIn] = useState(false);
+    const [email, setEmail] = useState('');
+    const [pw, setPw] = useState('');
+    const [authMsg, setAuthMsg] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState('');
+
     const refresh = useCallback(() => {
+        invoke<{ signed_in: boolean; email?: string }>('auth_session')
+            .then((s) => { setSignedIn(!!s.signed_in); if (s.email) setEmail(s.email); })
+            .catch(() => {});
         invoke<AccountView>('account_get').then((d) => {
             setData(d);
             setHasMimo((d.account.addons || []).some((a) => a.id === 'mimo_pro'));
@@ -64,32 +78,85 @@ const AccountSettingsPanel: React.FC = () => {
     }, []);
     useEffect(() => { refresh(); }, [refresh]);
 
+    const doSignIn = (signup: boolean) => {
+        setAuthMsg('…'); setBusy(true);
+        invoke<{ signed_in?: boolean; needs_confirmation?: boolean }>(signup ? 'auth_sign_up' : 'auth_sign_in', { email, password: pw })
+            .then((r) => {
+                setBusy(false); setPw('');
+                if (r.needs_confirmation) { setAuthMsg('Check your email to confirm, then sign in.'); return; }
+                setAuthMsg(''); refresh();
+            })
+            .catch((e) => { setBusy(false); setAuthMsg(String(e)); });
+    };
+    const signOut = () => { invoke('auth_sign_out').then(() => { setSignedIn(false); refresh(); }).catch(() => {}); };
+
     const acceptTos = () => {
         invoke('account_accept_tos', { docId: BUG_BOUNTY_TOS_ID, version: BUG_BOUNTY_TOS_VERSION })
             .then(() => { setShowTos(false); refresh(); }).catch(() => {});
     };
-    const setTier = (id: string) => { invoke('account_set_tier', { tier: id }).then(refresh).catch(() => {}); };
-    const acquireMimo = () => { invoke('account_acquire_addon', { id: 'mimo_pro', label: 'MiMo Pro model' }).then(refresh).catch(() => {}); };
+    const subscribe = (subTier: string) => {
+        if (!signedIn) { setMsg('Sign in first to subscribe.'); return; }
+        setMsg('Opening checkout in your browser…');
+        invoke('account_subscribe', { tier: subTier })
+            .then(() => setMsg('Checkout opened — complete payment in your browser, then Sync.'))
+            .catch((e) => setMsg(String(e)));
+    };
+    const openBilling = () => { invoke('account_open_billing').catch(() => {}); };
+    const sync = () => { setMsg('Syncing…'); invoke('account_sync').then(() => { setMsg(''); refresh(); }).catch((e) => setMsg(String(e))); };
+
+    const status = data?.status || 'local';
+    const statusColor = status === 'active' ? '#9ece6a' : status === 'past_due' ? '#e0af68' : status === 'unpaid' ? '#f7768e' : '#8a8a8a';
 
     return (
         <div style={{ padding: '4px 4px 40px', color: 'var(--vscode-foreground)' }}>
             <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 4px' }}>Account &amp; Subscription</h2>
             <p style={{ fontSize: 12, opacity: 0.6, margin: '0 0 18px' }}>
-                Your plan, entitlements, the Bug-Bounty Terms of Service, and add-ons.
+                Sign in, manage your plan, accept the Bug-Bounty Terms, and add-ons.
             </p>
+
+            {/* Auth */}
+            <SectionLabel>Sign in</SectionLabel>
+            {signedIn ? (
+                <div style={{ marginBottom: 22, padding: '12px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <i className="codicon codicon-verified-filled" style={{ fontSize: 18, color: '#9ece6a' }} />
+                    <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{email || 'Signed in'}</div>
+                        <div style={{ fontSize: 11, opacity: 0.55 }}>Entitlements sync from your subscription.</div>
+                    </div>
+                    <button onClick={sync} style={btnGhost}>Sync</button>
+                    <button onClick={signOut} style={btnGhost}>Sign out</button>
+                </div>
+            ) : (
+                <div style={{ marginBottom: 22, padding: '14px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" type="email" style={inp} />
+                        <input value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Password" type="password" style={inp}
+                            onKeyDown={(e) => { if (e.key === 'Enter') doSignIn(false); }} />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button disabled={busy} onClick={() => doSignIn(false)} style={{ ...btnPrimary, flex: 1 }}>Sign in</button>
+                            <button disabled={busy} onClick={() => doSignIn(true)} style={{ ...btnGhost, flex: 1 }}>Sign up</button>
+                        </div>
+                        {authMsg && <div style={{ fontSize: 11, opacity: 0.7 }}>{authMsg}</div>}
+                    </div>
+                </div>
+            )}
 
             {/* Current plan */}
             {data && (
                 <div style={{ marginBottom: 22, padding: '12px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))', background: 'var(--vscode-editorWidget-background, rgba(255,255,255,0.02))' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <i className="codicon codicon-account" style={{ fontSize: 18, opacity: 0.8 }} />
-                        <div>
+                        <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 14, fontWeight: 600 }}>{data.tier_label} {data.tier_price_usd > 0 ? `· $${data.tier_price_usd}/mo` : '· Free'}</div>
                             <div style={{ fontSize: 11, opacity: 0.55 }}>
                                 {data.entitlements.daily_requests > 0 ? `${data.entitlements.daily_requests} requests/day` : `${data.entitlements.monthly_requests || 'Custom'} requests/mo`}
                             </div>
                         </div>
+                        <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 10, background: `${statusColor}22`, color: statusColor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{status}</span>
                     </div>
+                    {data.current_period_end && (
+                        <div style={{ fontSize: 11, opacity: 0.5, marginTop: 6 }}>Renews {new Date(data.current_period_end).toLocaleDateString()}</div>
+                    )}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
                         {data.entitlements.features.map((f) => (
                             <span key={f} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', opacity: 0.8 }}>{f}</span>
@@ -98,24 +165,30 @@ const AccountSettingsPanel: React.FC = () => {
                 </div>
             )}
 
-            {/* Plan picker (dev/local — billing drives this in production) */}
+            {/* Plan picker → PayMongo checkout */}
             <SectionLabel>Plans</SectionLabel>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 14 }}>
                 {TIERS.map((t) => {
-                    const active = data?.account.tier === (t.id === 'pro' ? 'pro_developer' : t.id === 'security' ? 'security_researcher' : t.id);
+                    const active = data?.account.tier === (t.sub || 'community');
+                    const isCommunity = t.id === 'community';
                     return (
-                        <div key={t.id} onClick={() => setTier(t.id)} style={{
-                            cursor: 'pointer', padding: '12px 14px', borderRadius: 8,
+                        <div key={t.id} onClick={() => { if (!isCommunity && !active) subscribe(t.sub); }} style={{
+                            cursor: isCommunity || active ? 'default' : 'pointer', padding: '12px 14px', borderRadius: 8,
                             border: `1px solid ${active ? t.accent : 'var(--vscode-panel-border, rgba(255,255,255,0.12))'}`,
                             background: active ? `${t.accent}22` : 'var(--vscode-editorWidget-background, rgba(255,255,255,0.02))',
+                            opacity: isCommunity && !active ? 0.7 : 1,
                         }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: t.accent }}>{t.label}</div>
                             <div style={{ fontSize: 18, fontWeight: 700, margin: '4px 0' }}>{t.price}</div>
                             <div style={{ fontSize: 11, opacity: 0.55 }}>{t.quota} AI requests</div>
+                            {active && <div style={{ fontSize: 10, color: t.accent, marginTop: 4, fontWeight: 700 }}>✓ Current</div>}
+                            {!active && !isCommunity && <div style={{ fontSize: 10, opacity: 0.55, marginTop: 4 }}>Subscribe →</div>}
                         </div>
                     );
                 })}
             </div>
+            <button onClick={openBilling} style={{ ...btnGhost, marginBottom: 24 }}>Manage billing &amp; payment method →</button>
+            {msg && <div style={{ fontSize: 11, opacity: 0.7, margin: '-12px 0 18px' }}>{msg}</div>}
 
             {/* MiMo first-time offer */}
             <SectionLabel>Add-ons</SectionLabel>
@@ -126,11 +199,11 @@ const AccountSettingsPanel: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <i className="codicon codicon-sparkle" style={{ fontSize: 20, color: '#e0af68' }} />
                     <div>
-                        <div style={{ fontSize: 14, fontWeight: 600 }}>MiMo Pro model — <span style={{ color: '#e0af68' }}>$10</span></div>
+                        <div style={{ fontSize: 14, fontWeight: 600 }}>MiMo Pro model — <span style={{ color: '#e0af68' }}>$10</span> <span style={{ fontSize: 10, opacity: 0.6 }}>(₱692.50)</span></div>
                         <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Xiaomi MiMo (v2.5-pro) reasoning model. One-time unlock.</div>
                     </div>
                     <button
-                        onClick={acquireMimo}
+                        onClick={openBilling}
                         disabled={hasMimo}
                         style={{
                             marginLeft: 'auto', padding: '7px 16px', borderRadius: 8, border: 'none', cursor: hasMimo ? 'default' : 'pointer',
@@ -156,7 +229,7 @@ const AccountSettingsPanel: React.FC = () => {
                             Offensive-security tooling requires accepting authorized-use terms, recorded on your account.
                         </div>
                     </div>
-                    <button onClick={() => setShowTos((s) => !s)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.15))', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 12 }}>
+                    <button onClick={() => setShowTos((s) => !s)} style={btnGhost}>
                         {showTos ? 'Hide' : 'Review'}
                     </button>
                 </div>
@@ -173,6 +246,21 @@ const AccountSettingsPanel: React.FC = () => {
             </div>
         </div>
     );
+};
+
+const inp: React.CSSProperties = {
+    width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13,
+    background: 'var(--vscode-input-background, rgba(0,0,0,0.25))',
+    border: '1px solid var(--vscode-input-border, rgba(255,255,255,0.12))',
+    color: 'var(--vscode-input-foreground, inherit)', outline: 'none',
+};
+const btnPrimary: React.CSSProperties = {
+    padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+    background: 'var(--vscode-button-background, #4daafc)', color: 'var(--vscode-button-foreground, #fff)',
+};
+const btnGhost: React.CSSProperties = {
+    padding: '6px 12px', borderRadius: 6, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.15))',
+    background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 12,
 };
 
 const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (

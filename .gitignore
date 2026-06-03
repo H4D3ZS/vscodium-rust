@@ -125,3 +125,6 @@ airi/packages/font-cjkfonts-allseto/
 airi/packages/font-xiaolai/
 kortex/llama.cpp/models/*.gguf
 src/public/models/airi.vrm
+
+# Separate repo (Cyber-Ifrit portfolio/website) — has its own git, never embed here
+Cyber-Ifrit-Portfolio/
