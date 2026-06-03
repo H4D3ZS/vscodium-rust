@@ -23,10 +23,10 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-// Public values — fill after creating the Supabase project (or set them in
-// api_keys.json / env). Empty = auth disabled with a clear error.
-const SUPABASE_URL_FALLBACK: &str = "";
-const SUPABASE_ANON_FALLBACK: &str = "";
+// Public values — safe to ship (the anon key is RLS-protected by design).
+// Overridable via env (SUPABASE_URL / SUPABASE_ANON_KEY) or api_keys.json.
+const SUPABASE_URL_FALLBACK: &str = "https://ktufvjkvejjshtndmjze.supabase.co";
+const SUPABASE_ANON_FALLBACK: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt0dWZ2amt2ZWpqc2h0bmRtanplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0OTUxMDUsImV4cCI6MjA5NjA3MTEwNX0.2_BYmLHwxNGqQo24lXgi7e_PdqAKM968qszAnba7ujQ";
 
 /// Resolve the public Supabase URL + anon key. Returns trimmed `(url, anon)`.
 pub fn supabase_config(config_dir: &Path) -> (String, String) {
