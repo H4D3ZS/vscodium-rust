@@ -1448,6 +1448,29 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
     } catch { /* backend hiccup — do not hard-block on a transient error */ }
 
+    // ── Managed-cloud gating (the thing they pay us for) ───────────────────
+    // Cyber-Ifrit Cloud (our hosted AMD models) needs an active plan or the free
+    // trial. Local Ollama + the user's own API keys (BYOB) are ALWAYS free — so
+    // after the trial, an unpaid user keeps a fully working IDE, just on their
+    // own compute/keys. (The AMD gateway also enforces this server-side.)
+    try {
+        const model = store.getState().agentModel || '';
+        const provider = (model.split('|')[0] || '').toLowerCase();
+        const isManagedCloud = provider.includes('cyberifrit') || provider.includes('cyber-ifrit');
+        if (isManagedCloud) {
+            const ok = await invoke<boolean>('account_has_feature', { feature: 'cloud_models' });
+            if (!ok) {
+                store.getState().addAgentMessage?.('assistant',
+                    '🔒 **Cyber-Ifrit Cloud is a paid feature.** Our hosted models need an active plan or the free trial.\n\n' +
+                    'You can keep working **free right now** — switch the model picker to a **local Ollama** model or **your own API key** (BYOB). ' +
+                    'Or open **Settings → Account** to start the 1-day free trial or subscribe.');
+                try { store.getState().openSettings?.('agent'); } catch { /* */ }
+                store.getState().setIsAgentThinking?.(false);
+                return;
+            }
+        }
+    } catch { /* backend hiccup — don't hard-block */ }
+
     // ── Plan-before-execute mode (Claude Code / Cursor-style) ───────────
     // When enabled, prepend a planning directive so the model generates a
     // numbered task list and waits for [PROCEED] before touching any files.

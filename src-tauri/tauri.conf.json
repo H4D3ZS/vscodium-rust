@@ -43,7 +43,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "ext-host/*"
+      "ext-host/*",
+      "binaries/*"
     ]
   }
 }
