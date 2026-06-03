@@ -73,6 +73,7 @@ const AccountSettingsPanel: React.FC = () => {
         invoke<AccountView>('account_get').then((d) => {
             setData(d);
             setHasMimo((d.account.addons || []).some((a) => a.id === 'mimo_pro'));
+            window.dispatchEvent(new Event('account:changed')); // refresh status-bar chip
         }).catch(() => {});
         invoke<boolean>('account_tos_status', { docId: BUG_BOUNTY_TOS_ID }).then(setTosAccepted).catch(() => {});
     }, []);

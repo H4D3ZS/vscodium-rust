@@ -208,6 +208,33 @@ const StatusBar: React.FC = () => {
         return () => clearInterval(t);
     }, [processStats?.available_ram_gb]);
 
+    // ── Account / usage chip (SaaS) ───────────────────────────────────────────
+    const openSettings = useStore(state => (state as any).openSettings);
+    const [acct, setAcct] = useState<{ signedIn: boolean; tier: string; usedMonth: number; limitMonth: number; usedDay: number; limitDay: number } | null>(null);
+    useEffect(() => {
+        let alive = true;
+        const load = async () => {
+            try {
+                const [a, u] = await Promise.all([
+                    invoke<any>('account_get'),
+                    invoke<any>('account_usage'),
+                ]);
+                if (!alive) return;
+                setAcct({
+                    signedIn: !!a.signed_in,
+                    tier: u.tier || a.tier_label || 'Community',
+                    usedMonth: u.used_month ?? 0, limitMonth: u.limit_month ?? 0,
+                    usedDay: u.used_day ?? 0, limitDay: u.limit_day ?? 0,
+                });
+            } catch { /* backend not ready */ }
+        };
+        load();
+        const t = setInterval(load, 30000);
+        const h = () => load();
+        window.addEventListener('account:changed', h);
+        return () => { alive = false; clearInterval(t); window.removeEventListener('account:changed', h); };
+    }, []);
+
     // ── Open Problems panel ───────────────────────────────────────────────────
     const openProblems = useCallback(() => {
         if (!useStore.getState().isBottomPanelOpen) toggleBottomPanel();
@@ -428,6 +455,28 @@ const StatusBar: React.FC = () => {
 
             {/* ── RIGHT ────────────────────────────────────────────────────── */}
             <div className="status-right" style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+
+                {/* Account / plan + usage (click → Account settings) */}
+                <StatusItem
+                    onClick={() => openSettings?.('agent')}
+                    title={acct?.signedIn ? `Signed in · ${acct.tier} plan — click for Account & Subscription` : 'Not signed in — click to sign in / subscribe'}
+                    accent={!!acct?.signedIn}
+                >
+                    <i className="codicon codicon-account" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                    {acct && (acct.signedIn ? (
+                        <span style={{ fontSize: '11px' }}>
+                            {acct.tier}
+                            {(() => {
+                                const useDay = acct.limitDay > 0; // Community is day-capped; paid tiers month-capped
+                                const used = useDay ? acct.usedDay : acct.usedMonth;
+                                const lim = useDay ? acct.limitDay : acct.limitMonth;
+                                if (lim <= 0) return null; // unlimited
+                                const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k` : `${n}`);
+                                return <span style={{ opacity: 0.6 }}> · {fmt(used)}/{fmt(lim)}</span>;
+                            })()}
+                        </span>
+                    ) : <span style={{ fontSize: '11px' }}>Sign in</span>)}
+                </StatusItem>
 
                 {/* Token budget */}
                 {agentMessages.length > 0 && (

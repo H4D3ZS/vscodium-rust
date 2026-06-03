@@ -532,6 +532,24 @@ pub async fn account_open_billing(state: State<'_, EditorState>) -> Result<(), S
     open_in_browser(&url)
 }
 
+/// Read-only usage + tier snapshot for the status-bar chip (does NOT increment,
+/// unlike `account_check_and_count`). Rolls stale counters in the view only.
+#[tauri::command]
+pub async fn account_usage(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
+    let acc = AccountManager::load(&state.config_dir);
+    let ent = entitlements_for(&acc);
+    let month = chrono::Local::now().format("%Y-%m").to_string();
+    let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let u = load_usage(&state.config_dir);
+    Ok(serde_json::json!({
+        "tier": acc.tier.label(),
+        "used_month": if u.month == month { u.month_count } else { 0 },
+        "limit_month": ent.monthly_requests,
+        "used_day": if u.day == day { u.day_count } else { 0 },
+        "limit_day": ent.daily_requests,
+    }))
+}
+
 /// Cross-platform "open URL in the system browser" (default browser, not the
 /// in-app webview) — used to send the user to the PayMongo checkout page.
 fn open_in_browser(url: &str) -> Result<(), String> {
