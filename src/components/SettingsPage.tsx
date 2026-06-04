@@ -355,10 +355,19 @@ function ProvidersPanel() {
             if (stored.deepseek) nextKeys['deepseek'] = stored.deepseek;
             if (stored.xai) nextKeys['xAI'] = stored.xai;
             if (stored.mistral) nextKeys['mistral'] = stored.mistral;
+            if (stored.mimo) nextKeys['mimo'] = stored.mimo;
+            if (stored.cyberifrit) nextKeys['cyberifrit'] = stored.cyberifrit;
+            if (stored.highwayapi) nextKeys['highwayapi'] = stored.highwayapi;
+            if (stored.cerebras) nextKeys['cerebras'] = stored.cerebras;
+            if (stored.alibaba) nextKeys['alibaba'] = stored.alibaba;
+            if (stored.nvidia) nextKeys['nvidia'] = stored.nvidia;
             // Base URL overrides
             if (stored.anthropic_base_url) nextBaseUrls['anthropic'] = stored.anthropic_base_url;
             if (stored.openai_base_url) nextBaseUrls['openAI'] = stored.openai_base_url;
             if (stored.google_base_url) nextBaseUrls['gemini'] = stored.google_base_url;
+            if (stored.mimo_base_url) nextBaseUrls['mimo'] = stored.mimo_base_url;
+            if (stored.cyberifrit_base_url) nextBaseUrls['cyberifrit'] = stored.cyberifrit_base_url;
+            if (stored.highwayapi_base_url) nextBaseUrls['highwayapi'] = stored.highwayapi_base_url;
             setKeys(prev => ({ ...prev, ...nextKeys }));
             setBaseUrls(prev => ({ ...prev, ...nextBaseUrls }));
         }).catch(() => {
