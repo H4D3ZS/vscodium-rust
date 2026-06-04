@@ -2257,7 +2257,11 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // `agentModel` references a tag that isn't on the current Ollama
     // server, swap it in for one that is so the full agent loop doesn't
     // hang on a model_not_found from the backend.
-    if (routingProvider === 'ollama' && routingModel) {
+    // Never "swap" a recognizable CLOUD model to a local tag — the user picked
+    // it on purpose (e.g. claude-opus-4-8 via Interface AI). Only resolve tags
+    // for genuine local/ollama models.
+    const looksCloud = /^(claude|gpt|o1|o3|gemini|mimo|grok|deepseek-(chat|reasoner|v\d))/i.test(routingModel || '');
+    if (routingProvider === 'ollama' && routingModel && !looksCloud) {
         try {
             const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
             const resolved = await resolveOllamaModelTag(routingModel);
