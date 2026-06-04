@@ -1,4 +1,4 @@
-﻿use crate::EditorState;
+use crate::EditorState;
 use crate::ai_engine::{AiRequest, ChatMessage, MessageContent, AiResponse, normalize_ollama_base_url};
 use tauri::{State, AppHandle, Emitter};
 use serde_json::{Value, json};
@@ -301,6 +301,8 @@ pub async fn ai_inline_complete(
         let m = current_model.as_str();
         if m.contains(':') || (!m.contains('.') && m.contains('/')) || m.to_lowercase().starts_with("llama") || m.to_lowercase().starts_with("qwen") || m.to_lowercase().starts_with("deepseek") || m.to_lowercase().starts_with("gemma") || m.to_lowercase().starts_with("mistral") || m.to_lowercase().starts_with("phi") || m.to_lowercase().starts_with("codellama") {
             ("ollama".to_string(), m.to_string(), Some(ollama_url_val))
+        } else if m.to_lowercase().contains("claude-opus-4-8") {
+            ("highwayapi".to_string(), m.to_string(), None)
         } else if m.to_lowercase().contains("claude") {
             ("anthropic".to_string(), m.to_string(), None)
         } else if m.to_lowercase().contains("gemini") {
@@ -412,7 +414,8 @@ pub async fn predict_next_edit(
     let (provider, model, ollama_url) = {
         let m = current_model.as_str();
         let ml = m.to_lowercase();
-        if ml.contains("claude") { ("anthropic".to_string(), m.to_string(), None) }
+        if ml.contains("claude-opus-4-8") { ("highwayapi".to_string(), m.to_string(), None) }
+        else if ml.contains("claude") { ("anthropic".to_string(), m.to_string(), None) }
         else if ml.contains("gemini") { ("google".to_string(), m.to_string(), None) }
         else if ml.contains("gpt") || ml.contains("o1") || ml.contains("o3") { ("openai".to_string(), m.to_string(), None) }
         else { ("ollama".to_string(), m.to_string(), Some(ollama_url_val)) }

@@ -59,7 +59,6 @@
       "endpoints": [
         "https://your-updater-server.com/update"
       ],
-      "dialog": true,
       "windows": {
         "installMode": "passive"
       }
