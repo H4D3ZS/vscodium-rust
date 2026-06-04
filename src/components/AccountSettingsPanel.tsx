@@ -237,13 +237,13 @@ const AccountSettingsPanel: React.FC = () => {
             <SectionLabel>Add-ons</SectionLabel>
             <div style={{ marginBottom: 24, padding: '14px 16px', borderRadius: 10, border: '1px solid rgba(224,175,104,0.4)', background: 'linear-gradient(135deg, rgba(224,175,104,0.12), rgba(224,175,104,0.03))', position: 'relative', overflow: 'hidden' }}>
                 <span style={{ position: 'absolute', top: 10, right: 12, fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', color: '#1a1a1a', background: '#e0af68', padding: '2px 8px', borderRadius: 10 }}>
-                    EARLY ACCESS · SOFT LAUNCH
+                    LIMITED · 7 DAYS
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <i className="codicon codicon-sparkle" style={{ fontSize: 20, color: '#e0af68' }} />
                     <div>
-                        <div style={{ fontSize: 14, fontWeight: 600 }}>MiMo Pro — <span style={{ color: '#e0af68' }}>Premium</span> <span style={{ fontSize: 10, opacity: 0.6 }}>$10 · ₱692.50</span></div>
-                        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Xiaomi MiMo (v2.5-pro) reasoning model — limited early-access seats during soft launch.</div>
+                        <div style={{ fontSize: 14, fontWeight: 600 }}>Limited Premium — <span style={{ color: '#e0af68' }}>$10</span> <span style={{ fontSize: 10, opacity: 0.6 }}>/ 7 days · ₱692.50</span></div>
+                        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Premium cloud reasoning model. One-time, 7-day access — limited early-access seats.</div>
                     </div>
                     <button
                         onClick={openBilling}

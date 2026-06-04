@@ -520,7 +520,8 @@ export class TerminalManager {
     // write path; the PS integration script is injected after spawn below.
     try {
       const tracker = new CommandBlockTracker(term, (data: string) => {
-        void invoke('terminal_send_data', { id, data });
+        if (this.activityIds.has(id)) return; // virtual terminal has no PTY
+        void invoke('terminal_send_data', { id, data }).catch(() => {});
       });
       tracker.attach();
       instance.blocks = tracker;
@@ -613,7 +614,7 @@ export class TerminalManager {
           fitAddon.fit();
           const { cols, rows } = term;
           if (cols > 0 && rows > 0) {
-            void invoke('resize_terminal', { id, cols, rows });
+            void invoke('resize_terminal', { id, cols, rows }).catch(() => {});
           }
         } catch {
           /* container may still be 0×0 */
@@ -693,7 +694,7 @@ export class TerminalManager {
           instance.fitAddon.fit();
           const { cols, rows } = instance.term;
           if (cols > 0 && rows > 0) {
-            void invoke('resize_terminal', { id, cols, rows });
+            void invoke('resize_terminal', { id, cols, rows }).catch(() => {});
           }
         } catch {
           /* layout not ready */

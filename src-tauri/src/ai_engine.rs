@@ -4847,6 +4847,11 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
     #[instrument(skip(self))]
     pub async fn list_models(&self, provider: &str) -> Result<Vec<String>> {
         println!("Listing models for provider: {}", provider);
+        // Interface AI (highwayapi.ai) doesn't expose a /models listing on the
+        // free base — return the known model so it appears without an error.
+        if matches!(provider.to_lowercase().as_str(), "highwayapi" | "interfaceai" | "jiekou") {
+            return Ok(vec!["claude-opus-4-8".to_string()]);
+        }
         let provider_key = self.get_key_for_provider(provider);
 
         let mut has_google_base_url = false;
