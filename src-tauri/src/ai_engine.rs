@@ -5666,7 +5666,7 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                             .and_then(|k| k["cyberifrit_base_url"].as_str().map(|s| s.to_string()))
                             .filter(|s| !s.trim().is_empty())
                     })
-                    .unwrap_or_else(|| "https://api.cyberifrit.xyz".to_string());
+                    .unwrap_or_else(|| "https://ai.cyberifrit.xyz".to_string());
                 let base = configured.trim().trim_end_matches('/').to_string();
                 if base.ends_with("/chat/completions") { base }
                 else if base.ends_with("/v1") { format!("{}/chat/completions", base) }

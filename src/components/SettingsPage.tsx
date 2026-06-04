@@ -22,7 +22,7 @@ const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fields: str
     { id: 'deepseek', label: 'DeepSeek', fields: ['apiKey'], keyUrl: 'https://platform.deepseek.com/api_keys', hint: 'DeepSeek V4-Pro — 1M ctx, ~120x cheaper cache hits, strong agent/coder' },
     { id: 'mimo', label: 'Xiaomi MiMo', fields: ['apiKey'], keyUrl: 'https://platform.xiaomimimo.com/', hint: 'MiMo v2.5-Pro — flat-rate Token Plan coding sub (3rd-party allowed)', baseUrlKey: 'mimo_base_url', baseUrlPlaceholder: 'https://api.xiaomimimo.com/v1' },
     { id: 'highwayapi', label: 'Interface AI — Claude Opus 4.8 (Free)', fields: ['apiKey'], keyUrl: 'https://jiekou.ai/', hint: 'Claude Opus 4.8 via Interface AI (jiekou.ai). Defaults to the FREE base (quota refreshes ~every 5h) when Base URL is blank. Set Base URL to https://api.highwayapi.ai/openai for the paid tier.', baseUrlKey: 'highwayapi_base_url', baseUrlPlaceholder: 'blank = free (freeapi.highwayapi.ai) · paid = https://api.highwayapi.ai/openai' },
-    { id: 'cyberifrit', label: 'Cyber-Ifrit Cloud', fields: ['apiKey', 'endpoint'], hint: 'Your hosted backend (AMD). OpenAI-compatible — type any custom model name.', baseUrlKey: 'cyberifrit_base_url', baseUrlPlaceholder: 'https://api.cyberifrit.xyz' },
+    { id: 'cyberifrit', label: 'Cyber-Ifrit Cloud', fields: ['apiKey', 'endpoint'], hint: 'Our hosted AMD MI300X Ollama. Auto-connects to ai.cyberifrit.xyz with your subscription — no key needed when signed in. OpenAI-compatible; type any model name you pulled (e.g. qwen2.5-coder:32b).', baseUrlKey: 'cyberifrit_base_url', baseUrlPlaceholder: 'https://ai.cyberifrit.xyz (default)' },
     { id: 'xAI', label: 'xAI / Grok', fields: ['apiKey'], keyUrl: 'https://console.x.ai/', hint: 'Grok 3 with 128K context' },
     { id: 'mistral', label: 'Mistral', fields: ['apiKey'], keyUrl: 'https://console.mistral.ai/api-keys/', hint: 'Codestral / Devstral — best local coding models' },
     { id: 'ollama', label: 'Ollama (Local)', local: true, fields: ['endpoint'], hint: 'Free local inference — no API key needed' },
@@ -317,6 +317,30 @@ function ProvidersPanel() {
     const refreshModels = useStore(s => s.refreshAvailableModels);
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // Map a provider id to the backend key name used by refreshAvailableModels
+    // (and the enable-toggle localStorage key).
+    const backendName = (id: string) => id === 'openAI' ? 'openai' : id === 'openRouter' ? 'openrouter'
+        : id === 'xAI' ? 'xai' : id === 'gemini' ? 'google' : id === 'vLLM' ? 'vllm'
+        : id === 'lmStudio' ? 'lmstudio' : id === 'liteLLM' ? 'litellm' : id.toLowerCase();
+
+    // Per-provider enable/disable. Disabled providers are hidden from the model
+    // picker (keeps your own models from being buried among BYOB providers).
+    const [enabled, setEnabled] = useState<Record<string, boolean>>(() => {
+        const m: Record<string, boolean> = {};
+        for (const p of PROVIDERS) {
+            try { m[p.id] = localStorage.getItem('provider.enabled.' + backendName(p.id)) !== 'false'; }
+            catch { m[p.id] = true; }
+        }
+        return m;
+    });
+    const toggleEnabled = (id: string) => {
+        const next = !(enabled[id] ?? true);
+        setEnabled(e => ({ ...e, [id]: next }));
+        try { localStorage.setItem('provider.enabled.' + backendName(id), next ? 'true' : 'false'); } catch { /* */ }
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => refreshModels(), 300);
+    };
+
     // Load persisted keys AND base URLs from the Rust backend (api_keys.json)
     useEffect(() => {
         invoke<Record<string, any>>('get_api_keys').then((stored: any) => {
@@ -381,13 +405,20 @@ function ProvidersPanel() {
     const localProviders = PROVIDERS.filter(p => p.local);
 
     const renderProvider = (p: typeof PROVIDERS[0]) => (
-        <div key={p.id} className="provider-card">
+        <div key={p.id} className="provider-card" style={{ opacity: enabled[p.id] === false ? 0.55 : 1, transition: 'opacity 0.15s' }}>
             <div className="provider-card-header">
                 <span className="provider-card-name">{p.label}</span>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto' }}>
-                    {p.local && <span className="settings-badge local">LOCAL</span>}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
                     {saved === p.id && <span style={{ fontSize: 11, color: '#3fb950' }}>✓ Saved</span>}
                     {keys[p.id] && !p.local && <span style={{ fontSize: 10, color: '#3fb950', opacity: 0.8 }}>● active</span>}
+                    {p.local && <span className="settings-badge local">LOCAL</span>}
+                    <label
+                        title={enabled[p.id] === false ? 'Disabled — hidden from the model picker' : 'Enabled — shown in the model picker'}
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, opacity: 0.85, cursor: 'pointer', userSelect: 'none' }}
+                    >
+                        <input type="checkbox" checked={enabled[p.id] !== false} onChange={() => toggleEnabled(p.id)} style={{ cursor: 'pointer', accentColor: '#4f8ef7' }} />
+                        {enabled[p.id] === false ? 'Off' : 'On'}
+                    </label>
                 </div>
             </div>
             {p.hint && <div style={{ fontSize: 11, opacity: 0.45, marginBottom: 8 }}>{p.hint}</div>}
