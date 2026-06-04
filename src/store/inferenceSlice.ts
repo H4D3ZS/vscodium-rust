@@ -254,10 +254,17 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                 providers.push('OpenWebUI', 'Claude (WebUI)', 'Gemini (WebUI)', 'OpenAI (WebUI)', 'DeepSeek (WebUI)', 'Qwen (WebUI)');
             }
 
+            // Per-provider enable toggle (Settings → Providers & Keys): a provider
+            // explicitly disabled is hidden from the picker, so your own models
+            // aren't buried among BYOB providers. Unset = enabled (default).
+            const isEnabled = (p: string) => {
+                try { return localStorage.getItem('provider.enabled.' + p.toLowerCase()) !== 'false'; } catch { return true; }
+            };
             let allModels: { id: string; provider: string }[] = [];
-            const activeProviders = targetProvider
+            const activeProviders = (targetProvider
                 ? [targetProvider.charAt(0).toUpperCase() + targetProvider.slice(1).toLowerCase()]
-                : providers;
+                : providers
+            ).filter(isEnabled);
 
             for (const p of activeProviders) {
                 try {
@@ -286,9 +293,9 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                 }
             }
             allModels.push({ id: 'antigravity-sentient', provider: 'antigravity' });
-            // Guarantee Opus 4.8 appears when the Interface AI key is set, even if
-            // the provider's /models listing is unavailable.
-            if (((keys as any).highwayapi) && !allModels.some(m => m.provider === 'highwayapi')) {
+            // Guarantee Opus 4.8 appears when the Interface AI key is set + enabled,
+            // even if the provider's /models listing is unavailable.
+            if (((keys as any).highwayapi) && isEnabled('highwayapi') && !allModels.some(m => m.provider === 'highwayapi')) {
                 allModels.push({ id: 'claude-opus-4-8', provider: 'highwayapi' });
             }
             set((state) => {

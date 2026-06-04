@@ -83,7 +83,7 @@ export const defaultProviderEndpoints: Partial<Record<ProviderName, string>> = {
     lmStudio: 'http://localhost:1234',
     antigravity: 'http://127.0.0.1:1536',
     mimo: 'https://api.xiaomimimo.com/v1',
-    cyberifrit: 'https://api.cyberifrit.xyz',
+    cyberifrit: 'https://ai.cyberifrit.xyz',
     // Interface AI / highwayapi.ai — OpenAI-compatible Claude Opus 4.8.
     // Free trial base by default; paid base is https://api.highwayapi.ai/openai.
     highwayapi: 'https://freeapi.highwayapi.ai',
