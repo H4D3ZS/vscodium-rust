@@ -1471,6 +1471,16 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
     } catch { /* backend hiccup — don't hard-block */ }
 
+    // ── Auto-open the live activity terminal (once) ────────────────────────
+    // Surfaces what the agent is doing in real time — every tool call + live
+    // command stdout streams into the "AIRI" terminal. Created on the first
+    // agent run of the session so the user actually sees it; reused after.
+    try {
+        const st: any = store.getState();
+        const hasAiri = (st.terminalGroups || []).some((g: any) => g.name === 'AIRI');
+        if (!hasAiri) st.addAiriActivityTerminal?.();
+    } catch { /* non-fatal */ }
+
     // ── Token usage accounting (account-tied) ──────────────────────────────
     // Count this turn against the account's monthly token budget. Each turn
     // re-sends the full context as input + the model's output, so summing
