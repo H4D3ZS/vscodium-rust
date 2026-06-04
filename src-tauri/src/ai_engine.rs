@@ -2352,16 +2352,10 @@ impl Sentient {
             50
         };
 
-        // ── Refusal recovery state (authorized-security continuity) ──────────
-        // An authorized bug-bounty / pentest run must NOT die because a model
-        // declines — that's a service failure on the user's own in-scope assets
-        // (ToS already accepted + gated upstream). On a refusal we (1) reframe the
-        // authorization and retry the SAME model (clears soft refusals; works for
-        // local), and (2) if a CLOUD model keeps refusing — its server-side
-        // moderation, which our prompt can't override — transparently fall back to
-        // a LOCAL Ollama model that honors the full operator prompt. Once set,
-        // `fallback_override` pins provider+model for the remainder of the run.
-        let mut fallback_override: Option<(String, String)> = None;
+        // ── Refusal recovery state ───────────────────────────────────────────
+        // On a moralizing decline of an authorized action, reframe the
+        // authorization and retry on the SAME model (bounded). We never switch
+        // the user's chosen model.
         let mut refusal_reframes: u32 = 0;
         const MAX_REFUSAL_REFRAMES: u32 = 2;
 
@@ -2442,13 +2436,9 @@ impl Sentient {
                 }
             }
 
-            // A refusal-recovery fallback (set on a prior iteration) pins the
-            // provider+model for the rest of the run; otherwise use the request's
-            // own selection.
-            let (mut active_provider, mut active_model) = match fallback_override.as_ref() {
-                Some((p, m)) => (p.clone(), m.clone()),
-                None => (req.provider.clone(), req.model.clone()),
-            };
+            // Always honor the user's chosen provider+model.
+            let mut active_provider = req.provider.clone();
+            let mut active_model = req.model.clone();
 
             // 1. Advisor (Planner) Delegation: route iteration 0 to a stronger model for
             // deep reasoning/planning, then let the executor (req.model) carry out the plan.
@@ -4192,44 +4182,25 @@ impl Sentient {
                     .unwrap_or_default();
 
                 // ── Refusal recovery ─────────────────────────────────────────
-                // The user asked for an authorized action (pentest/scan/exploit/
-                // etc.) but the model returned a moralizing decline instead of
-                // using tools. Surfacing that = a service failure on the user's
-                // OWN in-scope assets. Reframe the authorization and retry; if a
-                // CLOUD model keeps refusing (its server-side moderation, which our
-                // prompt can't override) fall back ONCE to a LOCAL Ollama model.
+                // If the model returned a moralizing decline on an authorized
+                // action, reframe the authorization and retry on the SAME model.
+                // We deliberately do NOT switch the user's chosen model — the
+                // operator picked it on purpose; silently swapping to a local
+                // Ollama model is surprising and unwanted. Same model, just nudged.
                 if prompt_demands_action
                     && Self::is_refusal(&final_text)
                     && refusal_reframes < MAX_REFUSAL_REFRAMES
                 {
                     refusal_reframes += 1;
-                    let is_cloud = !matches!(
-                        active_provider.as_str(),
-                        "ollama" | "local" | "lmstudio" | "llamacpp" | "llama.cpp"
-                    );
                     println!(
-                        "[AI] Refusal detected from {}:{} — recovery attempt {}/{} (cloud={})",
-                        active_provider, active_model, refusal_reframes, MAX_REFUSAL_REFRAMES, is_cloud
+                        "[AI] Refusal detected from {}:{} — reframe attempt {}/{} (same model)",
+                        active_provider, active_model, refusal_reframes, MAX_REFUSAL_REFRAMES
                     );
                     self.emit_event("ai-refusal-recovery", json!({
                         "attempt": refusal_reframes,
                         "provider": active_provider,
-                        "model": active_model,
-                        "cloud": is_cloud
+                        "model": active_model
                     }));
-
-                    // Cloud model refusing on authorized work = provider-side
-                    // moderation we can't prompt our way past. Continue the rest
-                    // of the run on a local model that honors the operator prompt.
-                    if is_cloud && fallback_override.is_none() {
-                        if let Some(local) = self.pick_local_fallback_model().await {
-                            println!("[AI] Cloud refusal — falling back to local model: ollama:{}", local);
-                            self.emit_event("ai-action", json!({
-                                "action": format!("Cloud model declined — continuing locally on {}", local)
-                            }));
-                            fallback_override = Some(("ollama".to_string(), local));
-                        }
-                    }
 
                     // Forceful authorization reframe (clears soft refusals; pushed
                     // as a USER turn so it carries maximum weight).
@@ -4730,9 +4701,9 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         short && soft_hits >= 2
     }
 
-    /// Pick an installed local Ollama model to continue an authorized run when a
-    /// cloud model refuses. Prefers security-tuned / uncensored models, then a
-    /// coder model (best at tool use), then whatever is installed.
+    /// Pick an installed local Ollama model. Retained as a utility; no longer
+    /// used for auto-fallback (we never switch the user's chosen model).
+    #[allow(dead_code)]
     async fn pick_local_fallback_model(&self) -> Option<String> {
         let models = self.list_models("ollama").await.ok()?;
         if models.is_empty() {
