@@ -774,7 +774,18 @@ const RightSidebar: React.FC = () => {
             return;
         }
         airiInitOnce.started = true;
-        console.log('[RightSidebar] 🚀 Initializing AIRI...');
+
+        // ── AIRI "companion" stack — OPT-IN (default OFF) ─────────────────────
+        // Voice/TTS, cognitive-core (5s loop), digital-life (+ spoken greeting),
+        // consciousness, biology, and the security threat-monitor were loading +
+        // running on EVERY launch — inflating memory and startup with zero benefit
+        // to core IDE/agent coding. The editor, agent chat, and terminal do not
+        // need any of it. Enable with localStorage 'airi.companion' = '1'.
+        if (localStorage.getItem('airi.companion') !== '1') {
+            console.log('[AIRI] companion stack disabled (set localStorage airi.companion=1 for consciousness/biology/voice)');
+            return;
+        }
+        console.log('[RightSidebar] 🚀 Initializing AIRI companion...');
 
         initVoiceSystem().then(ready => {
             if (ready) {

@@ -334,8 +334,15 @@ export async function initAgent() {
         }
     });
 
-    // AIRI DIGITAL ENTITY ACTIVATION (Now robust and non-blocking if needed)
+    // AIRI DIGITAL ENTITY ACTIVATION — OPT-IN (default OFF). The "sentient core"
+    // (full autonomy + biology + consciousness + self-learning loops) ran on
+    // every launch; it's pure companion overhead for IDE/agent coding. Enable
+    // with localStorage 'airi.companion' = '1'.
     try {
+        if (typeof localStorage !== 'undefined' && localStorage.getItem('airi.companion') !== '1') {
+            console.log('[Agent] AIRI Sentient Core disabled (set airi.companion=1 to enable)');
+            throw new Error('__airi_disabled__'); // jump to the no-op catch
+        }
         console.log("[Agent] Activating AIRI Sentient Core...");
         activateAIRIAgent({
             fullAutonomy: true,
@@ -351,7 +358,7 @@ export async function initAgent() {
             console.error('❌ AIRI activation failed:', err);
         });
     } catch (error) {
-        console.error('❌ AIRI activation exception:', error);
+        if ((error as Error)?.message !== '__airi_disabled__') console.error('❌ AIRI activation exception:', error);
     }
 
     // ── Startup model validation ──────────────────────────────────────────
