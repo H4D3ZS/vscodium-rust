@@ -186,7 +186,14 @@ pub async fn auth_sign_up(
     let status = resp.status();
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     if !status.is_success() {
-        return Err(err_message(&body, "sign-up failed"));
+        let msg = err_message(&body, "sign-up failed");
+        // Registration is CAPTCHA-gated on the website; the Supabase instance has
+        // public sign-ups disabled so bots can't mass-create accounts. Point the
+        // user there instead of surfacing a raw "signups not allowed" error.
+        if msg.to_lowercase().contains("signup") || msg.to_lowercase().contains("not allowed") {
+            return Err("Create your account at https://cyberifrit.xyz/account (one-time, takes a few seconds), then sign in here.".into());
+        }
+        return Err(msg);
     }
     // Session returned inline (confirmations off) → persist + signed in.
     if let Some(at) = body.get("access_token").and_then(|v| v.as_str()) {
