@@ -757,16 +757,43 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     loadChatSession: async (path) => {
         try {
             await invoke('load_chat_session', { path });
-            const messages = await invoke<any[]>('get_agent_messages');
+            const raw = await invoke<any[]>('get_agent_messages');
+            // Backend returns raw ChatMessage (content may be a string, a
+            // {Text:..} object, or a content-part array; plus system/tool rows the
+            // chat panel doesn't render). Normalize to the panel's flat shape and
+            // keep the visible conversation so the WHOLE history loads.
+            const extract = (c: any): string => {
+                if (c == null) return '';
+                if (typeof c === 'string') return c;
+                if (Array.isArray(c)) return c.map((p) => extract(p?.text ?? p?.Text ?? p)).join('');
+                if (typeof c === 'object') return c.Text ?? c.text ?? c.content ?? JSON.stringify(c);
+                return String(c);
+            };
+            const messages = (raw || [])
+                .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant'))
+                .map((m: any, i: number) => ({
+                    id: m.id || `restored-${Date.now()}-${i}`,
+                    role: m.role,
+                    content: extract(m.content),
+                    timestamp: m.timestamp || Date.now(),
+                }))
+                .filter((m: any) => m.content.trim().length > 0);
             set({ agentMessages: messages });
             get().refreshChatSessions();
-        } catch { }
+        } catch (e) { console.error('[loadChatSession] failed:', e); }
     },
     archiveCurrentSession: async () => {
         try { await invoke('archive_chat_session'); get().refreshChatSessions(); } catch { }
     },
     createNewSession: async () => {
-        try { await invoke('create_new_session'); get().clearAgentMessages(); get().refreshChatSessions(); } catch { }
+        // Clear the panel immediately so "New chat" always responds, even if the
+        // backend archive/create call is slow or errors.
+        set({ agentMessages: [], pendingChanges: [], attachedContext: [] } as any);
+        try {
+            await invoke('archive_chat_session').catch(() => {}); // save the old one
+            await invoke('create_new_session');
+            get().refreshChatSessions();
+        } catch (e) { console.error('[createNewSession] failed:', e); }
     },
     refreshBrainTelemetry: async () => {
         try { const telemetry = await invoke<any>('get_brain_telemetry'); set({ brainTelemetry: telemetry }); } catch { }
