@@ -1721,110 +1721,22 @@ impl AiTools {
 
     /// Live URL Scanner — uses browser to fetch content then passes to BugTraceAI
     async fn handle_apex_scan_url(&self, url: &str) -> Result<Value> {
-        let apex_guard = self.apex.lock().await;
-        let apex = apex_guard.as_ref().ok_or_else(|| anyhow!("APEX not initialized"))?;
-        
-        // 1. Fetch content using the browser state
         let browser_state = &self.browser_state;
         
-        // Ensure browser is launched
-        {
-            let mut lock = browser_state.browser.lock().await;
-            if lock.is_none() {
-                println!("[APEX-SCAN] Launching browser engine...");
-                *lock = Some(crate::browser::SendBrowser(crate::browser::BrowserSession {
-                    url: "about:blank".to_string(),
-                    html: "<html><body></body></html>".to_string(),
-                    text: "".to_string(),
-                    title: "".to_string(),
-                }));
-            }
-        }
+        // 1. Fetch content using the stealth browser
+        browser_state.ensure_started().await.map_err(|e| anyhow!("browser start failed: {e}"))?;
+        println!("[APEX-SCAN] Navigating to {} for live audit...", url);
+        browser_state.cmd("navigate", json!({ "url": url }), 60).await
+            .map_err(|e| anyhow!("navigate failed: {e}"))?;
+        browser_state.refresh_cache(url).await;
 
         let mut browser_lock = browser_state.browser.lock().await;
         let browser_wrapper = browser_lock.as_mut().ok_or_else(|| anyhow!("Browser not launched"))?;
         let session = &mut browser_wrapper.0;
 
-        println!("[APEX-SCAN] Navigating to {} for live audit...", url);
+        let html = session.html.clone();
+        let text = session.text.clone();
         
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
-
-        let response = client.get(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            .send()
-            .await
-            .map_err(|e| anyhow!("Failed to fetch URL: {}", e))?;
-
-        let html = response.text().await.map_err(|e| anyhow!("Failed to read response body: {}", e))?;
-        
-        // Strip HTML tags to get visible text
-        let mut stripped = String::new();
-        let mut in_tag = false;
-        let mut in_script_or_style = false;
-        let mut tag_buffer = String::new();
-        
-        let mut chars = html.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c == '<' {
-                in_tag = true;
-                tag_buffer.clear();
-            } else if c == '>' && in_tag {
-                in_tag = false;
-                let tag_lower = tag_buffer.to_lowercase();
-                if tag_lower.starts_with("script") {
-                    in_script_or_style = true;
-                } else if tag_lower.starts_with("/script") {
-                    in_script_or_style = false;
-                } else if tag_lower.starts_with("style") {
-                    in_script_or_style = true;
-                } else if tag_lower.starts_with("/style") {
-                    in_script_or_style = false;
-                }
-                if tag_lower.starts_with("div") || tag_lower.starts_with("/div") || 
-                   tag_lower.starts_with("p") || tag_lower.starts_with("/p") || 
-                   tag_lower.starts_with("li") || tag_lower.starts_with("/li") ||
-                   tag_lower.starts_with("br") || tag_lower.starts_with("h") {
-                    stripped.push(' ');
-                }
-            } else if in_tag {
-                tag_buffer.push(c);
-            } else if !in_script_or_style {
-                stripped.push(c);
-            }
-        }
-        
-        let mut clean = String::new();
-        let mut last_was_space = false;
-        for c in stripped.chars() {
-            if c.is_whitespace() {
-                if !last_was_space {
-                    clean.push(' ');
-                    last_was_space = true;
-                }
-            } else {
-                clean.push(c);
-                last_was_space = false;
-            }
-        }
-        let text = clean.trim().to_string();
-
-        session.url = url.to_string();
-        session.html = html.clone();
-        session.text = text.clone();
-        
-        let mut title = url.to_string();
-        if let Some(title_start) = html.to_lowercase().find("<title>") {
-            if let Some(title_end) = html.to_lowercase().find("</title>") {
-                if title_end > title_start {
-                    title = html[title_start + 7..title_end].trim().to_string();
-                }
-            }
-        }
-        session.title = title;
-
         drop(browser_lock); // Release browser lock
 
         // 2. Wrap into a "pseudo-code" or report format for BugTraceAI
@@ -1835,6 +1747,9 @@ impl AiTools {
 
         // 3. Invoke Red Team scan on the extracted web context
         println!("[APEX-SCAN] Analyzing live content with BugTraceAI-Apex...");
+        let apex_guard = self.apex.lock().await;
+        let apex = apex_guard.as_ref().ok_or_else(|| anyhow!("APEX not initialized"))?;
+        
         let report = apex.red_team().scan(crate::apex_red_team::RedTeamScanRequest {
             target_code: combined_context,
             file_path: url.to_string(),
