@@ -353,7 +353,7 @@ impl EditorState {
                 false
             )),
             apex: {
-                let apex_inst = Arc::new(ApexOrchestrator::new("http://localhost:1536", Some(root)));
+                let apex_inst = Arc::new(ApexOrchestrator::new("http://localhost:1536", Some(root), Some(config_dir.clone())));
                 let apex_for_tools = apex_inst.clone();
                 let tools = sentient.ai_tools.clone();
                 tauri::async_runtime::spawn(async move {
