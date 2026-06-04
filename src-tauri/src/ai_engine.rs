@@ -2460,6 +2460,8 @@ impl Sentient {
                     was_advisor_iteration = true;
                     if let Some(p) = adv_provider {
                         active_provider = p.to_lowercase();
+                    } else if adv_model.to_lowercase().contains("claude-opus-4-8") {
+                        active_provider = "highwayapi".to_string();
                     } else if adv_model.to_lowercase().contains("claude") {
                         // Bare model name heuristic (back-compat with /advisor <name>).
                         active_provider = "anthropic".to_string();
