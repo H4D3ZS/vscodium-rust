@@ -8,7 +8,7 @@ import { qwenTTS } from './airi/qwen-tts'; // Qwen3-TTS local fallback
 import { qwenNativeTTS } from './airi/qwen-tts-native'; // Qwen3-TTS High Quality Server
 
 // NEW API KEY (saved securely via Tauri backend)
-const ELEVENLABS_API_KEY = 'sk_e184e0a4bfa989bb8a04dee3076313f56173c6b29adcc777';
+const ELEVENLABS_API_KEY = 'e184e0a4bfa989bb8a04dee3076313f56173c6b29adcc777';
 
 export type VoicePreset =
     | 'airi'      // Energetic anime girl
@@ -210,11 +210,11 @@ export async function initTTS(): Promise<boolean> {
         console.log('[TTS] API keys received:', Object.keys(apiKeys || {}));
 
         // Priority: ElevenLabs ALWAYS FIRST
-        if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.startsWith('sk_')) {
+        if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.trim().length > 0) {
             currentApiKey = apiKeys.elevenlabs_api_key;
             ttsProvider = 'elevenlabs';
             console.log('[TTS] ✅ ElevenLabs provider configured (from storage)');
-        } else if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.startsWith('sk_')) {
+        } else if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.trim().length > 0) {
             // Use hardcoded key (will be saved to storage)
             currentApiKey = ELEVENLABS_API_KEY;
             ttsProvider = 'elevenlabs';
@@ -543,7 +543,7 @@ export async function speak(
     // ALWAYS check for ElevenLabs API key first (highest priority)
     if (!currentApiKey) {
         // Try to load from hardcoded config first
-        if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.startsWith('sk_')) {
+        if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.trim().length > 0) {
             currentApiKey = ELEVENLABS_API_KEY;
             ttsProvider = 'elevenlabs';
             console.log('[TTS] ✅ ElevenLabs ACTIVATED (from hardcoded config)');
@@ -551,7 +551,7 @@ export async function speak(
             // Try to load from storage
             try {
                 const apiKeys = await invoke<any>('get_api_keys');
-                if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.startsWith('sk_')) {
+                if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.trim().length > 0) {
                     currentApiKey = apiKeys.elevenlabs_api_key;
                     ttsProvider = 'elevenlabs';
                     console.log('[TTS] ✅ ElevenLabs ACTIVATED (from storage)');
@@ -583,10 +583,10 @@ export async function speak(
     // Force ElevenLabs if API key is available
     if (!currentApiKey) {
         const apiKeys = (window as any).apiKeysForTTS; // Cached if available
-        if (!apiKeys?.elevenlabs_api_key?.startsWith('sk_')) {
+        if (!apiKeys?.elevenlabs_api_key || apiKeys.elevenlabs_api_key.trim().length === 0) {
             try {
                 const keys = await invoke<any>('get_api_keys');
-                if (keys?.elevenlabs_api_key?.startsWith('sk_')) {
+                if (keys?.elevenlabs_api_key && keys.elevenlabs_api_key.trim().length > 0) {
                     currentApiKey = keys.elevenlabs_api_key;
                     ttsProvider = 'elevenlabs';
                     console.log('[TTS] ✅ ElevenLabs activated (API key found)');
@@ -594,7 +594,7 @@ export async function speak(
             } catch (e) {
                 console.warn('[TTS] Could not check API keys');
             }
-        } else if (apiKeys?.elevenlabs_api_key?.startsWith('sk_')) {
+        } else {
             // API key already in memory
             currentApiKey = apiKeys.elevenlabs_api_key;
             ttsProvider = 'elevenlabs';
