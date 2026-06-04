@@ -143,12 +143,21 @@ struct AimPaths(Vec<PathBuf>);
 
 impl AimPaths {
     fn new() -> Self {
-        Self(vec![
-            PathBuf::from("C:\\Users\\HADES\\Desktop\\kortex\\.aim\\memory.aim"),
-            PathBuf::from(".\\.aim\\memory.aim"),
-            PathBuf::from("..\\.aim\\memory.aim"),
-            PathBuf::from("C:\\Users\\HADES\\Desktop\\vscodium-rust\\.aim\\memory.aim"),
-        ])
+        let mut paths: Vec<PathBuf> = Vec::new();
+        // Explicit override first (set AIM_PATH on the server).
+        if let Ok(p) = std::env::var("AIM_PATH") {
+            if !p.is_empty() { paths.push(PathBuf::from(p)); }
+        }
+        // Cross-platform defaults (Linux server + Windows dev).
+        if let Ok(home) = std::env::var("HOME") {
+            paths.push(PathBuf::from(format!("{home}/.aim/memory.aim")));
+        }
+        paths.push(PathBuf::from("/opt/cyberifrit/.aim/memory.aim"));
+        paths.push(PathBuf::from("./.aim/memory.aim"));
+        paths.push(PathBuf::from("../.aim/memory.aim"));
+        paths.push(PathBuf::from("C:\\Users\\HADES\\Desktop\\kortex\\.aim\\memory.aim"));
+        paths.push(PathBuf::from("C:\\Users\\HADES\\Desktop\\vscodium-rust\\.aim\\memory.aim"));
+        Self(paths)
     }
 
     fn find_and_load(&self) -> Option<AimContext> {
