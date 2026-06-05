@@ -1126,7 +1126,7 @@ impl Sentient {
         for u in urls {
             for path in ["/api/tags", "/v1/api/tags"] {
                 let mut req = self.client.get(format!("{}{}", u, path));
-                let k = self.get_key_for_provider("ollama");
+                let k = self.ollama_bearer_for_base(&u);
                 if !k.trim().is_empty() {
                     req = req.bearer_auth(k.trim());
                 }
@@ -1151,7 +1151,7 @@ impl Sentient {
         let url_raw = self.ollama_url.lock().await.clone();
         let url_trim = normalize_ollama_base_url(&url_raw);
 
-        let bearer = self.get_key_for_provider("ollama");
+        let bearer = self.ollama_bearer_for_base(&url_trim);
         let bearer_configured = !bearer.trim().is_empty();
 
         // Probe `/api/tags` first (native Ollama). If the reverse proxy only
@@ -1310,7 +1310,7 @@ impl Sentient {
             let u = self.ollama_url.lock().await;
             normalize_ollama_base_url(&u)
         };
-        let bearer = self.get_key_for_provider("ollama").trim().to_string();
+        let bearer = self.ollama_bearer_for_base(&base).trim().to_string();
         let urls = Self::ollama_try_urls(&base, &path);
 
         'attempt: for attempt in 0u32..6u32 {
@@ -1376,7 +1376,7 @@ impl Sentient {
             let u = self.ollama_url.lock().await;
             normalize_ollama_base_url(&u)
         };
-        let bearer = self.get_key_for_provider("ollama").trim().to_string();
+        let bearer = self.ollama_bearer_for_base(&base).trim().to_string();
         let urls = Self::ollama_try_urls(&base, &path);
 
         'attempt: for attempt in 0u32..6u32 {
@@ -1438,7 +1438,7 @@ impl Sentient {
         };
 
         let payload = json!({ "name": name, "stream": false });
-        let key = self.get_key_for_provider("ollama");
+        let key = self.ollama_bearer_for_base(&url);
         let bearer = key.trim();
         for path in ["/api/pull", "/v1/api/pull"] {
             let mut req = self
@@ -3162,7 +3162,8 @@ impl Sentient {
             ) {
                 request = apply_highway_auth(request, &provider_key);
             } else if active_provider.to_lowercase() == "ollama" {
-                let k = self.get_key_for_provider("ollama");
+                let ollama_base = normalize_ollama_base_url(&self.ollama_url.lock().await);
+                let k = self.ollama_bearer_for_base(&ollama_base);
                 if !k.trim().is_empty() {
                     request = request.bearer_auth(k.trim());
                 }
@@ -3198,7 +3199,8 @@ impl Sentient {
                 } else if matches!(provider_lc.as_str(), "highwayapi" | "interfaceai" | "jiekou") {
                     fallback_request = apply_highway_auth(fallback_request, &provider_key);
                 } else if provider_lc == "ollama" {
-                    let k = self.get_key_for_provider("ollama");
+                    let ollama_base = normalize_ollama_base_url(&self.ollama_url.lock().await);
+                    let k = self.ollama_bearer_for_base(&ollama_base);
                     if !k.trim().is_empty() {
                         fallback_request = fallback_request.bearer_auth(k.trim());
                     }
@@ -5172,11 +5174,11 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             if base.contains(":1536") {
                 bases.push(base.replace(":1536", ":11434"));
             }
-            let key = self.get_key_for_provider("ollama");
-            let bearer = key.trim();
             let mut last_err: Option<String> = None;
-
             for current_base in &bases {
+                let bearer = self.ollama_bearer_for_base(current_base);
+                let bearer = bearer.trim();
+
                 'attempt: for attempt in 0u32..6u32 {
                     for path in ["/api/tags", "/v1/api/tags"] {
                         let url = format!("{}{}", current_base, path);
@@ -5523,6 +5525,29 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                 }
             }),
         ]
+    }
+
+    fn is_cyberifrit_managed_ollama_url(url: &str) -> bool {
+        let u = url.to_lowercase();
+        u.contains("ai.cyberifrit.xyz") || u.contains("api.cyberifrit.xyz")
+    }
+
+    /// Ollama bearer: explicit `ollama` key first, else Supabase session JWT on managed cloud.
+    fn ollama_bearer_for_base(&self, base_url: &str) -> String {
+        let k = self.get_key_for_provider("ollama");
+        if !k.trim().is_empty() {
+            return k;
+        }
+        if Self::is_cyberifrit_managed_ollama_url(base_url) {
+            if let Some(p) = self.brain_dir.parent() {
+                if let Some(s) = crate::auth::load_session(p) {
+                    if !s.access_token.is_empty() {
+                        return s.access_token;
+                    }
+                }
+            }
+        }
+        String::new()
     }
 
     fn get_key_for_provider(&self, provider: &str) -> String {

@@ -9,6 +9,12 @@
 
 import { invoke } from './tauri_bridge';
 import { getAllTools } from './tool_registry';
+import {
+    formatSkillsForPrompt,
+    offensiveNoRefusalProtocol,
+    resolveClaudeRedSkills,
+    isOffensiveAgentMode,
+} from './skills/claude_red';
 
 // ---------------------------------------------------------------------------
 // OS & Environment Detection
@@ -333,6 +339,7 @@ export interface SystemPromptConfig {
     activeFile?: string;
     openTabs?: { path: string; language: string; content?: string }[];
     agentMode: string;
+    userPrompt?: string;
     projectMemory?: string;
     attachedContext?: any[];
     includeToolDescriptions?: boolean;
@@ -386,6 +393,23 @@ export async function buildSystemPrompt(config: SystemPromptConfig): Promise<str
         MODE_INSTRUCTIONS[resolvedMode] ||
         MODE_INSTRUCTIONS['Agent'];
     parts.push(`\n${modeInstructions}`);
+
+    const refusalBlock = offensiveNoRefusalProtocol(resolvedMode);
+    if (refusalBlock) parts.push(`\n${refusalBlock}`);
+
+    if (config.activeRoot && (config.userPrompt || isOffensiveAgentMode(resolvedMode))) {
+        try {
+            const skills = await resolveClaudeRedSkills(
+                config.activeRoot,
+                resolvedMode,
+                config.userPrompt || '',
+            );
+            const skillBlock = formatSkillsForPrompt(skills);
+            if (skillBlock) parts.push(`\n${skillBlock}`);
+        } catch {
+            /* non-fatal */
+        }
+    }
 
     // ── Active Editor Context ──
     if (config.activeFile) {

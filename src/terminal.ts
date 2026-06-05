@@ -542,7 +542,7 @@ export class TerminalManager {
       : `airi-activity-${Date.now()}`;
 
     const element = document.createElement('div');
-    element.className = 'terminal-instance-element';
+    element.className = 'terminal-instance-element terminal-activity-feed';
     element.style.width = '100%';
     element.style.height = '100%';
 
@@ -587,7 +587,7 @@ export class TerminalManager {
     term.writeln('\x1b[1;36m╔════════════════════════════════════════════════════════════╗\x1b[0m');
     term.writeln('\x1b[1;36m║  AIRI LIVE ACTIVITY · tool calls + actions stream below   ║\x1b[0m');
     term.writeln('\x1b[1;36m╚════════════════════════════════════════════════════════════╝\x1b[0m');
-    term.writeln('\x1b[2mNo PTY attached. Read-only feed.\x1b[0m');
+    term.writeln('\x1b[2mRead-only feed (no shell). Drag to select · Ctrl+C copy · right-click Copy all.\x1b[0m');
     term.writeln('');
 
     // Flush any pending writes (none expected for activity, but cheap).
@@ -739,6 +739,9 @@ export class TerminalManager {
 
     // Resize on the next paint so xterm actually measures the container.
     setTimeout(() => { try { fitAddon.fit(); } catch { /* */ } }, 0);
+
+    // Context menu + Ctrl+C copy (activity terminals skip this in createTerminal).
+    this.setupTerminalEvents(instance);
 
     return id;
   }
@@ -893,22 +896,32 @@ export class TerminalManager {
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     `;
 
-    const menuItems: any[] = [
-      { label: 'New Terminal', icon: 'add', action: () => this.createTerminal() },
-      { label: 'Split Right', icon: 'split-horizontal', action: () => this.splitTerminal(instance.id, 'horizontal') },
-      { label: 'Split Down', icon: 'split-vertical', action: () => this.splitTerminal(instance.id, 'vertical') },
-      { type: 'separator' },
-      { label: 'Copy', icon: 'copy', action: () => this.copySelection(instance) },
-      { label: 'Paste', icon: 'paste', action: () => this.paste(instance) },
-      { label: 'Select All', icon: 'selection', action: () => this.selectAll(instance) },
-      { type: 'separator' },
-      { label: 'Previous Command', icon: 'arrow-up', action: () => this.scrollToPreviousCommand(instance.id) },
-      { label: 'Next Command', icon: 'arrow-down', action: () => this.scrollToNextCommand(instance.id) },
-      { label: 'Re-run Last Command', icon: 'debug-restart', action: () => this.rerunLastCommand(instance.id) },
-      { type: 'separator' },
-      { label: 'Clear', icon: 'clear-all', action: () => instance.term.clear() },
-      { label: 'Kill Terminal', icon: 'trash', action: () => this.closeTerminal(instance.id) },
-    ];
+    const isActivity = this.activityIds.has(instance.id);
+    const menuItems: any[] = isActivity
+      ? [
+          { label: 'Copy', icon: 'copy', action: () => this.copySelection(instance) },
+          { label: 'Copy all', icon: 'copy', action: () => this.copyAll(instance) },
+          { label: 'Select all', icon: 'selection', action: () => this.selectAll(instance) },
+          { type: 'separator' },
+          { label: 'Clear', icon: 'clear-all', action: () => instance.term.clear() },
+        ]
+      : [
+          { label: 'New Terminal', icon: 'add', action: () => this.createTerminal() },
+          { label: 'Split Right', icon: 'split-horizontal', action: () => this.splitTerminal(instance.id, 'horizontal') },
+          { label: 'Split Down', icon: 'split-vertical', action: () => this.splitTerminal(instance.id, 'vertical') },
+          { type: 'separator' },
+          { label: 'Copy', icon: 'copy', action: () => this.copySelection(instance) },
+          { label: 'Copy all', icon: 'copy', action: () => this.copyAll(instance) },
+          { label: 'Paste', icon: 'paste', action: () => this.paste(instance) },
+          { label: 'Select All', icon: 'selection', action: () => this.selectAll(instance) },
+          { type: 'separator' },
+          { label: 'Previous Command', icon: 'arrow-up', action: () => this.scrollToPreviousCommand(instance.id) },
+          { label: 'Next Command', icon: 'arrow-down', action: () => this.scrollToNextCommand(instance.id) },
+          { label: 'Re-run Last Command', icon: 'debug-restart', action: () => this.rerunLastCommand(instance.id) },
+          { type: 'separator' },
+          { label: 'Clear', icon: 'clear-all', action: () => instance.term.clear() },
+          { label: 'Kill Terminal', icon: 'trash', action: () => this.closeTerminal(instance.id) },
+        ];
 
     menuItems.forEach(item => {
       if ('type' in item && item.type === 'separator') {
@@ -959,7 +972,16 @@ export class TerminalManager {
   copySelection(instance: TerminalInstance) {
     const selectedText = instance.term.getSelection();
     if (selectedText) {
-      navigator.clipboard.writeText(selectedText);
+      void navigator.clipboard.writeText(selectedText);
+    }
+  }
+
+  /** Select entire scrollback and copy to clipboard (activity log export). */
+  copyAll(instance: TerminalInstance) {
+    instance.term.selectAll();
+    const text = instance.term.getSelection();
+    if (text) {
+      void navigator.clipboard.writeText(text);
     }
   }
 

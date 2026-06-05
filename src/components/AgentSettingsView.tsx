@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
+import { CYBERIFRIT_CLOUD_OLLAMA_URL } from '../store/inferenceSlice';
 import { classifyModels, modelKey } from '../model_capabilities';
 import ElevenLabsVoicePicker from './ElevenLabsVoicePicker';
 import MemoryPanel from './MemoryPanel';
@@ -105,24 +106,29 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
     const ttsStrategy = useStore(state => state.ttsStrategy);
     const setTtsStrategy = useStore(state => state.setTtsStrategy);
 
+    const syncOllamaEndpoint = useStore(state => state.syncOllamaEndpoint);
+
+    useEffect(() => {
+        if (!visibleInCategory(category, 'ollama')) return;
+        void syncOllamaEndpoint?.();
+    }, [category, syncOllamaEndpoint]);
+
     const runOllamaDiagnostic = async () => {
         setOllamaDiagBusy(true);
         try {
-            // Make sure the backend has the URL the user typed right now,
-            // even if they didn't blur the input yet.
-            try { await invoke('set_ollama_url', { url: ollamaUrl }); } catch { /* no-op */ }
+            await syncOllamaEndpoint?.();
+            const url = useStore.getState().ollamaUrl;
             const d = await invoke<OllamaDiagnostic>('diagnose_ollama');
             setOllamaDiag(d);
             if (d.ok) {
-                // Mirror the discovered models into the global store so the
-                // Active Model dropdown updates immediately.
                 try { await refreshModels('ollama'); } catch { /* no-op */ }
             }
         } catch (e: any) {
+            const url = useStore.getState().ollamaUrl;
             setOllamaDiag({
                 ok: false,
-                url: ollamaUrl,
-                endpoint: ollamaUrl,
+                url,
+                endpoint: url,
                 bearer_configured: false,
                 status: null,
                 model_count: 0,
@@ -1190,121 +1196,152 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         Ollama Integration
                     </div>
 
-                    {/* ── Server mode picker (Cursor-style 3-way) ──────────── */}
-                    {/* local: 127.0.0.1:11434  ·  auto: probe remote, fall back  ·  remote: customOllamaUrl */}
+                    {/* ── Inference target: Local · Cloud · Self-hosted ─────── */}
                     <div style={{
-                        display: 'flex',
-                        gap: '6px',
-                        marginBottom: '12px',
-                        padding: '4px',
-                        background: 'var(--vscode-sideBar-background)',
-                        border: '1px solid var(--vscode-panel-border)',
-                        borderRadius: '6px'
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                        gap: '10px',
+                        marginBottom: '14px',
                     }}>
                         {([
-                            { id: 'local', label: '🏠 Local', hint: '127.0.0.1:11434' },
-                            { id: 'auto', label: '⚡ Auto', hint: 'Best available' },
-                            { id: 'remote', label: '🌐 Remote', hint: 'Custom URL' },
-                        ] as const).map(opt => (
-                            <button
-                                key={opt.id}
-                                onClick={() => setOllamaServerMode(opt.id)}
-                                style={{
-                                    flex: 1,
-                                    padding: '6px 10px',
-                                    fontSize: '11px',
-                                    fontWeight: ollamaServerMode === opt.id ? 600 : 400,
-                                    background: ollamaServerMode === opt.id ? 'var(--vscode-button-background)' : 'transparent',
-                                    color: ollamaServerMode === opt.id ? 'var(--vscode-button-foreground)' : 'var(--vscode-foreground)',
-                                    border: ollamaServerMode === opt.id ? '1px solid var(--vscode-button-foreground)' : '1px solid transparent',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.15s',
-                                    textAlign: 'center'
-                                }}
-                            >
-                                <div>{opt.label}</div>
-                                <div style={{ fontSize: '9px', opacity: 0.7, marginTop: '2px' }}>{opt.hint}</div>
-                            </button>
-                        ))}
+                            {
+                                id: 'local' as const,
+                                title: 'Local',
+                                hint: 'Runs on your PC',
+                                endpoint: '127.0.0.1:11434',
+                                accent: '#64748b',
+                                icon: 'home',
+                            },
+                            {
+                                id: 'cloud' as const,
+                                title: 'Cloud Model',
+                                hint: 'Cyber-Ifrit AMD',
+                                endpoint: 'ai.cyberifrit.xyz',
+                                accent: '#a855f7',
+                                icon: 'cloud',
+                            },
+                            {
+                                id: 'remote' as const,
+                                title: 'Self-Hosted',
+                                hint: 'Your own GPU server',
+                                endpoint: 'Custom URL',
+                                accent: '#10b981',
+                                icon: 'server-environment',
+                            },
+                        ]).map(opt => {
+                            const active = ollamaServerMode === opt.id;
+                            return (
+                                <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => setOllamaServerMode(opt.id)}
+                                    style={{
+                                        position: 'relative',
+                                        padding: '12px 10px',
+                                        borderRadius: '10px',
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                        background: active
+                                            ? `linear-gradient(145deg, ${opt.accent}22 0%, rgba(0,0,0,0.25) 100%)`
+                                            : 'rgba(255,255,255,0.03)',
+                                        border: active
+                                            ? `1px solid ${opt.accent}88`
+                                            : '1px solid rgba(255,255,255,0.08)',
+                                        boxShadow: active ? `0 0 20px ${opt.accent}33` : 'none',
+                                        color: 'var(--vscode-foreground)',
+                                        transition: 'border-color 0.2s, box-shadow 0.2s, background 0.2s',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                        <i className={`codicon codicon-${opt.icon}`} style={{
+                                            fontFamily: 'codicon', fontStyle: 'normal', fontSize: '16px',
+                                            color: active ? opt.accent : 'rgba(255,255,255,0.45)',
+                                        }} />
+                                        <span style={{ fontSize: '12px', fontWeight: 700 }}>{opt.title}</span>
+                                    </div>
+                                    <div style={{ fontSize: '10px', opacity: 0.55, lineHeight: 1.35 }}>{opt.hint}</div>
+                                    <div style={{
+                                        marginTop: '8px', fontSize: '9px', fontFamily: 'monospace',
+                                        opacity: active ? 0.85 : 0.4, color: active ? opt.accent : undefined,
+                                    }}>
+                                        {opt.endpoint}
+                                    </div>
+                                </button>
+                            );
+                        })}
                     </div>
 
-                    {/* ── Remote URL card (Cursor "Override Base URL" style) ── */}
-                    {/* Always rendered; the toggle inside controls whether the agent uses it.   */}
-                    {/* Disabled (greyed) when mode is 'local' because the URL isn't being used. */}
+                    {/* Mode-specific detail card */}
                     <div style={{
                         marginBottom: '12px',
-                        padding: '12px',
-                        background: 'var(--vscode-sideBar-background)',
-                        border: '1px solid var(--vscode-panel-border)',
-                        borderRadius: '6px',
-                        opacity: ollamaServerMode === 'local' ? 0.55 : 1,
-                        transition: 'opacity 0.2s'
+                        padding: '14px',
+                        borderRadius: '10px',
+                        background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0.15) 100%)',
+                        border: '1px solid rgba(255,255,255,0.08)',
                     }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                            <div style={{ fontSize: '12px', fontWeight: 600 }}>Override Ollama Base URL</div>
-                            <button
-                                onClick={() => setOllamaServerMode(ollamaServerMode === 'remote' ? 'local' : 'remote')}
-                                title={ollamaServerMode === 'remote' ? 'Click to switch to Local' : 'Click to switch to Remote'}
-                                style={{
-                                    width: '32px',
-                                    height: '18px',
-                                    borderRadius: '9px',
-                                    background: ollamaServerMode === 'remote' ? '#10b981' : ollamaServerMode === 'auto' ? '#3b82f6' : 'rgba(255,255,255,0.15)',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    position: 'relative',
-                                    padding: 0,
-                                    transition: 'background 0.2s'
-                                }}
-                            >
+                        {ollamaServerMode === 'cloud' && (
+                            <>
+                                <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: '#c4b5fd' }}>
+                                    Cyber-Ifrit Cloud — included with subscription
+                                </div>
+                                <p style={{ margin: '0 0 10px', fontSize: '11px', opacity: 0.65, lineHeight: 1.45 }}>
+                                    Sign in, pick a model in the AI panel, and inference runs on our AMD MI300X.
+                                    Your account token is sent automatically — no API key needed.
+                                </p>
                                 <div style={{
-                                    position: 'absolute',
-                                    top: '2px',
-                                    left: ollamaServerMode === 'remote' ? '16px' : ollamaServerMode === 'auto' ? '8px' : '2px',
-                                    width: '14px',
-                                    height: '14px',
-                                    borderRadius: '50%',
-                                    background: '#fff',
-                                    transition: 'left 0.2s',
-                                }} />
-                            </button>
-                        </div>
-                        <div style={{ fontSize: '11px', opacity: 0.65, marginBottom: '8px' }}>
-                            Point at a self-hosted Ollama (e.g. your 192GB VRAM box). <strong>Auto</strong> probes this URL on
-                            every refresh and silently falls back to localhost if it's unreachable.
-                        </div>
-                        <input
-                            type="text"
-                            value={customOllamaUrl}
-                            onChange={(e) => setCustomOllamaUrl(e.target.value)}
-                            onBlur={() => {
-                                if ((ollamaServerMode === 'remote' || ollamaServerMode === 'auto') && customOllamaUrl.trim()) {
-                                    refreshModels('ollama').catch(() => { });
-                                }
-                            }}
-                            placeholder="https://ai.cyberifrit.xyz  or  http://192.168.1.50:11434"
-                            style={{
-                                width: '100%',
-                                background: 'var(--vscode-input-background)',
-                                color: 'var(--vscode-input-foreground)',
-                                border: '1px solid var(--vscode-input-border)',
-                                padding: '6px 8px',
-                                fontSize: '12px',
-                                borderRadius: '4px',
-                                boxSizing: 'border-box',
-                                fontFamily: 'monospace'
-                            }}
-                        />
-                        {/* Live resolved-URL line — Cursor shows the active endpoint right under the toggle. */}
-                        <div style={{ fontSize: '10px', opacity: 0.6, marginTop: '6px', fontFamily: 'monospace' }}>
-                            Active endpoint: <span style={{ color: '#a5b4fc' }}>{ollamaUrl || '(unresolved)'}</span>
+                                    padding: '8px 10px', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace',
+                                    background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.25)', color: '#ddd6fe',
+                                }}>
+                                    {CYBERIFRIT_CLOUD_OLLAMA_URL}
+                                </div>
+                            </>
+                        )}
+                        {ollamaServerMode === 'local' && (
+                            <>
+                                <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>Local Ollama</div>
+                                <p style={{ margin: 0, fontSize: '11px', opacity: 0.65, lineHeight: 1.45 }}>
+                                    Uses Ollama on this machine. Install Ollama and pull models locally — free, private, runs offline.
+                                </p>
+                            </>
+                        )}
+                        {ollamaServerMode === 'remote' && (
+                            <>
+                                <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: '#6ee7b7' }}>
+                                    Self-Hosted — bring your own GPU box
+                                </div>
+                                <p style={{ margin: '0 0 10px', fontSize: '11px', opacity: 0.65, lineHeight: 1.45 }}>
+                                    Point at your own Ollama server (home lab, datacenter, 192GB VRAM rig). Optional bearer token below if your nginx requires it.
+                                </p>
+                                <input
+                                    type="text"
+                                    value={customOllamaUrl}
+                                    onChange={(e) => setCustomOllamaUrl(e.target.value)}
+                                    onBlur={() => { if (customOllamaUrl.trim()) refreshModels('ollama').catch(() => { }); }}
+                                    placeholder="http://192.168.1.50:11434  or  https://ollama.yourdomain.com"
+                                    style={{
+                                        width: '100%',
+                                        background: 'var(--vscode-input-background)',
+                                        color: 'var(--vscode-input-foreground)',
+                                        border: '1px solid var(--vscode-input-border)',
+                                        padding: '8px 10px',
+                                        fontSize: '12px',
+                                        borderRadius: '6px',
+                                        boxSizing: 'border-box',
+                                        fontFamily: 'monospace',
+                                    }}
+                                />
+                            </>
+                        )}
+                        <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '10px', fontFamily: 'monospace' }}>
+                            Active endpoint: <span style={{ color: '#a5b4fc' }}>{ollamaUrl || '(none)'}</span>
                         </div>
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <label style={{ fontSize: '11px', opacity: 0.8 }}>Ollama bearer (optional)</label>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', opacity: ollamaServerMode === 'cloud' ? 0.45 : 1 }}>
+                            <label style={{ fontSize: '11px', opacity: 0.8 }}>
+                                {ollamaServerMode === 'cloud' ? 'Bearer token (not needed — uses sign-in)' : 'Ollama bearer (optional)'}
+                            </label>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <input
                                     type="password"
@@ -1387,7 +1424,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 {ollamaDiagBusy ? 'Testing…' : 'Test connection'}
                             </button>
                             <button
-                                onClick={() => refreshModels('ollama')}
+                                onClick={() => useStore.getState().syncOllamaEndpoint?.()}
                                 style={{ background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)', border: 'none', padding: '2px 8px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px' }}
                             >
                                 Reconnect
@@ -1453,8 +1490,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             </div>
                         )}
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px', padding: '10px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '2px' }}>
-                            <label style={{ fontSize: '11px', fontWeight: 600, opacity: 0.7 }}>Pull New Model</label>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px', padding: '10px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '2px', opacity: ollamaServerMode === 'cloud' ? 0.45 : 1, pointerEvents: ollamaServerMode === 'cloud' ? 'none' : 'auto' }}>
+                            <label style={{ fontSize: '11px', fontWeight: 600, opacity: 0.7 }}>Pull New Model {ollamaServerMode === 'cloud' ? '(local/self-hosted only)' : ''}</label>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <input
                                     type="text"
@@ -1682,14 +1719,22 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
 
             {visibleInCategory(category, 'mcps') && (
                 <section data-cat="mcps">
-                    <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBarSectionHeader-foreground)', marginBottom: '12px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
                         MCP Servers
+                        <span style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            onClick={() => useStore.getState().openMcpStore?.('store')}
+                            style={{ background: 'transparent', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '10px' }}
+                        >
+                            Open MCP Store
+                        </button>
                         <button
                             onClick={() => setIsAddingMcp(!isAddingMcp)}
                             style={{ background: 'transparent', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '10px' }}
                         >
                             {isAddingMcp ? 'Cancel' : '+ Add Server'}
                         </button>
+                        </span>
                     </div>
 
                     {isAddingMcp && (

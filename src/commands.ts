@@ -81,6 +81,16 @@ function registerCoreCommands() {
             run: () => store.openAiriPanel?.(),
         },
         {
+            id: 'workbench.action.openMcpStore',
+            label: 'View: Open MCP Store',
+            run: () => store.openMcpStore?.('store'),
+        },
+        {
+            id: 'workbench.action.manageMcpServers',
+            label: 'MCP: Manage Servers',
+            run: () => store.openMcpStore?.('manage'),
+        },
+        {
             id: 'workbench.action.openEmulators',
             label: 'View: Mobile Emulators',
             run: () => store.openEmulatorPanel?.(),
@@ -184,16 +194,31 @@ function registerCoreCommands() {
             run: () => store.setActiveSidebarView('steering-view'),
         },
         {
+            id: 'workbench.view.jsonVisualizer',
+            label: 'View: JSON Visualizer',
+            run: () => {
+                const s = getStore();
+                const activeTab = s.tabs?.find((t: any) => t.id === s.activeTabId);
+                if (activeTab && (activeTab.path?.endsWith('.json') || activeTab.language === 'json')) {
+                    s.setVisualLabData?.(activeTab.content);
+                    s.setVisualLabMode?.('json');
+                }
+                s.toggleVisualLab?.(true);
+            },
+        },
+        {
             id: 'workbench.action.openVisualLab',
             label: 'View: Open Visual Lab',
             run: () => {
                 const s = getStore();
                 const activeTab = s.tabs?.find((t: any) => t.id === s.activeTabId);
-                if (activeTab?.path?.endsWith('.json') || activeTab?.language === 'json') {
-                    s.setVisualLabData?.(activeTab.content);
+                if (activeTab?.content) s.setVisualLabData?.(activeTab.content);
+                if (activeTab?.path?.endsWith('.sql')) {
+                    s.setVisualLabMode?.('erd');
+                } else if (activeTab?.path?.endsWith('.json') || activeTab?.language === 'json') {
+                    s.setVisualLabMode?.('json');
                 }
                 s.toggleVisualLab?.(true);
-                s.setVisualLabMode?.('json');
             },
         },
         {
@@ -237,7 +262,20 @@ function registerCoreCommands() {
                 const result = await invoke<string | null>('open_folder');
                 if (result) {
                     store.setActiveRoot(result);
-                    await new Promise(r => setTimeout(r, 50));
+                    await store.addWorkspaceFolder(result);
+                }
+            },
+        },
+        {
+            id: 'explorer.addFolderToWorkspace',
+            label: 'File: Add Folder to Workspace...',
+            run: async () => {
+                const result = await invoke<string | null>('open_folder');
+                if (!result) return;
+                await store.addWorkspaceFolder(result);
+                if (!store.activeRoot) {
+                    store.setActiveRoot(result);
+                } else {
                     await store.refreshFileTree();
                 }
             },
@@ -276,6 +314,28 @@ function registerCoreCommands() {
             label: 'File: Close Folder',
             run: () => {
                 store.closeFolder();
+            },
+        },
+        {
+            id: 'workbench.action.saveWorkspaceAs',
+            label: 'File: Save Workspace As...',
+            run: async () => {
+                const { getWorkspaceFolders } = await import('./application/workspace/multiRootWorkspace');
+                const folders = getWorkspaceFolders();
+                if (folders.length === 0) {
+                    alert('Open a folder before saving a workspace.');
+                    return;
+                }
+                const defaultName = `${folders[0]?.name || 'workspace'}.code-workspace`;
+                const target = window.prompt('Save workspace as (full path):', defaultName);
+                if (!target) return;
+                const payload = {
+                    folders: folders.map((f) => ({ path: f.path, name: f.name })),
+                };
+                await invoke('write_file_content', {
+                    path: target,
+                    content: JSON.stringify(payload, null, 2),
+                });
             },
         },
         {
@@ -459,6 +519,13 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     if (cmd && e.shiftKey && e.key.toLowerCase() === 'u') {
         e.preventDefault();
         (window as any).executeCommand?.('workbench.action.toggleBrowser');
+        return;
+    }
+
+    // JSON Visualizer sidebar (Ctrl+Shift+J)
+    if (cmd && e.shiftKey && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        (window as any).executeCommand?.('workbench.view.jsonVisualizer');
         return;
     }
 

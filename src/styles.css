@@ -834,24 +834,28 @@ body.resizing * {
 }
 
 .menu-dropdown-item {
-  padding: 0 22px 0 27px;
-  min-height: 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px 0 27px;
+  height: 22px;
   line-height: 22px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
+  white-space: nowrap;
   transition: background 0.1s;
+}
+
+.menu-dropdown-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .menu-dropdown-item:hover {
   background: var(--vscode-menu-selectionBackground, #094771);
   color: var(--vscode-menu-selectionForeground, #ffffff);
-}
-
-.menu-dropdown-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 24px;
 }
 
 .menu-dropdown-item.disabled {
@@ -863,14 +867,22 @@ body.resizing * {
 .menu-dropdown-separator {
   height: 1px;
   background: var(--vscode-menu-border, #454545);
-  margin: 3px 0;
+  margin: 4px 0;
 }
 
 .menu-shortcut {
-  font-size: 11px;
+  font-size: 12px;
   opacity: 0.55;
   white-space: nowrap;
   flex-shrink: 0;
+  margin-left: 16px;
+}
+
+.menu-submenu-arrow {
+  font-size: 12px;
+  opacity: 0.55;
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 
 .menu-overlay {
@@ -3004,6 +3016,21 @@ body.resizing .resizer-h {
 
 .terminal-sidebar::-webkit-scrollbar {
   width: 4px;
+}
+
+/* Terminals must allow text selection — body { user-select: none } blocks copy otherwise */
+.terminal-view-host .xterm,
+.terminal-view-host .xterm-viewport,
+.terminal-view-host .xterm-screen,
+.terminal-instance-wrapper .xterm,
+.terminal-instance-wrapper .xterm-viewport,
+.terminal-instance-wrapper .xterm-screen,
+.terminal-activity-feed .xterm,
+.terminal-activity-feed .xterm-viewport,
+.terminal-activity-feed .xterm-screen {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text;
 }
 
 .terminal-instance-wrapper {

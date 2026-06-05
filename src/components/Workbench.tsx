@@ -13,6 +13,7 @@ const BottomPanel = lazy(() => import('./BottomPanel'));
 const RightSidebar = lazy(() => import('./RightSidebar'));
 const Editor = lazy(() => import('./Editor'));
 const SettingsPage = lazy(() => import('./SettingsPage'));
+const McpStorePanel = lazy(() => import('./McpStorePanel'));
 const AimViewer = lazy(() => import('./AimViewer'));
 const VisualLab = lazy(() => import('./visual/VisualLab'));
 const SpecsToCodeWizard = lazy(() => import('./SpecsToCodeWizard'));
@@ -169,6 +170,7 @@ const Workbench: React.FC = () => {
                                                         { label: 'Clone Repository...', icon: 'codicon-source-control', cmd: 'git.clone' },
                                                         { label: 'New File...', icon: 'codicon-new-file', cmd: 'explorer.newFile' },
                                                         { label: 'Open Chat...', icon: 'codicon-comment-discussion', cmd: 'workbench.action.openChat' },
+                                                        { label: 'MCP Store...', icon: 'codicon-plug', cmd: 'workbench.action.openMcpStore' },
                                                         { label: 'Mobile Emulators...', icon: 'codicon-device-mobile', cmd: 'workbench.action.openEmulators' },
                                                         { label: 'Security Review...', icon: 'codicon-shield', cmd: 'security.action.runCodebaseReview' },
                                                     ].map(item => (
@@ -213,9 +215,11 @@ const Workbench: React.FC = () => {
                                         </div>
                                     ) : hasOpenFile ? (
                                         /* Monaco Editor or Settings Page */
-                                        <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: (isVisualLabSplitView && isVisualLabOpen) ? 'row' : 'column' }}>
+                                        <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: (isVisualLabSplitView && isVisualLabOpen) ? 'row' : 'column', position: 'relative' }}>
                                             {tabs.find(t => t.id === activeTabId)?.type === 'settings' ? (
                                                 <Suspense fallback={<PanelFallback />}><SettingsPage /></Suspense>
+                                            ) : tabs.find(t => t.id === activeTabId)?.type === 'mcp-store' ? (
+                                                <Suspense fallback={<PanelFallback />}><McpStorePanel /></Suspense>
                                             ) : (tabs.find(t => t.id === activeTabId) as any)?.type === 'aim' ? (
                                                 <Suspense fallback={<PanelFallback />}><AimViewer path={(tabs.find(t => t.id === activeTabId) as any)?.path} /></Suspense>
                                             ) : (
@@ -302,6 +306,9 @@ const Workbench: React.FC = () => {
                                                     )}
                                                 </div>
                                             )}
+                                            {!isVisualLabSplitView && isVisualLabOpen && (
+                                                <Suspense fallback={<PanelFallback />}><VisualLab editorOverlay /></Suspense>
+                                            )}
                                         </div>
                                     ) : (
                                         /* Native empty state — folder open, no file selected */
@@ -372,9 +379,6 @@ const Workbench: React.FC = () => {
                 </div>
             </div>
 
-            {!isVisualLabSplitView && (
-                <Suspense fallback={<PanelFallback />}><VisualLab /></Suspense>
-            )}
             <Suspense fallback={<PanelFallback />}><DocumentOutline /></Suspense>
             {localStorage.getItem('airi.companion') === '1' && (
                 <Suspense fallback={<PanelFallback />}><AiriOverlay /></Suspense>

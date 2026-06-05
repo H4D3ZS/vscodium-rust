@@ -10,7 +10,9 @@ import { spawnTerminalGroup } from './spawnTerminal';
  */
 export function registerTerminalKeybindings(manager: TerminalManager): void {
     window.addEventListener('keydown', (e: KeyboardEvent) => {
-        const inTerminal = document.activeElement?.closest('.terminal');
+        const inTerminal = document.activeElement?.closest(
+            '.terminal-view-host, .terminal-instance-wrapper, .terminal-container, .xterm',
+        );
         const group = manager.getActiveGroup();
         if (!group?.activeInstanceId) return;
 
@@ -82,10 +84,17 @@ export function registerTerminalKeybindings(manager: TerminalManager): void {
             return;
         }
 
-        // Ctrl+C — copy when selection exists
+        // Ctrl+C — copy when selection exists (activity feed + PTY terminals)
         if (e.key === 'c' && e.ctrlKey && instance.term.hasSelection()) {
             e.preventDefault();
             manager.copySelection(instance);
+            return;
+        }
+
+        // Ctrl+Shift+C — copy entire scrollback (handy for AIRI activity export)
+        if (e.key === 'c' && e.ctrlKey && e.shiftKey) {
+            e.preventDefault();
+            manager.copyAll(instance);
             return;
         }
 
