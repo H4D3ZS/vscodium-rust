@@ -878,6 +878,16 @@ body.resizing * {
   margin-left: 16px;
 }
 
+/* Menu rows are flat like VSCode — no per-item shadow/rounding. (The generic
+   [class*="dropdown"] overlay rules would otherwise turn each row into a raised,
+   rounded tile; the dropdown container keeps its own single shadow.) */
+.menu-dropdown-item,
+.menu-dropdown-label,
+.menu-dropdown-separator {
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
 .menu-submenu-arrow {
   font-size: 12px;
   opacity: 0.55;
@@ -960,6 +970,13 @@ body.resizing * {
 
 /* Agent-panel secondary tabs: single scrolling row, no visible scrollbar */
 .vscr-agent-tabs::-webkit-scrollbar { height: 0; display: none; }
+
+/* Chat input toolbar: keep one tidy row at any width — secondary controls
+   scroll horizontally (hidden bar) instead of wrapping into a broken stack.
+   Children keep their intrinsic size; the model label truncates on its own. */
+.vscr-toolbar-scroll { scrollbar-width: none; }
+.vscr-toolbar-scroll::-webkit-scrollbar { height: 0; display: none; }
+.vscr-toolbar-scroll > * { flex-shrink: 0; }
 
 /* Native VSCode layout-toggle buttons in the title bar */
 .tb-layout-btn {
@@ -4001,7 +4018,7 @@ button, input, textarea, select,
 
 /* 5) Keep neutral elevation ONLY on genuine overlays (menus, dropdowns,
       tooltips, command palette, context menus) — re-allow after the resets. */
-.dropdown-menu, [class*="dropdown"]:not(.menu-dropdown), .context-menu, [class*="context-menu"],
+.dropdown-menu, [class*="dropdown"]:not([class*="menu-dropdown"]), .context-menu, [class*="context-menu"],
 .menu:not(.menu-dropdown), .menu-popover, .quick-open, .command-palette, [class*="palette"],
 .tooltip, [class*="tooltip"], [role="menu"], [role="listbox"], .popover,
 .vscode-native-menu {

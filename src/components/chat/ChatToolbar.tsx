@@ -40,8 +40,8 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
     const toggleCascadeWriteMode = useStore(state => state.toggleCascadeWriteMode);
 
     return (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', width: '100%', minWidth: 0 }}>
+            <div className="vscr-toolbar-scroll" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'nowrap', overflowX: 'auto', flex: 1, minWidth: 0 }}>
                 <div onClick={onAttach} style={{ cursor: 'pointer', opacity: 0.5, display: 'flex', alignItems: 'center' }} title="Attach File (Neural Gist)">
                     <i className="codicon codicon-attach" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }} />
                 </div>
@@ -54,7 +54,7 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                     {modeStyle.label}
                 </span>
 
-                <span onClick={onModelClick} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer' }}>{modelLabel}</span>
+                <span onClick={onModelClick} title={modelLabel} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '130px', display: 'inline-block', verticalAlign: 'middle' }}>{modelLabel}</span>
 
                 {reasoningToggle}
 
@@ -136,7 +136,7 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 {webUiControls}
             </div>
 
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
                 <div
                     onClick={onToggleVoice}
                     style={{ cursor: 'pointer', opacity: isVoiceListening ? 1 : 0.4, display: 'flex', alignItems: 'center', color: isVoiceListening ? '#ef4444' : undefined }}
