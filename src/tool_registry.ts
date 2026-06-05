@@ -473,7 +473,7 @@ export const WebSearchTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const BrowserOpenTool: ToolDef = {
     name: 'browser_open',
-    description: `Open a headless browser session for web automation, testing, or screenshot capture.`,
+    description: `Launch the external stealth-Firefox window (visible OS window — user watches live). Agent drives this same instance via browser_navigate / browser_screenshot. NOT an in-IDE iframe.`,
     inputSchema: { type: 'object', properties: {}, required: [] },
     execute: async (_input, _ctx) => {
         try {
@@ -1792,7 +1792,7 @@ export const MultiCursorAITool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const ProjectRulesTool: ToolDef = {
     name: 'project_rules',
-    description: `Define or retrieve project-specific rules that the AI should follow. Similar to Cursor's .cursorrules, this sets coding standards, conventions, and preferences that the AI agent will use when generating or editing code.`,
+    description: `Define or retrieve project-specific rules that the AI should follow. Sets coding standards, conventions, and preferences that the agent uses when generating or editing code.`,
     inputSchema: {
         type: 'object',
         properties: {
@@ -2046,7 +2046,7 @@ export const AimPackContextTool: ToolDef = {
 
 const AgMarkTaskDoneTool: ToolDef = {
     name: 'ag_mark_task_done',
-    description: 'Mark a task as complete in the Antigravity tasks.md file. Call this after successfully implementing a task. Flips `- [ ] TASK-NNN` to `- [x] TASK-NNN`.',
+    description: 'Mark a task as complete in the spec tasks.md file. Call this after successfully implementing a task. Flips `- [ ] TASK-NNN` to `- [x] TASK-NNN`.',
     inputSchema: {
         type: 'object',
         properties: {

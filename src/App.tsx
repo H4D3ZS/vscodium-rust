@@ -53,10 +53,15 @@ const App: React.FC = () => {
 
     useEffect(() => {
         (window as any).useStore = useStore;
+        let unsubAgentRuntime: (() => void) | undefined;
         // Critical path only — defer heavy subsystems until idle.
         initCommands();
         initTheme();
-        import('./application/agent/bootstrapAgentRuntime').then(m => m.bootstrapAgentRuntime());
+        import('./application/performance/ensureAgentRuntime').then(m => {
+            unsubAgentRuntime = m.scheduleAgentRuntimeBootstrap();
+        });
+        import('./application/debug/bootstrapDebugRuntime').then(m => m.bootstrapDebugRuntime());
+        import('./application/workspace/multiRootWorkspace').then(m => m.initWorkspaceFoldersFromStorage());
 
         scheduleDeferredInit(() => {
             import('./search').then(m => m.initSearch());
@@ -138,6 +143,8 @@ const App: React.FC = () => {
             setState: (state: any) => useStore.setState(state),
             subscribe: useStore.subscribe,
         };
+
+        return () => { unsubAgentRuntime?.(); };
     }, []);
 
     return (

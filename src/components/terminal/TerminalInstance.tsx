@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { terminalManager, getVSCodeTheme, registerTerminalShortcuts } from '../../terminal';
+import { terminalManager } from '../../terminal';
+import { bootstrapTerminalRuntime } from '../../application/terminal/bootstrapTerminalRuntime';
+import { refreshAllTerminalThemes } from '../../application/terminal/refreshTerminalTheme';
 import { SearchAddon } from '@xterm/addon-search';
 import TerminalFindWidget from './TerminalFindWidget';
 import { useStore } from '../../store';
@@ -39,8 +41,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ id, groupId, active
             }
         }
         
-        // Register shortcuts once
-        registerTerminalShortcuts(terminalManager);
+        void bootstrapTerminalRuntime();
     }, [id]);
 
     // Handle visibility and focus
@@ -76,7 +77,7 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ id, groupId, active
     // Theme updates
     const currentTheme = useStore(state => state.theme);
     useEffect(() => {
-        terminalManager.updateAllThemes();
+        void refreshAllTerminalThemes();
     }, [currentTheme]);
 
     // Keyboard shortcuts for find widget
@@ -114,8 +115,9 @@ const TerminalInstance: React.FC<TerminalInstanceProps> = ({ id, groupId, active
                 borderLeft: active ? '2px solid var(--vscode-terminal-tab-activeBorder, #007acc)' : '1px solid transparent',
                 position: 'relative',
                 overflow: 'hidden',
-                display: active ? 'flex' : 'none',
-                flexDirection: 'column'
+                display: 'flex',
+                flexDirection: 'column',
+                opacity: active ? 1 : 0.92,
             }}
         >
             {/* Find Widget */}

@@ -118,6 +118,18 @@ server {
 3. The IDE sends your Supabase token as the Bearer; the gateway authorizes and
    proxies to the MI300X. No API key needed.
 
+## 5. Production installer checklist (DO + IDE)
+
+Before shipping the Windows installer to subscribers:
+
+1. `scripts\fetch-lsp-binaries.ps1` — bundle LSP into `src-tauri\binaries/lsp/`
+2. `scripts\build-sidecar.ps1` — bundle `browser-agent.exe`
+3. `npx tauri build` — MSI/NSIS with `binaries/*` resources
+4. Gateway on MI300X VPS (`api.cyberifrit.xyz`) — JWT + subscription check (section 3)
+5. Optional: mirror `binaries/lsp/` at `https://releases.cyberifrit.xyz/lsp/v1/win-x64/` and set `LSP_BUNDLE_MIRROR` on build agents
+
+Subscribers get: sign in → Cyber-Ifrit Cloud models + **built-in language servers** (no rustup/npm).
+
 ## Notes
 
 - **BYO key still works** for everything else: set your own

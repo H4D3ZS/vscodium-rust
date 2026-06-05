@@ -8,7 +8,12 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { terminalManager } from '../../terminal';
-import { getWorkflows, deleteWorkflow } from '../../terminalWorkflows';
+import {
+    listTerminalWorkflows,
+    deleteTerminalWorkflow,
+    insertWorkflowCommand,
+    runWorkflowCommand,
+} from '../../application/terminal/runWorkflow';
 
 interface PaletteItem {
   kind: 'history' | 'workflow';
@@ -41,7 +46,7 @@ const TerminalCommandPalette: React.FC = () => {
 
   const items: PaletteItem[] = useMemo(() => {
     if (!open) return [];
-    const wf = getWorkflows().map<PaletteItem>((w) => ({
+    const wf = listTerminalWorkflows().map<PaletteItem>((w) => ({
       kind: 'workflow',
       label: w.name,
       command: w.command,
@@ -74,8 +79,8 @@ const TerminalCommandPalette: React.FC = () => {
   const choose = (run: boolean) => {
     const item = filtered[sel];
     if (item) {
-      if (run) terminalManager.runInActive(item.command);
-      else terminalManager.insertInActive(item.command);
+      if (run) void runWorkflowCommand(item.command);
+      else void insertWorkflowCommand(item.command);
     }
     close();
   };
@@ -182,7 +187,7 @@ const TerminalCommandPalette: React.FC = () => {
                 <i
                   className="codicon codicon-close"
                   title="Delete workflow"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); deleteWorkflow(item.id!); setVersion((v) => v + 1); }}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); deleteTerminalWorkflow(item.id!); setVersion((v) => v + 1); }}
                   style={{ fontSize: 12, opacity: 0.4, flexShrink: 0 }}
                 />
               )}

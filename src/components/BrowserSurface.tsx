@@ -30,10 +30,15 @@ const BrowserSurface: React.FC = () => {
     const [iframeKey, setIframeKey] = React.useState(0);
     const isAgentThinking = useStore(state => state.isAgentThinking);
     const agentMode = useStore(state => state.agentMode);
-    const setLayoutMode = useStore(state => state.setLayoutMode);
     // Live screenshot polling is OFF by default (memory/CPU heavy). Enable in
     // Settings → Permissions → Browser only if the machine can handle it.
     const visionEnabled = useStore(state => state.isAgentVisionEnabled);
+
+    // Panel opened — ensure stealth Firefox sidecar is up for VISION mode.
+    React.useEffect(() => {
+        if (mode !== 'vision') return;
+        invoke('browser_open').catch(() => { /* Playwright optional for LIVE iframe */ });
+    }, [mode]);
 
     // Live mirror: while the agent is working in VISION mode, poll the real
     // browser for a fresh screenshot so the panel shows what the agent sees/does.
@@ -187,7 +192,9 @@ const BrowserSurface: React.FC = () => {
                     <i className="codicon codicon-symbol-ruler" style={{ fontSize: '14px' }} />
                 </button>
                 <button
-                    onClick={() => setLayoutMode('editor')}
+                    onClick={() => {
+                        import('../application/browser/openBrowserPanel').then(m => m.closeBrowserPanel());
+                    }}
                     style={navButtonStyle}
                     title="Close preview (back to editor)"
                 >
@@ -300,15 +307,7 @@ const BrowserSurface: React.FC = () => {
                         )}
                     </div>
                 ) : (
-                    <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                        <div style={{ textAlign: 'center', maxWidth: '400px' }}>
-                            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🌐</div>
-                            <h2 style={{ color: '#1e293b', marginBottom: '8px' }}>Neural Browser Bridge</h2>
-                            <p style={{ color: '#64748b', fontSize: '13px', lineHeight: 1.5 }}>
-                                Start an autonomous task or enter a URL to activate the Neural VFS Browser surface.
-                            </p>
-                        </div>
-                    </div>
+                    <BrowserStart onPick={(u) => void handleNavigate(u)} />
                 )}
             </div>
         </div>

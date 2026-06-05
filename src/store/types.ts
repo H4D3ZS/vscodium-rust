@@ -109,12 +109,19 @@ export interface TerminalInstance {
     parentGroupId: string;
 }
 
+export interface WorkspaceFolder {
+    path: string;
+    name: string;
+}
+
 export interface TerminalGroup {
     id: string;
     name: string;
     instances: string[];
     activeInstanceId: string;
     splitWeights?: number[];
+    /** Horizontal (side-by-side) or vertical (stacked) when split. */
+    layout?: 'single' | 'split-horizontal' | 'split-vertical';
 }
 
 export interface AgentTask {

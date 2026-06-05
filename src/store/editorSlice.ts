@@ -2,38 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { computeDiffBlocks, patchContentSelective } from '../services/DiffService';
 import type { AppState } from './index';
-import type { EditorTab, FileEntry, PendingChange, Artifact } from './types';
-
-function detectLanguage(filename: string): string {
-    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-    const map: Record<string, string> = {
-        rs: 'rust', ts: 'typescript', tsx: 'typescript', js: 'javascript',
-        jsx: 'javascript', json: 'json', css: 'css', html: 'html',
-        md: 'markdown', toml: 'toml', yaml: 'yaml', yml: 'yaml',
-        sh: 'shell', py: 'python', go: 'go', c: 'c', cpp: 'cpp',
-        h: 'c', hpp: 'cpp', txt: 'plaintext',
-    };
-    return map[ext] ?? 'plaintext';
-}
-
-function findNodeRecursive(nodes: FileEntry[], path: string): FileEntry | undefined {
-    for (const node of nodes) {
-        if (node.path === path) return node;
-        if (node.children) {
-            const found = findNodeRecursive(node.children, path);
-            if (found) return found;
-        }
-    }
-    return undefined;
-}
-
-function injectChildrenRecursive(nodes: FileEntry[], path: string, children: FileEntry[]): FileEntry[] {
-    return nodes.map(node => {
-        if (node.path === path) return { ...node, children };
-        if (node.children) return { ...node, children: injectChildrenRecursive(node.children, path, children) };
-        return node;
-    });
-}
+import type { EditorTab, FileEntry, PendingChange, WorkspaceFolder } from './types';
 
 export interface EditorSlice {
     // State
@@ -43,6 +12,7 @@ export interface EditorSlice {
     activeEditorPath: string;
     activeRoot: string | null;
     activeRootName: string | null;
+    workspaceFolders: WorkspaceFolder[];
     recentWorkspaces: { path: string; name: string; openedAt: number }[];
     pendingChanges: PendingChange[];
     autoAcceptChanges: boolean;
@@ -73,6 +43,8 @@ export interface EditorSlice {
     refreshFileTree: () => Promise<void>;
     toggleDirectory: (path: string) => Promise<void>;
     closeFolder: () => void;
+    addWorkspaceFolder: (path: string) => Promise<void>;
+    removeWorkspaceFolder: (path: string) => Promise<void>;
     removeRecentWorkspace: (path: string) => void;
     getFlattenedFiles: () => FileEntry[];
     openSettings: (tab?: 'user' | 'workspace' | 'agent') => void;
@@ -116,6 +88,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     activeEditorPath: '',
     activeRoot: localStorage.getItem('activeRoot') || null,
     activeRootName: localStorage.getItem('activeRootName') || null,
+    workspaceFolders: [],
     recentWorkspaces: (() => {
         try { return JSON.parse(localStorage.getItem('recentWorkspaces') || '[]'); } catch { return []; }
     })(),
@@ -176,6 +149,10 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
                     get().refreshFileTree();
                     get().fetchActiveProjectSpec();
                     get().startIndexingCodebase();
+                    get().refreshChatSessions?.();
+                    import('../application/lsp/bootstrapLanguageServer').then(m =>
+                        m.bootstrapLanguageServer(cleaned),
+                    );
                 })
                 .catch((err) => {
                     console.warn('[store] set_active_root rejected:', err);
@@ -200,12 +177,20 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     },
 
     refreshFileTree: async () => {
-        try {
-            const tree = await invoke<FileEntry[]>('get_file_tree');
-            set({ fileTree: tree });
-        } catch {
-            set({ fileTree: [] });
-        }
+        const { refreshFileTree: refresh } = await import('../application/editor/refreshFileTree');
+        await refresh();
+    },
+
+    addWorkspaceFolder: async (path) => {
+        const { addWorkspaceFolder: add } = await import('../application/workspace/multiRootWorkspace');
+        await add(path);
+        await get().refreshFileTree();
+    },
+
+    removeWorkspaceFolder: async (path) => {
+        const { removeWorkspaceFolder: remove } = await import('../application/workspace/multiRootWorkspace');
+        await remove(path);
+        await get().refreshFileTree();
     },
 
     closeFolder: () => {
@@ -214,31 +199,9 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     },
 
     openFile: async (path: string) => {
-        const existingTab = get().tabs.find((t: any) => t.path === path);
-        if (existingTab) { get().setActiveTab(existingTab.id); return; }
-        // .aim Neural Weight-Maps are binary (memmap2) — open them in the AIM
-        // viewer, NOT Monaco (which would show garbage / nothing).
-        if (path.toLowerCase().endsWith('.aim')) {
-            const filename = path.replace(/\\/g, '/').split('/').pop() ?? path;
-            const id = `tab-${Date.now()}-${Math.random()}`;
-            const tab = { id, filename, path, content: '', isModified: false, language: '', type: 'aim' } as unknown as EditorTab;
-            set((state) => {
-                const history = state.tabHistory.slice(0, state.tabHistoryIndex + 1);
-                history.push(id);
-                return { tabs: [...state.tabs, tab], activeTabId: id, tabHistory: history, tabHistoryIndex: history.length - 1 };
-            });
-            return;
-        }
         try {
-            const content = await invoke<string>('read_file', { path });
-            const filename = path.replace(/\\/g, '/').split('/').pop() ?? path;
-            const id = `tab-${Date.now()}-${Math.random()}`;
-            const tab: EditorTab = { id, filename, path, content, isModified: false, language: detectLanguage(filename) };
-            set((state) => {
-                const history = state.tabHistory.slice(0, state.tabHistoryIndex + 1);
-                history.push(id);
-                return { tabs: [...state.tabs, tab], activeTabId: id, tabHistory: history, tabHistoryIndex: history.length - 1 };
-            });
+            const { openFile: open } = await import('../application/editor/openFile');
+            await open(path);
         } catch (error) {
             console.error('Open File Error:', error);
         }
@@ -293,24 +256,9 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     },
 
     saveActiveFile: async () => {
-        const { tabs, activeTabId } = get();
-        const tab = tabs.find((t: any) => t.id === activeTabId);
-        if (!tab || (tab as any).type === 'settings') return;
         try {
-            await invoke('write_file', { path: tab.path, content: tab.content });
-            set((state) => ({ tabs: state.tabs.map((t: any) => t.id === activeTabId ? { ...t, isModified: false } : t) }));
-            const hooks = get().agentHooks;
-            // Only on_save hooks fire on save (default for legacy hooks without a
-            // trigger). on_commit / manual hooks must NOT fire here.
-            const matchingHooks = hooks.filter((h: any) =>
-                h.enabled
-                && (h.trigger || 'on_save') === 'on_save'
-                && new RegExp(h.pattern.replace(/\*/g, '.*')).test(tab.path));
-            for (const hook of matchingHooks) {
-                const globalRule = get().globalSteeringRule;
-                const fullPrompt = `[Triggered by save on ${tab.path}]\n` + (globalRule ? `Global Rule: ${globalRule}\n` : '') + `Task: ${hook.prompt}`;
-                get().runBackgroundAgent(fullPrompt).catch(console.error);
-            }
+            const { saveActiveFile: save } = await import('../application/editor/saveFile');
+            await save();
         } catch (error) {
             console.error('Save File Error:', error);
         }
@@ -327,27 +275,8 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     },
 
     toggleDirectory: async (path: string) => {
-        const state = get();
-        const node = findNodeRecursive(state.fileTree, path);
-        if (!node) return;
-        const is_now_expanded = !node.is_expanded;
-        const updateExpansion = (nodes: FileEntry[]): FileEntry[] =>
-            nodes.map(n => {
-                if (n.path === path) return { ...n, is_expanded: is_now_expanded };
-                if (n.children) return { ...n, children: updateExpansion(n.children) };
-                return n;
-            });
-        if (is_now_expanded && (!node.children || node.children.length === 0)) {
-            try {
-                const children = await invoke<FileEntry[]>('list_dir_flat', { path });
-                set({ fileTree: updateExpansion(injectChildrenRecursive(state.fileTree, path, children)) });
-            } catch (e) {
-                console.error('Lazy load directory failed:', e);
-                set({ fileTree: updateExpansion(state.fileTree) });
-            }
-        } else {
-            set({ fileTree: updateExpansion(state.fileTree) });
-        }
+        const { toggleDirectory: toggle } = await import('../application/editor/toggleDirectory');
+        await toggle(path);
     },
 
     getFlattenedFiles: () => {
@@ -443,7 +372,13 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
 
     rejectAllPendingChanges: () => set({ pendingChanges: [] }),
 
-    setAutoAcceptChanges: (v) => { try { localStorage.setItem('editor.autoAcceptChanges', v ? '1' : '0'); } catch { /* non-fatal */ } set({ autoAcceptChanges: v }); },
+    setAutoAcceptChanges: (v) => {
+        try { localStorage.setItem('editor.autoAcceptChanges', v ? '1' : '0'); } catch { /* */ }
+        set({ autoAcceptChanges: v });
+        // Keep Chat settings toggle in sync (single source of truth for users).
+        const setGlobal = (get() as any).setVoidGlobalSetting;
+        if (typeof setGlobal === 'function') setGlobal('autoAcceptLLMChanges', v);
+    },
 
     snapshotCheckpoint: async (paths) => {
         const snap: Record<string, string> = {};
@@ -468,13 +403,8 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     },
 
     acceptHunk: async (changeId, hunkId) => {
-        set((state) => {
-            const change = state.pendingChanges.find(c => c.id === changeId);
-            if (!change) return state;
-            const accepted = change.acceptedHunkIds || [];
-            if (accepted.includes(hunkId)) return state;
-            return { pendingChanges: state.pendingChanges.map(c => c.id === changeId ? { ...c, acceptedHunkIds: [...accepted, hunkId] } : c) };
-        });
+        const { acceptHunk: acceptHunkUseCase } = await import('../application/editor/acceptHunk');
+        await acceptHunkUseCase(changeId, hunkId);
     },
 
     rejectHunk: (changeId, hunkId) => {

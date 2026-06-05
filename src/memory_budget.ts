@@ -4,7 +4,8 @@
  */
 export const MAX_AGENT_MESSAGES = 40;
 export const MAX_MESSAGE_CONTENT_CHARS = 12_000;
-export const STATS_POLL_MS = 15_000;
+export const STATS_POLL_MS = 30_000;
+export const ACCOUNT_POLL_MS = 60_000;
 export const DEFERRED_INIT_MS = 4_000;
 
 export function scheduleDeferredInit(fn: () => void, timeoutMs = DEFERRED_INIT_MS): void {

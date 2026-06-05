@@ -122,6 +122,8 @@ const menus: Menu[] = [
             { label: 'Toggle Chat Panel', shortcut: 'Ctrl+Alt+B' },
             { label: 'Open Chat' },
             { label: 'Mobile Emulators' },
+            { label: 'Launch External Browser', shortcut: 'Ctrl+Shift+U' },
+            { label: 'Security Review', shortcut: 'Ctrl+Shift+Alt+R' },
             { label: 'Visual Lab' },
             { label: 'Toggle Terminal', shortcut: 'Ctrl+`' },
             { label: 'Toggle Sidebar', shortcut: 'Ctrl+B' },
@@ -347,6 +349,12 @@ function executeMenuAction(item: string) {
         case 'Mobile Emulators':
             exec?.('workbench.action.openEmulators');
             break;
+        case 'Launch External Browser':
+            exec?.('workbench.action.openBrowser');
+            break;
+        case 'Security Review':
+            exec?.('security.action.runCodebaseReview');
+            break;
         case 'Visual Lab':
             exec?.('workbench.action.openVisualLab');
             break;
@@ -394,9 +402,14 @@ function executeMenuAction(item: string) {
             // Signal stop via global if available
             (window as any).stopActiveTask?.();
             break;
-        case 'Toggle Breakpoint':
-            if (editor) editor.trigger('menu', 'editor.debug.action.toggleBreakpoint', null);
+        case 'Toggle Breakpoint': {
+            const path = store.activeEditorPath || store.tabs.find((t: any) => t.id === store.activeTabId)?.path;
+            const ed = editor;
+            const line = ed?.getPosition()?.lineNumber;
+            if (path && line) store.toggleBreakpoint(path, line);
+            else if (editor) editor.trigger('menu', 'editor.debug.action.toggleBreakpoint', null);
             break;
+        }
 
         // ── Terminal ──────────────────────────────────────────────────────
         case 'New Terminal':
@@ -452,7 +465,7 @@ const TitleBar: React.FC = () => {
     const toggleSidebar = useStore(state => state.toggleSidebar);
     const toggleBottomPanel = useStore(state => state.toggleBottomPanel);
     // Browser preview (web-dev surface the agent can automate).
-    const layoutMode = useStore(state => state.layoutMode);
+    const externalBrowserActive = useStore(state => state.externalBrowserActive);
     const setLayoutMode = useStore(state => state.setLayoutMode);
     const openSettings = useStore(state => state.openSettings);
     const setActiveSidebarView = useStore(state => state.setActiveSidebarView);
@@ -676,23 +689,10 @@ const TitleBar: React.FC = () => {
                 {/* Native VSCode layout-toggle cluster */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginRight: '6px' }}>
                     <i
-                        className="codicon codicon-globe tb-layout-btn"
-                        title="Open Browser — spawns a real external stealth-Firefox window (the agent drives it)"
-                        onClick={async () => {
-                            // Spawn the REAL external Firefox (invisible_playwright). It is a
-                            // separate OS window — NOT inside the IDE. The agent drives this
-                            // same instance. We never switch the IDE into the in-app panel.
-                            try {
-                                await invoke('browser_open');
-                            } catch (e: any) {
-                                alert(
-                                    'Could not launch the browser.\n\n' +
-                                    'The external browser uses invisible_playwright (stealth Firefox). Install it:\n' +
-                                    '  pip install playwright invisible_playwright\n\n' +
-                                    'Then click the globe again (first run downloads Firefox).\n\n' +
-                                    'Error: ' + (e?.message || e)
-                                );
-                            }
+                        className={`codicon codicon-globe tb-layout-btn${externalBrowserActive ? ' tb-layout-active' : ''}`}
+                        title="External Bug Bounty Browser (Ctrl+Shift+U) — real Firefox window you watch live; agent drives it"
+                        onClick={() => {
+                            import('../application/browser/openBrowserPanel').then(m => m.toggleExternalBrowser());
                         }}
                     />
                     <span style={{ width: 1, height: 14, background: 'var(--vscode-panel-border, rgba(255,255,255,0.12))', margin: '0 4px' }} />

@@ -113,7 +113,7 @@ const AgTasksView: React.FC = () => {
             <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
                 {filtered.length === 0 ? (
                     <div style={{ padding: '20px', textAlign: 'center', opacity: 0.4, fontSize: '11px' }}>
-                        {loading ? 'Loading...' : tasks.length === 0 ? 'No tasks found.\nCreate specs in .agent/specs/' : 'No tasks in this filter.'}
+                        {loading ? 'Loading...' : tasks.length === 0 ? 'No tasks found.\nCreate specs in .kiro/specs/' : 'No tasks in this filter.'}
                     </div>
                 ) : (
                     filtered.map(task => (

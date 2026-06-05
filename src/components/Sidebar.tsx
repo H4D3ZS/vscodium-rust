@@ -1,18 +1,24 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore, type FileEntry } from '../store';
 import { invoke } from '@tauri-apps/api/core';
 import { List } from 'react-window';
 import ErrorBoundary from './ErrorBoundary';
-import SearchView from './SearchView';
-import ExtensionsView from './ExtensionsView';
-import ScmView from './ScmView';
-import DebugView from './DebugView';
-import TestExplorer from './TestExplorer';
 import ProjectSpecsSidebar from './ProjectSpecsSidebar';
-import VectorSearchPanel from './vectorSearchPanel';
-import AgTasksView from './AgTasksView';
-import AgSteeringView from './AgSteeringView';
+
+const SearchView = lazy(() => import('./SearchView'));
+const ExtensionsView = lazy(() => import('./ExtensionsView'));
+const ScmView = lazy(() => import('./ScmView'));
+const DebugView = lazy(() => import('./DebugView'));
+const TestExplorer = lazy(() => import('./TestExplorer'));
+const VectorSearchPanel = lazy(() => import('./vectorSearchPanel'));
+const AgTasksView = lazy(() => import('./AgTasksView'));
+const AgSteeringView = lazy(() => import('./AgSteeringView'));
+const SecurityReviewPanelLazy = lazy(() => import('./security/SecurityReviewPanel'));
+
+const SidebarViewFallback = () => (
+    <div style={{ padding: 12, fontSize: 11, opacity: 0.45 }}>Loading…</div>
+);
 
 interface FlattenedNode {
     entry: FileEntry;
@@ -393,18 +399,27 @@ const SymbolOutlinePane: React.FC = () => {
 
     useEffect(() => {
         if (!activeEditorPath) { setSymbols([]); return; }
-        const normalized = activeEditorPath.replace(/\\/g, '/');
-        const uri = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`;
-        if (fetchRef.current === uri) return;
-        fetchRef.current = uri;
+        if (fetchRef.current === activeEditorPath) return;
+        fetchRef.current = activeEditorPath;
         setLoading(true);
-        invoke<any>('lsp_document_symbols', { uri })
-            .then(res => {
-                if (fetchRef.current !== uri) return;
-                setSymbols(Array.isArray(res) ? res : []);
-            })
-            .catch(() => setSymbols([]))
-            .finally(() => setLoading(false));
+        import('../application/symbols/fetchFileSymbols').then(({ fetchFileSymbols }) =>
+            fetchFileSymbols(activeEditorPath)
+                .then((res) => {
+                    if (fetchRef.current !== activeEditorPath) return;
+                    setSymbols(res.map((s) => ({
+                        name: s.name,
+                        kind: s.kind,
+                        range: { start: { line: s.line - 1, character: (s.column ?? 1) - 1 } },
+                        children: s.children?.map((c) => ({
+                            name: c.name,
+                            kind: c.kind,
+                            range: { start: { line: c.line - 1, character: (c.column ?? 1) - 1 } },
+                        })),
+                    })));
+                })
+                .catch(() => setSymbols([]))
+                .finally(() => setLoading(false)),
+        );
     }, [activeEditorPath]);
 
     if (loading) return <div style={{ padding: '8px 12px', fontSize: '11px', opacity: 0.5 }}>Loading symbols…</div>;
@@ -420,9 +435,9 @@ const SymbolOutlinePane: React.FC = () => {
 const Sidebar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
     const isOpen = useStore(state => state.isSidebarOpen);
-    const { activeRoot, activeRootName, fileTree, refreshFileTree, setActiveRoot, closeFolder, iconThemeMapping, tabs, activeTabId, setActiveTab, closeTab } = useStore(useShallow(s => ({
-        activeRoot: s.activeRoot, activeRootName: s.activeRootName, fileTree: s.fileTree,
-        refreshFileTree: s.refreshFileTree, setActiveRoot: s.setActiveRoot, closeFolder: s.closeFolder,
+    const { activeRoot, activeRootName, workspaceFolders, fileTree, refreshFileTree, setActiveRoot, addWorkspaceFolder, removeWorkspaceFolder, closeFolder, iconThemeMapping, tabs, activeTabId, setActiveTab, closeTab } = useStore(useShallow(s => ({
+        activeRoot: s.activeRoot, activeRootName: s.activeRootName, workspaceFolders: s.workspaceFolders, fileTree: s.fileTree,
+        refreshFileTree: s.refreshFileTree, setActiveRoot: s.setActiveRoot, addWorkspaceFolder: s.addWorkspaceFolder, removeWorkspaceFolder: s.removeWorkspaceFolder, closeFolder: s.closeFolder,
         iconThemeMapping: s.iconThemeMapping, tabs: s.tabs, activeTabId: s.activeTabId,
         setActiveTab: s.setActiveTab, closeTab: s.closeTab,
     })));
@@ -431,18 +446,31 @@ const Sidebar: React.FC = () => {
         try {
             const folder = await invoke<string | null>('open_folder');
             if (folder) {
-                // setActiveRoot calls set_active_root + refreshFileTree internally.
-                // Call refreshFileTree once explicitly after so the tree is loaded
-                // immediately without waiting for the async chain inside setActiveRoot.
-                setActiveRoot(folder);
-                // Small yield so the state update lands before the refresh
-                await new Promise(r => setTimeout(r, 50));
+                await addWorkspaceFolder(folder);
                 await refreshFileTree();
             }
         } catch (error) {
             console.error('Open Folder Error:', error);
         }
     };
+
+    const handleAddFolderToWorkspace = async () => {
+        try {
+            const folder = await invoke<string | null>('open_folder');
+            if (folder) {
+                await addWorkspaceFolder(folder);
+                await refreshFileTree();
+            }
+        } catch (error) {
+            console.error('Add Folder Error:', error);
+        }
+    };
+
+    const displayFolders = workspaceFolders.length > 0
+        ? workspaceFolders
+        : activeRoot
+            ? [{ path: activeRoot, name: activeRootName || 'workspace' }]
+            : [];
 
     useEffect(() => {
         const menu = document.getElementById('context-menu');
@@ -538,6 +566,7 @@ const Sidebar: React.FC = () => {
         'debug-view': 'RUN AND DEBUG',
         'test-view': 'TEST EXPLORER',
         'extensions-view': 'EXTENSIONS',
+        'security-view': 'SECURITY REVIEW',
         'specs-view': 'SPECS',
         'tasks-view': 'TASKS & SPECS',
         'steering-view': 'STEERING & HOOKS',
@@ -561,6 +590,48 @@ const Sidebar: React.FC = () => {
                     <div className="sidebar-content" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1, minHeight: 0 }}>
 
                         {/* FILE TREE — takes all available space */}
+                        {displayFolders.length > 1 && (
+                            <div style={{ padding: '4px 8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                                {displayFolders.map((f) => (
+                                    <div
+                                        key={f.path}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: 4,
+                                            padding: '4px 8px', fontSize: 11, borderRadius: 4,
+                                            background: activeRoot === f.path ? 'rgba(255,255,255,0.06)' : 'transparent',
+                                            opacity: activeRoot === f.path ? 1 : 0.75,
+                                        }}
+                                    >
+                                        <div
+                                            onClick={() => setActiveRoot(f.path)}
+                                            style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, cursor: 'pointer' }}
+                                        >
+                                            <i className="codicon codicon-folder" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 14, flexShrink: 0 }} />
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                                        </div>
+                                        {displayFolders.length > 1 && (
+                                            <i
+                                                className="codicon codicon-close"
+                                                title="Remove Folder from Workspace"
+                                                onClick={(e) => { e.stopPropagation(); void removeWorkspaceFolder(f.path); }}
+                                                style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 12, opacity: 0.45, cursor: 'pointer', flexShrink: 0 }}
+                                            />
+                                        )}
+                                    </div>
+                                ))}
+                                <button
+                                    onClick={handleAddFolderToWorkspace}
+                                    style={{
+                                        width: '100%', margin: '4px 0 6px', padding: '4px 8px',
+                                        fontSize: 11, background: 'transparent',
+                                        border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 4,
+                                        color: 'rgba(255,255,255,0.5)', cursor: 'pointer',
+                                    }}
+                                >
+                                    Add Folder to Workspace…
+                                </button>
+                            </div>
+                        )}
                         <SidebarPane
                             title={activeRootName || 'NO FOLDER OPENED'}
                             defaultCollapsed={false}
@@ -569,6 +640,9 @@ const Sidebar: React.FC = () => {
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', paddingRight: '8px' }}>
                                     <i className="codicon codicon-new-file" onClick={(e) => { e.stopPropagation(); (window as any).executeCommand('explorer.newFile'); }} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New File"></i>
                                     <i className="codicon codicon-new-folder" onClick={(e) => { e.stopPropagation(); (window as any).executeCommand('explorer.newFolder'); }} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="New Folder"></i>
+                                    {displayFolders.length <= 1 && (
+                                        <i className="codicon codicon-root-folder-opened" onClick={(e) => { e.stopPropagation(); handleAddFolderToWorkspace(); }} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Add Folder to Workspace"></i>
+                                    )}
                                     <i className="codicon codicon-close-all" onClick={(e) => { e.stopPropagation(); (window as any).executeCommand('workbench.action.closeFolder'); }} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Close Folder"></i>
                                     <i className="codicon codicon-refresh" onClick={(e) => { e.stopPropagation(); refreshFileTree(); }} style={{ cursor: 'pointer', fontSize: '14px', opacity: 0.8, fontFamily: 'codicon', fontStyle: 'normal' }} title="Refresh"></i>
                                 </div>
@@ -607,14 +681,35 @@ const Sidebar: React.FC = () => {
                     </div>
                 )}
 
-                {activeView === 'search-view' && <SearchView />}
-                {activeView === 'scm-view' && <ScmView />}
-                {activeView === 'debug-view' && <DebugView />}
-                {activeView === 'test-view' && <TestExplorer />}
-                {activeView === 'extensions-view' && <ExtensionsView />}
-                {activeView === 'vector-search-view' && <VectorSearchPanel />}
-                {activeView === 'tasks-view' && <AgTasksView />}
-                {activeView === 'steering-view' && <AgSteeringView />}
+                {activeView === 'search-view' && (
+                    <Suspense fallback={<SidebarViewFallback />}><SearchView /></Suspense>
+                )}
+                {activeView === 'scm-view' && (
+                    <Suspense fallback={<SidebarViewFallback />}><ScmView /></Suspense>
+                )}
+                {activeView === 'debug-view' && (
+                    <Suspense fallback={<SidebarViewFallback />}><DebugView /></Suspense>
+                )}
+                {activeView === 'test-view' && (
+                    <Suspense fallback={<SidebarViewFallback />}><TestExplorer /></Suspense>
+                )}
+                {activeView === 'extensions-view' && (
+                    <Suspense fallback={<SidebarViewFallback />}><ExtensionsView /></Suspense>
+                )}
+                {activeView === 'security-view' && (
+                    <Suspense fallback={<SidebarViewFallback />}>
+                        <SecurityReviewPanelLazy />
+                    </Suspense>
+                )}
+                {activeView === 'vector-search-view' && (
+                    <Suspense fallback={<SidebarViewFallback />}><VectorSearchPanel /></Suspense>
+                )}
+                {activeView === 'tasks-view' && (
+                    <Suspense fallback={<SidebarViewFallback />}><AgTasksView /></Suspense>
+                )}
+                {activeView === 'steering-view' && (
+                    <Suspense fallback={<SidebarViewFallback />}><AgSteeringView /></Suspense>
+                )}
 
                 {/* Extension Contributed Views */}
                 {extensionContainer && (

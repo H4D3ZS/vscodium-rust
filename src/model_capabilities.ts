@@ -1,5 +1,5 @@
 // Model capabilities database — ported from Void editor (Glass Devtools)
-// + Antigravity IDE extensions. Used by agent routing, UI display, and
+// + local AIM proxy. Used by agent routing, UI display, and
 // reasoning slider logic.
 
 export type ProviderName =
@@ -477,7 +477,7 @@ export const providerDisplayInfo: Record<ProviderName, { title: string; icon?: s
     googleVertex: { title: 'Google Vertex AI' },
     microsoftAzure: { title: 'Microsoft Azure OpenAI' },
     awsBedrock: { title: 'AWS Bedrock' },
-    antigravity: { title: 'Antigravity / AIM Proxy' },
+    antigravity: { title: 'AIM Proxy (local)' },
     mimo: { title: 'Xiaomi MiMo' },
     cyberifrit: { title: 'Cyber-Ifrit Cloud' },
     highwayapi: { title: 'Interface AI (Opus 4.8)' },

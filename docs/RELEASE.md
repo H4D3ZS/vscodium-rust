@@ -4,7 +4,18 @@ Produces a downloadable Windows installer with the **invisible_playwright**
 browser engine bundled (no Python needed on the user's machine), optionally
 hardened against reverse-engineering, ready to host on the website.
 
-## 1. Freeze the browser sidecar (REQUIRED for a standalone installer)
+## 1. Bundle language servers (REQUIRED — zero-config IntelliSense)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\fetch-lsp-binaries.ps1
+```
+
+→ `src-tauri\binaries\lsp\` (rust-analyzer, gopls, typescript-language-server + Node, pyright).
+Bundled via `binaries/*`. First launch also auto-downloads Rust/Go servers into app data if missing.
+
+Mirror the `lsp/` folder on your DO CDN and set `LSP_BUNDLE_MIRROR` for air-gapped builds.
+
+## 2. Freeze the browser sidecar (REQUIRED for a standalone installer)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build-sidecar.ps1
@@ -17,7 +28,7 @@ prefers this frozen exe and only falls back to system Python for source/dev runs
 > Skip this and the installer still builds, but browser automation will require
 > the user to have Python + `pip install playwright invisible_playwright`.
 
-## 2. Build the installer
+## 3. Build the installer
 
 ```powershell
 npx tauri build

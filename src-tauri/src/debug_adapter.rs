@@ -1,14 +1,12 @@
-use std::process::{Command, Child, Stdio};
-use std::io::{BufReader, BufRead, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::thread;
 
-// Removed unused imports
-use tauri::AppHandle;
-use tauri::Emitter;
+use tauri::{AppHandle, Emitter};
 
 pub struct DebugSession {
     pub child: Child,
-    pub stdin: std::process::ChildStdin,
+    pub stdin: ChildStdin,
 }
 
 pub struct DebugManager {
@@ -17,9 +15,7 @@ pub struct DebugManager {
 
 impl DebugManager {
     pub fn new() -> Self {
-        Self {
-            active_session: None,
-        }
+        Self { active_session: None }
     }
 
     pub fn start_session(&mut self, adapter_path: &str, app_handle: AppHandle) -> Result<(), String> {
@@ -36,43 +32,27 @@ impl DebugManager {
         let stdout = child.stdout.take().expect("Failed to open stdout");
         let stderr = child.stderr.take().expect("Failed to open stderr");
 
-        // Simple thread to read DAP messages from stdout
         let app_handle_clone = app_handle.clone();
         thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                if let Ok(l) = line {
-                    // Forward DAP message to frontend
-                    app_handle_clone.emit("dap-message", l).unwrap();
-                }
-            }
+            read_dap_messages(BufReader::new(stdout), app_handle_clone);
         });
 
-        // Forward stderr to logs
         let app_handle_err = app_handle.clone();
         thread::spawn(move || {
             let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(l) = line {
-                    app_handle_err.emit("debug-log", l).unwrap();
-                }
+            for line in reader.lines().flatten() {
+                let _ = app_handle_err.emit("debug-log", line);
             }
         });
 
-        self.active_session = Some(DebugSession {
-            child,
-            stdin,
-        });
-
+        self.active_session = Some(DebugSession { child, stdin });
         Ok(())
     }
 
+    /// Send a DAP message using Content-Length framing (VS Code standard).
     pub fn send_message(&mut self, msg: String) -> Result<(), String> {
         if let Some(session) = &mut self.active_session {
-            session.stdin.write_all(msg.as_bytes()).map_err(|e| e.to_string())?;
-            session.stdin.write_all(b"\n").map_err(|e| e.to_string())?;
-            session.stdin.flush().map_err(|e| e.to_string())?;
-            Ok(())
+            write_dap_message(&mut session.stdin, &msg).map_err(|e| e.to_string())
         } else {
             Err("No active debug session".into())
         }
@@ -81,9 +61,48 @@ impl DebugManager {
     pub fn stop_session(&mut self) -> Result<(), String> {
         if let Some(mut session) = self.active_session.take() {
             session.child.kill().map_err(|e| e.to_string())?;
-            Ok(())
-        } else {
-            Ok(())
         }
+        Ok(())
+    }
+}
+
+fn write_dap_message(stdin: &mut ChildStdin, body: &str) -> std::io::Result<()> {
+    let header = format!("Content-Length: {}\r\n\r\n", body.as_bytes().len());
+    stdin.write_all(header.as_bytes())?;
+    stdin.write_all(body.as_bytes())?;
+    stdin.flush()
+}
+
+/// Read DAP responses/events from adapter stdout (Content-Length framed).
+fn read_dap_messages(mut reader: BufReader<impl Read>, app: AppHandle) {
+    loop {
+        let mut content_length: Option<usize> = None;
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => return,
+                Ok(_) => {}
+                Err(_) => return,
+            }
+            let trimmed = line.trim_end_matches(['\r', '\n']);
+            if trimmed.is_empty() {
+                break;
+            }
+            if let Some(rest) = trimmed.strip_prefix("Content-Length:") {
+                content_length = rest.trim().parse().ok();
+            }
+        }
+
+        let len = content_length.unwrap_or(0);
+        if len == 0 {
+            continue;
+        }
+
+        let mut buf = vec![0u8; len];
+        if reader.read_exact(&mut buf).is_err() {
+            break;
+        }
+        let body = String::from_utf8_lossy(&buf).to_string();
+        let _ = app.emit("dap-message", body);
     }
 }

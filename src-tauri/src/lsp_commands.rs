@@ -1,5 +1,5 @@
 use crate::EditorState;
-use tauri::{State, AppHandle};
+use tauri::{State, AppHandle, Emitter};
 use serde_json::{Value, json};
 
 #[tauri::command]
@@ -7,9 +7,86 @@ pub async fn lsp_start(
     state: State<'_, EditorState>,
     app: AppHandle,
     command: String,
+    args: Option<Vec<String>>,
 ) -> Result<(), String> {
     let mut lsp = state.lsp_client.lock().await;
-    lsp.start(&command, app).map_err(|e| e.to_string())
+    let a = args.unwrap_or_default();
+    lsp.start(&command, &a, app).map_err(|e| e.to_string())
+}
+
+/// Auto-detect and start a language server for the active workspace root.
+#[tauri::command]
+pub async fn lsp_auto_start(
+    state: State<'_, EditorState>,
+    app: AppHandle,
+    root: String,
+) -> Result<Value, String> {
+    let root_path = std::path::PathBuf::from(&root);
+    if !root_path.is_dir() {
+        return Err(format!("Workspace root not found: {root}"));
+    }
+
+    {
+        let lsp = state.lsp_client.lock().await;
+        if lsp.is_running() {
+            return Ok(json!({ "status": "already_running" }));
+        }
+    }
+
+    let config_dir = state.config_dir.clone();
+    let _ = app.emit("lsp-bundle-progress", json!({ "phase": "ensure", "message": "Preparing IDE language server…" }));
+
+    let spec = crate::lsp_manager::detect_workspace_lsp_async(&root_path, &config_dir)
+        .await
+        .map_err(|e| format!("{e} (run scripts/fetch-lsp-binaries.ps1 for offline TS/Python bundles)"))?;
+
+    {
+        let mut lsp = state.lsp_client.lock().await;
+        lsp.start(&spec.command, &spec.args, app.clone())
+            .map_err(|e| e.to_string())?;
+    }
+
+    // Give the server a moment to answer initialize before initialized notification.
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+
+    {
+        let mut lsp = state.lsp_client.lock().await;
+        lsp.send_initialized().map_err(|e| e.to_string())?;
+        let root_uri = if root.starts_with('/') {
+            format!("file://{root}")
+        } else {
+            format!("file:///{}", root.replace('\\', "/"))
+        };
+        lsp.set_workspace_root(&root_uri).map_err(|e| e.to_string())?;
+    }
+
+    Ok(json!({
+        "status": "started",
+        "id": spec.id,
+        "command": spec.command,
+        "args": spec.args,
+        "managed": true,
+    }))
+}
+
+#[tauri::command]
+pub async fn lsp_bundle_status(state: State<'_, EditorState>) -> Result<Value, String> {
+    Ok(crate::lsp_bundle::bundle_status(&state.config_dir))
+}
+
+#[tauri::command]
+pub async fn lsp_ensure_bundle(
+    state: State<'_, EditorState>,
+    root: String,
+) -> Result<Value, String> {
+    let root_path = std::path::PathBuf::from(&root);
+    let launch = crate::lsp_bundle::ensure_workspace_lsp(&root_path, &state.config_dir).await?;
+    Ok(json!({
+        "id": launch.id,
+        "command": launch.command,
+        "source": launch.source,
+        "installed": true,
+    }))
 }
 
 #[tauri::command]
@@ -75,6 +152,27 @@ pub async fn lsp_set_workspace(
 ) -> Result<(), String> {
     let mut lsp = state.lsp_client.lock().await;
     lsp.set_workspace_root(&root_uri).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn lsp_change_workspace_folders(
+    state: State<'_, EditorState>,
+    folders: Vec<Value>,
+) -> Result<(), String> {
+    let mut lsp = state.lsp_client.lock().await;
+    if !lsp.is_running() {
+        return Ok(());
+    }
+    let pairs: Vec<(String, String)> = folders
+        .iter()
+        .filter_map(|f| {
+            let uri = f.get("uri")?.as_str()?.to_string();
+            let name = f.get("name").and_then(|n| n.as_str()).unwrap_or("workspace").to_string();
+            Some((uri, name))
+        })
+        .collect();
+    let refs: Vec<(&str, &str)> = pairs.iter().map(|(u, n)| (u.as_str(), n.as_str())).collect();
+    lsp.sync_workspace_folders(&refs, &[]).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

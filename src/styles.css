@@ -1797,8 +1797,26 @@ body.resizing * {
 .status-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
   height: 100%;
+  min-width: 0;
+}
+
+.status-left {
+  flex: 1;
+  overflow: hidden;
+}
+
+.status-right {
+  flex-shrink: 0;
+}
+
+.status-left .status-item span,
+.status-right .status-item span {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-item {
@@ -2104,6 +2122,79 @@ body {
   overflow-x: hidden !important;
   max-width: 100vw;
   border-left: 1px solid var(--vscode-sideBar-border, rgba(255, 255, 255, 0.1));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.vscr-agent-tabs {
+  min-height: 28px;
+  max-height: 28px;
+  align-items: stretch !important;
+}
+
+.vscr-agent-tabs button {
+  min-height: 28px;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.right-sidebar-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.quick-missions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  align-items: stretch;
+}
+
+.quick-missions-grid button {
+  min-height: 36px;
+  box-sizing: border-box;
+}
+
+.status-bar {
+  min-height: var(--status-bar-height);
+  max-height: var(--status-bar-height);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.status-bar .status-item {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.main-content {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.resizer-v,
+.resizer-h {
+  flex-shrink: 0;
+  z-index: 5;
+}
+
+body.resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+body.resizing * {
+  pointer-events: none;
+}
+
+body.resizing .resizer-v,
+body.resizing .resizer-h {
+  pointer-events: auto;
 }
 
 .agent-input-wrapper {
@@ -3662,4 +3753,209 @@ button, input, textarea, select,
 .title-bar, .activity-bar, .sidebar, .status-bar, .bottom-panel,
 .tabs, .breadcrumbs, .panel, button, input, select {
     font-family: var(--font-ui);
+}
+
+/* ── Web Research Agent (ManusMissionPanel) ── */
+.manus-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 14px 16px 20px;
+    overflow-y: auto;
+    gap: 16px;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.manus-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.manus-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--vscode-foreground);
+}
+
+.manus-panel-title .codicon {
+    color: #60a5fa;
+}
+
+.manus-panel-sub {
+    margin-top: 4px;
+    font-size: 11px;
+    opacity: 0.55;
+    line-height: 1.45;
+}
+
+.manus-link-btn {
+    padding: 6px 10px;
+    border-radius: 6px !important;
+    border: 1px solid rgba(96, 165, 250, 0.35);
+    background: rgba(96, 165, 250, 0.1) !important;
+    color: #93c5fd;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.manus-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.manus-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.5;
+}
+
+.manus-input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 6px !important;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.25) !important;
+    color: inherit;
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+    font-family: var(--font-ui);
+}
+
+.manus-input-single {
+    resize: none;
+}
+
+.manus-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    opacity: 0.75;
+    cursor: pointer;
+    margin-top: 2px;
+}
+
+.manus-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.manus-run-btn {
+    padding: 9px 16px;
+    border: none;
+    border-radius: 6px !important;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%) !important;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35) !important;
+}
+
+.manus-run-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+    box-shadow: none !important;
+}
+
+.manus-secondary-btn {
+    padding: 9px 14px;
+    border-radius: 6px !important;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: transparent !important;
+    color: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.manus-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.manus-step-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 6px;
+}
+
+.manus-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px !important;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02) !important;
+    font-size: 11px;
+}
+
+.manus-step-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.manus-step-label {
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+}
+
+.manus-step-detail {
+    font-size: 10px;
+    opacity: 0.5;
+    white-space: nowrap;
+}
+
+.manus-report {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+}
+
+.manus-report-body {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: 6px !important;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.25) !important;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    max-height: 280px;
+    overflow: auto;
+}
+
+.manus-footer-hint {
+    font-size: 10px;
+    opacity: 0.45;
+    padding-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.manus-footer-hint code {
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    font-family: var(--font-mono);
 }

@@ -27,15 +27,21 @@ impl IPhoneEmulatorManager {
 
     /// Find the acheron executable in the project tree or PATH.
     pub fn find_acheron(project_path: &str) -> PathBuf {
-        // 1. build/Release in the project directory
-        let in_build = PathBuf::from(project_path).join("build").join("Release").join("acheron.exe");
-        if in_build.exists() { return in_build; }
+        let root = PathBuf::from(project_path);
+        let candidates = [
+            root.join("build").join("Release").join("acheron.exe"),
+            root.join("build").join("acheron.exe"),
+            root.join("acheron.exe"),
+            root.join("acheron-native"),
+            root.join("acheron-signed"),
+            root.join("out").join("acheron.exe"),
+        ];
+        for c in &candidates {
+            if c.exists() {
+                return c.clone();
+            }
+        }
 
-        // 2. build directory (cmake default output)
-        let in_build2 = PathBuf::from(project_path).join("build").join("acheron.exe");
-        if in_build2.exists() { return in_build2; }
-
-        // 3. Next to the running IDE binary
         if let Ok(exe) = std::env::current_exe() {
             let sibling = exe.parent()
                 .unwrap_or_else(|| std::path::Path::new("."))
@@ -43,7 +49,6 @@ impl IPhoneEmulatorManager {
             if sibling.exists() { return sibling; }
         }
 
-        // 4. Fall back to PATH
         PathBuf::from("acheron")
     }
 

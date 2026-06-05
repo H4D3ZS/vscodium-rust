@@ -39,6 +39,9 @@ export async function restoreWorkspaceOnBoot(
         }
         await repo.setActiveRoot(parsed);
         await callbacks.refreshFileTree();
+        import('../lsp/bootstrapLanguageServer').then(m =>
+            m.bootstrapLanguageServer(workspacePathToString(parsed)),
+        );
     } catch (err) {
         console.warn('[restoreWorkspaceOnBoot] failed — fallback:', err);
         callbacks.clearPersistedRoot();

@@ -33,6 +33,8 @@ mod binary_analyzer;
 mod context_indexer;
 pub mod context_quantizer;
 mod debug_commands;
+mod image_gen;
+mod symbols;
 pub mod domain;
 mod extensions_commands;
 mod file_commands;
@@ -46,6 +48,10 @@ mod kortex_commands;
 pub mod kortex_gac;
 pub mod kortex_kvcache;
 mod lsp_commands;
+mod lsp_manager;
+mod lsp_bundle;
+mod workspace_settings_commands;
+mod port_commands;
 mod mcp_client;
 mod mcp_commands;
 mod mcp_registry;
@@ -384,6 +390,7 @@ pub fn run() {
             editor_commands::path_exists,
             extensions_commands::ext_host_init,
             extensions_commands::ext_host_send,
+            extensions_commands::ext_host_sync_workspace,
             // ═══ File Commands ═══
             file_commands::open_file,
             file_commands::save_file,
@@ -425,6 +432,7 @@ pub fn run() {
             extensions_commands::get_running_extensions,
             extensions_commands::ext_host_init,
             extensions_commands::ext_host_send,
+            extensions_commands::ext_host_sync_workspace,
             extensions_commands::refresh_popular_extensions,
             extensions_commands::refresh_installed_extensions,
             extensions_commands::check_activation_event,
@@ -440,6 +448,9 @@ pub fn run() {
             git_commands::git_stash,
             git_commands::git_stash_pop,
             git_commands::git_clone,
+            git_commands::git_push,
+            git_commands::git_pull,
+            git_commands::git_fetch,
             git_commands::git_blame,
             git_commands::get_git_branch,
             git_commands::get_git_file_hunks,
@@ -571,6 +582,9 @@ pub fn run() {
             specs_commands::cmd_specs_clear_history,
             // ═══ LSP Commands ═══
             lsp_commands::lsp_start,
+            lsp_commands::lsp_auto_start,
+            lsp_commands::lsp_bundle_status,
+            lsp_commands::lsp_ensure_bundle,
             lsp_commands::lsp_send_request,
             lsp_commands::lsp_stop,
             lsp_commands::lsp_initialized,
@@ -578,6 +592,7 @@ pub fn run() {
             lsp_commands::lsp_did_change,
             lsp_commands::lsp_did_save,
             lsp_commands::lsp_set_workspace,
+            lsp_commands::lsp_change_workspace_folders,
             lsp_commands::lsp_get_diagnostics,
             lsp_commands::lsp_is_running,
             lsp_commands::lsp_completion,
@@ -589,6 +604,11 @@ pub fn run() {
             lsp_commands::lsp_workspace_symbols,
             lsp_commands::lsp_code_lens,
             lsp_commands::lsp_document_symbols,
+            workspace_settings_commands::get_workspace_settings,
+            workspace_settings_commands::update_workspace_settings,
+            port_commands::list_listening_ports,
+            port_commands::port_forward_add,
+            port_commands::port_forward_remove,
             // ═══ Extra Commands ═══
             file_commands::open_folder,
             iphone_emulator::launch_iphone_emulator,

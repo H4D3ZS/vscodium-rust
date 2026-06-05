@@ -93,12 +93,18 @@ const ScmView: React.FC = () => {
                 await invoke('git_stash', { path: activeRoot });
             } else if (action === 'stash_pop') {
                 await invoke('git_stash_pop', { path: activeRoot });
-            } else {
-                // For Push/Pull/Fetch, we currently use terminal stubs or direct shell calls
-                // In a full implementation, these would be dedicated Tauri commands
-                console.log(`Executing global action: ${action}`);
+            } else if (action === 'push') {
+                const out = await invoke<string>('git_push', { path: activeRoot });
+                if (out.trim()) console.log('[git push]', out);
+            } else if (action === 'pull') {
+                const out = await invoke<string>('git_pull', { path: activeRoot });
+                if (out.trim()) console.log('[git pull]', out);
+            } else if (action === 'fetch') {
+                const out = await invoke<string>('git_fetch', { path: activeRoot });
+                if (out.trim()) console.log('[git fetch]', out);
             }
             refreshStatus();
+            window.dispatchEvent(new CustomEvent('scm:changed'));
         } catch (e) {
             alert(`${action} failed: ${e}`);
         } finally {

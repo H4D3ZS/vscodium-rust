@@ -143,3 +143,14 @@ export function patchContentSelective(original: string, proposed: string, reject
     
     return resultLines.join('\n');
 }
+
+/** Apply only explicitly accepted hunks; unlisted hunks keep original content. */
+export function patchContentAccepted(
+    original: string,
+    proposed: string,
+    acceptedHunkIds: string[],
+): string {
+    const hunks = computeDiffBlocks(original, proposed);
+    const rejected = hunks.filter((h) => !acceptedHunkIds.includes(h.id)).map((h) => h.id);
+    return patchContentSelective(original, proposed, rejected);
+}

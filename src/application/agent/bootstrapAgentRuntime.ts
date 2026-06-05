@@ -2,6 +2,7 @@ import { useStore } from '../../store';
 import { attachAgentStreamSubscriber, registerAgentKeyboardShortcuts } from '../../infrastructure/agent/AgentStreamSubscriber';
 import { validateStartupModel } from './validateStartupModel';
 import { tryActivateAiriCompanion } from './tryActivateAiriCompanion';
+import { bootstrapHeavyFeaturesDefaults } from './bootstrapHeavyFeaturesDefaults';
 
 /**
  * Use-case: boot the agent event spine once per app session.
@@ -11,6 +12,7 @@ import { tryActivateAiriCompanion } from './tryActivateAiriCompanion';
  * companion mode is on or the user sends a message.
  */
 export async function bootstrapAgentRuntime(): Promise<void> {
+    bootstrapHeavyFeaturesDefaults();
     console.log('[bootstrapAgentRuntime] attaching stream subscriber');
     registerAgentKeyboardShortcuts();
     await attachAgentStreamSubscriber();

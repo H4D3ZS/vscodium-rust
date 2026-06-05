@@ -52,10 +52,10 @@ const CommandPalette: React.FC = () => {
     const listRef = useRef<HTMLDivElement>(null);
     const symbolTimer = useRef<any>(null);
 
-    // Global Ctrl+T → open with # prefix for workspace symbol search
+    // Ctrl+Shift+O → workspace symbol search (Ctrl+T reserved for new chat)
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 't') {
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'o') {
                 e.preventDefault();
                 useStore.getState().setCommandPaletteOpen(true);
                 setTimeout(() => {

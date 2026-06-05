@@ -19,6 +19,19 @@ pub async fn ext_host_send(state: State<'_, EditorState>, msg: String) -> Result
 }
 
 #[tauri::command]
+pub async fn ext_host_sync_workspace(
+    state: State<'_, EditorState>,
+    folders: Vec<Value>,
+) -> Result<(), String> {
+    let mut eh = state.ext_host.lock().await;
+    let msg = json!({
+        "type": "syncWorkspaceFolders",
+        "folders": folders,
+    });
+    eh.send_message(msg.to_string()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn search_extensions(
     query: String,
 ) -> Result<Vec<marketplace::MarketplaceExtension>, String> {

@@ -23,7 +23,7 @@ const statusColor: Record<string, string> = {
  * Visual timeline of code checkpoints (Void-style). Lists restore points, expands
  * to a real per-file diff, and restores/deletes via the git_checkpoints backend.
  */
-const CheckpointTimeline: React.FC = () => {
+const CheckpointTimeline: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [loading, setLoading] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -88,11 +88,18 @@ const CheckpointTimeline: React.FC = () => {
     };
 
     return (
-        <div style={{ marginTop: 20 }}>
+        <div style={{ marginTop: embedded ? 12 : 20 }}>
+            {!embedded && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', opacity: 0.5 }}>Code Checkpoints</span>
                 <i className="codicon codicon-refresh" onClick={refresh} title="Refresh" style={{ cursor: 'pointer', fontSize: 12, opacity: 0.6 }} />
             </div>
+            )}
+            {embedded && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                    <i className="codicon codicon-refresh" onClick={refresh} title="Refresh checkpoints" style={{ cursor: 'pointer', fontSize: 12, opacity: 0.6 }} />
+                </div>
+            )}
 
             {loading ? (
                 <div style={{ padding: 20, textAlign: 'center', opacity: 0.5, fontSize: 12 }}>Loading checkpoints…</div>

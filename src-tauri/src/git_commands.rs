@@ -162,6 +162,21 @@ pub async fn git_get_unmerged(state: State<'_, EditorState>) -> Result<Vec<Strin
 pub async fn git_clone(url: String, path: String) -> Result<(), String> {
     GitManager::new().clone(&url, path)
 }
+
+#[tauri::command]
+pub async fn git_push(path: String) -> Result<String, String> {
+    GitManager::new().push(path)
+}
+
+#[tauri::command]
+pub async fn git_pull(path: String) -> Result<String, String> {
+    GitManager::new().pull(path)
+}
+
+#[tauri::command]
+pub async fn git_fetch(path: String) -> Result<String, String> {
+    GitManager::new().fetch(path)
+}
 #[tauri::command]
 pub async fn git_create_checkpoint(
     state: State<'_, EditorState>,

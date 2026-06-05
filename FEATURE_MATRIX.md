@@ -1,98 +1,90 @@
 # FEATURE MATRIX — VSCodium-Rust vs reference IDEs
 
-Comparison of VSCodium-Rust against the reference codebases (Cursor, Void, Kiro,
-Kilo Code, Antigravity, Manus, claurst). Status is grounded in **verified
-vscodium-rust code** + each reference IDE's documented headline features. Rows
-marked 🟡/⬜ become integration tasks (see bottom).
-
 Legend: ✅ have · 🟡 partial · ⬜ missing
+
+Last verified: product-grade pass (chat tabs, history restore, release pipeline, Manus/invisible_playwright).
 
 ---
 
 ## Core AI coding (Cursor / Void / Kilo)
 
-| Feature | From | Status | Where in vscodium-rust |
-|---|---|---|---|
-| Agent loop (tool-calling, autonomous) | all | ✅ | `ai_engine.rs` (Sentient), `agent.ts` |
-| Inline edit (Cmd-K) | Cursor | ✅ | `Editor.tsx` CTRL_K + `InlineEditOverlay` |
-| Tab / ghost completion | Cursor/Kilo | ✅ | `ai_inline_complete`, `MonacoProviders.ts`, `Editor.tsx` |
-| **Predictive multi-location Tab ("jump to next edit")** | Cursor | 🟡 | single-spot ghost text only; no cross-line/next-edit prediction |
-| Multi-file composer/agent edits | Cursor | ✅ | `MultiFileReview`, cascade write mode |
-| @-mentions (files/symbols/commands) | Cursor/Kilo | ✅ | `RightSidebar.tsx` mention dropdown |
-| Inline gutter diffs + per-hunk accept/reject | Cursor | ✅ | `Editor.tsx`, `styles.css` |
-| Checkpoints (per-turn restore) | Void/Cursor | ✅ | `git_checkpoints.rs`, restore-to-message |
-| **Checkpoint timeline visualization** | Void | 🟡 | restore works; no visual diff-timeline UI |
-| Chat history + sessions | all | ✅ | `store_message`, HISTORY tab, `TaskManager` |
-| Progressive multi-turn chat | all | ✅ | fixed Session 8 (`visibleMessages`) |
-| Plan mode (approve before execute) | Kilo/Cursor | ✅ | `task_planner.rs`, plan-approval banner |
+| Feature | Status | Where |
+|---|---|---|
+| Agent loop (tool-calling) | ✅ | `ai_engine.rs`, `agent.ts` |
+| Inline edit (Cmd-K) | ✅ | `Editor.tsx`, `InlineEditOverlay` |
+| Tab / ghost completion | ✅ | `MonacoProviders.ts`, `ai_inline_complete` |
+| Predictive multi-location Tab | ✅ | `PredictiveEditOverlay.tsx` (next-edit + propagate) |
+| Multi-file composer edits | ✅ | `MultiFileReview`, cascade write |
+| @-mentions | ✅ | `RightSidebar.tsx` |
+| Inline gutter diffs | ✅ | `Editor.tsx` |
+| Checkpoints (per-turn restore) | ✅ | `git_checkpoints.rs` |
+| Checkpoint timeline UI | ✅ | `CheckpointTimeline.tsx` (History → collapsed git section) |
+| Chat history + restore | ✅ | `list_chat_sessions`, History tab, thread tabs |
+| Multi chat tabs (Ctrl+T) | ✅ | `agentThreads`, close × button |
+| Plan mode | ✅ | `task_planner.rs` |
+| Pure Chat (no tool loop) | ✅ | `agent.ts` fast path + Chat mode |
 
 ## Modes & customization (Kilo)
 
-| Feature | From | Status | Where |
-|---|---|---|---|
-| Fixed modes (Agent / Chat / Plan / Harness) | Kilo | ✅ | mode toggle in chat toolbar |
-| **User-defined custom modes** (own persona/tools/model per mode) | Kilo | ⬜ | only built-in modes exist |
-| **Pure Chat mode that skips the agentic loop** | Cursor/Kilo | 🟡 | Agent mode runs full loop even for chit-chat (slow) |
-| Per-feature model routing | Void/Kilo | ✅ | `modelSelectionOfFeature` |
-| Rules / steering files | Cursor/Kiro | ✅ | `RulesManager.tsx`, `rules_engine.rs` |
+| Feature | Status | Where |
+|---|---|---|
+| Built-in modes | ✅ | mode picker in chat |
+| User-defined custom modes | ✅ | Settings → Custom Agent Modes, mode picker |
+| Per-feature model routing | ✅ | `modelSelectionOfFeature` |
+| Rules / steering | ✅ | `RulesManager`, `rules_engine.rs` |
 
 ## MCP & extensions
 
-| Feature | From | Status | Where |
-|---|---|---|---|
-| MCP client/server/registry | Kilo/Cursor | ✅ | `mcp_client.rs`, `mcp_server.rs`, `mcp_registry.rs` |
-| Add/list/toggle MCP servers | Kilo | ✅ | `McpManager.tsx` |
-| **MCP server marketplace (browse/discover/install)** | Kilo | ⬜ | only manual add; no discovery catalog |
-| VS Code extensions (Open VSX) | VSCodium | ✅ | `marketplace.rs` (open-vsx.org) + Node ext host |
-| Extension activation / `vscode` API coverage | VSCodium | 🟡 | host scaffolding exists; API surface unverified at runtime |
+| Feature | Status | Where |
+|---|---|---|
+| MCP client/server/registry | ✅ | `mcp_*.rs`, `McpManager.tsx` |
+| MCP catalog (install) | ✅ | `MCP_CATALOG` in `McpManager.tsx` |
+| Open VSX extensions | ✅ | `marketplace.rs`, ext-host |
+| Extension API coverage | 🟡 | host scaffolding; smoke-test per release |
 
 ## Spec-driven & automation (Kiro)
 
-| Feature | From | Status | Where |
-|---|---|---|---|
-| Specs manager | Kiro | ✅ | `SpecsManager.tsx`, `specs_db.rs`, `specs_commands.rs` |
-| **Spec-driven flow (requirements → design → tasks → impl)** | Kiro | 🟡 | `SpecsToCodeWizard.tsx` exists; full guided pipeline partial |
-| Agent hooks (event-triggered automation) | Kiro | ✅ | `HooksPanel.tsx`, `agentHooks` store |
-| **On-save / on-event hook triggers (not just manual)** | Kiro | 🟡 | hooks fire manually; auto file-event triggers unclear |
+| Feature | Status | Where |
+|---|---|---|
+| Specs manager | ✅ | `SpecsManager.tsx`, `specs_db.rs` |
+| Spec-to-code wizard | ✅ | `SpecsToCodeWizard.tsx`, mode "Develop from Specs" |
+| Agent hooks | ✅ | `HooksPanel.tsx` |
+| On-save hook triggers | ✅ | `saveFile.ts` → `runBackgroundAgent` |
 
-## Agents & autonomy (Antigravity / Manus / claurst)
-
-| Feature | From | Status | Where |
-|---|---|---|---|
-| Background / parallel agents | Antigravity/Manus | ✅ | `/bg`, `spawn_subagent`, BackgroundAgentsTray |
-| **Agent manager UI (track/steer many parallel agents)** | Antigravity | 🟡 | tray exists; no full manager (logs/steer/cancel per agent) |
-| Browser control / actuation | Antigravity/Manus | ✅ | `browser_actuation/` (claude/gemini/chatgpt bridges) |
-| Computer/screen use (real capture) | Manus | ✅ | `vision_bridge.rs` real GDI capture (Session 8) |
-| Autonomous 24/7 loop | Manus | ✅ | opt-in (`airi.autonomous24x7`) |
-| Rust agent SDK | claurst | 🟡 | `claurst/` separate workspace; not integrated into IDE |
-
-## Distinctive to VSCodium-Rust (NOT in the reference IDEs)
+## Agents & autonomy
 
 | Feature | Status | Where |
 |---|---|---|
-| Kortex AIM VFS (zero-grep semantic map, .aim binary memory) | ✅ | `aim_store.rs`, `memory_store.rs`, `kortex_commands.rs` |
-| APEX offensive-security engines + red-team (real HTTP probing) | ✅ | `apex_*.rs`, `offensive-security.ts` (Session 8) |
-| iPhone emulator (acheron) + Android emulator | ✅ | `iphone_emulator.rs`, `emulator_stream.rs` |
-| AIRI VRM avatar + voice/TTS | ✅ | `AiriPanel`, `voice.ts` |
-| Local-first / data sovereignty (Ollama) | ✅ | provider manager |
+| Background / parallel agents | ✅ | `spawn_subagent`, `/bg` |
+| Agent manager UI | ✅ | Studio → Agents (`AgentManagerPanel`) |
+| Browser / Manus web research | ✅ | `runManusWebMission`, invisible_playwright sidecar |
+| Vision capture | ✅ | `vision_bridge.rs` (off by default) |
+| claurst SDK in IDE | 🟡 | optional backend toggle; separate workspace |
 
----
+## Distinctive (VSCodium-Rust)
 
-## Integration backlog (the genuine gaps → tasks)
+| Feature | Status | Where |
+|---|---|---|
+| Kortex AIM / semantic map | ✅ | `memory_store.rs`, `kortex_commands.rs` |
+| APEX security / red-team | ✅ | `apex_*.rs` |
+| iPhone / Android emulator | ✅ | `iphone_emulator.rs` (user-provided firmware) |
+| AIRI avatar / voice | ✅ | `AiriPanel`, `voice.ts` |
+| Local-first Ollama | ✅ | provider manager |
 
-Ordered by value. Each becomes a tracked task, integrated + verified one-by-one.
+## Release / ship
 
-1. **Pure Chat mode** that skips the agentic loop (instant conversational replies) — Cursor/Kilo. *(highest value: fixes the "ran full loop + timed out" UX)*
-2. **User-defined custom modes** (name + system prompt + allowed tools + model) — Kilo.
-3. **MCP server marketplace** (browse/discover/install from a catalog) — Kilo.
-4. **Predictive multi-location Tab** ("jump to next edit") — Cursor.
-5. **Checkpoint timeline visualization** (visual diff history) — Void.
-6. **Agent manager UI** (per-agent logs / steer / cancel for parallel agents) — Antigravity.
-7. **Spec-driven pipeline** (guided requirements→design→tasks→impl) — Kiro.
-8. **Auto hook triggers** (on-save / on-file-event, not just manual) — Kiro.
-9. **claurst Rust agent SDK** integration into the IDE agent layer — claurst.
-10. **Extension `vscode` API coverage** audit + fill (runtime activation) — VSCodium.
+| Item | Status | Where |
+|---|---|---|
+| LSP bundle script | ✅ | `scripts/fetch-lsp-binaries.ps1` |
+| Browser sidecar bundle | ✅ | `scripts/build-sidecar.ps1`, `prebuild-release.mjs` |
+| One-shot release | ✅ | `scripts/release.ps1`, `npm run release` |
+| Ship checklist | ✅ | `docs/SHIP.md` |
+| CI typecheck | ✅ | `.github/workflows/agent-core-ci.yml` |
+| Auto-updater | ⬜ | disabled until signing keys configured |
 
-> Note: this matrix is grounded in verified vscodium-rust code + documented
-> reference-IDE features. Deeper per-repo source audits (esp. Cursor/Antigravity,
-> which had no headline README here) may surface more rows — refine as we go.
+## Remaining post-1.0 (optional)
+
+1. Extension `vscode` API audit + fill gaps
+2. claurst deep integration (default agent backend)
+3. Tauri auto-updater + code signing
+4. macOS browser-agent freeze (PyInstaller on CI)

@@ -9,7 +9,6 @@ import MarkdownPreview from './MarkdownPreview';
 import WelcomePage from './WelcomePage';
 import PredictiveEditOverlay from './PredictiveEditOverlay';
 import { invoke, listen } from '../tauri_bridge';
-import { sendAgentMessage } from '../agent';
 
 // Small keyboard-key chip for the empty-editor "Code with Agent" hint.
 const kbdChip: React.CSSProperties = {
@@ -77,6 +76,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     const isGitBlameVisible = useStore(state => (state as any).isGitBlameVisible ?? false);
     const toggleGitBlame = useStore(state => (state as any).toggleGitBlame);
     const setVisualLabMode = useStore(state => state.setVisualLabMode);
+    const debugBreakpoints = useStore(state => state.debugBreakpoints);
 
     const [isInlineEditOpen, setIsInlineEditOpen] = React.useState(false);
     const [inlineEditPosition, setInlineEditPosition] = React.useState({ top: 0, left: 0 });
@@ -86,6 +86,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     const activeTab = tabs.find(t => t.id === effectiveTabId) ?? null;
 
     const editorRef = useRef<any>(null);
+    const bpDecorationsRef = useRef<any>(null);
     const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Update active editor path in store whenever tab changes (only for primary pane)
@@ -94,6 +95,30 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             setActiveEditorPath(activeTab.path);
         }
     }, [effectiveTabId, activeTab?.path, setActiveEditorPath, forcedTabId]);
+
+    // Sync breakpoint glyphs in the gutter for the active file
+    useEffect(() => {
+        const editor = editorRef.current;
+        const path = activeTab?.path;
+        if (!editor || !path || path.startsWith('vscode://')) return;
+
+        import('monaco-editor').then((monaco) => {
+            const bps = debugBreakpoints.filter((b) => b.path === path && b.enabled);
+            const decorations = bps.map((b) => ({
+                range: new monaco.Range(b.line, 1, b.line, 1),
+                options: {
+                    isWholeLine: true,
+                    glyphMarginClassName: 'codicon codicon-debug-breakpoint',
+                    glyphMarginHoverMessage: { value: `Breakpoint (line ${b.line})` },
+                },
+            }));
+            if (!bpDecorationsRef.current) {
+                bpDecorationsRef.current = editor.createDecorationsCollection(decorations);
+            } else {
+                bpDecorationsRef.current.set(decorations);
+            }
+        }).catch(console.error);
+    }, [activeTab?.path, debugBreakpoints]);
 
     // Enforce hard cap of 12 active Monaco models to save RAM (~5MB each = 60MB max)
     useEffect(() => {
@@ -190,6 +215,28 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             (useStore.getState() as any).toggleGitBlame?.();
         });
 
+        // F9 = toggle breakpoint on current line
+        editor.addCommand(monaco.KeyCode.F9, () => {
+            const path = useStore.getState().activeEditorPath
+                || useStore.getState().tabs.find((t) => t.id === useStore.getState().activeTabId)?.path;
+            const line = editor.getPosition()?.lineNumber;
+            if (path && line && !path.startsWith('vscode://')) {
+                useStore.getState().toggleBreakpoint(path, line);
+            }
+        });
+
+        // Gutter click toggles breakpoint (VS Code parity)
+        editor.onMouseDown((e) => {
+            const t = monaco.editor.MouseTargetType;
+            if (e.target.type !== t.GUTTER_GLYPH_MARGIN && e.target.type !== t.GUTTER_LINE_NUMBERS) return;
+            const line = e.target.position?.lineNumber;
+            const path = useStore.getState().activeEditorPath
+                || useStore.getState().tabs.find((tab) => tab.id === useStore.getState().activeTabId)?.path;
+            if (line && path && !path.startsWith('vscode://')) {
+                useStore.getState().toggleBreakpoint(path, line);
+            }
+        });
+
         // Track cursor position → emit for breadcrumb symbol context and StatusBar
         editor.onDidChangeCursorPosition((e) => {
             const selection = editor.getSelection();
@@ -250,10 +297,9 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             }
         });
 
-        // ── Phase 4: Kiro Diagnose ─────────────────────────────────────
         editor.addAction({
-            id: 'kiro.diagnose',
-            label: 'Diagnose with Kiro',
+            id: 'agent.diagnose',
+            label: 'Diagnose with Agent',
             contextMenuGroupId: 'navigation',
             contextMenuOrder: 1.5,
             run: (ed) => {
@@ -674,7 +720,17 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     }, [effectiveTabId, updateTabContent]);
 
     const pendingChanges = useStore(state => state.pendingChanges);
+    const focusedHunkId = useStore(state => state.focusedHunkId);
     const activeFilePendingChange = pendingChanges.find(c => c.path === activeTab?.path);
+
+    // Composer review: Alt+J/K focuses a pending change — open its file automatically.
+    useEffect(() => {
+        if (!focusedHunkId) return;
+        const change = pendingChanges.find((c) => c.id === focusedHunkId);
+        if (change && change.path !== activeTab?.path) {
+            void useStore.getState().openFile(change.path);
+        }
+    }, [focusedHunkId, pendingChanges, activeTab?.path]);
 
     // When theme changes in store, ensure it's applied correctly to monaco instance
     useEffect(() => {
@@ -911,15 +967,19 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     contextMenuGroupId: 'agent-diff',
                     contextMenuOrder: 0,
                     precondition: null,
-                    run: (ed) => {
+                    run: async (ed) => {
                         const line = ed.getPosition()?.lineNumber ?? 1;
-                        const hunk = hunkDataRef.current.find(h => line >= h.startLine && line <= h.endLine + 1);
-                        if (!hunk || !activeFilePendingChange) return;
-                        // For added hunks: accept = keep as-is (already in editor). Just mark hunk done.
-                        // For removed hunks: accept = remove those lines from original that were deleted.
-                        // Since the editor already shows the new content, accept means keep it.
-                        // Full accept of the whole file for now — per-hunk partial apply is complex.
-                        useStore.getState().acceptPendingChange(activeFilePendingChange.id).catch(console.error);
+                        if (!activeFilePendingChange) return;
+                        const { computeDiffBlocks } = await import('../services/DiffService');
+                        const oldText = activeFilePendingChange.originalContent ?? activeFilePendingChange.oldContent ?? '';
+                        const newText = activeFilePendingChange.newContent ?? activeFilePendingChange.proposedContent ?? '';
+                        const block = computeDiffBlocks(oldText, newText).find(
+                            (b) => line >= b.newStartLine && line <= b.newEndLine,
+                        );
+                        if (block) {
+                            const { acceptHunk } = await import('../application/editor/acceptHunk');
+                            await acceptHunk(activeFilePendingChange.id, block.id);
+                        }
                     },
                 });
 
@@ -929,22 +989,21 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     contextMenuGroupId: 'agent-diff',
                     contextMenuOrder: 1,
                     precondition: null,
-                    run: (ed) => {
+                    run: async (ed) => {
                         const line = ed.getPosition()?.lineNumber ?? 1;
-                        const hunk = hunkDataRef.current.find(h => line >= h.startLine && line <= h.endLine + 1);
-                        if (!hunk || !activeFilePendingChange) return;
-                        // Rejecting a hunk: revert that hunk's lines to original content
-                        // Get current model value, find the hunk lines, replace with original
-                        const model = ed.getModel();
-                        if (!model) return;
-                        if (hunk.type === 'added') {
-                            // Remove the added lines
-                            const range = new monaco.Range(hunk.startLine, 1, hunk.endLine + 1, 1);
-                            model.applyEdits([{ range, text: '' }]);
-                        } else if (hunk.type === 'removed') {
-                            // Re-insert the removed lines at the deletion point
-                            const pos = new monaco.Range(hunk.startLine, 1, hunk.startLine, 1);
-                            model.applyEdits([{ range: pos, text: hunk.oldContent }]);
+                        if (!activeFilePendingChange) return;
+                        const { computeDiffBlocks } = await import('../services/DiffService');
+                        const oldText = activeFilePendingChange.originalContent ?? activeFilePendingChange.oldContent ?? '';
+                        const newText = activeFilePendingChange.newContent ?? activeFilePendingChange.proposedContent ?? '';
+                        const block = computeDiffBlocks(oldText, newText).find(
+                            (b) => line >= b.newStartLine && line <= b.newEndLine,
+                        );
+                        if (block) {
+                            useStore.getState().rejectHunk(activeFilePendingChange.id, block.id);
+                            const updated = useStore.getState().pendingChanges.find((c) => c.id === activeFilePendingChange.id);
+                            if (updated?.newContent && ed.getModel()) {
+                                ed.getModel()!.setValue(updated.newContent);
+                            }
                         }
                     },
                 });
@@ -1057,7 +1116,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
             }}>
                 <WelcomePage />
                 {/* Native-IDE empty state: clean centered logo + product name + a
-                    "Code with Agent" shortcut hint (VSCode/Antigravity-style). No
+                    "Code with Agent" shortcut hint. No
                     glow/animation — reads as a real IDE, themed via --vscode vars. */}
                 <div style={{
                     height: '100%',

@@ -89,21 +89,20 @@ const RunConfigsPanel: React.FC = () => {
         setBusy(t.label);
         setLastResult(null);
         try {
+            const cwd = substituteVars(t.cwd || activeRoot || '', { workspaceFolder: activeRoot || '' });
             const cmd = substituteVars(t.command || '', { workspaceFolder: activeRoot || '', file: activeEditorPath || '' });
             const argv = (t.args || []).map(a => substituteVars(a, { workspaceFolder: activeRoot || '', file: activeEditorPath || '' }));
             const fullCmd = argv.length ? `${cmd} ${argv.map(a => /\s/.test(a) ? `"${a}"` : a).join(' ')}` : cmd;
-            // Spawn a new terminal for this task so its output is visible.
-            // The terminal_send_data IPC takes the spawned terminal id and
-            // raw bytes; we add a trailing CR to actually execute.
-            const termId = await invoke<string>('spawn_terminal', {
-                cwd: substituteVars(t.cwd || activeRoot || '', { workspaceFolder: activeRoot || '' }),
-                shell: undefined,
-            }).catch(async () => {
-                // Fallback to a generic spawn signature for older builds.
-                return await invoke<string>('spawn_terminal', {});
-            });
+            const groupId = await useStore.getState().addTerminalGroup();
+            const group = useStore.getState().terminalGroups.find(g => g.id === groupId);
+            const termId = group?.activeInstanceId;
+            if (!termId) throw new Error('Failed to open integrated terminal');
+            if (cwd) {
+                const cd = cwd.includes(' ') ? `cd "${cwd}"` : `cd ${cwd}`;
+                await invoke('terminal_send_data', { id: termId, data: `${cd}\r` });
+            }
             await invoke('terminal_send_data', { id: termId, data: `${fullCmd}\r` });
-            setLastResult({ name: t.label, ok: true, message: `Spawned terminal ${termId.slice(0, 8)} running: ${fullCmd}` });
+            setLastResult({ name: t.label, ok: true, message: `Running in terminal: ${fullCmd}` });
         } catch (e: any) {
             setLastResult({ name: t.label, ok: false, message: String(e?.message ?? e) });
         } finally {
@@ -121,7 +120,10 @@ const RunConfigsPanel: React.FC = () => {
                 cwd: c.cwd ? substituteVars(c.cwd, { workspaceFolder: activeRoot || '', file: activeEditorPath || '' }) : activeRoot,
                 args: (c.args || []).map(a => substituteVars(a, { workspaceFolder: activeRoot || '', file: activeEditorPath || '' })),
             };
-            await invoke('debug_start', { config: resolved });
+            await invoke('debug_start', { config: { ...resolved, adapter_path: (resolved as any).adapter_path } });
+            useStore.getState().setDebugging(true, c.name);
+            const { pushBreakpointsToAdapter } = await import('../application/debug/bootstrapDebugRuntime');
+            await pushBreakpointsToAdapter();
             setLastResult({ name: c.name, ok: true, message: 'Debug session started.' });
         } catch (e: any) {
             setLastResult({ name: c.name, ok: false, message: String(e?.message ?? e) });

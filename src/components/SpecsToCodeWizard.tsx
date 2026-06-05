@@ -270,7 +270,7 @@ const SpecsGenerator: React.FC = () => {
                     <button
                         onClick={handleGuided}
                         disabled={guiding}
-                        title="Generate a requirements doc → design doc from your idea (Kiro-style), then review before generating tasks."
+                        title="Generate a requirements doc → design doc from your idea, then review before generating tasks."
                         style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, cursor: guiding ? 'wait' : 'pointer', border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}
                     >
                         {guiding ? '⟳ Generating…' : '✨ Guided (Requirements → Design)'}

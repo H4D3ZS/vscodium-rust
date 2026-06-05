@@ -8,8 +8,8 @@ interface TerminalGroupViewProps {
 }
 
 const TerminalGroupView: React.FC<TerminalGroupViewProps> = ({ groupId, active }) => {
-    const group = useStore(state => state.terminalGroups.find(g => g.id === groupId));
-    const updateWeights = useStore(state => state.updateTerminalSplitWeights);
+    const group = useStore((state) => state.terminalGroups.find((g) => g.id === groupId));
+    const updateWeights = useStore((state) => state.updateTerminalSplitWeights);
     const containerRef = useRef<HTMLDivElement>(null);
     const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
@@ -17,6 +17,9 @@ const TerminalGroupView: React.FC<TerminalGroupViewProps> = ({ groupId, active }
 
     const instances = group.instances;
     const weights = group.splitWeights || instances.map(() => 1 / instances.length);
+    const isVertical = group.layout === 'split-vertical';
+    const flexDirection = isVertical ? 'column' : 'row';
+    const sashCursor = isVertical ? 'row-resize' : 'col-resize';
 
     const onMouseDown = (index: number) => (e: React.MouseEvent) => {
         e.preventDefault();
@@ -27,21 +30,24 @@ const TerminalGroupView: React.FC<TerminalGroupViewProps> = ({ groupId, active }
         if (draggingIndex === null || !containerRef.current) return;
 
         const rect = containerRef.current.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const totalWidth = rect.width;
-
-        // Calculate new weights based on mouse position
-        // We look at draggingIndex (left instance) and draggingIndex + 1 (right instance)
+        const total = weights.reduce((a, b) => a + b, 0);
         const currentSum = weights[draggingIndex] + weights[draggingIndex + 1];
-        
-        // Find the cumulative start of the dragging pair
+
         let pairStartWeight = 0;
         for (let i = 0; i < draggingIndex; i++) pairStartWeight += weights[i];
-        
-        const pairStartX = (pairStartWeight / weights.reduce((a, b) => a + b, 0)) * totalWidth;
-        const newWeightLeft = ((mouseX - pairStartX) / totalWidth) * weights.reduce((a, b) => a + b, 0);
-        
-        if (newWeightLeft > 0.05 && (currentSum - newWeightLeft) > 0.05) {
+
+        let newWeightLeft: number;
+        if (isVertical) {
+            const mouseY = e.clientY - rect.top;
+            const pairStartY = (pairStartWeight / total) * rect.height;
+            newWeightLeft = ((mouseY - pairStartY) / rect.height) * total;
+        } else {
+            const mouseX = e.clientX - rect.left;
+            const pairStartX = (pairStartWeight / total) * rect.width;
+            newWeightLeft = ((mouseX - pairStartX) / rect.width) * total;
+        }
+
+        if (newWeightLeft > 0.05 && currentSum - newWeightLeft > 0.05) {
             const nextWeights = [...weights];
             nextWeights[draggingIndex] = newWeightLeft;
             nextWeights[draggingIndex + 1] = currentSum - newWeightLeft;
@@ -49,9 +55,7 @@ const TerminalGroupView: React.FC<TerminalGroupViewProps> = ({ groupId, active }
         }
     };
 
-    const onMouseUp = () => {
-        setDraggingIndex(null);
-    };
+    const onMouseUp = () => setDraggingIndex(null);
 
     useEffect(() => {
         if (draggingIndex !== null) {
@@ -62,49 +66,57 @@ const TerminalGroupView: React.FC<TerminalGroupViewProps> = ({ groupId, active }
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
         };
-    }, [draggingIndex]);
+    }, [draggingIndex, isVertical, weights]);
 
     return (
-        <div 
+        <div
             ref={containerRef}
             className={`terminal-group-view ${active ? 'active' : ''}`}
-            style={{ 
+            style={{
                 display: active ? 'flex' : 'none',
-                width: '100%', 
-                height: '100%', 
-                flexDirection: 'row', 
+                width: '100%',
+                height: '100%',
+                flexDirection,
                 overflow: 'hidden',
                 background: 'transparent',
-                position: 'relative'
+                position: 'relative',
             }}
         >
             {instances.map((instanceId, index) => (
                 <React.Fragment key={instanceId}>
-                    <div style={{ flex: weights[index], position: 'relative', minWidth: '50px', height: '100%' }}>
-                        <TerminalInstance 
-                            id={instanceId} 
+                    <div style={{ flex: weights[index], position: 'relative', minWidth: '50px', minHeight: '50px', height: '100%' }}>
+                        <TerminalInstance
+                            id={instanceId}
                             groupId={groupId}
-                            active={group.activeInstanceId === instanceId} 
+                            active={group.activeInstanceId === instanceId}
                         />
                     </div>
                     {index < instances.length - 1 && (
-                        <div 
+                        <div
                             onMouseDown={onMouseDown(index)}
                             style={{
-                                width: '1px',
-                                cursor: 'col-resize',
-                                background: draggingIndex === index ? 'var(--vscode-sash-hoverBorder, #007acc)' : 'var(--vscode-panel-border, rgba(128, 128, 128, 0.35))',
+                                width: isVertical ? '100%' : '1px',
+                                height: isVertical ? '1px' : '100%',
+                                cursor: sashCursor,
+                                background:
+                                    draggingIndex === index
+                                        ? 'var(--vscode-sash-hoverBorder, #007acc)'
+                                        : 'var(--vscode-panel-border, rgba(128, 128, 128, 0.35))',
                                 zIndex: 10,
-                                position: 'relative'
+                                position: 'relative',
+                                flexShrink: 0,
                             }}
                         >
-                            <div style={{
-                                position: 'absolute',
-                                left: '-2px',
-                                width: '5px',
-                                height: '100%',
-                                cursor: 'col-resize'
-                            }} />
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    left: isVertical ? 0 : '-2px',
+                                    top: isVertical ? '-2px' : 0,
+                                    width: isVertical ? '100%' : '5px',
+                                    height: isVertical ? '5px' : '100%',
+                                    cursor: sashCursor,
+                                }}
+                            />
                         </div>
                     )}
                 </React.Fragment>

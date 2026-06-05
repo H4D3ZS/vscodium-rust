@@ -210,7 +210,7 @@ const AccountSettingsPanel: React.FC = () => {
 
             {/* Plan picker → PayMongo checkout */}
             <SectionLabel>Plans</SectionLabel>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 14 }}>
+            <div className="settings-plan-grid">
                 {TIERS.map((t) => {
                     const active = data?.account.tier === (t.sub || 'community');
                     const isCommunity = t.id === 'community';
@@ -233,31 +233,43 @@ const AccountSettingsPanel: React.FC = () => {
             <button onClick={openBilling} style={{ ...btnGhost, marginBottom: 24 }}>Manage billing &amp; payment method →</button>
             {msg && <div style={{ fontSize: 11, opacity: 0.7, margin: '-12px 0 18px' }}>{msg}</div>}
 
-            {/* MiMo first-time offer */}
+            {/* Limited Premium add-on */}
             <SectionLabel>Add-ons</SectionLabel>
-            <div style={{ marginBottom: 24, padding: '14px 16px', borderRadius: 10, border: '1px solid rgba(224,175,104,0.4)', background: 'linear-gradient(135deg, rgba(224,175,104,0.12), rgba(224,175,104,0.03))', position: 'relative', overflow: 'hidden' }}>
-                <span style={{ position: 'absolute', top: 10, right: 12, fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', color: '#1a1a1a', background: '#e0af68', padding: '2px 8px', borderRadius: 10 }}>
-                    LIMITED · 7 DAYS
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <i className="codicon codicon-sparkle" style={{ fontSize: 20, color: '#e0af68' }} />
-                    <div>
-                        <div style={{ fontSize: 14, fontWeight: 600 }}>Limited Premium — <span style={{ color: '#e0af68' }}>$10</span> <span style={{ fontSize: 10, opacity: 0.6 }}>/ 7 days · ₱692.50</span></div>
-                        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Premium cloud reasoning model. One-time, 7-day access — limited early-access seats.</div>
+            <div className={`settings-premium-card${hasMimo ? ' settings-premium-card--owned' : ''}`}>
+                <div className="settings-premium-badge">Limited · 7 days</div>
+                <div className="settings-premium-layout">
+                    <div className="settings-premium-icon-wrap">
+                        <i className="codicon codicon-sparkle settings-premium-icon" />
                     </div>
-                    <button
-                        onClick={openBilling}
-                        disabled={hasMimo}
-                        style={{
-                            marginLeft: 'auto', padding: '7px 16px', borderRadius: 8, border: 'none', cursor: hasMimo ? 'default' : 'pointer',
-                            fontSize: 12, fontWeight: 700,
-                            background: hasMimo ? 'rgba(158,206,106,0.2)' : '#e0af68', color: hasMimo ? '#9ece6a' : '#1a1a1a',
-                        }}
-                    >
-                        {hasMimo ? '✓ Unlocked' : 'Get for $10'}
-                    </button>
+                    <div className="settings-premium-body">
+                        <h3 className="settings-premium-title">Limited Premium</h3>
+                        <p className="settings-premium-desc">
+                            Premium cloud reasoning model with extended context. One-time 7-day access — limited early-access seats.
+                        </p>
+                        <ul className="settings-premium-features">
+                            <li>Priority cloud inference</li>
+                            <li>Extended reasoning depth</li>
+                            <li>Full agent + security tooling</li>
+                        </ul>
+                    </div>
+                    <div className="settings-premium-cta">
+                        <div className="settings-premium-price">
+                            <span className="settings-premium-amount">$10</span>
+                            <span className="settings-premium-period">/ 7 days</span>
+                        </div>
+                        <span className="settings-premium-fx">≈ ₱692.50 PHP</span>
+                        <button
+                            type="button"
+                            className="settings-premium-btn"
+                            onClick={openBilling}
+                            disabled={hasMimo}
+                        >
+                            {hasMimo ? '✓ Active' : 'Get Premium Access'}
+                        </button>
+                    </div>
                 </div>
             </div>
+            <div style={{ marginBottom: 24 }} />
 
             {/* Bug Bounty ToS */}
             <SectionLabel>Bug Bounty — Terms of Service</SectionLabel>
