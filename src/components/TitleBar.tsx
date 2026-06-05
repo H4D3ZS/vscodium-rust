@@ -115,8 +115,14 @@ const menus: Menu[] = [
             { label: 'Search', shortcut: 'Ctrl+Shift+F' },
             { label: 'Source Control', shortcut: 'Ctrl+Shift+G' },
             { label: 'Extensions', shortcut: 'Ctrl+Shift+X' },
+            { label: 'Codebase Search' },
+            { label: 'Tasks & Specs' },
+            { label: 'Steering & Hooks' },
             { separator: true, label: '' },
-            { label: 'Toggle AIRI Panel', shortcut: 'Ctrl+Alt+B' },
+            { label: 'Toggle Chat Panel', shortcut: 'Ctrl+Alt+B' },
+            { label: 'Open Chat' },
+            { label: 'Mobile Emulators' },
+            { label: 'Visual Lab' },
             { label: 'Toggle Terminal', shortcut: 'Ctrl+`' },
             { label: 'Toggle Sidebar', shortcut: 'Ctrl+B' },
             { separator: true, label: '' },
@@ -163,7 +169,7 @@ const menus: Menu[] = [
             { label: 'Command Palette...', shortcut: 'Ctrl+Shift+P' },
             { label: 'Show All Commands' },
             { separator: true, label: '' },
-            { label: 'About Antigravity IDE' },
+            { label: 'About' },
         ],
     },
 ];
@@ -322,8 +328,27 @@ function executeMenuAction(item: string) {
         case 'Extensions':
             store.setActiveSidebarView('extensions-view');
             break;
+        case 'Codebase Search':
+            store.setActiveSidebarView('vector-search-view');
+            break;
+        case 'Tasks & Specs':
+            store.setActiveSidebarView('tasks-view');
+            break;
+        case 'Steering & Hooks':
+            store.setActiveSidebarView('steering-view');
+            break;
+        case 'Toggle Chat Panel':
         case 'Toggle AIRI Panel':
-            store.isAiriPanelOpen ? store.closeAiriPanel() : store.openAiriPanel();
+            store.isAiriPanelOpen && store.isRightSidebarOpen ? store.closeAiriPanel() : store.openAiriPanel();
+            break;
+        case 'Open Chat':
+            store.openAiriPanel();
+            break;
+        case 'Mobile Emulators':
+            exec?.('workbench.action.openEmulators');
+            break;
+        case 'Visual Lab':
+            exec?.('workbench.action.openVisualLab');
             break;
         case 'Toggle Terminal':
             store.toggleBottomPanel();
@@ -399,8 +424,8 @@ function executeMenuAction(item: string) {
         case 'Welcome':
             exec?.('workbench.action.showWelcome');
             break;
-        case 'About Antigravity IDE':
-            alert('Antigravity IDE\nBuilt on VSCodium · Powered by AIRI · Kortex Neural Engine\n\nPrivacy-first · Offline-capable · Local AI');
+        case 'About':
+            alert('VSCodium-Rust\nVS Code–native shell · Agentic chat · Android & iPhone emulators\n\nCyber-Ifrit Cloud · Neural VFS · Local Ollama BYOB');
             break;
 
         default:
@@ -507,30 +532,38 @@ const TitleBar: React.FC = () => {
         }
     }, []);
 
+    const isMac = typeof document !== 'undefined' && document.body.classList.contains('os-macos');
+
     return (
         <div
             id="title-bar"
             onMouseDown={handleTitleBarMouseDown}
             style={{
-                background: isAiriPanelOpen ? 'linear-gradient(to right, #1a1a1a, #2d1b4e)' : 'var(--vscode-titleBar-activeBackground, #1e1e1e)',
+                background: 'var(--vscode-titleBar-activeBackground, #1e1e1e)',
                 color: 'var(--vscode-titleBar-activeForeground, #cccccc)',
-                borderBottom: isAiriPanelOpen ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid var(--vscode-panel-border, #2b2b2b)',
-                boxShadow: isAiriPanelOpen ? '0 4px 20px rgba(168, 85, 247, 0.15)' : 'none',
-                transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                borderBottom: '1px solid var(--vscode-panel-border, #2b2b2b)',
                 zIndex: 100,
+                position: 'relative',
             }}
         >
+            {isMac && (
+                <div className="window-controls-left" onMouseDown={(e) => e.stopPropagation()}>
+                    <button type="button" className="wc-traffic wc-traffic-close" title="Close" aria-label="Close" onClick={(e) => { e.stopPropagation(); winClose(); }} />
+                    <button type="button" className="wc-traffic wc-traffic-minimize" title="Minimize" aria-label="Minimize" onClick={(e) => { e.stopPropagation(); winMinimize(); }} />
+                    <button type="button" className="wc-traffic wc-traffic-maximize" title="Maximize" aria-label="Maximize" onClick={(e) => { e.stopPropagation(); winMaximize(); }} />
+                </div>
+            )}
             {/* ── Left: logo + menus ── */}
             <div className="title-bar-left" ref={menuRef}>
                 {/* IDE logo */}
                 <div
                     className="ide-logo hoverable"
-                    title="Antigravity IDE"
+                    title={rootName}
                     style={{ display: 'flex', alignItems: 'center', marginRight: '4px', padding: '4px 8px', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z" fill={isAiriPanelOpen ? '#a855f7' : 'rgba(255,255,255,0.75)'} />
-                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke={isAiriPanelOpen ? '#c084fc' : 'rgba(255,255,255,0.75)'} strokeWidth="2" />
+                        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="rgba(255,255,255,0.75)" />
+                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke="rgba(255,255,255,0.75)" strokeWidth="2" />
                     </svg>
                 </div>
 
@@ -676,7 +709,7 @@ const TitleBar: React.FC = () => {
                     <i
                         className={`codicon codicon-layout-sidebar-right${isRightSidebarOpen ? '' : '-off'} tb-layout-btn`}
                         title="Toggle Secondary Side Bar (Ctrl+Alt+B)"
-                        onClick={handleAiriClick}
+                        onClick={() => useStore.getState().toggleRightSidebar()}
                     />
                 </div>
 
@@ -690,7 +723,7 @@ const TitleBar: React.FC = () => {
                             alignItems: 'center',
                             padding: '4px',
                             opacity: isAiriPanelOpen ? 1 : 0.3,
-                            color: isAiriPanelOpen ? '#a855f7' : 'inherit',
+                            color: isAiriPanelOpen ? 'var(--vscode-titleBar-activeForeground, #ccc)' : 'inherit',
                             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                         }}
                     >
@@ -700,31 +733,29 @@ const TitleBar: React.FC = () => {
                     {/* AIRI toggle button */}
                     <div
                         className={`title-toggle-btn ${isAiriPanelOpen ? 'active' : ''}`}
-                        title={isAiriPanelOpen ? 'Close A.I Agent Panel' : 'Open A.I Agent Panel'}
+                        title={isAiriPanelOpen ? 'Close Chat Panel' : 'Open Chat Panel'}
                         style={{
                             display: 'flex',
                             alignItems: 'center',
                             gap: '6px',
                             padding: '4px 10px',
-                            borderRadius: '6px',
+                            borderRadius: '2px',
                             fontSize: '11px',
                             fontWeight: 600,
                             cursor: 'pointer',
-                            background: isAiriPanelOpen ? 'rgba(168, 85, 247, 0.15)' : 'transparent',
-                            color: isAiriPanelOpen ? '#c084fc' : 'rgba(255,255,255,0.4)',
-                            border: isAiriPanelOpen ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid transparent',
-                            transition: 'all 0.2s ease',
-                            position: 'relative',
+                            background: isAiriPanelOpen ? 'var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.08))' : 'transparent',
+                            color: isAiriPanelOpen ? 'var(--vscode-titleBar-activeForeground, #ccc)' : 'rgba(255,255,255,0.5)',
+                            border: '1px solid transparent',
                             WebkitAppRegion: 'no-drag',
                         } as React.CSSProperties}
                         onClick={handleAiriClick}
                     >
                         {isAgentThinking ? (
-                            <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: '14px', color: '#c084fc' }} />
+                            <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: '14px' }} />
                         ) : (
-                            <i className="codicon codicon-robot" style={{ fontSize: '14px' }} />
+                            <i className="codicon codicon-comment-discussion" style={{ fontSize: '14px' }} />
                         )}
-                        <span style={{ letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>A.I Agent</span>
+                        <span style={{ letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>Chat</span>
 
                         {isAiriPanelOpen && (
                             <i
@@ -735,7 +766,7 @@ const TitleBar: React.FC = () => {
                                     fontSize: '13px',
                                     paddingLeft: '6px',
                                     marginLeft: '6px',
-                                    borderLeft: '1px solid rgba(168, 85, 247, 0.3)',
+                                    borderLeft: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.12))',
                                     color: 'rgba(255,255,255,0.6)',
                                 }}
                             />

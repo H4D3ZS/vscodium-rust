@@ -1,51 +1,31 @@
-import React, { useCallback, useRef, useEffect, useState } from 'react';
+import React, { useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import ActivityBar from './ActivityBar';
-import { invoke } from '../tauri_bridge';
 import Sidebar from './Sidebar';
 import BottomPanel from './BottomPanel';
-import RightSidebar from './RightSidebar';
-import Editor from './Editor';
 import EmptyEditorWelcome from './EmptyEditorWelcome';
-import AimViewer from './AimViewer';
-import SettingsPage from './SettingsPage';
-import VisualLab from './visual/VisualLab';
-import SpecsToCodeWizard from './SpecsToCodeWizard';
-import { useStore } from '../store';
-import { Sparkles, Zap, Bot, Globe, Layout as LayoutIcon } from 'lucide-react';
-
-import BrowserSurface from './BrowserSurface';
-import DiffViewer from './DiffViewer';
-import { PlanningPanel } from './PlanningPanel';
-import { GhostRuntimePanel } from './GhostRuntimePanel';
-import { ThoughtProcess } from './ThoughtProcess';
-import AgentDiffView from './agent/AgentDiffView';
-import { AiriPanel } from './AiriPanel';
-import { AiriOverlay } from './AiriOverlay';
 import OllamaProgressBar from './OllamaProgressBar';
-import { EmulatorPreview } from './EmulatorPreview';
-
-function detectLanguageIcon(filename: string): { type: 'icon' | 'img'; value: string } {
-    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-
-    // Core Unbreakable SVGs
-    const fileSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNhZGRmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTMgM0g2YTIgMiAwIDAgMC0yIDJ2MTRhMiAyIDAgMCAwIDIgMmgxMmEyIDIgMCAwIDAgMi0yVjlsLTYtNnoiPjwvcGF0aD48cG9seWxpbmUgcG9pbnRzPSIxMyAzIDEzIDkgMTkgOSI+PC9wb2x5bGluZT48L3N2Zz4=`;
-    const codeSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3OWI4ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cG9seWxpbmUgcG9pbnRzPSIxNiAxOCAyMiAxMiAxNiA2Ii8+PHBvbHlsaW5lIHBvaW50cz0iOCA2IDIgMTIgOCAxOCIvPjwvc3ZnPg==`;
-
-    const codeExts = ['rs', 'ts', 'tsx', 'js', 'jsx', 'c', 'cpp', 'py', 'go', 'java'];
-
-    if (codeExts.includes(ext)) {
-        return { type: 'img', value: codeSvg };
-    }
-
-    return { type: 'img', value: fileSvg };
-}
-
-
-
-import ComposerOverlay from './ComposerOverlay';
+import { useStore } from '../store';
 import TabStrip from './workbench/TabStrip';
 import ToastManager from './ToastManager';
-import DocumentOutline from './DocumentOutline';
+
+const RightSidebar = lazy(() => import('./RightSidebar'));
+const Editor = lazy(() => import('./Editor'));
+const SettingsPage = lazy(() => import('./SettingsPage'));
+const AimViewer = lazy(() => import('./AimViewer'));
+const VisualLab = lazy(() => import('./visual/VisualLab'));
+const SpecsToCodeWizard = lazy(() => import('./SpecsToCodeWizard'));
+const BrowserSurface = lazy(() => import('./BrowserSurface'));
+const DiffViewer = lazy(() => import('./DiffViewer'));
+const PlanningPanel = lazy(() => import('./PlanningPanel').then(m => ({ default: m.PlanningPanel })));
+const GhostRuntimePanel = lazy(() => import('./GhostRuntimePanel').then(m => ({ default: m.GhostRuntimePanel })));
+const ThoughtProcess = lazy(() => import('./ThoughtProcess').then(m => ({ default: m.ThoughtProcess })));
+const AiriOverlay = lazy(() => import('./AiriOverlay').then(m => ({ default: m.AiriOverlay })));
+const UnifiedEmulatorPanel = lazy(() => import('./UnifiedEmulatorPanel'));
+const EmulatorPreview = lazy(() => import('./EmulatorPreview').then(m => ({ default: m.EmulatorPreview })));
+const ComposerOverlay = lazy(() => import('./ComposerOverlay'));
+const DocumentOutline = lazy(() => import('./DocumentOutline'));
+
+const PanelFallback = () => null;
 
 const Workbench: React.FC = () => {
     const isSidebarOpen = useStore(state => state.isSidebarOpen);
@@ -58,6 +38,7 @@ const Workbench: React.FC = () => {
     // Panel state (from store)
     const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
     const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
+    const emulatorLayout = useStore(state => state.emulatorLayout);
 
     const setSidebarWidth = useStore(state => state.setSidebarWidth);
     const setRightSidebarWidth = useStore(state => state.setRightSidebarWidth);
@@ -74,12 +55,12 @@ const Workbench: React.FC = () => {
     const splitEditorTabId = useStore(state => state.splitEditorTabId);
     const setSplitEditorTab = useStore(state => state.setSplitEditorTab);
     const toggleSplitEditor = useStore(state => state.toggleSplitEditor);
-    const [cursorSymbol, setCursorSymbol] = useState<string>('');
     const recentWorkspaces = useStore(state => state.recentWorkspaces);
     const removeRecentWorkspace = useStore(state => state.removeRecentWorkspace);
 
     // Dev Workflow State
     const isDevWorkflowActive = useStore(state => state.isDevWorkflowActive);
+    const showLeftEmulatorDock = emulatorLayout === 'left' && isEmulatorPanelOpen && !isDevWorkflowActive;
     const isZenMode = useStore(state => (state as any).isZenMode ?? false);
     const toggleZenMode = useStore(state => (state as any).toggleZenMode);
 
@@ -105,43 +86,7 @@ const Workbench: React.FC = () => {
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [toggleSplitEditor]);
-
-    // Breadcrumb: track cursor symbol via LSP document symbols
-    const symbolCacheRef = useRef<{ path: string; symbols: any[] }>({ path: '', symbols: [] });
-    useEffect(() => {
-        const handler = async (e: Event) => {
-            const { line } = (e as CustomEvent).detail;
-            const store = useStore.getState();
-            const path = store.activeEditorPath;
-            if (!path) return;
-            // Refresh symbol cache when file changes
-            if (symbolCacheRef.current.path !== path) {
-                symbolCacheRef.current = { path, symbols: [] };
-                try {
-                    const normalized = path.replace(/\\/g, '/');
-                    const uri = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`;
-                    const res = await invoke<any[]>('lsp_document_symbols', { uri });
-                    symbolCacheRef.current = { path, symbols: Array.isArray(res) ? res : [] };
-                } catch { /* LSP may not be running */ }
-            }
-            // Find innermost symbol containing cursor line
-            const findSymbol = (syms: any[], ln: number): string => {
-                for (const s of syms) {
-                    const start = (s.range?.start?.line ?? s.location?.range?.start?.line ?? 0) + 1;
-                    const end = (s.range?.end?.line ?? s.location?.range?.end?.line ?? 0) + 1;
-                    if (ln >= start && ln <= end) {
-                        const child = s.children ? findSymbol(s.children, ln) : '';
-                        return child || s.name;
-                    }
-                }
-                return '';
-            };
-            setCursorSymbol(findSymbol(symbolCacheRef.current.symbols, line));
-        };
-        window.addEventListener('editor:cursor-position', handler);
-        return () => window.removeEventListener('editor:cursor-position', handler as any);
-    }, []);
+    }, [toggleSplitEditor, isZenMode, toggleZenMode]);
 
     const resizingRef = useRef<'sidebar' | 'right-sidebar' | 'panel' | null>(null);
 
@@ -176,9 +121,7 @@ const Workbench: React.FC = () => {
     }, [setSidebarWidth, setRightSidebarWidth, setBottomPanelHeight]);
 
     const hasOpenFile = activeTabId !== null && tabs.length > 0;
-
     const activeRoot = useStore(state => state.activeRoot);
-    const activeRootName = useStore(state => state.activeRootName);
 
     return (
         <div id="workbench" style={{ display: 'flex', flex: 1, height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
@@ -202,197 +145,105 @@ const Workbench: React.FC = () => {
                                 {/* Tab strip */}
                                 <TabStrip />
 
-                                {/* Breadcrumbs */}
-                                {hasOpenFile && (
-                                    <div className="breadcrumbs" id="breadcrumbs">
-                                        <img src={`data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3OWI4ZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMjIgMTlhMiAyIDAgMCAxLTIgMkg0YTIgMiAwIDAgMS0yLTJWN2EyIDIgMCAwIDEgMi0yaDVsMiAyaDlhMiAyIDAgMCAxIDIgMnYxMHoiPjwvcGF0aD48L3N2Zz4=`} style={{ width: '14px', height: '14px', marginRight: '4px', opacity: 0.7 }} />
-                                        <span className="breadcrumb-item" style={{ cursor: 'pointer' }}>{(tabs.find(t => t.id === activeTabId)?.path.split('/').slice(-2, -1)[0]) ?? (activeRootName || 'vscodium-rust')}</span>
-                                        <i className="codicon codicon-chevron-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', margin: '0 4px', opacity: 0.4 }} />
-                                        {detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').type === 'img' ? (
-                                            <img src={detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').value} style={{ width: '14px', height: '14px', marginRight: '4px', opacity: 0.6 }} />
-                                        ) : (
-                                            <i className={`${detectLanguageIcon(tabs.find(t => t.id === activeTabId)?.filename || '').value}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', marginRight: '4px', opacity: 0.6 }} />
-                                        )}
-
-                                        <span className="breadcrumb-item active" style={{ color: 'var(--vscode-tab-activeForeground)', fontWeight: 400 }}>
-                                            {tabs.find(t => t.id === activeTabId)?.filename}
-                                        </span>
-                                        {cursorSymbol && (
-                                            <>
-                                                <i className="codicon codicon-chevron-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', margin: '0 4px', opacity: 0.4 }} />
-                                                <i className="codicon codicon-symbol-method" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', marginRight: '4px', opacity: 0.6 }} />
-                                                <span className="breadcrumb-item" style={{ color: 'var(--vscode-tab-activeForeground)', opacity: 0.75, fontStyle: 'italic' }}>
-                                                    {cursorSymbol}
-                                                </span>
-                                            </>
-                                        )}
-                                    </div>
-                                )}
-
                                 <div className="editor-wrapper" style={{ position: 'relative', width: '100%', height: '100%', flex: 1, overflow: 'hidden' }}>
                                     {(!activeRoot && tabs.length === 0) ? (
-                                        /* Welcome screen when no root is open and no tabs */
                                         <div className="welcome-screen-container" style={{
-                                            position: 'absolute',
-                                            inset: 0,
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            alignItems: 'flex-start',
-                                            justifyContent: 'flex-start',
-                                            zIndex: 1,
-                                            overflowY: 'auto',
-                                            background: 'var(--vscode-editor-background)'
+                                            position: 'absolute', inset: 0, zIndex: 1,
+                                            overflowY: 'auto', background: 'var(--vscode-editor-background)',
+                                            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                            padding: '40px 48px',
                                         }}>
-                                            <div className="welcome-view-content" style={{
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                                flex: 1,
-                                                height: '100%',
-                                                alignItems: 'flex-start',
-                                                justifyContent: 'flex-start',
-                                                padding: '10px 48px 40px',
-                                                width: '100%',
-                                                textAlign: 'left',
-                                                marginTop: 0
-                                            }}>
-                                                <div className="hero-section-beside" style={{ maxWidth: '900px', marginBottom: '2vh', width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '24px' }}>
-                                                    <img src="/assets/rust-logo.png" alt="Rust Logo" style={{ width: '80px', height: '80px', opacity: 0.9, flexShrink: 0 }} />
-                                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                                                        <h1 style={{ fontSize: 'min(5vw, 42px)', fontWeight: 800, marginBottom: '2px', letterSpacing: '-1.5px', color: 'var(--vscode-foreground)', lineHeight: 1, margin: 0 }}>
-                                                            VSCODIUM-RUST IDE <span style={{ fontSize: '10px', background: 'var(--terminator-accent)', color: 'white', padding: '2px 6px', borderRadius: '4px', verticalAlign: 'middle', marginLeft: '12px' }}>AIRI-CORE v0.2.0</span>
-                                                        </h1>
-                                                        <p style={{ fontSize: '14px', opacity: 0.6, maxWidth: '600px', margin: '8px 0 0', lineHeight: '1.4' }}>
-                                                            The ultimate high-performance, native IDE optimized for speed, autonomy, and the future of software construction.
-                                                        </p>
-                                                    </div>
+                                            <div style={{ width: '100%', maxWidth: '720px' }}>
+                                                <h1 style={{ fontSize: '26px', fontWeight: 600, margin: '0 0 8px', color: 'var(--vscode-foreground)' }}>
+                                                    VSCodium-Rust
+                                                </h1>
+                                                <p style={{ fontSize: '13px', opacity: 0.55, margin: '0 0 28px', lineHeight: 1.5 }}>
+                                                    Open a folder to start. Chat, Composer, and mobile emulators work like VS Code + Cursor.
+                                                </p>
+                                                <div style={{ display: 'grid', gap: '4px', marginBottom: '32px' }}>
+                                                    {[
+                                                        { label: 'Open Folder...', icon: 'codicon-folder-opened', cmd: 'explorer.openFolder' },
+                                                        { label: 'Clone Repository...', icon: 'codicon-source-control', cmd: 'git.clone' },
+                                                        { label: 'New File...', icon: 'codicon-new-file', cmd: 'explorer.newFile' },
+                                                        { label: 'Open Chat...', icon: 'codicon-comment-discussion', cmd: 'workbench.action.openChat' },
+                                                        { label: 'Mobile Emulators...', icon: 'codicon-device-mobile', cmd: 'workbench.action.openEmulators' },
+                                                    ].map(item => (
+                                                        <button key={item.cmd} type="button"
+                                                            onClick={() => (window as any).executeCommand?.(item.cmd)}
+                                                            style={{
+                                                                display: 'flex', alignItems: 'center', gap: '10px',
+                                                                padding: '8px 12px', border: 'none', borderRadius: '2px',
+                                                                background: 'transparent', color: 'var(--vscode-textLink-foreground, #3794ff)',
+                                                                fontSize: '13px', cursor: 'pointer', textAlign: 'left', width: '100%',
+                                                            }}
+                                                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; }}
+                                                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                                                        >
+                                                            <i className={`codicon ${item.icon}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '16px' }} />
+                                                            {item.label}
+                                                        </button>
+                                                    ))}
                                                 </div>
-
-                                                <div className="pros-grid" style={{
-                                                    display: 'grid',
-                                                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                                                    gap: '12px',
-                                                    textAlign: 'left',
-                                                    marginBottom: '2vh',
-                                                    width: '100%',
-                                                    maxWidth: '900px'
-                                                }}>
-                                                    <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                                                        <div style={{ color: 'var(--terminator-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-zap" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Performance</strong></div>
-                                                        <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Zero-cost abstractions and Rust efficiency.</div>
-                                                    </div>
-                                                    <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                                                        <div style={{ color: 'var(--terminator-success)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-shield" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Privacy</strong></div>
-                                                        <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Local-first processing, safe and secure.</div>
-                                                    </div>
-                                                    <div className="pro-item" style={{ padding: '12px 16px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                                                        <div style={{ color: 'var(--terminator-accent)', marginBottom: '2px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><i className="codicon codicon-bot" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} /> <strong>Autonomy</strong></div>
-                                                        <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.2 }}>Integrated AIRI sentient core with full filesystem access.</div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="welcome-content-wrapper" style={{ width: '100%', maxWidth: '900px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', textAlign: 'left' }}>
-                                                    <div className="welcome-main-section" style={{ textAlign: 'left' }}>
-                                                        <h3 className="section-title" style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', opacity: 0.5, marginBottom: '12px' }}>Get Started</h3>
-
-                                                        <div className="premium-cards-grid" style={{ display: 'grid', gap: '10px' }}>
-                                                            <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
-                                                                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                                                                onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.newFile'); }}>
-                                                                <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
-                                                                    <i className="codicon codicon-new-file" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
-                                                                </div>
-                                                                <div className="premium-card-content">
-                                                                    <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>New File...</span>
-                                                                    <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Create in workspace</span>
-                                                                </div>
-                                                            </a>
-
-                                                            <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
-                                                                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                                                                onClick={(e) => { e.preventDefault(); (window as any).executeCommand('explorer.openFolder'); }}>
-                                                                <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
-                                                                    <i className="codicon codicon-folder-opened" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
-                                                                </div>
-                                                                <div className="premium-card-content">
-                                                                    <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>Open Folder...</span>
-                                                                    <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Open from filesystem</span>
-                                                                </div>
-                                                            </a>
-
-                                                            <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
-                                                                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-sideBar-background)'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                                                                onClick={(e) => { e.preventDefault(); (window as any).executeCommand('git.clone'); }}>
-                                                                <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'rgba(0, 198, 255, 0.1)', color: 'var(--terminator-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
-                                                                    <i className="codicon codicon-source-control" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
-                                                                </div>
-                                                                <div className="premium-card-content">
-                                                                    <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>Clone Repository...</span>
-                                                                    <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Sync with Git</span>
-                                                                </div>
-                                                            </a>
-
-                                                            <a href="#" className="premium-card" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'rgba(0, 198, 255, 0.05)', border: '1px solid var(--terminator-accent)', borderRadius: '10px', textDecoration: 'none', transition: 'transform 0.2s, background 0.2s' }}
-                                                                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0, 198, 255, 0.1)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(0, 198, 255, 0.05)'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                                                                onClick={(e) => { e.preventDefault(); useStore.getState().setSpecsWizardOpen(true); }}>
-                                                                <div className="premium-card-icon" style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'var(--terminator-accent)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '14px', fontSize: '16px' }}>
-                                                                    <Sparkles size={16} />
-                                                                </div>
-                                                                <div className="premium-card-content">
-                                                                    <span className="premium-card-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--vscode-foreground)' }}>New AI Project...</span>
-                                                                    <span className="premium-card-desc" style={{ fontSize: '12px', opacity: 0.5 }}>Specs-to-Code Pipeline</span>
-                                                                </div>
-                                                            </a>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="welcome-recent-section" style={{ textAlign: 'left' }}>
-                                                        <h3 className="section-title" style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', opacity: 0.5, marginBottom: '12px' }}>Recent Workspaces</h3>
-                                                        {recentWorkspaces.length === 0 ? (
-                                                            <div className="recent-empty-state" style={{ padding: '20px 16px', borderRadius: '10px', background: 'var(--vscode-editor-background)', border: '1px dashed var(--vscode-panel-border)', fontSize: '11px', opacity: 0.4, textAlign: 'center' }}>
-                                                                <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '18px', display: 'block', marginBottom: '6px' }} />
-                                                                No recent folders found
-                                                            </div>
-                                                        ) : (
-                                                            <div style={{ display: 'grid', gap: '6px' }}>
-                                                                {recentWorkspaces.map(ws => (
-                                                                    <div key={ws.path}
-                                                                        style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', borderRadius: '8px', background: 'var(--vscode-sideBar-background)', border: '1px solid var(--vscode-panel-border)', gap: '10px', cursor: 'pointer', transition: 'background 0.15s' }}
-                                                                        onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
-                                                                        onMouseLeave={e => e.currentTarget.style.background = 'var(--vscode-sideBar-background)'}
-                                                                        onClick={() => useStore.getState().setActiveRoot(ws.path)}
-                                                                    >
-                                                                        <i className="codicon codicon-folder" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '16px', color: 'var(--terminator-accent)', flexShrink: 0 }} />
-                                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                                            <div style={{ fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.name}</div>
-                                                                            <div style={{ fontSize: '10px', opacity: 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{ws.path.replace(/\\/g, '/')}</div>
-                                                                        </div>
-                                                                        <i
-                                                                            className="codicon codicon-close"
-                                                                            style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', opacity: 0.4, flexShrink: 0 }}
-                                                                            title="Remove from recents"
-                                                                            onClick={e => { e.stopPropagation(); removeRecentWorkspace(ws.path); }}
-                                                                        />
+                                                {recentWorkspaces.length > 0 && (
+                                                    <>
+                                                        <h3 style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.45, marginBottom: '8px' }}>Recent</h3>
+                                                        <div style={{ display: 'grid', gap: '2px' }}>
+                                                            {recentWorkspaces.map(ws => (
+                                                                <div key={ws.path}
+                                                                    style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', borderRadius: '2px', gap: '8px', cursor: 'pointer' }}
+                                                                    onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
+                                                                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                                                    onClick={() => useStore.getState().setActiveRoot(ws.path)}
+                                                                >
+                                                                    <i className="codicon codicon-folder" style={{ fontFamily: 'codicon', fontStyle: 'normal', opacity: 0.7 }} />
+                                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                                        <div style={{ fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.name}</div>
+                                                                        <div style={{ fontSize: '11px', opacity: 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.path}</div>
                                                                     </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     ) : hasOpenFile ? (
                                         /* Monaco Editor or Settings Page */
                                         <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: (isVisualLabSplitView && isVisualLabOpen) ? 'row' : 'column' }}>
                                             {tabs.find(t => t.id === activeTabId)?.type === 'settings' ? (
-                                                <SettingsPage />
+                                                <Suspense fallback={<PanelFallback />}><SettingsPage /></Suspense>
                                             ) : (tabs.find(t => t.id === activeTabId) as any)?.type === 'aim' ? (
-                                                <AimViewer path={(tabs.find(t => t.id === activeTabId) as any)?.path} />
+                                                <Suspense fallback={<PanelFallback />}><AimViewer path={(tabs.find(t => t.id === activeTabId) as any)?.path} /></Suspense>
                                             ) : (
                                                 <div style={{ display: 'flex', flex: 1, width: '100%', height: '100%', minWidth: 0 }}>
+                                                    {showLeftEmulatorDock && (
+                                                        <div style={{
+                                                            flex: '0 0 340px',
+                                                            minWidth: 280,
+                                                            maxWidth: 420,
+                                                            height: '100%',
+                                                            borderRight: '1px solid var(--vscode-panel-border)',
+                                                            display: 'flex',
+                                                            flexDirection: 'column',
+                                                            background: 'var(--vscode-sideBar-background)',
+                                                        }}>
+                                                            <div style={{
+                                                                padding: '6px 10px',
+                                                                fontSize: '11px',
+                                                                fontWeight: 600,
+                                                                textTransform: 'uppercase',
+                                                                letterSpacing: '0.05em',
+                                                                borderBottom: '1px solid var(--vscode-panel-border)',
+                                                                color: 'var(--vscode-sideBarTitle-foreground, var(--vscode-foreground))',
+                                                                opacity: 0.85,
+                                                            }}>
+                                                                Mobile Emulators
+                                                            </div>
+                                                            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                                                                <Suspense fallback={<PanelFallback />}><UnifiedEmulatorPanel /></Suspense>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                     {/* Primary editor */}
                                                     <div style={{
                                                         flex: (isVisualLabSplitView && isVisualLabOpen) ? '0 0 50%' : (isSplitEditorOpen ? '0 0 50%' : 1),
@@ -402,18 +253,18 @@ const Workbench: React.FC = () => {
                                                         display: 'flex',
                                                         flexDirection: 'column'
                                                     }}>
-                                                        <Editor />
+                                                        <Suspense fallback={<PanelFallback />}><Editor /></Suspense>
                                                     </div>
                                                     {/* Visual Lab split */}
                                                     {(isVisualLabSplitView && isVisualLabOpen) && (
                                                         <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, background: '#090909' }}>
-                                                            <VisualLab isInline={true} />
+                                                            <Suspense fallback={<PanelFallback />}><VisualLab isInline={true} /></Suspense>
                                                         </div>
                                                     )}
                                                     {/* Emulator Preview (Dev Workflow) */}
                                                     {isDevWorkflowActive && (
                                                         <div style={{ flex: '0 0 50%', height: '100%', minWidth: 0, background: 'var(--vscode-editor-background)' }}>
-                                                            <EmulatorPreview />
+                                                            <Suspense fallback={<PanelFallback />}><EmulatorPreview /></Suspense>
                                                         </div>
                                                     )}
                                                     {/* Split editor pane (Ctrl+\) */}
@@ -441,7 +292,7 @@ const Workbench: React.FC = () => {
                                                                 </div>
                                                             </div>
                                                             <div style={{ flex: 1, overflow: 'hidden' }}>
-                                                                {splitEditorTabId && <Editor tabId={splitEditorTabId} />}
+                                                                {splitEditorTabId && <Suspense fallback={<PanelFallback />}><Editor tabId={splitEditorTabId} /></Suspense>}
                                                             </div>
                                                         </div>
                                                     )}
@@ -457,7 +308,7 @@ const Workbench: React.FC = () => {
                         </div>
                     </main>
                 ) : (
-                    <BrowserSurface />
+                    <Suspense fallback={<PanelFallback />}><BrowserSurface /></Suspense>
                 )}
                 {!isZenMode && isBottomPanelOpen && (
                     <div
@@ -508,18 +359,23 @@ const Workbench: React.FC = () => {
                         display: 'flex',
                         flexDirection: 'column'
                     }}>
-                        <RightSidebar />
+                        <Suspense fallback={<PanelFallback />}><RightSidebar /></Suspense>
                     </div>
                 </div>
             </div>
 
-            {!isVisualLabSplitView && <VisualLab />}
-            <DocumentOutline />
-            <AiriOverlay />
-            <SpecsToCodeWizard />
-            {useStore(state => state.pendingChanges).length > 0 && <DiffViewer />}
-            <AgentDiffView />
-            <ThoughtProcess />
+            {!isVisualLabSplitView && (
+                <Suspense fallback={<PanelFallback />}><VisualLab /></Suspense>
+            )}
+            <Suspense fallback={<PanelFallback />}><DocumentOutline /></Suspense>
+            {localStorage.getItem('airi.companion') === '1' && (
+                <Suspense fallback={<PanelFallback />}><AiriOverlay /></Suspense>
+            )}
+            <Suspense fallback={<PanelFallback />}><SpecsToCodeWizard /></Suspense>
+            {useStore(state => state.pendingChanges).length > 0 && (
+                <Suspense fallback={<PanelFallback />}><DiffViewer /></Suspense>
+            )}
+            <Suspense fallback={<PanelFallback />}><ThoughtProcess /></Suspense>
             {useStore(state => {
                 const s = state.taskPlannerState?.state;
                 return s === 'Planning' || s === 'Running' || s === 'Reviewing';
@@ -538,17 +394,17 @@ const Workbench: React.FC = () => {
                         overflow: 'hidden',
                     }}>
                         <div style={{ flex: 1, pointerEvents: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.5)', borderRadius: '16px', overflow: 'hidden' }}>
-                            <PlanningPanel />
+                            <Suspense fallback={<PanelFallback />}><PlanningPanel /></Suspense>
                         </div>
                         <div style={{ height: '256px', pointerEvents: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.5)', borderRadius: '16px', overflow: 'hidden' }}>
-                            <GhostRuntimePanel />
+                            <Suspense fallback={<PanelFallback />}><GhostRuntimePanel /></Suspense>
                         </div>
                     </div>
                 )}
 
             {/* Ollama Progress Bar */}
             <OllamaProgressBar />
-            <ComposerOverlay />
+            <Suspense fallback={<PanelFallback />}><ComposerOverlay /></Suspense>
             <ToastManager />
         </div >
     );

@@ -1,7 +1,4 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback, Suspense, lazy } from 'react';
-import { marked } from 'marked';
-import { airiBiology } from '../airi/biology';
-import { airiConsciousness } from '../airi/consciousness';
 import { useStore } from '../store';
 import type { FileEntry } from '../store';
 import { invoke } from '../tauri_bridge';
@@ -9,9 +6,17 @@ import MissionControl from './agent/MissionControl';
 import CheckpointTimeline from './CheckpointTimeline';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
-import { initTTS as initVoiceSystem, speak, stop, isSpeaking as isTtsSpeaking, getProvider } from '../voice';
-import MessageBody from './agent/MessageBody';
+import ChatInput from './chat/ChatInput';
+import ChatToolbar from './chat/ChatToolbar';
+import ChatMessageList from './chat/ChatMessageList';
+import type { AgentMessage } from '../store';
 import { Check, Activity, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+
+let voiceModule: typeof import('../voice') | null = null;
+async function getVoice() {
+    if (!voiceModule) voiceModule = await import('../voice');
+    return voiceModule;
+}
 
 // Lazy-load heavy panels — only load Three.js/VRM/Emulator code when the
 // user actually opens those tabs. Keeps initial renderer RAM under 250MB.
@@ -115,11 +120,11 @@ const RestoreCheckpointBanner: React.FC = () => {
         <div style={{
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '6px 10px', marginBottom: 6,
-            background: 'rgba(168,85,247,0.08)',
-            border: '1px solid rgba(168,85,247,0.25)',
+            background: 'var(--vscode-inputValidation-infoBackground, rgba(0,122,204,0.1))',
+            border: '1px solid var(--vscode-inputValidation-infoBorder, rgba(0,122,204,0.35))',
             borderRadius: 8, fontSize: 11,
         }}>
-            <i className="codicon codicon-discard" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#c084fc', fontSize: 13 }} />
+            <i className="codicon codicon-discard" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: 'var(--vscode-textLink-foreground, #3794ff)', fontSize: 13 }} />
             <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)' }}>
                 {msg ?? <>Checkpoint <code style={{ opacity: 0.7 }}>{checkpoint.description}</code> · {age}s ago</>}
             </span>
@@ -132,7 +137,7 @@ const RestoreCheckpointBanner: React.FC = () => {
                     setMsg(r.ok ? 'Restored.' : r.message);
                     if (r.ok) setTimeout(() => setMsg(null), 1800);
                 }}
-                style={{ background: '#c084fc', color: '#000', border: 'none', padding: '2px 8px', fontSize: 10, fontWeight: 600, borderRadius: 4, cursor: busy ? 'wait' : 'pointer' }}
+                style={{ background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)', border: 'none', padding: '2px 8px', fontSize: 10, fontWeight: 600, borderRadius: 2, cursor: busy ? 'wait' : 'pointer' }}
             >
                 {busy ? '…' : '↶ Restore'}
             </button>
@@ -196,8 +201,8 @@ const TaskRoadmap: React.FC = () => {
         <div className="task-roadmap" style={{
             margin: '8px 10px',
             padding: '10px 12px',
-            background: 'rgba(168,85,247,0.04)',
-            border: '1px solid rgba(168,85,247,0.15)',
+            background: 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))',
+            border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.12))',
             borderRadius: '6px',
             animation: 'fadeIn 0.3s ease-out'
         }}>
@@ -208,7 +213,7 @@ const TaskRoadmap: React.FC = () => {
                             width: '18px',
                             height: '18px',
                             borderRadius: '50%',
-                            background: i <= activeIndex ? '#c084fc' : 'var(--vscode-panel-border)',
+                            background: i <= activeIndex ? 'var(--vscode-focusBorder, #007acc)' : 'var(--vscode-panel-border)',
                             color: i <= activeIndex ? '#000' : 'var(--vscode-foreground)',
                             display: 'flex',
                             alignItems: 'center',
@@ -216,7 +221,7 @@ const TaskRoadmap: React.FC = () => {
                             fontSize: '9px',
                             fontWeight: 700,
                             zIndex: 2,
-                            boxShadow: i === activeIndex ? '0 0 6px #c084fc' : 'none'
+                            boxShadow: i === activeIndex ? '0 0 6px var(--vscode-focusBorder, #007acc)' : 'none'
                         }}>
                             {i < activeIndex ? '✓' : i + 1}
                         </div>
@@ -228,7 +233,7 @@ const TaskRoadmap: React.FC = () => {
                                 top: '9px',
                                 width: '100%',
                                 height: '2px',
-                                background: i < activeIndex ? '#c084fc' : 'var(--vscode-panel-border)',
+                                background: i < activeIndex ? 'var(--vscode-focusBorder, #007acc)' : 'var(--vscode-panel-border)',
                                 zIndex: 1
                             }} />
                         )}
@@ -236,7 +241,7 @@ const TaskRoadmap: React.FC = () => {
                 ))}
             </div>
             <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Activity size={12} style={{ color: '#c084fc' }} className="animate-pulse" />
+                <Activity size={12} style={{ color: 'var(--vscode-focusBorder, #007acc)' }} className="animate-pulse" />
                 <span style={{ fontWeight: 600, fontSize: '9.5px', color: 'rgba(255,255,255,0.85)' }}>{status}</span>
             </div>
         </div>
@@ -441,7 +446,6 @@ const BackgroundAgentsTray: React.FC = () => {
 };
 
 import OllamaProgressBar from './OllamaProgressBar';
-import EmulatorPanel from './EmulatorPanel';
 
 // One-shot AIRI bootstrap latch. Module-scoped so it survives unmount/remount
 // and (critically) React.StrictMode's deliberate double-invoke of effects.
@@ -552,14 +556,6 @@ const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultC
     );
 };
 
-marked.setOptions({
-    gfm: true,
-    breaks: true,
-    silent: true
-});
-
-
-
 const RightSidebar: React.FC = () => {
     const isOpen = useStore(state => state.isRightSidebarOpen);
     const toggle = useStore(state => state.toggleRightSidebar);
@@ -653,7 +649,6 @@ const RightSidebar: React.FC = () => {
     const agentRootAccess = useStore(state => state.agentRootAccess);
     const setAgentRootAccess = useStore(state => state.setAgentRootAccess);
     const fileTree = useStore(state => state.fileTree);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
     const agentTasks = useStore(state => state.agentTasks);
     const chatSessions = useStore(state => state.chatSessions);
     const refreshChatSessions = useStore(state => state.refreshChatSessions);
@@ -694,11 +689,22 @@ const RightSidebar: React.FC = () => {
 
     // AIRI full mode — last spoken response and speech state
     const [airiSpeech, setAiriSpeech] = useState<string>('');
+    const [airiSpeechHtml, setAiriSpeechHtml] = useState<string>('');
     const [airiSpeaking, setAiriSpeaking] = useState(false);
     const [ttsEnabled, setTtsEnabled] = useState(true); // Enable by default
     const [ttsPreset, setTtsPreset] = useState<'airi' | 'sage' | 'nova' | 'kawaii' | 'yamato' | 'hana' | 'ren' | 'yuki' | 'haru' | 'sora' | 'zero' | 'aria'>('airi');
     const [isVoiceListening, setIsVoiceListening] = useState(false);
     const recognitionRef = useRef<any>(null);
+
+    useEffect(() => {
+        if (!airiSpeech) { setAiriSpeechHtml(''); return; }
+        let cancelled = false;
+        import('marked').then(({ marked }) => {
+            marked.setOptions({ gfm: true, breaks: true, silent: true });
+            if (!cancelled) setAiriSpeechHtml(marked.parse(cleanAiContent(airiSpeech)) as string);
+        });
+        return () => { cancelled = true; };
+    }, [airiSpeech]);
 
     const toggleVoiceInput = () => {
         if (isVoiceListening) {
@@ -709,7 +715,7 @@ const RightSidebar: React.FC = () => {
     };
 
     const startVoiceInput = () => {
-        stop(); // Stop agent speaking before user speaks
+        void getVoice().then(v => v.stop());
         const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
         if (!SpeechRecognition) {
             console.warn('[VRD] Web Speech Recognition not supported in this environment.');
@@ -761,8 +767,6 @@ const RightSidebar: React.FC = () => {
     const [digitalLifeActive, setDigitalLifeActive] = useState(false);
 
     // Emulator panel positioning
-    const emulatorLayout = useStore(state => state.emulatorLayout);
-    const [showEmulatorInRight, setShowEmulatorInRight] = useState(false);
 
     // Initialize TTS on mount.
     // Guarded so React.StrictMode's intentional double-invoke (and any
@@ -787,7 +791,7 @@ const RightSidebar: React.FC = () => {
         }
         console.log('[RightSidebar] 🚀 Initializing AIRI companion...');
 
-        initVoiceSystem().then(ready => {
+        getVoice().then(v => v.initTTS()).then(ready => {
             if (ready) {
                 console.log('[TTS] ✅ AIRI Voice System initialized');
 
@@ -821,7 +825,8 @@ const RightSidebar: React.FC = () => {
                             "Hello! I'm your AI companion!",
                         ];
                         const greeting = greetings[Math.floor(Math.random() * greetings.length)];
-                        await speak(greeting, 'airi');
+                        const v = await getVoice();
+                        await v.speak(greeting, 'airi');
                     }, 2000);
                 }).catch(console.error);
 
@@ -1036,29 +1041,37 @@ const RightSidebar: React.FC = () => {
         }
     }, [isAgentThinking]);
 
-    // Neural Sync Bridge: Forward IDE state to the AIRI manifold
+    // Neural sync — companion mode only (avoids biology/consciousness RAM at boot).
     useEffect(() => {
-        const syncPayload = {
-            messages,
-            agentInfo: {
-                name: "AIRI",
-                status: isAgentThinking ? 'thinking' : (aiStatus === 'dead' ? 'error' : 'idle'),
-                context: "vscodium-rust"
-            },
-            biology: {
-                energy: airiBiology.getState().energy,
-                mood: airiBiology.getState().mood,
-                hunger: (airiBiology.getState() as any).hunger || 0
-            },
-            consciousness: {
-                selfAwareness: airiConsciousness.getState().selfAwareness,
-                lastThought: airiConsciousness.getState().thoughts.slice(-1)[0]?.content
-            }
-        };
-        // Emit native event for AiriPanel to pick up
-        import('@tauri-apps/api/event').then(({ emit }) => {
-            emit('hades-sync', syncPayload);
-        }).catch(err => console.error('[HADES] Sync Broadcast Failed:', err));
+        if (localStorage.getItem('airi.companion') !== '1') return;
+        let cancelled = false;
+        (async () => {
+            const [{ airiBiology }, { airiConsciousness }, { emit }] = await Promise.all([
+                import('../airi/biology'),
+                import('../airi/consciousness'),
+                import('@tauri-apps/api/event'),
+            ]);
+            if (cancelled) return;
+            const syncPayload = {
+                messages,
+                agentInfo: {
+                    name: 'AIRI',
+                    status: isAgentThinking ? 'thinking' : (aiStatus === 'dead' ? 'error' : 'idle'),
+                    context: 'vscodium-rust',
+                },
+                biology: {
+                    energy: airiBiology.getState().energy,
+                    mood: airiBiology.getState().mood,
+                    hunger: (airiBiology.getState() as any).hunger || 0,
+                },
+                consciousness: {
+                    selfAwareness: airiConsciousness.getState().selfAwareness,
+                    lastThought: airiConsciousness.getState().thoughts.slice(-1)[0]?.content,
+                },
+            };
+            emit('hades-sync', syncPayload).catch(err => console.error('[HADES] Sync Broadcast Failed:', err));
+        })();
+        return () => { cancelled = true; };
     }, [messages, aiStatus, isAgentThinking]);
 
     // Track active tool-calls for the Mission Hub (Legacy listener - keeping for UI feedback)
@@ -1327,7 +1340,8 @@ const RightSidebar: React.FC = () => {
 
             try {
                 const m = await import('../agent');
-                await m.sendAgentMessage(processedVal, () => { }, context);
+                const { sendAgentTurn } = await import('../application/agent/sendAgentTurn');
+                await sendAgentTurn({ prompt: processedVal, context });
             } catch (err: any) {
                 console.error('Agent chat failed:', err);
                 const errorMsg = err.message || JSON.stringify(err);
@@ -1342,7 +1356,7 @@ const RightSidebar: React.FC = () => {
                     const lastMsg = messages[messages.length - 1];
                     if (lastMsg?.role === 'assistant' && lastMsg.content) {
                         const textToSpeak = lastMsg.content.slice(0, 500); // Limit length
-                        speak(textToSpeak, ttsPreset, () => setAiriSpeaking(false), () => setAiriSpeaking(true));
+                        void getVoice().then(v => v.speak(textToSpeak, ttsPreset, () => setAiriSpeaking(false), () => setAiriSpeaking(true)));
                         setAiriSpeaking(true);
                     }
                 }
@@ -1378,6 +1392,16 @@ const RightSidebar: React.FC = () => {
             onSend(newVal);
         }
     };
+
+    const handleRestoreCheckpoint = useCallback(async (msg: AgentMessage) => {
+        const summary = (msg.checkpointDescription || msg.content || '').slice(0, 80);
+        const ok = window.confirm(
+            `Restore workspace to before this message?\n\n"${summary}"\n\nAll changes since then will be discarded and the chat will be truncated to this turn.`
+        );
+        if (!ok) return;
+        const res = await useStore.getState().restoreToMessageCheckpoint(msg.timestamp);
+        if (!res.ok) window.alert('Restore failed: ' + res.message);
+    }, []);
 
     const onModeClick = (e: React.MouseEvent) => {
         const target = e.currentTarget as HTMLElement;
@@ -1738,7 +1762,12 @@ const RightSidebar: React.FC = () => {
                     background: 'var(--vscode-sideBar-background)',
                 }}>
                     <div className="vscr-agent-tabs" style={{ display: 'flex', gap: '2px', alignItems: 'center', flex: 1, minWidth: 0, overflowX: 'auto', flexWrap: 'nowrap', scrollbarWidth: 'none' as any }}>
-                        {['chat', 'emulator', 'kortex', 'history', 'dashboard', 'research', 'specs', 'rules'].map(v => (
+                        {(['chat', 'emulator', 'kortex', 'history', 'dashboard', 'research', 'specs', 'rules'] as const).map(v => {
+                            const tabLabels: Record<string, string> = {
+                                chat: 'Chat', emulator: 'Devices', kortex: 'Kortex', history: 'History',
+                                dashboard: 'Dash', research: 'Research', specs: 'Specs', rules: 'Rules',
+                            };
+                            return (
                             <button
                                 key={v}
                                 onClick={() => {
@@ -1771,9 +1800,10 @@ const RightSidebar: React.FC = () => {
                                 }}
                                 className="hoverable"
                             >
-                                {v}
+                                {tabLabels[v] ?? v}
                             </button>
-                        ))}
+                            );
+                        })}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: 'auto' }}>
                         {/* UI Mode toggle: Chat ↔ AIRI 3D — hidden when VRM is disabled */}
@@ -1785,9 +1815,9 @@ const RightSidebar: React.FC = () => {
                                     display: 'flex', alignItems: 'center', gap: '3px',
                                     fontSize: '9px', fontWeight: 700,
                                     padding: '2px 6px', borderRadius: '5px',
-                                    background: agentUiMode === 'airi' ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.06)',
-                                    border: agentUiMode === 'airi' ? '1px solid rgba(168,85,247,0.4)' : '1px solid rgba(255,255,255,0.1)',
-                                    color: agentUiMode === 'airi' ? '#c084fc' : 'rgba(255,255,255,0.5)',
+                                    background: agentUiMode === 'airi' ? 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.08))' : 'transparent',
+                                    border: agentUiMode === 'airi' ? '1px solid var(--vscode-focusBorder, #007acc)' : '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))',
+                                    color: agentUiMode === 'airi' ? 'var(--vscode-foreground)' : 'rgba(255,255,255,0.5)',
                                     transition: 'all 0.2s'
                                 }}
                                 title={agentUiMode === 'airi' ? 'Switch to Chat mode' : 'Switch to AIRI 3D mode'}
@@ -1801,7 +1831,7 @@ const RightSidebar: React.FC = () => {
                             style={{
                                 cursor: 'pointer',
                                 opacity: airiToggleOpen ? 1 : 0.6,
-                                color: airiToggleOpen ? '#c084fc' : 'inherit',
+                                color: airiToggleOpen ? 'var(--vscode-textLink-foreground, #3794ff)' : 'inherit',
                                 display: 'flex',
                                 alignItems: 'center'
                             }}
@@ -1839,7 +1869,7 @@ const RightSidebar: React.FC = () => {
                     style={{
                         padding: '10px 14px',
                         borderBottom: '1px solid rgba(255,255,255,0.06)',
-                        background: 'rgba(168,85,247,0.04)',
+                        background: 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))',
                         display: 'flex',
                         flexDirection: 'column',
                         gap: '10px',
@@ -1905,9 +1935,9 @@ const RightSidebar: React.FC = () => {
                                 fontWeight: 700,
                                 letterSpacing: '0.08em',
                                 textTransform: 'uppercase',
-                                color: airiConsciousnessEnabled ? '#c084fc' : 'rgba(255,255,255,0.55)',
-                                background: airiConsciousnessEnabled ? 'rgba(168,85,247,0.12)' : 'rgba(255,255,255,0.05)',
-                                border: airiConsciousnessEnabled ? '1px solid rgba(168,85,247,0.45)' : '1px solid rgba(255,255,255,0.1)',
+                                color: airiConsciousnessEnabled ? 'var(--vscode-focusBorder, #007acc)' : 'rgba(255,255,255,0.55)',
+                                background: airiConsciousnessEnabled ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.05)',
+                                border: airiConsciousnessEnabled ? '1px solid var(--vscode-focusBorder, rgba(0,122,204,0.45))' : '1px solid rgba(255,255,255,0.1)',
                             }}
                             title={airiConsciousnessEnabled ? 'Pause AIRI background thoughts' : 'Resume AIRI background thoughts'}
                         >
@@ -1992,14 +2022,14 @@ const RightSidebar: React.FC = () => {
                                 <div style={{
                                     position: 'absolute', bottom: '12px', left: '50%', transform: 'translateX(-50%)',
                                     background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
-                                    border: '1px solid rgba(168,85,247,0.3)',
+                                    border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.15))',
                                     borderRadius: '20px', padding: '4px 14px',
                                     display: 'flex', alignItems: 'center', gap: '8px',
-                                    fontSize: '10px', color: '#c084fc', fontWeight: 700,
+                                    fontSize: '10px', color: 'var(--vscode-focusBorder, #007acc)', fontWeight: 700,
                                     pointerEvents: 'none', whiteSpace: 'nowrap',
                                     maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis',
                                 }}>
-                                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#c084fc', display: 'inline-block', animation: 'hubPulse 1s infinite', flexShrink: 0 }} />
+                                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--vscode-focusBorder, #007acc)', display: 'inline-block', animation: 'hubPulse 1s infinite', flexShrink: 0 }} />
                                     {liveToolCalls[0].label}
                                 </div>
                             )}
@@ -2019,15 +2049,15 @@ const RightSidebar: React.FC = () => {
                                 if (cleaned) return (
                                     <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                                            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#c084fc' }}>
+                                            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--vscode-focusBorder, #007acc)' }}>
                                                 {airiSpeaking ? '◉ Speaking' : '✦ AIRI'}
                                             </span>
-                                            {airiSpeaking && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#c084fc', display: 'inline-block', animation: 'hubPulse 0.8s infinite' }} />}
+                                            {airiSpeaking && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--vscode-focusBorder, #007acc)', display: 'inline-block', animation: 'hubPulse 0.8s infinite' }} />}
                                         </div>
                                         <div
                                             className="markdown-content"
                                             style={{ fontSize: '12.5px', lineHeight: '1.55', color: 'rgba(255,255,255,0.88)' }}
-                                            dangerouslySetInnerHTML={{ __html: marked.parse(cleaned || '') as string }}
+                                            dangerouslySetInnerHTML={{ __html: airiSpeechHtml }}
                                         />
                                     </div>
                                 );
@@ -2036,9 +2066,9 @@ const RightSidebar: React.FC = () => {
                         </div>
 
                         {/* Mission input at the very bottom */}
-                        <div style={{ flexShrink: 0, padding: '8px 12px', borderTop: '1px solid rgba(168,85,247,0.15)' }}>
+                        <div style={{ flexShrink: 0, padding: '8px 12px', borderTop: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.12))' }}>
                             <div style={{
-                                background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.2)',
+                                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
                                 borderRadius: '10px', padding: '6px 10px', display: 'flex', gap: '8px', alignItems: 'flex-end'
                             }}>
                                 <textarea
@@ -2055,7 +2085,7 @@ const RightSidebar: React.FC = () => {
                                 />
                                 <div onClick={() => onSend()} style={{
                                     width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
-                                    background: (inputValue.trim() && !isAgentThinking) ? '#c084fc' : 'rgba(168,85,247,0.2)',
+                                    background: (inputValue.trim() && !isAgentThinking) ? 'var(--vscode-button-background, #0e639c)' : 'rgba(255,255,255,0.08)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
                                     transition: 'background 0.2s'
                                 }}>
@@ -2065,7 +2095,7 @@ const RightSidebar: React.FC = () => {
                                 <div
                                     onClick={() => {
                                         if (!ttsEnabled) {
-                                            initVoiceSystem().then(ready => {
+                                            getVoice().then(v => v.initTTS()).then(ready => {
                                                 if (ready) setTtsEnabled(true);
                                             });
                                         } else {
@@ -2074,7 +2104,7 @@ const RightSidebar: React.FC = () => {
                                     }}
                                     style={{
                                         width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
-                                        background: ttsEnabled ? '#10b981' : 'rgba(168,85,247,0.2)',
+                                        background: ttsEnabled ? '#10b981' : 'rgba(255,255,255,0.08)',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
                                         transition: 'background 0.2s'
                                     }}
@@ -2087,7 +2117,7 @@ const RightSidebar: React.FC = () => {
                                         value={ttsPreset}
                                         onChange={(e) => setTtsPreset(e.target.value as any)}
                                         style={{
-                                            background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.3)',
+                                            background: 'rgba(255,255,255,0.08)', border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.15))',
                                             borderRadius: '4px', color: 'var(--vscode-editor-foreground, #fff)', fontSize: '10px', padding: '2px 4px',
                                             cursor: 'pointer', outline: 'none'
                                         }}
@@ -2318,156 +2348,19 @@ const RightSidebar: React.FC = () => {
                                     </div>
                                 ))}
 
-                                {/* Mission log — agent messages */}
-                                <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px 10px', gap: '10px', flex: 1 }}>
-                                    {visibleMessages.length > 0 && (
-                                        <>
-                                            {visibleMessages.map((msg, idx) => {
-                                                const cleanedContent = cleanAiContent(msg.content || '');
-                                                const hasContent = !!cleanedContent;
-                                                const hasThoughts = !!msg.thoughts;
-                                                const hasSteps = msg.steps && msg.steps.length > 0;
-                                                const hasContext = msg.context && msg.context.length > 0;
-                                                const shouldRender = hasContent || hasThoughts || hasSteps || hasContext;
-                                                if (!shouldRender) return null;
-
-                                                return (
-                                                    <div key={idx} className="agent-message-container" style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'relative' }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: 0.5 }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                            <span style={{ fontSize: '10px' }}>{msg.role === 'assistant' ? (msg.isSubAgentResponse ? '🤖' : '✦') : '▸'}</span>
-                                                            <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: msg.isSubAgentResponse ? '#3b82f6' : msg.role === 'assistant' ? 'rgba(255,255,255,0.6)' : '#3b82f6' }}>
-                                                                {msg.role === 'assistant' ? (msg.isSubAgentResponse ? 'PARTNER-MODULE' : 'AGENTIC PARTNER') : 'MISSION'}
-                                                            </span>
-                                                            {msg.role === 'assistant' && !isAgentThinking && msg.timestamp && (
-                                                                <span style={{ fontSize: '9px', opacity: 0.25 }}>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                            )}
-                                                        </div>
-                                                        <div className="message-actions" style={{ opacity: 0, transition: 'opacity 0.2s', display: 'flex', gap: '8px' }}>
-                                                            {msg.role === 'user' && !isAgentThinking && (
-                                                                <i className="codicon codicon-edit" style={{ cursor: 'pointer', fontSize: '11px' }} title="Edit"
-                                                                    onClick={() => { setEditingMsgIdx(idx); setEditValue(msg.content); }}></i>
-                                                            )}
-                                                            {msg.role === 'user' && msg.checkpointId && !isAgentThinking && (
-                                                                <i
-                                                                    className="codicon codicon-discard"
-                                                                    style={{ cursor: 'pointer', fontSize: '11px', color: '#f59e0b' }}
-                                                                    title={`Restore workspace to this turn${msg.checkpointDescription ? `: ${msg.checkpointDescription}` : ''}`}
-                                                                    onClick={async () => {
-                                                                        const summary = (msg.checkpointDescription || msg.content || '').slice(0, 80);
-                                                                        const ok = window.confirm(`Restore workspace to before this message?\n\n"${summary}"\n\nAll changes since then will be discarded and the chat will be truncated to this turn.`);
-                                                                        if (!ok) return;
-                                                                        const res = await useStore.getState().restoreToMessageCheckpoint(msg.timestamp);
-                                                                        if (!res.ok) {
-                                                                            window.alert('Restore failed: ' + res.message);
-                                                                        }
-                                                                    }}
-                                                                ></i>
-                                                            )}
-                                                            {msg.role === 'assistant' && (
-                                                                <>
-                                                                    {/* Per-block Accept/Apply lives inside MessageBody now —
-                                                                        each fenced code block gets its own Copy / Insert /
-                                                                        Apply chip with the path the model declared in the
-                                                                        fence header. The old "first block clobbers the
-                                                                        active file" behaviour was lossy and dangerous. */}
-                                                                    <i className={`codicon codicon-${lastCopiedIdx === idx ? 'check' : 'copy'}`}
-                                                                        style={{ cursor: 'pointer', fontSize: '11px', color: lastCopiedIdx === idx ? '#10b981' : 'inherit' }}
-                                                                        onClick={() => handleCopy(msg.content, idx)}></i>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <div style={{
-                                                        background: msg.role === 'user'
-                                                            ? 'rgba(59,130,246,0.06)'
-                                                            : (msg.isSubAgentResponse ? 'rgba(59,130,246,0.03)' : 'rgba(255,255,255,0.01)'),
-                                                        padding: '9px 12px', borderRadius: '8px',
-                                                        border: msg.role === 'user'
-                                                            ? '1px solid rgba(59,130,246,0.15)'
-                                                            : '1px solid rgba(255,255,255,0.04)'
-                                                    }}>
-                                                        {editingMsgIdx === idx ? (
-                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                                <textarea
-                                                                    value={editValue}
-                                                                    onChange={(e) => setEditValue(e.target.value)}
-                                                                    autoFocus
-                                                                    style={{
-                                                                        background: 'rgba(0,0,0,0.2)', border: '1px solid var(--vscode-focusBorder)', color: 'var(--vscode-editor-foreground, #fff)',
-                                                                        padding: '8px', borderRadius: '6px', fontSize: '13px', resize: 'vertical', minHeight: '60px', outline: 'none'
-                                                                    }}
-                                                                />
-                                                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                                                    <button onClick={() => setEditingMsgIdx(null)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: 'var(--vscode-editor-foreground, #fff)', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
-                                                                    <button onClick={() => handleEditSave(idx)} style={{ background: '#3b82f6', border: 'none', color: 'var(--vscode-editor-foreground, #fff)', padding: '4px 12px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Resend</button>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <>
-                                                                {msg.thoughts && (
-                                                                    <details style={{ marginBottom: '8px', opacity: 0.6 }}>
-                                                                        <summary style={{ fontSize: '10px', cursor: 'pointer', fontWeight: 600 }}>Cognitive trace...</summary>
-                                                                        <div style={{ fontSize: '10px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>{msg.thoughts}</div>
-                                                                    </details>
-                                                                )}
-                                                                {msg.steps && msg.steps.length > 0 && (
-                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
-                                                                        {msg.steps.map((step: any, sIdx: number) => {
-                                                                            const statusColor = step.status === 'running' ? '#3b82f6' : step.status === 'success' ? '#10b981' : step.status === 'error' ? '#ef4444' : '#555';
-                                                                            return (
-                                                                                <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', opacity: 0.7 }}>
-                                                                                    <span style={{ color: statusColor, fontSize: '8px' }}>●</span>
-                                                                                    <span style={{ fontFamily: 'var(--font-mono)' }}>{step.name}</span>
-                                                                                </div>
-                                                                            );
-                                                                        })}
-                                                                    </div>
-                                                                )}
-                                                                {msg.context && msg.context.length > 0 && (
-                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px', opacity: 0.8 }}>
-                                                                        {msg.context.map((item: any, i: number) => (
-                                                                            <div key={i} style={{
-                                                                                display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px',
-                                                                                background: 'rgba(255,255,255,0.06)', borderRadius: '4px', fontSize: '10px',
-                                                                                border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)'
-                                                                            }}>
-                                                                                {item.thumbnail ? (
-                                                                                    <img src={item.thumbnail} style={{ width: '14px', height: '14px', borderRadius: '2px', objectFit: 'cover' }} alt="" />
-                                                                                ) : (
-                                                                                    <i className="codicon codicon-files" style={{ fontSize: '10px' }}></i>
-                                                                                )}
-                                                                                <span>{item.name}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                                {(() => {
-                                                                    const cleaned = cleanAiContent(msg.content || '');
-                                                                    if (!cleaned && msg.role === 'assistant') {
-                                                                        return null;
-                                                                    }
-                                                                    // Use the rich MessageBody renderer so every fenced
-                                                                    // block gets a Copy / Insert / Apply chip header.
-                                                                    // User messages stay read-only (allowApply=false)
-                                                                    // to avoid overwriting files with raw input.
-                                                                    return (
-                                                                        <MessageBody
-                                                                            content={cleaned}
-                                                                            allowApply={msg.role === 'assistant' && !isAgentThinking}
-                                                                        />
-                                                                    );
-                                                                })()}
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );})}
-                                            {/* Processing indicator handled by AiriPanel character overlay */}
-                                            <div ref={messagesEndRef} />
-                                        </>
-                                    )}
-                                </div>
+                                <ChatMessageList
+                                    messages={visibleMessages}
+                                    isAgentThinking={isAgentThinking}
+                                    lastCopiedIdx={lastCopiedIdx}
+                                    editingMsgIdx={editingMsgIdx}
+                                    editValue={editValue}
+                                    onCopy={handleCopy}
+                                    onEditStart={(idx, content) => { setEditingMsgIdx(idx); setEditValue(content); }}
+                                    onEditChange={setEditValue}
+                                    onEditSave={handleEditSave}
+                                    onEditCancel={() => setEditingMsgIdx(null)}
+                                    onRestoreCheckpoint={handleRestoreCheckpoint}
+                                />
                             </div>
                         ) : view === 'emulator' ? (
                             <div className="right-sidebar-active-surface" style={{ justifyContent: 'flex-start', alignItems: 'stretch' }}>
@@ -2489,7 +2382,7 @@ const RightSidebar: React.FC = () => {
                                     <button
                                         onClick={refreshKortex}
                                         disabled={kortexLoading}
-                                        style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#a855f7', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', cursor: kortexLoading ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+                                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.15))', color: 'var(--vscode-textLink-foreground, #3794ff)', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', cursor: kortexLoading ? 'not-allowed' : 'pointer', fontWeight: 600 }}
                                     >
                                         {kortexLoading ? '...' : 'Refresh'}
                                     </button>
@@ -2504,8 +2397,8 @@ const RightSidebar: React.FC = () => {
                                             {Object.entries(cats).map(([cat, count]) => (
                                                 <span key={cat} style={{
                                                     fontSize: '9px', padding: '2px 7px', borderRadius: '10px',
-                                                    background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.25)',
-                                                    color: '#c084fc', fontWeight: 600
+                                                    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                                                    color: 'var(--vscode-focusBorder, #007acc)', fontWeight: 600
                                                 }}>{cat} ({count})</span>
                                             ))}
                                         </div>
@@ -2527,14 +2420,14 @@ const RightSidebar: React.FC = () => {
                                     ) : (
                                         kortexSlots.map((slot, i) => (
                                             <div key={slot.id || i} style={{
-                                                background: 'rgba(168,85,247,0.04)',
-                                                border: '1px solid rgba(168,85,247,0.12)',
+                                                background: 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))',
+                                                border: '1px solid rgba(255,255,255,0.08)',
                                                 borderRadius: '8px', padding: '8px 12px',
                                             }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
                                                     <span style={{
                                                         fontSize: '8px', padding: '1px 5px', borderRadius: '8px',
-                                                        background: 'rgba(168,85,247,0.15)', color: '#c084fc', fontWeight: 700, textTransform: 'uppercase'
+                                                        background: 'var(--vscode-panel-border, rgba(255,255,255,0.12))', color: 'var(--vscode-focusBorder, #007acc)', fontWeight: 700, textTransform: 'uppercase'
                                                     }}>{slot.category}</span>
                                                     <span style={{ fontSize: '9px', opacity: 0.3, marginLeft: 'auto' }}>
                                                         {new Date(slot.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -2648,12 +2541,12 @@ const RightSidebar: React.FC = () => {
                             <div style={{
                                 position: 'absolute', bottom: '100%', left: '10px', right: '10px',
                                 background: 'var(--vscode-menu-background, #1e1e2e)',
-                                border: '1px solid rgba(168,85,247,0.35)',
-                                borderRadius: '10px', overflow: 'hidden',
-                                boxShadow: '0 -8px 32px rgba(0,0,0,0.5)',
+                                border: '1px solid var(--vscode-menu-border, rgba(255,255,255,0.12))',
+                                borderRadius: '4px', overflow: 'hidden',
+                                boxShadow: '0 -4px 16px rgba(0,0,0,0.35)',
                                 zIndex: 100, marginBottom: '4px',
                             }}>
-                                <div style={{ padding: '4px 10px 2px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(168,85,247,0.8)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                                <div style={{ padding: '4px 10px 2px', fontSize: '9px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.45)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                                     @ Context — type to filter
                                 </div>
                                 {filteredSuggestions.map((file: any, i) => (
@@ -2662,10 +2555,10 @@ const RightSidebar: React.FC = () => {
                                         onMouseDown={() => handleMentionSelect(file)}
                                         style={{
                                             padding: file._special ? '7px 12px' : '6px 12px', cursor: 'pointer', fontSize: '12px',
-                                            background: i === selectedMentionIndex ? 'rgba(168,85,247,0.15)' : (file._special ? 'rgba(168,85,247,0.04)' : 'transparent'),
-                                            color: i === selectedMentionIndex ? '#c084fc' : (file._special ? '#a78bfa' : 'rgba(255,255,255,0.75)'),
+                                            background: i === selectedMentionIndex ? 'var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.08))' : 'transparent',
+                                            color: i === selectedMentionIndex ? 'var(--vscode-list-activeSelectionForeground, #fff)' : 'rgba(255,255,255,0.75)',
                                             display: 'flex', alignItems: 'center', gap: '8px',
-                                            borderLeft: i === selectedMentionIndex ? '2px solid #c084fc' : (file._special ? '2px solid rgba(168,85,247,0.3)' : '2px solid transparent'),
+                                            borderLeft: i === selectedMentionIndex ? '2px solid var(--vscode-focusBorder, #007acc)' : '2px solid transparent',
                                             transition: 'all 0.1s',
                                             borderBottom: file._special ? '1px solid rgba(255,255,255,0.04)' : 'none',
                                         }}
@@ -2708,171 +2601,35 @@ const RightSidebar: React.FC = () => {
                         )}
                         <MultiFileReviewBanner />
                         <BackgroundAgentsTray />
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', padding: '0 4px' }}>
-                            <div 
-                                onClick={() => setSpecModeActive(!isSpecModeActive)}
-                                style={{ 
-                                    display: 'flex', 
-                                    alignItems: 'center', 
-                                    gap: '6px', 
-                                    cursor: 'pointer',
-                                    fontSize: '11px',
-                                    fontWeight: 600,
-                                    color: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
-                                    transition: 'all 0.2s',
-                                    userSelect: 'none'
-                                }}
-                            >
-                                <span style={{
-                                    width: '28px',
-                                    height: '14px',
-                                    background: isSpecModeActive ? 'rgba(0, 198, 255, 0.2)' : 'rgba(255,255,255,0.1)',
-                                    borderRadius: '10px',
-                                    position: 'relative',
-                                    display: 'inline-block',
-                                    border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.15)'}`
-                                }}>
-                                    <span style={{
-                                        width: '10px',
-                                        height: '10px',
-                                        background: isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.4)',
-                                        borderRadius: '50%',
-                                        position: 'absolute',
-                                        top: '1px',
-                                        left: isSpecModeActive ? '15px' : '2px',
-                                        transition: 'all 0.2s'
-                                    }} />
-                                </span>
-                                <span>📋 SPEC MODE</span>
-                            </div>
-                            {isSpecModeActive && (
-                                <span style={{ fontSize: '10px', opacity: 0.6, color: 'var(--terminator-accent, #00c6ff)', textShadow: '0 0 8px rgba(0, 198, 255, 0.3)', animation: 'pulse-blue 1.5s infinite' }}>
-                                    Requirements Engine Active
-                                </span>
-                            )}
-                        </div>
-                        <div style={{
-                            background: 'var(--vscode-input-background)',
-                            border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'var(--vscode-input-border, transparent)'}`,
-                            boxShadow: isSpecModeActive ? '0 0 10px rgba(0, 198, 255, 0.25)' : 'none',
-                            borderRadius: '8px', padding: '7px 10px', display: 'flex', flexDirection: 'column',
-                            transition: 'all 0.2s'
-                        }}>
-                            <textarea
-                                ref={inputRef} value={inputValue} onChange={handleInputChange} onKeyDown={handleKeyDown}
-                                className="agent-mission-input"
-                                placeholder={isAgentThinking ? 'Agent executing...' : isSpecModeActive ? 'Describe the feature to auto-generate requirements & tasks...' : 'Launch a mission...  (type @ to mention a file)'}
-                                disabled={isAgentThinking}
-                                style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--vscode-editor-foreground, #fff)', resize: 'none', fontSize: '13px', lineHeight: '1.45', width: '100%', minHeight: '28px', opacity: isAgentThinking ? 0.5 : 1 }}
-                            />
-                            {attachedFiles.length > 0 && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px', paddingBottom: '4px' }}>
-                                    {attachedFiles.map((item, i) => (
-                                        <div key={item.id || i} style={{
-                                            display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
-                                            background: 'rgba(255,255,255,0.08)', borderRadius: '6px', fontSize: '11px',
-                                            border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)'
-                                        }}>
-                                            {item.thumbnail ? (
-                                                <img src={item.thumbnail} style={{ width: '16px', height: '16px', borderRadius: '3px', objectFit: 'cover' }} alt="" />
-                                            ) : (
-                                                <span style={{ opacity: 0.7, fontSize: '10px' }}>{item.type === 'attachment' ? 'IMG' : '{ }'}</span>
-                                            )}
-                                            <span style={{ fontWeight: 500 }}>{item.name}</span>
-                                            <i className="codicon codicon-close" onClick={() => removeFile(item.path)} style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', opacity: 0.5, marginLeft: '2px', fontSize: '10px' }}></i>
-                                        </div>
-                                    ))}
-                                    {isAttaching && (
-                                        <div style={{
-                                            display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
-                                            background: 'rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '11px',
-                                            border: '1px dashed rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.5)',
-                                            fontStyle: 'italic'
-                                        }}>
-                                            <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px' }}></i>
-                                            <span>Neuralizing...</span>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                            {!attachedFiles.length && isAttaching && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px', paddingBottom: '4px' }}>
-                                    <div style={{
-                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
-                                        background: 'rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '11px',
-                                        border: '1px dashed rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.5)',
-                                        fontStyle: 'italic'
-                                    }}>
-                                        <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '10px' }}></i>
-                                        <span>Neuralizing...</span>
-                                    </div>
-                                </div>
-                            )}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                    <div onClick={handleAttachFile} style={{ cursor: 'pointer', opacity: 0.5, display: 'flex', alignItems: 'center' }} className="hoverable-bg" title="Attach File (Neural Gist)">
-                                        <i className="codicon codicon-attach" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
-                                    </div>
-                                    <span
-                                        onClick={onModeClick}
-                                        style={{
-                                            fontSize: '10px',
-                                            cursor: 'pointer',
-                                            padding: '1px 6px',
-                                            borderRadius: '4px',
-                                            fontWeight: 600,
-                                            color: modeStyle.color,
-                                            background: modeStyle.background,
-                                            border: modeStyle.border,
-                                        }}
-                                        title={modeStyle.title}
-                                        className="hoverable-bg"
-                                    >
-                                        {modeStyle.label}
-                                    </span>
-                                    <span onClick={onModelClick} style={{ fontSize: '10px', opacity: model ? 0.5 : 0.9, cursor: 'pointer', color: model ? undefined : '#f59e0b' }} className="hoverable-bg">{modelLabel}</span>
-                                    {/* Void: Reasoning toggle */}
-                                    <ReasoningToggle />
-                                    
-                                    <div
-                                        onClick={() => setTtsEnabled(!ttsEnabled)}
-                                        style={{ cursor: 'pointer', opacity: ttsEnabled ? 0.9 : 0.4, display: 'flex', alignItems: 'center', color: ttsEnabled ? '#c084fc' : undefined }}
-                                        className="hoverable-bg"
-                                        title={ttsEnabled ? 'Vocal Mode ON' : 'Muted'}
-                                    >
-                                        {ttsEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-                                    </div>
-                                    {ttsEnabled && (
-                                        <select
-                                            value={ttsPreset}
-                                            onChange={(e) => setTtsPreset(e.target.value as any)}
-                                            style={{
-                                                height: '20px',
-                                                background: 'rgba(255,255,255,0.04)',
-                                                border: '1px solid rgba(255,255,255,0.10)',
-                                                borderRadius: '4px',
-                                                color: 'rgba(255,255,255,0.72)',
-                                                fontSize: '9px',
-                                                outline: 'none',
-                                            }}
-                                            title="Voice Preset"
-                                        >
-                                            <option value="airi">Airi (EN)</option>
-                                            <option value="sage">Sage (EN)</option>
-                                            <option value="nova">Nova (EN)</option>
-                                            <option value="aria">Aria (EN)</option>
-                                            <option value="kawaii">Kawaii (JP)</option>
-                                            <option value="yamato">Yamato (JP)</option>
-                                            <option value="hana">Hana (JP)</option>
-                                            <option value="ren">Ren (JP)</option>
-                                            <option value="yuki">Yuki (JP)</option>
-                                            <option value="haru">Haru (JP)</option>
-                                            <option value="sora">Sora (JP)</option>
-                                            <option value="zero">Zero (JP)</option>
-                                        </select>
-                                    )}
-
-                                    {webUiProviderKey && (
+                        <ChatInput
+                            inputRef={inputRef}
+                            inputValue={inputValue}
+                            isAgentThinking={isAgentThinking}
+                            isSpecModeActive={isSpecModeActive}
+                            attachedFiles={attachedFiles}
+                            isAttaching={isAttaching}
+                            onChange={handleInputChange}
+                            onKeyDown={handleKeyDown}
+                            onPaste={handlePaste}
+                            onRemoveFile={removeFile}
+                            toolbar={
+                                <ChatToolbar
+                                    mode={mode}
+                                    model={model}
+                                    modeStyle={modeStyle}
+                                    modelLabel={modelLabel}
+                                    ttsEnabled={ttsEnabled}
+                                    ttsPreset={ttsPreset}
+                                    isAgentThinking={isAgentThinking}
+                                    onModeClick={onModeClick}
+                                    onModelClick={onModelClick}
+                                    onAttach={handleAttachFile}
+                                    onToggleTts={() => setTtsEnabled(!ttsEnabled)}
+                                    onTtsPresetChange={(p) => setTtsPreset(p as any)}
+                                    onToggleVoice={toggleVoiceInput}
+                                    isVoiceListening={isVoiceListening}
+                                    reasoningToggle={<ReasoningToggle />}
+                                    webUiControls={webUiProviderKey ? (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                             <select
                                                 value={activeWebuiSessionId || ''}
@@ -2948,168 +2705,59 @@ const RightSidebar: React.FC = () => {
                                                 />
                                             )}
                                         </div>
-                                    )}
-                                    {/* Token counter */}
-                                    <span style={{ fontSize: '9px', opacity: 0.35, fontVariantNumeric: 'tabular-nums' }} title="Estimated context tokens">
-                                        ~{Math.round(messages.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0) / 4).toLocaleString()}t
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                    <div
-                                        onClick={toggleVoiceInput}
-                                        style={{
-                                            cursor: 'pointer',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            width: '24px', height: '24px', borderRadius: '4px',
-                                            background: isVoiceListening ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
-                                            color: isVoiceListening ? '#ef4444' : 'rgba(255,255,255,0.5)',
-                                            border: isVoiceListening ? '1px solid rgba(239,68,68,0.4)' : '1px solid transparent',
-                                            animation: isVoiceListening ? 'pulse 1.5s infinite' : 'none'
-                                        }}
-                                        title={isVoiceListening ? "Stop Dictation" : "Start Voice Dictation"}
-                                    >
-                                        {isVoiceListening ? <MicOff size={14} /> : <Mic size={14} />}
-                                    </div>
-                                    <div style={{
-                                        display: 'flex',
-                                        gap: '10px',
-                                        alignItems: 'center',
-                                        marginRight: '12px',
-                                        padding: '4px 10px',
-                                        background: 'rgba(255,255,255,0.03)',
-                                        borderRadius: '6px',
-                                        border: '1px solid rgba(255,255,255,0.05)',
-                                        transition: 'all 0.2s'
-                                    }}>
-                                        <div
-                                            onClick={() => isAgentPaused ? import('../agent').then(m => m.resumeAgent()) : import('../agent').then(m => m.pauseAgent())}
-                                            style={{ cursor: 'pointer', color: isAgentPaused ? '#10b981' : '#f59e0b', display: 'flex', alignItems: 'center' }}
-                                            title={isAgentPaused ? "Resume Agent" : "Pause Agent"}
-                                        >
-                                            <i className={`codicon codicon-${isAgentPaused ? 'play' : 'debug-pause'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px' }}></i>
-                                        </div>
-                                        <div
-                                            onClick={() => import('../agent').then(m => m.stopAgent())}
-                                            style={{ cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center' }}
-                                            title="Stop Agent (Terminate)"
-                                        >
-                                            <i className="codicon codicon-primitive-square" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px' }}></i>
-                                        </div>
-                                        {/* Auto-accept toggle */}
-                                        <div
-                                            onClick={() => setAutoAcceptChanges(!autoAcceptChanges)}
-                                            style={{
-                                                cursor: 'pointer',
-                                                color: autoAcceptChanges ? '#10b981' : 'rgba(255,255,255,0.35)',
-                                                display: 'flex', alignItems: 'center', gap: '3px',
-                                                fontSize: '10px', fontWeight: 600,
-                                                padding: '1px 5px',
-                                                borderRadius: '4px',
-                                                background: autoAcceptChanges ? 'rgba(16,185,129,0.15)' : 'transparent',
-                                                border: autoAcceptChanges ? '1px solid rgba(16,185,129,0.4)' : '1px solid transparent',
-                                                transition: 'all 0.2s'
-                                            }}
-                                            title={autoAcceptChanges ? "Auto-accept ON — agent edits apply instantly" : "Auto-accept OFF — review each diff before applying"}
-                                        >
-                                            <i className="codicon codicon-check-all" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px' }}></i>
-                                            <span>AUTO</span>
-                                        </div>
-                                        {/* Checkpoint restore */}
-                                        {checkpoint && (
-                                            <div
-                                                onClick={() => { revertToCheckpoint(); }}
-                                                style={{
-                                                    cursor: 'pointer',
-                                                    color: '#f59e0b',
-                                                    display: 'flex', alignItems: 'center', gap: '3px',
-                                                    fontSize: '10px', fontWeight: 600,
-                                                    padding: '1px 5px',
-                                                    borderRadius: '4px',
-                                                    background: 'rgba(245,158,11,0.12)',
-                                                    border: '1px solid rgba(245,158,11,0.35)',
-                                                    transition: 'all 0.2s'
-                                                }}
-                                                title="Restore checkpoint — undo all agent file changes"
-                                            >
-                                                <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px' }}></i>
-                                                <span>UNDO</span>
-                                            </div>
-                                        )}
-                                        <div
-                                            onClick={() => import('../agent').then(m => m.setYoloMode(!isYoloMode).then(() => setYoloMode(!isYoloMode)))}
-                                            style={{
-                                                cursor: 'pointer',
-                                                color: isYoloMode ? '#f97316' : 'rgba(255,255,255,0.35)',
-                                                display: 'flex', alignItems: 'center', gap: '3px',
-                                                fontSize: '10px', fontWeight: 600,
-                                                padding: '1px 5px',
-                                                borderRadius: '4px',
-                                                background: isYoloMode ? 'rgba(249,115,22,0.15)' : 'transparent',
-                                                border: isYoloMode ? '1px solid rgba(249,115,22,0.4)' : '1px solid transparent',
-                                                transition: 'all 0.2s'
-                                            }}
-                                            title={isYoloMode ? "YOLO MODE ON — Click to disable" : "Enable YOLO Mode (full autonomy, no blockers)"}
-                                        >
-                                            <span style={{ fontStyle: 'normal' }}>⚡</span>
-                                            <span>YOLO</span>
-                                        </div>
-                                    </div>
-                                    <div onClick={() => onSend()} style={{
-                                        width: '24px', height: '24px', borderRadius: '50%',
-                                        background: (inputValue.trim() || attachedFiles.length > 0) ? '#fff' : 'rgba(255,255,255,0.1)',
-                                        color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'
-                                    }}>
-                                        <i className="codicon codicon-arrow-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}></i>
-                                    </div>
-                                </div>
+                                    ) : undefined}
+                                    onSend={() => onSend()}
+                                    inputEmpty={!inputValue.trim() && attachedFiles.length === 0}
+                                />
+                            }
+                        />
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '6px', padding: '0 2px', flexWrap: 'wrap' }}>
+                            <div
+                                onClick={() => isAgentPaused ? import('../agent').then(m => m.resumeAgent()) : import('../agent').then(m => m.pauseAgent())}
+                                style={{ cursor: 'pointer', color: isAgentPaused ? '#10b981' : '#f59e0b', display: 'flex', alignItems: 'center' }}
+                                title={isAgentPaused ? 'Resume Agent' : 'Pause Agent'}
+                            >
+                                <i className={`codicon codicon-${isAgentPaused ? 'play' : 'debug-pause'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px' }} />
                             </div>
+                            <div
+                                onClick={() => import('../agent').then(m => m.stopAgent())}
+                                style={{ cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center' }}
+                                title="Stop Agent"
+                            >
+                                <i className="codicon codicon-primitive-square" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px' }} />
+                            </div>
+                            <div
+                                onClick={() => setAutoAcceptChanges(!autoAcceptChanges)}
+                                style={{
+                                    cursor: 'pointer', color: autoAcceptChanges ? '#10b981' : 'rgba(255,255,255,0.35)',
+                                    display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', fontWeight: 600,
+                                }}
+                                title={autoAcceptChanges ? 'Auto-accept ON' : 'Auto-accept OFF — review diffs first'}
+                            >
+                                <i className="codicon codicon-check-all" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px' }} />
+                                <span>AUTO</span>
+                            </div>
+                            {checkpoint && (
+                                <div onClick={() => revertToCheckpoint()} style={{ cursor: 'pointer', color: '#f59e0b', fontSize: '10px', fontWeight: 600 }} title="Restore checkpoint">
+                                    <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px' }} /> UNDO
+                                </div>
+                            )}
+                            <div
+                                onClick={() => import('../agent').then(m => m.setYoloMode(!isYoloMode).then(() => setYoloMode(!isYoloMode)))}
+                                style={{ cursor: 'pointer', color: isYoloMode ? '#f97316' : 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600 }}
+                                title={isYoloMode ? 'YOLO ON' : 'YOLO OFF'}
+                            >
+                                YOLO
+                            </div>
+                            <span style={{ fontSize: '9px', opacity: 0.35, fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }} title="Estimated context tokens">
+                                ~{Math.round(messages.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0) / 4).toLocaleString()}t
+                            </span>
                         </div>
                     </div>
                 )
             }
 
-            {/* Ollama Progress Bar - Small, toggleable */}
             <OllamaProgressBar />
-
-            {/* Emulator Panel - Optional section in right sidebar */}
-            {emulatorLayout === 'right' && (
-                <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    flexShrink: 0,
-                    borderTop: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))',
-                    minHeight: '300px',
-                    maxHeight: '50%',
-                    overflow: 'hidden'
-                }}>
-                    <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        padding: '6px 10px',
-                        background: 'var(--vscode-sideBarSectionHeader-background, rgba(255,255,255,0.02))',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        color: 'var(--vscode-sideBar-foreground)',
-                        opacity: 0.8,
-                        cursor: 'pointer'
-                    }}
-                        onClick={() => setShowEmulatorInRight(!showEmulatorInRight)}
-                    >
-                        <span>📱 Emulator</span>
-                        <span style={{ fontSize: '10px', opacity: 0.6 }}>
-                            {showEmulatorInRight ? '▼' : '▶'}
-                        </span>
-                    </div>
-                    {showEmulatorInRight && (
-                        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                            <EmulatorPanel />
-                        </div>
-                    )}
-                </div>
-            )}
         </aside >
     );
 };

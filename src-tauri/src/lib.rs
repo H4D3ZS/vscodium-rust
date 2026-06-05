@@ -86,6 +86,7 @@ pub mod git_commands;
 mod keybindings;
 mod lsp;
 mod marketplace;
+mod architecture;
 mod performance;
 mod rules_engine;
 mod scrcpy;
@@ -128,13 +129,6 @@ pub fn run() {
             app.manage(std::sync::Arc::new(jobs::JobManager::new()));
             let iphone_manager = iphone_emulator::IPhoneEmulatorManager::new();
             app.manage(iphone_manager);
-            hades_vision::init_hades_vision(
-                5,
-                "http://localhost:11434",
-                "llava-v1.6-mistral-7b",
-                "qwen2.5-vl:72b",
-                false,
-            );
             let state = app.state::<EditorState>();
             let _app_handle = app.handle().clone();
 
@@ -152,15 +146,7 @@ pub fn run() {
                 fs::create_dir_all(&state.config_dir).ok();
             }
 
-            // Initialize ChatGPT bridge
-            match browser_actuation::chatgpt_bridge::ChatGPTBridge::new(&_app_handle) {
-                Ok(bridge) => {
-                    app.manage(std::sync::Arc::new(bridge));
-                }
-                Err(e) => {
-                    eprintln!("[AI] Failed to warm up ChatGPT bridge window: {}", e);
-                }
-            }
+            // ChatGPT bridge: lazy-init on first use — a hidden webview costs ~40–80MB RSS.
 
             // Start background OAuth listener
             let oauth_app_handle = _app_handle.clone();
@@ -191,20 +177,18 @@ pub fn run() {
                 }
             });
 
-            // Memory headroom watchdog — every 60s, check process RSS.
-            // If > 380MB: clear caches, force phase-wrap, trim working set.
-            // Target band: 200-400MB total RSS for the whole IDE.
+            // Memory watchdog — trim aggressively to stay in the 80–150MB idle band.
+            // Monaco + an open file will push higher; this catches runaway agent/indexer RAM.
             let perf_monitor = state.perf_monitor.clone();
             let engine_for_trim = state.ai_engine.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(45)).await;
                     if let Some(stats) = perf_monitor.get_stats().await {
-                        if stats.memory_mb > 380 {
-                            println!("[Memory Watchdog] RSS={}MB > 380MB threshold. Emergency trim.", stats.memory_mb);
-                            // Trigger conversation state truncation
+                        let mb = stats.memory_mb;
+                        if mb > 100 {
+                            println!("[Memory Watchdog] RSS={}MB — trimming conversation + working set.", mb);
                             let _ = engine_for_trim.optimize_memory().await;
-                            // Force Windows to reclaim unused pages
                             #[cfg(target_os = "windows")]
                             unsafe {
                                 let handle = GetCurrentProcess();

@@ -58,7 +58,7 @@ const WelcomePage: React.FC = () => {
             // Welcome page lightweight on first paint.
             const m = await import('../agent');
             const store = useStore.getState();
-            (store as any).setIsRightSidebarOpen?.(true);
+            store.openAiriPanel?.();
             await m.sendAgentMessage(prompt, () => {}, []);
         } catch (e) {
             console.error('Failed to dispatch welcome agent prompt:', e);

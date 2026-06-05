@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useStore } from '../store';
 import TerminalView from './terminal/TerminalView';
 import TerminalCommandPalette from './terminal/TerminalCommandPalette';
-import Composer from './Composer';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '../tauri_bridge';
 
@@ -159,28 +158,13 @@ const BottomPanel: React.FC = () => {
                 letterSpacing: '0.05em'
             }}>
                 <div className="panel-tabs" style={{ display: 'flex', gap: '2px', height: '100%', alignItems: 'center', minWidth: 0, flexShrink: 1, overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none' as any }}>
-                    {['Problems', 'Output', 'Debug Console', 'Terminal', 'Composer', 'Ports', 'Jobs'].map(tab => (
+                    {['Problems', 'Output', 'Debug Console', 'Terminal', 'Ports', 'Jobs'].map(tab => (
                         <div
                             key={tab}
                             className={`panel-tab ${activeTab === tab.toUpperCase() ? 'active' : ''}`}
                             onClick={() => setActiveTab(tab.toUpperCase() as any)}
                         >
                             {tab}
-                            {tab === 'Composer' && (
-                                <span style={{
-                                    background: 'var(--vscode-badge-background)',
-                                    color: 'var(--vscode-badge-foreground)',
-                                    padding: '0px 6px',
-                                    borderRadius: '10px',
-                                    fontSize: '9px',
-                                    fontWeight: 700,
-                                    height: '14px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    marginLeft: '6px'
-                                }}>0</span>
-                            )}
                             {tab === 'Problems' && (() => {
                                 const total = Object.values(diagnosticsMap).reduce((s, d) => s + d.length, 0);
                                 return total > 0 ? (
@@ -307,7 +291,6 @@ const BottomPanel: React.FC = () => {
             {/* Content Area */}
             <div className="panel-content" style={{ flex: 1, overflow: 'hidden', background: 'var(--vscode-terminal-background, var(--vscode-panel-background))' }}>
                 {activeTab === 'TERMINAL' && <TerminalView />}
-                {activeTab === 'COMPOSER' && <Composer />}
                 {activeTab === 'OUTPUT' && (
                     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ padding: '4px 12px', borderBottom: '1px solid var(--vscode-panel-border, #333)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>

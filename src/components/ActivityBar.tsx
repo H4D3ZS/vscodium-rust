@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { invoke } from '../tauri_bridge';
 import { applyTheme, type VscodeTheme } from '../theme_engine';
-import { Beaker, Layout, Bot, Globe, Braces, Settings } from 'lucide-react';
 
 // Stable sentinel so a missing viewsContainers entry never produces a fresh
 // array reference; otherwise Zustand's selector identity check thrashes and
@@ -22,18 +21,11 @@ const ActivityBar: React.FC = () => {
     );
 
     const items = [
-        // AI/agent lives in the RIGHT sidebar (standard for AI IDEs) — removed the
-        // redundant left activity-bar entry. Toggle AIRI from the title-bar button.
-        { id: 'explorer-view', icon: 'files', title: 'Explorer' },
-        { id: 'search-view', icon: 'search', title: 'Search' },
-        { id: 'scm-view', icon: 'source-control', title: 'Source Control' },
-        { id: 'debug-view', icon: 'debug-alt', title: 'Run and Debug' },
-        { id: 'test-view', icon: 'beaker', title: 'Test Explorer' },
-        { id: 'extensions-view', icon: 'extensions', title: 'Extensions' },
-        { id: 'vector-search-view', icon: 'search-fuzzy', title: 'Codebase Search' },
-        { id: 'tasks-view', icon: 'tasklist', title: 'Tasks & Specs (Antigravity)' },
-        { id: 'steering-view', icon: 'symbol-ruler', title: 'Steering & Hooks (Kiro)' },
-        { id: 'visual-lab', icon: 'json', title: 'JSON Visualizer & Flow (Visual Lab)' },
+        { id: 'explorer-view', icon: 'files', title: 'Explorer (Ctrl+Shift+E)' },
+        { id: 'search-view', icon: 'search', title: 'Search (Ctrl+Shift+F)' },
+        { id: 'scm-view', icon: 'source-control', title: 'Source Control (Ctrl+Shift+G)' },
+        { id: 'debug-view', icon: 'debug-alt', title: 'Run and Debug (Ctrl+Shift+D)' },
+        { id: 'extensions-view', icon: 'extensions', title: 'Extensions (Ctrl+Shift+X)' },
         ...extensionItems
             .filter((ext: any) => {
                 const id = String(ext.id || '').toLowerCase();
@@ -87,33 +79,6 @@ const ActivityBar: React.FC = () => {
                         title={item.title}
                         onClick={() => {
                             const store = (window as any).useStore?.getState();
-                            if (item.id === 'agent-manager') {
-                                if (store) {
-                                    const isCurrentlyOpen = store.isRightSidebarOpen && store.isAiriPanelOpen;
-                                    if (isCurrentlyOpen) {
-                                        store.toggleRightSidebar();
-                                    } else {
-                                        store.openAiriPanel();
-                                        setTimeout(() => {
-                                            window.dispatchEvent(new CustomEvent('right-sidebar:set-view', { detail: { view: 'chat' } }));
-                                        }, 10);
-                                    }
-                                }
-                                return;
-                            }
-                            if (item.id === 'visual-lab') {
-                                if (store) {
-                                    const activeTab = store.tabs.find((t: any) => t.id === store.activeTabId);
-                                    if (activeTab && (activeTab.path.endsWith('.json') || activeTab.language === 'json')) {
-                                        store.setVisualLabData(activeTab.content);
-                                    }
-                                    store.toggleVisualLab(true);
-                                    store.setVisualLabMode('json');
-                                }
-                                return;
-                            }
-                            
-                            // For regular views, ensure we are in editor mode
                             if (store && store.layoutMode !== 'editor') {
                                 store.setLayoutMode('editor');
                             }
@@ -122,11 +87,7 @@ const ActivityBar: React.FC = () => {
                         }}
                     >
                         <div className="activity-item-icon">
-                            {item.id === 'agent-manager' ? (
-                                <Bot size={24} style={{ opacity: ((window as any).useStore?.getState().isRightSidebarOpen && (window as any).useStore?.getState().isAiriPanelOpen) ? 1 : 0.6, color: 'var(--terminator-accent)' }} />
-                            ) : item.id === 'visual-lab' ? (
-                                <Braces size={22} strokeWidth={2.25} style={{ opacity: activeView === item.id ? 1 : 0.6 }} />
-                            ) : item.base64_icon ? (
+                            {item.base64_icon ? (
                                 <img src={item.base64_icon} style={{ width: '24px', height: '24px', opacity: activeView === item.id ? 1 : 0.6 }} />
                             ) : (
                                 <i className={`codicon codicon-${item.icon}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
@@ -155,7 +116,7 @@ const ActivityBar: React.FC = () => {
                     onClick={() => (window as any).useStore?.getState().openSettings()}
                 >
                     <div className="activity-item-icon">
-                        <Settings size={22} strokeWidth={1.9} />
+                        <i className="codicon codicon-gear" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
                     </div>
                 </div>
             </div>

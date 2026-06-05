@@ -594,9 +594,8 @@ impl MemoryStore {
                     println!("[PAGE-FAULT] Low confidence ({:.2}) for {}. Fetching L2 verbatim source...", confidence, path_str);
                     if let Ok(raw_source) = bridge.fetch_raw(std::path::Path::new(path_str)) {
                         content = format!("(L2 VERBATIM SOURCE RESOLVED VIA PAGE-FAULT)\n{}", raw_source);
-                        // Populate cache for future hits
-                        let mut cache_write = self.vfs_cache.write().await;
-                        cache_write.insert(PathBuf::from(path_str), (raw_source, std::time::SystemTime::now()));
+                        // Populate cache for future hits (respects size/entry caps)
+                        self.update_vfs_cache(PathBuf::from(path_str), raw_source).await;
                     }
                 }
             }

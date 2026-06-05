@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { MAX_AGENT_MESSAGES_IN_UI, MAX_AGENT_MESSAGE_CHARS } from '../domain/agent/AgentSessionPolicy';
 import type { AppState } from './index';
 import type {
     AgentMessage, AgentStep, Artifact, AttachedContext, AgentTask, TaskArtifact, SemanticSlot,
@@ -125,7 +126,7 @@ export interface AgentSlice {
     brainTelemetry: any | null;
     kairosSuggestions: any[];
     kairosStatus: 'idle' | 'indexing' | 'dreaming';
-    processStats: { memory_mb: number; cpu_usage: number; total_ram_gb: number; available_ram_gb: number } | null;
+    processStats: import('../domain/performance/ProcessMemorySnapshot').ProcessStatsDto | null;
     memorySavings: { original: number; compressed: number } | null;
 
     // Actions
@@ -297,7 +298,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     })(),
     taskPlannerState: null,
     isPlanMode: false,
-    isCascadeWriteMode: true, // ON by default — agent writes stream directly to editor
+    isCascadeWriteMode: (typeof localStorage !== 'undefined') && localStorage.getItem('agent.cascadeWrite') === '1',
     pendingToolPermission: null,
     ghostRuntimeResults: [],
     agentThreads: {},
@@ -351,7 +352,15 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         const newMessage: any = { role, content, context, timestamp, isSubAgentResponse: isSubAgent, steps: role === 'assistant' ? [] : undefined };
         invoke('store_message', { role, content: typeof content === 'string' ? content : JSON.stringify(content), timestamp }).catch(console.error);
         let newMessages = [...state.agentMessages, newMessage];
-        if (newMessages.length > 100) newMessages = newMessages.slice(newMessages.length - 100);
+        const cap = MAX_AGENT_MESSAGES_IN_UI;
+        if (newMessages.length > cap) {
+            newMessages = newMessages.slice(newMessages.length - cap).map((m, i, arr) => {
+                if (i < arr.length - 6 && m.content && m.content.length > MAX_AGENT_MESSAGE_CHARS) {
+                    return { ...m, content: m.content.slice(0, MAX_AGENT_MESSAGE_CHARS) + '\n\n…[trimmed]' };
+                }
+                return m;
+            });
+        }
         return { agentMessages: newMessages };
     }),
 
@@ -723,7 +732,9 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     }),
 
     refreshProcessStats: async () => {
-        try { const stats = await invoke<any>('get_process_stats'); set({ processStats: stats }); } catch { }
+        const { refreshProcessMemory } = await import('../application/performance/refreshProcessMemory');
+        const stats = await refreshProcessMemory();
+        if (stats) set({ processStats: stats });
     },
     compressSessionData: async (key, data) => {
         try { await invoke('compress_session_data', { key, data }); get().refreshMemorySavings(); } catch { }
@@ -808,7 +819,11 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     endDemoMode: () => set({ isDemoMode: false }),
 
     togglePlanMode: () => set((s) => ({ isPlanMode: !s.isPlanMode })),
-    toggleCascadeWriteMode: () => set((s) => ({ isCascadeWriteMode: !s.isCascadeWriteMode })),
+    toggleCascadeWriteMode: () => set((s) => {
+        const next = !s.isCascadeWriteMode;
+        try { localStorage.setItem('agent.cascadeWrite', next ? '1' : '0'); } catch { /* */ }
+        return { isCascadeWriteMode: next };
+    }),
 
     setPendingToolPermission: (req) => set({ pendingToolPermission: req }),
 

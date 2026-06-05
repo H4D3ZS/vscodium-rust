@@ -193,7 +193,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
     const inputStyle: React.CSSProperties = { flex: 1, fontSize: 11, padding: '3px 6px', background: 'var(--vscode-editor-background, #1e1e1e)', border: '1px solid var(--vscode-panel-border, #333)', borderRadius: 3, color: 'var(--vscode-editor-foreground, #fff)', outline: 'none' };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', background: 'radial-gradient(circle at 50% 22%, #15151b, #050507)', color: 'var(--vscode-foreground, #f0f0f0)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', background: 'var(--vscode-editor-background, #1e1e1e)', color: 'var(--vscode-foreground, #f0f0f0)', overflow: 'hidden' }}>
 
             {/* Xcode-Simulator toolbar: window dots · device/iOS · launch/home/shot/rotate/console/advanced */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', background: 'var(--vscode-titleBar-activeBackground, #1c1c1e)', borderBottom: '1px solid #2a2a2e', flexShrink: 0, zIndex: 5 }}>

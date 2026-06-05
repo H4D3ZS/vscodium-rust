@@ -44,11 +44,14 @@ const TabStrip: React.FC = () => {
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     if (tab.isModified) {
-                                        const save = window.confirm(`'${tab.filename}' has unsaved changes.\n\nSave before closing?`);
-                                        if (save) {
+                                        const choice = window.confirm(
+                                            `'${tab.filename}' has unsaved changes.\n\nOK = Save and close\nCancel = Don't save`
+                                        );
+                                        if (choice) {
                                             useStore.getState().saveActiveFile().then(() => closeTab(tab.id));
                                         } else {
-                                            closeTab(tab.id);
+                                            const discard = window.confirm(`Discard unsaved changes in '${tab.filename}'?`);
+                                            if (discard) closeTab(tab.id);
                                         }
                                     } else {
                                         closeTab(tab.id);

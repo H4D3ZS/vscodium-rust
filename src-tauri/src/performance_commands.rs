@@ -16,7 +16,8 @@ pub async fn get_system_health(state: State<'_, EditorState>) -> Result<Value, S
         "status": "healthy",
         "cpu_usage": stats.cpu_usage,
         "memory_mb": stats.memory_mb,
-        "uptime_secs": 0 // PerformanceMonitor doesn't track uptime yet
+        "snapshot": stats.snapshot,
+        "uptime_secs": 0
     }))
 
 }

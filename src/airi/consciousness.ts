@@ -54,6 +54,7 @@ export class AIRIConsciousness {
   private ollama: Ollama;
   private state: ConsciousnessState;
   private thoughtInterval: NodeJS.Timeout | null = null;
+  private visionInterval: NodeJS.Timeout | null = null;
   private thoughtFailures = 0;
   private thoughtDisabled = false;
   private MODEL: string = (() => {
@@ -108,12 +109,12 @@ export class AIRIConsciousness {
           && !!localStorage.getItem('airi.vision.model')?.trim()) || false
     };
 
-    // Respect the user's persisted toggle. Default = enabled.
+    // Respect the user's persisted toggle. Default = OFF (opt-in via Settings).
     try {
       const v = typeof localStorage !== 'undefined'
         ? localStorage.getItem('airi.consciousness.enabled')
         : null;
-      if (v === '0') {
+      if (v !== '1') {
         this.thoughtDisabled = true;
         return;
       }
@@ -137,10 +138,7 @@ export class AIRIConsciousness {
    * Used by the UI toggle so we don't keep hammering the local LLM.
    */
   pauseThoughts(): void {
-    if (this.thoughtInterval) {
-      clearInterval(this.thoughtInterval);
-      this.thoughtInterval = null;
-    }
+    this.stopConsciousnessLoop();
     this.thoughtDisabled = true;
   }
 
@@ -232,11 +230,26 @@ export class AIRIConsciousness {
     }
   }
 
+  private stopConsciousnessLoop(): void {
+    if (this.thoughtInterval) {
+      clearInterval(this.thoughtInterval);
+      this.thoughtInterval = null;
+    }
+    if (this.visionInterval) {
+      clearInterval(this.visionInterval);
+      this.visionInterval = null;
+    }
+  }
+
   /**
    * Start the continuous consciousness loop
    * AIRI thinks continuously in the background
    */
   private startConsciousnessLoop(): void {
+    if (this.thoughtDisabled) return;
+    // Prevent duplicate intervals when start()/resume() is called repeatedly.
+    this.stopConsciousnessLoop();
+
     // Think every 60 seconds (was 5s — caused GPU thrashing on local hardware
     // by making concurrent Ollama inference requests that force model swaps).
     this.thoughtInterval = setInterval(() => {
@@ -244,9 +257,11 @@ export class AIRIConsciousness {
     }, 60_000);
 
     // Check screen every 60 seconds (real-time awareness)
-    setInterval(() => {
-      this.checkScreen();
-    }, 60_000);
+    if (this.state.visionEnabled) {
+      this.visionInterval = setInterval(() => {
+        this.checkScreen();
+      }, 60_000);
+    }
   }
 
   /**
@@ -554,10 +569,7 @@ THOUGHT: [your thought]
    * Stop consciousness loop (for sleep mode)
    */
   suspend(): void {
-    if (this.thoughtInterval) {
-      clearInterval(this.thoughtInterval);
-      this.thoughtInterval = null;
-    }
+    this.stopConsciousnessLoop();
     this.state.isAwake = false;
   }
 

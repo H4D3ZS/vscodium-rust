@@ -3,8 +3,8 @@
  * Manages message list + input area; delegates to ChatMessage / ChatInput / ChatToolbar.
  * State stays in the calling component (RightSidebar); this handles pure layout.
  */
-import React, { useRef, useEffect } from 'react';
-import ChatMessage from './ChatMessage';
+import React from 'react';
+import ChatMessageList from './ChatMessageList';
 import ChatInput from './ChatInput';
 import ChatToolbar from './ChatToolbar';
 import type { AgentMessage, AttachedContext } from '../../store';
@@ -41,7 +41,7 @@ interface ChatPanelProps {
     onEditChange: (v: string) => void;
     onEditSave: (idx: number) => void;
     onEditCancel: () => void;
-    onRestore?: (timestamp: number) => void;
+    onRestoreCheckpoint?: (msg: AgentMessage) => void;
     onModeClick: (e: React.MouseEvent) => void;
     onModelClick: (e: React.MouseEvent) => void;
     onAttach: () => void;
@@ -51,37 +51,24 @@ interface ChatPanelProps {
 }
 
 const ChatPanel: React.FC<ChatPanelProps> = (props) => {
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [props.messages.length]);
+    const visibleMessages = props.messages.filter(m => m.role !== 'system' && m.role !== 'tool');
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            {/* Message list */}
             <div className="right-sidebar-scroll" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                {props.messages
-                    .filter(m => m.role !== 'system' && m.role !== 'tool')
-                    .map((msg, idx) => (
-                        <ChatMessage
-                            key={idx}
-                            msg={msg}
-                            idx={idx}
-                            isAgentThinking={props.isAgentThinking}
-                            onCopy={props.onCopy}
-                            onEditStart={props.onEditStart}
-                            onRestore={props.onRestore}
-                            lastCopiedIdx={props.lastCopiedIdx}
-                            editingMsgIdx={props.editingMsgIdx}
-                            editValue={props.editValue}
-                            onEditChange={props.onEditChange}
-                            onEditSave={props.onEditSave}
-                            onEditCancel={props.onEditCancel}
-                        />
-                    ))
-                }
-                <div ref={messagesEndRef} />
+                <ChatMessageList
+                    messages={visibleMessages}
+                    isAgentThinking={props.isAgentThinking}
+                    lastCopiedIdx={props.lastCopiedIdx}
+                    editingMsgIdx={props.editingMsgIdx}
+                    editValue={props.editValue}
+                    onCopy={props.onCopy}
+                    onEditStart={props.onEditStart}
+                    onEditChange={props.onEditChange}
+                    onEditSave={props.onEditSave}
+                    onEditCancel={props.onEditCancel}
+                    onRestoreCheckpoint={props.onRestoreCheckpoint}
+                />
             </div>
 
             {/* Input area */}

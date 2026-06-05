@@ -361,7 +361,7 @@ export class TerminalManager {
         /* backend not ready / terminal gone — keep ticking */
       }
     };
-    const timer = setInterval(tick, 35);
+    const timer = setInterval(tick, 50);
     this.pollTimers.set(id, timer);
     void tick(); // immediate first pull (don't wait a full interval)
   }

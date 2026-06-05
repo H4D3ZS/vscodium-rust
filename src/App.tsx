@@ -7,19 +7,10 @@ import './styles.css';
 import './panes.css';
 import './settings.css';
 import { TrustDialog } from './components/TrustDialog';
-import { initSearch } from './search';
-import { initStatusBar } from './status_bar';
-import { initExtensions } from './extensions';
-import { initSpecs } from './specs';
-import { initMobile } from './mobile';
 import { useStore } from './store.ts';
 import { initCommands } from './commands.ts';
-import { initScm } from './scm';
-import { initDebugUI } from './debug_ui';
-import { initTerminal } from './terminal';
-import { initAgent } from './agent';
 import { initTheme } from './theme_engine';
-import RightSidebar from './components/RightSidebar';
+import { scheduleDeferredInit } from './memory_budget';
 
 // Lazy-load modal/overlay components — they only render on user trigger,
 // keeping the initial bundle ~200KB smaller and saving renderer RAM.
@@ -62,18 +53,20 @@ const App: React.FC = () => {
 
     useEffect(() => {
         (window as any).useStore = useStore;
-        // Initialize non-React behaviors once the shell is mounted.
+        // Critical path only — defer heavy subsystems until idle.
         initCommands();
-        initSearch();
-        initStatusBar();
         initTheme();
-        initExtensions().then(() => {
-            initSpecs();
-            initMobile();
-            initScm();
-            initDebugUI();
-            initTerminal(() => { useStore.getState().addTerminalGroup(); });
-            initAgent();
+        import('./application/agent/bootstrapAgentRuntime').then(m => m.bootstrapAgentRuntime());
+
+        scheduleDeferredInit(() => {
+            import('./search').then(m => m.initSearch());
+            import('./status_bar').then(m => m.initStatusBar());
+            import('./extensions').then(m => m.initExtensions()).then(() => {
+                import('./specs').then(m => m.initSpecs());
+                import('./mobile').then(m => m.initMobile());
+                import('./scm').then(m => m.initScm());
+                import('./debug_ui').then(m => m.initDebugUI());
+            });
         });
 
         // --- Platform Detection for Native Feel ---
@@ -96,49 +89,25 @@ const App: React.FC = () => {
         try { setOllamaServerMode(ollamaServerMode); } catch { /* non-fatal */ }
         refreshAvailableModels();
 
-        // Restore the active project root on startup.
-        // Priority: 1) localStorage (user's last session, if the folder still
-        // exists on disk), 2) backend's cwd (first launch / stale entry).
-        // The path_exists probe is what stops a deleted workspace (e.g.
-        // `manus_source_code`) from leaking into terminal cwd and breaking
-        // every new PTY on launch.
-        const fallbackToBackendRoot = () => {
-            invoke<string | null>('get_active_root')
-                .then((backendRoot) => {
-                    if (backendRoot) setActiveRoot(backendRoot);
-                })
-                .catch(console.error);
-        };
+        // Default subscribed users to managed cloud model (Cyber-Ifrit Qwen 35B).
+        invoke<any>('account_get').then((acct) => {
+            if (!acct?.signed_in) return;
+            const st = useStore.getState();
+            const current = (st.agentModel || '').trim();
+            if (current) return;
+            st.setAgentModel?.('cyberifrit|qwen3:35b');
+        }).catch(() => { /* offline / first launch */ });
 
-        if (activeRoot) {
-            const cleaned = activeRoot.split('\0')[0].trim();
-            invoke<boolean>('path_exists', { path: cleaned })
-                .then((exists) => {
-                    if (!exists) {
-                        console.warn('[App] saved activeRoot no longer exists — clearing:', cleaned);
-                        localStorage.removeItem('activeRoot');
-                        localStorage.removeItem('activeRootName');
-                        useStore.setState({ activeRoot: null, activeRootName: null, fileTree: [] });
-                        fallbackToBackendRoot();
-                        return;
-                    }
-                    invoke('set_active_root', { path: cleaned })
-                        .then(() => refreshFileTree())
-                        .catch((err) => {
-                            console.warn('[App] set_active_root rejected — falling back:', err);
-                            localStorage.removeItem('activeRoot');
-                            localStorage.removeItem('activeRootName');
-                            useStore.setState({ activeRoot: null, activeRootName: null, fileTree: [] });
-                            fallbackToBackendRoot();
-                        });
-                })
-                .catch((err) => {
-                    console.warn('[App] path_exists failed — falling back:', err);
-                    fallbackToBackendRoot();
-                });
-        } else {
-            fallbackToBackendRoot();
-        }
+        import('./application/workspace/restoreWorkspaceOnBoot').then(({ restoreWorkspaceOnBoot }) =>
+            restoreWorkspaceOnBoot(activeRoot, {
+                setActiveRoot,
+                refreshFileTree,
+                clearPersistedRoot: () => {
+                    localStorage.removeItem('activeRoot');
+                    localStorage.removeItem('activeRootName');
+                },
+            }),
+        );
 
         // Listen for reload-window from backend
         import('@tauri-apps/api/event').then(({ listen }) => {

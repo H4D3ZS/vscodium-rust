@@ -67,7 +67,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     activeSidebarView: 'explorer-view',
     isBottomPanelOpen: false,
     activePanelTab: 'TERMINAL',
-    isRightSidebarOpen: false,
+    isRightSidebarOpen: true,
     theme: localStorage.getItem('active-monaco-theme') || 'vs-dark',
     sidebarWidth: parseInt(localStorage.getItem('sidebarWidth') || '260'),
     rightSidebarWidth: parseInt(localStorage.getItem('rightSidebarWidth') || '300'),
@@ -83,7 +83,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     isAiriPanelOpen: true,
     isEmulatorPanelOpen: false,
     emulatorPanelPosition: 'android',
-    emulatorLayout: (localStorage.getItem('emulatorLayout') as 'left' | 'right' | 'hidden') || 'left',
+    emulatorLayout: (localStorage.getItem('emulatorLayout') as 'left' | 'right' | 'hidden') || 'hidden',
     isZenMode: false,
     isGitBlameVisible: false,
     isOutlinePanelOpen: false,
@@ -92,13 +92,12 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     setActiveSidebarView: (view) => set({ activeSidebarView: view, isSidebarOpen: true }),
     toggleBottomPanel: () => set((s) => ({ isBottomPanelOpen: !s.isBottomPanelOpen })),
     setActivePanelTab: (tab) => set({ activePanelTab: tab, isBottomPanelOpen: true }),
-    toggleRightSidebar: () => {
-        console.trace('[DIAG] toggleRightSidebar called â€” full call stack above');
-        set((s) => {
-            console.log('[DIAG] isRightSidebarOpen:', s.isRightSidebarOpen, 'â†’', !s.isRightSidebarOpen);
-            return { isRightSidebarOpen: !s.isRightSidebarOpen };
-        });
-    },
+    toggleRightSidebar: () => set((s) => {
+        const open = !s.isRightSidebarOpen;
+        return open
+            ? { isRightSidebarOpen: true, isAiriPanelOpen: true, isEmulatorPanelOpen: false }
+            : { isRightSidebarOpen: false, isAiriPanelOpen: false, isEmulatorPanelOpen: false };
+    }),
     setTheme: (theme) => {
         set({ theme });
         localStorage.setItem('active-monaco-theme', theme);
@@ -126,7 +125,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     toggleAiriPanel: () => set((s) => ({ isRightSidebarOpen: true, isAiriPanelOpen: !s.isAiriPanelOpen, isEmulatorPanelOpen: false })),
     toggleEmulatorPanel: () => set((s) => ({ isRightSidebarOpen: true, isEmulatorPanelOpen: !s.isEmulatorPanelOpen, isAiriPanelOpen: false })),
     openAiriPanel: () => set({ isRightSidebarOpen: true, isAiriPanelOpen: true, isEmulatorPanelOpen: false }),
-    closeAiriPanel: () => set({ isAiriPanelOpen: false }),
+    closeAiriPanel: () => set({ isAiriPanelOpen: false, isRightSidebarOpen: false }),
     openEmulatorPanel: () => set({ isRightSidebarOpen: true, isEmulatorPanelOpen: true, isAiriPanelOpen: false }),
     closeEmulatorPanel: () => set({ isEmulatorPanelOpen: false }),
     setEmulatorPanelPosition: (pos) => set({ emulatorPanelPosition: pos }),

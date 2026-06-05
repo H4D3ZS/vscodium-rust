@@ -19,6 +19,9 @@ pub struct CompressedData {
     pub compression_type: CompressionType,
 }
 
+/// Max compressed blobs kept in RAM. Older entries are evicted on insert.
+const MAX_CACHE_ENTRIES: usize = 32;
+
 pub struct MemoryOptimizer {
     cache: Arc<Mutex<std::collections::HashMap<String, CompressedData>>>,
     quantizer: ContextQuantizer,
@@ -29,6 +32,16 @@ impl MemoryOptimizer {
         Self {
             cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
             quantizer: ContextQuantizer::new(),
+        }
+    }
+
+    fn evict_if_needed(lock: &mut std::collections::HashMap<String, CompressedData>) {
+        while lock.len() > MAX_CACHE_ENTRIES {
+            if let Some(oldest) = lock.keys().next().cloned() {
+                lock.remove(&oldest);
+            } else {
+                break;
+            }
         }
     }
 
@@ -51,6 +64,7 @@ impl MemoryOptimizer {
                 compression_type: CompressionType::Lz4,
             },
         );
+        Self::evict_if_needed(&mut lock);
 
         Ok(())
     }
@@ -87,6 +101,7 @@ impl MemoryOptimizer {
                 compression_type: CompressionType::TurboQuantSCQ,
             },
         );
+        Self::evict_if_needed(&mut lock);
 
         Ok(())
     }

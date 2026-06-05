@@ -37,13 +37,19 @@ export class AIRIBiology {
       lastSleep: Date.now()
     };
 
-    this.startMetabolism();
+    // Metabolism is companion overhead — only run when AIRI companion is opted in.
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('airi.companion') === '1') {
+        this.startMetabolism();
+      }
+    } catch { /* no localStorage */ }
   }
 
   /**
    * Start metabolism - biological processes run continuously
    */
   private startMetabolism(): void {
+    if (this.metabolismInterval) return;
     // Update biological states every minute
     this.metabolismInterval = setInterval(() => {
       if (!this.state.isSleeping) {

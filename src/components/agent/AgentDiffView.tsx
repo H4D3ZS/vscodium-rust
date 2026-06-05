@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import { listen } from '@tauri-apps/api/event';
-import { Sparkles, Check, X, Disc } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface ShadowUpdate {
@@ -53,22 +52,18 @@ const AgentDiffView: React.FC = () => {
             >
                 <div className="diff-header">
                     <div className="flex items-center gap-2">
-                        <Sparkles className="text-cyan-400 animate-pulse" size={16} />
-                        <span className="text-sm font-semibold text-gray-200">
-                            Agentic Edit: {activeUpdate?.path || stagedPatch?.path}
+                        <i className="codicon codicon-diff" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 14 }} />
+                        <span className="text-sm font-semibold" style={{ color: 'var(--vscode-foreground)' }}>
+                            Agent edit: {activeUpdate?.path || stagedPatch?.path}
                         </span>
                     </div>
                     <div className="flex items-center gap-3">
                         <button
                             onClick={() => setIsVisible(false)}
-                            className="px-3 py-1 text-xs border border-red-500/50 text-red-400 rounded hover:bg-red-500/10 transition-colors flex items-center gap-1"
+                            className="px-3 py-1 text-xs rounded"
+                            style={{ border: '1px solid var(--vscode-inputValidation-errorBorder)', color: 'var(--vscode-errorForeground, #f48771)', background: 'transparent' }}
                         >
-                            <X size={14} /> Discard
-                        </button>
-                        <button
-                            className="px-3 py-1 text-xs bg-cyan-600 text-white rounded hover:bg-cyan-500 transition-colors flex items-center gap-1 font-bold shadow-lg shadow-cyan-900/20"
-                        >
-                            <Check size={14} /> Commit Changes
+                            Dismiss
                         </button>
                     </div>
                 </div>
@@ -99,20 +94,20 @@ const AgentDiffView: React.FC = () => {
                         left: 0;
                         right: 0;
                         z-index: 2000;
-                        background: #1e1e1e;
-                        border-bottom: 1px solid #333;
-                        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                        background: var(--vscode-editor-background);
+                        border-bottom: 1px solid var(--vscode-panel-border);
+                        box-shadow: 0 4px 16px rgba(0,0,0,0.35);
                     }
                     .diff-header {
                         display: flex;
                         justify-content: space-between;
                         align-items: center;
                         padding: 8px 16px;
-                        background: #252526;
-                        border-bottom: 1px solid #333;
+                        background: var(--vscode-titleBar-activeBackground);
+                        border-bottom: 1px solid var(--vscode-panel-border);
                     }
                     .diff-editor-wrapper {
-                        background: #1e1e1e;
+                        background: var(--vscode-editor-background);
                     }
                 `}</style>
             </motion.div>

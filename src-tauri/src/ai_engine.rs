@@ -6174,6 +6174,15 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         }
         // Mirror activity events into the pollable log (the webview can't receive
         // the live event stream, so the activity terminal drains this instead).
+        if event == "ai-content-delta" {
+            if let Some(delta) = payload.get("delta").and_then(|v| v.as_str()) {
+                if !delta.is_empty() {
+                    if let Ok(mut b) = self.chat_stream_buf.lock() {
+                        b.push_str(delta);
+                    }
+                }
+            }
+        }
         if matches!(
             event,
             "ai-action"
