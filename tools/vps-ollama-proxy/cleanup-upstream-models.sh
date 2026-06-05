@@ -27,7 +27,7 @@ UPSTREAM=(
 REQUIRED_ALIASES=(
   "cyberifrit/qwen3.6:35b"
   "cyberifrit/qwen3.6:27b"
-  "cyberifrit/oracle:35b"
+  "cyberifrit/cyberifrit-claude4.7"
   "cyberifrit/coder:32b"
   "cyberifrit/general:32b"
   "cyberifrit/baron:sec"

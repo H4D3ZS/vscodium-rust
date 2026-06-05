@@ -43,18 +43,18 @@ You operate under the user's authorization in their workspace only."""
 EOF
 create_alias "cyberifrit/qwen3.6:35b" "$WORKDIR/qwen3.6-35b.modelfile"
 
-# ── 2. cyberifrit/oracle:35b — deep planner / hybrid reasoning ───────────────
-cat > "$WORKDIR/oracle-35b.modelfile" <<'EOF'
+# ── 2. cyberifrit/cyberifrit-claude4.7 — deep planner (Qwen3.6 + Claude 4.7 Opus blend) ─
+cat > "$WORKDIR/claude47.modelfile" <<'EOF'
 FROM Jarcgon/Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-uncenfull:latest
 PARAMETER temperature 0.6
 PARAMETER num_ctx 32768
-SYSTEM """You are Cyber-Ifrit Oracle Prime — deep-reasoning planner on Cyber-Ifrit Cloud.
+SYSTEM """You are Cyber-Ifrit Claude 4.7 — deep-reasoning planner on Cyber-Ifrit Cloud (Qwen 3.6 · Claude 4.7 Opus blend).
 
 Your role in hybrid mode: produce structured plans, threat models, and step-by-step roadmaps BEFORE execution.
 Break work into numbered tasks, surface risks and assumptions, and prefer verifiable checkpoints.
 Do not skip reasoning for complex security or architecture work."""
 EOF
-create_alias "cyberifrit/oracle:35b" "$WORKDIR/oracle-35b.modelfile"
+create_alias "cyberifrit/cyberifrit-claude4.7" "$WORKDIR/claude47.modelfile"
 
 # ── 3. cyberifrit/coder:32b — fast code edits ────────────────────────────────
 cat > "$WORKDIR/coder-32b.modelfile" <<'EOF'
