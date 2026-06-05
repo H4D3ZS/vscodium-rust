@@ -1,7 +1,12 @@
 ﻿import type { StateCreator } from 'zustand';
-import { terminalManager } from '../terminal';
 import type { AppState } from './index';
 import type { TerminalGroup } from './types';
+
+/** Lazy-load xterm (~2MB) only when the user opens a terminal. */
+async function getTerminalManager() {
+    const { terminalManager } = await import('../terminal');
+    return terminalManager;
+}
 
 export interface TerminalSlice {
     terminalGroups: TerminalGroup[];
@@ -23,6 +28,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     activeTerminalGroupId: null,
 
     addTerminalGroup: async (shell) => {
+        const terminalManager = await getTerminalManager();
         const id = `group-${Date.now()}`;
         const instanceId = `term-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
         const name = shell ? shell.split(/[\\/]/).pop() || 'shell' : 'terminal';
@@ -33,6 +39,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     },
 
     addAiriActivityTerminal: async () => {
+        const terminalManager = await getTerminalManager();
         const existing = get().terminalGroups.find((g: any) => g.name === 'AIRI');
         if (existing) { set({ activeTerminalGroupId: existing.id, activePanelTab: 'TERMINAL', isBottomPanelOpen: true }); return existing.id; }
         const groupId = `group-airi-${Date.now()}`;
@@ -43,6 +50,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     },
 
     splitTerminal: async (groupId, instanceId) => {
+        const terminalManager = await getTerminalManager();
         const newInstanceId = `term-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
         const currentInstance = terminalManager.getTerminal(instanceId);
         await terminalManager.createTerminal(currentInstance?.shell, undefined, undefined, newInstanceId);
@@ -55,6 +63,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     },
 
     closeTerminalInstance: async (groupId, instanceId) => {
+        const terminalManager = await getTerminalManager();
         await terminalManager.closeTerminal(instanceId);
         set((s) => {
             const groups = s.terminalGroups.map(g => {
@@ -76,6 +85,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         terminalGroups: s.terminalGroups.map(g => g.id === groupId ? { ...g, name } : g),
     })),
     closeTerminalGroup: async (groupId) => {
+        const terminalManager = await getTerminalManager();
         const group = get().terminalGroups.find(g => g.id === groupId);
         if (group) for (const instanceId of group.instances) await terminalManager.closeTerminal(instanceId);
         set((s) => {
@@ -87,4 +97,3 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         terminalGroups: s.terminalGroups.map(g => g.id === groupId ? { ...g, splitWeights: weights } : g),
     })),
 });
-

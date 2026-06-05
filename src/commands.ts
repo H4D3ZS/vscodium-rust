@@ -34,6 +34,67 @@ function registerCoreCommands() {
             run: () => store.toggleRightSidebar(),
         },
         {
+            id: 'agent.action.stop',
+            label: 'Agent: Stop',
+            run: () => { import('./application/agent/stopAgent').then(m => m.stopAgent()).catch(console.error); },
+        },
+        {
+            id: 'agent.action.newChat',
+            label: 'Agent: New Chat',
+            run: () => {
+                store.clearAgentMessages?.();
+                import('./tauri_bridge').then(({ invoke }) => invoke('clear_ai_memory').catch(() => {}));
+            },
+        },
+        {
+            id: 'agent.action.openComposer',
+            label: 'Agent: Open Composer',
+            run: () => store.toggleComposer?.(true),
+        },
+        {
+            id: 'agent.action.togglePlanMode',
+            label: 'Agent: Toggle Plan Mode',
+            run: () => store.togglePlanMode?.(),
+        },
+        {
+            id: 'agent.action.toggleLiveEdits',
+            label: 'Agent: Toggle Live Edits',
+            run: () => store.toggleCascadeWriteMode?.(),
+        },
+        {
+            id: 'agent.action.addSelectionToChat',
+            label: 'Agent: Add Selection to Chat',
+            run: () => {
+                const ed = (window as any).activeEditor;
+                const sel = ed?.getSelection?.();
+                const model = ed?.getModel?.();
+                if (!sel || !model || sel.isEmpty?.()) return;
+                const text = model.getValueInRange(sel);
+                const path = store.activeEditorPath || 'selection';
+                store.attachFile?.({ id: `sel-${Date.now()}`, path, name: path.split(/[\\/]/).pop() || 'selection', type: 'file', gist: text });
+                store.openAiriPanel?.();
+            },
+        },
+        {
+            id: 'workbench.action.openChat',
+            label: 'View: Open Chat',
+            run: () => store.openAiriPanel?.(),
+        },
+        {
+            id: 'workbench.action.openEmulators',
+            label: 'View: Mobile Emulators',
+            run: () => store.openEmulatorPanel?.(),
+        },
+        {
+            id: 'workbench.action.toggleChat',
+            label: 'View: Toggle Chat Panel',
+            run: () => {
+                const s = getStore();
+                if (s.isAiriPanelOpen && s.isRightSidebarOpen) s.closeAiriPanel?.();
+                else s.openAiriPanel?.();
+            },
+        },
+        {
             id: 'workbench.view.explorer',
             label: 'View: Show Explorer',
             run: () => store.setActiveSidebarView('explorer-view'),
@@ -52,6 +113,34 @@ function registerCoreCommands() {
             id: 'workbench.view.extensions',
             label: 'View: Show Extensions',
             run: () => store.setActiveSidebarView('extensions-view'),
+        },
+        {
+            id: 'workbench.view.vectorSearch',
+            label: 'View: Codebase Search',
+            run: () => store.setActiveSidebarView('vector-search-view'),
+        },
+        {
+            id: 'workbench.view.tasks',
+            label: 'View: Tasks & Specs',
+            run: () => store.setActiveSidebarView('tasks-view'),
+        },
+        {
+            id: 'workbench.view.steering',
+            label: 'View: Steering & Hooks',
+            run: () => store.setActiveSidebarView('steering-view'),
+        },
+        {
+            id: 'workbench.action.openVisualLab',
+            label: 'View: Open Visual Lab',
+            run: () => {
+                const s = getStore();
+                const activeTab = s.tabs?.find((t: any) => t.id === s.activeTabId);
+                if (activeTab?.path?.endsWith('.json') || activeTab?.language === 'json') {
+                    s.setVisualLabData?.(activeTab.content);
+                }
+                s.toggleVisualLab?.(true);
+                s.setVisualLabMode?.('json');
+            },
         },
         {
             id: 'workbench.action.closeActiveEditor',
@@ -290,6 +379,29 @@ function handleGlobalKeydown(e: KeyboardEvent) {
         e.preventDefault();
         const { activeTabId, closeTab } = getStore();
         if (activeTabId) closeTab(activeTabId);
+        return;
+    }
+
+    // Agent: Composer (Ctrl+I) — Cursor-style multi-file edit overlay
+    if (cmd && !e.shiftKey && e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        getStore().toggleComposer?.();
+        return;
+    }
+
+    // Agent: New chat (Ctrl+T) — matches title bar hint
+    if (cmd && !e.shiftKey && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        const s = getStore();
+        s.createNewSession?.();
+        s.openAiriPanel?.();
+        return;
+    }
+
+    // Agent: Add selection to chat (Ctrl+Shift+L)
+    if (cmd && e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        (window as any).executeCommand?.('agent.action.addSelectionToChat');
         return;
     }
 }

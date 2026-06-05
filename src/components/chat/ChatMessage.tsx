@@ -30,7 +30,7 @@ interface ChatMessageProps {
     isAgentThinking: boolean;
     onCopy: (content: string, idx: number) => void;
     onEditStart: (idx: number, content: string) => void;
-    onRestore?: (timestamp: number) => void;
+    onRestoreCheckpoint?: (msg: AgentMessage) => void;
     lastCopiedIdx: number | null;
     editingMsgIdx: number | null;
     editValue: string;
@@ -41,22 +41,27 @@ interface ChatMessageProps {
 
 const ChatMessage: React.FC<ChatMessageProps> = ({
     msg, idx, isAgentThinking,
-    onCopy, onEditStart, onRestore,
+    onCopy, onEditStart, onRestoreCheckpoint,
     lastCopiedIdx, editingMsgIdx, editValue,
     onEditChange, onEditSave, onEditCancel,
 }) => {
     const cleaned = cleanAiContent(msg.content || '');
     const hasContent = !!cleaned;
     const hasThoughts = !!msg.thoughts;
+    const hasSteps = msg.steps && msg.steps.length > 0;
     const hasContext = msg.context && msg.context.length > 0;
-    const shouldRender = hasContent || hasThoughts || hasContext;
+    const shouldRender = hasContent || hasThoughts || hasSteps || hasContext;
     if (!shouldRender) return null;
 
     return (
         <div className="agent-message-container" style={{ padding: '6px 10px', position: 'relative' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                 <span style={{ fontSize: '10px', fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    {msg.role === 'user' ? 'You' : 'AIRI'}
+                    {msg.role === 'user'
+                        ? 'You'
+                        : msg.isSubAgentResponse
+                            ? 'Partner'
+                            : 'Agent'}
                 </span>
                 <div className="message-actions" style={{ display: 'flex', gap: '6px', opacity: 0, transition: 'opacity 0.15s' }}>
                     {msg.role === 'user' && (
@@ -66,12 +71,12 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                             onClick={() => onEditStart(idx, msg.content)}
                         />
                     )}
-                    {msg.role === 'user' && onRestore && msg.timestamp && (
+                    {msg.role === 'user' && onRestoreCheckpoint && msg.checkpointId && !isAgentThinking && (
                         <i
                             className="codicon codicon-discard"
-                            title="Restore to this point"
-                            style={{ cursor: 'pointer', fontSize: '11px' }}
-                            onClick={() => onRestore(msg.timestamp!)}
+                            title="Restore workspace to this turn"
+                            style={{ cursor: 'pointer', fontSize: '11px', color: '#e0af68' }}
+                            onClick={() => onRestoreCheckpoint(msg)}
                         />
                     )}
                     {msg.role === 'assistant' && (
@@ -104,7 +109,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                         />
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                             <button onClick={onEditCancel} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: 'var(--vscode-editor-foreground, #fff)', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
-                            <button onClick={() => onEditSave(idx)} style={{ background: '#3b82f6', border: 'none', color: 'var(--vscode-editor-foreground, #fff)', padding: '4px 12px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Resend</button>
+                            <button onClick={() => onEditSave(idx)} style={{ background: 'var(--vscode-button-background, #0e639c)', border: 'none', color: 'var(--vscode-button-foreground, #fff)', padding: '4px 12px', borderRadius: '2px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Resend</button>
                         </div>
                     </div>
                 ) : (
@@ -114,6 +119,19 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                 <summary style={{ fontSize: '10px', cursor: 'pointer', fontWeight: 600 }}>Cognitive trace...</summary>
                                 <div style={{ fontSize: '10px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>{msg.thoughts}</div>
                             </details>
+                        )}
+                        {msg.steps && msg.steps.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
+                                {msg.steps.map((step: any, sIdx: number) => {
+                                    const statusColor = step.status === 'running' ? '#3794ff' : step.status === 'success' ? '#89d185' : step.status === 'error' ? '#f48771' : '#555';
+                                    return (
+                                        <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', opacity: 0.7 }}>
+                                            <span style={{ color: statusColor, fontSize: '8px' }}>●</span>
+                                            <span style={{ fontFamily: 'var(--font-mono)' }}>{step.name}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         )}
                         {msg.context && msg.context.length > 0 && (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px', opacity: 0.8 }}>

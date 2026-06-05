@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import MonacoEditor from '@monaco-editor/react';
 import type { OnMount, OnChange } from '@monaco-editor/react';
 import { useStore } from '../store';
-import DiffViewer from './DiffViewer';
 import { FileJson, Database } from 'lucide-react';
 import InlineEditOverlay from './InlineEditOverlay';
 import Breadcrumbs from './Breadcrumbs';
@@ -1085,7 +1084,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         VSCodium-Rust
                     </div>
                     <div
-                        onClick={() => { try { (useStore.getState() as any).setIsRightSidebarOpen?.(true); } catch { /* */ } }}
+                        onClick={() => useStore.getState().openAiriPanel?.()}
                         style={{
                             display: 'flex', alignItems: 'center', gap: '10px',
                             fontSize: '13px', color: 'var(--vscode-descriptionForeground)',
@@ -1129,7 +1128,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     glyphMargin: true,
                     folding: true,
                     lineDecorationsWidth: 10,
-                    minimap: { enabled: true },
+                    minimap: { enabled: false },
                     scrollBeyondLastLine: false,
                     wordWrap: 'off',
                     tabSize: 4,
@@ -1201,35 +1200,20 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         display: 'flex',
                         alignItems: 'center',
                         gap: '16px',
-                        padding: '10px 20px',
-                        borderRadius: '12px',
-                        background: 'rgba(18, 18, 29, 0.82)',
-                        backdropFilter: 'blur(16px)',
-                        WebkitBackdropFilter: 'blur(16px)',
-                        border: '1px solid rgba(0, 198, 255, 0.35)',
-                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 198, 255, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.05)',
-                        color: 'var(--vscode-editor-foreground, #ffffff)',
+                        padding: '8px 14px',
+                        borderRadius: '2px',
+                        background: 'var(--vscode-editorWidget-background, #252526)',
+                        border: '1px solid var(--vscode-editorWidget-border, #454545)',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.35)',
+                        color: 'var(--vscode-editor-foreground, #cccccc)',
                         fontSize: '12px',
                         fontFamily: 'var(--font-ui, sans-serif)',
-                        animation: 'bannerSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
+                        animation: 'bannerSlideIn 0.2s ease-out'
                     }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                width: '24px',
-                                height: '24px',
-                                borderRadius: '50%',
-                                background: 'rgba(0, 198, 255, 0.18)',
-                                color: '#00c6ff',
-                                fontSize: '13px',
-                                textShadow: '0 0 8px #00c6ff',
-                                alignSelf: 'center',
-                                paddingLeft: '4px'
-                            }}>✨</span>
-                            <span style={{ fontWeight: 500, letterSpacing: '0.3px', textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
-                                AI suggested edits for <span style={{ color: '#00c6ff', fontWeight: 600 }}>{activeTab?.filename}</span> are pending review
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <i className="codicon codicon-diff" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '14px', opacity: 0.85 }} />
+                            <span style={{ fontWeight: 500 }}>
+                                Agent edits for <span style={{ fontWeight: 600 }}>{activeTab?.filename}</span> — review below
                             </span>
                         </div>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1244,25 +1228,15 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                                     padding: '6px 14px',
                                     borderRadius: '6px',
                                     border: 'none',
-                                    background: 'linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)',
-                                    color: 'var(--vscode-editor-foreground, #ffffff)',
+                                    background: 'var(--vscode-button-background, #0e639c)',
+                                    color: 'var(--vscode-button-foreground, #fff)',
                                     fontSize: '11px',
-                                    fontWeight: 700,
+                                    fontWeight: 600,
                                     cursor: 'pointer',
-                                    boxShadow: '0 2px 10px rgba(0, 198, 255, 0.35)',
-                                    transition: 'all 0.2s',
-                                    letterSpacing: '0.3px'
+                                    transition: 'opacity 0.15s',
                                 }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.filter = 'brightness(1.15)';
-                                    e.currentTarget.style.boxShadow = '0 4px 14px rgba(0, 198, 255, 0.5)';
-                                    e.currentTarget.style.transform = 'translateY(-1px)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.filter = 'none';
-                                    e.currentTarget.style.boxShadow = '0 2px 10px rgba(0, 198, 255, 0.35)';
-                                    e.currentTarget.style.transform = 'none';
-                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
                             >
                                 ✓ Accept Changes
                             </button>
@@ -1276,24 +1250,12 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                                     gap: '6px',
                                     padding: '6px 14px',
                                     borderRadius: '6px',
-                                    border: '1px solid rgba(244, 63, 94, 0.45)',
-                                    background: 'rgba(244, 63, 94, 0.15)',
-                                    color: '#f43f5e',
+                                    border: '1px solid var(--vscode-inputValidation-errorBorder, #be1100)',
+                                    background: 'transparent',
+                                    color: 'var(--vscode-errorForeground, #f48771)',
                                     fontSize: '11px',
-                                    fontWeight: 700,
+                                    fontWeight: 600,
                                     cursor: 'pointer',
-                                    transition: 'all 0.2s',
-                                    letterSpacing: '0.3px'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = 'rgba(244, 63, 94, 0.25)';
-                                    e.currentTarget.style.borderColor = 'rgba(244, 63, 94, 0.6)';
-                                    e.currentTarget.style.transform = 'translateY(-1px)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = 'rgba(244, 63, 94, 0.15)';
-                                    e.currentTarget.style.borderColor = 'rgba(244, 63, 94, 0.45)';
-                                    e.currentTarget.style.transform = 'none';
                                 }}
                             >
                                 ✗ Reject Changes
@@ -1306,7 +1268,6 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                             }
                         `}</style>
                     </div>
-                    <DiffViewer />
                 </>
             )}
 
@@ -1342,6 +1303,11 @@ ${selectedText}
                         const store = useStore.getState();
                         store.setIsAgentThinking?.(true);
 
+                        const rawModel = store.agentModel || 'cyberifrit|qwen3:35b';
+                        const pipe = rawModel.indexOf('|');
+                        const inlineProvider = pipe >= 0 ? rawModel.slice(0, pipe).toLowerCase() : 'cyberifrit';
+                        const inlineModel = pipe >= 0 ? rawModel.slice(pipe + 1) : rawModel;
+
                         try {
                             const { invoke } = await import('@tauri-apps/api/core');
                             
@@ -1351,17 +1317,17 @@ ${selectedText}
                                     messages: [{ role: 'user', content: fastPrompt }],
                                     max_tokens: 4096,
                                     temperature: 0.1,
-                                    provider: 'google', // auto-resolved in backend
-                                    model: store.agentModel || 'gemini-2.5-pro'
+                                    provider: inlineProvider,
+                                    model: inlineModel,
                                 }
                             });
                             
                             // Clean up any markdown blocks if the model ignored instructions
                             if (replacement.startsWith('```')) {
-                                const lines = replacement.split('\\n');
+                                const lines = replacement.split('\n');
                                 if (lines[0].startsWith('```')) lines.shift();
                                 if (lines[lines.length - 1].startsWith('```')) lines.pop();
-                                replacement = lines.join('\\n');
+                                replacement = lines.join('\n');
                             }
 
                             const oldContent = activeTab?.content || '';

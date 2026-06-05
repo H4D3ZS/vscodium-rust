@@ -1,41 +1,46 @@
 use serde::Serialize;
-use sysinfo::{Pid, System};
 
+use crate::architecture::domain::performance::ProcessMemorySnapshot;
+use crate::architecture::infrastructure::performance::SysinfoProcessMemoryRepository;
+use crate::architecture::domain::performance::ProcessMemoryRepository;
+
+/// Legacy DTO kept for older call sites. Prefer `ProcessMemorySnapshot`.
 #[derive(Serialize, Clone)]
 pub struct ProcessStats {
+    /// Total working set of host + WebView2/child processes (honest RAM).
     pub memory_mb: u64,
     pub cpu_usage: f32,
     pub total_ram_gb: u64,
     pub available_ram_gb: u64,
+    /// Full snapshot for status-bar tooltip / diagnostics.
+    pub snapshot: ProcessMemorySnapshot,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub enum MemoryPressure {
-    Normal,   // < 80% used
-    Warning,  // 80-90% used
-    Critical, // > 90% used
+    Normal,
+    Warning,
+    Critical,
 }
 
 #[derive(Serialize, Clone, Debug)]
 pub struct InferenceStats {
-    pub device: String, // "ANE", "CPU", "GPU"
+    pub device: String,
     pub latency_ms: u64,
     pub timestamp: u64,
 }
 
 pub struct PerformanceMonitor {
-    sys: tokio::sync::Mutex<System>,
-    pid: Pid,
+    memory_repo: SysinfoProcessMemoryRepository,
+    root_pid: u32,
     inference_history: tokio::sync::Mutex<Vec<InferenceStats>>,
 }
 
 impl PerformanceMonitor {
     pub fn new() -> Self {
-        let sys = System::new();
-        let pid = Pid::from(std::process::id() as usize);
         Self {
-            sys: tokio::sync::Mutex::new(sys),
-            pid,
+            memory_repo: SysinfoProcessMemoryRepository::new(),
+            root_pid: std::process::id(),
             inference_history: tokio::sync::Mutex::new(Vec::new()),
         }
     }
@@ -53,7 +58,6 @@ impl PerformanceMonitor {
             timestamp,
         });
 
-        // Keep last 100 entries
         if history.len() > 100 {
             history.remove(0);
         }
@@ -64,40 +68,28 @@ impl PerformanceMonitor {
     }
 
     pub async fn get_stats(&self) -> Option<ProcessStats> {
-        let mut sys = self.sys.lock().await;
-        sys.refresh_process(self.pid);
-        sys.refresh_memory(); // Add system memory refresh
-
-        if let Some(process) = sys.process(self.pid) {
-            let memory_mb = process.memory() / 1024 / 1024;
-            let cpu_usage = process.cpu_usage();
-
-            // System-wide stats
-            let total_ram_gb = sys.total_memory() / 1024 / 1024 / 1024;
-            let available_ram_gb = sys.available_memory() / 1024 / 1024 / 1024;
-
-            Some(ProcessStats {
-                memory_mb,
-                cpu_usage,
-                total_ram_gb,
-                available_ram_gb,
-            })
-        } else {
-            None
-        }
+        let snapshot = self.memory_repo.capture_snapshot(self.root_pid)?;
+        Some(ProcessStats {
+            memory_mb: snapshot.legacy_memory_mb(),
+            cpu_usage: snapshot.cpu_usage_percent,
+            total_ram_gb: snapshot.system_total_ram_gb,
+            available_ram_gb: snapshot.system_available_ram_gb,
+            snapshot,
+        })
     }
 
     pub async fn get_memory_pressure(&self) -> MemoryPressure {
-        let mut sys = self.sys.lock().await;
-        sys.refresh_memory();
-
-        let total = sys.total_memory();
-        if total == 0 {
+        // System-wide pressure — independent of IDE tree size.
+        let snapshot = match self.memory_repo.capture_snapshot(self.root_pid) {
+            Some(s) => s,
+            None => return MemoryPressure::Normal,
+        };
+        let total_gb = snapshot.system_total_ram_gb;
+        if total_gb == 0 {
             return MemoryPressure::Normal;
         }
-
-        let used = total - sys.available_memory();
-        let usage_pct = (used as f64 / total as f64) * 100.0;
+        let used_gb = total_gb.saturating_sub(snapshot.system_available_ram_gb);
+        let usage_pct = (used_gb as f64 / total_gb as f64) * 100.0;
 
         if usage_pct > 90.0 {
             MemoryPressure::Critical
@@ -114,19 +106,18 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_performance_stats() {
+    async fn test_performance_stats_tree() {
         let monitor = PerformanceMonitor::new();
-        let stats = monitor.get_stats().await;
-
-        assert!(stats.is_some());
-        let s = stats.unwrap();
-
-        // Basic sanity checks
-        assert!(s.total_ram_gb > 0);
-        assert!(s.memory_mb > 0);
-        println!(
-            "Memory: {}MB, CPU: {}%, Total RAM: {}GB",
-            s.memory_mb, s.cpu_usage, s.total_ram_gb
+        let stats = monitor.get_stats().await.expect("stats");
+        assert!(stats.memory_mb > 0);
+        assert!(stats.snapshot.total_working_set_mb >= stats.snapshot.host_working_set_mb);
+        eprintln!(
+            "host={}MB children={}MB total={}MB private={}MB ({} children)",
+            stats.snapshot.host_working_set_mb,
+            stats.snapshot.child_working_set_mb,
+            stats.snapshot.total_working_set_mb,
+            stats.snapshot.total_private_mb,
+            stats.snapshot.child_process_count
         );
     }
 }

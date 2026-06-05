@@ -3,7 +3,7 @@
 
 @font-face {
   font-family: "codicon";
-  src: url("https://cdn.jsdelivr.net/npm/@vscode/codicons@0.0.36/dist/codicon.ttf") format("truetype");
+  src: url("./codicon/codicon.ttf") format("truetype");
 }
 
 .codicon {
@@ -193,7 +193,8 @@
   /* Layout Metrics (Pixel Perfect VS Code) */
   --activity-bar-width: 48px;
   --sidebar-width: 240px;
-  --title-bar-height: 35px;
+  --title-bar-height: 30px;
+  --status-bar-height: 22px;
   --tab-height: 35px;
   --header-height: 35px;
   --sidebar-header-height: 35px;
@@ -266,7 +267,12 @@ body.has-airi-wallpaper .body-backdrop {
   /* native blend */
 }
 
+/* AIRI corner sticker — opt-in via body.has-airi-wallpaper only */
 body::after {
+  content: none;
+}
+
+body.has-airi-wallpaper::after {
   content: "";
   position: fixed;
   bottom: 10px;
@@ -277,18 +283,11 @@ body::after {
   background-size: contain;
   background-repeat: no-repeat;
   background-position: bottom right;
-  opacity: 1.0;
-  /* Full visibility for sticker */
+  opacity: 0.85;
   pointer-events: none;
   z-index: 2000;
-  /* On top of everything */
   filter: drop-shadow(0 0 15px rgba(0, 0, 0, 0.4));
   transition: opacity 0.3s ease;
-}
-
-body:not(.has-airi-wallpaper)::after {
-  opacity: 0;
-  pointer-events: none;
 }
 
 /* Antigravity IDE Glassmorphism Core */
@@ -553,6 +552,44 @@ body.has-airi-wallpaper .editor-container {
 /* Platform-Specific Typography */
 body.os-macos {
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+/* macOS: traffic lights left, inset menu bar */
+body.os-macos #title-bar {
+  padding-left: 78px;
+}
+
+body.os-macos .window-controls-right {
+  display: none;
+}
+
+body.os-macos .window-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: absolute;
+  left: 12px;
+  top: 0;
+  height: var(--title-bar-height);
+  -webkit-app-region: no-drag;
+  z-index: 201;
+}
+
+body.os-macos .wc-traffic {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+body.os-macos .wc-traffic-close { background: #ff5f57; }
+body.os-macos .wc-traffic-minimize { background: #febc2e; }
+body.os-macos .wc-traffic-maximize { background: #28c840; }
+
+body:not(.os-macos) .window-controls-left {
+  display: none;
 }
 
 body.os-windows {

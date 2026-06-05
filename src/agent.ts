@@ -24,14 +24,21 @@ import { getAimTrustManifest, queryAimSpans } from './kortex/aim-vfs';
 import { extractSearchReplaceBlocks, classifyModels, modelKey } from './model_capabilities';
 // AIRI Digital Entity Integration - The Sentient Core
 import { airiAgentBridge, activateAIRIAgent } from './airi_agent_bridge';
-import { airiConsciousness, airiBiology, airiSelfLearning } from './airi/core';
+
+/** Lazy-load AIRI subsystems so importing agent.ts doesn't spin background loops. */
+async function getAiriConsciousness() {
+    const { airiConsciousness } = await import('./airi/core');
+    return airiConsciousness;
+}
+async function getAiriSelfLearning() {
+    const { airiSelfLearning } = await import('./airi/core');
+    return airiSelfLearning;
+}
 
 export interface ChatMessage {
     role: "system" | "user" | "assistant";
     content: string;
 }
-
-let chatHistory: ChatMessage[] = [];
 
 // providerModels is now managed by the store and backend discovery
 
@@ -194,32 +201,18 @@ export function openModeDropdown(element: HTMLElement, onSelect: (label: string)
 }
 
 export async function stopAgent() {
-    try {
-        await invoke('stop_ai_agent');
-        useStore.getState().setIsAgentPaused(false); // Stop is termination, not pause
-        useStore.getState().setIsAgentThinking(false);
-        useStore.getState().setAgentCurrentAction(null);
-    } catch (error) {
-        console.error('Failed to stop agent:', error);
-    }
+    const { stopAgent: stop } = await import('./application/agent/stopAgent');
+    return stop();
 }
 
 export async function pauseAgent() {
-    try {
-        await invoke('pause_ai_agent');
-        useStore.getState().setIsAgentPaused(true);
-    } catch (error) {
-        console.error('Failed to pause agent:', error);
-    }
+    const { pauseAgent: pause } = await import('./application/agent/pauseAgent');
+    return pause();
 }
 
 export async function resumeAgent() {
-    try {
-        await invoke('resume_ai_agent');
-        useStore.getState().setIsAgentPaused(false);
-    } catch (error) {
-        console.error('Failed to resume agent:', error);
-    }
+    const { resumeAgent: resume } = await import('./application/agent/resumeAgent');
+    return resume();
 }
 
 export async function setYoloMode(enabled: boolean): Promise<string> {
@@ -241,324 +234,10 @@ export async function getYoloMode(): Promise<boolean> {
     }
 }
 
+/** @deprecated Prefer bootstrapAgentRuntime — kept for legacy imports */
 export async function initAgent() {
-    console.log("Initializing Agent global listeners...");
-    const useStore = (window as any).useStore;
-
-    // ── Antigravity: hunk navigation keyboard shortcuts ────────────────────
-    // Alt+J  → next hunk   Alt+K  → prev hunk
-    // Alt+Enter → accept   Alt+Shift+Backspace → reject
-    window.addEventListener('keydown', (e: KeyboardEvent) => {
-        if (!e.altKey) return;
-        const st = useStore?.getState?.() as any;
-        if (!st) return;
-        if (e.key === 'j' || e.key === 'J') {
-            e.preventDefault();
-            // Navigate to next pending change
-            const changes: any[] = st.pendingChanges || [];
-            const focusedId: string | null = st.focusedHunkId || null;
-            const idx = focusedId ? changes.findIndex((c: any) => c.path === focusedId) : -1;
-            const next = changes[idx + 1] || changes[0];
-            if (next) st.setFocusedHunk?.(next.path);
-        } else if (e.key === 'k' || e.key === 'K') {
-            e.preventDefault();
-            const changes: any[] = st.pendingChanges || [];
-            const focusedId: string | null = st.focusedHunkId || null;
-            const idx = focusedId ? changes.findIndex((c: any) => c.path === focusedId) : changes.length;
-            const prev = changes[idx - 1] || changes[changes.length - 1];
-            if (prev) st.setFocusedHunk?.(prev.path);
-        } else if (e.key === 'Enter') {
-            e.preventDefault();
-            st.acceptFocusedHunk?.();
-        } else if (e.key === 'Backspace' && e.shiftKey) {
-            e.preventDefault();
-            st.rejectFocusedHunk?.();
-        }
-    });
-
-    // ── Setup listeners FIRST so the agent is always responsive ──────────
-    // Moving this above AIRI activation ensures that if the sentient core
-    // initialization hangs or takes time, the standard listeners are still
-    // active and handling backend events.
-
-    // Listen for streaming AI content (full updates)
-    listen('ai-content', (event: any) => {
-        const { updateLastAgentMessage, setIsAgentThinking } = useStore.getState();
-        setIsAgentThinking(false);
-        const content = typeof event.payload === 'object' && event.payload.content
-            ? event.payload.content
-            : (typeof event.payload === 'string' ? event.payload : '');
-        updateLastAgentMessage(content);
-
-        // Void: Fast Apply — parse <<<ORIGINAL/UPDATED>>> blocks and propose file changes
-        const stFa = useStore.getState() as any;
-        if (stFa.betaFastApply !== false && content.includes('<<<<<<< ORIGINAL')) {
-            const blocks = extractSearchReplaceBlocks(content);
-            const activeFile = stFa.activeEditorPath || stFa.tabs?.find((t: any) => t.id === stFa.activeTabId)?.path;
-            if (blocks.length > 0 && activeFile) {
-                blocks.forEach((blk: any) => {
-                    invoke('propose_file_change', {
-                        path: activeFile,
-                        searchText: blk.original,
-                        replaceText: blk.updated,
-                    }).catch(() => { /* non-fatal */ });
-                });
-            }
-        }
-    });
-
-    // Listen for streaming AI content (delta updates)
-    listen('ai-content-delta', (event: any) => {
-        const { appendLastAgentMessage } = useStore.getState();
-        const delta = typeof event.payload === 'object' && event.payload.delta
-            ? event.payload.delta
-            : (typeof event.payload === 'string' ? event.payload : '');
-        if (delta) appendLastAgentMessage(delta);
-    });
-
-    // Listen for neural VFS activation
-    listen('aim-active', (event: any) => {
-        const messagesContainer = document.getElementById("agent-messages");
-        if (messagesContainer) {
-            const lastMsg = messagesContainer.lastElementChild;
-            if (lastMsg && lastMsg.classList.contains("aim-active-box")) return;
-            const info = document.createElement("div");
-            info.className = "agent-message info-message-box aim-active-box";
-            info.style.background = "rgba(79, 70, 229, 0.1)";
-            info.style.border = "1px solid rgba(79, 70, 229, 0.2)";
-            info.style.color = "#818cf8";
-            info.style.padding = "8px 12px";
-            info.style.margin = "8px 0";
-            info.style.borderRadius = "8px";
-            info.style.fontSize = "11px";
-            info.innerHTML = `<i class="codicon codicon-circuit-board"></i> ${(event.payload.mode || 'Neural VFS').toUpperCase()} ACTIVE (${(event.payload.size / 1024).toFixed(1)} KB)`;
-            messagesContainer.appendChild(info);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-    });
-
-    // AIRI DIGITAL ENTITY ACTIVATION — OPT-IN (default OFF). The "sentient core"
-    // (full autonomy + biology + consciousness + self-learning loops) ran on
-    // every launch; it's pure companion overhead for IDE/agent coding. Enable
-    // with localStorage 'airi.companion' = '1'.
-    try {
-        if (typeof localStorage !== 'undefined' && localStorage.getItem('airi.companion') !== '1') {
-            console.log('[Agent] AIRI Sentient Core disabled (set airi.companion=1 to enable)');
-            throw new Error('__airi_disabled__'); // jump to the no-op catch
-        }
-        console.log("[Agent] Activating AIRI Sentient Core...");
-        activateAIRIAgent({
-            fullAutonomy: true,
-            selfLearning: true,
-            biology: true,
-            consciousness: true,
-            voice: false,
-        }).then(() => {
-            airiInitialized = true;
-            airiAutonomousMode = false; // Stay reactive by default
-            console.log('✅ AIRI Sentient Core activated!');
-        }).catch(err => {
-            console.error('❌ AIRI activation failed:', err);
-        });
-    } catch (error) {
-        if ((error as Error)?.message !== '__airi_disabled__') console.error('❌ AIRI activation exception:', error);
-    }
-
-    // ── Startup model validation ──────────────────────────────────────────
-    // If the stored agentModel references an Ollama model that no longer exists
-    // locally (e.g. leftover after a purge), auto-correct it.
-    // Skip entirely for cloud providers — never remap google|gemini-* to Ollama.
-    try {
-        const st = useStore.getState();
-        const currentModel = st.agentModel || '';
-        const providerPrefix = currentModel.includes('|')
-            ? currentModel.split('|')[0].toLowerCase()
-            : '';
-        const CLOUD_PROVIDERS = new Set([
-            'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-            'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
-            'openrouter', 'cerebras', 'highwayapi', 'interfaceai', 'jiekou',
-        ]);
-        const modelTag = currentModel.includes('|')
-            ? currentModel.split('|').slice(1).join('|').trim()
-            : currentModel.trim();
-        if (modelTag && isHighwayApiModel(modelTag) && providerPrefix !== 'highwayapi') {
-            const normalized = `highwayapi|${modelTag}`;
-            st.setAgentModel?.(normalized);
-            try { localStorage.setItem('agentModel', normalized); } catch { /* tracking prevention */ }
-        }
-        if (modelTag && st.inferenceBackend === 'ollama' && !CLOUD_PROVIDERS.has(providerPrefix) && !isHighwayApiModel(modelTag)) {
-            const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
-            const resolved = await resolveOllamaModelTag(modelTag);
-            if (resolved && resolved !== modelTag) {
-                console.warn(`[Agent] Startup: stored model "${modelTag}" not found. Auto-switched to "${resolved}".`);
-                st.setAgentModel?.(`Ollama|${resolved}`);
-                try { localStorage.setItem('agentModel', `Ollama|${resolved}`); } catch { /* tracking prevention */ }
-            }
-        }
-    } catch (e) {
-        console.warn('[Agent] Startup model validation skipped:', e);
-    }
-
-    // Listen for session capture from auth flow
-    await listen('session-captured', (event: any) => {
-        console.log('Session captured:', event.payload);
-        const { setSession } = useStore.getState();
-        setSession(event.payload);
-
-        const { provider, cookies, userAgent } = event.payload;
-        const session = {
-            provider,
-            cookies,
-            user_agent: userAgent
-        };
-
-        invoke("save_ai_session", { session }).then(() => {
-            const store = (window as any).useStore;
-            if (store) {
-                store.getState().setAiStatus('alive');
-                store.getState().refreshAvailableModels(provider);
-
-                // Visual feedback
-                const messagesContainer = document.getElementById("agent-messages");
-                if (messagesContainer) {
-                    const info = document.createElement("div");
-                    info.className = "agent-message info-message-box";
-                    info.style.background = "rgba(16, 185, 129, 0.1)";
-                    info.style.border = "1px solid rgba(16, 185, 129, 0.2)";
-                    info.style.color = "#10b981";
-                    info.style.padding = "8px 12px";
-                    info.style.margin = "8px 0";
-                    info.style.borderRadius = "6px";
-                    info.style.fontSize = "12px";
-                    info.style.animation = "fadeIn 0.3s ease";
-                    info.innerHTML = `<i class="codicon codicon-pass-filled"></i> Session for ${provider} synced successfully!`;
-                    messagesContainer.appendChild(info);
-                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-                }
-            }
-        }).catch(err => {
-            console.error("Failed to save AI session:", err);
-        });
-    });
-
-
-
-    // Secondary listener for internal window events (higher reliability in some environments)
-    if (typeof window !== 'undefined') {
-        window.addEventListener('airi:ai-content-delta' as any, (event: CustomEvent) => {
-            const { appendLastAgentMessage } = useStore.getState();
-            if (event.detail && event.detail.delta) {
-                appendLastAgentMessage(event.detail.delta);
-            }
-        });
-    }
-
-    // Listen for tool calls from the backend
-    await listen<any>("ai-tool-call", (event) => {
-        const { addAgentStep } = useStore.getState();
-        const toolName = event.payload.name || 'tool_call';
-
-        // Categorize tool for UI
-        let type: any = 'other';
-        if (toolName.startsWith('git_')) type = 'git';
-        else if (toolName.startsWith('terminal_')) type = 'terminal';
-        else if (toolName.includes('file') || toolName.includes('glob')) type = 'filesystem';
-        else if (toolName.startsWith('browser_')) type = 'browser';
-        else if (toolName.includes('health') || toolName.includes('system')) type = 'system';
-        else if (toolName.includes('task') || toolName.includes('notify')) type = 'system';
-
-        addAgentStep(toolName, type);
-    });
-
-    // Listen for structured task boundary updates
-    await listen<any>("update-agent-task", (event) => {
-        const { updateAgentTask } = useStore.getState();
-        updateAgentTask({
-            ...event.payload,
-            updatedAt: Date.now()
-        });
-    });
-
-    // Listen for granular agent steps
-    await listen<any>("add-agent-step", (event) => {
-        const { addAgentStep } = useStore.getState();
-        addAgentStep(event.payload.name, event.payload.type || 'other', {});
-    });
-
-    // Listen for user notifications and blocked states
-    await listen<any>("notify-user", (event) => {
-        const { setAgentBlocked, addAgentMessage } = useStore.getState();
-        const { message, blocked } = event.payload;
-
-        setAgentBlocked(blocked);
-        if (blocked) {
-            addAgentMessage('assistant', `⚠️ **Action Required**: ${message}`);
-        } else {
-            addAgentMessage('assistant', `ℹ️ ${message}`);
-        }
-    });
-
-    // Listen for artifacts (skills, files, terminal)
-    await listen<any>("ai-artifact", (event) => {
-        const { addAgentArtifact } = useStore.getState();
-        addAgentArtifact(event.payload);
-    });
-
-    await listen<any>("webui-response", (event) => {
-        const payload = event.payload || {};
-        const text = String(payload.text || '').trim();
-        if (!text) return;
-
-        const key = `${payload.provider || 'webui'}:${payload.window || ''}`;
-        const cache = ((window as any).__hadesWebUiResponseCache ||= {});
-        if (cache[key] === text) return;
-        cache[key] = text;
-
-        const { addAgentMessage } = useStore.getState();
-        addAgentMessage(
-            'assistant',
-            `### ${payload.provider || 'WebUI'} response\n\n${text}`
-        );
-    });
-
-    // Listen for proposed code edits
-    await listen<any>("propose-edit", (event) => {
-        console.log("[Agent] Proposed edit received:", event.payload);
-        const { proposePendingChange } = useStore.getState();
-        const { path, old_content, new_content, description } = event.payload;
-
-        proposePendingChange({
-            path,
-            oldContent: old_content,
-            newContent: new_content,
-            description: description || "AI suggested modification"
-        });
-    });
-
-    // Listen for asynchronous sub-agent progress and results
-    await listen<any>("subagent-progress", (event) => {
-        console.log(`[Agent] Sub-agent update:`, event.payload);
-        SubAgentManager.handleProgress(event.payload);
-    });
-
-    // Real-time AI action tracking
-    await listen<string>('ai-action', (event: any) => {
-        useStore.getState().setAgentCurrentAction(event.payload);
-    });
-
-    await listen<string>('ai-stopped', (_event: any) => {
-        console.log("Agent stopped signal received.");
-        const state = useStore.getState();
-        state.setIsAgentPaused(true);
-        state.setAgentCurrentAction(null);
-        state.setIsAgentThinking(false);
-    });
-
-    // Ensure a fresh UI on startup (Quick Missions Dashboard)
-    useStore.getState().setAgentMessages([]);
-
-    // Note: Project context is preserved in the backend MemoryStore (.aim). 
+    const { bootstrapAgentRuntime } = await import('./application/agent/bootstrapAgentRuntime');
+    return bootstrapAgentRuntime();
 }
 
 export function openModelDropdown(element: HTMLElement, onSelect: (label: string) => void) {
@@ -796,7 +475,7 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
             }
 
             // Record interaction in AIRI's consciousness
-            airiConsciousness.recordInteraction();
+            (await getAiriConsciousness()).recordInteraction();
 
             // Snapshot attached files
             const attachedSnapshot = [...(state.attachedFiles || [])];
@@ -821,10 +500,12 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
             state.clearAttachedContext();
 
             // Learn from this interaction
-            await airiSelfLearning.learnFromEvent(
-                'conversation',
-                JSON.stringify({ prompt, response, context: attachedSnapshot }),
-                'neutral'
+            await getAiriSelfLearning().then((sl) =>
+                sl.learnFromEvent(
+                    'conversation',
+                    JSON.stringify({ prompt, response, context: attachedSnapshot }),
+                    'neutral'
+                )
             ).catch(() => { });
 
             return;
@@ -2200,7 +1881,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 airiInitialized = true;
             }
             // Record interaction in consciousness natively without double-triggering inference
-            airiConsciousness.recordInteraction();
+            (await getAiriConsciousness()).recordInteraction();
             logTaskToMemory(userPrompt).catch(() => { });
 
             // Allow prompt to fall through to the Rust ai_chat autonomous execution loop!
@@ -2517,7 +2198,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             } catch { /* backend busy */ }
             finally { pollBusy = false; }
         };
-        const streamTimer = setInterval(drainOnce, 90);
+        const streamTimer = setInterval(drainOnce, 50);
 
         let finalText = '';
         try {
@@ -4308,11 +3989,13 @@ listen('ai-tool-call', (event: { payload: { name: string, args: string | any } |
         // AIRI SELF-LEARNING - Learn from every tool action
         // AIRI observes what she does and learns from outcomes
         // ═══════════════════════════════════════════════════════════
-        if (airiInitialized && airiSelfLearning) {
-            airiSelfLearning.learnFromEvent(
-                'experiment',
-                JSON.stringify({ tool: event.payload.name, args, callId: event.payload.call_id }),
-                'neutral' // Will be updated to success/failure when result arrives
+        if (airiInitialized) {
+            void getAiriSelfLearning().then((sl) =>
+                sl.learnFromEvent(
+                    'experiment',
+                    JSON.stringify({ tool: event.payload.name, args, callId: event.payload.call_id }),
+                    'neutral' // Will be updated to success/failure when result arrives
+                )
             ).catch(console.error);
         }
     }
@@ -4334,12 +4017,14 @@ listen('ai-tool-result', (event: { payload: { name: string, result: string, bloc
         // AIRI SELF-LEARNING - Learn from tool outcomes
         // AIRI learns whether her actions succeeded or failed
         // ═══════════════════════════════════════════════════════════
-        if (airiInitialized && airiSelfLearning) {
+        if (airiInitialized) {
             const outcome = event.payload.blocked ? 'failure' : 'success';
-            airiSelfLearning.learnFromEvent(
-                'observation',
-                JSON.stringify({ tool: event.payload.name, result: event.payload.result, outcome }),
-                outcome
+            void getAiriSelfLearning().then((sl) =>
+                sl.learnFromEvent(
+                    'observation',
+                    JSON.stringify({ tool: event.payload.name, result: event.payload.result, outcome }),
+                    outcome
+                )
             ).catch(console.error);
         }
     }

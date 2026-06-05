@@ -1,0 +1,3 @@
+pub mod sysinfo_process_memory_repository;
+
+pub use sysinfo_process_memory_repository::SysinfoProcessMemoryRepository;

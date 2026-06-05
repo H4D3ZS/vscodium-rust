@@ -123,7 +123,8 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     // Default ON: agent edits apply automatically (a git checkpoint is taken before
     // every agent turn, so changes are recoverable). Persisted; flip the toolbar
     // toggle to 'review each diff' if you want manual accept/reject.
-    autoAcceptChanges: (typeof localStorage === 'undefined') ? true : localStorage.getItem('editor.autoAcceptChanges') !== '0',
+    // Cursor-style: review diffs before applying agent edits (opt-in via toolbar AUTO toggle).
+    autoAcceptChanges: (typeof localStorage !== 'undefined') && localStorage.getItem('editor.autoAcceptChanges') === '1',
     checkpoint: null,
     tabHistory: [],
     tabHistoryIndex: -1,

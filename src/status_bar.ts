@@ -12,8 +12,8 @@ export function initStatusBar() {
         deviceSelector.onclick = () => switchDevice();
     }
 
-    // Start stats refresh
-    setInterval(updateStats, 2000);
+    // Poll process stats sparingly — each invoke allocates in the webview.
+    setInterval(updateStats, 15_000);
 }
 
 async function switchModel() {
@@ -58,7 +58,8 @@ async function updateStats() {
         const stats = await invoke<any>("get_process_stats");
         const perfSpan = document.getElementById("perf-stats");
         if (perfSpan && stats) {
-            perfSpan.innerText = `RAM: ${(stats.memory_usage / 1024 / 1024).toFixed(1)}MB | CPU: ${stats.cpu_usage.toFixed(1)}%`;
+            const total = stats.snapshot?.total_working_set_mb ?? stats.memory_mb ?? 0;
+            perfSpan.innerText = `RAM: ${Number(total).toFixed(0)}MB (tree) | CPU: ${stats.cpu_usage.toFixed(1)}%`;
         }
     } catch (e) {
         // Silently fail stats if backend not ready

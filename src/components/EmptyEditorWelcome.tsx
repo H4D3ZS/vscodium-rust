@@ -46,7 +46,7 @@ const EmptyEditorWelcome: React.FC = () => (
             VSCodium-Rust
         </div>
         <div
-            onClick={() => { try { (useStore.getState() as any).setIsRightSidebarOpen?.(true); } catch { /* */ } }}
+            onClick={() => useStore.getState().openAiriPanel?.()}
             style={{
                 display: 'flex', alignItems: 'center', gap: '10px',
                 fontSize: '13px', color: 'var(--vscode-descriptionForeground)', cursor: 'pointer',

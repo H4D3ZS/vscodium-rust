@@ -26,7 +26,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             background: 'var(--vscode-input-background)',
             border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'var(--vscode-input-border, transparent)'}`,
             boxShadow: isSpecModeActive ? '0 0 10px rgba(0,198,255,0.25)' : 'none',
-            borderRadius: '8px', padding: '7px 10px',
+            borderRadius: '4px', padding: '7px 10px',
             display: 'flex', flexDirection: 'column',
             transition: 'all 0.2s',
         }}>

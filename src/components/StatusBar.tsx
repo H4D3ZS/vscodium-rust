@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useStore } from '../store';
 import { invoke } from '@tauri-apps/api/core';
+import { formatMemoryTooltip, type ProcessStatsDto } from '../domain/performance/ProcessMemorySnapshot';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -50,6 +51,36 @@ const StatusItem: React.FC<StatusItemProps> = ({ onClick, title, children, accen
     </div>
 );
 
+const MemoryStatusItem: React.FC<{
+    processStats: ProcessStatsDto;
+    onOptimize: () => void;
+}> = ({ processStats, onOptimize }) => {
+    const snap = processStats.snapshot;
+    const totalMb = snap?.total_working_set_mb ?? processStats.memory_mb;
+    const title = useMemo(() => {
+        const body = snap ? formatMemoryTooltip(snap) : `RAM ${processStats.memory_mb} MB`;
+        return `${body}\n\nClick to optimize memory`;
+    }, [snap, processStats.memory_mb]);
+
+    return (
+        <StatusItem
+            onClick={onOptimize}
+            title={title}
+            danger={processStats.available_ram_gb > 0 && processStats.available_ram_gb < 1}
+        >
+            <i className="codicon codicon-pulse" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+            <span title="Total working set (host + WebView2 children)">
+                {totalMb.toFixed(0)} MB
+                {snap && snap.child_process_count > 0 && (
+                    <span style={{ opacity: 0.45, fontSize: '10px', marginLeft: '4px' }}>
+                        ({snap.child_process_count + 1} proc)
+                    </span>
+                )}
+            </span>
+        </StatusItem>
+    );
+};
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Main StatusBar
 // ──────────────────────────────────────────────────────────────────────────────
@@ -64,6 +95,10 @@ const StatusBar: React.FC = () => {
     const refreshAvailableModels = useStore(state => state.refreshAvailableModels);
     const ollamaStatus = useStore(state => state.ollamaStatus);
     const toggleRightSidebar = useStore(state => state.toggleRightSidebar);
+    const openEmulatorPanel = useStore(state => state.openEmulatorPanel);
+    const openAiriPanel = useStore(state => state.openAiriPanel);
+    const isEmulatorPanelOpen = useStore(state => state.isEmulatorPanelOpen);
+    const isAiriPanelOpen = useStore(state => state.isAiriPanelOpen);
     const diagnosticsMap = useStore(state => state.diagnosticsMap);
     const gitBranch = useStore(state => state.gitBranch);
     const activeTabId = useStore(state => state.activeTabId);
@@ -192,21 +227,26 @@ const StatusBar: React.FC = () => {
 
     // ── Memory / stats ───────────────────────────────────────────────────────
     const handleOptimize = async () => {
-        try { await invoke('optimize_memory'); refreshMemorySavings(); }
-        catch (e) { console.error('optimize_memory failed:', e); }
+        try {
+            const { optimizeProcessMemory } = await import('../application/performance/refreshProcessMemory');
+            await optimizeProcessMemory();
+            refreshMemorySavings();
+        } catch (e) { console.error('optimize_memory failed:', e); }
     };
 
     useEffect(() => {
         refreshProcessStats();
         refreshMemorySavings();
         const t = setInterval(() => {
-            refreshProcessStats();
-            if (processStats?.available_ram_gb != null && processStats.available_ram_gb < 1) {
-                handleOptimize();
-            }
+            refreshProcessStats().then(() => {
+                const free = useStore.getState().processStats?.available_ram_gb;
+                if (free != null && free < 1) {
+                    handleOptimize();
+                }
+            });
         }, 20000);
         return () => clearInterval(t);
-    }, [processStats?.available_ram_gb]);
+    }, []);
 
     // ── Account / usage chip (SaaS) ───────────────────────────────────────────
     const openSettings = useStore(state => (state as any).openSettings);
@@ -304,6 +344,16 @@ const StatusBar: React.FC = () => {
                 {/* Sync icon */}
                 <StatusItem title="Synchronize Changes">
                     <i className="codicon codicon-sync" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                </StatusItem>
+
+                {/* Agent chat — Cursor-style quick access */}
+                <StatusItem
+                    onClick={() => (isAiriPanelOpen ? toggleRightSidebar() : openAiriPanel?.())}
+                    title="Agent chat (Ctrl+Alt+B)"
+                    accent={isAiriPanelOpen}
+                >
+                    <i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                    <span style={{ fontSize: '11px' }}>Chat</span>
                 </StatusItem>
 
                 {/* Errors / Warnings — click to open Problems panel */}
@@ -633,17 +683,22 @@ const StatusBar: React.FC = () => {
                     </StatusItem>
                 )}
 
-                {/* Memory — subtle RAM readout; click to optimize (folds the old
-                    RAM/CPU + KB-saved + Optimize trio into one native-looking item). */}
+                {/* Mobile emulators — Android + iPhone */}
+                <StatusItem
+                    onClick={() => openEmulatorPanel?.()}
+                    title="Open mobile emulators (Android AVD + iPhone)"
+                    accent={isEmulatorPanelOpen}
+                >
+                    <i className="codicon codicon-device-mobile" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                    <span style={{ fontSize: '11px' }}>Devices</span>
+                </StatusItem>
+
+                {/* Memory — subtle RAM readout; click to optimize */}
                 {processStats && (
-                    <StatusItem
-                        onClick={handleOptimize}
-                        title={`RAM ${processStats.memory_mb.toFixed(0)}MB · CPU ${processStats.cpu_usage.toFixed(0)}% · ${processStats.available_ram_gb}GB free — click to optimize memory`}
-                        danger={processStats.available_ram_gb > 0 && processStats.available_ram_gb < 1}
-                    >
-                        <i className="codicon codicon-pulse" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
-                        <span>{processStats.memory_mb.toFixed(0)} MB</span>
-                    </StatusItem>
+                    <MemoryStatusItem
+                        processStats={processStats}
+                        onOptimize={handleOptimize}
+                    />
                 )}
             </div>
         </footer>

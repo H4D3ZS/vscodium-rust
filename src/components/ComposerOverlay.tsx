@@ -8,16 +8,9 @@ const ComposerOverlay: React.FC = () => {
     const toggleComposer = useStore(state => state.toggleComposer);
     const [isFullScreen, setIsFullScreen] = React.useState(false);
     
-    // Intercept Cmd+I
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'I' || e.key === 'i')) {
-                e.preventDefault();
-                toggleComposer();
-            }
-            if (e.key === 'Escape' && isComposerOpen) {
-                toggleComposer(false);
-            }
+            if (e.key === 'Escape' && isComposerOpen) toggleComposer(false);
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
@@ -30,8 +23,7 @@ const ComposerOverlay: React.FC = () => {
             position: 'absolute',
             top: 0, left: 0, right: 0, bottom: 0,
             zIndex: 9999,
-            backgroundColor: 'rgba(0,0,0,0.4)',
-            backdropFilter: 'blur(4px)',
+            backgroundColor: 'rgba(0,0,0,0.35)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -41,8 +33,8 @@ const ComposerOverlay: React.FC = () => {
                 width: isFullScreen ? '95vw' : '800px',
                 height: isFullScreen ? '95vh' : '600px',
                 backgroundColor: 'var(--vscode-editor-background)',
-                borderRadius: '12px',
-                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                borderRadius: '2px',
+                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
                 border: '1px solid var(--vscode-panel-border)',
                 display: 'flex',
                 flexDirection: 'column',
@@ -62,7 +54,7 @@ const ComposerOverlay: React.FC = () => {
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <i className="codicon codicon-composer" style={{ fontSize: '14px', color: 'var(--terminator-accent)' }} />
-                        <span style={{ fontSize: '12px', fontWeight: 600, opacity: 0.9 }}>Composer (Cmd+I)</span>
+                        <span style={{ fontSize: '12px', fontWeight: 600, opacity: 0.9 }}>Composer (Ctrl+I)</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <div onClick={() => setIsFullScreen(!isFullScreen)} style={{ cursor: 'pointer', opacity: 0.6, display: 'flex' }} title="Toggle Fullscreen">

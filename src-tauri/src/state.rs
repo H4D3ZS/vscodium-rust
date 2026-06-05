@@ -279,6 +279,8 @@ impl EditorState {
         let mcp_server = Arc::new(mcp_server::McpServer::new(sentient.ai_tools.clone()));
         let mcp_server_clone = mcp_server.clone();
         tauri::async_runtime::spawn(async move {
+            // Defer MCP listener — not needed for idle shell boot.
+            tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
             mcp_server_clone.start(1537).await;
         });
 
@@ -287,14 +289,17 @@ impl EditorState {
             Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
         let lsp_client_inst = LspClient::with_diagnostics(shared_lsp_diags.clone());
 
-        // Initialize global static vision for background tasks
-        hades_vision::init_hades_vision(
-            1,
-            "http://localhost:11434",
-            "moondream",
-            "gpt-4o",
-            false
-        );
+        // Vision stack — init on first command, not at boot (saves ~10–20MB).
+        tauri::async_runtime::spawn(async {
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            hades_vision::init_hades_vision(
+                1,
+                "http://localhost:11434",
+                "moondream",
+                "gpt-4o",
+                false,
+            );
+        });
 
         Self {
             buffers: tokio::sync::Mutex::new(HashMap::new()),
