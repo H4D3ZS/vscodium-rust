@@ -1000,8 +1000,9 @@ const RightSidebar: React.FC = () => {
             listen<any>('ai-tool-result', (e) => {
                 const name = e.payload?.name;
                 const raw = e.payload?.result ?? '';
-                const rs = typeof raw === 'string' ? raw : JSON.stringify(raw);
-                let failed = rs.startsWith('Error:') || rs.startsWith('Tool execution error:');
+                let rs = typeof raw === 'string' ? raw : JSON.stringify(raw);
+                let failed = rs.startsWith('Error:') || rs.startsWith('Tool execution error:')
+                    || rs.startsWith('Tool not found:') || rs.includes('"Tool not found:');
                 if (!failed) {
                     try {
                         const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
@@ -1034,6 +1035,7 @@ const RightSidebar: React.FC = () => {
                     success: !failed,
                 });
             }).then(u => subs.push(u));
+            // Mission-complete toasts handled globally in AgentStreamSubscriber.
             // Act→verify→self-fix gate status. The backend emits this when it runs
             // cargo check / typecheck before allowing the agent to declare completion.
             listen<any>('ai-verify', (e) => {

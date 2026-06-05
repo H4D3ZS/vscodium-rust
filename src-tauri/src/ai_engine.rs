@@ -4604,6 +4604,17 @@ impl Sentient {
                     }
 
                     println!("[AI] Persistent mode '{}' — completion signaled or iteration limit reached.", mode_str);
+                    if has_completion_keyword {
+                        self.emit_event("ai-mission-complete", json!({
+                            "mode": mode_str,
+                            "tools_run": tools_run_this_turn,
+                            "action_tools_run": action_tools_run_this_turn,
+                        }));
+                        self.emit_event("app-toast", json!({
+                            "message": format!("{} mission complete — review reports/ and chat", mode_str),
+                            "type": "success",
+                        }));
+                    }
                 }
 
                 // Auto-store task outcome in Kortex

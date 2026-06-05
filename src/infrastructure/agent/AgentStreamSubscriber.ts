@@ -17,6 +17,7 @@ import {
     acceptFocusedPendingChange,
     rejectFocusedPendingChange,
 } from '../../application/editor/navigatePendingChange';
+import { notifyAgentComplete } from '../../application/agent/notifyAgentComplete';
 
 let attached = false;
 
@@ -63,6 +64,14 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
             ? event.payload.content
             : (typeof event.payload === 'string' ? event.payload : '');
         updateLastAgentMessage(content);
+        if (/MISSION_ACCOMPLISHED|TASK_COMPLETE/i.test(content)) {
+            const mode = useStore.getState().agentMode || 'Agent';
+            void notifyAgentComplete({
+                reason: 'mission',
+                mode,
+                detail: 'Deliverables ready — review reports/ exploits/ recon/',
+            });
+        }
         import('../../application/agent/syncAgentMessages').then(m => m.scheduleChatHistorySync()).catch(() => {});
 
         const stFa = useStore.getState() as any;
@@ -175,5 +184,25 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         state.setIsAgentPaused(true);
         state.setAgentCurrentAction(null);
         state.setIsAgentThinking(false);
+        void notifyAgentComplete({
+            reason: 'stopped',
+            mode: state.agentMode || 'Agent',
+        });
+    });
+
+    listen<any>('ai-mission-complete', (event) => {
+        const mode = event.payload?.mode || useStore.getState().agentMode || 'Agent';
+        useStore.getState().pushTrajectoryEvent?.({
+            kind: 'tool_result',
+            tool: 'mission',
+            title: '✓ Mission complete',
+            detail: `${mode} finished — review reports/ exploits/ recon/ for deliverables`,
+            success: true,
+        });
+        void notifyAgentComplete({
+            reason: 'mission',
+            mode,
+            detail: 'Mission accomplished — review your artifacts.',
+        });
     });
 }

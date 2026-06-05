@@ -2419,7 +2419,8 @@ export async function handleToolCall(toolName: string, toolArgs: any): Promise<s
         if (lastStep && lastStep.name === toolName) {
             let ok =
                 !result.content.startsWith('Error:') &&
-                !result.content.startsWith('Tool execution error:');
+                !result.content.startsWith('Tool execution error:') &&
+                !result.content.startsWith('Tool not found:');
             if (ok) {
                 try {
                     const j = JSON.parse(result.content) as { status?: string; success?: boolean };
