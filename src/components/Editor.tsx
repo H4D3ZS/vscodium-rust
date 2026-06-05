@@ -1363,7 +1363,7 @@ ${selectedText}
                         const store = useStore.getState();
                         store.setIsAgentThinking?.(true);
 
-                        const rawModel = store.agentModel || 'cyberifrit|qwen3:35b';
+                        const rawModel = store.agentModel || 'cyberifrit|cyberifrit/qwen3.6:35b';
                         const pipe = rawModel.indexOf('|');
                         const inlineProvider = pipe >= 0 ? rawModel.slice(0, pipe).toLowerCase() : 'cyberifrit';
                         const inlineModel = pipe >= 0 ? rawModel.slice(pipe + 1) : rawModel;

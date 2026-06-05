@@ -181,7 +181,7 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
 
     listen<string>('ai-stopped', () => {
         const state = useStore.getState();
-        state.setIsAgentPaused(true);
+        state.setIsAgentPaused(false);
         state.setAgentCurrentAction(null);
         state.setIsAgentThinking(false);
         void notifyAgentComplete({

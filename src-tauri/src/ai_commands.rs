@@ -177,9 +177,10 @@ pub async fn ai_chat(
             e.to_string()
         })?;
 
-    // Always push the final complete response to the UI regardless of silent_emits state.
-    // This is the foreground command — background tasks must not block its final emit.
-    let _ = app_for_final.emit("ai-content", serde_json::json!({ "content": result.trim() }));
+    // Push final response unless the user stopped mid-run (stream buffer already cleared).
+    if !state.ai_engine.is_stopped() {
+        let _ = app_for_final.emit("ai-content", serde_json::json!({ "content": result.trim() }));
+    }
 
     let done_log = format!("[ai_chat] DONE: response_len={}\n", result.len());
     eprintln!("{}", done_log.trim());

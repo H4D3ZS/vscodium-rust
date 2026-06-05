@@ -276,7 +276,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     agentModel: (() => {
         if (typeof localStorage === 'undefined') return '';
         const saved = localStorage.getItem('agentModel') || '';
-        const oldDefaults = new Set(['Ollama|airi-fast:latest', 'Ollama|qwen3:35b', 'qwen3:35b', 'huihui_ai/qwen2.5-coder-abliterate:7b', 'Ollama|huihui_ai/qwen2.5-coder-abliterate:7b']);
+        const oldDefaults = new Set(['Ollama|airi-fast:latest', 'Ollama|qwen3:35b', 'qwen3:35b', 'cyberifrit|qwen3:35b', 'cyberifrit|cyberifrit/qwen3:35b', 'huihui_ai/qwen2.5-coder-abliterate:7b', 'Ollama|huihui_ai/qwen2.5-coder-abliterate:7b']);
         if (oldDefaults.has(saved)) { localStorage.removeItem('agentModel'); return ''; }
         return saved;
     })(),
