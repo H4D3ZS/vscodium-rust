@@ -6,26 +6,9 @@ import { FileJson, Database } from 'lucide-react';
 import InlineEditOverlay from './InlineEditOverlay';
 import Breadcrumbs from './Breadcrumbs';
 import MarkdownPreview from './MarkdownPreview';
-import WelcomePage from './WelcomePage';
+import BrandedWelcomeScreen from './BrandedWelcomeScreen';
 import PredictiveEditOverlay from './PredictiveEditOverlay';
 import { invoke, listen } from '../tauri_bridge';
-
-// Small keyboard-key chip for the empty-editor "Code with Agent" hint.
-const kbdChip: React.CSSProperties = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: '20px',
-    height: '20px',
-    padding: '0 6px',
-    fontSize: '11px',
-    fontWeight: 600,
-    lineHeight: 1,
-    color: 'var(--vscode-keybindingLabel-foreground, var(--vscode-descriptionForeground))',
-    background: 'var(--vscode-keybindingLabel-background, rgba(255,255,255,0.06))',
-    border: '1px solid var(--vscode-keybindingLabel-border, rgba(255,255,255,0.12))',
-    borderRadius: '4px',
-};
 
 // Map file extension → LSP language id
 function getLspLanguageId(path: string): string {
@@ -1105,9 +1088,6 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     }, [activeTab?.path, refreshGitGutter]);
 
     if (!activeTab) {
-        // Show the Welcome page on first open (unless dismissed) plus the
-        // AIRI orb behind it. WelcomePage handles its own dismissal so
-        // once the user closes it they get the legacy avatar view.
         return (
             <div style={{
                 height: '100%', width: '100%',
@@ -1115,48 +1095,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                 background: 'var(--vscode-editor-background)',
                 overflow: 'hidden',
             }}>
-                <WelcomePage />
-                {/* Native-IDE empty state: clean centered logo + product name + a
-                    "Code with Agent" shortcut hint. No
-                    glow/animation — reads as a real IDE, themed via --vscode vars. */}
-                <div style={{
-                    height: '100%',
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexDirection: 'column',
-                    gap: '18px',
-                    pointerEvents: 'none',
-                    userSelect: 'none',
-                }}>
-                    {/* Original logo mark — an "agent orbit": a core with an
-                        orbiting node. Distinct identity, not a cloned logo. */}
-                    <svg width="58" height="58" viewBox="0 0 48 48" fill="none" style={{ opacity: 0.9 }}>
-                        <circle cx="24" cy="24" r="17" stroke="var(--vscode-foreground)" strokeOpacity="0.35" strokeWidth="2" />
-                        <circle cx="24" cy="24" r="6" fill="var(--vscode-foreground)" fillOpacity="0.85" />
-                        <circle cx="24" cy="7" r="3.2" fill="var(--vscode-foreground)" fillOpacity="0.85" />
-                    </svg>
-                    <div style={{
-                        fontSize: '22px', fontWeight: 600, letterSpacing: '0.4px',
-                        color: 'var(--vscode-foreground)', opacity: 0.92,
-                    }}>
-                        VSCodium-Rust
-                    </div>
-                    <div
-                        onClick={() => useStore.getState().openAiriPanel?.()}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '10px',
-                            fontSize: '13px', color: 'var(--vscode-descriptionForeground)',
-                            pointerEvents: 'auto', cursor: 'pointer',
-                        }}
-                    >
-                        <span>Code with Agent</span>
-                        <span style={kbdChip}>Ctrl</span>
-                        <span style={{ opacity: 0.5 }}>+</span>
-                        <span style={kbdChip}>L</span>
-                    </div>
-                </div>
+                <BrandedWelcomeScreen compact />
             </div>
         );
     }

@@ -2,7 +2,8 @@
 ## Active Mission Status
 
 - **Status:** Active
-- **Current Task:** Processing: introduce yourself
+- **Current Task:** Processing: ## IDENTITY — NON-NEGOTIABLE
+You are **AIRI**, the autonomous agentic co-pilot o
 You are **AIRI**, the autonomous agentic co-pilot o
 You are operating as a Requirements Engineer. Your goal is t
 You are operating as a Requirements Engineer. Your goal is t

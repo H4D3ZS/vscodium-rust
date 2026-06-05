@@ -584,11 +584,13 @@ const TitleBar: React.FC = () => {
                 <div
                     className="ide-logo hoverable"
                     title={rootName}
-                    style={{ display: 'flex', alignItems: 'center', marginRight: '4px', padding: '4px 8px', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                    onClick={() => (window as any).executeCommand?.('workbench.action.showWelcome')}
+                    style={{ display: 'flex', alignItems: 'center', marginRight: '4px', padding: '4px 8px', WebkitAppRegion: 'no-drag', cursor: 'pointer' } as React.CSSProperties}
                 >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="rgba(255,255,255,0.75)" />
-                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke="rgba(255,255,255,0.75)" strokeWidth="2" />
+                    <svg width="18" height="18" viewBox="0 0 48 48" fill="none" aria-hidden>
+                        <circle cx="24" cy="24" r="17" stroke="#00C6FF" strokeOpacity="0.55" strokeWidth="2.5" />
+                        <circle cx="24" cy="24" r="6" fill="#00C6FF" fillOpacity="0.95" />
+                        <circle cx="24" cy="7" r="3.2" fill="#0072FF" />
                     </svg>
                 </div>
 

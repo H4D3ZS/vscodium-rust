@@ -51,6 +51,9 @@ export interface EditorSlice {
     getFlattenedFiles: () => FileEntry[];
     openSettings: (tab?: 'user' | 'workspace' | 'agent') => void;
     openMcpStore: (view?: 'store' | 'manage') => void;
+    welcomeForceVisible: boolean;
+    showWelcomeTab: () => void;
+    setWelcomeForceVisible: (visible: boolean) => void;
     navigateBack: () => void;
     navigateForward: () => void;
     setSplitEditorTab: (tabId: string | null) => void;
@@ -118,6 +121,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     openWorkflowFiles: [],
     openRuleFiles: [],
     diagnosticsMap: {},
+    welcomeForceVisible: false,
 
     setFileTree: (tree) => set({ fileTree: tree }),
 
@@ -287,6 +291,24 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         const newTab: EditorTab = { id, filename: 'MCP Store', path: 'vscode://mcp-store', content: '', isModified: false, language: '', type: 'mcp-store' };
         set((state) => ({ tabs: [...state.tabs, newTab], activeTabId: id }));
     },
+
+    showWelcomeTab: () => {
+        try { localStorage.removeItem('welcome.dismissed'); } catch { /* */ }
+        set({
+            welcomeForceVisible: true,
+            tabs: [],
+            activeTabId: null,
+            activeRoot: null,
+            activeRootName: null,
+        });
+        try {
+            localStorage.removeItem('activeRoot');
+            localStorage.removeItem('activeRootName');
+        } catch { /* */ }
+        window.dispatchEvent(new CustomEvent('welcome:show'));
+    },
+
+    setWelcomeForceVisible: (visible) => set({ welcomeForceVisible: visible }),
 
     toggleDirectory: async (path: string) => {
         const { toggleDirectory: toggle } = await import('../application/editor/toggleDirectory');

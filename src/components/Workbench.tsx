@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import ActivityBar from './ActivityBar';
 import Sidebar from './Sidebar';
-import EmptyEditorWelcome from './EmptyEditorWelcome';
+import BrandedWelcomeScreen from './BrandedWelcomeScreen';
 import OllamaProgressBar from './OllamaProgressBar';
 import { useStore } from '../store';
 import TabStrip from './workbench/TabStrip';
@@ -58,7 +58,6 @@ const Workbench: React.FC = () => {
     const splitEditorTabId = useStore(state => state.splitEditorTabId);
     const setSplitEditorTab = useStore(state => state.setSplitEditorTab);
     const toggleSplitEditor = useStore(state => state.toggleSplitEditor);
-    const recentWorkspaces = useStore(state => state.recentWorkspaces);
     const removeRecentWorkspace = useStore(state => state.removeRecentWorkspace);
 
     // Dev Workflow State
@@ -151,68 +150,7 @@ const Workbench: React.FC = () => {
 
                                 <div className="editor-wrapper" style={{ position: 'relative', width: '100%', height: '100%', flex: 1, overflow: 'hidden' }}>
                                     {(!activeRoot && tabs.length === 0) ? (
-                                        <div className="welcome-screen-container" style={{
-                                            position: 'absolute', inset: 0, zIndex: 1,
-                                            overflowY: 'auto', background: 'var(--vscode-editor-background)',
-                                            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                                            padding: '40px 48px',
-                                        }}>
-                                            <div style={{ width: '100%', maxWidth: '720px' }}>
-                                                <h1 style={{ fontSize: '26px', fontWeight: 600, margin: '0 0 8px', color: 'var(--vscode-foreground)' }}>
-                                                    VSCodium-Rust
-                                                </h1>
-                                                <p style={{ fontSize: '13px', opacity: 0.55, margin: '0 0 28px', lineHeight: 1.5 }}>
-                                                    Open a folder to start. Chat, Composer, and mobile emulators are built in.
-                                                </p>
-                                                <div style={{ display: 'grid', gap: '4px', marginBottom: '32px' }}>
-                                                    {[
-                                                        { label: 'Open Folder...', icon: 'codicon-folder-opened', cmd: 'explorer.openFolder' },
-                                                        { label: 'Clone Repository...', icon: 'codicon-source-control', cmd: 'git.clone' },
-                                                        { label: 'New File...', icon: 'codicon-new-file', cmd: 'explorer.newFile' },
-                                                        { label: 'Open Chat...', icon: 'codicon-comment-discussion', cmd: 'workbench.action.openChat' },
-                                                        { label: 'MCP Store...', icon: 'codicon-plug', cmd: 'workbench.action.openMcpStore' },
-                                                        { label: 'Mobile Emulators...', icon: 'codicon-device-mobile', cmd: 'workbench.action.openEmulators' },
-                                                        { label: 'Security Review...', icon: 'codicon-shield', cmd: 'security.action.runCodebaseReview' },
-                                                    ].map(item => (
-                                                        <button key={item.cmd} type="button"
-                                                            onClick={() => (window as any).executeCommand?.(item.cmd)}
-                                                            style={{
-                                                                display: 'flex', alignItems: 'center', gap: '10px',
-                                                                padding: '8px 12px', border: 'none', borderRadius: '2px',
-                                                                background: 'transparent', color: 'var(--vscode-textLink-foreground, #3794ff)',
-                                                                fontSize: '13px', cursor: 'pointer', textAlign: 'left', width: '100%',
-                                                            }}
-                                                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; }}
-                                                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                                                        >
-                                                            <i className={`codicon ${item.icon}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '16px' }} />
-                                                            {item.label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                                {recentWorkspaces.length > 0 && (
-                                                    <>
-                                                        <h3 style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.45, marginBottom: '8px' }}>Recent</h3>
-                                                        <div style={{ display: 'grid', gap: '2px' }}>
-                                                            {recentWorkspaces.map(ws => (
-                                                                <div key={ws.path}
-                                                                    style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', borderRadius: '2px', gap: '8px', cursor: 'pointer' }}
-                                                                    onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
-                                                                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                                                                    onClick={() => useStore.getState().setActiveRoot(ws.path)}
-                                                                >
-                                                                    <i className="codicon codicon-folder" style={{ fontFamily: 'codicon', fontStyle: 'normal', opacity: 0.7 }} />
-                                                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                                                        <div style={{ fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.name}</div>
-                                                                        <div style={{ fontSize: '11px', opacity: 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.path}</div>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
+                                        <BrandedWelcomeScreen />
                                     ) : hasOpenFile ? (
                                         /* Monaco Editor or Settings Page */
                                         <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: (isVisualLabSplitView && isVisualLabOpen) ? 'row' : 'column', position: 'relative' }}>
@@ -311,8 +249,8 @@ const Workbench: React.FC = () => {
                                             )}
                                         </div>
                                     ) : (
-                                        /* Native empty state — folder open, no file selected */
-                                        <EmptyEditorWelcome />
+                                        /* Folder open, no file — compact branded empty state */
+                                        <BrandedWelcomeScreen compact />
                                     )}
                                 </div>
                             </div>
