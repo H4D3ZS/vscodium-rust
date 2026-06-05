@@ -49,6 +49,57 @@ let currentAgentMode = "Planning";
 const isHighwayApiModel = (model: unknown): boolean =>
     String(model || '').toLowerCase().includes('claude-opus-4-8');
 
+function isLocalOllamaHost(url: string): boolean {
+    try {
+        const u = new URL(normalizeOllamaUrl(url));
+        return u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '0.0.0.0';
+    } catch {
+        return true;
+    }
+}
+
+function isManagedCloudOllama(url: string, serverMode?: string): boolean {
+    return serverMode === 'cloud' || /cyberifrit\.xyz/i.test(url);
+}
+
+/** Local Ollama: browser fetch. Remote/cloud: Rust (CORS + subscription JWT). */
+async function probeOllamaEndpoint(
+    ollamaBase: string,
+    serverMode?: string,
+): Promise<{ ok: boolean; error: string }> {
+    const base = normalizeOllamaUrl(ollamaBase);
+    const useBrowserFetch = isLocalOllamaHost(base) && !isManagedCloudOllama(base, serverMode);
+    if (useBrowserFetch) {
+        try {
+            const probe = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(5000) });
+            if (probe.ok) return { ok: true, error: '' };
+            return { ok: false, error: `HTTP ${probe.status}` };
+        } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
+        }
+    }
+    try {
+        await invoke('set_ollama_url', { url: base });
+        const diag = await invoke<{
+            ok: boolean;
+            hint?: string;
+            error?: string;
+            status?: number | null;
+            bearer_configured?: boolean;
+        }>('diagnose_ollama');
+        if (diag?.ok) return { ok: true, error: '' };
+        let msg = diag?.hint || diag?.error || (diag?.status != null ? `HTTP ${diag.status}` : 'Gateway unreachable');
+        if (!diag?.bearer_configured) {
+            msg = `${msg} — sign in to Cyber-Ifrit so your subscription token is sent.`;
+        } else if (diag?.status === 402) {
+            msg = 'Active subscription or trial required (HTTP 402).';
+        }
+        return { ok: false, error: msg };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || String(e) };
+    }
+}
+
 // AIRI Digital Entity State
 let airiInitialized = false;
 let airiAutonomousMode = false; // Disabled by default to prevent hijacking standard agent requests
@@ -1281,46 +1332,47 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         || selectedModelLower.includes('gpt-') || selectedModelLower.includes('o1-')
         || selectedModelLower.includes('o3-');
     if (inferenceBackend === 'ollama' && !selectedWebUiModel && !selectedIsCloudModel) {
-        const ollamaBase = store.getState().ollamaUrl?.trim() || 'http://localhost:11434';
+        const st = store.getState();
+        const ollamaBase = st.ollamaUrl?.trim() || 'http://localhost:11434';
+        const managedCloud = isManagedCloudOllama(ollamaBase, st.ollamaServerMode);
         let probeOk = false;
         let lastErrorMsg = '';
-        try {
-            const probe = await fetch(`${ollamaBase}/api/tags`, {
-                signal: AbortSignal.timeout(3000),
-            });
-            if (probe.ok) {
-                probeOk = true;
-            } else {
-                lastErrorMsg = `HTTP ${probe.status}`;
-            }
-        } catch (e: any) {
-            lastErrorMsg = e?.message || String(e);
+
+        if (managedCloud) {
+            try { await st.syncOllamaEndpoint?.(); } catch { /* non-fatal */ }
         }
 
-        if (!probeOk && ollamaBase.includes(':1536')) {
+        const probeUrl = store.getState().ollamaUrl || ollamaBase;
+        const probe = await probeOllamaEndpoint(probeUrl, store.getState().ollamaServerMode);
+        probeOk = probe.ok;
+        lastErrorMsg = probe.error;
+
+        if (!probeOk && isLocalOllamaHost(ollamaBase) && ollamaBase.includes(':1536')) {
             const fallbackBase = ollamaBase.replace(':1536', ':11434');
             console.warn(`[Agent] Proxy port 1536 unreachable, trying direct port 11434: ${fallbackBase}`);
-            try {
-                const probe = await fetch(`${fallbackBase}/api/tags`, {
-                    signal: AbortSignal.timeout(3000),
-                });
-                if (probe.ok) {
-                    probeOk = true;
-                    preflightOllamaUrlOverride = fallbackBase;
-                    console.log(`[Agent] Direct port 11434 is active! Proceeding with direct routing.`);
-                }
-            } catch (fallbackErr: any) {
-                lastErrorMsg = `Proxy down (${lastErrorMsg}) and direct port also down (${fallbackErr?.message || String(fallbackErr)})`;
+            const fallbackProbe = await probeOllamaEndpoint(fallbackBase, store.getState().ollamaServerMode);
+            if (fallbackProbe.ok) {
+                probeOk = true;
+                preflightOllamaUrlOverride = fallbackBase;
+                console.log(`[Agent] Direct port 11434 is active! Proceeding with direct routing.`);
+            } else {
+                lastErrorMsg = `Proxy down (${lastErrorMsg}) and direct port also down (${fallbackProbe.error})`;
             }
         }
 
         if (!probeOk) {
             console.error('[Agent] ❌ Ollama pre-flight check FAILED:', lastErrorMsg);
             store.getState().setIsAgentThinking?.(false);
+            const tryHint = managedCloud
+                ? '**Try:** Settings → Ollama → **Cloud Model** → **Reconnect**. Confirm you are signed in with an active subscription.'
+                : isLocalOllamaHost(ollamaBase)
+                    ? '**Try:** Restart Ollama Desktop, run `ollama serve` in a terminal, or make sure your AIM proxy is running.'
+                    : '**Try:** Check your self-hosted Ollama URL and bearer token in Settings → Ollama.';
+            const fallbackNote = managedCloud ? '' : ' (or direct fallback port 11434).';
             store.getState().updateLastAgentMessage?.(
                 `**Ollama is not responding**\n\n` +
-                `Could not reach Ollama at \`${ollamaBase}\` (or direct fallback port 11434).\n\n` +
-                `**Try:** Restart Ollama Desktop, run \`ollama serve\` in a terminal, or make sure your AIM proxy is running.\n\n` +
+                `Could not reach Ollama at \`${store.getState().ollamaUrl || ollamaBase}\`${fallbackNote}\n\n` +
+                `${tryHint}\n\n` +
                 `_Error: ${lastErrorMsg}_`
             );
             setAiStatus('dead');
