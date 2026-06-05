@@ -435,8 +435,9 @@ const SymbolOutlinePane: React.FC = () => {
 const Sidebar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
     const isOpen = useStore(state => state.isSidebarOpen);
-    const { activeRoot, activeRootName, workspaceFolders, fileTree, refreshFileTree, setActiveRoot, addWorkspaceFolder, removeWorkspaceFolder, closeFolder, iconThemeMapping, tabs, activeTabId, setActiveTab, closeTab } = useStore(useShallow(s => ({
+    const { activeRoot, activeRootName, workspaceFolders, fileTree, fileTreeLoading, fileTreeError, refreshFileTree, setActiveRoot, addWorkspaceFolder, removeWorkspaceFolder, closeFolder, iconThemeMapping, tabs, activeTabId, setActiveTab, closeTab } = useStore(useShallow(s => ({
         activeRoot: s.activeRoot, activeRootName: s.activeRootName, workspaceFolders: s.workspaceFolders, fileTree: s.fileTree,
+        fileTreeLoading: s.fileTreeLoading, fileTreeError: s.fileTreeError,
         refreshFileTree: s.refreshFileTree, setActiveRoot: s.setActiveRoot, addWorkspaceFolder: s.addWorkspaceFolder, removeWorkspaceFolder: s.removeWorkspaceFolder, closeFolder: s.closeFolder,
         iconThemeMapping: s.iconThemeMapping, tabs: s.tabs, activeTabId: s.activeTabId,
         setActiveTab: s.setActiveTab, closeTab: s.closeTab,
@@ -446,8 +447,8 @@ const Sidebar: React.FC = () => {
         try {
             const folder = await invoke<string | null>('open_folder');
             if (folder) {
+                setActiveRoot(folder);
                 await addWorkspaceFolder(folder);
-                await refreshFileTree();
             }
         } catch (error) {
             console.error('Open Folder Error:', error);
@@ -459,7 +460,11 @@ const Sidebar: React.FC = () => {
             const folder = await invoke<string | null>('open_folder');
             if (folder) {
                 await addWorkspaceFolder(folder);
-                await refreshFileTree();
+                if (!activeRoot) {
+                    setActiveRoot(folder);
+                } else {
+                    await refreshFileTree();
+                }
             }
         } catch (error) {
             console.error('Add Folder Error:', error);
@@ -471,6 +476,12 @@ const Sidebar: React.FC = () => {
         : activeRoot
             ? [{ path: activeRoot, name: activeRootName || 'workspace' }]
             : [];
+
+    useEffect(() => {
+        if (activeRoot && fileTree.length === 0 && !fileTreeLoading && !fileTreeError) {
+            void refreshFileTree();
+        }
+    }, [activeRoot, fileTree.length, fileTreeLoading, fileTreeError, refreshFileTree]);
 
     useEffect(() => {
         const menu = document.getElementById('context-menu');
@@ -651,7 +662,22 @@ const Sidebar: React.FC = () => {
                             {/* This div fills the pane-content flex container */}
                             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 }}>
                                 {activeRoot ? (
-                                    fileTree.length > 0 ? (
+                                    fileTreeLoading ? (
+                                        <div style={{ padding: '10px 20px', fontSize: '12px', opacity: 0.5 }}>Loading folder…</div>
+                                    ) : fileTreeError ? (
+                                        <div style={{ padding: '12px 16px', fontSize: '12px' }}>
+                                            <div style={{ color: '#f87171', marginBottom: 8, wordBreak: 'break-word' }}>
+                                                Could not read folder: {fileTreeError}
+                                            </div>
+                                            <button
+                                                className="primary-button"
+                                                onClick={() => { void refreshFileTree(); }}
+                                                style={{ width: '100%', padding: '4px 8px', fontSize: '12px' }}
+                                            >
+                                                Retry
+                                            </button>
+                                        </div>
+                                    ) : fileTree.length > 0 ? (
                                         <VirtualizedFileTree entries={fileTree} iconThemeMapping={iconThemeMapping} />
                                     ) : (
                                         <div style={{ padding: '10px 20px', fontSize: '12px', opacity: 0.5 }}>Empty Directory</div>

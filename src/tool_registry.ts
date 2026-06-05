@@ -1138,7 +1138,7 @@ export const CreateDirectoryTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const SkillTool: ToolDef = {
     name: 'skill_execute',
-    description: `Execute a predefined skill or workflow. Skills are reusable task templates stored in .agent/skills/ directories.`,
+    description: `Execute a predefined skill or workflow. Skills live in .agent/skills/ or Claude-Red/Skills/ (e.g. offensive-sqli, offensive-xss, offensive-ssrf, offensive-active-directory). Auto-loaded in Bug Bounty mode; call explicitly for deep methodology.`,
     inputSchema: {
         type: 'object',
         properties: {
@@ -1154,13 +1154,40 @@ export const SkillTool: ToolDef = {
         required: ['skill_name'],
     },
     execute: async (input, ctx) => {
-        try {
-            const skillPath = `${ctx.activeRoot}/.agent/skills/${input.skill_name}/SKILL.md`;
-            const content = await invoke<string>('read_file', { path: skillPath });
-            return ok({ skill: input.skill_name, instructions: content });
-        } catch (e: any) {
-            return fail(`Skill not found: ${input.skill_name}`);
+        const name = String(input.skill_name || '').trim();
+        const candidates = [
+            `${ctx.activeRoot}/.agent/skills/${name}/SKILL.md`,
+            `${ctx.activeRoot}/Claude-Red/Skills/${name.replace(/^offensive-/, '')}/SKILL.md`,
+        ];
+        // Claude-Red nested layout: Skills/{category}/{skill-name}/SKILL.md
+        if (name.startsWith('offensive-')) {
+            candidates.push(`${ctx.activeRoot}/Claude-Red/Skills/**/${name}/SKILL.md`);
         }
+        for (const skillPath of candidates) {
+            if (skillPath.includes('**')) continue;
+            try {
+                const content = await invoke<string>('read_file', { path: skillPath });
+                return ok({ skill: name, path: skillPath, instructions: content });
+            } catch {
+                /* try next */
+            }
+        }
+        // Search Claude-Red manifest path
+        try {
+            const manifestRaw = await invoke<string>('read_file', {
+                path: `${ctx.activeRoot}/Claude-Red/claude-skills.json`,
+            });
+            const manifest = JSON.parse(manifestRaw);
+            const entry = (manifest.skills || []).find((s: any) => s.name === name);
+            if (entry?.path) {
+                const skillPath = `${ctx.activeRoot}/Claude-Red/${entry.path}`;
+                const content = await invoke<string>('read_file', { path: skillPath });
+                return ok({ skill: name, path: skillPath, instructions: content });
+            }
+        } catch {
+            /* fall through */
+        }
+        return fail(`Skill not found: ${name}. Try Claude-Red names like offensive-sqli, offensive-xss, offensive-ssrf.`);
     },
 };
 

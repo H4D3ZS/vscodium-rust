@@ -85,14 +85,9 @@ const App: React.FC = () => {
         else document.body.classList.add('is-web');
         // ----------------------------------------
 
-        const { refreshAvailableModels, setActiveRoot, activeRoot, refreshFileTree, setOllamaServerMode, ollamaServerMode } = useStore.getState();
-        // Re-apply the persisted Ollama server mode on every boot. This
-        // re-runs the auto-probe (if mode='auto') and re-pushes the
-        // resolved URL into the Rust engine, so the very first model
-        // call after launch hits the right endpoint instead of whatever
-        // stale URL `set_ollama_url` was last seeded with.
-        try { setOllamaServerMode(ollamaServerMode); } catch { /* non-fatal */ }
-        refreshAvailableModels();
+        const { refreshAvailableModels, setActiveRoot, activeRoot, refreshFileTree, syncOllamaEndpoint } = useStore.getState();
+        // Push resolved Ollama URL into Rust (cloud/local/self-hosted) before model refresh.
+        void syncOllamaEndpoint?.().then(() => refreshAvailableModels()).catch(() => refreshAvailableModels());
 
         // Default subscribed users to managed cloud model (Cyber-Ifrit Qwen 35B).
         invoke<any>('account_get').then((acct) => {

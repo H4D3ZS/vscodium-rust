@@ -327,7 +327,7 @@ const DependencyGraphView: React.FC = () => {
 
 // --- Main Component ---
 
-const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
+const VisualLabInner: React.FC<{ isInline?: boolean; editorOverlay?: boolean }> = ({ isInline, editorOverlay }) => {
     const isVisualLabOpen = useStore(state => state.isVisualLabOpen);
     const toggleVisualLab = useStore(state => state.toggleVisualLab);
     const visualLabMode = useStore(state => state.visualLabMode);
@@ -341,7 +341,17 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+    const [parseError, setParseError] = useState<string | null>(null);
     const { fitView } = useReactFlow();
+
+    const activeTabId = useStore(state => state.activeTabId);
+    const tabs = useStore(state => state.tabs);
+    const activeJsonTab = useMemo(() => {
+        const tab = tabs.find(t => t.id === activeTabId);
+        if (!tab || tab.type === 'settings' || tab.type === 'mcp-store') return null;
+        if (tab.language === 'json' || tab.path.toLowerCase().endsWith('.json')) return tab;
+        return null;
+    }, [tabs, activeTabId]);
 
     const isLargeGraph = nodes.length > 50;
 
@@ -446,8 +456,47 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
         }
     }, [visualLabMode, setNodes, setEdges, fitView]);
 
-    // Handle initial load and mode changes
+    const jsonSource = activeJsonTab?.content ?? visualLabData ?? '';
+
+    const loadJsonGraph = useCallback((content: string) => {
+        if (!content.trim()) {
+            setNodes([]);
+            setEdges([]);
+            setParseError(null);
+            return;
+        }
+        try {
+            const parsed = JSON.parse(content);
+            setParseError(null);
+            invoke('get_visual_graph', { data: parsed, format: 'json' })
+                .then((graph: any) => {
+                    setNodes(graph.nodes ?? []);
+                    setEdges(graph.edges ?? []);
+                    window.setTimeout(() => fitView({ padding: 0.15, duration: 600 }), 80);
+                })
+                .catch((err) => {
+                    console.error('JSON visualizer parse failed', err);
+                    setParseError('Could not build graph from this JSON.');
+                    setNodes([]);
+                    setEdges([]);
+                });
+        } catch {
+            setParseError('Invalid JSON — fix syntax in the editor to visualize.');
+            setNodes([]);
+            setEdges([]);
+        }
+    }, [setNodes, setEdges, fitView]);
+
+    // Live JSON sync in editor overlay (debounced).
     useEffect(() => {
+        if (!editorOverlay || isInline || visualLabMode !== 'json') return;
+        const handle = window.setTimeout(() => loadJsonGraph(jsonSource), 280);
+        return () => window.clearTimeout(handle);
+    }, [editorOverlay, isInline, visualLabMode, jsonSource, activeJsonTab?.id, loadJsonGraph]);
+
+    // Handle initial load and mode changes (overlay / inline only)
+    useEffect(() => {
+        if (editorOverlay && visualLabMode === 'json') return;
         if ((visualLabMode as any) === 'neural') {
             refreshNeuralGraph();
             return;
@@ -481,9 +530,9 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
                     }]);
                 });
         }
-    }, [visualLabData, visualLabMode, setNodes, setEdges, fitView, refreshNeuralGraph]);
+    }, [visualLabData, visualLabMode, setNodes, setEdges, fitView, refreshNeuralGraph, editorOverlay]);
 
-    // Listen for real-time memory updates from the AI Cortex
+    // Listen for real-time memory updates from the AI Cortex (overlay modes only)
     useEffect(() => {
         let unlisten: any;
         const setup = async () => {
@@ -495,8 +544,9 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
         return () => { if (unlisten) unlisten(); };
     }, [refreshNeuralGraph]);
 
-    if (!isVisualLabOpen) return null;
+    if (!isInline && !isVisualLabOpen) return null;
 
+    const isJsonOverlay = editorOverlay && visualLabMode === 'json';
     return (
         <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -504,12 +554,12 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
             style={{
-                position: isInline ? 'relative' : 'fixed',
-                top: isInline ? '0' : (isFullScreen ? '0' : '40px'),
-                left: isInline ? '0' : (isFullScreen ? '0' : '60px'),
-                right: isInline ? '0' : (isFullScreen ? '0' : '12px'),
-                bottom: isInline ? '0' : (isFullScreen ? '0' : '12px'),
-                zIndex: isFullScreen ? 99999 : 5000,
+                position: isFullScreen ? 'fixed' : (isInline || editorOverlay ? 'absolute' : 'fixed'),
+                top: isFullScreen ? '0' : (isInline || editorOverlay ? '0' : '40px'),
+                left: isFullScreen ? '0' : (isInline || editorOverlay ? '0' : '60px'),
+                right: isFullScreen ? '0' : (isInline || editorOverlay ? '0' : '12px'),
+                bottom: isFullScreen ? '0' : (isInline || editorOverlay ? '0' : '12px'),
+                zIndex: isFullScreen ? 99999 : (editorOverlay ? 200 : 5000),
                 background: 'var(--vscode-editor-background, #0f0f0f)',
                 borderRadius: (isFullScreen || isInline) ? '0' : '12px',
                 border: isFullScreen ? 'none' : '1px solid rgba(255, 255, 255, 0.05)',
@@ -540,10 +590,14 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
                     }}>
                         <Brain size={18} color="#fff" />
                     </div>
-                    <span style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '-0.2px' }}>Visual Lab</span>
+                    <span style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '-0.2px' }}>
+                        {isJsonOverlay ? 'JSON Visualizer' : 'Visual Lab'}
+                    </span>
                 </div>
 
                 <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                    {!isJsonOverlay && (
+                        <>
                     <ModeToggle
                         active={visualLabMode === 'json'}
                         onClick={() => setVisualLabMode('json')}
@@ -574,6 +628,13 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
                         icon={<Cpu size={14} />}
                         label="Dep Graph"
                     />
+                        </>
+                    )}
+                    {isJsonOverlay && (
+                        <span style={{ fontSize: 11, opacity: 0.45, alignSelf: 'center' }}>
+                            Pan and zoom to explore — graph updates as you edit JSON
+                        </span>
+                    )}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -732,7 +793,16 @@ const VisualLabInner: React.FC<{ isInline?: boolean }> = ({ isInline }) => {
 
                         {/* Graph Canvas */}
                         <div style={{ flex: 1, position: 'relative' }}>
-                            {nodes.length === 0 && (
+                            {parseError && (
+                                <div style={{
+                                    position: 'absolute', top: 8, left: 8, right: 8, zIndex: 15,
+                                    padding: '6px 10px', borderRadius: 6, fontSize: 11,
+                                    background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171',
+                                }}>
+                                    {parseError}
+                                </div>
+                            )}
+                            {nodes.length === 0 && !parseError && (
                                 <div style={{
                                     position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
                                     alignItems: 'center', justifyContent: 'center', zIndex: 10,
@@ -957,9 +1027,9 @@ const AiBuilderModal = ({ isOpen, onClose, onGenerate }: any) => {
     );
 };
 
-const VisualLab: React.FC<{ isInline?: boolean }> = ({ isInline }) => (
+const VisualLab: React.FC<{ isInline?: boolean; editorOverlay?: boolean }> = ({ isInline, editorOverlay }) => (
     <ReactFlowProvider>
-        <VisualLabInner isInline={isInline} />
+        <VisualLabInner isInline={isInline} editorOverlay={editorOverlay} />
     </ReactFlowProvider>
 );
 

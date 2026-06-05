@@ -19,7 +19,10 @@ export async function restoreWorkspaceOnBoot(
 ): Promise<void> {
     const fallback = async () => {
         const backend = await repo.getBackendRoot();
-        if (backend) callbacks.setActiveRoot(workspacePathToString(backend));
+        if (backend) {
+            callbacks.setActiveRoot(workspacePathToString(backend));
+            await callbacks.refreshFileTree();
+        }
     };
 
     const parsed = parseWorkspacePath(persistedRoot);
@@ -33,19 +36,22 @@ export async function restoreWorkspaceOnBoot(
         if (!exists) {
             console.warn('[restoreWorkspaceOnBoot] path gone:', workspacePathToString(parsed));
             callbacks.clearPersistedRoot();
-            useStore.setState({ activeRoot: null, activeRootName: null, fileTree: [] });
+            useStore.setState({ activeRoot: null, activeRootName: null, fileTree: [], fileTreeError: null });
             await fallback();
             return;
         }
-        await repo.setActiveRoot(parsed);
+
+        const pathStr = workspacePathToString(parsed);
+        callbacks.setActiveRoot(pathStr);
+        // setActiveRoot kicks off refresh asynchronously; await explicit reload with path sync.
         await callbacks.refreshFileTree();
         import('../lsp/bootstrapLanguageServer').then(m =>
-            m.bootstrapLanguageServer(workspacePathToString(parsed)),
+            m.bootstrapLanguageServer(pathStr),
         );
     } catch (err) {
         console.warn('[restoreWorkspaceOnBoot] failed — fallback:', err);
         callbacks.clearPersistedRoot();
-        useStore.setState({ activeRoot: null, activeRootName: null, fileTree: [] });
+        useStore.setState({ activeRoot: null, activeRootName: null, fileTree: [], fileTreeError: null });
         await fallback();
     }
 }

@@ -9,6 +9,8 @@ export interface EditorSlice {
     activeTabId: string | null;
     tabs: EditorTab[];
     fileTree: FileEntry[];
+    fileTreeLoading: boolean;
+    fileTreeError: string | null;
     activeEditorPath: string;
     activeRoot: string | null;
     activeRootName: string | null;
@@ -48,6 +50,7 @@ export interface EditorSlice {
     removeRecentWorkspace: (path: string) => void;
     getFlattenedFiles: () => FileEntry[];
     openSettings: (tab?: 'user' | 'workspace' | 'agent') => void;
+    openMcpStore: (view?: 'store' | 'manage') => void;
     navigateBack: () => void;
     navigateForward: () => void;
     setSplitEditorTab: (tabId: string | null) => void;
@@ -85,6 +88,8 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     activeTabId: null,
     tabs: [],
     fileTree: [],
+    fileTreeLoading: false,
+    fileTreeError: null,
     activeEditorPath: '',
     activeRoot: localStorage.getItem('activeRoot') || null,
     activeRootName: localStorage.getItem('activeRootName') || null,
@@ -143,7 +148,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
             })();
             const updated = [{ path: cleaned, name, openedAt: Date.now() }, ...existing.filter(r => r.path !== cleaned)].slice(0, 10);
             try { localStorage.setItem('recentWorkspaces', JSON.stringify(updated)); } catch { }
-            set({ activeRoot: cleaned, activeRootName: name, recentWorkspaces: updated });
+            set({ activeRoot: cleaned, activeRootName: name, recentWorkspaces: updated, fileTreeError: null });
             invoke('set_active_root', { path: cleaned })
                 .then(() => {
                     get().refreshFileTree();
@@ -158,7 +163,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
                     console.warn('[store] set_active_root rejected:', err);
                     localStorage.removeItem('activeRoot');
                     localStorage.removeItem('activeRootName');
-                    set({ activeRoot: null, activeRootName: null, fileTree: [], activeProjectSpec: null });
+                    set({ activeRoot: null, activeRootName: null, fileTree: [], fileTreeError: null, activeProjectSpec: null });
                 });
         } else {
             localStorage.removeItem('activeRoot');
@@ -271,6 +276,15 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         if (settingsTab) { set({ activeTabId: settingsTab.id }); return; }
         const id = 'settings-tab';
         const newTab: EditorTab = { id, filename: 'Settings', path: 'vscode://settings', content: '', isModified: false, language: '', type: 'settings' };
+        set((state) => ({ tabs: [...state.tabs, newTab], activeTabId: id }));
+    },
+
+    openMcpStore: (view = 'store') => {
+        try { sessionStorage.setItem('mcpStore.view', view); } catch { }
+        const existing = get().tabs.find((t: any) => t.type === 'mcp-store');
+        if (existing) { set({ activeTabId: existing.id }); return; }
+        const id = 'mcp-store-tab';
+        const newTab: EditorTab = { id, filename: 'MCP Store', path: 'vscode://mcp-store', content: '', isModified: false, language: '', type: 'mcp-store' };
         set((state) => ({ tabs: [...state.tabs, newTab], activeTabId: id }));
     },
 

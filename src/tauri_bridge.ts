@@ -20,6 +20,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // Provide some basic mock responses for common commands to help UI testing
     if (cmd === 'open_folder') return Promise.resolve(null as any);
     if (cmd === 'list_directory') return Promise.resolve([] as any);
+    if (cmd === 'get_file_tree') return Promise.resolve([] as any);
     if (cmd === 'get_settings') return Promise.resolve({ theme: 'vs-dark', font_size: 14 } as any);
     if (cmd === 'get_config_path') return Promise.resolve('/mock/config.json' as any);
     if (cmd === 'ai_chat') return Promise.resolve("Hello! I am your VSCODE AI assistant. How can I help you today?") as any;

@@ -479,6 +479,10 @@ pub fn run() {
             mcp_commands::remove_mcp_server,
             mcp_commands::list_mcp_servers,
             mcp_commands::set_mcp_server_enabled,
+            mcp_commands::get_mcp_config_path,
+            mcp_commands::list_mcp_tools,
+            mcp_commands::read_mcp_config,
+            mcp_commands::write_mcp_config,
             // ═══ System ═══
             system_commands::backend_ping,
             system_commands::respond_tool_permission,

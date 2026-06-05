@@ -1694,6 +1694,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             content: t.path === storeState.activeEditorPath ? t.content : undefined,
         })),
         agentMode: storeState.agentMode || 'Execution',
+        userPrompt,
         projectMemory: storeState.projectMemory || undefined,
         attachedContext: resolvedContext,
         kortexBrain,

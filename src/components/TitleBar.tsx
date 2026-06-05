@@ -52,6 +52,7 @@ interface MenuEntry {
     shortcut?: string;
     separator?: boolean;
     disabled?: boolean;
+    submenu?: boolean;
 }
 
 interface Menu {
@@ -63,16 +64,17 @@ const menus: Menu[] = [
     {
         label: 'File',
         items: [
-            { label: 'New File', shortcut: 'Ctrl+N' },
-            { label: 'New Folder' },
+            { label: 'New Text File', shortcut: 'Ctrl+N' },
             { label: 'New Window', shortcut: 'Ctrl+Shift+N' },
+            { label: 'New Agents Window' },
             { separator: true, label: '' },
-            { label: 'Open...', shortcut: 'Ctrl+K Ctrl+O' },
-            { label: 'Open Workspace...' },
+            { label: 'Open Folder...', shortcut: 'Ctrl+K Ctrl+O' },
+            { label: 'Add Folder to Workspace...' },
             { separator: true, label: '' },
             { label: 'Save', shortcut: 'Ctrl+S' },
             { label: 'Save As...', shortcut: 'Ctrl+Shift+S' },
             { label: 'Save All', shortcut: 'Ctrl+K S' },
+            { label: 'Save Workspace As...' },
             { separator: true, label: '' },
             { label: 'Close Editor', shortcut: 'Ctrl+W' },
             { label: 'Close Folder' },
@@ -124,7 +126,7 @@ const menus: Menu[] = [
             { label: 'Mobile Emulators' },
             { label: 'Launch External Browser', shortcut: 'Ctrl+Shift+U' },
             { label: 'Security Review', shortcut: 'Ctrl+Shift+Alt+R' },
-            { label: 'Visual Lab' },
+            { label: 'Visual Lab', shortcut: 'Ctrl+Shift+J' },
             { label: 'Toggle Terminal', shortcut: 'Ctrl+`' },
             { label: 'Toggle Sidebar', shortcut: 'Ctrl+B' },
             { separator: true, label: '' },
@@ -186,6 +188,7 @@ function executeMenuAction(item: string) {
 
     switch (item) {
         // ── File ──────────────────────────────────────────────────────────
+        case 'New Text File':
         case 'New File':
             exec?.('explorer.newFile');
             break;
@@ -200,11 +203,20 @@ function executeMenuAction(item: string) {
                 alert('New Window is only supported in the Tauri desktop shell.');
             }
             break;
+        case 'New Agents Window':
+            store.openAiriPanel?.();
+            void store.createNewSession?.();
+            break;
+        case 'Open Folder...':
         case 'Open...':
             exec?.('explorer.openFolder');
             break;
+        case 'Add Folder to Workspace...':
         case 'Open Workspace...':
-            exec?.('explorer.openFolder');
+            exec?.('explorer.addFolderToWorkspace');
+            break;
+        case 'Save Workspace As...':
+            exec?.('workbench.action.saveWorkspaceAs');
             break;
         case 'Save':
             exec?.('workbench.action.files.save');
@@ -356,7 +368,7 @@ function executeMenuAction(item: string) {
             exec?.('security.action.runCodebaseReview');
             break;
         case 'Visual Lab':
-            exec?.('workbench.action.openVisualLab');
+            exec?.('workbench.view.jsonVisualizer');
             break;
         case 'Toggle Terminal':
             store.toggleBottomPanel();
@@ -603,10 +615,12 @@ const TitleBar: React.FC = () => {
                                                 className={`menu-dropdown-item ${item.disabled ? 'disabled' : ''}`}
                                                 onClick={() => handleItemClick(item)}
                                             >
-                                                <span>{item.label}</span>
-                                                {item.shortcut && (
+                                                <span className="menu-dropdown-label">{item.label}</span>
+                                                {item.submenu ? (
+                                                    <span className="menu-submenu-arrow">›</span>
+                                                ) : item.shortcut ? (
                                                     <span className="menu-shortcut">{item.shortcut}</span>
-                                                )}
+                                                ) : null}
                                             </div>
                                         )
                                     )}

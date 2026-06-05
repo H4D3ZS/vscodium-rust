@@ -7,6 +7,7 @@ import type { AvatarState } from './agent/SentientAvatar';
 import ChatInput from './chat/ChatInput';
 import ChatToolbar from './chat/ChatToolbar';
 import ChatMessageList from './chat/ChatMessageList';
+import AgentMcpMenu from './agent/AgentMcpMenu';
 import type { AgentMessage } from '../store';
 import type { AgentStudioSubView } from '../domain/agentStudio/AgentStudioSubView';
 
@@ -1904,6 +1905,7 @@ const RightSidebar: React.FC = () => {
                         >
                             <i className="codicon codicon-eye" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }}></i>
                         </div>
+                        <AgentMcpMenu />
                         <div
                             onClick={() => useStore.getState().openSettings('agent')}
                             style={{ cursor: 'pointer', opacity: 0.7, display: 'flex', alignItems: 'center' }}

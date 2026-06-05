@@ -175,6 +175,7 @@ Use Void as the reference for clean service boundaries:
 - Send message service in backend/main process
 - Tool registry
 - MCP server registry
+- **Antigravity MCP Store** — curated install UI + `mcpServers` JSON config (see `docs/MCP_STORE.md`, `src/components/McpStorePanel.tsx`, `src/components/agent/AgentMcpMenu.tsx`)
 - Cost, latency, and context policy per model
 
 Existing fit:

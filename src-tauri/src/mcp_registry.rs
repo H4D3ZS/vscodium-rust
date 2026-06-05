@@ -223,6 +223,9 @@ impl McpRegistry {
         cfg.mcp_servers.insert(name, config);
 
         let content = serde_json::to_string_pretty(&*cfg)?;
+        if let Some(parent) = self.config_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         std::fs::write(&self.config_path, content)?;
 
         Ok(())
@@ -236,6 +239,9 @@ impl McpRegistry {
         cfg.mcp_servers.remove(name);
 
         let content = serde_json::to_string_pretty(&*cfg)?;
+        if let Some(parent) = self.config_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         std::fs::write(&self.config_path, content)?;
 
         Ok(())
@@ -251,5 +257,56 @@ impl McpRegistry {
             }));
         }
         status_list
+    }
+
+    pub fn config_path(&self) -> &std::path::Path {
+        &self.config_path
+    }
+
+    fn default_config_text() -> String {
+        serde_json::to_string_pretty(&McpConfig {
+            mcp_servers: std::collections::HashMap::new(),
+        })
+        .unwrap_or_else(|_| "{\n  \"mcpServers\": {}\n}".to_string())
+    }
+
+    fn ensure_config_file(&self) -> Result<()> {
+        if let Some(parent) = self.config_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if !self.config_path.exists() {
+            std::fs::write(&self.config_path, Self::default_config_text())?;
+        }
+        Ok(())
+    }
+
+    /// Read on-disk MCP config for the raw editor (Antigravity: View raw config).
+    pub fn read_config_text(&self) -> Result<String> {
+        self.ensure_config_file()?;
+        let content = std::fs::read_to_string(&self.config_path)?;
+        if content.trim().is_empty() {
+            return Ok(Self::default_config_text());
+        }
+        Ok(content)
+    }
+
+    /// Parse, persist, and reload running MCP clients from edited JSON.
+    pub async fn write_config_text(&self, text: &str) -> Result<()> {
+        let parsed: McpConfig = serde_json::from_str(text)
+            .map_err(|e| anyhow::anyhow!("Invalid MCP JSON: {}", e))?;
+        self.ensure_config_file()?;
+        let pretty = serde_json::to_string_pretty(&parsed)?;
+        std::fs::write(&self.config_path, &pretty)?;
+
+        {
+            let mut servers = self.servers.write().await;
+            servers.clear();
+        }
+        {
+            let mut cfg = self.config.write().await;
+            *cfg = parsed;
+        }
+        self.initialize_servers().await?;
+        Ok(())
     }
 }

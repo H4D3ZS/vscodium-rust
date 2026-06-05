@@ -52,32 +52,38 @@ pub async fn list_dir_flat(path: PathBuf) -> Result<Vec<FileEntry>, String> {
     let mut tree = Vec::new();
     let ignore_list = get_ignore_patterns();
 
-    if let Ok(entries) = fs::read_dir(&path) {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let entry_path = entry.path();
-            let name = entry_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
+    if !path.is_dir() {
+        return Err(format!("Not a directory: {}", path.display()));
+    }
 
-            if name.is_empty() || ignore_list.iter().any(|&p| name == p) {
-                continue;
-            }
+    let entries = fs::read_dir(&path).map_err(|e| {
+        format!("Failed to read directory {}: {}", path.display(), e)
+    })?;
 
-            let is_dir = match entry.metadata().or_else(|_| fs::metadata(&entry_path)) {
-                Ok(m) => m.is_dir(),
-                Err(_) => continue,
-            };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let entry_path = entry.path();
+        let name = entry_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
 
-            tree.push(FileEntry {
-                name,
-                path: entry_path.to_string_lossy().to_string(),
-                is_dir,
-                is_expanded: Some(false),
-                children: None,
-            });
+        if name.is_empty() || ignore_list.iter().any(|&p| name == p) {
+            continue;
         }
+
+        let is_dir = match entry.metadata().or_else(|_| fs::metadata(&entry_path)) {
+            Ok(m) => m.is_dir(),
+            Err(_) => continue,
+        };
+
+        tree.push(FileEntry {
+            name,
+            path: entry_path.to_string_lossy().to_string(),
+            is_dir,
+            is_expanded: Some(false),
+            children: None,
+        });
     }
 
     tree.sort_by(|a, b| {
@@ -92,10 +98,30 @@ pub async fn list_dir_flat(path: PathBuf) -> Result<Vec<FileEntry>, String> {
 }
 
 #[tauri::command]
-pub async fn get_file_tree(state: State<'_, EditorState>) -> Result<Vec<FileEntry>, String> {
-    let root = {
-        let root_guard = state.active_root.lock().await;
-        root_guard
+pub async fn get_file_tree(
+    state: State<'_, EditorState>,
+    path: Option<String>,
+) -> Result<Vec<FileEntry>, String> {
+    let root = if let Some(raw) = path {
+        let cleaned = raw.split('\0').next().unwrap_or("").trim().to_string();
+        if cleaned.is_empty() {
+            return Err("Empty workspace path".to_string());
+        }
+        let path_buf = PathBuf::from(&cleaned);
+        if !path_buf.is_dir() {
+            return Err(format!("Not a directory: {}", cleaned));
+        }
+        {
+            let mut root_guard = state.active_root.lock().await;
+            *root_guard = Some(path_buf.clone());
+        }
+        state.ai_engine.set_root_path(path_buf.clone());
+        path_buf
+    } else {
+        state
+            .active_root
+            .lock()
+            .await
             .clone()
             .ok_or_else(|| "No project open".to_string())?
     };
@@ -104,7 +130,7 @@ pub async fn get_file_tree(state: State<'_, EditorState>) -> Result<Vec<FileEntr
 
 #[tauri::command]
 pub async fn refresh_file_tree(state: State<'_, EditorState>) -> Result<Vec<FileEntry>, String> {
-    get_file_tree(state).await
+    get_file_tree(state, None).await
 }
 
 #[tauri::command]

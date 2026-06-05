@@ -19,16 +19,18 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({ activeTab, activeFilePend
     const isMongo = activeTab.path.endsWith('.mongodb');
     const showVisualLab = activeTab.language === 'json' || activeTab.path.endsWith('.json') || isSql || isMongo;
 
+    const openVisualizer = () => {
+        setVisualLabData(activeTab.content);
+        setVisualLabMode(isSql ? 'erd' : 'json');
+        toggleVisualLab(true);
+    };
+
     return (
         <>
             {/* Visual Lab Quick Action */}
             {showVisualLab && (
                 <button
-                    onClick={() => {
-                        setVisualLabData(activeTab.content);
-                        setVisualLabMode(isSql ? 'erd' : 'json');
-                        toggleVisualLab(true);
-                    }}
+                    onClick={openVisualizer}
                     style={{
                         position: 'absolute', top: '10px', right: '40px', zIndex: 100,
                         background: isSql ? 'rgba(16,185,129,0.15)' : 'rgba(168,85,247,0.15)',

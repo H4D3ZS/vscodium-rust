@@ -8,7 +8,7 @@ export interface InferenceSlice {
     ollamaStatus: 'idle' | 'checking' | 'running' | 'error';
     ollamaConnectionMode: 'proxy' | 'direct';
     ollamaMode: 'local' | 'cloud' | 'auto';
-    ollamaServerMode: 'local' | 'remote' | 'auto';
+    ollamaServerMode: 'local' | 'cloud' | 'remote';
     customOllamaUrl: string;
     llamaCppUrl: string;
     llamaCppStatus: 'idle' | 'checking' | 'running' | 'error';
@@ -41,8 +41,9 @@ export interface InferenceSlice {
 
     setOllamaUrl: (url: string) => void;
     setOllamaConnectionMode: (mode: 'proxy' | 'direct') => void;
-    setOllamaServerMode: (mode: 'local' | 'remote' | 'auto') => void;
+    setOllamaServerMode: (mode: 'local' | 'cloud' | 'remote') => void;
     setCustomOllamaUrl: (url: string) => void;
+    syncOllamaEndpoint: () => Promise<void>;
     checkOllamaStatus: () => Promise<void>;
     pullOllamaModel: (name: string) => Promise<void>;
     setInferenceBackend: (backend: 'ollama' | 'llama-cpp' | 'openai') => void;
@@ -78,27 +79,49 @@ export interface InferenceSlice {
     setAwsBedrockEndpoint: (v: string) => void;
 }
 
-const DEAD_OLLAMA_HOSTS = ['ai.cyberifrit.xyz'];
+/** Managed Cyber-Ifrit cloud Ollama (AMD MI300X gateway). */
+export const CYBERIFRIT_CLOUD_OLLAMA_URL = 'https://ai.cyberifrit.xyz';
+const LOCAL_OLLAMA_URL = 'http://127.0.0.1:11434';
 
 function readStoredOllamaUrl(): string {
     try {
-        if (typeof localStorage === 'undefined') return 'http://127.0.0.1:11434';
+        if (typeof localStorage === 'undefined') return LOCAL_OLLAMA_URL;
         const raw = (localStorage.getItem('ollamaUrl') || '').trim();
-        if (!raw) return 'http://127.0.0.1:11434';
-        for (const dead of DEAD_OLLAMA_HOSTS) {
-            if (raw.includes(dead)) { try { localStorage.removeItem('ollamaUrl'); } catch { } return 'http://127.0.0.1:11434'; }
-        }
-        return raw;
-    } catch { return 'http://127.0.0.1:11434'; }
+        if (!raw) return LOCAL_OLLAMA_URL;
+        return normalizeOllamaUrl(raw);
+    } catch { return LOCAL_OLLAMA_URL; }
 }
 
+function readStoredOllamaServerMode(): 'local' | 'cloud' | 'remote' {
+    try {
+        const raw = localStorage.getItem('ollamaServerMode');
+        if (raw === 'auto') return 'cloud';
+        if (raw === 'local' || raw === 'cloud' || raw === 'remote') return raw;
+    } catch { /* ignore */ }
+    return 'local';
+}
+
+function resolveOllamaUrlForMode(mode: 'local' | 'cloud' | 'remote', customUrl: string): string {
+    if (mode === 'local') return LOCAL_OLLAMA_URL;
+    if (mode === 'cloud') return CYBERIFRIT_CLOUD_OLLAMA_URL;
+    const trimmed = customUrl.trim();
+    return trimmed ? normalizeOllamaUrl(trimmed) : LOCAL_OLLAMA_URL;
+}
+
+function readInitialCustomOllamaUrl(): string {
+    try { return localStorage.getItem('customOllamaUrl') || ''; } catch { return ''; }
+}
+
+const _initialOllamaMode = readStoredOllamaServerMode();
+const _initialCustomOllama = readInitialCustomOllamaUrl();
+
 export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice> = (set, get) => ({
-    ollamaUrl: normalizeOllamaUrl(readStoredOllamaUrl()),
+    ollamaUrl: resolveOllamaUrlForMode(_initialOllamaMode, _initialCustomOllama),
     ollamaStatus: 'idle',
     ollamaConnectionMode: (localStorage.getItem('ollamaConnectionMode') as 'proxy' | 'direct') || 'proxy',
-    ollamaMode: (localStorage.getItem('ollamaMode') as 'local' | 'cloud' | 'auto') || 'auto',
-    ollamaServerMode: (() => { try { return (localStorage.getItem('ollamaServerMode') as 'local' | 'remote' | 'auto') || 'local'; } catch { return 'local'; } })(),
-    customOllamaUrl: (() => { try { return localStorage.getItem('customOllamaUrl') || ''; } catch { return ''; } })(),
+    ollamaMode: _initialOllamaMode === 'local' ? 'local' : 'cloud',
+    ollamaServerMode: _initialOllamaMode,
+    customOllamaUrl: _initialCustomOllama,
     llamaCppUrl: localStorage.getItem('llamaCppUrl') || 'http://localhost:8081',
     llamaCppStatus: 'idle',
     llamaCppModelPath: localStorage.getItem('llamaCppModelPath') || '',
@@ -148,41 +171,34 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
         try { localStorage.setItem('ollamaConnectionMode', mode); localStorage.setItem('ollamaUrl', url); } catch { }
     },
     setOllamaServerMode: (mode) => {
-        const LOCAL = 'http://127.0.0.1:11434';
-        const custom = (get().customOllamaUrl || '').trim();
-        const remote = custom ? normalizeOllamaUrl(custom) : '';
-        const resolveAuto = async (): Promise<string> => {
-            if (!remote) return LOCAL;
-            try {
-                const ctrl = new AbortController();
-                const t = setTimeout(() => ctrl.abort(), 3000);
-                const r = await fetch(`${remote.replace(/\/$/, '')}/api/tags`, { method: 'GET', signal: ctrl.signal });
-                clearTimeout(t);
-                if (r.ok || r.status === 401) return remote;
-            } catch { }
-            return LOCAL;
-        };
-        let initialUrl = LOCAL;
-        if (mode === 'remote' && remote) initialUrl = remote;
-        set({ ollamaServerMode: mode, ollamaUrl: initialUrl });
-        try { localStorage.setItem('ollamaServerMode', mode); localStorage.setItem('ollamaUrl', initialUrl); } catch { }
-        (async () => {
-            let finalUrl = initialUrl;
-            if (mode === 'auto') {
-                finalUrl = await resolveAuto();
-                if (finalUrl !== initialUrl) { set({ ollamaUrl: finalUrl }); try { localStorage.setItem('ollamaUrl', finalUrl); } catch { } }
-            }
-            try { await invoke('set_ollama_url', { url: finalUrl }); } catch { }
-            try { await get().refreshAvailableModels?.('ollama'); } catch { }
-            try { await get().checkOllamaStatus?.(); } catch { }
-        })();
+        const custom = get().customOllamaUrl || '';
+        const url = resolveOllamaUrlForMode(mode, custom);
+        if (get().ollamaServerMode === mode && get().ollamaUrl === url) return;
+        set({ ollamaServerMode: mode, ollamaUrl: url, ollamaMode: mode === 'local' ? 'local' : 'cloud' });
+        try {
+            localStorage.setItem('ollamaServerMode', mode);
+            localStorage.setItem('ollamaUrl', url);
+            if (mode === 'cloud') localStorage.setItem('customOllamaUrl', CYBERIFRIT_CLOUD_OLLAMA_URL);
+        } catch { /* ignore */ }
+        void get().syncOllamaEndpoint?.();
+    },
+    syncOllamaEndpoint: async () => {
+        const mode = get().ollamaServerMode;
+        const url = resolveOllamaUrlForMode(mode, get().customOllamaUrl || '');
+        set({ ollamaUrl: url, ollamaMode: mode === 'local' ? 'local' : 'cloud' });
+        try {
+            localStorage.setItem('ollamaUrl', url);
+            localStorage.setItem('ollamaServerMode', mode);
+        } catch { /* ignore */ }
+        try { await invoke('set_ollama_url', { url }); } catch (e) { console.warn('[Ollama] set_ollama_url failed:', e); }
+        try { await get().refreshAvailableModels?.('ollama'); } catch { /* ignore */ }
+        try { await get().checkOllamaStatus?.(); } catch { /* ignore */ }
     },
     setCustomOllamaUrl: (url) => {
         const trimmed = url.trim();
         set({ customOllamaUrl: trimmed });
         try { localStorage.setItem('customOllamaUrl', trimmed); } catch { }
-        const mode = get().ollamaServerMode;
-        if (mode === 'remote' || mode === 'auto') get().setOllamaServerMode?.(mode);
+        if (get().ollamaServerMode === 'remote') get().setOllamaServerMode?.('remote');
     },
     checkOllamaStatus: async () => {
         set({ ollamaStatus: 'checking' });
