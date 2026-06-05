@@ -1,8 +1,7 @@
-import React, { useEffect, useState, useRef, useMemo, useCallback, Suspense, lazy } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback, Suspense, lazy, memo } from 'react';
 import { useStore } from '../store';
 import type { FileEntry } from '../store';
 import { invoke } from '../tauri_bridge';
-import MissionControl from './agent/MissionControl';
 import CheckpointTimeline from './CheckpointTimeline';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
@@ -10,7 +9,7 @@ import ChatInput from './chat/ChatInput';
 import ChatToolbar from './chat/ChatToolbar';
 import ChatMessageList from './chat/ChatMessageList';
 import type { AgentMessage } from '../store';
-import { Check, Activity, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+import type { AgentStudioSubView } from '../domain/agentStudio/AgentStudioSubView';
 
 let voiceModule: typeof import('../voice') | null = null;
 async function getVoice() {
@@ -21,10 +20,8 @@ async function getVoice() {
 // Lazy-load heavy panels — only load Three.js/VRM/Emulator code when the
 // user actually opens those tabs. Keeps initial renderer RAM under 250MB.
 const AiriPanel = lazy(() => import('./AiriPanel').then(m => ({ default: m.AiriPanel })));
-const ResearchCenter = lazy(() => import('./agent/ResearchCenter'));
 const UnifiedEmulatorPanel = lazy(() => import('./UnifiedEmulatorPanel'));
-const SpecsManager = lazy(() => import('./SpecsManager'));
-const RulesManager = lazy(() => import('./RulesManager'));
+const AgentStudioPanel = lazy(() => import('./agentStudio/AgentStudioPanel'));
 
 
 // ── Restore-checkpoint banner ────────────────────────────────────────────
@@ -241,7 +238,7 @@ const TaskRoadmap: React.FC = () => {
                 ))}
             </div>
             <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Activity size={12} style={{ color: 'var(--vscode-focusBorder, #007acc)' }} className="animate-pulse" />
+                <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 12, color: 'var(--vscode-focusBorder, #007acc)' }} />
                 <span style={{ fontWeight: 600, fontSize: '9.5px', color: 'rgba(255,255,255,0.85)' }}>{status}</span>
             </div>
         </div>
@@ -329,7 +326,7 @@ const ReasoningToggle: React.FC = () => {
 
 // Compact strip listing any agent runs the user fired with `/bg <prompt>`
 // or via `runBackgroundAgent`. Doesn't block the main chat.
-const BackgroundAgentsTray: React.FC = () => {
+const BackgroundAgentsTray: React.FC = memo(() => {
     const bgAgents = useStore(state => state.backgroundAgents);
     const remove = useStore(state => state.removeBackgroundAgent);
     const runBackground = useStore(state => state.runBackgroundAgent);
@@ -353,7 +350,7 @@ const BackgroundAgentsTray: React.FC = () => {
 
     // Parallel/background agents are HIDDEN for now — not production-ready. Early-return
     // is placed AFTER all hooks (React rules). Flip the flag (or move to Settings) later.
-    const PARALLEL_AGENTS_ENABLED = false;
+    const PARALLEL_AGENTS_ENABLED = true;
     if (!PARALLEL_AGENTS_ENABLED) return null;
 
     return (
@@ -443,7 +440,7 @@ const BackgroundAgentsTray: React.FC = () => {
             </div>
         </div>
     );
-};
+});
 
 import OllamaProgressBar from './OllamaProgressBar';
 
@@ -565,9 +562,11 @@ const RightSidebar: React.FC = () => {
     // 'settings' is no longer a right-sidebar view — the gear opens the
     // unified Settings tab in the editor pane instead. We keep the union
     // narrow so renaming the right-sidebar views stays cheap.
-    const [view, setView] = useState<'chat' | 'emulator' | 'history' | 'dashboard' | 'research' | 'kortex' | 'specs' | 'rules' | 'manager'>('chat');
+    const [view, setView] = useState<'chat' | 'emulator' | 'history' | 'dashboard' | 'research' | 'kortex' | 'specs' | 'rules' | 'studio' | 'manager'>('chat');
+    const [studioSubView, setStudioSubView] = useState<AgentStudioSubView>('research');
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mode = useStore(state => state.agentMode);
+    const customModes = useStore(state => state.customModes);
     const model = useStore(state => state.agentModel);
     const webUiProviderKey = useMemo(() => {
         const lower = String(model || '').toLowerCase();
@@ -609,7 +608,28 @@ const RightSidebar: React.FC = () => {
         window.addEventListener('right-sidebar:set-view', handler);
         return () => window.removeEventListener('right-sidebar:set-view', handler);
     }, []);
+
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent<{ tab?: AgentStudioSubView; query?: string; url?: string }>).detail;
+            if (!detail?.tab) return;
+            setStudioSubView(detail.tab);
+            setView('studio');
+            if (detail.query || detail.url) {
+                window.dispatchEvent(new CustomEvent('manus:prefill', {
+                    detail: { query: detail.query, url: detail.url },
+                }));
+            }
+        };
+        window.addEventListener('ide:open-studio', handler);
+        return () => window.removeEventListener('ide:open-studio', handler);
+    }, []);
     const messages = useStore(state => state.agentMessages);
+    const agentThreads = useStore(state => state.agentThreads);
+    const activeAgentThreadId = useStore(state => state.activeAgentThreadId);
+    const createAgentThread = useStore(state => state.createAgentThread);
+    const closeAgentThread = useStore(state => state.closeAgentThread);
+    const setActiveAgentThread = useStore(state => state.setActiveAgentThread);
     const isAgentThinking = useStore(state => state.isAgentThinking);
     const isAgentPaused = useStore(state => state.isAgentPaused);
     const isYoloMode = useStore(state => state.isYoloMode);
@@ -667,6 +687,13 @@ const RightSidebar: React.FC = () => {
             refreshChatSessions();
         }
     }, [view, refreshChatSessions]);
+
+    useEffect(() => {
+        if (Object.keys(useStore.getState().agentThreads || {}).length === 0) {
+            createAgentThread('Chat 1');
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed one tab on first mount only
+    }, []);
 
     // Removed old localstorage WebUI account sync
 
@@ -1262,7 +1289,8 @@ const RightSidebar: React.FC = () => {
 
         if (isSpecModeActive && val) {
             setSpecsPrompt(val);
-            setView('specs');
+            setStudioSubView('specs');
+            setView('studio');
             if (overrideMsg === undefined) setInputValue('');
             return;
         }
@@ -1339,7 +1367,8 @@ const RightSidebar: React.FC = () => {
             console.log('[DIAG] onSend: messages added, sidebar state after store updates:', useStore.getState().isRightSidebarOpen);
 
             try {
-                const m = await import('../agent');
+                const { ensureAgentRuntime } = await import('../application/performance/ensureAgentRuntime');
+                await ensureAgentRuntime();
                 const { sendAgentTurn } = await import('../application/agent/sendAgentTurn');
                 await sendAgentTurn({ prompt: processedVal, context });
             } catch (err: any) {
@@ -1413,20 +1442,23 @@ const RightSidebar: React.FC = () => {
     // get file writes / command executions.
     const modeStyle = useMemo(() => {
         const m = (mode || '').toLowerCase();
-        const readOnly = m === 'chat' || m === 'planning' || m.includes('source control');
+        const customId = (mode || '').match(/^custom:(.+)$/i)?.[1];
+        const custom = customId ? customModes?.find((c: { id: string }) => c.id === customId) : null;
+        const displayMode = custom?.label || mode || 'Harness';
+        const readOnly = custom?.readOnly || m === 'chat' || m === 'planning' || m.includes('source control');
         const bug = m === 'bugbounty' || m === 'bug bounty';
-        const harness = m === 'harness';
+        const harness = m === 'harness' && !custom;
         const danger = m === 'sentient' || bug;
         return {
-            label: bug ? 'Bug Bounty' : (mode || 'Harness'),
+            label: bug ? 'Bug Bounty' : displayMode,
             color: readOnly ? '#f59e0b' : (danger ? '#ef4444' : (harness ? '#38bdf8' : '#10b981')),
             background: readOnly ? 'rgba(245,158,11,0.10)' : (danger ? 'rgba(239,68,68,0.10)' : (harness ? 'rgba(56,189,248,0.10)' : 'rgba(16,185,129,0.10)')),
             border: readOnly ? '1px solid rgba(245,158,11,0.35)' : (danger ? '1px solid rgba(239,68,68,0.35)' : (harness ? '1px solid rgba(56,189,248,0.35)' : '1px solid rgba(16,185,129,0.30)')),
             title: readOnly
-                ? `${mode} — READ-ONLY (no tool calls). Click to switch to Agent or Bug Bounty.`
-                : `${mode} — agent will write files and run commands. Click to change.`,
+                ? `${displayMode} — READ-ONLY (no tool calls). Click to switch mode.`
+                : `${displayMode} — agent will write files and run commands. Click to change.`,
         };
-    }, [mode]);
+    }, [mode, customModes]);
 
     const onModelClick = (e: React.MouseEvent) => {
         const target = e.currentTarget as HTMLElement;
@@ -1706,25 +1738,53 @@ const RightSidebar: React.FC = () => {
                     gap: 2,
                     flexShrink: 0,
                 }}>
-                    {/* Active session tab */}
-                    <div style={{
-                        display: 'flex', alignItems: 'center', gap: 4,
-                        padding: '3px 8px', borderRadius: '4px 4px 0 0',
-                        background: 'rgba(255,255,255,0.07)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderBottom: '1px solid var(--vscode-sideBar-background)',
-                        fontSize: 11, cursor: 'default',
-                        whiteSpace: 'nowrap', maxWidth: 140,
-                    }}>
-                        <i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 11, opacity: 0.7 }} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90, opacity: 0.9 }}>
-                            {messages.length > 0 ? (messages.find((m: any) => m.role === 'user')?.content?.slice(0, 20) || 'Chat') : 'New Chat'}
-                        </span>
-                    </div>
-                    {/* New chat button (Ctrl+T) */}
+                    {Object.values(agentThreads || {}).map((thread: any) => (
+                        <div
+                            key={thread.id}
+                            onClick={() => setActiveAgentThread(thread.id)}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                padding: '3px 6px 3px 8px', borderRadius: '4px 4px 0 0',
+                                background: activeAgentThreadId === thread.id
+                                    ? 'rgba(255,255,255,0.07)' : 'transparent',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderBottom: activeAgentThreadId === thread.id
+                                    ? '1px solid var(--vscode-sideBar-background)' : '1px solid transparent',
+                                fontSize: 11, cursor: 'pointer',
+                                whiteSpace: 'nowrap', maxWidth: 160,
+                            }}
+                        >
+                            <i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 11, opacity: 0.7, flexShrink: 0 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90, opacity: 0.9 }}>
+                                {thread.messages?.find((m: any) => m.role === 'user')?.content?.slice(0, 18) || thread.name || 'Chat'}
+                            </span>
+                            <button
+                                type="button"
+                                title="Close chat"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    closeAgentThread(thread.id);
+                                }}
+                                style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    width: 16, height: 16, padding: 0, marginLeft: 2,
+                                    border: 'none', borderRadius: 3, cursor: 'pointer',
+                                    background: 'transparent', color: 'rgba(255,255,255,0.35)',
+                                    flexShrink: 0,
+                                }}
+                                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.12)'; (e.currentTarget as HTMLButtonElement).style.color = '#f87171'; }}
+                                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.35)'; }}
+                            >
+                                <i className="codicon codicon-close" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 10 }} />
+                            </button>
+                        </div>
+                    ))}
+                    {Object.keys(agentThreads || {}).length === 0 && (
+                        <div style={{ fontSize: 11, opacity: 0.5, padding: '3px 8px' }}>New Chat</div>
+                    )}
                     <button
-                        onClick={() => { clearAgentMessages(); invoke('clear_ai_memory').catch(() => {}); }}
-                        title="New Chat (Ctrl+T)"
+                        onClick={() => { void createNewSession?.(); }}
+                        title="New Chat (Ctrl+T) — archives current conversation to History"
                         style={{
                             background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)',
                             borderRadius: 4, padding: '2px 6px', fontSize: 11,
@@ -1762,10 +1822,9 @@ const RightSidebar: React.FC = () => {
                     background: 'var(--vscode-sideBar-background)',
                 }}>
                     <div className="vscr-agent-tabs" style={{ display: 'flex', gap: '2px', alignItems: 'center', flex: 1, minWidth: 0, overflowX: 'auto', flexWrap: 'nowrap', scrollbarWidth: 'none' as any }}>
-                        {(['chat', 'emulator', 'kortex', 'history', 'dashboard', 'research', 'specs', 'rules'] as const).map(v => {
+                        {(['chat', 'studio', 'emulator', 'kortex', 'history'] as const).map(v => {
                             const tabLabels: Record<string, string> = {
-                                chat: 'Chat', emulator: 'Devices', kortex: 'Kortex', history: 'History',
-                                dashboard: 'Dash', research: 'Research', specs: 'Specs', rules: 'Rules',
+                                chat: 'Chat', studio: 'Studio', emulator: 'Devices', kortex: 'Kortex', history: 'History',
                             };
                             return (
                             <button
@@ -1901,7 +1960,7 @@ const RightSidebar: React.FC = () => {
                                 background: airiVisionEnabled ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.05)',
                                 border: airiVisionEnabled ? '1px solid rgba(52,211,153,0.45)' : '1px solid rgba(255,255,255,0.1)',
                             }}
-                            title={airiVisionEnabled ? 'Disable screen vision' : 'Enable screen vision'}
+                            title={airiVisionEnabled ? 'Disable screen vision (heavy — VL model + capture)' : 'Enable screen vision (off by default — requires vision model)'}
                         >
                             Vision {airiVisionEnabled ? 'ON' : 'OFF'}
                         </button>
@@ -2221,9 +2280,10 @@ const RightSidebar: React.FC = () => {
                                 {messages.length === 0 && (
                                     <div style={{ padding: '0 12px 12px', flexShrink: 0 }}>
                                         <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.35, marginBottom: '8px' }}>Quick Missions</div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                                        <div className="quick-missions-grid">
                                             {[
                                                 { icon: '🔍', label: 'Audit Codebase', mission: 'Audit the entire codebase for bugs, dead code, and architectural issues. List findings.' },
+                                                { icon: '🌐', label: 'Web Research', mission: '/manus Research this project and any URLs I mention — full scrape, browser agent, and security audit.' },
                                                 { icon: '🛠️', label: 'Fix All Errors', mission: 'Find all compiler errors and runtime issues in this project. Fix them one by one.' },
                                                 { icon: '📦', label: 'Git Commit', mission: 'Stage all modified files and create a meaningful commit message based on the changes.' },
                                                 { icon: '🚀', label: 'Build & Verify', mission: 'Run cargo build, fix any errors, then verify the implementation is correct.' },
@@ -2450,24 +2510,40 @@ const RightSidebar: React.FC = () => {
                             </div>
                         ) : view === 'history' ? (
                             <div className="right-sidebar-scroll" style={{ padding: '8px 16px 16px', gap: '12px', justifyContent: 'flex-start', alignItems: 'stretch' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                    <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5 }}>Recent History</span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', gap: 8 }}>
+                                    <div>
+                                        <div style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5 }}>Chat conversations</div>
+                                        <div style={{ fontSize: 10, opacity: 0.4, marginTop: 2 }}>Archived when you start a new chat — click Restore to reload messages.</div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => { void archiveCurrentSession?.(); refreshChatSessions(); }}
+                                        title="Archive current chat to history"
+                                        style={{
+                                            padding: '4px 8px', fontSize: 10, borderRadius: 4, cursor: 'pointer',
+                                            border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'inherit',
+                                        }}
+                                    >
+                                        Archive current
+                                    </button>
                                 </div>
                                 {chatSessions.length === 0 ? (
-                                    <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>
-                                        No archived sessions found.
+                                    <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px', lineHeight: 1.5 }}>
+                                        No saved conversations yet.<br />
+                                        Start chatting, then use <b>Archive current</b> or open a new chat tab (+).
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                         {chatSessions.map((session: any) => {
-                                            const title = String(session.name || '').replace('session_', '').replace('.aim', '') || 'Conversation';
+                                            const title = session.title || String(session.name || '').replace('session_', 'Chat ') || 'Conversation';
+                                            const preview = session.preview || '';
                                             const ts = session.updated_at ? new Date(session.updated_at * 1000).toLocaleString() : '';
-                                            const histBtn: React.CSSProperties = {
-                                                display: 'flex', alignItems: 'center', gap: 5, flex: 1, justifyContent: 'center',
-                                                padding: '5px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                                                borderRadius: 6, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.12))',
-                                                background: 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.05))',
-                                                color: 'var(--vscode-foreground, #ddd)', whiteSpace: 'nowrap',
+                                            const restoreBtn: React.CSSProperties = {
+                                                display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center',
+                                                padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                                borderRadius: 6, border: 'none',
+                                                background: 'var(--vscode-button-background, #007acc)',
+                                                color: 'var(--vscode-button-foreground, #fff)', whiteSpace: 'nowrap',
                                             };
                                             return (
                                                 <div
@@ -2479,55 +2555,53 @@ const RightSidebar: React.FC = () => {
                                                     onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
                                                     onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
                                                 >
-                                                    <div
-                                                        onClick={() => { loadChatSession(session.path); setView('chat'); }}
-                                                        style={{ cursor: 'pointer' }}
-                                                        title="Open this conversation in the chat panel"
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', gap: 8 }}>
+                                                        <span style={{ fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+                                                        <span style={{ fontSize: '10px', opacity: 0.4, flexShrink: 0 }}>{session.messages} msgs</span>
+                                                    </div>
+                                                    {preview && (
+                                                        <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 6, lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
+                                                            {preview}
+                                                        </div>
+                                                    )}
+                                                    <div style={{ fontSize: '10px', opacity: 0.45, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+                                                        <i className="codicon codicon-comment-discussion" style={{ fontSize: 10 }} />{ts}
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { void loadChatSession(session.path); setView('chat'); }}
+                                                        style={restoreBtn}
+                                                        title="Restore this conversation into the chat panel"
                                                     >
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px', gap: 8 }}>
-                                                            <span style={{ fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
-                                                            <span style={{ fontSize: '10px', opacity: 0.4, flexShrink: 0 }}>{session.messages} msgs</span>
-                                                        </div>
-                                                        <div style={{ fontSize: '10px', opacity: 0.5, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                            <i className="codicon codicon-history" style={{ fontSize: 10 }} />{ts}
-                                                        </div>
-                                                    </div>
-                                                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                                                        <div
-                                                            onClick={() => { loadChatSession(session.path); setView('chat'); }}
-                                                            style={histBtn}
-                                                            title="Open this conversation in the side chat panel"
-                                                        >
-                                                            <i className="codicon codicon-comment-discussion" style={{ fontSize: 12 }} /> Open in panel
-                                                        </div>
-                                                        <div
-                                                            onClick={() => { createNewSession?.(); setView('chat'); }}
-                                                            style={histBtn}
-                                                            title="Archive the current chat and start a fresh conversation"
-                                                        >
-                                                            <i className="codicon codicon-add" style={{ fontSize: 12 }} /> New conversation
-                                                        </div>
-                                                    </div>
+                                                        <i className="codicon codicon-history" style={{ fontSize: 12 }} /> Restore conversation
+                                                    </button>
                                                 </div>
                                             );
                                         })}
                                     </div>
                                 )}
-                                <CheckpointTimeline />
+                                <details style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
+                                    <summary style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', opacity: 0.45, cursor: 'pointer', userSelect: 'none' }}>
+                                        Code checkpoints (git restore points)
+                                    </summary>
+                                    <CheckpointTimeline embedded />
+                                </details>
                             </div>
-                        ) : view === 'dashboard' ? (
-                            <MissionControl />
-                        ) : view === 'research' ? (
-                            <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading research center…</div>}>
-                                <ResearchCenter />
-                            </Suspense>
-                        ) : view === 'specs' ? (
-                            <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading specs…</div>}>
-                                <SpecsManager />
-                            </Suspense>
-                        ) : view === 'rules' ? (
-                            <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading rules…</div>}>
-                                <RulesManager />
+                        ) : view === 'studio' || view === 'dashboard' || view === 'research' || view === 'specs' || view === 'rules' ? (
+                            <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading Agent Studio…</div>}>
+                                <AgentStudioPanel
+                                    activeSubView={
+                                        view === 'dashboard' ? 'dashboard'
+                                            : view === 'research' ? 'research'
+                                                : view === 'specs' ? 'specs'
+                                                    : view === 'rules' ? 'rules'
+                                                        : studioSubView
+                                    }
+                                    onSubViewChange={(sub) => {
+                                        setStudioSubView(sub);
+                                        if (view !== 'studio') setView('studio');
+                                    }}
+                                />
                             </Suspense>
                         ) : null}
                     </div>

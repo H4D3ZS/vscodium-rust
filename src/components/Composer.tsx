@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useStore } from '../store';
 import { FileDiff } from './DiffViewer';
-import { sendAgentMessage } from '../agent';
 
 interface ComposerMessage {
     id: string;
@@ -89,6 +88,7 @@ const Composer: React.FC = () => {
         const prompt = modePrefix + userText;
 
         try {
+            const { sendAgentMessage } = await import('../agent');
             await sendAgentMessage(prompt, (msg: string) => {
                 setMessages(prev => prev.map(m =>
                     m.id === assistantId ? { ...m, content: msg, isRunning: true } : m
@@ -691,19 +691,27 @@ const Composer: React.FC = () => {
 
                 {/* Preview Pane */}
                 {activePane === 'preview' && (
-                    <div style={{
-                        flex: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        opacity: 0.5,
-                        fontSize: '12px',
-                    }}>
-                        <div style={{ textAlign: 'center' }}>
-                            <i className="codicon codicon-preview" style={{ fontSize: '48px', marginBottom: '12px', opacity: 0.3 }}></i>
-                            <div>Preview coming soon...</div>
-                            <div style={{ fontSize: '11px', marginTop: '8px' }}>Live preview of changes</div>
-                        </div>
+                    <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+                        {pendingChanges.length === 0 ? (
+                            <div style={{ textAlign: 'center', opacity: 0.5, padding: 40, fontSize: 12 }}>
+                                No pending changes to preview. Send a composer prompt first.
+                            </div>
+                        ) : (
+                            pendingChanges.map((change) => (
+                                <div key={change.id} style={{ marginBottom: 20 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <i className="codicon codicon-file" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                        {change.path}
+                                    </div>
+                                    {change.description && (
+                                        <div style={{ fontSize: 11, opacity: 0.65, marginBottom: 8, fontStyle: 'italic' }}>{change.description}</div>
+                                    )}
+                                    <div style={{ height: 280, border: '1px solid var(--vscode-panel-border)', borderRadius: 4, overflow: 'hidden' }}>
+                                        <FileDiff change={change} />
+                                    </div>
+                                </div>
+                            ))
+                        )}
                     </div>
                 )}
             </div>

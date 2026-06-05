@@ -12,7 +12,20 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { CanvasAddon } from '@xterm/addon-canvas';
 import { CommandBlockTracker } from './terminalBlocks.ts';
+import {
+  resolveTerminalProfile,
+  DEFAULT_PROFILES,
+} from './infrastructure/terminal/terminalProfiles.ts';
+import {
+  getVSCodeTheme,
+  getNativeTerminalTheme,
+  resolveTerminalTheme,
+} from './infrastructure/terminal/terminalThemes.ts';
 import '@xterm/xterm/css/xterm.css';
+
+// Re-export domain types for legacy imports.
+export type { TerminalProfile } from './domain/terminal/TerminalProfile.ts';
+export type { TerminalTheme } from './domain/terminal/TerminalTheme.ts';
 
 export interface ISearchOptions {
   regex?: boolean;
@@ -24,16 +37,6 @@ export interface ISearchOptions {
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
-
-export interface TerminalProfile {
-  id: string;
-  name: string;
-  path: string;
-  args?: string[];
-  icon: string;
-  isDefault: boolean;
-  platform?: 'win32' | 'linux' | 'darwin';
-}
 
 export interface TerminalInstance {
   id: string;
@@ -59,234 +62,7 @@ export interface TerminalGroup {
   layout: 'single' | 'split-horizontal' | 'split-vertical';
 }
 
-export interface TerminalTheme {
-  background: string;
-  foreground: string;
-  cursor: string;
-  cursorAccent: string;
-  selectionBackground: string;
-  black: string;
-  red: string;
-  green: string;
-  yellow: string;
-  blue: string;
-  magenta: string;
-  cyan: string;
-  white: string;
-  brightBlack: string;
-  brightRed: string;
-  brightGreen: string;
-  brightYellow: string;
-  brightBlue: string;
-  brightMagenta: string;
-  brightCyan: string;
-  brightWhite: string;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// DEFAULT PROFILES (VSCode-like)
-// ═══════════════════════════════════════════════════════════════════════════
-
-const DEFAULT_PROFILES: TerminalProfile[] = [
-  // Windows
-  {
-    // Windows PowerShell 5.1 — ALWAYS present on Win10/11. Must be the default:
-    // `pwsh.exe` (PowerShell 7) is NOT installed by default, and on Windows
-    // ConPTY's spawn returns Ok for a missing exe (deferred process creation),
-    // so the PTY silently produces no output → blank terminal. Use the exe that
-    // is guaranteed to exist.
-    id: 'powershell',
-    name: 'PowerShell',
-    path: 'powershell.exe',
-    args: ['-NoLogo'],
-    icon: 'terminal-powershell',
-    isDefault: true,
-    platform: 'win32'
-  },
-  {
-    // PowerShell 7+ (only if the user installed it). Not default.
-    id: 'pwsh',
-    name: 'PowerShell 7',
-    path: 'pwsh.exe',
-    args: ['-NoLogo'],
-    icon: 'terminal-powershell',
-    isDefault: false,
-    platform: 'win32'
-  },
-  {
-    id: 'cmd',
-    name: 'Command Prompt',
-    path: 'cmd.exe',
-    args: [],
-    icon: 'terminal-cmd',
-    isDefault: false,
-    platform: 'win32'
-  },
-  {
-    id: 'git-bash',
-    name: 'Git Bash',
-    path: 'C:\\Program Files\\Git\\bin\\bash.exe',
-    args: ['--login', '-i'],
-    icon: 'terminal-bash',
-    isDefault: false,
-    platform: 'win32'
-  },
-  {
-    id: 'wsl',
-    name: 'WSL',
-    path: 'wsl.exe',
-    args: [],
-    icon: 'terminal-linux',
-    isDefault: false,
-    platform: 'win32'
-  },
-  // Linux
-  {
-    id: 'bash',
-    name: 'Bash',
-    path: 'bash',
-    args: ['-l'],
-    icon: 'terminal-bash',
-    isDefault: true,
-    platform: 'linux'
-  },
-  {
-    id: 'zsh',
-    name: 'ZSH',
-    path: 'zsh',
-    args: ['-l'],
-    icon: 'terminal-bash',
-    isDefault: false,
-    platform: 'linux'
-  },
-  // macOS
-  {
-    id: 'zsh-mac',
-    name: 'ZSH',
-    path: 'zsh',
-    args: ['-l'],
-    icon: 'terminal-bash',
-    isDefault: true,
-    platform: 'darwin'
-  },
-  {
-    id: 'bash-mac',
-    name: 'Bash',
-    path: 'bash',
-    args: ['-l'],
-    icon: 'terminal-bash',
-    isDefault: false,
-    platform: 'darwin'
-  }
-];
-
-// ═══════════════════════════════════════════════════════════════════════════
-// VSCode THEME
-// ═══════════════════════════════════════════════════════════════════════════
-
-export const getVSCodeTheme = (): TerminalTheme => {
-  const style = getComputedStyle(document.documentElement);
-  
-  return {
-    background: style.getPropertyValue('--vscode-terminal-background').trim() || '#1e1e1e',
-    foreground: style.getPropertyValue('--vscode-terminal-foreground').trim() || '#cccccc',
-    cursor: style.getPropertyValue('--vscode-terminalCursor-foreground').trim() || '#aeafad',
-    cursorAccent: style.getPropertyValue('--vscode-terminalCursor-background').trim() || '#1e1e1e',
-    selectionBackground: style.getPropertyValue('--vscode-terminal-selectionBackground').trim() || 'rgba(255, 255, 255, 0.15)',
-    black: style.getPropertyValue('--vscode-terminal-ansiBlack').trim() || '#000000',
-    red: style.getPropertyValue('--vscode-terminal-ansiRed').trim() || '#cd3131',
-    green: style.getPropertyValue('--vscode-terminal-ansiGreen').trim() || '#0dbc79',
-    yellow: style.getPropertyValue('--vscode-terminal-ansiYellow').trim() || '#e5e510',
-    blue: style.getPropertyValue('--vscode-terminal-ansiBlue').trim() || '#2472c8',
-    magenta: style.getPropertyValue('--vscode-terminal-ansiMagenta').trim() || '#bc3fbc',
-    cyan: style.getPropertyValue('--vscode-terminal-ansiCyan').trim() || '#11a8cd',
-    white: style.getPropertyValue('--vscode-terminal-ansiWhite').trim() || '#e5e5e5',
-    brightBlack: style.getPropertyValue('--vscode-terminal-ansiBrightBlack').trim() || '#666666',
-    brightRed: style.getPropertyValue('--vscode-terminal-ansiBrightRed').trim() || '#f14c4c',
-    brightGreen: style.getPropertyValue('--vscode-terminal-ansiBrightGreen').trim() || '#23d18b',
-    brightYellow: style.getPropertyValue('--vscode-terminal-ansiBrightYellow').trim() || '#f5f543',
-    brightBlue: style.getPropertyValue('--vscode-terminal-ansiBrightBlue').trim() || '#3b8eea',
-    brightMagenta: style.getPropertyValue('--vscode-terminal-ansiBrightMagenta').trim() || '#d670d6',
-    brightCyan: style.getPropertyValue('--vscode-terminal-ansiBrightCyan').trim() || '#29b8db',
-    brightWhite: style.getPropertyValue('--vscode-terminal-ansiBrightWhite').trim() || '#e5e5e5'
-  };
-};
-
-/**
- * Warp/cmder-inspired terminal palette (Tokyo-Night-ish): deep indigo
- * background, soft-but-vivid ANSI, a bright blue bar cursor. Gives the panel a
- * modern native feel distinct from the editor's VSCode theme. Original colors —
- * not copied from Warp or cmder.
- */
-export const getCmderWarpTheme = (): TerminalTheme => ({
-  background: '#171922',
-  foreground: '#d5d8e0',
-  cursor: '#7aa2f7',
-  cursorAccent: '#171922',
-  selectionBackground: 'rgba(122,162,247,0.25)',
-  black: '#15161e',
-  red: '#f7768e',
-  green: '#9ece6a',
-  yellow: '#e0af68',
-  blue: '#7aa2f7',
-  magenta: '#bb9af7',
-  cyan: '#7dcfff',
-  white: '#a9b1d6',
-  brightBlack: '#414868',
-  brightRed: '#ff899d',
-  brightGreen: '#b9f27c',
-  brightYellow: '#ff9e64',
-  brightBlue: '#8db0ff',
-  brightMagenta: '#d7b4f3',
-  brightCyan: '#a4daff',
-  brightWhite: '#e6e9f0',
-});
-
-function currentTerminalPlatform(): 'win32' | 'linux' | 'darwin' {
-  const p = navigator.platform.toLowerCase();
-  if (p.includes('win')) return 'win32';
-  if (p.includes('mac')) return 'darwin';
-  return 'linux';
-}
-
-/** Resolve profile from profile id, full shell path, or executable name. */
-function resolveTerminalProfile(shellOrProfileId?: string): TerminalProfile {
-  const platform = currentTerminalPlatform();
-  const platformProfiles = DEFAULT_PROFILES.filter(p => !p.platform || p.platform === platform);
-  const fallback = platformProfiles.find(p => p.isDefault) || platformProfiles[0] || DEFAULT_PROFILES[0];
-
-  if (!shellOrProfileId || !String(shellOrProfileId).trim()) {
-    return fallback;
-  }
-
-  const key = String(shellOrProfileId).trim();
-  const lower = key.toLowerCase();
-
-  const byId = platformProfiles.find(p => p.id === key);
-  if (byId) return byId;
-
-  const byExactPath = platformProfiles.find(p => p.path.toLowerCase() === lower);
-  if (byExactPath) return byExactPath;
-
-  const base = key.split(/[/\\]/).pop() || key;
-  const baseLower = base.toLowerCase();
-
-  const byExe = platformProfiles.find(p => {
-    const tail = p.path.split(/[/\\]/).pop() || p.path;
-    return tail.toLowerCase() === baseLower;
-  });
-  if (byExe) return byExe;
-
-  return {
-    id: 'custom-shell',
-    name: base,
-    path: key,
-    args: [],
-    icon: 'terminal-bash',
-    isDefault: false,
-    platform
-  };
-}
+export { getVSCodeTheme, getNativeTerminalTheme as getCmderWarpTheme };
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TERMINAL MANAGER
@@ -449,8 +225,7 @@ export class TerminalManager {
 
     // Create terminal with VSCode-like settings
     const term = new Terminal({
-      // Match the IDE's global VSCode theme (reads --vscode-terminal-* vars).
-      theme: getVSCodeTheme(),
+      theme: resolveTerminalTheme(),
       fontSize: 13,
       fontFamily: '"Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace',
       fontWeight: 'normal',
@@ -1118,95 +893,21 @@ export class TerminalManager {
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     `;
 
-    // Capture once so all AI menu items see the same snapshot of buffer/
-    // selection; otherwise reading at click time can race with the user
-    // scrolling or selecting new text.
-    const hasSelection = instance.term.hasSelection();
-    const selectedText = hasSelection ? instance.term.getSelection() : '';
-    // Pull a chunky tail of the visible buffer for the "Explain last
-    // output" / "Fix last error" paths. We grab the active terminal's
-    // ring buffer through the dedicated IPC so we get raw command output
-    // (not just what's currently scrolled into view).
-    const askAgent = async (prompt: string) => {
-      try {
-        const m = await import('./agent');
-        // Dispatch a chat-style message so the user can see the agent's
-        // response inline. The right sidebar will auto-open if it's not
-        // already because addAgentMessage triggers a state change.
-        await m.sendAgentMessage(prompt, () => {}, []);
-      } catch (e) {
-        console.error('[AI Terminal] failed to dispatch prompt:', e);
-      }
-    };
-
-    const buildTail = async (): Promise<string> => {
-      try {
-        const { invoke } = await import('./tauri_bridge');
-        const out = await invoke<string>('terminal_read_output', { id: instance.id });
-        return (out || '').slice(-4000);
-      } catch {
-        // Fallback to the xterm buffer if the IPC failed (e.g. backend
-        // restarted but the xterm still has scrollback in memory).
-        try {
-          const buf = instance.term.buffer.active;
-          const lines: string[] = [];
-          for (let i = Math.max(0, buf.length - 200); i < buf.length; i++) {
-            lines.push(buf.getLine(i)?.translateToString(true) || '');
-          }
-          return lines.join('\n').slice(-4000);
-        } catch { return ''; }
-      }
-    };
-
     const menuItems: any[] = [
       { label: 'New Terminal', icon: 'add', action: () => this.createTerminal() },
-      { label: 'Split Terminal', icon: 'split-horizontal', action: () => this.splitTerminal(instance.id, 'horizontal') },
+      { label: 'Split Right', icon: 'split-horizontal', action: () => this.splitTerminal(instance.id, 'horizontal') },
+      { label: 'Split Down', icon: 'split-vertical', action: () => this.splitTerminal(instance.id, 'vertical') },
       { type: 'separator' },
       { label: 'Copy', icon: 'copy', action: () => this.copySelection(instance) },
       { label: 'Paste', icon: 'paste', action: () => this.paste(instance) },
       { label: 'Select All', icon: 'selection', action: () => this.selectAll(instance) },
       { type: 'separator' },
-      // ── AI Terminal actions (Windsurf-style) ───────────────────────
-      // Each item ships a different framing to the agent so the result
-      // is targeted: explanation, root-cause + fix proposal, or a
-      // direct command suggestion. Selection-aware: if the user
-      // highlighted text we use that; otherwise we fall back to the
-      // last 4KB of terminal output.
-      {
-        label: hasSelection ? 'Explain selection' : 'Explain last output',
-        icon: 'sparkle',
-        action: async () => {
-          const body = hasSelection ? selectedText : await buildTail();
-          if (!body.trim()) return;
-          await askAgent(
-            `[INTENT: TERMINAL EXPLAIN]\nExplain this terminal output in plain English. Identify what command produced it, what the output means, and call out anything noteworthy.\n\n\`\`\`\n${body}\n\`\`\``
-          );
-        },
-      },
-      {
-        label: hasSelection ? 'Fix error in selection' : 'Fix last error',
-        icon: 'wand',
-        action: async () => {
-          const body = hasSelection ? selectedText : await buildTail();
-          if (!body.trim()) return;
-          await askAgent(
-            `[INTENT: TERMINAL FIX]\nThe following terminal output contains an error. Diagnose the root cause and propose a concrete fix. If a file edit would resolve it, use the appropriate edit tool; if a command would resolve it, suggest the exact command.\n\n\`\`\`\n${body}\n\`\`\``
-          );
-        },
-      },
-      {
-        label: 'Suggest next command',
-        icon: 'arrow-right',
-        action: async () => {
-          const body = await buildTail();
-          await askAgent(
-            `[INTENT: TERMINAL NEXT]\nGiven this recent terminal history, suggest the next 1-3 useful commands the user might run. Reply with code-fenced commands only, no narration.\n\n\`\`\`\n${body}\n\`\`\``
-          );
-        },
-      },
+      { label: 'Previous Command', icon: 'arrow-up', action: () => this.scrollToPreviousCommand(instance.id) },
+      { label: 'Next Command', icon: 'arrow-down', action: () => this.scrollToNextCommand(instance.id) },
+      { label: 'Re-run Last Command', icon: 'debug-restart', action: () => this.rerunLastCommand(instance.id) },
       { type: 'separator' },
       { label: 'Clear', icon: 'clear-all', action: () => instance.term.clear() },
-      { label: 'Kill Terminal', icon: 'trash', action: () => this.closeTerminal(instance.id) }
+      { label: 'Kill Terminal', icon: 'trash', action: () => this.closeTerminal(instance.id) },
     ];
 
     menuItems.forEach(item => {
@@ -1330,115 +1031,16 @@ export class TerminalManager {
   runInActive(cmd: string): void { this.sendToActive(cmd + '\r'); }
 
   updateAllThemes() {
-    const theme = getVSCodeTheme();
+    const theme = resolveTerminalTheme();
     for (const instance of this.terminals.values()) {
       instance.term.options.theme = theme;
     }
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// KEYBOARD SHORTCUTS (VSCode-like)
-// ═══════════════════════════════════════════════════════════════════════════
-
-export const registerTerminalShortcuts = (manager: TerminalManager) => {
-  window.addEventListener('keydown', (e: KeyboardEvent) => {
-    const group = manager.getActiveGroup();
-    if (!group || !group.activeInstanceId) return;
-    
-    const instance = manager.getTerminal(group.activeInstanceId);
-    if (!instance) return;
-
-    // Ctrl+` - Toggle terminal
-    if (e.key === '`' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      // Toggle terminal panel visibility
-      return;
-    }
-
-    // Ctrl+Shift+` - New terminal
-    if (e.key === '`' && e.ctrlKey && e.shiftKey) {
-      e.preventDefault();
-      manager.createTerminal();
-      return;
-    }
-
-    // Ctrl+Shift+5 - Split terminal
-    if (e.key === '5' && e.ctrlKey && e.shiftKey) {
-      e.preventDefault();
-      manager.splitTerminal(instance.id, 'horizontal');
-      return;
-    }
-
-    // Ctrl+Shift+R - Terminal command palette (history + workflows). Pure,
-    // non-AI recall: dispatch an event the React palette listens for.
-    if ((e.key === 'r' || e.key === 'R') && e.ctrlKey && e.shiftKey) {
-      e.preventDefault();
-      window.dispatchEvent(new CustomEvent('vscr:open-terminal-palette'));
-      return;
-    }
-
-    // Ctrl+Shift+T - New terminal (alternative)
-    if (e.key === 't' && e.ctrlKey && e.shiftKey) {
-      e.preventDefault();
-      manager.createTerminal();
-      return;
-    }
-
-    // Ctrl+Shift+W - Close terminal
-    if (e.key === 'w' && e.ctrlKey && e.shiftKey) {
-      e.preventDefault();
-      manager.closeTerminal(instance.id);
-      return;
-    }
-
-    // Ctrl+Shift+P - Find widget
-    if (e.key === 'p' && e.ctrlKey && e.shiftKey && document.activeElement?.closest('.terminal')) {
-      e.preventDefault();
-      // Show find widget
-      return;
-    }
-
-    // Ctrl+F - Find in terminal
-    if (e.key === 'f' && e.ctrlKey && document.activeElement?.closest('.terminal')) {
-      e.preventDefault();
-      // Show find widget
-      return;
-    }
-
-    // Ctrl+C - Copy (when text selected)
-    if (e.key === 'c' && e.ctrlKey && instance.term.hasSelection()) {
-      e.preventDefault();
-      manager.copySelection(instance);
-      return;
-    }
-
-    // Ctrl+V - Paste
-    if (e.key === 'v' && e.ctrlKey && document.activeElement?.closest('.terminal')) {
-      e.preventDefault();
-      manager.paste(instance);
-      return;
-    }
-
-    // Ctrl+A - Select all
-    if (e.key === 'a' && e.ctrlKey && document.activeElement?.closest('.terminal')) {
-      e.preventDefault();
-      manager.selectAll(instance);
-      return;
-    }
-
-    // Page Up/Down
-    if (e.key === 'PageUp' && e.shiftKey) {
-      e.preventDefault();
-      instance.term.scrollPages(-1);
-      return;
-    }
-    if (e.key === 'PageDown' && e.shiftKey) {
-      e.preventDefault();
-      instance.term.scrollPages(1);
-      return;
-    }
-  });
+/** @deprecated Use `application/terminal/bootstrapTerminalRuntime` instead. */
+export const registerTerminalShortcuts = (_manager: TerminalManager) => {
+  void import('./application/terminal/bootstrapTerminalRuntime').then((m) => m.bootstrapTerminalRuntime());
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1451,17 +1053,8 @@ export const terminalManager = new TerminalManager();
 // LEGACY INIT FUNCTION (for App.tsx compatibility)
 // ═══════════════════════════════════════════════════════════════════════════
 
-let _terminalBootstrapped = false;
-export const initTerminal = async (addTerminalGroup: () => void | Promise<void>) => {
-  // Guard against double-spawn: React 18 StrictMode runs init effects TWICE in
-  // dev (mount→unmount→mount), which created two terminals. The module-level flag
-  // persists across the double-invoke so exactly ONE initial terminal is created.
-  if (_terminalBootstrapped) return;
-  _terminalBootstrapped = true;
-  try {
-    await addTerminalGroup();
-  } catch (e: any) {
-    const msg = e?.message || e?.toString?.() || String(e) || 'unknown error';
-    console.warn('[terminal] Failed to create initial terminal:', msg, e);
-  }
+/** @deprecated Use `application/terminal/initDefaultTerminal` instead. */
+export const initTerminal = async (_addTerminalGroup?: () => void | Promise<void>) => {
+  const { initDefaultTerminal } = await import('./application/terminal/bootstrapTerminalRuntime');
+  await initDefaultTerminal();
 };

@@ -1,6 +1,7 @@
 import React from 'react';
 import TerminalSidebar from './TerminalSidebar';
 import TerminalGroupView from './TerminalGroupView';
+import TerminalTasksPanel from './TerminalTasksPanel';
 import { useStore } from '../../store';
 
 const TerminalView: React.FC = () => {
@@ -17,7 +18,7 @@ const TerminalView: React.FC = () => {
             className="terminal-view-host"
             style={{
                 display: 'flex',
-                flexDirection: 'row',
+                flexDirection: 'column',
                 width: '100%',
                 height: '100%',
                 background: 'var(--vscode-terminal-background, var(--vscode-panel-background, #1e1e1e))',
@@ -31,7 +32,7 @@ const TerminalView: React.FC = () => {
                     display: 'flex',
                     flexDirection: 'row',
                     width: '100%',
-                    height: '100%',
+                    minHeight: 0,
                     overflow: 'hidden'
                 }}
             >
@@ -91,6 +92,8 @@ const TerminalView: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            <TerminalTasksPanel />
 
             <style>{`
                 .terminal-action-item {

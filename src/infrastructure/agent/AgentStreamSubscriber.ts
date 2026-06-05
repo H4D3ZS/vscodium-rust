@@ -12,6 +12,11 @@ import { useStore } from '../../store';
 import { extractSearchReplaceBlocks } from '../../model_capabilities';
 import { MAX_WEBUI_RESPONSE_CACHE_ENTRIES } from '../../domain/agent/AgentSessionPolicy';
 import { SubAgentManager } from '../../task_manager';
+import {
+    navigatePendingChange,
+    acceptFocusedPendingChange,
+    rejectFocusedPendingChange,
+} from '../../application/editor/navigatePendingChange';
 
 let attached = false;
 
@@ -27,31 +32,22 @@ function boundedWebUiCache(): Record<string, string> {
     return cache;
 }
 
-/** Antigravity diff hunk keyboard shortcuts (Alt+J/K/Enter/Shift+Backspace). */
+/** Composer diff review shortcuts (Alt+J/K/Enter/Shift+Backspace). */
 export function registerAgentKeyboardShortcuts(): void {
     window.addEventListener('keydown', (e: KeyboardEvent) => {
         if (!e.altKey) return;
-        const st = useStore.getState() as any;
         if (e.key === 'j' || e.key === 'J') {
             e.preventDefault();
-            const changes: any[] = st.pendingChanges || [];
-            const focusedId: string | null = st.focusedHunkId || null;
-            const idx = focusedId ? changes.findIndex((c: any) => c.path === focusedId) : -1;
-            const next = changes[idx + 1] || changes[0];
-            if (next) st.setFocusedHunk?.(next.path);
+            navigatePendingChange('next');
         } else if (e.key === 'k' || e.key === 'K') {
             e.preventDefault();
-            const changes: any[] = st.pendingChanges || [];
-            const focusedId: string | null = st.focusedHunkId || null;
-            const idx = focusedId ? changes.findIndex((c: any) => c.path === focusedId) : changes.length;
-            const prev = changes[idx - 1] || changes[changes.length - 1];
-            if (prev) st.setFocusedHunk?.(prev.path);
+            navigatePendingChange('prev');
         } else if (e.key === 'Enter') {
             e.preventDefault();
-            st.acceptFocusedHunk?.();
+            acceptFocusedPendingChange();
         } else if (e.key === 'Backspace' && e.shiftKey) {
             e.preventDefault();
-            st.rejectFocusedHunk?.();
+            rejectFocusedPendingChange();
         }
     });
 }

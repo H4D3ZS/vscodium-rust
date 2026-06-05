@@ -89,8 +89,8 @@ const WelcomePage: React.FC = () => {
                 <div>
                     <h1 style={{ fontSize: 26, fontWeight: 600, margin: 0 }}>Welcome to vscodium-rust ide</h1>
                     <p style={{ fontSize: 13, opacity: 0.7, marginTop: 4 }}>
-                        The agent-native IDE — VS Code core, Cursor parity, Antigravity-style trajectory,
-                        Windsurf-style flow, and built-in red/blue team playbooks.
+                        The agent-native IDE — VS Code core, autonomous agent workflows,
+                        live web research, and built-in red/blue team playbooks.
                     </p>
                 </div>
                 <button onClick={close} style={btnNeutral} title="Dismiss">

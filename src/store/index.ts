@@ -14,6 +14,10 @@ import { createGitSlice, type GitSlice } from './gitSlice';
 import { createSpecsSlice, type SpecsSlice } from './specsSlice';
 import { createExtensionSlice, type ExtensionSlice } from './extensionSlice';
 import { createTerminalSlice, type TerminalSlice } from './terminalSlice';
+import { createSecurityReviewSlice, type SecurityReviewSlice } from './securityReviewSlice';
+import { createLspSlice, type LspSlice } from './lspSlice';
+import { createDebugSlice, type DebugSlice } from './debugSlice';
+import { scheduleDeferredInit } from '../memory_budget';
 
 // AppState is the full composed type — all slices merged.
 export type AppState =
@@ -25,7 +29,10 @@ export type AppState =
     GitSlice &
     SpecsSlice &
     ExtensionSlice &
-    TerminalSlice & {
+    TerminalSlice &
+    SecurityReviewSlice &
+    LspSlice &
+    DebugSlice & {
         // Fields that appear in cross-slice calls but aren't in a single slice
         activeProjectSpec: any | null;
     };
@@ -40,10 +47,13 @@ export const useStore = create<AppState>()((...a) => ({
     ...createSpecsSlice(...a),
     ...createExtensionSlice(...a),
     ...createTerminalSlice(...a),
+    ...createSecurityReviewSlice(...a),
+    ...createLspSlice(...a),
+    ...createDebugSlice(...a),
 }));
 
-// Wire global Tauri event listeners once.
-if (typeof window !== 'undefined') {
+// Wire global Tauri event listeners once (deferred — not needed for first paint).
+function wireGlobalStoreListeners(): void {
     listen('sentient://patch_staged', (event: any) => {
         const { path, diff, originalContent } = event.payload;
         const state = useStore.getState() as any;
@@ -66,4 +76,8 @@ if (typeof window !== 'undefined') {
     });
 
     (window as any).useStore = useStore;
+}
+
+if (typeof window !== 'undefined') {
+    scheduleDeferredInit(wireGlobalStoreListeners, 1_500);
 }

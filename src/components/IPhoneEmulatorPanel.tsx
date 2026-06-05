@@ -17,6 +17,7 @@ const IPhoneEmulatorPanel: React.FC = () => {
     const [device, setDevice] = useState('iPhone13,2');
     const [diskPath, setDiskPath] = useState('');
     const [achronPath, setAchronPath] = useState('');
+    const [binaryStatus, setBinaryStatus] = useState<string | null>(null);
     const [ipswPath, setIpswPath] = useState('');
     const [preparing, setPreparing] = useState(false);
     const consoleEndRef = useRef<HTMLDivElement>(null);
@@ -69,6 +70,15 @@ const IPhoneEmulatorPanel: React.FC = () => {
         const c = toDeviceCoords(e);
         if (c) sendTouch(c.x, c.y, 3 /* Ended */);
     };
+
+    useEffect(() => {
+        import('../application/emulator/resolveEmulatorProject').then(async ({ resolveEmulatorProjectPath, probeEmulatorBinary }) => {
+            const root = await resolveEmulatorProjectPath();
+            setAchronPath(root);
+            const bin = await probeEmulatorBinary(root);
+            setBinaryStatus(bin ? `Found: ${bin.split(/[\\/]/).pop()}` : 'Build acheron first: cmake -B build && cmake --build build --config Release');
+        }).catch(console.error);
+    }, []);
 
     // Auto-scroll console
     useEffect(() => {
@@ -273,6 +283,9 @@ const IPhoneEmulatorPanel: React.FC = () => {
             {/* Advanced setup — top overlay drawer (gear toggle) */}
             {showAdvanced && (
                 <div style={{ position: 'absolute', top: 42, left: 0, right: 0, zIndex: 20, padding: '10px 12px', background: 'rgba(17,17,19,0.97)', borderBottom: '1px solid #222', display: 'flex', flexDirection: 'column', gap: 6, boxShadow: '0 10px 28px rgba(0,0,0,0.55)' }}>
+                    {binaryStatus && (
+                        <div style={{ fontSize: 10, opacity: 0.65, padding: '2px 0' }}>{binaryStatus}</div>
+                    )}
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <label style={{ fontSize: 10, opacity: 0.7, width: 70, flexShrink: 0 }}>Device</label>
                         <input value={device} onChange={e => setDevice(e.target.value)} placeholder="iPhone17,1" style={inputStyle} />

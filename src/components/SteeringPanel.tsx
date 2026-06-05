@@ -142,7 +142,7 @@ const SteeringPanel: React.FC = () => {
         <div style={{ maxWidth: 860 }}>
             <div className="settings-section-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 Steering
-                <span className="settings-badge new">Kiro</span>
+                <span className="settings-badge new">Agent</span>
             </div>
             <p className="settings-section-subtitle">
                 Steering files in <code>.agent/steering/</code> are injected into every AI request. Use them to define project-wide coding standards, architecture rules, or domain context. Always active — no trigger needed.

@@ -170,7 +170,7 @@ export function openModeDropdown(element: HTMLElement, onSelect: (label: string)
     }));
     createPopover(element, [
         { label: "Harness", value: "Harness", icon: "sync", desc: "Engineering loop. Fresh bounded context every iteration, strict rules, verify until done." },
-        { label: "Agent", value: "Agent", icon: "rocket", desc: "Default. Writes files, runs commands, executes tasks autonomously — Cursor-style." },
+        { label: "Agent", value: "Agent", icon: "rocket", desc: "Default. Writes files, runs commands, and executes tasks autonomously." },
         { label: "Bug Bounty", value: "BugBounty", icon: "bug", desc: "Offensive cybersecurity researcher. Writes PoCs, runs exploits, saves vulnerability reports to disk. Tooling-first." },
         { label: "Chat (read-only)", value: "Chat", icon: "comment", desc: "Conversational ONLY. The agent will refuse to write files or run commands. Pair it with @mentions for analysis." },
         { label: "Planning", value: "Planning", icon: "beaker", desc: "Agent explores codebase and produces a plan. Reads but does not write." },
@@ -282,14 +282,6 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
         items.push({ label: "🛠️ Check Ollama", value: "action|check_ollama", desc: "Re-scan models on the configured Ollama URL (Settings → AI Agent Settings)" });
     }
 
-    // Always offer Hunting/Settings if list is low or empty
-    if (items.length < 3) {
-        items.push({
-            label: "🛰️ Hunt for Working AI Keys",
-            value: "action|hunt",
-            desc: "Scans for leaked but alive API keys"
-        });
-    }
 
     // Add Browser login options
     items.push({
@@ -313,10 +305,6 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
     }
 
     createPopover(element, items, (val) => {
-        if (val === "action|hunt") {
-            startKeyHunt();
-            return;
-        }
         if (val === 'action|refresh_models') {
             const s = (window as any).useStore;
             if (s) {
@@ -698,7 +686,7 @@ async function buildIdeContext(): Promise<string> {
             if (activeTask) {
                 const specName = activeTask.spec_dir.split(/[\/\\]/).pop() || activeTask.spec_dir;
                 parts.push(
-                    `\n## Active Task (Antigravity)\n` +
+                    `\n## Active Task\n` +
                     `Spec: ${specName} | Phase: ${activeTask.phase}\n` +
                     `**${activeTask.task_id}**: ${activeTask.description}` +
                     (activeTask.file_ref ? ` → \`${activeTask.file_ref}\`` : '') +
@@ -1257,29 +1245,16 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         return;
     }
 
-    // --- Auto-escalate Chat → Agent when the user wants action ---
-    // Chat mode forbids tool calls. If the user is in Chat mode but their prompt
-    // clearly asks for code/files/commands, we either silently upgrade (YOLO on)
-    // or surface a one-line warning so they don't get a wall of text again.
     const currentMode = store.getState().agentMode;
     const yolo = !!store.getState().isYoloMode;
-    if (currentMode === 'Chat' && looksLikeActionRequest(userPrompt)) {
-        if (yolo) {
-            try {
-                store.getState().setAgentMode?.('Agent');
-                store.getState().addAgentMessage?.(
-                    'assistant',
-                    '⚡ Auto-switched **Chat → Agent** for this turn (YOLO is on). I will write files and run commands directly.'
-                );
-            } catch { /* non-fatal */ }
-        } else {
-            try {
-                store.getState().addAgentMessage?.(
-                    'assistant',
-                    'ℹ You are in **Chat (read-only)** mode — I will describe but not execute.\n\nClick the mode pill (bottom-right of this panel) and pick **Agent** or **Bug Bounty** to make me actually write files and run commands. Or enable **YOLO** to auto-upgrade on action verbs.'
-                );
-            } catch { /* non-fatal */ }
-        }
+    if (currentMode === 'Chat' && looksLikeActionRequest(userPrompt) && yolo) {
+        try {
+            store.getState().setAgentMode?.('Agent');
+            store.getState().addAgentMessage?.(
+                'assistant',
+                'Auto-switched Chat → Agent (YOLO). Executing with tools.'
+            );
+        } catch { /* non-fatal */ }
     }
 
     // === Legacy Backend Flow (Ollama, llama.cpp/Kortex, OpenAI, Google, Anthropic, etc.) ===
@@ -2067,10 +2042,13 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const _hasIntentTag = /^\s*\[INTENT\s*:/i.test(userPrompt);
     const _forceToolLoop = _secMode || _hasUrlTarget || _hasIntentTag
         || !!inferSecurityIntent(userPrompt);
+    const _isQuestionOnly = /^(what|how|why|when|where|who|can you|could you|explain|tell me|describe|is there|are there)\b/i.test(userPrompt.trim());
     const _convoFastPath = !_forceToolLoop
         && !looksLikeActionRequest(userPrompt)
         && !(context && context.length)
-        && !(store.getState().attachedFiles?.length);
+        && !(store.getState().attachedFiles?.length)
+        && !(store.getState().attachedContext?.length)
+        && (_isQuestionOnly || store.getState().agentMode === 'Chat');
     // Chat is read-only by contract, but a security mode / URL target means the
     // user explicitly wants action — don't let Chat's fast path swallow it.
     const _chatFastEligible = (store.getState() as any).agentMode === 'Chat' && !_forceToolLoop;
@@ -2897,6 +2875,40 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
             return true;
         }
 
+        case '/manus':
+        case '/webmission': {
+            const q = args.trim() || 'Research the current project context and summarize actionable findings.';
+            const urlMatch = q.match(/\bhttps?:\/\/[^\s)]+/i);
+            addAgentMessage('assistant', `🌐 **Web mission started** — invisible_playwright stealth browser → scrape → security audit → terminal.\n\nQuery: ${q}`);
+            store.getState().openAiriPanel?.();
+            window.dispatchEvent(new CustomEvent('ide:open-studio', {
+                detail: { tab: 'research', query: q, url: urlMatch?.[0] },
+            }));
+            try {
+                const { runManusWebMission } = await import('./application/research/runManusWebMission');
+                const root = store.getState().activeRoot;
+                const result = await runManusWebMission({
+                    query: q,
+                    targetUrl: urlMatch?.[0],
+                    workspaceRoot: root || undefined,
+                    runCodebaseAudit: !!root,
+                    onStep: (step) => {
+                        if (step.status === 'running') {
+                            store.getState().updateLastAgentMessage?.(
+                                `🌐 **Web mission** · ${step.label}…`
+                            );
+                        }
+                    },
+                });
+                store.getState().updateLastAgentMessage?.(
+                    `🌐 **Web mission complete**\n\n${result.report.slice(0, 12000)}`
+                );
+            } catch (e: any) {
+                store.getState().updateLastAgentMessage?.(`**Web mission failed:** ${e?.message || e}`);
+            }
+            return true;
+        }
+
         // ── Bug Finder (background pass for code quality) ───────────────
         // Drops the agent into a code-review persona that walks the
         // active file (or the user-supplied target) looking for bugs,
@@ -3123,7 +3135,7 @@ async function processSlashCommand(prompt: string): Promise<boolean> {
 
 > Auto-detection: phrases like *"weaponize this .env"*, *"show me how this gets hacked"*, *"be a threat actor"*, *"harden this code"*, *"bug bounty PoC for X"* automatically load the matching playbook — no slash command required.
 
-**Antigravity Agentic Workflow**
+**Agentic Workflow**
 - \`/spec <name> — <desc>\` — Create a new spec dir (spec.md + plan.md + tasks.md)
 - \`/next\` — Execute the next unchecked task in \`specs/*/tasks.md\` (TDD-first)
 - \`/test [file]\` — Run test_task workflow: write failing tests, then implement

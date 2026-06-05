@@ -7,6 +7,63 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 
+/// Find the end of the JSON header in an `.aim` file (brace-balanced).
+fn aim_header_end(bytes: &[u8]) -> usize {
+    let mut header_end = 0;
+    let mut depth = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match b {
+            b'\\' => escaped = true,
+            b'"' => in_string = !in_string,
+            b'{' if !in_string => depth += 1,
+            b'}' if !in_string => {
+                depth -= 1;
+                if depth == 0 {
+                    header_end = i + 1;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    header_end
+}
+
+fn chat_content_preview(content: &Value) -> String {
+    if let Some(s) = content.as_str() {
+        return s.chars().take(140).collect();
+    }
+    if let Some(obj) = content.as_object() {
+        if let Some(t) = obj
+            .get("Text")
+            .or_else(|| obj.get("text"))
+            .and_then(|v| v.as_str())
+        {
+            return t.chars().take(140).collect();
+        }
+    }
+    if let Some(arr) = content.as_array() {
+        let mut out = String::new();
+        for part in arr {
+            if let Some(t) = part
+                .get("text")
+                .or_else(|| part.get("Text"))
+                .and_then(|v| v.as_str())
+            {
+                out.push_str(t);
+            }
+        }
+        return out.chars().take(140).collect();
+    }
+    String::new()
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SemanticSlot {
     pub id: String,
@@ -882,31 +939,67 @@ impl MemoryStore {
                 if let Ok(entries) = std::fs::read_dir(parent) {
                     for entry in entries.filter_map(|e| e.ok()) {
                         let path = entry.path();
-                        if path.extension().and_then(|s| s.to_str()) == Some("aim") {
-                            if let Ok(bytes) = std::fs::read(&path) {
-                                let mut header_end = 0;
-                                for (i, &b) in bytes.iter().enumerate() {
-                                    if b == b'}' {
-                                        header_end = i + 1;
-                                        break;
+                        let fname = path
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("");
+                        // Live workspace memory — not an archived conversation.
+                        if fname == "memory.aim" {
+                            continue;
+                        }
+                        if path.extension().and_then(|s| s.to_str()) != Some("aim") {
+                            continue;
+                        }
+                        if let Ok(bytes) = std::fs::read(&path) {
+                            let header_end = aim_header_end(&bytes);
+                            if header_end > 0 {
+                                if let Ok(header) =
+                                    serde_json::from_slice::<Value>(&bytes[0..header_end])
+                                {
+                                    let updated_at = header
+                                        .get("updated_at")
+                                        .and_then(|v| v.as_u64())
+                                        .unwrap_or(0);
+                                    let session_messages = header
+                                        .get("kortex")
+                                        .and_then(|k| k.get("session_messages"))
+                                        .and_then(|m| m.as_array());
+                                    let message_count =
+                                        session_messages.map(|a| a.len()).unwrap_or(0);
+                                    if message_count == 0 {
+                                        continue;
                                     }
-                                }
-                                if header_end > 0 {
-                                    if let Ok(header) = serde_json::from_slice::<Value>(&bytes[0..header_end]) {
-                                        let updated_at = header.get("updated_at").and_then(|v| v.as_u64()).unwrap_or(0);
-                                        let message_count = header.get("kortex")
-                                            .and_then(|k| k.get("session_messages"))
-                                            .and_then(|m| m.as_array())
-                                            .map(|a| a.len())
-                                            .unwrap_or(0);
-                                        
-                                        sessions.push(json!({
-                                            "name": path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown"),
-                                            "path": path.to_string_lossy(),
-                                            "updated_at": updated_at,
-                                            "messages": message_count
-                                        }));
-                                    }
+                                    let (title, preview) = session_messages
+                                        .and_then(|msgs| {
+                                            msgs.iter()
+                                                .find(|m| {
+                                                    m.get("role")
+                                                        .and_then(|r| r.as_str())
+                                                        == Some("user")
+                                                })
+                                                .map(|m| {
+                                                    let p = chat_content_preview(
+                                                        m.get("content").unwrap_or(&Value::Null),
+                                                    );
+                                                    let t = p.chars().take(48).collect::<String>();
+                                                    (t, p)
+                                                })
+                                        })
+                                        .unwrap_or_else(|| {
+                                            (
+                                                fname.replace("session_", "Chat "),
+                                                String::new(),
+                                            )
+                                        });
+
+                                    sessions.push(json!({
+                                        "name": fname,
+                                        "title": title,
+                                        "preview": preview,
+                                        "path": path.to_string_lossy(),
+                                        "updated_at": updated_at,
+                                        "messages": message_count
+                                    }));
                                 }
                             }
                         }

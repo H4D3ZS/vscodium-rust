@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
       react(),
       nodePolyfills({
         protocolImports: true,
-        include: ['path', 'http', 'https', 'events', 'os', 'buffer', 'stream', 'util'],
+        include: ['path', 'buffer', 'stream', 'util'],
       }),
     ],
     resolve: {

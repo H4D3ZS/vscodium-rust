@@ -45,7 +45,7 @@ const InlineEditOverlay: React.FC<InlineEditOverlayProps> = ({ position, onClose
                 <div style={{ background: 'var(--terminator-accent)', borderRadius: '4px', padding: '4px' }}>
                     <Bot size={14} color="white" />
                 </div>
-                <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>Antigravity Command</span>
+                <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>Inline Agent</span>
                 <X size={14} style={{ cursor: 'pointer', opacity: 0.5 }} onClick={onClose} />
             </div>
 
@@ -56,7 +56,7 @@ const InlineEditOverlay: React.FC<InlineEditOverlayProps> = ({ position, onClose
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Ask Antigravity to edit or generate code..."
+                    placeholder="Ask the agent to edit or generate code..."
                     style={{
                         width: '100%',
                         background: 'var(--vscode-editor-background)',

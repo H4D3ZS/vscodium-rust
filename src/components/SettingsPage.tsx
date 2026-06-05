@@ -10,6 +10,8 @@ import HooksPanel from './HooksPanel';
 import { airiBiology } from '../airi/biology';
 import { airiConsciousness } from '../airi/consciousness';
 import { type FeatureName, type ProviderName, defaultModelSelectionOfFeature } from '../model_capabilities';
+import WorkspaceSettingsPanel from './settings/WorkspaceSettingsPanel';
+import InferenceBackendPanel from './settings/InferenceBackendPanel';
 import '../settings.css';
 
 // ── Provider list ──────────────────────────────────────────────────────────
@@ -108,6 +110,11 @@ function ChatPanel() {
             <div className="settings-card">
                 <div className="settings-card-title">Behaviour</div>
                 <SettingsRow
+                    label="Chat mode"
+                    description="Chat mode uses a single fast LLM round-trip — no tool loop, no git_status/grep overhead. Use Agent mode when you want file writes and terminal commands."
+                    control={<span style={{ fontSize: 11, opacity: 0.6 }}>Select Chat in the mode picker</span>}
+                />
+                <SettingsRow
                     label="Default Mode"
                     description="The default agent mode when starting a new conversation."
                     control={
@@ -120,7 +127,7 @@ function ChatPanel() {
                 />
                 <SettingsRow
                     label="YOLO Autonomy Mode"
-                    description="Agent executes tool calls without asking for approval. Cursor's auto-accept equivalent."
+                    description="Agent executes tool calls without asking for approval."
                     control={<Toggle checked={!!isYolo} onChange={v => setYolo?.(v)} />}
                 />
                 <SettingsRow
@@ -133,8 +140,11 @@ function ChatPanel() {
                 />
                 <SettingsRow
                     label="Auto-accept AI changes"
-                    description="Skip diff review and apply file changes immediately (same as Cursor's auto-accept)."
-                    control={<Toggle checked={globalSettings.autoAcceptLLMChanges ?? false} onChange={v => setGlobal?.('autoAcceptLLMChanges', v)} />}
+                    description="Skip diff review and apply file changes immediately."
+                    control={<Toggle checked={globalSettings.autoAcceptLLMChanges ?? false} onChange={v => {
+                        setGlobal?.('autoAcceptLLMChanges', v);
+                        useStore.getState().setAutoAcceptChanges(v);
+                    }} />}
                 />
             </div>
 
@@ -152,7 +162,7 @@ function ChatPanel() {
                 />
                 <SettingsRow
                     label="Tab Prediction (jump-to-next-edit)"
-                    description="After an edit, predict the next likely edit elsewhere in the file. Press Tab to jump to it, Tab again to apply (Cursor Prediction style)."
+                    description="After an edit, predict the next likely edit elsewhere in the file. Press Tab to jump to it, Tab again to apply."
                     control={<Toggle checked={tabPrediction} onChange={v => setTabPrediction?.(v)} />}
                 />
             </div>
@@ -162,7 +172,7 @@ function ChatPanel() {
             <div className="settings-card">
                 <div className="settings-card-title">Custom Instructions</div>
                 <p className="settings-row-description" style={{ marginBottom: 12 }}>
-                    These instructions are appended to every system prompt. Equivalent to Cursor's "Rules for AI" — use it to define your personal coding preferences.
+                    These instructions are appended to every system prompt. Use them to define your personal coding preferences.
                 </p>
                 <textarea
                     className="settings-input"
@@ -278,7 +288,7 @@ function ModelsPanel() {
             </div>
 
             <div className="settings-card">
-                <div className="settings-card-title">Reasoning (Cursor-style)</div>
+                <div className="settings-card-title">Reasoning</div>
                 <SettingsRow
                     label="Reasoning Budget (Anthropic)"
                     description="Max tokens for extended thinking. 0 = disabled. Higher = deeper analysis."
@@ -765,7 +775,7 @@ function WorkflowPanel() {
     return (
         <div style={{ maxWidth: 680 }}>
             <SectionTitle>Workflow & Specs</SectionTitle>
-            <p className="settings-section-subtitle">Configure the Antigravity agentic workflow engine — task planning, TDD execution, and phase-wrap automation.</p>
+            <p className="settings-section-subtitle">Configure the agentic workflow engine — task planning, TDD execution, and phase-wrap automation.</p>
 
             <div className="settings-card">
                 <div className="settings-card-title">Task Execution</div>
@@ -911,26 +921,33 @@ const SettingsPage: React.FC = () => {
     const handleVsSettingChange = async (key: keyof VsCodeSettings, value: any) => {
         const next = { ...vsSettings, [key]: value };
         setVsSettings(next);
-        try { await invoke('update_settings', { newSettings: next }); } catch { }
+        try {
+            await invoke('update_settings', {
+                settings: { theme: next.theme, font_size: next.font_size },
+            });
+        } catch { }
     };
 
     const agentCategories: CategoryDef[] = [
-        // Account / subscription / terms
-        { id: 'account', label: 'Account & Terms', icon: 'account', customRender: () => <AccountSettingsPanel />, groupStart: 'Account' },
-        // Permissions / autonomy
-        { id: 'permissions', label: 'Permissions', icon: 'shield', customRender: () => <AgentPermissionsPanel />, groupStart: 'Agent' },
-        // Chat & AI
-        { id: 'chat', label: 'Chat & Agent', icon: 'comment-discussion', customRender: () => <ChatPanel />, groupStart: 'AI' },
-        { id: 'models', label: 'Models', icon: 'circuit-board', customRender: () => <ModelsPanel /> },
-        { id: 'providers', label: 'Providers & Keys', icon: 'key', customRender: () => <ProvidersPanel /> },
+        { id: 'account', label: 'Account', icon: 'account', customRender: () => <AccountSettingsPanel />, groupStart: 'General' },
+        { id: 'chat', label: 'Chat & Agent', icon: 'comment-discussion', customRender: () => <ChatPanel />, groupStart: 'Agent' },
+        { id: 'permissions', label: 'Permissions', icon: 'shield', customRender: () => <AgentPermissionsPanel /> },
+        { id: 'models', label: 'Models & API Keys', icon: 'circuit-board', customRender: () => (
+            <>
+                <InferenceBackendPanel />
+                <hr style={{ margin: '20px 0', borderColor: 'var(--vscode-panel-border)' }} />
+                <ModelsPanel />
+                <hr style={{ margin: '20px 0', borderColor: 'var(--vscode-panel-border)' }} />
+                <ProvidersPanel />
+            </>
+        ) },
+        { id: 'workspace', label: 'Workspace', icon: 'folder', customRender: () => <WorkspaceSettingsPanel />, groupStart: 'Project' },
         { id: 'ollama', label: 'Ollama', icon: 'server-environment', agentCategory: 'ollama' },
-        // Agentic
-        { id: 'steering', label: 'Steering', icon: 'symbol-keyword', customRender: () => <SteeringPanel />, groupStart: 'Agentic' },
+        { id: 'steering', label: 'Steering', icon: 'symbol-keyword', customRender: () => <SteeringPanel />, groupStart: 'Workflow' },
         { id: 'hooks', label: 'Hooks', icon: 'zap', customRender: () => <HooksPanel /> },
-        { id: 'workflow', label: 'Workflow & Specs', icon: 'tasklist', customRender: () => <WorkflowPanel /> },
+        { id: 'workflow', label: 'Specs & Workflow', icon: 'tasklist', customRender: () => <WorkflowPanel /> },
         { id: 'mcps', label: 'MCP & Tools', icon: 'plug', agentCategory: 'mcps' },
-        // System
-        { id: 'airi', label: 'AIRI Sentient Core', icon: 'beaker', customRender: () => <AIRICorePanel />, groupStart: 'System' },
+        { id: 'airi', label: 'Sentient Core', icon: 'beaker', customRender: () => <AIRICorePanel />, groupStart: 'Advanced' },
         { id: 'hades', label: 'Kortex / AIM', icon: 'database', customRender: () => <HadesIntelligencePanel /> },
         { id: 'memory', label: 'Memory (.aim)', icon: 'archive', agentCategory: 'memory' },
         { id: 'voice', label: 'Voice & TTS', icon: 'unmute', agentCategory: 'voice' },

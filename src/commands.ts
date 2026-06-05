@@ -86,6 +86,20 @@ function registerCoreCommands() {
             run: () => store.openEmulatorPanel?.(),
         },
         {
+            id: 'workbench.action.openBrowser',
+            label: 'View: Launch External Browser (Bug Bounty)',
+            run: () => {
+                import('./application/browser/openBrowserPanel').then(m => m.launchExternalBrowser());
+            },
+        },
+        {
+            id: 'workbench.action.toggleBrowser',
+            label: 'View: Toggle External Browser',
+            run: () => {
+                import('./application/browser/openBrowserPanel').then(m => m.toggleExternalBrowser());
+            },
+        },
+        {
             id: 'workbench.action.toggleChat',
             label: 'View: Toggle Chat Panel',
             run: () => {
@@ -103,6 +117,46 @@ function registerCoreCommands() {
             id: 'workbench.view.search',
             label: 'View: Show Search',
             run: () => store.setActiveSidebarView('search-view'),
+        },
+        {
+            id: 'workbench.view.securityReview',
+            label: 'View: Open Security Review',
+            run: () => {
+                import('./application/security/runCodebaseSecurityReview').then(m => m.openSecurityReviewPanel());
+            },
+        },
+        {
+            id: 'workbench.action.restartLanguageServer',
+            label: 'Developer: Restart Language Server',
+            run: () => {
+                const root = getStore().activeRoot;
+                import('./application/lsp/bootstrapLanguageServer').then(async m => {
+                    await m.stopLanguageServer();
+                    if (root) await m.bootstrapLanguageServer(root);
+                });
+            },
+        },
+        {
+            id: 'workbench.view.ports',
+            label: 'View: Show Ports',
+            run: () => {
+                getStore().setActivePanelTab('PORTS');
+                getStore().toggleBottomPanel();
+                if (!getStore().isBottomPanelOpen) getStore().toggleBottomPanel();
+            },
+        },
+        {
+            id: 'security.action.runCodebaseReview',
+            label: 'Security: Run Codebase Review',
+            run: () => {
+                import('./application/security/runCodebaseSecurityReview').then(async m => {
+                    m.openSecurityReviewPanel();
+                    const depth = getStore().securityReviewDepth ?? 'deep';
+                    try {
+                        await m.runCodebaseSecurityReview({ depth });
+                    } catch { /* shown in panel */ }
+                });
+            },
         },
         {
             id: 'workbench.view.scm',
@@ -402,6 +456,20 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     if (cmd && e.shiftKey && e.key.toLowerCase() === 'l') {
         e.preventDefault();
         (window as any).executeCommand?.('agent.action.addSelectionToChat');
+        return;
+    }
+
+    // Bug-bounty browser panel (Ctrl+Shift+U — URL)
+    if (cmd && e.shiftKey && e.key.toLowerCase() === 'u') {
+        e.preventDefault();
+        (window as any).executeCommand?.('workbench.action.toggleBrowser');
+        return;
+    }
+
+    // Security review (Ctrl+Shift+Alt+R)
+    if (cmd && e.shiftKey && e.altKey && e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+        (window as any).executeCommand?.('security.action.runCodebaseReview');
         return;
     }
 }

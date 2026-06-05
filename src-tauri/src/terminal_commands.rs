@@ -128,7 +128,51 @@ if (-not $global:__vscr_si) {
     if (Test-Path $p) { (Get-Item $p).LastWriteTime = Get-Date }
     else { New-Item -ItemType File $p | Out-Null }
   }
+  function global:gl    { git log --oneline --all --graph --decorate @args }
+  function global:e.    { explorer . }
+  function global:clear { Clear-Host }
 }
+"#;
+
+/// Bash/Zsh OSC 133 shell integration (Warp-style command blocks) + cmder aliases.
+/// Sourced via `--init-file` (bash) or `ENV` (zsh) at startup.
+const BASH_SHELL_INTEGRATION_SH: &str = r#"
+# vscodium-rust terminal — OSC 133 blocks + cmder-style aliases (no AI)
+if [ -z "${__vscr_si:-}" ]; then
+  export __vscr_si=1
+  __vscr_osc() { printf '\033]%s\007' "$1"; }
+  __vscr_precmd() {
+    local code=$?
+    __vscr_osc "133;D;${code}"
+    __vscr_osc "133;A"
+    __vscr_osc "133;P;Cwd=${PWD}"
+  }
+  __vscr_preexec() {
+    __vscr_osc "133;C"
+    [ -n "${BASH_COMMAND:-}" ] && __vscr_osc "133;E;${BASH_COMMAND}"
+  }
+  if [ -n "${BASH_VERSION:-}" ]; then
+    PROMPT_COMMAND="__vscr_precmd${PROMPT_COMMAND:+;}$PROMPT_COMMAND"
+    trap '__vscr_preexec' DEBUG
+  elif [ -n "${ZSH_VERSION:-}" ]; then
+    precmd_functions+=(__vscr_precmd)
+    preexec_functions+=(__vscr_preexec)
+  fi
+  # cmder aliases (bash)
+  alias ..='cd ..'
+  alias ...='cd ../..'
+  alias ....='cd ../../..'
+  alias ll='ls -la'
+  alias la='ls -la'
+  alias gst='git status'
+  alias gco='git checkout'
+  alias gp='git push'
+  alias gl='git log --oneline --graph --decorate -20'
+  alias gd='git diff'
+  alias gaa='git add -A'
+  alias e.='explorer . 2>/dev/null || xdg-open . 2>/dev/null || open .'
+  alias clear='printf "\033[2J\033[H"'
+fi
 "#;
 
 /// Write the shell-integration script to a stable temp path and return it.
@@ -139,6 +183,22 @@ fn write_shell_integration_script() -> std::io::Result<PathBuf> {
     let mut f = std::fs::File::create(&path)?;
     f.write_all(POWERSHELL_SHELL_INTEGRATION_PS1.as_bytes())?;
     Ok(path)
+}
+
+fn write_bash_integration_script() -> std::io::Result<PathBuf> {
+    let path = std::env::temp_dir().join("vscr_shell_integration.sh");
+    let mut f = std::fs::File::create(&path)?;
+    f.write_all(BASH_SHELL_INTEGRATION_SH.as_bytes())?;
+    Ok(path)
+}
+
+fn is_bash_like(shell: &str) -> bool {
+    let s = shell.to_lowercase();
+    s.contains("bash") || s.ends_with("/sh") || s == "sh"
+}
+
+fn is_zsh(shell: &str) -> bool {
+    shell.to_lowercase().contains("zsh")
 }
 
 /// Best-effort fallback cwd when the configured one is missing or invalid.
@@ -222,6 +282,16 @@ pub async fn spawn_terminal(
                 cmd.arg("-NoExit");
                 cmd.arg("-Command");
                 cmd.arg(format!(". '{}'", script_path.display()));
+            }
+        } else if is_bash_like(&shell_exe) {
+            if let Ok(script_path) = write_bash_integration_script() {
+                cmd.arg("--init-file");
+                cmd.arg(script_path.display().to_string());
+                cmd.arg("-i");
+            }
+        } else if is_zsh(&shell_exe) {
+            if let Ok(script_path) = write_bash_integration_script() {
+                cmd.env("ENV", script_path.display().to_string());
             }
         }
     }

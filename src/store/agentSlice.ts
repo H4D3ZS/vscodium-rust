@@ -196,6 +196,7 @@ export interface AgentSlice {
     setArtifactReviewPolicy: (policy: 'always_proceed' | 'request_review') => void;
     setTerminalAutoExecution: (policy: 'always_proceed' | 'request_review') => void;
     createAgentThread: (name: string) => string;
+    closeAgentThread: (id: string) => void;
     setActiveAgentThread: (id: string) => void;
     approveArtifact: (threadId: string, artifactId: string) => void;
     rejectArtifact: (threadId: string, artifactId: string) => void;
@@ -361,7 +362,20 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                 return m;
             });
         }
-        return { agentMessages: newMessages };
+        let threadId = state.activeAgentThreadId;
+        let agentThreads = state.agentThreads;
+        if (!threadId || !agentThreads[threadId]) {
+            threadId = `agent-${Date.now()}`;
+            agentThreads = {
+                ...agentThreads,
+                [threadId]: { id: threadId, name: 'Chat', messages: [], isThinking: false, tasks: [], artifacts: [] },
+            };
+        }
+        agentThreads = {
+            ...agentThreads,
+            [threadId]: { ...agentThreads[threadId], messages: newMessages },
+        };
+        return { agentMessages: newMessages, activeAgentThreadId: threadId, agentThreads };
     }),
 
     updateLastAgentMessage: (content) => set((state) => {
@@ -382,7 +396,11 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
             }
             messages[lastIndex] = { ...last, content: newContent, thoughts: newThoughts };
         }
-        return { agentMessages: messages };
+        const threadId = state.activeAgentThreadId;
+        const agentThreads = threadId && state.agentThreads[threadId]
+            ? { ...state.agentThreads, [threadId]: { ...state.agentThreads[threadId], messages } }
+            : state.agentThreads;
+        return { agentMessages: messages, agentThreads };
     }),
 
     appendLastAgentMessage: (delta) => set((state: any) => {
@@ -417,7 +435,11 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                 }
             }
             messages[lastIndex] = { ...last, content: newContent, thoughts: newThoughts, raw_buffer: fullRaw };
-            return { agentMessages: messages };
+            const threadId = state.activeAgentThreadId;
+            const agentThreads = threadId && state.agentThreads[threadId]
+                ? { ...state.agentThreads, [threadId]: { ...state.agentThreads[threadId], messages } }
+                : state.agentThreads;
+            return { agentMessages: messages, agentThreads };
         }
         return state;
     }),
@@ -558,6 +580,8 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         const id = `bg-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         set((s) => ({ backgroundAgents: [...s.backgroundAgents, { id, prompt, status: 'running', result: '', startedAt: Date.now() }] }));
         try {
+            const { ensureAgentRuntime } = await import('../application/performance/ensureAgentRuntime');
+            await ensureAgentRuntime();
             const state = get();
             const provider = state.agentModel.includes('|') ? state.agentModel.split('|')[0] : 'ollama';
             const model = state.agentModel.includes('|') ? state.agentModel.split('|')[1] : state.agentModel;
@@ -707,11 +731,54 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         }));
         return id;
     },
+    closeAgentThread: (id) => set((state: any) => {
+        const keys = Object.keys(state.agentThreads || {});
+        if (keys.length === 0) return state;
+        if (keys.length === 1) {
+            const only = keys[0];
+            return {
+                agentThreads: {
+                    ...state.agentThreads,
+                    [only]: { ...state.agentThreads[only], messages: [], isThinking: false, tasks: [], artifacts: [] },
+                },
+                agentMessages: [],
+                agentTasks: [],
+            };
+        }
+        const { [id]: _removed, ...rest } = state.agentThreads;
+        const remaining = Object.keys(rest);
+        if (remaining.length === 0) {
+            return { agentThreads: {}, activeAgentThreadId: '', agentMessages: [], agentTasks: [] };
+        }
+        const nextId = state.activeAgentThreadId === id
+            ? remaining[remaining.length - 1]
+            : state.activeAgentThreadId;
+        const next = rest[nextId];
+        return {
+            agentThreads: rest,
+            activeAgentThreadId: nextId,
+            agentMessages: next?.messages || [],
+            agentTasks: next?.tasks || [],
+        };
+    }),
     setActiveAgentThread: (id) => {
         set((state: any) => {
-            const thread = state.agentThreads[id];
+            const prevId = state.activeAgentThreadId;
+            let threads = state.agentThreads;
+            if (prevId && threads[prevId] && prevId !== id) {
+                threads = {
+                    ...threads,
+                    [prevId]: { ...threads[prevId], messages: state.agentMessages },
+                };
+            }
+            const thread = threads[id];
             if (!thread) return state;
-            return { activeAgentThreadId: id, agentMessages: thread.messages, agentTasks: thread.tasks };
+            return {
+                agentThreads: threads,
+                activeAgentThreadId: id,
+                agentMessages: thread.messages,
+                agentTasks: thread.tasks,
+            };
         });
     },
     setActiveAgentThreadId: (activeAgentThreadId) => set({ activeAgentThreadId }),
@@ -769,10 +836,6 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         try {
             await invoke('load_chat_session', { path });
             const raw = await invoke<any[]>('get_agent_messages');
-            // Backend returns raw ChatMessage (content may be a string, a
-            // {Text:..} object, or a content-part array; plus system/tool rows the
-            // chat panel doesn't render). Normalize to the panel's flat shape and
-            // keep the visible conversation so the WHOLE history loads.
             const extract = (c: any): string => {
                 if (c == null) return '';
                 if (typeof c === 'string') return c;
@@ -789,20 +852,48 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                     timestamp: m.timestamp || Date.now(),
                 }))
                 .filter((m: any) => m.content.trim().length > 0);
-            set({ agentMessages: messages });
+
+            const firstUser = messages.find((m: any) => m.role === 'user');
+            const title = firstUser?.content?.slice(0, 48)?.trim() || 'Restored chat';
+            const threadId = `restored-${Date.now()}`;
+
+            set((state: any) => ({
+                agentMessages: messages,
+                activeAgentThreadId: threadId,
+                agentThreads: {
+                    ...state.agentThreads,
+                    [threadId]: {
+                        id: threadId,
+                        name: title,
+                        messages,
+                        isThinking: false,
+                        tasks: [],
+                        artifacts: [],
+                    },
+                },
+            }));
             get().refreshChatSessions();
         } catch (e) { console.error('[loadChatSession] failed:', e); }
     },
     archiveCurrentSession: async () => {
-        try { await invoke('archive_chat_session'); get().refreshChatSessions(); } catch { }
+        try {
+            const { syncAgentMessagesToBackend } = await import('../application/agent/syncAgentMessages');
+            await syncAgentMessagesToBackend();
+            await invoke('archive_chat_session');
+            get().refreshChatSessions();
+        } catch (e) { console.error('[archiveCurrentSession]', e); }
     },
     createNewSession: async () => {
-        // Clear the panel immediately so "New chat" always responds, even if the
-        // backend archive/create call is slow or errors.
-        set({ agentMessages: [], pendingChanges: [], attachedContext: [] } as any);
         try {
-            await invoke('archive_chat_session').catch(() => {}); // save the old one
+            const { syncAgentMessagesToBackend } = await import('../application/agent/syncAgentMessages');
+            await syncAgentMessagesToBackend();
+            await invoke('archive_chat_session').catch(() => {});
+        } catch { /* */ }
+        const count = Object.keys(get().agentThreads || {}).length;
+        get().createAgentThread(`Chat ${count + 1}`);
+        try {
             await invoke('create_new_session');
+            await invoke('clear_ai_memory').catch(() => {});
             get().refreshChatSessions();
         } catch (e) { console.error('[createNewSession] failed:', e); }
     },

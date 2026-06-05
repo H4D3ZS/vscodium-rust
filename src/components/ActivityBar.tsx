@@ -10,6 +10,7 @@ const EMPTY_EXTENSION_ITEMS: any[] = [];
 
 const ActivityBar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
+    const externalBrowserActive = useStore(state => state.externalBrowserActive);
     const setActiveView = useStore(state => state.setActiveSidebarView);
 
     const [isThemePickerOpen, setIsThemePickerOpen] = useState(false);
@@ -24,8 +25,10 @@ const ActivityBar: React.FC = () => {
         { id: 'explorer-view', icon: 'files', title: 'Explorer (Ctrl+Shift+E)' },
         { id: 'search-view', icon: 'search', title: 'Search (Ctrl+Shift+F)' },
         { id: 'scm-view', icon: 'source-control', title: 'Source Control (Ctrl+Shift+G)' },
+        { id: 'security-view', icon: 'shield', title: 'Security Review — click to audit codebase (Ctrl+Shift+Alt+R)' },
         { id: 'debug-view', icon: 'debug-alt', title: 'Run and Debug (Ctrl+Shift+D)' },
         { id: 'extensions-view', icon: 'extensions', title: 'Extensions (Ctrl+Shift+X)' },
+        { id: 'browser-panel', icon: 'globe', title: 'External Browser — live Firefox (Ctrl+Shift+U)', isBrowser: true },
         ...extensionItems
             .filter((ext: any) => {
                 const id = String(ext.id || '').toLowerCase();
@@ -75,9 +78,13 @@ const ActivityBar: React.FC = () => {
                 {items.map(item => (
                     <div
                         key={item.id}
-                        className={`activity-item ${activeView === item.id ? 'active' : ''}`}
+                        className={`activity-item ${activeView === item.id || ((item as any).isBrowser && externalBrowserActive) ? 'active' : ''}`}
                         title={item.title}
                         onClick={() => {
+                            if ((item as any).isBrowser) {
+                                import('../application/browser/openBrowserPanel').then(m => m.toggleExternalBrowser());
+                                return;
+                            }
                             const store = (window as any).useStore?.getState();
                             if (store && store.layoutMode !== 'editor') {
                                 store.setLayoutMode('editor');

@@ -2508,15 +2508,6 @@ impl Sentient {
                 });
             }
 
-            // Handle APIRadar meta-provider routing
-            if req.provider.to_lowercase() == "apiradar" && req.model.contains(':') {
-                let parts: Vec<&str> = req.model.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    active_provider = parts[0].to_string();
-                    active_model = parts[1].to_string();
-                }
-            }
-
             // 1. PHASE TRACKING & TELEMETRY
             if req.mode.as_deref() == Some("Sentient") {
                 let (phase, status, system_instruction) = match iteration {
@@ -4904,69 +4895,10 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             }
         }
 
-        // Special case for ApiRadar: allow fallback even without a key
+        // ApiRadar removed — leaked-key aggregator, no longer supported.
         if provider.to_lowercase() == "apiradar" {
-            let mut models = Vec::new();
-
-            if !self.get_key_for_provider("google").is_empty() {
-                models.push("google:gemini-2.5-pro".to_string());
-                models.push("google:gemini-2.5-flash".to_string());
-                models.push("google:gemini-2.0-flash".to_string());
-                models.push("google:gemini-2.0-flash-exp".to_string());
-                models.push("google:gemini-1.5-pro".to_string());
-                models.push("google:gemini-1.5-flash".to_string());
-            }
-            if !self.get_key_for_provider("anthropic").is_empty() {
-                models.push("anthropic:claude-opus-4-5".to_string());
-                models.push("anthropic:claude-sonnet-4-5".to_string());
-                models.push("anthropic:claude-haiku-4-5".to_string());
-                models.push("anthropic:claude-3-5-sonnet-20241022".to_string());
-                models.push("anthropic:claude-3-5-haiku-latest".to_string());
-                models.push("anthropic:claude-3-opus-20240229".to_string());
-                models.push("anthropic:claude-3-haiku-20240307".to_string());
-            }
-            if !self.get_key_for_provider("openai").is_empty() {
-                models.push("openai:gpt-4o".to_string());
-                models.push("openai:gpt-4o-mini".to_string());
-                models.push("openai:o1-preview".to_string());
-                models.push("openai:gpt-4-turbo".to_string());
-                models.push("openai:gpt-3.5-turbo".to_string());
-            }
-            if !self.get_key_for_provider("openrouter").is_empty() {
-                models.push("openrouter:meta-llama/llama-3.1-405b".to_string());
-                models.push("openrouter:qwen/qwen-2.5-72b".to_string());
-            }
-            if !self.get_key_for_provider("mistral").is_empty() {
-                models.push("mistral:mistral-large-latest".to_string());
-            }
-            if !self.get_key_for_provider("deepseek").is_empty() {
-                // Curated DeepSeek picks for ApiRadar aggregate + M1 pull parity.
-                // Live IDs come from `list_provider_models` when provider is Deepseek;
-                // these entries stay useful when only ApiRadar is opened.
-                models.push("deepseek:deepseek-chat".to_string());
-                models.push("deepseek:deepseek-reasoner".to_string());
-                models.push("deepseek:deepseek-coder".to_string());
-                models.push("deepseek:deepseek-v2".to_string());
-                models.push("deepseek:deepseek-v2.5".to_string());
-                models.push("deepseek:deepseek-v3".to_string());
-            }
-            if !self.get_key_for_provider("nvidia").is_empty() {
-                models.push("nvidia:nvidia/llama-3.1-nemotron-70b-instruct".to_string());
-                models.push("nvidia:meta/llama-3.1-405b-instruct".to_string());
-                models.push("nvidia:mistralai/mixtral-8x22b-instruct-v0.1".to_string());
-            }
-            // Local DeepSeek V2 on Apple Silicon (M1/M2/M3) — always advertise
-            // these IDs because the server is local and keyless. Selecting one
-            // of them routes through `deepseek-ane` -> http://127.0.0.1:8080.
-            // If the server isn't running, the first chat will fail with a
-            // clear "start the server" error rather than silently disappearing.
-            models.push("deepseek-ane:deepseek-v2-lite-chat-q4_k_m".to_string());
-            models.push("deepseek-ane:deepseek-coder-v2-lite-instruct-q4_k_m".to_string());
-            models.push("deepseek-ane:deepseek-v2-lite-chat-mlx-4bit".to_string());
-
-            return Ok(models);
+            return Ok(Vec::new());
         }
-
         {
             let plc = provider.to_lowercase();
             // Keyless-friendly providers: local servers + our own OpenAI-compatible

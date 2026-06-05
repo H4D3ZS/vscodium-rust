@@ -41,6 +41,39 @@ fn sidecar_path() -> std::path::PathBuf {
     std::env::temp_dir().join("vscodium_browser_agent.py")
 }
 
+/// Resolve `invisible_playwright/src` so dev runs import the in-repo package
+/// without requiring `pip install -e`. Bundled sidecars already embed the lib.
+fn invisible_playwright_pythonpath() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("INVISIBLE_PLAYWRIGHT_SRC") {
+        let path = std::path::PathBuf::from(p);
+        if path.join("invisible_playwright").exists() {
+            return Some(path);
+        }
+    }
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let mut dir = exe.parent().map(|p| p.to_path_buf());
+        for _ in 0..6 {
+            if let Some(d) = dir {
+                roots.push(d.clone());
+                dir = d.parent().map(|p| p.to_path_buf());
+            } else {
+                break;
+            }
+        }
+    }
+    for root in roots {
+        let src = root.join("invisible_playwright").join("src");
+        if src.join("invisible_playwright").exists() {
+            return Some(src);
+        }
+    }
+    None
+}
+
 /// Pick a python interpreter that exists. invisible_playwright must be importable
 /// from it (the user confirmed `python -c "import invisible_playwright"` works).
 fn python_exe() -> String {
@@ -93,11 +126,19 @@ async fn start_sidecar() -> Result<BrowserProc, String> {
     let mut command = Command::new(&cmd);
     if let Some(p) = &arg {
         command.arg(p);
+        if let Some(ip_src) = invisible_playwright_pythonpath() {
+            let src = ip_src.to_string_lossy().to_string();
+            let merged = match std::env::var("PYTHONPATH") {
+                Ok(existing) if !existing.is_empty() => format!("{src};{existing}"),
+                _ => src,
+            };
+            command.env("PYTHONPATH", merged);
+        }
     }
     let mut child = command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null()) // discard Playwright logs / download progress
+        .stderr(std::process::Stdio::inherit()) // show Playwright download / launch progress
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("spawn browser sidecar ({cmd}): {e}. For source runs: pip install playwright invisible_playwright"))?;

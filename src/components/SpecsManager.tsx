@@ -58,7 +58,7 @@ export const SpecsManager: React.FC<SpecsManagerProps> = ({ onClose }) => {
         
         try {
             // Step 1: Generate EARS Requirements via AI
-            const earsPrompt = `You are the Kiro Specs Engine. Convert the following natural language request into clear requirements and acceptance criteria in EARS (Easy Approach to Requirements Syntax) notation. Keep it concise but thorough. Request: "${val}"`;
+            const earsPrompt = `You are the Spec Engine. Convert the following natural language request into clear requirements and acceptance criteria in EARS (Easy Approach to Requirements Syntax) notation. Keep it concise but thorough. Request: "${val}"`;
             
             let earsResult = '';
             await new Promise<void>((resolve, reject) => {
@@ -152,7 +152,7 @@ Begin generating tests now.`;
     return (
         <div style={{ padding: '16px', color: 'var(--vscode-foreground)', height: '100%', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h2 style={{ margin: 0, fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Kiro Specs Engine</h2>
+                <h2 style={{ margin: 0, fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Spec Engine</h2>
                 {onClose && <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}>×</button>}
             </div>
 
@@ -160,7 +160,7 @@ Begin generating tests now.`;
                 <>
                     <div style={{ marginBottom: '16px' }}>
                         <div style={{ fontSize: '11px', opacity: 0.7, marginBottom: '8px' }}>
-                            Describe your feature in natural language. Kiro will convert it to structured EARS requirements, determine the optimal architecture, and break it into discrete executable tasks.
+                            Describe your feature in natural language. The agent will convert it to structured EARS requirements, determine the optimal architecture, and break it into discrete executable tasks.
                         </div>
                         <textarea
                             value={prompt}

@@ -1,9 +1,20 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react';
 import { useStore } from '../store';
-import TerminalView from './terminal/TerminalView';
 import TerminalCommandPalette from './terminal/TerminalCommandPalette';
+import {
+    getActiveTerminalThemeMode,
+    setActiveTerminalThemeMode,
+} from '../application/terminal/refreshTerminalTheme';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '../tauri_bridge';
+
+const TerminalView = lazy(() => import('./terminal/TerminalView'));
+const DebugConsolePanel = lazy(() => import('./debug/DebugConsolePanel'));
+const PortsPanel = lazy(() => import('./ports/PortsPanel'));
+
+const PanelChunkFallback = () => (
+    <div style={{ padding: 12, fontSize: 11, opacity: 0.45 }}>Loading panel…</div>
+);
 
 const BottomPanel: React.FC = () => {
     const isOpen = useStore(state => state.isBottomPanelOpen);
@@ -274,8 +285,21 @@ const BottomPanel: React.FC = () => {
                             <div className="toolbar-icon" onClick={addAiriActivityTerminal} title="Open AIRI Activity Terminal">
                                 <i className="codicon codicon-radio-tower" />
                             </div>
-                            <div className="toolbar-icon" onClick={() => activeGroup && splitTerminal(activeGroup.id, activeGroup.activeInstanceId)} title="Split Terminal">
+                            <div className="toolbar-icon" onClick={() => activeGroup && splitTerminal(activeGroup.id, activeGroup.activeInstanceId, 'horizontal')} title="Split Right (Ctrl+Shift+5)">
                                 <i className="codicon codicon-split-horizontal" />
+                            </div>
+                            <div className="toolbar-icon" onClick={() => activeGroup && splitTerminal(activeGroup.id, activeGroup.activeInstanceId, 'vertical')} title="Split Down (Ctrl+Alt+Shift+5)">
+                                <i className="codicon codicon-split-vertical" />
+                            </div>
+                            <div
+                                className="toolbar-icon"
+                                onClick={() => {
+                                    const next = getActiveTerminalThemeMode() === 'native' ? 'vscode' : 'native';
+                                    void setActiveTerminalThemeMode(next);
+                                }}
+                                title="Toggle terminal theme (IDE / native)"
+                            >
+                                <i className="codicon codicon-color-mode" />
                             </div>
                             <div className="toolbar-icon" onClick={() => activeTerminalGroupId && closeTerminalGroup(activeTerminalGroupId)} title="Kill Terminal">
                                 <i className="codicon codicon-trash" />
@@ -290,7 +314,11 @@ const BottomPanel: React.FC = () => {
 
             {/* Content Area */}
             <div className="panel-content" style={{ flex: 1, overflow: 'hidden', background: 'var(--vscode-terminal-background, var(--vscode-panel-background))' }}>
-                {activeTab === 'TERMINAL' && <TerminalView />}
+                {activeTab === 'TERMINAL' && (
+                    <Suspense fallback={<PanelChunkFallback />}>
+                        <TerminalView />
+                    </Suspense>
+                )}
                 {activeTab === 'OUTPUT' && (
                     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ padding: '4px 12px', borderBottom: '1px solid var(--vscode-panel-border, #333)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
@@ -316,19 +344,9 @@ const BottomPanel: React.FC = () => {
                     </div>
                 )}
                 {activeTab === 'DEBUG CONSOLE' && (
-                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '12px 16px' }}>
-                        <div style={{ color: 'var(--vscode-editor-foreground, #666)', fontSize: '12px', fontStyle: 'italic', marginBottom: '8px' }}>
-                            Debug Console is ready. No active debug session.
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', color: 'var(--vscode-editor-foreground, #ccc)', fontSize: '12px', marginTop: 'auto' }}>
-                            <i className="codicon codicon-chevron-right" style={{ fontSize: '12px', marginRight: '8px', color: '#3794ef' }}></i>
-                            <input
-                                type="text"
-                                placeholder="Filter or evaluate expression"
-                                style={{ background: 'transparent', border: 'none', color: 'var(--vscode-editor-foreground, #fff)', fontSize: '12px', width: '100%', outline: 'none' }}
-                            />
-                        </div>
-                    </div>
+                    <Suspense fallback={<PanelChunkFallback />}>
+                        <DebugConsolePanel />
+                    </Suspense>
                 )}
                 {activeTab === 'PROBLEMS' && (() => {
                     const entries = Object.entries(diagnosticsMap).filter(([, d]) => d.length > 0);
@@ -370,14 +388,14 @@ const BottomPanel: React.FC = () => {
                     );
                 })()}
                 {activeTab === 'PORTS' && (
-                    <div style={{ padding: '32px', color: 'var(--vscode-editor-foreground, #666)', fontSize: '12px', textAlign: 'center' }}>
-                        PORTS view is currently empty.
-                    </div>
+                    <Suspense fallback={<PanelChunkFallback />}>
+                        <PortsPanel />
+                    </Suspense>
                 )}
                 {activeTab === 'JOBS' && (
                     <div style={{ padding: '16px', color: 'var(--vscode-foreground)', fontSize: '12px', height: '100%', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid var(--vscode-panel-border)', paddingBottom: '8px' }}>
-                            <span style={{ fontWeight: 600 }}>Active Background Jobs (Kiro)</span>
+                            <span style={{ fontWeight: 600 }}>Active Background Jobs</span>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <i className="codicon codicon-refresh" style={{ cursor: 'pointer', opacity: 0.7 }} title="Refresh Jobs"></i>
                                 <i className="codicon codicon-clear-all" style={{ cursor: 'pointer', opacity: 0.7 }} title="Clear Completed"></i>

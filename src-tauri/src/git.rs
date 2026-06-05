@@ -216,6 +216,57 @@ impl GitManager {
         }
     }
 
+    pub fn push<P: AsRef<Path>>(&self, repo_path: P) -> Result<String, String> {
+        let output = Command::new("git")
+            .hidden()
+            .arg("push")
+            .current_dir(repo_path)
+            .output()
+            .map_err(|e| e.to_string())?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        if output.status.success() {
+            Ok(if stdout.is_empty() { stderr } else { stdout })
+        } else {
+            Err(if stderr.is_empty() { stdout } else { stderr })
+        }
+    }
+
+    pub fn pull<P: AsRef<Path>>(&self, repo_path: P) -> Result<String, String> {
+        let output = Command::new("git")
+            .hidden()
+            .arg("pull")
+            .arg("--ff-only")
+            .current_dir(repo_path)
+            .output()
+            .map_err(|e| e.to_string())?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        if output.status.success() {
+            Ok(if stdout.is_empty() { stderr } else { stdout })
+        } else {
+            Err(if stderr.is_empty() { stdout } else { stderr })
+        }
+    }
+
+    pub fn fetch<P: AsRef<Path>>(&self, repo_path: P) -> Result<String, String> {
+        let output = Command::new("git")
+            .hidden()
+            .arg("fetch")
+            .arg("--all")
+            .arg("--prune")
+            .current_dir(repo_path)
+            .output()
+            .map_err(|e| e.to_string())?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        if output.status.success() {
+            Ok(if stdout.is_empty() { stderr } else { stdout })
+        } else {
+            Err(if stderr.is_empty() { stdout } else { stderr })
+        }
+    }
+
     pub fn get_commit_diff<P: AsRef<Path>>(
         &self,
         repo_path: P,

@@ -19,6 +19,8 @@ export interface LayoutSlice {
     contextMenuPosition: { x: number; y: number };
     commandPaletteQuery: string;
     layoutMode: 'editor' | 'browser';
+    /** True while the external stealth-Firefox OS window is (expected to be) running. */
+    externalBrowserActive: boolean;
     isAiriOpen: boolean;
     isComposerOpen: boolean;
     isAiriPanelOpen: boolean;
@@ -41,6 +43,7 @@ export interface LayoutSlice {
     setDebugToolbarOpen: (open: boolean) => void;
     setCommandPaletteQuery: (query: string) => void;
     setLayoutMode: (mode: 'editor' | 'browser') => void;
+    setExternalBrowserActive: (active: boolean) => void;
     toggleAiri: (open?: boolean) => void;
     toggleComposer: (open?: boolean) => void;
     toggleAiriPanel: () => void;
@@ -78,6 +81,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     contextMenuPosition: { x: 0, y: 0 },
     commandPaletteQuery: '',
     layoutMode: 'editor',
+    externalBrowserActive: false,
     isAiriOpen: true,
     isComposerOpen: false,
     isAiriPanelOpen: true,
@@ -120,6 +124,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     setDebugToolbarOpen: (isDebugToolbarOpen) => set({ isDebugToolbarOpen }),
     setCommandPaletteQuery: (commandPaletteQuery) => set({ commandPaletteQuery }),
     setLayoutMode: (mode) => set({ layoutMode: mode }),
+    setExternalBrowserActive: (externalBrowserActive) => set({ externalBrowserActive }),
     toggleAiri: (open?) => set((s) => ({ isAiriOpen: open !== undefined ? open : !s.isAiriOpen })),
     toggleComposer: (open?) => set((s) => ({ isComposerOpen: open !== undefined ? open : !s.isComposerOpen })),
     toggleAiriPanel: () => set((s) => ({ isRightSidebarOpen: true, isAiriPanelOpen: !s.isAiriPanelOpen, isEmulatorPanelOpen: false })),

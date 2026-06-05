@@ -28,7 +28,7 @@ impl IgnoreSet {
         // Cursor IDE's two native ignore files. `.cursorignore` hides files
         // from both indexing and AI access; `.cursorindexignore` only hides
         // them from indexing. For our index pipeline both behave the same.
-        for name in [".cursorignore", ".cursorindexignore", ".gitignore"] {
+        for name in [".hadesignore", ".cursorignore", ".cursorindexignore", ".gitignore"] {
             let p = root.join(name);
             if !p.is_file() { continue; }
             let mut b = GitignoreBuilder::new(root);
@@ -72,7 +72,7 @@ impl ContextIndexer {
         }
     }
 
-    /// Re-read `.cursorignore` / `.cursorindexignore` / `.gitignore`. Called
+    /// Re-read `.hadesignore` / `.cursorignore` / `.cursorindexignore` / `.gitignore`. Called
     /// at the top of each index cycle so edits to the ignore files take
     /// effect on the next pass.
     fn refresh_ignores(&self) {
@@ -110,7 +110,7 @@ impl ContextIndexer {
                                 // If the user edited `.cursorignore`, refresh
                                 // the cached matcher so subsequent events
                                 // honor the new rules immediately.
-                                if event.paths.iter().any(|p| p.file_name().map(|n| n == ".cursorignore" || n == ".cursorindexignore" || n == ".gitignore").unwrap_or(false)) {
+                                if event.paths.iter().any(|p| p.file_name().map(|n| n == ".hadesignore" || n == ".cursorignore" || n == ".cursorindexignore" || n == ".gitignore").unwrap_or(false)) {
                                     let fresh = IgnoreSet::load(&root);
                                     if let Ok(mut w) = ignore_set.write() {
                                         *w = fresh;

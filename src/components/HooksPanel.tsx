@@ -126,7 +126,7 @@ const HooksPanel: React.FC = () => {
         <div style={{ maxWidth: 780 }}>
             <div className="settings-section-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 Hooks
-                <span className="settings-badge new">Kiro</span>
+                <span className="settings-badge new">Agent</span>
             </div>
             <p className="settings-section-subtitle">
                 Hooks trigger AI actions automatically on IDE events. Enable hooks to automate repetitive tasks like documentation, commit messages, and test fixes.

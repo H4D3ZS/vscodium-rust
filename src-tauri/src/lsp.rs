@@ -37,10 +37,14 @@ impl LspClient {
 
     /// Start an LSP server process, perform `initialize` handshake, and
     /// spawn a background reader that stores `publishDiagnostics` notifications.
-    pub fn start(&mut self, command: &str, app_handle: AppHandle) -> std::io::Result<()> {
+    pub fn start(&mut self, command: &str, args: &[String], app_handle: AppHandle) -> std::io::Result<()> {
         use crate::process_ext::CommandExtHidden;
 
-        let mut child = Command::new(command)
+        let mut cmd = Command::new(command);
+        if !args.is_empty() {
+            cmd.args(args);
+        }
+        let mut child = cmd
             .hidden()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -237,14 +241,24 @@ impl LspClient {
 
     /// Set the workspace root after LSP is initialized.
     pub fn set_workspace_root(&mut self, root_uri: &str) -> std::io::Result<()> {
-        self.request_id += 1;
-        let id = self.request_id;
-        self.send_request(id, "workspace/didChangeWorkspaceFolders", json!({
-            "event": {
-                "added": [{ "uri": root_uri, "name": "project" }],
-                "removed": []
-            }
-        }))
+        self.sync_workspace_folders(&[(root_uri, "project")], &[])
+    }
+
+    /// Multi-root workspace: replace folder list on the LSP client.
+    pub fn sync_workspace_folders(
+        &mut self,
+        folders: &[(&str, &str)],
+        removed: &[String],
+    ) -> std::io::Result<()> {
+        let added: Vec<Value> = folders
+            .iter()
+            .map(|(uri, name)| json!({ "uri": uri, "name": name }))
+            .collect();
+        let removed_json: Vec<Value> = removed.iter().map(|u| json!({ "uri": u })).collect();
+        self.send_notification(
+            "workspace/didChangeWorkspaceFolders",
+            json!({ "event": { "added": added, "removed": removed_json } }),
+        )
     }
 
     pub fn send_request(&mut self, id: i32, method: &str, params: Value) -> std::io::Result<()> {

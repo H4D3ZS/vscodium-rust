@@ -37,13 +37,21 @@ const TerminalSidebar: React.FC = () => {
     };
 
     const contextMenuOptions = [
-        { 
-            label: 'Split Terminal', 
-            icon: 'codicon-split-horizontal', 
+        {
+            label: 'Split Right',
+            icon: 'codicon-split-horizontal',
             onClick: () => {
-                const group = groups.find(g => g.id === menuState.groupId);
-                if (group) splitTerminal(group.id, group.activeInstanceId);
-            }
+                const group = groups.find((g) => g.id === menuState.groupId);
+                if (group) splitTerminal(group.id, group.activeInstanceId, 'horizontal');
+            },
+        },
+        {
+            label: 'Split Down',
+            icon: 'codicon-split-vertical',
+            onClick: () => {
+                const group = groups.find((g) => g.id === menuState.groupId);
+                if (group) splitTerminal(group.id, group.activeInstanceId, 'vertical');
+            },
         },
         { 
             label: 'Rename...', 

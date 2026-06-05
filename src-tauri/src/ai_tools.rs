@@ -145,6 +145,20 @@ impl AiTools {
         *h = Some(handle);
     }
 
+    async fn load_keys_value(&self) -> Value {
+        if let Some(handle) = self.app_handle.lock().await.clone() {
+            if let Some(state) = handle.try_state::<crate::EditorState>() {
+                let path = state.config_dir.join("api_keys.json");
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(v) = serde_json::from_str(&content) {
+                        return v;
+                    }
+                }
+            }
+        }
+        json!({})
+    }
+
     pub async fn set_apex(&self, apex: Arc<crate::apex_orchestrator::ApexOrchestrator>) {
         let mut a = self.apex.lock().await;
         *a = Some(apex);
@@ -2841,19 +2855,51 @@ impl AiTools {
         let prompt = args["prompt"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing prompt"))?;
-        let _path = args["path"]
+        let path = args["path"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing path"))?;
 
-        // Mocking for now, as it requires a specific Image Gen API
-        // In a real implementation, we'd use OpenAI DALL-E or similar
-        println!("[GENERATE_IMAGE] Prompt: {}", prompt);
+        let root = self.root_path.lock().await.clone();
+        let full = if std::path::Path::new(path).is_absolute() {
+            std::path::PathBuf::from(path)
+        } else {
+            std::path::Path::new(&root).join(path)
+        };
 
-        Ok(json!({
-            "status": "success",
-            "message": "Image generation requested. (Note: Asset generation currently using fallback placeholders)",
-            "hint": "Check the specified path for the output file."
-        }))
+        let keys = self.load_keys_value().await;
+        let google_key = keys.get("google").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+        let provider = args["provider"].as_str().unwrap_or("auto");
+
+        let saved = if provider == "gemini" || (provider == "auto" && google_key.is_some()) {
+            let key = google_key.ok_or_else(|| anyhow!("Google API key required for Gemini image gen"))?;
+            crate::image_gen::generate_with_gemini(key, prompt, &full)
+                .await
+                .map_err(|e| anyhow!("{e}"))
+        } else {
+            crate::image_gen::generate_with_ollama(prompt, &full)
+                .await
+                .map_err(|e| anyhow!("{e}"))
+        };
+
+        match saved {
+            Ok(out) => Ok(json!({
+                "status": "success",
+                "path": out,
+                "message": format!("Image saved to {out}")
+            })),
+            Err(_) if provider == "auto" && google_key.is_some() => {
+                let key = google_key.unwrap();
+                let out = crate::image_gen::generate_with_gemini(key, prompt, &full)
+                    .await
+                    .map_err(|e| anyhow!("{e}"))?;
+                Ok(json!({
+                    "status": "success",
+                    "path": out,
+                    "message": format!("Image saved to {out} (Gemini fallback)")
+                }))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn analyze_image(&self, args: Value) -> Result<Value> {
@@ -2863,18 +2909,43 @@ impl AiTools {
         let question = args
             .get("question")
             .and_then(|v| v.as_str())
-            .unwrap_or("Describe this image.");
+            .unwrap_or("Describe this image in detail.");
 
-        println!(
-            "[ANALYZE_IMAGE] Analyzing {} with question: {}",
-            path, question
-        );
+        let root = self.root_path.lock().await.clone();
+        let full = if std::path::Path::new(path).is_absolute() {
+            std::path::PathBuf::from(path)
+        } else {
+            std::path::Path::new(&root).join(path)
+        };
+        if !full.exists() {
+            return Err(anyhow!("Image not found: {}", full.display()));
+        }
 
-        // Mocking analysis
+        let keys = self.load_keys_value().await;
+        let google_key = keys.get("google").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+        let provider = args["provider"].as_str().unwrap_or("auto");
+
+        let analysis = if provider == "gemini" || (provider == "auto" && google_key.is_some()) {
+            let key = google_key.ok_or_else(|| anyhow!("Google API key required"))?;
+            crate::image_gen::analyze_with_gemini(key, &full, question)
+                .await
+                .map_err(|e| anyhow!("{e}"))?
+        } else {
+            match crate::image_gen::analyze_with_ollama(&full, question).await {
+                Ok(t) => t,
+                Err(_) if google_key.is_some() => {
+                    crate::image_gen::analyze_with_gemini(google_key.unwrap(), &full, question)
+                        .await
+                        .map_err(|e| anyhow!("{e}"))?
+                }
+                Err(e) => return Err(anyhow!("{e}")),
+            }
+        };
+
         Ok(json!({
             "status": "success",
-            "analysis": "Vision analysis triggered. Structural elements detected.",
-            "details": "Layout appears consistent with modern web design standards."
+            "analysis": analysis,
+            "path": full.to_string_lossy()
         }))
     }
 

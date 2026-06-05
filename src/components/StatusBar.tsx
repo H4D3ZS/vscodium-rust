@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useStore } from '../store';
 import { invoke } from '@tauri-apps/api/core';
 import { formatMemoryTooltip, type ProcessStatsDto } from '../domain/performance/ProcessMemorySnapshot';
+import { STATS_POLL_MS, ACCOUNT_POLL_MS } from '../memory_budget';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -110,6 +111,14 @@ const StatusBar: React.FC = () => {
     const isIndexingCodebase = useStore(state => state.isIndexingCodebase);
     const indexingProgress = useStore(state => state.indexingProgress);
     const startIndexingCodebase = useStore(state => state.startIndexingCodebase);
+    const securityReviewReport = useStore(state => state.securityReviewReport);
+    const securityReviewRunning = useStore(state => state.securityReviewRunning);
+    const criticalCount = securityReviewReport
+        ? (securityReviewReport.bySeverity.CRITICAL ?? 0) + (securityReviewReport.bySeverity.HIGH ?? 0)
+        : 0;
+    const lspRunning = useStore(state => state.lspRunning);
+    const lspDownloading = useStore(state => state.lspDownloading);
+    const lspServerId = useStore(state => state.lspServerId);
 
     // ── Live cursor position ──────────────────────────────────────────────────
     const [cursorLine, setCursorLine] = useState(1);
@@ -244,7 +253,7 @@ const StatusBar: React.FC = () => {
                     handleOptimize();
                 }
             });
-        }, 20000);
+        }, STATS_POLL_MS);
         return () => clearInterval(t);
     }, []);
 
@@ -269,7 +278,7 @@ const StatusBar: React.FC = () => {
             } catch { /* backend not ready */ }
         };
         load();
-        const t = setInterval(load, 30000);
+        const t = setInterval(load, ACCOUNT_POLL_MS);
         const h = () => load();
         window.addEventListener('account:changed', h);
         return () => { alive = false; clearInterval(t); window.removeEventListener('account:changed', h); };
@@ -368,6 +377,44 @@ const StatusBar: React.FC = () => {
                     <span style={{ color: warnCount > 0 ? '#fbbf24' : 'inherit' }}>{warnCount}</span>
                 </StatusItem>
 
+                {/* LSP language server */}
+                {activeRoot && (
+                    <StatusItem
+                        title={lspDownloading ? 'Downloading IDE language server…' : lspRunning ? `IDE language server: ${lspServerId}` : 'Language server starting…'}
+                        accent={lspRunning}
+                    >
+                        <i className={`codicon codicon-symbol-method${lspDownloading ? ' codicon-sync animate-spin' : ''}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                        <span style={{ fontSize: '11px' }}>{lspDownloading ? 'LSP…' : lspRunning ? (lspServerId || 'LSP') : 'LSP'}</span>
+                    </StatusItem>
+                )}
+
+                {/* Security review — on-demand audit (not real-time) */}
+                {activeRoot && (
+                    <StatusItem
+                        onClick={() => (window as any).executeCommand?.('workbench.view.securityReview')}
+                        title={
+                            securityReviewRunning
+                                ? 'Security review running…'
+                                : securityReviewReport
+                                    ? `${securityReviewReport.totalFindings} finding(s) — click to open Security Review`
+                                    : 'Run codebase security review (Ctrl+Shift+Alt+R)'
+                        }
+                        danger={criticalCount > 0}
+                    >
+                        <i
+                            className={`codicon codicon-shield${securityReviewRunning ? ' codicon-sync animate-spin' : ''}`}
+                            style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }}
+                        />
+                        <span style={{ fontSize: '11px' }}>
+                            {securityReviewRunning
+                                ? 'Auditing…'
+                                : securityReviewReport
+                                    ? `Sec ${securityReviewReport.totalFindings}`
+                                    : 'Security'}
+                        </span>
+                    </StatusItem>
+                )}
+
                 {/* Codebase Indexing Progress Indicator */}
                 {activeRoot && (
                     <StatusItem
@@ -399,7 +446,7 @@ const StatusBar: React.FC = () => {
                                     </span>
                                 </>
                             ) : (
-                                <span style={{ opacity: 0.9 }}>Codebase Indexed</span>
+                                <span style={{ opacity: 0.9 }}>Indexed</span>
                             )}
                         </span>
                     </StatusItem>

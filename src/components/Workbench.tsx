@@ -1,12 +1,14 @@
 import React, { useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import ActivityBar from './ActivityBar';
 import Sidebar from './Sidebar';
-import BottomPanel from './BottomPanel';
 import EmptyEditorWelcome from './EmptyEditorWelcome';
 import OllamaProgressBar from './OllamaProgressBar';
 import { useStore } from '../store';
 import TabStrip from './workbench/TabStrip';
 import ToastManager from './ToastManager';
+import WorkspaceTrustBanner from './WorkspaceTrustBanner';
+
+const BottomPanel = lazy(() => import('./BottomPanel'));
 
 const RightSidebar = lazy(() => import('./RightSidebar'));
 const Editor = lazy(() => import('./Editor'));
@@ -125,6 +127,7 @@ const Workbench: React.FC = () => {
 
     return (
         <div id="workbench" style={{ display: 'flex', flex: 1, height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+            <WorkspaceTrustBanner />
             {!isZenMode && <ActivityBar />}
             {!isZenMode && isSidebarOpen && <div style={{ width: sidebarWidth, flexShrink: 0, display: 'flex' }}><Sidebar /></div>}
 
@@ -158,7 +161,7 @@ const Workbench: React.FC = () => {
                                                     VSCodium-Rust
                                                 </h1>
                                                 <p style={{ fontSize: '13px', opacity: 0.55, margin: '0 0 28px', lineHeight: 1.5 }}>
-                                                    Open a folder to start. Chat, Composer, and mobile emulators work like VS Code + Cursor.
+                                                    Open a folder to start. Chat, Composer, and mobile emulators are built in.
                                                 </p>
                                                 <div style={{ display: 'grid', gap: '4px', marginBottom: '32px' }}>
                                                     {[
@@ -167,6 +170,7 @@ const Workbench: React.FC = () => {
                                                         { label: 'New File...', icon: 'codicon-new-file', cmd: 'explorer.newFile' },
                                                         { label: 'Open Chat...', icon: 'codicon-comment-discussion', cmd: 'workbench.action.openChat' },
                                                         { label: 'Mobile Emulators...', icon: 'codicon-device-mobile', cmd: 'workbench.action.openEmulators' },
+                                                        { label: 'Security Review...', icon: 'codicon-shield', cmd: 'security.action.runCodebaseReview' },
                                                     ].map(item => (
                                                         <button key={item.cmd} type="button"
                                                             onClick={() => (window as any).executeCommand?.(item.cmd)}
@@ -319,7 +323,11 @@ const Workbench: React.FC = () => {
                 )}
                 {!isZenMode && (
                     <div style={{ height: isBottomPanelOpen ? bottomPanelHeight : 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                        <BottomPanel />
+                        {isBottomPanelOpen && (
+                            <Suspense fallback={null}>
+                                <BottomPanel />
+                            </Suspense>
+                        )}
                     </div>
                 )}
             </div>

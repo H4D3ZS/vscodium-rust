@@ -181,6 +181,48 @@ const vscodeImpl = {
             sendResponse({ type: 'createTreeView', viewId });
             return { visible: true, onDidChangeVisibility: () => ({ dispose: () => { } }), reveal: () => { }, dispose: () => { } };
         },
+        showTextDocument: async (docOrUri, options) => {
+            const p = typeof docOrUri === 'string'
+                ? docOrUri
+                : (docOrUri?.uri?.fsPath || docOrUri?.fileName || String(docOrUri));
+            sendResponse({ type: 'openFile', path: p.replace(/^file:\/\/\/?/, '') });
+            const opened = await vscodeImpl.workspace.openTextDocument(p);
+            return {
+                document: opened,
+                selection: { active: { line: 0, character: 0 }, anchor: { line: 0, character: 0 }, isEmpty: true },
+                selections: [],
+                visibleRanges: [],
+                options: { tabSize: currentSettings.tab_size ?? 4 },
+                edit: (callback) => Promise.resolve(false),
+            };
+        },
+        createTerminal: (name, shellPath, shellArgs) => {
+            const id = `ext-term-${Date.now()}`;
+            sendResponse({ type: 'createTerminal', id, name: name || 'Extension Terminal', shellPath, shellArgs });
+            return {
+                name: name || 'Terminal',
+                processId: Promise.resolve(undefined),
+                sendText: (text, addNewLine = true) => {
+                    sendResponse({ type: 'terminalSendText', id, text: addNewLine ? text + '\r' : text });
+                },
+                show: () => sendResponse({ type: 'showTerminal', id }),
+                hide: () => { },
+                dispose: () => sendResponse({ type: 'disposeTerminal', id }),
+            };
+        },
+        createStatusBarItem: (alignment, priority) => {
+            const id = `sbi-${Date.now()}`;
+            const item = {
+                id,
+                text: '',
+                tooltip: '',
+                command: undefined,
+                show: () => sendResponse({ type: 'statusBarShow', id, text: item.text, tooltip: item.tooltip }),
+                hide: () => sendResponse({ type: 'statusBarHide', id }),
+                dispose: () => sendResponse({ type: 'statusBarDispose', id }),
+            };
+            return item;
+        },
     },
 
     commands: {
@@ -669,6 +711,26 @@ async function handleRequest(req) {
         case 'bootstrap':
             await bootstrap(req.extensions);
             break;
+
+        case 'syncWorkspaceFolders': {
+            if (Array.isArray(req.folders) && req.folders.length > 0) {
+                vscodeImpl.workspace.workspaceFolders = req.folders.map((f, i) => {
+                    const fpath = f.path || (f.uri || '').replace(/^file:\/\/\/?/, '');
+                    const uri = f.uri || `file:///${fpath.replace(/\\/g, '/')}`;
+                    return {
+                        uri: { fsPath: fpath, toString: () => uri },
+                        name: f.name || path.basename(fpath),
+                        index: i,
+                    };
+                });
+                vscodeImpl.workspace.rootPath = vscodeImpl.workspace.workspaceFolders[0].uri.fsPath;
+                eventHandlers.emit('onDidChangeWorkspaceFolders', {
+                    added: vscodeImpl.workspace.workspaceFolders,
+                    removed: [],
+                });
+            }
+            break;
+        }
 
         case 'activateExtension':
             await activateExtension(req.id);
