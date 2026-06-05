@@ -5584,11 +5584,11 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                 }
                 "https://api.anthropic.com/v1/messages".to_string()
             }
-            // Interface AI (highwayapi.ai) — OpenAI-compatible Claude Opus 4.8.
-            // env HIGHWAYAPI_BASE_URL → keys.highwayapi_base_url → default paid
-            // base. Free base is https://freeapi.highwayapi.ai. The base already
-            // includes the API root (.../openai), so we append only
-            // /chat/completions (NOT /v1/chat/completions).
+            // JieKou AI / Highway API — OpenAI-compatible Claude Opus 4.8.
+            // Docs use base URL https://api.highwayapi.ai/openai and curl the
+            // concrete endpoint /openai/v1/chat/completions. Older builds sent
+            // the model to freeapi.highwayapi.ai, whose catalog can reject
+            // claude-opus-4-8 with "model not found".
             "highwayapi" | "interfaceai" | "jiekou" => {
                 let configured = std::env::var("HIGHWAYAPI_BASE_URL").ok()
                     .filter(|s| !s.trim().is_empty())
@@ -5600,10 +5600,15 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                             .and_then(|k| k["highwayapi_base_url"].as_str().map(|s| s.to_string()))
                             .filter(|s| !s.trim().is_empty())
                     })
-                    .unwrap_or_else(|| "https://freeapi.highwayapi.ai".to_string());
+                    .unwrap_or_else(|| "https://api.highwayapi.ai/openai".to_string());
                 let base = configured.trim().trim_end_matches('/').to_string();
-                if base.ends_with("/chat/completions") { base }
-                else { format!("{}/chat/completions", base) }
+                if base.ends_with("/v1/chat/completions") || base.ends_with("/chat/completions") {
+                    base
+                } else if base.ends_with("/v1") {
+                    format!("{}/chat/completions", base)
+                } else {
+                    format!("{}/v1/chat/completions", base)
+                }
             }
             "mistral" => "https://api.mistral.ai/v1/chat/completions".to_string(),
             "groq" => "https://api.groq.com/openai/v1/chat/completions".to_string(),

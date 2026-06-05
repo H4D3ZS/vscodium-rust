@@ -84,9 +84,8 @@ export const defaultProviderEndpoints: Partial<Record<ProviderName, string>> = {
     antigravity: 'http://127.0.0.1:1536',
     mimo: 'https://api.xiaomimimo.com/v1',
     cyberifrit: 'https://ai.cyberifrit.xyz',
-    // Interface AI / highwayapi.ai — OpenAI-compatible Claude Opus 4.8.
-    // Free trial base by default; paid base is https://api.highwayapi.ai/openai.
-    highwayapi: 'https://freeapi.highwayapi.ai',
+    // JieKou AI / Highway API — OpenAI-compatible Claude Opus 4.8.
+    highwayapi: 'https://api.highwayapi.ai/openai',
 };
 
 export const localProviders: ProviderName[] = ['ollama', 'vLLM', 'lmStudio', 'antigravity'];
