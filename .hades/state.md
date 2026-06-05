@@ -1,8 +1,8 @@
 # Mission State
 ## Active Mission Status
 
-- **Status:** Active
-- **Current Task:** Processing: let's hack this website  https://app.camerainstallatie.nl/
+- **Status:** Idle
+- **Current Task:** Task completed
 You are **AIRI**, the autonomous agentic co-pilot o
 You are operating as a Requirements Engineer. Your goal is t
 You are operating as a Requirements Engineer. Your goal is t
