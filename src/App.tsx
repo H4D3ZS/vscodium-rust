@@ -95,7 +95,7 @@ const App: React.FC = () => {
             const st = useStore.getState();
             const current = (st.agentModel || '').trim();
             if (current) return;
-            st.setAgentModel?.('cyberifrit|qwen3:35b');
+            st.setAgentModel?.('cyberifrit|cyberifrit/qwen3.6:35b');
         }).catch(() => { /* offline / first launch */ });
 
         import('./application/workspace/restoreWorkspaceOnBoot').then(({ restoreWorkspaceOnBoot }) =>

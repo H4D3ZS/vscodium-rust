@@ -654,6 +654,10 @@ impl Sentient {
 
     pub fn stop(&self) {
         self.stop_signal.store(true, Ordering::SeqCst);
+        if let Ok(mut b) = self.chat_stream_buf.lock() {
+            b.clear();
+        }
+        self.emit_event("ai-stopped", json!({ "reason": "user" }));
     }
 
     pub fn reset_stop_signal(&self) {
@@ -662,6 +666,15 @@ impl Sentient {
 
     pub fn is_stopped(&self) -> bool {
         self.stop_signal.load(Ordering::SeqCst)
+    }
+
+    /// If the user pressed Stop, return the canonical early-exit message.
+    fn stopped_message(&self) -> Option<String> {
+        if self.is_stopped() {
+            Some("Execution stopped by user.".to_string())
+        } else {
+            None
+        }
     }
 
     pub fn pause(&self) {
@@ -3276,9 +3289,20 @@ impl Sentient {
                 request_id, active_provider
             );
 
+            {
+                if let Some(msg) = self.stopped_message() {
+                    println!("[AI] Loop interrupted by stop signal (mid-iteration)");
+                    return Ok(msg);
+                }
+            }
+
             while let Ok(Some(chunk_result)) =
                 tokio::time::timeout(std::time::Duration::from_secs(600), stream.next()).await
             {
+                if let Some(msg) = self.stopped_message() {
+                    println!("[AI] Stream interrupted by stop signal");
+                    return Ok(msg);
+                }
                 let chunk = match chunk_result {
                     Ok(c) => c,
                     Err(e) => {
@@ -3295,6 +3319,10 @@ impl Sentient {
                 line_buffer.push_str(&text);
 
                 while let Some(pos) = line_buffer.find('\n') {
+                    if let Some(msg) = self.stopped_message() {
+                        println!("[AI] Stream line parse interrupted by stop signal");
+                        return Ok(msg);
+                    }
                     let line = line_buffer[..pos].trim().to_string();
                     line_buffer = line_buffer[pos + 1..].to_string();
 
@@ -3574,6 +3602,11 @@ impl Sentient {
                 }
             }
 
+            if let Some(msg) = self.stopped_message() {
+                println!("[AI] Post-stream stop before processing response");
+                return Ok(msg);
+            }
+
             println!(
                 "AI Stream finished. Total content length: {}",
                 full_content.len()
@@ -3692,7 +3725,6 @@ impl Sentient {
                     
                     if self.is_stopped() {
                          println!("[AI] Loop interrupted by stop signal before executing tool: {}", tool_call.function.name);
-                         self.emit_event("ai-stopped", json!({ "iteration": iteration }));
                          return Ok("Execution stopped by user.".to_string());
                     }
 

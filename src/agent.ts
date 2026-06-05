@@ -2194,6 +2194,10 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             ollama_url: routingOllamaUrl
         });
 
+        const { beginAgentRun, isAgentRunAborted, registerStreamPollTimer, clearStreamPollTimer } =
+            await import('./application/agent/agentRunSession');
+        beginAgentRun();
+
         // Race the full loop against a 120s timeout (generous for large models
         // but prevents the UI from spinning forever if the backend or Ollama
         // is truly unreachable).
@@ -2232,27 +2236,32 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         let streamedAny = false;
         let pollBusy = false;
         const drainOnce = async () => {
+            if (isAgentRunAborted()) return;
             if (pollBusy) return;
             pollBusy = true;
             try {
                 const chunk = await invoke<string>('chat_stream_drain');
-                if (chunk) { streamedAny = true; store.getState().appendLastAgentMessage?.(chunk); }
+                if (chunk && !isAgentRunAborted()) {
+                    streamedAny = true;
+                    store.getState().appendLastAgentMessage?.(chunk);
+                }
             } catch { /* backend busy */ }
             finally { pollBusy = false; }
         };
         const streamTimer = setInterval(drainOnce, 50);
+        registerStreamPollTimer(streamTimer);
 
         let finalText = '';
         try {
             finalText = (await Promise.race([fullCall, fullTimeout])) as string;
         } finally {
-            clearInterval(streamTimer);
-            await drainOnce(); // flush any tail tokens
+            clearStreamPollTimer();
+            if (!isAgentRunAborted()) await drainOnce(); // flush any tail tokens
         }
         // Fallback / reconcile: if nothing streamed (non-streaming provider or a
         // dropped buffer), write the authoritative final text from the call.
         const ft = typeof finalText === 'string' ? finalText.trim() : '';
-        if (!streamedAny && ft) {
+        if (!streamedAny && ft && !isAgentRunAborted()) {
             store.getState().updateLastAgentMessage?.(ft);
         }
 
@@ -2309,7 +2318,8 @@ export async function runContinuousLoop(initialPrompt: string): Promise<void> {
         while (turn < MAX_AUTO_TURNS) {
             // Check stop conditions
             const state = store.getState();
-            if (!state.isContinuousMode) {
+            const { isAgentRunAborted } = await import('./application/agent/agentRunSession');
+            if (!state.isContinuousMode || isAgentRunAborted()) {
                 state.addAgentMessage?.('assistant', '⏹ **Continuous Mode stopped** by user.');
                 break;
             }
