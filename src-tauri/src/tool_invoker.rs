@@ -62,10 +62,13 @@ impl ToolInvoker {
     #[instrument(skip(self))]
     pub async fn execute_tool(&self, name: &str, args: &str) -> Result<Value> {
         let arguments: Value = serde_json::from_str(args)?;
-        if let Ok(result) = self.ai_tools.call_tool(name, arguments.clone()).await {
-            return Ok(result);
+        match self.ai_tools.call_tool(name, arguments.clone()).await {
+            Ok(result) => Ok(result),
+            Err(e) if Self::is_unknown_tool_error(&e) => {
+                self.mcp_registry.call_tool(name, arguments).await
+            }
+            Err(e) => Err(e),
         }
-        self.mcp_registry.call_tool(name, arguments).await
     }
 
     /// Extended execute with permission check. Dangerous tools emit a
@@ -120,10 +123,19 @@ impl ToolInvoker {
             }
         }
 
-        if let Ok(result) = self.ai_tools.call_tool(name, arguments.clone()).await {
-            return Ok(result);
+        match self.ai_tools.call_tool(name, arguments.clone()).await {
+            Ok(result) => Ok(result),
+            Err(e) if Self::is_unknown_tool_error(&e) => {
+                self.mcp_registry.call_tool(name, arguments).await
+            }
+            Err(e) => Err(e),
         }
-        self.mcp_registry.call_tool(name, arguments).await
+    }
+
+    /// Only fall back to MCP when the name is absent from AiTools — not when a
+    /// registered tool fails mid-execution (e.g. str_replace miss, browser crash).
+    fn is_unknown_tool_error(err: &anyhow::Error) -> bool {
+        err.to_string().starts_with("Unknown tool:")
     }
 }
 

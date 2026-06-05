@@ -2302,10 +2302,23 @@ export async function executeToolCall(
 ): Promise<ToolCallResult> {
     const tool = getToolByName(toolCall.name);
     if (!tool) {
-        return {
-            tool_call_id: toolCall.id,
-            content: `Error: Unknown tool "${toolCall.name}". Available tools: ${getAllTools().map(t => t.name).join(', ')}`,
-        };
+        // Full Rust catalog (security audits, apex, ag tasks, etc.) — not duplicated in TS registry.
+        try {
+            const data = await invoke<any>('call_tool', {
+                name: toolCall.name,
+                arguments: toolCall.arguments ?? {},
+            });
+            const content = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+            return { tool_call_id: toolCall.id, content };
+        } catch (e: any) {
+            const msg = e?.message || String(e);
+            return {
+                tool_call_id: toolCall.id,
+                content: msg.startsWith('Unknown tool:') || msg.startsWith('Tool not found:')
+                    ? `Error: ${msg}`
+                    : `Error: ${msg}`,
+            };
+        }
     }
 
     try {

@@ -1323,6 +1323,17 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "web_fetch".to_string(),
+                description: "Fetch a URL and return its body as text (HTTP GET). Use for reading pages, APIs, robots.txt, JS bundles, etc.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "URL to fetch" }
+                    },
+                    "required": ["url"]
+                }),
+            },
+            ToolDefinition {
                 name: "security_scan".to_string(),
                 description: "Run a deep static analysis (semgrep) on a file or directory to find security vulnerabilities.".to_string(),
                 input_schema: json!({
@@ -1489,8 +1500,42 @@ impl AiTools {
         ]
     }
 
-    pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
+    /// Map frontend / model alias names to canonical backend handlers.
+    fn canonical_tool_name(name: &str) -> &str {
         match name {
+            "bash" | "sh" | "shell" | "exec" | "execute" | "cmd" | "run" | "terminal" => {
+                "run_command"
+            }
+            "file_read" | "read_file" | "cat" | "read" | "view" | "get_file" => "view_file",
+            "file_write" | "write_file" | "create_file" | "save_file" | "write" => {
+                "write_to_file"
+            }
+            "file_edit" | "edit_file" | "edit" | "string_replace" | "replace_in_file"
+            | "replace_code" | "str_replace_editor" | "code_edit" | "search_replace" => {
+                "str_replace"
+            }
+            "glob" | "find" | "find_files" => "find_by_name",
+            "list_directory" | "list_dir" | "ls" | "dir" | "files" => "list_files",
+            "read_url_content" | "fetch_url" => "web_fetch",
+            "search" | "find_string" | "grep_search" | "find_in_files" => "grep",
+            "mkdir" | "md" | "create_dir" => "create_directory",
+            "internet_search" | "browse" => "web_search",
+            "terminal_get_state" => "terminal_list",
+            other => other,
+        }
+    }
+
+    pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
+        let canonical = Self::canonical_tool_name(name);
+        match canonical {
+            "find_api_keys" => self.find_api_keys(arguments).await,
+            "analyze_file_symbols" => self.analyze_file_symbols(arguments).await,
+            "ag_get_next_task" | "ag_mark_task_done" | "ag_phase_wrap" | "ag_list_tasks" => {
+                self.handle_ag_tool(canonical, arguments).await
+            }
+            "project_rules" => self.handle_project_rules(arguments).await,
+            "develop_web_mobile_app" | "kernel_exploit_chain" | "jailbreak_activation_bypass"
+            | "advanced_reverse_engineering" => self.handle_capability_stub(canonical).await,
             // Filesystem Operations — all tools handled by handle_fs_tool
             "view_file"
             | "write_to_file"
@@ -1536,10 +1581,13 @@ impl AiTools {
             | "secrets_scan"
             | "weaponize_env"
             | "deep_security_audit"
+            | "web_security_audit"
+            | "ai_vuln_hunt"
+            | "web_fetch"
             | "dev_cargo_diagnostics"
             | "search_codebase"
             | "get_lsp_diagnostics"
-            | "web_search" => self.handle_fs_tool(name, arguments).await,
+            | "web_search" => self.handle_fs_tool(canonical, arguments).await,
 
             // Terminal Operations
             "run_command"
@@ -1549,7 +1597,7 @@ impl AiTools {
             | "terminal_create"
             | "terminal_terminate"
             | "terminal_get_status"
-            | "terminal_list" => self.handle_terminal_tool(name, arguments).await,
+            | "terminal_list" => self.handle_terminal_tool(canonical, arguments).await,
 
             // Browser Operations
             "browser_close"
@@ -1561,7 +1609,7 @@ impl AiTools {
             | "browser_screenshot"
             | "browser_click"
             | "browser_type"
-            | "browser_read_dom" => self.handle_browser_tool(name, arguments).await,
+            | "browser_read_dom" => self.handle_browser_tool(canonical, arguments).await,
 
             // Advanced Agentic Operations
             "spawn_subagent" => self.spawn_subagent(arguments).await,
@@ -1574,7 +1622,7 @@ impl AiTools {
 
             // Git Operations
             "git_status" | "git_add" | "git_commit" | "git_diff" | "git_log" => {
-                self.handle_git_tool(name, arguments).await
+                self.handle_git_tool(canonical, arguments).await
             }
 
             "save_knowledge_brief" => self.handle_save_knowledge_brief(arguments).await,
@@ -1587,7 +1635,7 @@ impl AiTools {
             "analyze_image" => self.analyze_image(arguments).await,
             "code_search" => self.code_search(arguments).await,
             "dependency_graph" => self.dependency_graph(arguments).await,
-            "get_system_info" | "get_system_health" => self.handle_system_tool(name, arguments).await,
+            "get_system_info" | "get_system_health" => self.handle_system_tool(canonical, arguments).await,
             "task_boundary" => self.handle_task_boundary(arguments).await,
             "notify_user" => self.handle_notify_user(arguments).await,
             "use_skill" => self.handle_use_skill(arguments).await,
@@ -1616,7 +1664,7 @@ impl AiTools {
             "security_scan"
             | "audit_dependencies"
             | "disassemble"
-            | "get_binary_info" => self.handle_research_tool(name, arguments).await,
+            | "get_binary_info" => self.handle_research_tool(canonical, arguments).await,
 
             // ═══ APEX Intelligence Framework Tools ═══
             "apex_red_team_scan"
@@ -1628,7 +1676,9 @@ impl AiTools {
             | "apex_predict_failures"
             | "apex_full_sweep"
             | "apex_simulate_attack"
-            | "apex_architect_design" => self.handle_apex_tool(name, arguments).await,
+            | "apex_architect_design"
+            | "apex_quick_check"
+            | "apex_pentest_report" => self.handle_apex_tool(canonical, arguments).await,
 
             _ => Err(anyhow!("Unknown tool: {}", name)),
         }
@@ -1729,8 +1779,127 @@ impl AiTools {
                 let recommendation = apex.architect_design(&desc).await.map_err(|e| anyhow!(e))?;
                 Ok(json!(recommendation))
             },
+            "apex_quick_check" => {
+                let code = arguments["code"].as_str().ok_or_else(|| anyhow!("Missing code"))?;
+                let language = arguments["language"].as_str().ok_or_else(|| anyhow!("Missing language"))?;
+                let findings = apex.red_team().quick_check(code, language).await.map_err(|e| anyhow!(e))?;
+                Ok(json!(findings))
+            },
+            "apex_pentest_report" => {
+                let files_val = arguments.get("files").cloned().unwrap_or(json!([]));
+                let file_pairs: Vec<(String, String)> = files_val
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|pair| {
+                                let inner = pair.as_array()?;
+                                if inner.len() >= 2 {
+                                    Some((inner[0].as_str()?.to_string(), inner[1].as_str()?.to_string()))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                apex.red_team().pentest_report(file_pairs).await.map_err(|e| anyhow!(e))
+            },
             _ => Err(anyhow!("Unknown APEX tool: {}", name)),
         }
+    }
+
+    async fn handle_ag_tool(&self, name: &str, arguments: Value) -> Result<Value> {
+        let root = self.get_root_path().to_string_lossy().to_string();
+        match name {
+            "ag_get_next_task" => {
+                let task = crate::antigravity_commands::ag_get_next_task(root)
+                    .map_err(|e| anyhow!(e))?;
+                Ok(json!({ "status": "success", "task": task }))
+            }
+            "ag_list_tasks" => {
+                let tasks = crate::antigravity_commands::ag_list_all_tasks(root)
+                    .map_err(|e| anyhow!(e))?;
+                Ok(json!({ "status": "success", "tasks": tasks }))
+            }
+            "ag_mark_task_done" => {
+                let task_id = arguments["task_id"]
+                    .as_str()
+                    .or_else(|| arguments["id"].as_str())
+                    .ok_or_else(|| anyhow!("Missing task_id"))?;
+                let tasks_path = arguments["tasks_path"]
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("{}/task.md", root));
+                crate::antigravity_commands::ag_mark_task_done(tasks_path, task_id.to_string())
+                    .map_err(|e| anyhow!(e))?;
+                Ok(json!({ "status": "success", "task_id": task_id }))
+            }
+            "ag_phase_wrap" => {
+                let task_id = arguments["task_id"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Missing task_id"))?;
+                let notes = arguments["notes"]
+                    .as_str()
+                    .or_else(|| arguments["message"].as_str())
+                    .unwrap_or("")
+                    .to_string();
+                crate::antigravity_commands::ag_phase_wrap(root, task_id.to_string(), notes)
+                    .map_err(|e| anyhow!(e))?;
+                Ok(json!({ "status": "success", "task_id": task_id }))
+            }
+            _ => Err(anyhow!("Unknown Antigravity tool: {}", name)),
+        }
+    }
+
+    async fn handle_project_rules(&self, _arguments: Value) -> Result<Value> {
+        let root = self.get_root_path();
+        let mut chunks: Vec<String> = Vec::new();
+        for rel in [
+            "AGENTS.md",
+            "CLAUDE.md",
+            ".cursor/rules",
+            ".hades/rules",
+        ] {
+            let p = root.join(rel);
+            if p.is_file() {
+                if let Ok(text) = fs::read_to_string(&p) {
+                    chunks.push(format!("--- {} ---\n{}", rel, text.chars().take(8000).collect::<String>()));
+                }
+            } else if p.is_dir() {
+                if let Ok(entries) = fs::read_dir(&p) {
+                    for entry in entries.flatten().take(20) {
+                        if entry.path().is_file() {
+                            if let Ok(text) = fs::read_to_string(entry.path()) {
+                                let name = entry.file_name().to_string_lossy().to_string();
+                                chunks.push(format!(
+                                    "--- {}/{} ---\n{}",
+                                    rel,
+                                    name,
+                                    text.chars().take(4000).collect::<String>()
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(json!({
+            "status": "success",
+            "rules": chunks.join("\n\n"),
+            "count": chunks.len(),
+        }))
+    }
+
+    async fn handle_capability_stub(&self, name: &str) -> Result<Value> {
+        Ok(json!({
+            "status": "stub",
+            "tool": name,
+            "message": format!(
+                "`{}` is registered but not fully automated yet. Use `run_command`, `web_security_audit`, \
+                 `deep_security_audit`, `ai_vuln_hunt`, or `apex_red_team_scan` for real offensive-security work.",
+                name
+            ),
+        }))
     }
 
     /// Live URL Scanner — uses browser to fetch content then passes to BugTraceAI
@@ -1834,6 +2003,7 @@ impl AiTools {
             "search_codebase" => self.search_codebase(arguments).await,
             "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
             "web_search" => self.web_search_tool(arguments).await,
+            "web_fetch" => self.web_fetch_tool(arguments).await,
             "ai_propose_edit" => self.ai_propose_edit(arguments).await,
             "str_replace" => self.str_replace_file(arguments).await,
             "search_replace_edit" => self.search_replace_edit(arguments).await,
@@ -5040,6 +5210,34 @@ cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop t
             drop(h_lock);
             Ok(json!({ "files": [], "total_errors": 0, "summary": "LSP not running or no diagnostics yet." }))
         }
+    }
+
+    async fn web_fetch_tool(&self, args: Value) -> Result<Value> {
+        let url = args
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing url"))?
+            .to_string();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .user_agent("Mozilla/5.0 vscodium-rust/1.0")
+            .build()
+            .map_err(|e| anyhow!(e.to_string()))?;
+        let body = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("web_fetch failed for {}: {}", url, e))?
+            .text()
+            .await
+            .map_err(|e| anyhow!("web_fetch body read failed: {}", e))?;
+        let capped: String = body.chars().take(200_000).collect();
+        Ok(json!({
+            "status": "success",
+            "url": url,
+            "content": capped,
+            "bytes": capped.len(),
+        }))
     }
 
     async fn web_search_tool(&self, args: Value) -> Result<Value> {
