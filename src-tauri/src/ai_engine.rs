@@ -4731,10 +4731,16 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
 
     #[allow(unused_assignments)] // has_google_base_url flag is set in a vestigial branch
     pub async fn single_shot_completion(&self, req: AiRequest) -> Result<String> {
-        let is_ollama = req.provider.to_lowercase() == "ollama" || req.provider.to_lowercase() == "antigravity";
+        let effective_provider = if req.model.to_lowercase().contains("claude-opus-4-8") {
+            "highwayapi"
+        } else {
+            req.provider.as_str()
+        };
+        let effective_provider_lc = effective_provider.to_lowercase();
+        let is_ollama = effective_provider_lc == "ollama" || effective_provider_lc == "antigravity";
         // Use standard chat endpoint for single-turn logic
-        let endpoint = self.get_endpoint(&req.provider, &req);
-        let key = self.get_key_for_provider(&req.provider).trim().to_string();
+        let endpoint = self.get_endpoint(effective_provider, &req);
+        let key = self.get_key_for_provider(effective_provider).trim().to_string();
 
         let mut has_google_base_url = false;
         if let Ok(url) = std::env::var("GOOGLE_BASE_URL") {
@@ -4777,11 +4783,11 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         };
 
         let mut request = self.client.post(endpoint.clone());
-        if req.provider.to_lowercase() == "anthropic" {
+        if effective_provider_lc == "anthropic" {
             request = request
                 .header("x-api-key", &key)
                 .header("anthropic-version", "2023-06-01");
-        } else if req.provider.to_lowercase() == "google" || req.provider.to_lowercase() == "gemini" {
+        } else if effective_provider_lc == "google" || effective_provider_lc == "gemini" {
             request = request.bearer_auth(&key)
                              .header("x-goog-api-key", &key);
         } else if !is_ollama {
@@ -4796,7 +4802,7 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             .await;
 
         if response_result.is_err() && endpoint.contains(":1536") {
-            let provider_lc = req.provider.to_lowercase();
+            let provider_lc = effective_provider_lc.clone();
             let fallback_endpoint = if provider_lc == "google" || provider_lc == "gemini" {
                 "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string()
             } else if provider_lc == "openai" {
@@ -4827,7 +4833,7 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
 
         let val: Value = resp.json().await?;
         
-        let raw = if req.provider.to_lowercase() == "anthropic" {
+        let raw = if effective_provider_lc == "anthropic" {
             val["content"][0]["text"].as_str().unwrap_or("").to_string()
         } else if is_ollama {
             // Ollama might be hit via /v1/chat/completions (OpenAI format) or /api/chat (Native format)
@@ -5538,7 +5544,11 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
     }
 
     fn get_endpoint(&self, provider: &str, req: &AiRequest) -> String {
-        let provider_base = provider.split(':').next().unwrap_or(provider).to_lowercase();
+        let provider_base = if req.model.to_lowercase().contains("claude-opus-4-8") {
+            "highwayapi".to_string()
+        } else {
+            provider.split(':').next().unwrap_or(provider).to_lowercase()
+        };
         match provider_base.as_str() {
             "google" | "gemini" => {
                 if let Ok(url) = std::env::var("GOOGLE_BASE_URL") {
