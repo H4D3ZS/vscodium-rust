@@ -183,6 +183,18 @@ pub struct AiRequest {
     pub feature: Option<String>,
 }
 
+fn trim_assistant_prefill(messages: &[ChatMessage]) -> Vec<ChatMessage> {
+    let mut trimmed = messages.to_vec();
+    while trimmed
+        .last()
+        .map(|m| m.role.eq_ignore_ascii_case("assistant") || m.role.eq_ignore_ascii_case("system"))
+        .unwrap_or(false)
+    {
+        trimmed.pop();
+    }
+    trimmed
+}
+
 /// Bare hostnames (`ai.example.com`) are not valid bases for `reqwest` — they become
 /// path segments and trigger `builder error: relative URL without a base`. Only infer
 /// a scheme when the string already looks like a hostname (contains `.` in the host
@@ -4773,10 +4785,18 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                 "num_predict": 1024,
             })
         } else {
+            let messages = if matches!(
+                effective_provider_lc.as_str(),
+                "highwayapi" | "interfaceai" | "jiekou"
+            ) {
+                trim_assistant_prefill(&req.messages)
+            } else {
+                req.messages.clone()
+            };
             // Cloud provider (Anthropic/OpenAI) standard chat payload
             json!({
                 "model": req.model,
-                "messages": req.messages,
+                "messages": messages,
                 "temperature": req.temperature.unwrap_or(0.1),
                 "stream": false,
             })
