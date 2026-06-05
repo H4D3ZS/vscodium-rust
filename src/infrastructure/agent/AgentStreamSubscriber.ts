@@ -63,6 +63,7 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
             ? event.payload.content
             : (typeof event.payload === 'string' ? event.payload : '');
         updateLastAgentMessage(content);
+        import('../../application/agent/syncAgentMessages').then(m => m.scheduleChatHistorySync()).catch(() => {});
 
         const stFa = useStore.getState() as any;
         if (stFa.betaFastApply !== false && content.includes('<<<<<<< ORIGINAL')) {

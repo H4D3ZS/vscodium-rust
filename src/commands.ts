@@ -321,11 +321,7 @@ function registerCoreCommands() {
             id: 'editor.action.wordWrap',
             label: 'View: Toggle Word Wrap',
             run: () => {
-                const editor = (window as any).activeEditor;
-                if (editor) {
-                    const current = editor.getRawOptions?.()?.wordWrap ?? 'off';
-                    editor.updateOptions?.({ wordWrap: current === 'off' ? 'on' : 'off' });
-                }
+                getStore().toggleEditorWordWrap?.();
             },
         },
         {
@@ -470,6 +466,13 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     if (cmd && e.shiftKey && e.altKey && e.key.toLowerCase() === 'r') {
         e.preventDefault();
         (window as any).executeCommand?.('security.action.runCodebaseReview');
+        return;
+    }
+
+    // Word wrap (Alt+Z) — VS Code parity
+    if (e.altKey && !cmd && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        (window as any).executeCommand?.('editor.action.wordWrap');
         return;
     }
 }

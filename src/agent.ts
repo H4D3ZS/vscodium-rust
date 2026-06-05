@@ -1779,10 +1779,21 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         ]
         : agentMessages;
 
+    // Drop the streaming placeholder empty assistant turn — cloud gateways reject it.
+    const historyForApi = [...cappedMessages];
+    while (historyForApi.length > 0) {
+        const last = historyForApi[historyForApi.length - 1];
+        if (last.role === 'assistant' && !String(last.content || '').trim()) {
+            historyForApi.pop();
+        } else {
+            break;
+        }
+    }
+
     // Map messages to the format expected by the backend
     const messages = [
         systemMessage,
-        ...cappedMessages.map((m: any) => {
+        ...historyForApi.map((m: any) => {
             let content: any = m.content || "";
 
             // Multi-modal support for image attachments
@@ -1994,7 +2005,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 ).join('\n');
                 const totalFiles = (manifest as any).total_files ?? (manifest as any).file_count ?? '?';
                 const aimMsg = `### BRAIN (AIM — ${totalFiles} files indexed, ${(manifest as any).confidence}% confidence)\nZero-grep mode: go directly to the relevant file.\n${preview}\nCall aim_pack_context for the full semantic map.`;
-                messages.unshift({ role: 'system' as const, content: aimMsg });
+                messages.unshift({ role: 'system' as const, content: aimMsg, tool_calls: null, metadata: null });
             }
         }
     } catch { /* non-fatal — AIM enhancement is best-effort */ }
@@ -2010,7 +2021,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         const _cm = ((store.getState() as any).customModes || []).find((m: any) => m.id === _cmId);
         if (_cm) {
             if (_cm.systemPrompt) {
-                messages.unshift({ role: 'system' as const, content: _cm.systemPrompt });
+                messages.unshift({ role: 'system' as const, content: _cm.systemPrompt, tool_calls: null, metadata: null });
             }
             if (_cm.model && String(_cm.model).includes('|')) {
                 const [p, m] = String(_cm.model).split('|');

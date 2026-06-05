@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef, useMemo, useCallback, Suspense, laz
 import { useStore } from '../store';
 import type { FileEntry } from '../store';
 import { invoke } from '../tauri_bridge';
-import CheckpointTimeline from './CheckpointTimeline';
 import SentientAvatar from './agent/SentientAvatar';
 import type { AvatarState } from './agent/SentientAvatar';
 import ChatInput from './chat/ChatInput';
@@ -671,6 +670,7 @@ const RightSidebar: React.FC = () => {
     const fileTree = useStore(state => state.fileTree);
     const agentTasks = useStore(state => state.agentTasks);
     const chatSessions = useStore(state => state.chatSessions);
+    const chatRestoreToken = useStore(state => state.chatRestoreToken);
     const refreshChatSessions = useStore(state => state.refreshChatSessions);
     const loadChatSession = useStore(state => state.loadChatSession);
     const archiveCurrentSession = useStore(state => state.archiveCurrentSession);
@@ -904,6 +904,11 @@ const RightSidebar: React.FC = () => {
     const [kortexSlots, setKortexSlots] = useState<any[]>([]);
     const [kortexLoading, setKortexLoading] = useState(false);
     const [liveToolCalls, setLiveToolCalls] = useState<Array<{ id: string; tool: string; label: string; status: 'running' | 'done' | 'error'; detail?: string }>>([]);
+
+    // Clear stale live tool overlays when a history session is restored (agent was stopped).
+    useEffect(() => {
+        if (chatRestoreToken) setLiveToolCalls([]);
+    }, [chatRestoreToken]);
 
     const refreshKortex = useCallback(async () => {
         setKortexLoading(true);
@@ -1364,6 +1369,7 @@ const RightSidebar: React.FC = () => {
             addAgentMessage('user', processedVal, context);
             clearAttachedFiles();
             addAgentMessage('assistant', "");
+            import('../application/agent/syncAgentMessages').then(m => m.scheduleChatHistorySync()).catch(() => {});
             console.log('[DIAG] onSend: messages added, sidebar state after store updates:', useStore.getState().isRightSidebarOpen);
 
             try {
@@ -2512,13 +2518,13 @@ const RightSidebar: React.FC = () => {
                             <div className="right-sidebar-scroll" style={{ padding: '8px 16px 16px', gap: '12px', justifyContent: 'flex-start', alignItems: 'stretch' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', gap: 8 }}>
                                     <div>
-                                        <div style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5 }}>Chat conversations</div>
-                                        <div style={{ fontSize: 10, opacity: 0.4, marginTop: 2 }}>Archived when you start a new chat — click Restore to reload messages.</div>
+                                        <div style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.5 }}>Conversation history</div>
+                                        <div style={{ fontSize: 10, opacity: 0.4, marginTop: 2 }}>Click any session to restore the full chat in the panel.</div>
                                     </div>
                                     <button
                                         type="button"
                                         onClick={() => { void archiveCurrentSession?.(); refreshChatSessions(); }}
-                                        title="Archive current chat to history"
+                                        title="Save current chat as a named archive"
                                         style={{
                                             padding: '4px 8px', fontSize: 10, borderRadius: 4, cursor: 'pointer',
                                             border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'inherit',
@@ -2529,8 +2535,8 @@ const RightSidebar: React.FC = () => {
                                 </div>
                                 {chatSessions.length === 0 ? (
                                     <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px', lineHeight: 1.5 }}>
-                                        No saved conversations yet.<br />
-                                        Start chatting, then use <b>Archive current</b> or open a new chat tab (+).
+                                        No conversations yet.<br />
+                                        Send a message in Chat — it appears here automatically.
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -2538,25 +2544,31 @@ const RightSidebar: React.FC = () => {
                                             const title = session.title || String(session.name || '').replace('session_', 'Chat ') || 'Conversation';
                                             const preview = session.preview || '';
                                             const ts = session.updated_at ? new Date(session.updated_at * 1000).toLocaleString() : '';
-                                            const restoreBtn: React.CSSProperties = {
-                                                display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center',
-                                                padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                                                borderRadius: 6, border: 'none',
-                                                background: 'var(--vscode-button-background, #007acc)',
-                                                color: 'var(--vscode-button-foreground, #fff)', whiteSpace: 'nowrap',
+                                            const isCurrent = !!session.is_current;
+                                            const restore = () => {
+                                                void loadChatSession(session.path).then(() => setView('chat'));
                                             };
                                             return (
                                                 <div
                                                     key={session.path}
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    onClick={restore}
+                                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); restore(); } }}
                                                     style={{
-                                                        padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)',
-                                                        border: '1px solid rgba(255,255,255,0.05)', transition: 'background 0.2s',
+                                                        padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
+                                                        background: isCurrent ? 'rgba(0,122,204,0.12)' : 'rgba(255,255,255,0.03)',
+                                                        border: isCurrent ? '1px solid rgba(0,122,204,0.35)' : '1px solid rgba(255,255,255,0.05)',
+                                                        transition: 'background 0.2s',
                                                     }}
-                                                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                                                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = isCurrent ? 'rgba(0,122,204,0.18)' : 'rgba(255,255,255,0.06)'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = isCurrent ? 'rgba(0,122,204,0.12)' : 'rgba(255,255,255,0.03)'}
                                                 >
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', gap: 8 }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', gap: 8, alignItems: 'center' }}>
                                                         <span style={{ fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+                                                        {isCurrent && (
+                                                            <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(0,122,204,0.25)', color: '#7ec8ff', flexShrink: 0 }}>Live</span>
+                                                        )}
                                                         <span style={{ fontSize: '10px', opacity: 0.4, flexShrink: 0 }}>{session.messages} msgs</span>
                                                     </div>
                                                     {preview && (
@@ -2564,28 +2576,17 @@ const RightSidebar: React.FC = () => {
                                                             {preview}
                                                         </div>
                                                     )}
-                                                    <div style={{ fontSize: '10px', opacity: 0.45, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
-                                                        <i className="codicon codicon-comment-discussion" style={{ fontSize: 10 }} />{ts}
+                                                    <div style={{ fontSize: '10px', opacity: 0.45, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                        <i className="codicon codicon-comment-discussion" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 10 }} />{ts}
                                                     </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => { void loadChatSession(session.path); setView('chat'); }}
-                                                        style={restoreBtn}
-                                                        title="Restore this conversation into the chat panel"
-                                                    >
-                                                        <i className="codicon codicon-history" style={{ fontSize: 12 }} /> Restore conversation
-                                                    </button>
                                                 </div>
                                             );
                                         })}
                                     </div>
                                 )}
-                                <details style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
-                                    <summary style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', opacity: 0.45, cursor: 'pointer', userSelect: 'none' }}>
-                                        Code checkpoints (git restore points)
-                                    </summary>
-                                    <CheckpointTimeline embedded />
-                                </details>
+                                <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: 10, opacity: 0.4, lineHeight: 1.5 }}>
+                                    Code restore points (git checkpoints) live in Source Control — not here.
+                                </div>
                             </div>
                         ) : view === 'studio' || view === 'dashboard' || view === 'research' || view === 'specs' || view === 'rules' ? (
                             <Suspense fallback={<div style={{ padding: 20, opacity: 0.5, fontSize: 11 }}>Loading Agent Studio…</div>}>

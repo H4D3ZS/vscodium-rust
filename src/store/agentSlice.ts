@@ -55,6 +55,34 @@ function parseThought(thought: any): { logic: string; action: string; confidence
     return null;
 }
 
+/** Normalize Rust ChatMessage JSON into UI AgentMessage rows. */
+function mapBackendChatMessages(raw: any[]): AgentMessage[] {
+    const extract = (c: any): string => {
+        if (c == null) return '';
+        if (typeof c === 'string') return c;
+        if (Array.isArray(c)) return c.map((p) => extract(p?.text ?? p?.Text ?? p)).join('');
+        if (typeof c === 'object') {
+            if (typeof c.text === 'string') return c.text;
+            if (typeof c.Text === 'string') return c.Text;
+            if (typeof c.content === 'string') return c.content;
+            if (Array.isArray(c.parts)) return extract(c.parts);
+        }
+        return String(c);
+    };
+    return (raw || [])
+        .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant'))
+        .map((m: any, i: number) => ({
+            id: m.id || `restored-${i}`,
+            role: m.role as 'user' | 'assistant',
+            content: extract(m.content),
+            timestamp: m.timestamp
+                ?? m.metadata?.timestamp
+                ?? (typeof m.metadata === 'object' ? m.metadata?.['timestamp'] : undefined)
+                ?? Date.now(),
+        }))
+        .filter((m) => m.content.trim().length > 0);
+}
+
 export interface AgentSlice {
     // State
     agentMessages: AgentMessage[];
@@ -113,8 +141,19 @@ export interface AgentSlice {
     isCascadeWriteMode: boolean;
     pendingToolPermission: { id: string; tool: string; args: any; level: 'caution' | 'dangerous' } | null;
     ghostRuntimeResults: any[];
-    agentThreads: Record<string, { id: string; name: string; messages: any[]; isThinking: boolean; tasks: any[]; artifacts: any[] }>;
+    agentThreads: Record<string, {
+        id: string;
+        name: string;
+        messages: any[];
+        isThinking: boolean;
+        tasks: any[];
+        artifacts: any[];
+        /** .aim path this tab was restored from — prevents duplicate tabs on re-click. */
+        chatSessionPath?: string;
+    }>;
     activeAgentThreadId: string;
+    /** Bumped after history restore so UI clears live tool-call overlays. */
+    chatRestoreToken: number;
     artifactReviewPolicy: 'always_proceed' | 'request_review';
     terminalAutoExecution: 'always_proceed' | 'request_review';
     contextSlots: SemanticSlot[];
@@ -304,6 +343,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     ghostRuntimeResults: [],
     agentThreads: {},
     activeAgentThreadId: '',
+    chatRestoreToken: 0,
     artifactReviewPolicy: 'request_review',
     terminalAutoExecution: 'request_review',
     contextSlots: [],
@@ -830,48 +870,91 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     setProjectMemory: (content, files = []) => set({ projectMemory: content, memoryFiles: files }),
 
     refreshChatSessions: async () => {
-        try { const sessions = await invoke<any[]>('list_chat_sessions'); set({ chatSessions: sessions }); } catch { }
+        try {
+            const { syncAgentMessagesToBackend } = await import('../application/agent/syncAgentMessages');
+            await syncAgentMessagesToBackend().catch(() => {});
+            const sessions = await invoke<any[]>('list_chat_sessions');
+            set({ chatSessions: sessions });
+        } catch { }
     },
     loadChatSession: async (path) => {
         try {
-            await invoke('load_chat_session', { path });
+            // Stop any in-flight agent turn — restore is read-only; YOLO must not keep executing.
+            try {
+                const { stopAgent } = await import('../application/agent/stopAgent');
+                await stopAgent();
+            } catch { /* ignore */ }
+
+            const state = get();
+            const existingId = Object.values(state.agentThreads || {}).find(
+                (t: any) => t.chatSessionPath === path,
+            )?.id;
+
+            const isCurrent = state.chatSessions.find((s: any) => s.path === path)?.is_current;
+            if (!isCurrent) {
+                await invoke('load_chat_session', { path });
+            }
+
             const raw = await invoke<any[]>('get_agent_messages');
-            const extract = (c: any): string => {
-                if (c == null) return '';
-                if (typeof c === 'string') return c;
-                if (Array.isArray(c)) return c.map((p) => extract(p?.text ?? p?.Text ?? p)).join('');
-                if (typeof c === 'object') return c.Text ?? c.text ?? c.content ?? JSON.stringify(c);
-                return String(c);
-            };
-            const messages = (raw || [])
-                .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant'))
-                .map((m: any, i: number) => ({
-                    id: m.id || `restored-${Date.now()}-${i}`,
-                    role: m.role,
-                    content: extract(m.content),
-                    timestamp: m.timestamp || Date.now(),
-                }))
-                .filter((m: any) => m.content.trim().length > 0);
+            const messages = mapBackendChatMessages(raw);
 
-            const firstUser = messages.find((m: any) => m.role === 'user');
+            if (messages.length === 0) {
+                console.warn('[loadChatSession] no messages for', path);
+                set({
+                    isAgentThinking: false,
+                    isAgentPaused: false,
+                    agentCurrentAction: null,
+                    chatRestoreToken: Date.now(),
+                });
+                return;
+            }
+
+            const firstUser = messages.find((m) => m.role === 'user');
             const title = firstUser?.content?.slice(0, 48)?.trim() || 'Restored chat';
-            const threadId = `restored-${Date.now()}`;
 
-            set((state: any) => ({
-                agentMessages: messages,
-                activeAgentThreadId: threadId,
-                agentThreads: {
-                    ...state.agentThreads,
-                    [threadId]: {
-                        id: threadId,
-                        name: title,
-                        messages,
-                        isThinking: false,
-                        tasks: [],
-                        artifacts: [],
+            if (existingId) {
+                set((s: any) => ({
+                    isAgentThinking: false,
+                    isAgentPaused: false,
+                    agentCurrentAction: null,
+                    chatRestoreToken: Date.now(),
+                    agentMessages: messages,
+                    activeAgentThreadId: existingId,
+                    agentThreads: {
+                        ...s.agentThreads,
+                        [existingId]: {
+                            ...s.agentThreads[existingId],
+                            name: title,
+                            messages,
+                            isThinking: false,
+                            chatSessionPath: path,
+                        },
                     },
-                },
-            }));
+                }));
+            } else {
+                const threadId = `restored-${Date.now()}`;
+                set((s: any) => ({
+                    isAgentThinking: false,
+                    isAgentPaused: false,
+                    agentCurrentAction: null,
+                    chatRestoreToken: Date.now(),
+                    agentMessages: messages,
+                    activeAgentThreadId: threadId,
+                    agentThreads: {
+                        ...s.agentThreads,
+                        [threadId]: {
+                            id: threadId,
+                            name: title,
+                            messages,
+                            isThinking: false,
+                            tasks: [],
+                            artifacts: [],
+                            chatSessionPath: path,
+                        },
+                    },
+                }));
+            }
+
             get().refreshChatSessions();
         } catch (e) { console.error('[loadChatSession] failed:', e); }
     },
