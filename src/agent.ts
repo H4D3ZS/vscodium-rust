@@ -39,6 +39,9 @@ let currentAgentProvider = "Google";
 let currentAgentModel = "gemini-2.5-pro";
 let currentAgentMode = "Planning";
 
+const isHighwayApiModel = (model: unknown): boolean =>
+    String(model || '').toLowerCase().includes('claude-opus-4-8');
+
 // AIRI Digital Entity State
 let airiInitialized = false;
 let airiAutonomousMode = false; // Disabled by default to prevent hijacking standard agent requests
@@ -374,12 +377,17 @@ export async function initAgent() {
         const CLOUD_PROVIDERS = new Set([
             'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
             'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
-            'openrouter', 'cerebras',
+            'openrouter', 'cerebras', 'highwayapi', 'interfaceai', 'jiekou',
         ]);
         const modelTag = currentModel.includes('|')
             ? currentModel.split('|').slice(1).join('|').trim()
             : currentModel.trim();
-        if (modelTag && st.inferenceBackend === 'ollama' && !CLOUD_PROVIDERS.has(providerPrefix)) {
+        if (modelTag && isHighwayApiModel(modelTag) && providerPrefix !== 'highwayapi') {
+            const normalized = `highwayapi|${modelTag}`;
+            st.setAgentModel?.(normalized);
+            try { localStorage.setItem('agentModel', normalized); } catch { /* tracking prevention */ }
+        }
+        if (modelTag && st.inferenceBackend === 'ollama' && !CLOUD_PROVIDERS.has(providerPrefix) && !isHighwayApiModel(modelTag)) {
             const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
             const resolved = await resolveOllamaModelTag(modelTag);
             if (resolved && resolved !== modelTag) {
@@ -1609,9 +1617,10 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const CLOUD_PROVIDER_PREFIXES = new Set([
         'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
         'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
-        'cohere', 'xai',
+        'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou',
     ]);
     const selectedIsCloudModel = CLOUD_PROVIDER_PREFIXES.has(selectedProviderPrefix)
+        || isHighwayApiModel(selectedModelLower)
         || selectedModelLower.includes('gemini') || selectedModelLower.includes('claude')
         || selectedModelLower.includes('gpt-') || selectedModelLower.includes('o1-')
         || selectedModelLower.includes('o3-');
@@ -1709,6 +1718,8 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 [fastProvider, fastModel] = agentModel.split("|");
             } else if (agentModel.toLowerCase().includes("goog") || agentModel.toLowerCase().includes("gemini")) {
                 fastProvider = "Google";
+            } else if (isHighwayApiModel(agentModel)) {
+                fastProvider = "highwayapi";
             } else if (agentModel.toLowerCase().includes("anthropic") || agentModel.toLowerCase().includes("claude")) {
                 fastProvider = "Anthropic";
             } else if (agentModel.toLowerCase().includes("ollama") || agentModel.includes("/") || agentModel.includes(":")) {
@@ -1812,8 +1823,10 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         const am = agentModel || '';
         const prefix = am.includes('|') ? am.split('|')[0].toLowerCase() : '';
         const CLOUD = new Set(['google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-            'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm']);
+            'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
+            'highwayapi', 'interfaceai', 'jiekou']);
         return CLOUD.has(prefix)
+            || isHighwayApiModel(am)
             || am.toLowerCase().includes('gemini') || am.toLowerCase().includes('claude')
             || am.toLowerCase().includes('gpt-') || am.toLowerCase().includes('o1-')
             || am.toLowerCase().includes('o3-');
@@ -1837,6 +1850,8 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         [provider, model] = effectiveAgentModel.split("|");
     } else if (effectiveAgentModel.toLowerCase().includes("goog") || effectiveAgentModel.toLowerCase().includes("gemini")) {
         provider = "Google";
+    } else if (isHighwayApiModel(effectiveAgentModel)) {
+        provider = "highwayapi";
     } else if (effectiveAgentModel.toLowerCase().includes("anthropic") || effectiveAgentModel.toLowerCase().includes("claude")) {
         provider = "Anthropic";
     } else if (effectiveAgentModel.toLowerCase().includes("ollama") || effectiveAgentModel.includes("/") || effectiveAgentModel.includes(":")) {
@@ -1957,9 +1972,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         const CLOUD_PROVIDERS = new Set([
             'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
             'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
-            'cohere', 'xai',
+            'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou',
         ]);
-        if (!CLOUD_PROVIDERS.has(normalizedProvider)) {
+        if (!CLOUD_PROVIDERS.has(normalizedProvider) && !isHighwayApiModel(routingModel)) {
             routingProvider = 'ollama';
         }
         routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl || '';
