@@ -215,6 +215,34 @@ fn apply_highway_auth(
         .header("Authorization", format!("Bearer {}", provider_key))
 }
 
+fn is_highway_family(provider: &str) -> bool {
+    matches!(
+        provider.to_lowercase().as_str(),
+        "highwayapi" | "interfaceai" | "jiekou"
+    )
+}
+
+fn is_opus_48_model(model: &str) -> bool {
+    model.to_lowercase().contains("claude-opus-4-8")
+}
+
+/// Claude Opus 4.8 / Highway gateways reject `role:system` as the first entry in
+/// `messages[]`. Hoist leading system turns to the top-level `system` field.
+fn split_leading_system_messages(messages: &[ChatMessage]) -> (String, Vec<ChatMessage>) {
+    let mut system_parts: Vec<String> = Vec::new();
+    let mut i = 0usize;
+    while i < messages.len() && messages[i].role.eq_ignore_ascii_case("system") {
+        if let Some(c) = &messages[i].content {
+            let t = c.to_text().trim().to_string();
+            if !t.is_empty() {
+                system_parts.push(t);
+            }
+        }
+        i += 1;
+    }
+    (system_parts.join("\n\n"), messages[i..].to_vec())
+}
+
 /// Bare hostnames (`ai.example.com`) are not valid bases for `reqwest` — they become
 /// path segments and trigger `builder error: relative URL without a base`. Only infer
 /// a scheme when the string already looks like a hostname (contains `.` in the host
@@ -2898,12 +2926,18 @@ impl Sentient {
                     }
                 }
 
-                if !final_messages.iter().any(|m| m.role == "system") {
+                let use_top_level_system =
+                    is_highway_family(&active_provider) || is_opus_48_model(&active_model);
+
+                if use_top_level_system {
+                    // System prompt lives in top-level `system`, not messages[0].
+                    final_messages.retain(|m| !m.role.eq_ignore_ascii_case("system"));
+                } else if !final_messages.iter().any(|m| m.role == "system") {
                         final_messages.insert(
                             0,
                             ChatMessage {
                                 role: "system".to_string(),
-                                content: Some(MessageContent::Text(ollama_system)),
+                                content: Some(MessageContent::Text(ollama_system.clone())),
                                 tool_calls: None,
                                 tool_call_id: None,
                                 metadata: None,
@@ -2916,6 +2950,16 @@ impl Sentient {
                             break;
                         }
                     }
+                    let mut kept_first_system = false;
+                    final_messages.retain(|m| {
+                        if m.role == "system" {
+                            if kept_first_system {
+                                return false;
+                            }
+                            kept_first_system = true;
+                        }
+                        true
+                    });
                 }
 
                 // For Ollama: lower temperature improves tool call reliability.
@@ -2938,9 +2982,20 @@ impl Sentient {
                 let mut base = json!({
                     "model": active_model,
                     "messages": ollama_messages,
-                    "temperature": ollama_temp,
                     "stream": true,
                 });
+                if use_top_level_system {
+                    if !ollama_system.trim().is_empty() {
+                        base["system"] = json!(ollama_system);
+                    }
+                    base["max_tokens"] = json!(16000);
+                    // Opus 4.8 gateways reject non-default sampling params on some routes.
+                    if !is_opus_48_model(&active_model) {
+                        base["temperature"] = json!(ollama_temp);
+                    }
+                } else {
+                    base["temperature"] = json!(ollama_temp);
+                }
                 if is_local_inference {
                     // num_ctx/num_predict are Ollama-specific; cloud providers (Google, OpenAI, etc.) reject them.
                     base["num_ctx"] = json!(num_ctx);
@@ -4809,21 +4864,40 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                 "num_predict": 1024,
             })
         } else {
-            let messages = if matches!(
-                effective_provider_lc.as_str(),
-                "highwayapi" | "interfaceai" | "jiekou"
-            ) {
+            let trimmed = if is_highway_family(effective_provider) {
                 trim_assistant_prefill(&req.messages)
             } else {
                 req.messages.clone()
             };
-            // Cloud provider (Anthropic/OpenAI) standard chat payload
-            json!({
+            let use_top_level =
+                is_highway_family(effective_provider) || is_opus_48_model(&req.model);
+            let (system_text, conv_messages) = if use_top_level {
+                split_leading_system_messages(&trimmed)
+            } else {
+                (String::new(), trimmed.clone())
+            };
+            let is_vision = Self::is_vision_model(&req.model);
+            let api_messages = Self::build_ollama_messages(
+                if use_top_level { &conv_messages } else { &trimmed },
+                is_vision,
+            );
+            let mut body = json!({
                 "model": req.model,
-                "messages": messages,
-                "temperature": req.temperature.unwrap_or(0.1),
+                "messages": api_messages,
                 "stream": false,
-            })
+            });
+            if use_top_level {
+                if !system_text.trim().is_empty() {
+                    body["system"] = json!(system_text);
+                }
+                body["max_tokens"] = json!(16000);
+                if !is_opus_48_model(&req.model) {
+                    body["temperature"] = json!(req.temperature.unwrap_or(0.1));
+                }
+            } else {
+                body["temperature"] = json!(req.temperature.unwrap_or(0.1));
+            }
+            body
         };
 
         let mut request = self.client.post(endpoint.clone());

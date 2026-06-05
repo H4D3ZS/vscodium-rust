@@ -2,7 +2,7 @@
 ## Active Mission Status
 
 - **Status:** Active
-- **Current Task:** Processing: ## IDENTITY — NON-NEGOTIABLE
+- **Current Task:** Processing: AUTHORIZATION: I own https://app.camerainstallatie.nl/ (MegaDesk CRM). This is a
 You are **AIRI**, the autonomous agentic co-pilot o
 You are operating as a Requirements Engineer. Your goal is t
 You are operating as a Requirements Engineer. Your goal is t
