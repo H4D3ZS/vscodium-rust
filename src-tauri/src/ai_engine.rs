@@ -185,14 +185,34 @@ pub struct AiRequest {
 
 fn trim_assistant_prefill(messages: &[ChatMessage]) -> Vec<ChatMessage> {
     let mut trimmed = messages.to_vec();
-    while trimmed
-        .last()
-        .map(|m| m.role.eq_ignore_ascii_case("assistant") || m.role.eq_ignore_ascii_case("system"))
-        .unwrap_or(false)
-    {
-        trimmed.pop();
+    // OpenAI-compat Claude gateways reject requests whose last message is an
+    // empty assistant placeholder (we add one client-side for streaming UI).
+    while let Some(last) = trimmed.last() {
+        if !last.role.eq_ignore_ascii_case("assistant") {
+            break;
+        }
+        let empty_text = last
+            .content
+            .as_ref()
+            .map(|c| c.as_str().trim().is_empty())
+            .unwrap_or(true);
+        let no_tools = last.tool_calls.as_ref().map(|t| t.is_empty()).unwrap_or(true);
+        if empty_text && no_tools {
+            trimmed.pop();
+        } else {
+            break;
+        }
     }
     trimmed
+}
+
+fn apply_highway_auth(
+    request: reqwest::RequestBuilder,
+    provider_key: &str,
+) -> reqwest::RequestBuilder {
+    request
+        .header("x-api-key", provider_key)
+        .header("Authorization", format!("Bearer {}", provider_key))
 }
 
 /// Bare hostnames (`ai.example.com`) are not valid bases for `reqwest` — they become
@@ -2851,6 +2871,12 @@ impl Sentient {
                 }
 
                 let mut final_messages = messages.clone();
+                if matches!(
+                    active_provider.to_lowercase().as_str(),
+                    "highwayapi" | "interfaceai" | "jiekou"
+                ) {
+                    final_messages = trim_assistant_prefill(&final_messages);
+                }
 
                 let final_text = messages.last().and_then(|m| m.content.as_ref()).map(|c| c.as_str()).unwrap_or("");
                 let has_completion_keyword = final_text.contains("MISSION_ACCOMPLISHED");
@@ -3075,6 +3101,11 @@ impl Sentient {
                 // standard Bearer auth — NOT the ?key= query param used by native endpoints.
                 request = request.bearer_auth(&provider_key)
                                  .header("x-goog-api-key", &provider_key);
+            } else if matches!(
+                active_provider.to_lowercase().as_str(),
+                "highwayapi" | "interfaceai" | "jiekou"
+            ) {
+                request = apply_highway_auth(request, &provider_key);
             } else if active_provider.to_lowercase() == "ollama" {
                 let k = self.get_key_for_provider("ollama");
                 if !k.trim().is_empty() {
@@ -3109,6 +3140,8 @@ impl Sentient {
                 if provider_lc == "google" || provider_lc == "gemini" {
                     fallback_request = fallback_request.bearer_auth(&provider_key)
                                                          .header("x-goog-api-key", &provider_key);
+                } else if matches!(provider_lc.as_str(), "highwayapi" | "interfaceai" | "jiekou") {
+                    fallback_request = apply_highway_auth(fallback_request, &provider_key);
                 } else if provider_lc == "ollama" {
                     let k = self.get_key_for_provider("ollama");
                     if !k.trim().is_empty() {
@@ -4801,6 +4834,8 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         } else if effective_provider_lc == "google" || effective_provider_lc == "gemini" {
             request = request.bearer_auth(&key)
                              .header("x-goog-api-key", &key);
+        } else if matches!(effective_provider_lc.as_str(), "highwayapi" | "interfaceai" | "jiekou") {
+            request = apply_highway_auth(request, &key);
         } else if !is_ollama {
             request = request.bearer_auth(&key);
         }

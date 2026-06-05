@@ -69,6 +69,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     const updateTabContent = useStore(state => state.updateTabContent);
     const saveActiveFile = useStore(state => state.saveActiveFile);
     const theme = useStore(state => state.theme);
+    const editorWordWrap = useStore(state => state.editorWordWrap);
     const setTheme = useStore(state => state.setTheme);
     const setActiveEditorPath = useStore(state => state.setActiveEditorPath);
     const setVisualLabData = useStore(state => state.setVisualLabData);
@@ -1189,7 +1190,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     lineDecorationsWidth: 10,
                     minimap: { enabled: false },
                     scrollBeyondLastLine: false,
-                    wordWrap: 'off',
+                    wordWrap: editorWordWrap ? 'on' : 'off',
                     tabSize: 4,
                     insertSpaces: true,
                     automaticLayout: true,

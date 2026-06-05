@@ -63,6 +63,9 @@ export interface LayoutSlice {
     // Document outline
     isOutlinePanelOpen: boolean;
     toggleOutlinePanel: () => void;
+    // Editor view
+    editorWordWrap: boolean;
+    toggleEditorWordWrap: () => void;
 }
 
 export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (set) => ({
@@ -91,6 +94,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     isZenMode: false,
     isGitBlameVisible: false,
     isOutlinePanelOpen: false,
+    editorWordWrap: (() => { try { return localStorage.getItem('editor.wordWrap') === '1'; } catch { return false; } })(),
 
     toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
     setActiveSidebarView: (view) => set({ activeSidebarView: view, isSidebarOpen: true }),
@@ -141,5 +145,12 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     toggleZenMode: () => set((s) => ({ isZenMode: !s.isZenMode })),
     toggleGitBlame: () => set((s) => ({ isGitBlameVisible: !s.isGitBlameVisible })),
     toggleOutlinePanel: () => set((s) => ({ isOutlinePanelOpen: !s.isOutlinePanelOpen })),
+    toggleEditorWordWrap: () => set((s) => {
+        const next = !s.editorWordWrap;
+        try { localStorage.setItem('editor.wordWrap', next ? '1' : '0'); } catch { /* */ }
+        const ed = (window as any).activeEditor;
+        ed?.updateOptions?.({ wordWrap: next ? 'on' : 'off' });
+        return { editorWordWrap: next };
+    }),
 });
 

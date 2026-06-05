@@ -215,7 +215,8 @@
 
   /* Premium Shadows */
   --shadow-macos: 0 12px 40px rgba(0, 0, 0, 0.65);
-  --shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.55);
+  --shadow-menu: 0 2px 8px rgba(0, 0, 0, 0.36);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.36);
   --shadow-tooltip: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
@@ -823,19 +824,19 @@ body.resizing * {
   left: 0;
   background: var(--vscode-menu-background, #252526);
   color: var(--vscode-menu-foreground, #cccccc);
-  border: 1px solid var(--vscode-menu-border, rgba(255, 255, 255, 0.08));
-  border-radius: 5px;
-  padding: 4px 0;
+  border: 1px solid var(--vscode-menu-border, #454545);
+  border-radius: 0;
+  padding: 0;
   min-width: 180px;
-  /* Subtle native shadow — the old --shadow-macos (0 12px 40px / 0.65) cast a
-     large dark "shadowy area" around the menu on the dark frameless window. */
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+  box-shadow: var(--shadow-menu);
   z-index: 1000;
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .menu-dropdown-item {
-  padding: 4px 24px 4px 12px;
+  padding: 0 22px 0 27px;
+  min-height: 22px;
+  line-height: 22px;
   cursor: pointer;
   font-size: 12px;
   transition: background 0.1s;
@@ -3742,11 +3743,17 @@ button, input, textarea, select,
 
 /* 5) Keep neutral elevation ONLY on genuine overlays (menus, dropdowns,
       tooltips, command palette, context menus) — re-allow after the resets. */
-.dropdown-menu, [class*="dropdown"], .context-menu, [class*="context-menu"],
-.menu, .menu-popover, .quick-open, .command-palette, [class*="palette"],
-.tooltip, [class*="tooltip"], [role="menu"], [role="listbox"], .popover {
-    box-shadow: var(--shadow-md) !important;
-    border-radius: 4px !important;
+.dropdown-menu, [class*="dropdown"]:not(.menu-dropdown), .context-menu, [class*="context-menu"],
+.menu:not(.menu-dropdown), .menu-popover, .quick-open, .command-palette, [class*="palette"],
+.tooltip, [class*="tooltip"], [role="menu"], [role="listbox"], .popover,
+.vscode-native-menu {
+  box-shadow: var(--shadow-menu) !important;
+  border-radius: 0 !important;
+}
+
+.menu-dropdown, .vscode-native-menu {
+  box-shadow: var(--shadow-menu) !important;
+  border-radius: 0 !important;
 }
 
 /* 6) Native UI typography: VSCode uses Segoe UI 13px for chrome. */

@@ -1,6 +1,8 @@
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
 
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
 /** Push the live chat panel messages into the Rust memory store before archive/restore. */
 export async function syncAgentMessagesToBackend(): Promise<void> {
     const { agentMessages, activeAgentThreadId, agentThreads } = useStore.getState();
@@ -19,4 +21,12 @@ export async function syncAgentMessagesToBackend(): Promise<void> {
         }));
     if (payload.length === 0) return;
     await invoke('sync_agent_messages', { messages: payload });
+}
+
+/** Debounced sync so History always lists the live conversation. */
+export function scheduleChatHistorySync(): void {
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+        void syncAgentMessagesToBackend().catch(() => {});
+    }, 600);
 }

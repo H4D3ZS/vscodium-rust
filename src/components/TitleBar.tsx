@@ -661,12 +661,12 @@ const TitleBar: React.FC = () => {
                         onClick={() => setGearOpen(o => !o)}
                     />
                     {gearOpen && (
-                        <div style={{
-                            position: 'absolute', top: '100%', right: 0, marginTop: 6, minWidth: 250,
+                        <div className="vscode-native-menu" style={{
+                            position: 'absolute', top: '100%', right: 0, marginTop: 0, minWidth: 250,
                             background: 'var(--vscode-menu-background, #252526)',
-                            border: '1px solid var(--vscode-menu-border, rgba(255,255,255,0.12))',
-                            borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.45)', zIndex: 99999,
-                            padding: '4px 0', WebkitAppRegion: 'no-drag',
+                            border: '1px solid var(--vscode-menu-border, #454545)',
+                            zIndex: 99999,
+                            padding: '0', WebkitAppRegion: 'no-drag',
                         } as React.CSSProperties}>
                             {gearItems.map((it) => (
                                 <React.Fragment key={it.label}>

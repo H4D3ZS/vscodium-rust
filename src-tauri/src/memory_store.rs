@@ -1012,6 +1012,48 @@ impl MemoryStore {
             let b_val = b["updated_at"].as_u64().unwrap_or(0);
             b_val.cmp(&a_val)
         });
+
+        // Live workspace conversation (memory.aim) — shown in History until archived.
+        let live_messages = self.messages.read().await;
+        if !live_messages.is_empty() {
+            if let Some(current_path) = path_lock.as_ref() {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let (title, preview) = live_messages
+                    .iter()
+                    .find(|m| m.role == "user")
+                    .map(|m| {
+                        let content_val = match &m.content {
+                            Some(c) => serde_json::to_value(c).unwrap_or(Value::Null),
+                            None => Value::Null,
+                        };
+                        let p = chat_content_preview(&content_val);
+                        let t = if p.is_empty() {
+                            "Current conversation".to_string()
+                        } else {
+                            p.chars().take(48).collect::<String>()
+                        };
+                        (t, p)
+                    })
+                    .unwrap_or_else(|| ("Current conversation".to_string(), String::new()));
+
+                sessions.insert(
+                    0,
+                    json!({
+                        "name": "memory.aim",
+                        "title": title,
+                        "preview": preview,
+                        "path": current_path.to_string_lossy(),
+                        "updated_at": now,
+                        "messages": live_messages.len(),
+                        "is_current": true
+                    }),
+                );
+            }
+        }
+
         sessions
     }
 

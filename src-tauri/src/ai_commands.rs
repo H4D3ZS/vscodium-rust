@@ -1230,8 +1230,7 @@ pub async fn sync_agent_messages(
     messages: Vec<ChatMessage>,
 ) -> Result<(), String> {
     use std::sync::atomic::Ordering;
-    let mut store_messages = state.ai_engine.memory_store.messages.write().await;
-    *store_messages = messages;
+    state.ai_engine.memory_store.store_conversation(&messages).await;
     state.ai_engine.memory_store.is_dirty.store(true, Ordering::Relaxed);
     Ok(())
 }
