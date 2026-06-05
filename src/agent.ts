@@ -1552,10 +1552,21 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     if (found) {
         provider = found.provider;
         model = found.id;
+        const ollamaBase = store.getState().ollamaUrl || '';
+        if (
+            found.provider.toLowerCase() === 'ollama'
+            && /^cyberifrit\//i.test(found.id)
+            && isManagedCloudOllama(ollamaBase, store.getState().ollamaServerMode)
+        ) {
+            provider = 'Cyberifrit';
+        }
     }
     // 2. Fallback to format parsing etc.
     else if (effectiveAgentModel.includes("|")) {
         [provider, model] = effectiveAgentModel.split("|");
+    } else if (/^cyberifrit\//i.test(effectiveAgentModel)) {
+        provider = 'Cyberifrit';
+        model = effectiveAgentModel;
     } else if (effectiveAgentModel.toLowerCase().includes("goog") || effectiveAgentModel.toLowerCase().includes("gemini")) {
         provider = "Google";
     } else if (isHighwayApiModel(effectiveAgentModel)) {

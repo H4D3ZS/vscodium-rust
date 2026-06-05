@@ -4945,6 +4945,17 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             body
         };
 
+        let ollama_base_for_auth = if effective_provider_lc == "ollama" {
+            let raw = if let Some(ref u) = req.ollama_url {
+                u.clone()
+            } else {
+                self.ollama_url.lock().await.clone()
+            };
+            normalize_ollama_base_url(&raw)
+        } else {
+            String::new()
+        };
+
         let mut request = self.client.post(endpoint.clone());
         if effective_provider_lc == "anthropic" {
             request = request
@@ -4955,6 +4966,11 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                              .header("x-goog-api-key", &key);
         } else if matches!(effective_provider_lc.as_str(), "highwayapi" | "interfaceai" | "jiekou") {
             request = apply_highway_auth(request, &key);
+        } else if effective_provider_lc == "ollama" {
+            let k = self.ollama_bearer_for_base(&ollama_base_for_auth);
+            if !k.trim().is_empty() {
+                request = request.bearer_auth(k.trim());
+            }
         } else if !is_ollama {
             request = request.bearer_auth(&key);
         }
@@ -4984,6 +5000,11 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             if provider_lc == "google" || provider_lc == "gemini" {
                 fallback_request = fallback_request.bearer_auth(&key)
                                                      .header("x-goog-api-key", &key);
+            } else if provider_lc == "ollama" {
+                let k = self.ollama_bearer_for_base(&ollama_base_for_auth);
+                if !k.trim().is_empty() {
+                    fallback_request = fallback_request.bearer_auth(k.trim());
+                }
             } else if !is_ollama {
                 fallback_request = fallback_request.bearer_auth(&key);
             }
@@ -4993,7 +5014,7 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         let resp = response_result.map_err(|e| anyhow!("FIM HTTP request failed: {}", e))?;
         if !resp.status().is_success() {
             let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("FIM Error: {}", body));
+            return Err(anyhow!("Chat request failed: {}", body));
         }
 
         let val: Value = resp.json().await?;

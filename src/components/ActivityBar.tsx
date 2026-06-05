@@ -95,18 +95,20 @@ const ActivityBar: React.FC = () => {
                     >
                         <div className="activity-item-icon">
                             {item.base64_icon ? (
-                                <img src={item.base64_icon} style={{ width: '24px', height: '24px', opacity: activeView === item.id ? 1 : 0.6 }} />
+                                <img src={item.base64_icon} style={{ width: '24px', height: '24px', opacity: activeView === item.id ? 1 : 0.6 }} alt="" />
                             ) : (
                                 <i className={`codicon codicon-${item.icon}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                             )}
                         </div>
-                        {item.id === 'scm-view' && <div className="badge dot"></div>}
-                        {item.id === 'extensions-view' && false && <div className="badge">12</div>}
                     </div>
                 ))}
             </div>
             <div className="activity-bar-bottom">
-                <div className="activity-item" title="Accounts">
+                <div
+                    className="activity-item"
+                    title="Accounts & Subscription"
+                    onClick={() => (window as any).useStore?.getState().openSettings?.('user')}
+                >
                     <div className="activity-item-icon">
                         <i className="codicon codicon-account" style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>
                     </div>
