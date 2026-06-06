@@ -1,0 +1,42 @@
+{
+  "name": "browser-use",
+  "version": "0.1.0-alpha1",
+  "description": "Browser / browser-use plugin\n\nAliases: @browser-use, browser-use, Browser, in-app browser.\n\nUse this plugin whenever the user asks to open, navigate, inspect, test, click, type, or screenshot a local browser target, especially localhost, 127.0.0.1, ::1, file:// URLs, or the current in-app browser tab.\n\nFor requests like \"open localhost:3000\" or \"open to localhost:4000\", navigate the in-app browser to http://localhost:3000 or http://localhost:4000.\n\nAfter significant frontend changes, suggest testing in the in-app browser unless the user already asked to open, test, or inspect it.\n\nDo not satisfy explicit @browser-use requests with macOS `open`, shell commands, Playwright, or generic web browsing unless the user approves a fallback.",
+  "author": {
+    "name": "OpenAI"
+  },
+  "homepage": "https://github.com/openai/openai/tree/master/lib/browser_use/plugin",
+  "repository": "https://github.com/openai/openai/tree/master/lib/browser_use/plugin",
+  "license": "Proprietary",
+  "keywords": [
+    "browser",
+    "automation",
+    "chrome",
+    "iab",
+    "node-repl",
+    "browser-client"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Browser Use",
+    "shortDescription": "Control the in-app browser with Codex",
+    "longDescription": "Browser Use lets Codex open and control the browser built into Codex, mainly for local development pages and files. Use it to navigate, inspect, click, type, and take screenshots while testing pages inside Codex.",
+    "developerName": "OpenAI",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://openai.com/",
+    "privacyPolicyURL": "https://openai.com/policies/row-privacy-policy/",
+    "termsOfServiceURL": "https://openai.com/policies/row-terms-of-use/",
+    "defaultPrompt": [
+      "Test my checkout flow on localhost"
+    ],
+    "brandColor": "#013B7B",
+    "composerIcon": "./assets/browser.png",
+    "logo": "./assets/browser.png",
+    "screenshots": []
+  }
+}
