@@ -168,6 +168,40 @@ fn entitlements_for(account: &Account) -> Entitlements {
     }
 }
 
+/// Check whether the local account has a named entitlement feature.
+pub fn has_feature_at(config_dir: &Path, feature: &str) -> bool {
+    let acc = AccountManager::load(config_dir);
+    entitlements_for(&acc).features.iter().any(|f| f == feature)
+}
+
+/// Security Researcher tier features (any one counts).
+pub fn has_security_suite(config_dir: &Path) -> bool {
+    has_feature_at(config_dir, "bug_bounty")
+        || has_feature_at(config_dir, "vuln_hunt")
+        || has_feature_at(config_dir, "web_audit")
+}
+
+/// Enforce a named entitlement; returns a user-facing error when missing.
+pub fn require_feature_at(config_dir: &Path, feature: &str) -> Result<(), String> {
+    if has_feature_at(config_dir, feature) {
+        Ok(())
+    } else {
+        Err(format!(
+            "🔒 \"{feature}\" requires Cyber-Ifrit Pro. Open Settings → Account for a free trial or upgrade at https://cyberifrit.xyz/pricing"
+        ))
+    }
+}
+
+pub fn require_security_suite(config_dir: &Path) -> Result<(), String> {
+    if has_security_suite(config_dir) {
+        Ok(())
+    } else {
+        Err(
+            "🔒 Security / bug-bounty tools require the Security Researcher plan ($75/mo) or an active free trial. Upgrade at https://cyberifrit.xyz/pricing".into(),
+        )
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Storage (local now, remote-ready)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -574,6 +608,19 @@ pub async fn account_check_and_count(state: State<'_, EditorState>) -> Result<se
     if u.day != day {
         u.day = day.clone();
         u.day_count = 0;
+    }
+
+    let token_limit = ent.monthly_tokens;
+    if token_limit > 0 {
+        let used_tokens = if u.month == month { u.tokens_month } else { 0 };
+        if used_tokens >= token_limit {
+            return Ok(serde_json::json!({
+                "allowed": false, "reason": "tokens",
+                "used_tokens": used_tokens, "limit_tokens": token_limit,
+                "used_month": u.month_count, "limit_month": monthly,
+                "tier": acc.tier.label(),
+            }));
+        }
     }
 
     if daily > 0 && u.day_count >= daily {
