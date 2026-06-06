@@ -1,0 +1,1422 @@
+{
+  "schema_version": 2,
+  "tools": [
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_get_screenshot",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_get_screenshot",
+        "title": "get_screenshot",
+        "description": "Generate a screenshot for a given node or the currently selected node in the Figma desktop app. Works on Figma design files (URL path `/design/`), FigJam boards (`/board/`), and Figma Slides (`/slides/`). The optional `maxDimension` parameter (positive integer, max 65536, default 1024) caps the longer edge of the rendered PNG in pixels — increase it when you need to inspect fine detail, decrease it for thumbnails or to save context. The JSON metadata entry in the response includes both `width`/`height` (the rendered PNG size) and `original_width`/`original_height` (the node's natural canvas size before any clamping), so callers can decide whether to re-request at a higher `maxDimension`. Use the nodeId parameter to specify a node id. nodeId parameter is REQUIRED. Use the fileKey parameter to specify the file key. fileKey parameter is REQUIRED. If a URL is provided, extract the file key and node id from the URL. For example, if given the URL https://figma.com/design/pqrs/ExampleFile?node-id=1-2 the extracted fileKey would be `pqrs` and the extracted nodeId would be `1:2`. If the URL does not include `node-id`, ask the user for a node-specific URL. Do not pass an empty or guessed nodeId. This tool is not supported for Figma Make Files (URLs containing `/make/`). By default this tool returns a short-lived URL to the screenshot plus curl instructions for downloading the PNG — the URL+curl path is strongly preferred because it uses far fewer tokens than embedding the image inline. The `enableBase64Response` parameter defaults to `false`. Only set `enableBase64Response: true` when the agent cannot fetch URLs (no shell access, no HTTP client, or a sandboxed environment that blocks outbound requests); when set, an inline base64 image entry is appended to the response in addition to the URL and curl instructions. If the URL is of the format https://figma.com/design/:fileKey/branch/:branchKey/:fileName then use the branchKey as the fileKey.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "The ID of the node in the Figma document, eg. \"123:456\" or \"123-456\". This should be a valid node ID in the Figma document. Do not pass an empty string for node_id."
+            },
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "contentsOnly": {
+              "type": "boolean",
+              "description": "When true, renders the node in isolation — floating/overlapping content (e.g. connectors parented to the page that visually sit above a section) is excluded. Defaults to false so screenshots match what the user sees on the canvas. Only set to true if the caller specifically needs the isolated render."
+            },
+            "enableBase64Response": {
+              "type": "boolean",
+              "description": "When true, the response also includes the screenshot inline as a base64-encoded image entry, in addition to the short-lived URL and curl instructions. Defaults to false. Set to true ONLY if the agent cannot fetch URLs (no shell access, no HTTP client, or a sandboxed environment that blocks outbound requests)",
+              "default": false
+            },
+            "maxDimension": {
+              "type": "integer",
+              "maximum": 65536,
+              "description": "Optional. Maximum pixel size of the longer edge of the rendered screenshot — the server scales the node so that max(width, height) ≤ maxDimension while preserving aspect ratio. Defaults to 1024. Must be a positive integer; values above 65536 are rejected. Increase when the agent will visually inspect fine detail; decrease for thumbnails or to save context.",
+              "default": 1024
+            }
+          },
+          "required": [
+            "nodeId",
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_get_screenshot",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/get_screenshot",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_get_design_context",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_get_design_context",
+        "title": "get_design_context",
+        "description": "Get design context for a Figma node — the primary tool for design-to-code workflows. Returns reference code, a screenshot, and contextual metadata that should be adapted to the target project. See the server instructions for how to interpret and adapt the response. \n\nUse the nodeId parameter to specify a node id. Use the fileKey parameter to specify the file key. If a URL is provided, extract the node id and file key from the URL, for example, if given the URL https://figma.com/design/:fileKey/:fileName?node-id=1-2, the extracted nodeId would be `1:2` and the fileKey would be `:fileKey`. If the URL does not include `node-id`, ask the user for a node-specific URL. Do not pass an empty or guessed nodeId. If the URL is of the format https://figma.com/design/:fileKey/branch/:branchKey/:fileName then use the branchKey as the fileKey. If the URL is of the format https://figma.com/make/:makeFileKey/:makeFileName then use the makeFileKey to identify the Figma Make file. Only for Figma Make files (URLs containing `/make/`), and only when calling get_design_context, assume the nodeId is `0:1`. The response will contain a code string and a JSON of download URLs for the assets referenced in the code. It will also include a screenshot of the node for context by default.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "The ID of the node in the Figma document, eg. \"123:456\" or \"123-456\". This should be a valid node ID in the Figma document. Do not pass an empty string for node_id."
+            },
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "clientLanguages": {
+              "type": "string",
+              "description": "A comma separated list of programming languages used by the client in the current context in string form, e.g. `javascript`, `html,css,typescript`, etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which languages are being used. If you are unsure, it is better to list `unknown` than to make a guess."
+            },
+            "clientFrameworks": {
+              "type": "string",
+              "description": "A comma separated list of frameworks used by the client in the current context, e.g. `react`, `vue`, `django` etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which frameworks are being used. If you are unsure, it is better to list `unknown` than to make a guess"
+            },
+            "forceCode": {
+              "type": "boolean",
+              "description": "Whether code should always be returned, instead of returning just metadata if the output size is too large. Only set this when the user directly requests to force the code. "
+            },
+            "disableCodeConnect": {
+              "type": "boolean",
+              "description": "Whether Code Connect should be used to get the design context. Only set this when the user directly requests to disable Code Connect."
+            },
+            "excludeScreenshot": {
+              "type": "boolean",
+              "description": "Whether to exclude the screenshot of the design from the response. IMPORTANT: it is not recommended to exclude screenshots. Only set this to true if the user has explicitly requested it or you are trying to preserve context."
+            }
+          },
+          "required": [
+            "nodeId",
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_get_design_context",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/get_design_context",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_get_metadata",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_get_metadata",
+        "title": "get_metadata",
+        "description": "IMPORTANT: Always prefer to use get_design_context tool. Get metadata for a node or page in the Figma desktop app in XML format. Useful only for getting an overview of the structure, it only includes node IDs, layer types, names, positions and sizes. You can call get_design_context on the node IDs contained in this response. Use the nodeId parameter to specify a node id, it can also be the page id (e.g. 0:1). IMPORTANT: This tool only works for Figma design files (URL path `/design/`). It is NOT supported for FigJam (`/board/`) or Slides (`/slides/`) files. This tool is not supported for Figma Make Files (URLs containing `/make/`). The nodeId parameter is optional: when omitted, the tool returns a list of the top-level pages (guid + name) in the document instead of an XML dump — use this when you don't yet know which page or node to drill into. If the URL includes `node-id`, extract it and pass it as nodeId; for example, if given the URL https://figma.com/design/:fileKey/:fileName?node-id=1-2, the extracted nodeId would be `1:2`. If the URL does not include `node-id`, do not set nodeId; omit the field so the tool lists top-level pages. Do not pass an empty or guessed nodeId. If the URL is of the format https://figma.com/design/:fileKey/branch/:branchKey/:fileName then use the branchKey as the fileKey.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "The ID of the node in the Figma document, eg. \"123:456\" or \"123-456\". This should be a valid node ID in the Figma document. Do not pass an empty string for node_id."
+            },
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "clientLanguages": {
+              "type": "string",
+              "description": "A comma separated list of programming languages used by the client in the current context in string form, e.g. `javascript`, `html,css,typescript`, etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which languages are being used. If you are unsure, it is better to list `unknown` than to make a guess."
+            },
+            "clientFrameworks": {
+              "type": "string",
+              "description": "A comma separated list of frameworks used by the client in the current context, e.g. `react`, `vue`, `django` etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which frameworks are being used. If you are unsure, it is better to list `unknown` than to make a guess"
+            }
+          },
+          "required": [
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_get_metadata",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/get_metadata",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_get_variable_defs",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_get_variable_defs",
+        "title": "get_variable_defs",
+        "description": "Get variable definitions for a given node id. E.g. {'icon/default/secondary': #949494}Variables are reusable values that can be applied to all kinds of design properties, such as fonts, colors, sizes and spacings. Use the nodeId parameter to specify a node id. Extract the node id from the URL, for example, if given the URL https://figma.com/design/:fileKey/:fileName?node-id=1-2, the extracted nodeId would be `1:2`. If the URL does not include `node-id`, ask the user for a node-specific URL. Do not pass an empty or guessed nodeId. This remote tool requires a concrete node target. This tool is not supported for Figma Make Files (URLs containing `/make/`). If the URL is of the format https://figma.com/design/:fileKey/branch/:branchKey/:fileName then use the branchKey as the fileKey.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "The ID of the node in the Figma document, eg. \"123:456\" or \"123-456\". This should be a valid node ID in the Figma document. Do not pass an empty string for node_id."
+            },
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "clientLanguages": {
+              "type": "string",
+              "description": "A comma separated list of programming languages used by the client in the current context in string form, e.g. `javascript`, `html,css,typescript`, etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which languages are being used. If you are unsure, it is better to list `unknown` than to make a guess."
+            },
+            "clientFrameworks": {
+              "type": "string",
+              "description": "A comma separated list of frameworks used by the client in the current context, e.g. `react`, `vue`, `django` etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which frameworks are being used. If you are unsure, it is better to list `unknown` than to make a guess"
+            }
+          },
+          "required": [
+            "nodeId",
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_get_variable_defs",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/get_variable_defs",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_get_figjam",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_get_figjam",
+        "title": "get_figjam",
+        "description": "Generate UI code for a given FigJam node in Figma. Use the nodeId parameter to specify a node id. If no node id is provided, use `0:1` which is the root node ID. Use the fileKey parameter to specify the file key. If a URL is provided, extract the node id from the URL, for example, if given the URL https://figma.com/board/:fileKey/:fileName?node-id=1-2, the extracted nodeId would be `1:2` and the fileKey would be `:fileKey`. IMPORTANT: This tool only works for FigJam files (URL path `/board/`), not other Figma files.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "The ID of the node in the FigJam board, eg. \"123:456\" or \"123-456\". If a URL is provided, extract the node id from the FigJam board URL, e.g. for https://figma.com/board/:fileKey/:fileName?node-id=1-2 the extracted nodeId would be `1:2`. Do not pass an empty string for node_id."
+            },
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the FigJam (board) file to use. If a URL is provided, extract the file key from the FigJam board URL. The given URL must be in the format https://figma.com/board/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`. A `/design/...` URL is NOT a FigJam file — do not call this tool with a design fileKey."
+            },
+            "includeImagesOfNodes": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to include images of nodes in the response"
+            }
+          },
+          "required": [
+            "nodeId",
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_get_figjam",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/get_figjam",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_generate_figma_design",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_generate_figma_design",
+        "title": "generate_figma_design",
+        "description": "Capture, import, or convert a web page (by URL) or HTML into a Figma design. Use this tool when the user wants to send, import, capture, screenshot, or push a webpage to Figma. Works with both local dev servers (localhost) and external websites. For LOCAL projects: explore the user's codebase to identify the page, dev server command, and URL before calling. Call this tool without outputMode first to get detailed capture instructions and choose output mode. After capture, poll with captureId every 5 seconds (up to 10 times) until status is 'completed'. Each capture ID is single-use.\n\nUSING generate_figma_design WITH use_figma:\n- For web apps, use BOTH tools in parallel: run this tool (generate_figma_design) to capture a pixel-perfect layout, and use use_figma with search_design_system to build the screen from design system components.\n- Once both complete, refine the use_figma output to match the pixel-perfect layout from this tool's capture, then delete this tool's output (it was used as a layout reference only).\n- For non-web apps (e.g. iOS), use use_figma only.\n- For updating/syncing a page already in Figma, use use_figma only.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "captureId": {
+              "type": "string",
+              "description": "ID returned from initial call to check capture status. If provided, polls for completion. Each capture ID is single-use and can only capture one page. To capture multiple pages, either: (1) use one capture ID for one page and let the user manually navigate to other pages via the capture toolbar (which auto-generates new capture IDs), or (2) call this tool once per page to generate a separate capture ID for each."
+            },
+            "fileName": {
+              "type": "string",
+              "description": "Only include this if outputMode is 'newFile'. The name of the Figma file to generate. Never ask the user for this, just auto-generate it."
+            },
+            "planKey": {
+              "type": "string",
+              "description": "Only include this if outputMode is 'newFile'.  The team or organization key where the generated design file should be saved. If not provided, returns a list of available plans to choose from."
+            },
+            "outputMode": {
+              "type": "string",
+              "enum": [
+                "newFile",
+                "existingFile",
+                "clipboard"
+              ],
+              "description": "How to output the captured design. \"newFile\" creates a new Figma file. \"existingFile\" adds to an existing file. \"clipboard\" copies the design to clipboard for pasting. If omitted, the tool returns options for the user to choose from."
+            },
+            "fileKey": {
+              "type": "string",
+              "description": "Only include this if outputMode is 'existingFile'. The key of the target Figma file. Can be extracted from a Figma URL like \"figma.com/design/{fileKey}/...\" or from a claim URL like \"figma.com/integrations/claim/{fileKey}\". When polling a completed newFile capture, the file_key is provided in the response. Note: If the file was just created via a claim URL, the user must open the claim URL first to claim the file before it can be edited with existingFile mode."
+            },
+            "nodeId": {
+              "type": "string",
+              "description": "Only include this if outputMode is 'existingFile'. Optional node ID where the design should be added. If not provided, creates a new page in the file. Format: \"123:456\""
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_generate_figma_design",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/generate_figma_design",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_generate_diagram",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_generate_diagram",
+        "title": "generate_diagram",
+        "description": "Create a flowchart, decision tree, gantt chart, sequence diagram, state diagram, or entity relationship diagram in FigJam, using Mermaid.js. Generated diagrams should be simple, unless a user asks for details. This tool also does not support generating Figma designs, class diagrams, timelines, venn diagrams, or other Mermaid.js diagram types. This tool also does not support font changes, or moving individual shapes around -- if a user asks for those changes to an existing diagram, encourage them to open the diagram in Figma. If the tool is unable to complete the user's task, reference the error that is passed back. Do not use the create_new_file tool prior to creating a diagram using this tool; generate_diagram creates its own files.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "A human-readable title for the diagram. Keep it short, but descriptive."
+            },
+            "mermaidSyntax": {
+              "type": "string",
+              "description": "Mermaid.js code for the diagram. Keep diagrams simple, unless the user has detailed requirements. Only the following diagram types are supported: graph, flowchart, sequenceDiagram, stateDiagram, stateDiagram-v2, gantt, and erDiagram. Make sure to use correct Mermaid.js syntax. For graph, flowchart, or entity relationship diagrams, use LR direction by default and put all shape and edge text in quotes (eg. [\"Text\"], -->|\"Edge Text\"|, --\"Edge Text\"-->). Do not use emojis in the Mermaid.js code. Do not use \n to represent new lines. Feel free to use the full range of shapes and connectors that Mermaid.js syntax offers. For graph and flowchart diagrams only, you can use color styling--but do so sparingly unless the user asks for it. In gantt charts, do not use color styling. In sequence diagrams, do not use notes. Do not use the word \"end\" in classNames."
+            },
+            "userIntent": {
+              "type": "string",
+              "description": "A description of what the user is trying to accomplish with this tool call. Important: Do not add extraneous information other than what the user provides."
+            },
+            "planKey": {
+              "type": "string",
+              "description": "Optional. The team or organization key where the generated diagram file should be saved. The key must start with \"team::\" or \"org::\", but do not use these abbreviations in user-facing messages."
+            },
+            "savePlanKey": {
+              "type": "boolean",
+              "description": "Optional. Indicates whether to use the same plan for future generations. Do not provide this parameter unless the user specifically requests it, and a planKey is also provided."
+            },
+            "useArchitectureLayoutCode": {
+              "type": "string",
+              "description": "Optional. To generate a diagram using the software architecture layout, pass the code from the architecture-diagram-instructions resource. Omit this parameter for standard diagrams."
+            },
+            "fileKey": {
+              "type": "string",
+              "description": "Optional. The key of an existing FigJam file to add the diagram to. Extract from a Figma URL like figma.com/board/{fileKey}/... When provided, the diagram is placed directly in this file instead of creating a new one. The user must have edit access to the file."
+            }
+          },
+          "required": [
+            "name",
+            "mermaidSyntax"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "openai/outputTemplate": "ui://widget/figjam-diagram.html",
+          "openai/toolInvocation/invoking": "Generating a FigJam diagram",
+          "openai/toolInvocation/invoked": "Generated FigJam diagram",
+          "resource_name": "Figma_generate_diagram",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/generate_diagram",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_get_code_connect_map",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_get_code_connect_map",
+        "title": "get_code_connect_map",
+        "description": "Get a mapping of {[nodeId]: {codeConnectSrc: e.g. location of component in codebase, codeConnectName: e.g. name of component in codebase} E.g. {'1:2': { codeConnectSrc: 'https://github.com/foo/components/Button.tsx', codeConnectName: 'Button' } }. Use the nodeId parameter to specify a node id. Use the fileKey parameter to specify the file key. If a URL is provided, extract the node id and file key from the URL, for example, if given the URL https://figma.com/design/:fileKey/:fileName?node-id=1-2, the extracted nodeId would be `1:2` and the fileKey would be `:fileKey`. If the URL does not include `node-id`, ask the user for a node-specific URL. Do not pass an empty or guessed nodeId.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "The ID of the node in the Figma document, eg. \"123:456\" or \"123-456\". This should be a valid node ID in the Figma document. Do not pass an empty string for node_id."
+            },
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "codeConnectLabel": {
+              "type": "string",
+              "description": "The label used to fetch Code Connect information for a particular language or framework when multiple Code Connect mappings exist."
+            }
+          },
+          "required": [
+            "nodeId",
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_get_code_connect_map",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/get_code_connect_map",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_generate_deck",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_generate_deck",
+        "title": "generate_deck",
+        "description": "Generates polished and fully editable presentation decks in Figma Slides, suitable for a wide range of use cases including pitches, slideshows, portfolios, readouts, workshops, research summaries, moodboards, training materials, retrospectives, event recaps, and strategic reviews. This tool produces visually refined, ready-to-edit decks that can be customized for personal, creative, professional, corporate, and creative contexts.\n\nUse this tool when you need a slide deck that communicates ideas, findings, or proposals in a visually compelling way. Decks are optimized for storytelling, clarity, and design consistency—ideal for presenting to teams, clients, stakeholders, or audiences.\n\nDo not use this tool for designing application UIs, websites, flow diagrams, or standalone marketing assets. For FigJam diagrams, use the generate_diagram tool instead. For Buzz marketing assets, use generate_asset.\n\nThis tool requires the following parameters to generate high-quality outputs: objectives, outline, style, color palette, use case, and theme. This tool does not retain chat history or conversational context beyond what you provide in the current request. To ensure best results, include all relevant details directly in your prompt, describing your goals and constraints clearly and completely. The prompt should be self-contained and include all relevant details with the context in mind but without referencing earlier prompts.\n\nThis tool will return up to three unique slide deck options, each including a thumbnail and Figma Slides URL for editing within Figma. These generated decks serve as starting points for refinement, collaboration, and final presentation design.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "The title of the deck to generate."
+            },
+            "description": {
+              "type": "string",
+              "description": "A description of the deck to generate. It must include the topic, audience, style/tone, and any other relevant information in this exact order. Be as detailed as possible and use context from the conversation to help generate the deck."
+            },
+            "objectives": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rules": {
+              "type": "string",
+              "description": "Optional. Concrete, enforceable do/don't rules specified by the user that must be followed. Only set this if the user has provided specific rules."
+            },
+            "outline": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "subject": {
+                    "type": "string"
+                  },
+                  "purpose": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "cover_slide",
+                      "section_divider",
+                      "agenda",
+                      "text_quote",
+                      "text_single_item",
+                      "text_two_items",
+                      "text_three_items",
+                      "text_four_items",
+                      "text_five_or_more_items",
+                      "image_hero",
+                      "image_single",
+                      "image_gallery",
+                      "metrics",
+                      "diagram_timeline",
+                      "diagram_chart",
+                      "design_mockup",
+                      "closing",
+                      "contact_info"
+                    ]
+                  },
+                  "content": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  },
+                  "visuals": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "prevSlideContext": {
+                    "type": "string"
+                  },
+                  "nextSlideContext": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "subject",
+                  "purpose",
+                  "role",
+                  "content",
+                  "visuals"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 3,
+              "maxItems": 30,
+              "description": "A slide-by-slide outline of the deck. Each outline item includes the slide's subject, purpose, role, content, and visuals. The role represents the slide's layout type; aim to use a variety of roles to keep the deck interesting; do not use the same role for more than two slides in a row; ensure that each deck has at least two layouts with images. The content should be a list of specific facts, examples, or points; if the user's prompt is not specific enough, look up relevant information instead of using ambiguous language or abstract meta-commentary. The visuals should be a list of detailed descriptions of the images for the slide. Both the content and visuals should match the selected role."
+            },
+            "templateQuery": {
+              "type": "object",
+              "properties": {
+                "style": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The visual style of the slide deck. Choose a minimum of 2. The only valid options are: simple, modern, minimalist, minimal, bold, creative, classic, professional, corporate, formal, structured, elegant, classy, casual, friendly, fun, whimsical, cute, kid_friendly, visual, design, design_friendly, design_unfriendly, editorial, trendy, futuristic, grid, versatile, colorful, monochrome, black_and_white, two_tone, gradient, earth_tones, earthy, natural, warm, light, fruits, luxury, fashion_classy, cottage, kitsch, educational, informational, tech_friendly, consumer_classy_modern, general, first_draft, verbose, seasonal, festive"
+                },
+                "palette": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The color palette of the slide deck. Choose a minimum of 2. The only valid options are: bright, neutral, dark, pastel, monochrome, colorful, accent, gradient, red_fruits, christmas"
+                },
+                "useCase": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The use case or purpose of the slide deck. Set this only if there is a clear use case; use general_purpose if there is no clear use case. The only valid options are: company_vision, investor_update, market_expansion_plan, quarterly_business_review, product_review, report, analysis, readout, sales_pitch, pitch, product_demo, partnership_pitch, client_renewal, case_study, marketing_pitch, pricing, project_kickoff, project_overview, status_update, team_sync, team_update, team_training, standup, weekly_update, all_hands_town_hall, offsite, workshop_deck, research_presentation, webinar_talk, public_awareness_deck, educational, conference, product_launch, campaign_recap, brand_story, press_media_briefing, marketing, sop_deck, tool_training, policy_deck, incident_review, review, reviews, design_spec, design_review, moodboard, fashion, interior_design, usability_study, uxr_report, data, consumer, portfolio_showcase, portfolio, personal_branding, event_planning, travel_recap, trip_planning, trip_reflection, trip_review, vision_board_goals, personal_goals, goals, personal_reflection, reflection, motivational, journal, album, photo_album, wedding, birthday, christmas, end_of_year"
+                }
+              },
+              "required": [
+                "style",
+                "palette",
+                "useCase"
+              ],
+              "additionalProperties": false
+            },
+            "theme": {
+              "type": "object",
+              "properties": {
+                "palette": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "paletteDescription": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "palette",
+                "paletteDescription"
+              ],
+              "additionalProperties": false,
+              "description": "The theme of the slide deck. The palette is a list of accessible colors in hex format well-suited for both text, accent, and background colors. The paletteDescription is a concise phrase that describes the colors in the palette. The palette should be based on two primary colors related to the presentation content, with all other colors being tints, shades, or tones derived from these two primary colors."
+            },
+            "planKey": {
+              "type": "string",
+              "description": "Optional. The team or organization key where the generated slide deck should be saved. The key must start with \"team::\" or \"org::\", but do not use these abbreviations in user-facing messages."
+            },
+            "savePlanKey": {
+              "type": "boolean",
+              "description": "Optional. Indicates whether to use the same plan for future generations. Do not provide this parameter unless the user specifically requests it, and a planKey is also provided."
+            },
+            "userIntent": {
+              "type": "string",
+              "description": "A description of what the user is trying to accomplish with this tool call. Important: Do not add extraneous information other than what the user provides."
+            }
+          },
+          "required": [
+            "title",
+            "description",
+            "objectives",
+            "outline",
+            "templateQuery"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "openai/outputTemplate": "ui://widget/generate_deck.html",
+          "openai/toolInvocation/invoking": "Generating a Figma Slides deck",
+          "openai/toolInvocation/invoked": "Generated Figma Slides deck",
+          "resource_name": "Figma_generate_deck",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/generate_deck",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_whoami",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_whoami",
+        "title": "whoami",
+        "description": "Returns information about the authenticated user. If you are experiencing permission issues with other tools, you can use this tool to get information about who is authenticated and validate the right user is logged in.",
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_whoami",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/whoami",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_add_code_connect_map",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_add_code_connect_map",
+        "title": "add_code_connect_map",
+        "description": "Map a Figma node to a code component in your codebase using Code Connect. Use the nodeId parameter to specify a node id. Use the fileKey parameter to specify the file key. If a URL is provided, extract the node id and file key from the URL, for example, if given the URL https://figma.com/design/:fileKey/:fileName?node-id=1-2, the extracted nodeId would be `1:2` and the fileKey would be `:fileKey`. If the URL does not include `node-id`, ask the user for a node-specific URL. Do not pass an empty or guessed nodeId.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "The ID of the node in the Figma document, eg. \"123:456\" or \"123-456\". This should be a valid node ID in the Figma document. Do not pass an empty string for node_id."
+            },
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "clientLanguages": {
+              "type": "string",
+              "description": "A comma separated list of programming languages used by the client in the current context in string form, e.g. `javascript`, `html,css,typescript`, etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which languages are being used. If you are unsure, it is better to list `unknown` than to make a guess."
+            },
+            "clientFrameworks": {
+              "type": "string",
+              "description": "A comma separated list of frameworks used by the client in the current context, e.g. `react`, `vue`, `django` etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which frameworks are being used. If you are unsure, it is better to list `unknown` than to make a guess"
+            },
+            "source": {
+              "type": "string",
+              "description": "The location of the component in the source code"
+            },
+            "componentName": {
+              "type": "string",
+              "description": "The name of the component to map to in the source code"
+            },
+            "label": {
+              "type": "string",
+              "enum": [
+                "React",
+                "Web Components",
+                "Vue",
+                "Svelte",
+                "Storybook",
+                "Javascript",
+                "Swift",
+                "Swift UIKit",
+                "Objective-C UIKit",
+                "SwiftUI",
+                "Compose",
+                "Java",
+                "Kotlin",
+                "Android XML Layout",
+                "Flutter",
+                "Markdown"
+              ],
+              "description": "The framework or language label for this Code Connect mapping. Valid values: React, Web Components, Vue, Svelte, Storybook, Javascript, Swift, Swift UIKit, Objective-C UIKit, SwiftUI, Compose, Java, Kotlin, Android XML Layout, Flutter, Markdown"
+            },
+            "template": {
+              "type": "string",
+              "description": "The executable JS template code for a Code Connect template. When provided, creates a figmadoc-type record (full template) instead of a component_browser mapping (simple mapping)."
+            },
+            "templateDataJson": {
+              "type": "string",
+              "description": "JSON string of template metadata. May include isParserless (boolean), imports, nestable, props fields. If omitted when template is provided, defaults to {}."
+            }
+          },
+          "required": [
+            "nodeId",
+            "fileKey",
+            "source",
+            "componentName",
+            "label"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_add_code_connect_map",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/add_code_connect_map",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_get_code_connect_suggestions",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_get_code_connect_suggestions",
+        "title": "get_code_connect_suggestions",
+        "description": "Get AI-suggested strategy for linking a Figma node to code components via Code Connect. Workflow: call this tool → review suggestions with the user → call send_code_connect_mappings to save the approved mappings. \n\nUse the nodeId parameter to specify a node id. Use the fileKey parameter to specify the file key. If a URL is provided, extract the node id and file key from the URL, for example, if given the URL https://figma.com/design/:fileKey/:fileName?node-id=1-2, the extracted nodeId would be `1:2` and the fileKey would be `:fileKey`. If the URL does not include `node-id`, ask the user for a node-specific URL. Do not pass an empty or guessed nodeId.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "The ID of the node in the Figma document, eg. \"123:456\" or \"123-456\". This should be a valid node ID in the Figma document. Do not pass an empty string for node_id."
+            },
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "clientLanguages": {
+              "type": "string",
+              "description": "A comma separated list of programming languages used by the client in the current context in string form, e.g. `javascript`, `html,css,typescript`, etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which languages are being used. If you are unsure, it is better to list `unknown` than to make a guess."
+            },
+            "clientFrameworks": {
+              "type": "string",
+              "description": "A comma separated list of frameworks used by the client in the current context, e.g. `react`, `vue`, `django` etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which frameworks are being used. If you are unsure, it is better to list `unknown` than to make a guess"
+            },
+            "excludeMappingPrompt": {
+              "type": "boolean",
+              "description": "Whether to exclude the prompt text and images from the response, returning only a lightweight list of unmapped components."
+            }
+          },
+          "required": [
+            "nodeId",
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_get_code_connect_suggestions",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/get_code_connect_suggestions",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_send_code_connect_mappings",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_send_code_connect_mappings",
+        "title": "send_code_connect_mappings",
+        "description": "Save multiple Code Connect mappings in bulk. Use after get_code_connect_suggestions to confirm and save approved mappings. \n\nUse the nodeId parameter to specify a node id. Use the fileKey parameter to specify the file key. If a URL is provided, extract the node id and file key from the URL, for example, if given the URL https://figma.com/design/:fileKey/:fileName?node-id=1-2, the extracted nodeId would be `1:2` and the fileKey would be `:fileKey`. If the URL does not include `node-id`, ask the user for a node-specific URL. Do not pass an empty or guessed nodeId.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "The ID of the node in the Figma document, eg. \"123:456\" or \"123-456\". This should be a valid node ID in the Figma document. Do not pass an empty string for node_id."
+            },
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "clientLanguages": {
+              "type": "string",
+              "description": "A comma separated list of programming languages used by the client in the current context in string form, e.g. `javascript`, `html,css,typescript`, etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which languages are being used. If you are unsure, it is better to list `unknown` than to make a guess."
+            },
+            "clientFrameworks": {
+              "type": "string",
+              "description": "A comma separated list of frameworks used by the client in the current context, e.g. `react`, `vue`, `django` etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which frameworks are being used. If you are unsure, it is better to list `unknown` than to make a guess"
+            },
+            "mappings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "nodeId": {
+                    "type": "string",
+                    "description": "The Figma node identifier"
+                  },
+                  "componentName": {
+                    "type": "string",
+                    "description": "The component name, e.g. \"Button/Primary\""
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "The path to the component in the codebase"
+                  },
+                  "label": {
+                    "type": "string",
+                    "enum": [
+                      "React",
+                      "Web Components",
+                      "Vue",
+                      "Svelte",
+                      "Storybook",
+                      "Javascript",
+                      "Swift",
+                      "Swift UIKit",
+                      "Objective-C UIKit",
+                      "SwiftUI",
+                      "Compose",
+                      "Java",
+                      "Kotlin",
+                      "Android XML Layout",
+                      "Flutter",
+                      "Markdown"
+                    ],
+                    "description": "The framework or language label for this Code Connect mapping"
+                  },
+                  "template": {
+                    "type": "string",
+                    "description": "The executable JS template code for a Code Connect template. When provided, creates a figmadoc-type record (full template) instead of a component_browser mapping (simple mapping)."
+                  },
+                  "templateDataJson": {
+                    "type": "string",
+                    "description": "JSON string of template metadata. May include isParserless (boolean), imports, nestable, props fields. If omitted when template is provided, defaults to {}."
+                  }
+                },
+                "required": [
+                  "nodeId",
+                  "componentName",
+                  "source",
+                  "label"
+                ],
+                "additionalProperties": false,
+                "description": "An array of Code Connect mapping objects used to map nodes to code components"
+              }
+            }
+          },
+          "required": [
+            "nodeId",
+            "fileKey",
+            "mappings"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_send_code_connect_mappings",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/send_code_connect_mappings",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_get_context_for_code_connect",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_get_context_for_code_connect",
+        "title": "get_context_for_code_connect",
+        "description": "Get structured component metadata including properties, variants, and descendant tree for a Figma component or component set. Returns property definitions with types and variant options, and a tree of descendant instances and text nodes with their property references. Designed for creating Code Connect template files. Use the nodeId parameter to specify a node id. Use the fileKey parameter to specify the file key. If a URL is provided, extract the node id and file key from the URL, for example, if given the URL https://figma.com/design/:fileKey/:fileName?node-id=1-2, the extracted nodeId would be `1:2` and the fileKey would be `:fileKey`. If the URL does not include `node-id`, ask the user for a node-specific URL. Do not pass an empty or guessed nodeId.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "The ID of the node in the Figma document, eg. \"123:456\" or \"123-456\". This should be a valid node ID in the Figma document. Do not pass an empty string for node_id."
+            },
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "clientLanguages": {
+              "type": "string",
+              "description": "A comma separated list of programming languages used by the client in the current context in string form, e.g. `javascript`, `html,css,typescript`, etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which languages are being used. If you are unsure, it is better to list `unknown` than to make a guess."
+            },
+            "clientFrameworks": {
+              "type": "string",
+              "description": "A comma separated list of frameworks used by the client in the current context, e.g. `react`, `vue`, `django` etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which frameworks are being used. If you are unsure, it is better to list `unknown` than to make a guess"
+            }
+          },
+          "required": [
+            "nodeId",
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_get_context_for_code_connect",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/get_context_for_code_connect",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_use_figma",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_use_figma",
+        "title": "use_figma",
+        "description": "Create, edit, generate, or sync any design in Figma — UIs, screens, mockups, components, frames, variables, styles, text, images, layouts, and design systems. This is the general-purpose tool for writing to Figma; it works by running JavaScript via the Figma Plugin API. Works on Figma design files (URL path `/design/`), FigJam boards (`/board/`), and Figma Slides (`/slides/`).\n\nIMPORTANT: Before calling this tool, load figma-use guidance. Prefer the /figma-use skill if available; otherwise read the skill://figma/figma-use/SKILL.md MCP resource. Skipping this causes common, hard-to-debug failures.\n\nUse this tool when the user wants to:\n- Create or generate a design, screen, UI, or mockup in Figma — from scratch, from intent, or from code\n- Update, edit, or sync an existing Figma design\n- Generate or sync Figma designs from source code\n- Set up or modify design tokens, variables, or styles\n- Build or extend a design system or component/variant library\n- Fix layout, spacing, auto-layout, or fill/hug issues\n- Add component descriptions or Code Connect metadata to nodes\n- Review or fix accessibility, contrast, typography, or visual polish\n- Inspect or query node properties programmatically\n\nCHOOSING BETWEEN use_figma AND generate_figma_design:\n- Default to this tool (use_figma) for all Figma write operations.\n- generate_figma_design is the exception: use it ONLY when capturing a web app page or view into Figma for the first time. For web apps, run both tools in parallel — generate_figma_design captures a pixel-perfect screenshot, use_figma builds the screen from imported design system components, then refine use_figma against the screenshot.\n- For non-web targets (iOS, Android, generic UI) and from-scratch designs, use this tool only.\n- For updating or syncing a Figma page already captured into Figma, use this tool — even if the source code has changed.\n\nGOTCHAS:\n- For the font \"Inter\", the style is \"Semi Bold\" (with a space), not \"SemiBold\". Same for \"Extra Bold\" not \"ExtraBold\".\n- Setting figma.currentPage is not supported. Use `await figma.setCurrentPageAsync(page)` instead.\n- getPluginData / setPluginData / getPluginDataKeys are NOT supported here (web-only, require a plugin manifest id). Use getSharedPluginData(namespace, key) / setSharedPluginData(...) / getSharedPluginDataKeys(namespace) instead. Pick a stable namespace (>=3 chars, alphanumeric/_/.) unique to your integration.\n\nREUSE THE DESIGN SYSTEM FIRST:\nBefore creating components, styles, or tokens from scratch, call search_design_system to find existing matches. Import component matches via importComponentByKeyAsync or importComponentSetByKeyAsync rather than recreating them. Reuse existing variables and styles rather than defining new ones.\n",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "code": {
+              "type": "string",
+              "maxLength": 50000,
+              "description": "JavaScript code to execute. Has access to the `figma` global (Figma Plugin API)"
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 2000,
+              "description": "A concise description of what the code aims to do"
+            },
+            "skillNames": {
+              "type": "string",
+              "description": "A comma-separated list of Figma skill names being followed, if any (e.g. \"figma-use\", \"figma-use,figma-generate-design\"). Only pass this when explicitly instructed to by skill documentation. Used for logging purposes. If the skill was loaded via a skill-content MCP resource, prefix the skill name with \"resource:\". (e.g. \"resource:figma-use\", \"resource:figma-use,resource:figma-generate-design\")"
+            }
+          },
+          "required": [
+            "fileKey",
+            "code",
+            "description"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_use_figma",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/use_figma",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_get_libraries",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_get_libraries",
+        "title": "get_libraries",
+        "description": "Get the design libraries associated with a Figma file. Returns two lists: (1) libraries currently added to the file (subscribed), and (2) libraries available to add (community UI kits and organization libraries). Each library includes its name, library key, description, and source type. The organization libraries portion of libraries_available_to_add is paginated — when the response includes a libraries_available_to_add_next_offset value, pass it back via the offset parameter to fetch the next page. Use the library keys from the response to scope searches with search_design_system by passing them as includeLibraryKeys.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "fileKey": {
+              "type": "string",
+              "description": "The key of the Figma file to get libraries for."
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Pagination offset from a previous response (libraries_available_to_add_next_offset). Pass this to fetch the next page of organization libraries in libraries_available_to_add."
+            }
+          },
+          "required": [
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_get_libraries",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/get_libraries",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_search_design_system",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_search_design_system",
+        "title": "search_design_system",
+        "description": "Search for design system assets (components, variables, and styles) based on a text query. Returns matching assets from all design libraries. Use this when you need to find specific components, variables (e.g. colors, spacing tokens), or styles from design libraries.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Text query to search for design system components"
+            },
+            "fileKey": {
+              "type": "string",
+              "description": "The file key for context"
+            },
+            "disableCodeConnect": {
+              "type": "boolean",
+              "description": "Whether to disable Code Connect for search results."
+            },
+            "includeComponents": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to include components in the search results. Defaults to true."
+            },
+            "includeVariables": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to include variables in the search results. Defaults to true."
+            },
+            "includeStyles": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to include styles in the search results. Defaults to true."
+            },
+            "includeLibraryKeys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Optional list of library keys to restrict the search to. When provided, only results from these libraries are returned. Library keys are returned in previous search results."
+            }
+          },
+          "required": [
+            "query",
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_search_design_system",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/search_design_system",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_create_new_file",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_create_new_file",
+        "title": "create_new_file",
+        "description": "Create a new blank Figma file. IMPORTANT: You MUST load the /figma-create-new-file skill BEFORE every call to this tool, if it exists. NEVER call this tool without loading that skill first if it exists. By default the file is placed in the authenticated user's drafts folder; If specified it can be placed inside a project. Use this tool when you need a new file to work with before calling use_figma. Returns the new file key and URL. Requires a planKey. If the user already provided a planKey, use it directly. Otherwise, call the whoami tool first to get the list of plans. If the user has one plan, use its \"key\" field. If multiple, ask the user which team or organization to use. Optionally accepts a projectId. If the URL is of the format https://figma.com/files/project/:projectId, https://figma.com/files/:orgId/project/:projectId, or https://figma.com/files/team/:teamId/project/:projectId then use the :projectId as the projectId.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "fileName": {
+              "type": "string",
+              "description": "The name for the new Figma file."
+            },
+            "planKey": {
+              "type": "string",
+              "description": "The team or organization key where the file should be created. Obtain this from the whoami tool — it is the \"key\" field in each plan."
+            },
+            "editorType": {
+              "type": "string",
+              "enum": [
+                "design",
+                "figjam",
+                "slides"
+              ],
+              "description": "The type of Figma file to create. \"design\" creates a Figma design file. \"figjam\" creates a FigJam whiteboard file. \"slides\" creates a Figma Slides presentation file."
+            },
+            "projectId": {
+              "type": "string",
+              "description": "The id of the project (folder) in Figma. If the URL is provided, extract the project id from the URL. Common URL formats include https://figma.com/files/project/:projectId, https://figma.com/files/:orgId/project/:projectId, and https://figma.com/files/team/:teamId/project/:projectId. The extracted projectId would be `:projectId`."
+            }
+          },
+          "required": [
+            "fileName",
+            "planKey",
+            "editorType"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_create_new_file",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/create_new_file",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    },
+    {
+      "server_name": "codex_apps",
+      "tool_name": "_upload_assets",
+      "tool_namespace": "mcp__codex_apps__figma",
+      "server_instructions": null,
+      "tool": {
+        "name": "figma_upload_assets",
+        "title": "upload_assets",
+        "description": "Upload assets (images, etc.) into a Figma file. Call with a \"count\" to get that many single-use upload URLs. POST raw asset bytes to each URL with the correct Content-Type header (e.g. image/png, image/jpeg). Each upload URL handles storage, BlobStore commit, and canvas placement automatically. For a single image with nodeId, sets it as a fill on that existing node. Without nodeId, creates new frames with image fills on the current page. Supports PNG, JPG, GIF, and WebP formats. Max 10MB per asset. Works on Figma design files (URL path `/design/`), FigJam boards (`/board/`), and Figma Slides (`/slides/`).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "fileKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "default": 1,
+              "description": "Number of assets to upload (1-5, default 1). Returns that many single-use upload URLs. POST raw asset bytes to each URL with the correct Content-Type header (e.g. image/png, image/jpeg). Each upload URL handles storage, BlobStore commit, and canvas placement automatically."
+            },
+            "nodeId": {
+              "type": "string",
+              "pattern": "^\\d+[:-]\\d+$",
+              "description": "Optional. If provided, sets the uploaded asset as a fill on this existing node. Can only be used when count is 1."
+            },
+            "scaleMode": {
+              "type": "string",
+              "enum": [
+                "FILL",
+                "FIT",
+                "CROP",
+                "TILE"
+              ],
+              "default": "FILL",
+              "description": "How the image fills the node. Default: FILL."
+            }
+          },
+          "required": [
+            "fileKey"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "Figma_upload_assets",
+          "_codex_apps": {
+            "resource_uri": "/connector_68df038e0ba48191908c8434991bbac2/link_6a057ac8d6dc8191883a6c85dbbb8b1e/upload_assets",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+          "connector_name": "Figma",
+          "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ...",
+          "link_id": "link_6a057ac8d6dc8191883a6c85dbbb8b1e"
+        }
+      },
+      "connector_id": "connector_68df038e0ba48191908c8434991bbac2",
+      "connector_name": "Figma",
+      "plugin_display_names": [],
+      "connector_description": "Connect ChatGPT and Codex to the Figma canvas as you build prototypes and production apps. Send your product screens to Figma, where they become editable layers using your design system components. Share these designs and collaborate with your team, or send them back to Codex to implement the designs in your codebase. You can also create and edit polished decks in Figma Slides, or generate diagrams in FigJam based on your codebase architecture and other concepts.\n\nMCP server instructions: The official Figma MCP server. Use this server whenever the user wants to create, generate, edit, implement, or sync any design, UI, screen, component, mockup, or visual — in Figma, FigJam, Figma Make, or Figma Slides — and whenever the user mentions Figma or provides a figma.com URL.\n\nThis server bridges code and design in both directions, and supports designing from scratch using existing design systems and codebases.\n\nCAPABILITIES:\n- Read designs FROM Figma into code (get_design_context, get_screenshot, ..."
+    }
+  ]
+}

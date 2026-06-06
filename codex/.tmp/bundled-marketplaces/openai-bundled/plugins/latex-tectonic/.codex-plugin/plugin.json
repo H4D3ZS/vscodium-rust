@@ -1,0 +1,31 @@
+{
+  "name": "latex-tectonic",
+  "version": "0.1.0",
+  "description": "Compile LaTeX and TeX documents with the bundled Tectonic engine.",
+  "author": {
+    "name": "OpenAI",
+    "email": "support@openai.com",
+    "url": "https://openai.com/"
+  },
+  "homepage": "https://openai.com/",
+  "license": "Proprietary",
+  "keywords": ["latex", "tex", "tectonic", "pdf"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "LaTeX Tectonic",
+    "shortDescription": "Bundled LaTeX compiler",
+    "longDescription": "LaTeX Tectonic adds a bundled Tectonic executable that Codex can use to compile LaTeX and TeX documents without relying on a system TeX install.",
+    "developerName": "OpenAI",
+    "category": "Engineering",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://openai.com/",
+    "privacyPolicyURL": "https://openai.com/policies/row-privacy-policy/",
+    "termsOfServiceURL": "https://openai.com/policies/row-terms-of-use/",
+    "defaultPrompt": [
+      "Compile this LaTeX file with Tectonic",
+      "Build a PDF from my TeX document"
+    ],
+    "brandColor": "#2563EB",
+    "screenshots": []
+  }
+}
