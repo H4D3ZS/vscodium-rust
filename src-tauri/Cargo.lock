@@ -2650,7 +2650,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tree-sitter",
- "tree-sitter-python",
+ "tree-sitter-python 0.23.6",
  "tree-sitter-rust",
  "tree-sitter-typescript",
 ]
@@ -7425,6 +7425,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-python"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bf85fd39652e740bf60f46f4cda9492c3a9ad75880575bf14960f775cb74a1c"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-rust"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7710,7 +7720,7 @@ dependencies = [
  "tracing-subscriber 0.3.23",
  "tree-sitter",
  "tree-sitter-javascript",
- "tree-sitter-python",
+ "tree-sitter-python 0.25.0",
  "tree-sitter-rust",
  "tree-sitter-typescript",
  "urlencoding",
