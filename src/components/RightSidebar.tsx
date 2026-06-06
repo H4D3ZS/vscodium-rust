@@ -448,80 +448,7 @@ import OllamaProgressBar from './OllamaProgressBar';
 // and (critically) React.StrictMode's deliberate double-invoke of effects.
 const airiInitOnce: { started: boolean } = { started: false };
 
-/**
- * Strips raw tool-call JSON/XML from AI content so the user sees only
- * natural language. The backend still processes the full JSON — this is
- * purely a display transform.
- */
-/** Returns true if a JSON string looks like a tool call object */
-function isToolCallJson(text: string): boolean {
-    try {
-        const t = text.trim();
-        if (!t.startsWith('{') && !t.startsWith('[')) return false;
-        const parsed = JSON.parse(t);
-        if (Array.isArray(parsed)) return parsed.some(isToolCallJson);
-        if (parsed && typeof parsed === 'object') {
-            return ('name' in parsed && ('arguments' in parsed || 'parameters' in parsed || 'input' in parsed))
-                || 'tool_calls' in parsed
-                || 'function_call' in parsed;
-        }
-    } catch { /* not valid JSON */ }
-    return false;
-}
-
-/**
- * Strips raw tool-call JSON/XML from AI content so the user sees only
- * natural language. The backend still processes the full JSON — this is
- * purely a display transform.
- */
-function cleanAiContent(raw: string): string {
-    if (!raw) return '';
-    let s = raw;
-
-    // Strip XML tool-call tags (Qwen / DeepSeek style)
-    s = s.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
-    s = s.replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '');
-    s = s.replace(/<function>[\s\S]*?<\/function>/g, '');
-    s = s.replace(/<invoke>[\s\S]*?<\/invoke>/g, '');
-
-    // Strip markdown fenced code blocks that contain tool-call JSON
-    // Use block parser to correctly handle nested braces
-    s = s.replace(/```[a-z]*\n([\s\S]*?)```/gi, (match, inner) => {
-        return isToolCallJson(inner.trim()) ? '' : match;
-    });
-    // Also handle ``` without language tag followed immediately by {
-    s = s.replace(/```\s*(\{[\s\S]*?\})\s*```/g, (match, inner) => {
-        return isToolCallJson(inner) ? '' : match;
-    });
-
-    // Strip bare JSON tool-call lines (outside code blocks)
-    s = s.split('\n').filter(line => {
-        const t = line.trim();
-        return !isToolCallJson(t);
-    }).join('\n');
-
-    // Strip SEARCH/REPLACE edit blocks (code diffs, not conversation)
-    s = s.replace(/<<<< SEARCH[\s\S]*?>>>>/g, '');
-    s = s.replace(/<<<<<<[\s\S]*?>>>>>>>/g, '');
-
-    // Strip MISSION_ACCOMPLISHED marker
-    s = s.replace(/MISSION_ACCOMPLISHED/g, '');
-    s = s.replace(/TASK_COMPLETE/g, '');
-
-    // Strip degenerate LaTeX letter-spam that some abliterated/uncensored Ollama
-    // tunes emit ($\text{N}$ $\text{I}$ …). This is junk output, not real math —
-    // collapse runs of single-letter \text{X}/\mathit{X}/\mathrm{X} into the
-    // bare letters and drop the surrounding whitespace runs.
-    s = s.replace(/\$\s*\\(?:text|mathit|mathrm|mathbf|mathcal|mathsf|mathtt)\{([^{}]{1,6})\}\s*\$/g,
-        (_m, inner) => String(inner));
-    s = s.replace(/(?:^|[^\w])\$([A-Za-z0-9])\$(?=[^\w]|$)/g, (_m, ch) => ch);
-    // Three or more single-letter tokens with whitespace between them → collapse.
-    s = s.replace(/(?:\b[A-Za-z]\b\s+){3,}/g, (m) => m.replace(/\s+/g, ''));
-
-    // Clean up excessive blank lines
-    s = s.replace(/\n{3,}/g, '\n\n').trim();
-    return s;
-}
+import { cleanAgentContent, getToolLabel } from '../domain/agent/cleanAgentContent';
 
 const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultCollapsed?: boolean; actions?: React.ReactNode }> = ({ title, children, defaultCollapsed = false, actions }) => {
     const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
@@ -638,6 +565,8 @@ const RightSidebar: React.FC = () => {
     const setContinuousMode = useStore(state => state.setContinuousMode);
     const agentUiMode = useStore(state => state.agentUiMode);
     const setAgentUiMode = useStore(state => state.setAgentUiMode);
+    const agentCleanUi = useStore(state => state.agentCleanUi);
+    const setAgentCleanUi = useStore(state => state.setAgentCleanUi);
     const avatarCharacter = useStore(state => state.avatarCharacter);
     const showVrmAvatar = useStore(state => state.showVrmAvatar);
     const isSpecModeActive = useStore(state => state.isSpecModeActive);
@@ -729,7 +658,7 @@ const RightSidebar: React.FC = () => {
         let cancelled = false;
         import('marked').then(({ marked }) => {
             marked.setOptions({ gfm: true, breaks: true, silent: true });
-            if (!cancelled) setAiriSpeechHtml(marked.parse(cleanAiContent(airiSpeech)) as string);
+            if (!cancelled) setAiriSpeechHtml(marked.parse(cleanAgentContent(airiSpeech)) as string);
         });
         return () => { cancelled = true; };
     }, [airiSpeech]);
@@ -2114,7 +2043,7 @@ const RightSidebar: React.FC = () => {
                             transition: 'max-height 0.3s ease',
                         }}>
                             {(() => {
-                                const cleaned = cleanAiContent(airiSpeech);
+                                const cleaned = cleanAgentContent(airiSpeech);
                                 if (cleaned) return (
                                     <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
@@ -2325,8 +2254,34 @@ const RightSidebar: React.FC = () => {
                                     </div>
                                 )}
 
-                                {/* Live Tool-Call Feed — shows while agent is active */}
-                                {(isAgentThinking || liveToolCalls.length > 0) && (() => {
+                                {/* Live tool activity — verbose feed hidden in clean UI (see AIRI Activity terminal). */}
+                                {agentCleanUi && isAgentThinking && (
+                                    <div style={{
+                                        margin: '8px 10px 4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        fontSize: '11px',
+                                        opacity: 0.45,
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#3794ff', display: 'inline-block', animation: 'hubPulse 1s infinite' }} />
+                                            <span>
+                                                Working
+                                                {liveToolCalls[0]?.status === 'running' && liveToolCalls[0]?.label
+                                                    ? ` · ${liveToolCalls[0].label}`
+                                                    : '…'}
+                                            </span>
+                                        </div>
+                                        <span
+                                            onClick={() => useStore.getState().openTrajectory()}
+                                            style={{ cursor: 'pointer', fontSize: '10px', opacity: 0.6 }}
+                                            title="Open agent trajectory"
+                                        >⏱</span>
+                                    </div>
+                                )}
+
+                                {!agentCleanUi && (isAgentThinking || liveToolCalls.length > 0) && (() => {
                                     // Deduplicate consecutive same-tool calls → show label + count badge
                                     const deduped: { id: string; label: string; tool: string; status: 'running' | 'done' | 'error'; count: number }[] = [];
                                     for (const tc of liveToolCalls.slice(0, 12)) {
@@ -2821,6 +2776,13 @@ const RightSidebar: React.FC = () => {
                                     <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px' }} /> UNDO
                                 </div>
                             )}
+                            <div
+                                onClick={() => setAgentCleanUi(!agentCleanUi)}
+                                style={{ cursor: 'pointer', color: agentCleanUi ? '#60a5fa' : 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600 }}
+                                title={agentCleanUi ? 'Clean UI — tooling in Activity terminal' : 'Verbose UI — show live tool feed in chat'}
+                            >
+                                CLEAN
+                            </div>
                             <div
                                 onClick={() => import('../agent').then(m => m.setYoloMode(!isYoloMode).then(() => setYoloMode(!isYoloMode)))}
                                 style={{ cursor: 'pointer', color: isYoloMode ? '#f97316' : 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600 }}

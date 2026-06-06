@@ -1,28 +1,8 @@
 import React, { useState } from 'react';
 import MessageBody from '../agent/MessageBody';
 import type { AgentMessage } from '../../store';
-
-function cleanAiContent(raw: string): string {
-    if (!raw) return '';
-    let s = raw;
-    s = s.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
-    s = s.replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '');
-    s = s.replace(/<function>[\s\S]*?<\/function>/g, '');
-    s = s.replace(/<invoke>[\s\S]*?<\/invoke>/g, '');
-    s = s.replace(/```[a-z]*\n([\s\S]*?)```/gi, (match, inner) => {
-        try {
-            const t = inner.trim();
-            if ((t.startsWith('{') || t.startsWith('[')) && JSON.parse(t) && typeof JSON.parse(t) === 'object') {
-                const p = JSON.parse(t);
-                if ('name' in p && ('arguments' in p || 'input' in p)) return '';
-            }
-        } catch { /* not JSON */ }
-        return match;
-    });
-    s = s.replace(/MISSION_ACCOMPLISHED|TASK_COMPLETE/g, '');
-    s = s.replace(/\n{3,}/g, '\n\n').trim();
-    return s;
-}
+import { useStore } from '../../store';
+import { cleanAgentContent, getToolLabel } from '../../domain/agent/cleanAgentContent';
 
 interface ChatMessageProps {
     msg: AgentMessage;
@@ -39,13 +19,82 @@ interface ChatMessageProps {
     onEditCancel: () => void;
 }
 
+const AgentToolSteps: React.FC<{ steps: NonNullable<AgentMessage['steps']>; cleanUi: boolean }> = ({ steps, cleanUi }) => {
+    const [expanded, setExpanded] = useState(false);
+    if (!steps.length) return null;
+
+    const running = steps.filter((s) => s.status === 'running').length;
+    const failed = steps.filter((s) => s.status === 'error').length;
+    const done = steps.filter((s) => s.status === 'success').length;
+
+    if (cleanUi) {
+        const label = running > 0
+            ? `Working… (${running} active)`
+            : failed > 0
+                ? `Used ${steps.length} tools · ${failed} failed`
+                : `Used ${steps.length} tool${steps.length === 1 ? '' : 's'}`;
+
+        return (
+            <details
+                open={expanded}
+                onToggle={(e) => setExpanded((e.target as HTMLDetailsElement).open)}
+                style={{ marginBottom: '8px' }}
+            >
+                <summary style={{
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    opacity: 0.55,
+                    listStyle: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    userSelect: 'none',
+                }}>
+                    <i className="codicon codicon-tools" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px' }} />
+                    <span>{label}</span>
+                    {running > 0 && (
+                        <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#3794ff', animation: 'hubPulse 1s infinite' }} />
+                    )}
+                </summary>
+                <div style={{ marginTop: '6px', paddingLeft: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {steps.map((step, sIdx) => {
+                        const statusColor = step.status === 'running' ? '#3794ff' : step.status === 'success' ? '#89d185' : step.status === 'error' ? '#f48771' : '#555';
+                        const text = step.summary || getToolLabel(step.name);
+                        return (
+                            <div key={sIdx} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '10px', opacity: 0.75 }}>
+                                <span style={{ color: statusColor, fontSize: '8px', marginTop: '3px' }}>●</span>
+                                <span>{text}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            </details>
+        );
+    }
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
+            {steps.map((step, sIdx) => {
+                const statusColor = step.status === 'running' ? '#3794ff' : step.status === 'success' ? '#89d185' : step.status === 'error' ? '#f48771' : '#555';
+                return (
+                    <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', opacity: 0.7 }}>
+                        <span style={{ color: statusColor, fontSize: '8px' }}>●</span>
+                        <span style={{ fontFamily: 'var(--font-mono)' }}>{step.summary || step.name}</span>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
 const ChatMessage: React.FC<ChatMessageProps> = ({
     msg, idx, isAgentThinking,
     onCopy, onEditStart, onRestoreCheckpoint,
     lastCopiedIdx, editingMsgIdx, editValue,
     onEditChange, onEditSave, onEditCancel,
 }) => {
-    const cleaned = cleanAiContent(msg.content || '');
+    const agentCleanUi = useStore((s) => s.agentCleanUi);
+    const cleaned = cleanAgentContent(msg.content || '');
     const hasContent = !!cleaned;
     const hasThoughts = !!msg.thoughts;
     const hasSteps = msg.steps && msg.steps.length > 0;
@@ -120,18 +169,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                 <div style={{ fontSize: '10px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>{msg.thoughts}</div>
                             </details>
                         )}
-                        {msg.steps && msg.steps.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
-                                {msg.steps.map((step: any, sIdx: number) => {
-                                    const statusColor = step.status === 'running' ? '#3794ff' : step.status === 'success' ? '#89d185' : step.status === 'error' ? '#f48771' : '#555';
-                                    return (
-                                        <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', opacity: 0.7 }}>
-                                            <span style={{ color: statusColor, fontSize: '8px' }}>●</span>
-                                            <span style={{ fontFamily: 'var(--font-mono)' }}>{step.name}</span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                        {hasSteps && (
+                            <AgentToolSteps steps={msg.steps!} cleanUi={agentCleanUi && msg.role === 'assistant'} />
                         )}
                         {msg.context && msg.context.length > 0 && (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px', opacity: 0.8 }}>

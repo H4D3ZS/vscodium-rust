@@ -18,6 +18,10 @@ export async function bootstrapAgentRuntime(): Promise<void> {
     await attachAgentStreamSubscriber();
     await validateStartupModel();
     void tryActivateAiriCompanion();
+    const root = useStore.getState().activeRoot;
+    if (root) {
+        import('../../infrastructure/workspace/workspaceProject').then(m => m.syncWorkspaceCompat(root));
+    }
     // Fresh chat surface on cold boot — persisted sessions load via History tab.
     useStore.getState().setAgentMessages([]);
 }

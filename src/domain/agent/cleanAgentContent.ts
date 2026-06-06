@@ -1,0 +1,198 @@
+/**
+ * Display-layer transforms for agent chat — strips tool JSON/XML and
+ * normalizes tool names. Backend still processes full payloads.
+ */
+
+const TOOL_LABELS: Record<string, string> = {
+    write_to_file: 'Writing file',
+    search_replace_edit: 'Patching code',
+    str_replace: 'Editing code',
+    apply_shadow_patch: 'Committing edit',
+    patch_file_content: 'Replacing lines',
+    view_file: 'Reading file',
+    run_command: 'Running command',
+    bash: 'Running command',
+    verify_implementation: 'Verifying',
+    ghost_test: 'Running tests',
+    list_files: 'Scanning directory',
+    grep: 'Searching code',
+    git_commit: 'Committing',
+    dev_cargo_diagnostics: 'Checking Rust',
+    web_search: 'Web search',
+    git_diff: 'Reading diff',
+    semantic_search: 'Semantic search',
+    find_symbols: 'Finding symbols',
+    create_directory: 'Creating directory',
+    deep_security_audit: 'Security audit',
+    web_security_audit: 'Web security audit',
+    secrets_scan: 'Scanning secrets',
+    weaponize_env: 'Assessing .env',
+    browser_open: 'Opening browser',
+    browser_navigate: 'Navigating',
+    browser_read_dom: 'Reading page',
+    browser_click: 'Clicking element',
+    browser_screenshot: 'Taking screenshot',
+};
+
+export function getToolLabel(name: string): string {
+    if (TOOL_LABELS[name]) return TOOL_LABELS[name];
+    return name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Returns true if a JSON string looks like a tool call object */
+export function isToolCallJson(text: string): boolean {
+    try {
+        const t = text.trim();
+        if (!t.startsWith('{') && !t.startsWith('[')) return false;
+        const parsed = JSON.parse(t);
+        if (Array.isArray(parsed)) return parsed.some(isToolCallJson);
+        if (parsed && typeof parsed === 'object') {
+            return ('name' in parsed && ('arguments' in parsed || 'parameters' in parsed || 'input' in parsed))
+                || 'tool_calls' in parsed
+                || 'function_call' in parsed;
+        }
+    } catch { /* not valid JSON */ }
+    return false;
+}
+
+/** True if a line looks like a raw tool result blob (not prose). */
+function isToolResultJson(text: string): boolean {
+    const t = text.trim();
+    if (!t.startsWith('{') && !t.startsWith('[')) return false;
+    try {
+        const parsed = JSON.parse(t);
+        if (Array.isArray(parsed)) return parsed.length > 0 && typeof parsed[0] === 'object';
+        if (parsed && typeof parsed === 'object') {
+            return 'status' in parsed
+                || 'success' in parsed
+                || 'stdout' in parsed
+                || 'stderr' in parsed
+                || 'exit_code' in parsed
+                || 'blocked' in parsed
+                || 'error' in parsed;
+        }
+    } catch { /* not JSON */ }
+    return false;
+}
+
+export function formatToolSummary(name: string, args: any, result: any): string {
+    try {
+        const data = typeof result === 'string' ? JSON.parse(result) : result;
+        const toolName = name.toLowerCase();
+
+        if (toolName.includes('list_files') || toolName.includes('list_directory') || toolName.includes('ls')) {
+            const count = Array.isArray(data) ? data.length : (data.filenames ? data.filenames.length : 0);
+            return `Listed ${count} items in ${args.path || args.directory_path || 'root'}`;
+        }
+        if (toolName.includes('view_file') || toolName.includes('file_read') || toolName.includes('cat')) {
+            return `Read ${args.file_path || args.path} (${data.numLines || 'all'} lines)`;
+        }
+        if (toolName.includes('run_command') || toolName.includes('bash') || toolName.includes('sh')) {
+            const cmd = args.command || '';
+            const shortCmd = cmd.length > 40 ? cmd.substring(0, 40) + '…' : cmd;
+            return shortCmd ? `Ran \`${shortCmd}\`` : 'Ran command';
+        }
+        if (toolName.includes('grep') || toolName.includes('search')) {
+            const count = Array.isArray(data) ? data.length : 0;
+            return `Found ${count} matches for "${args.pattern || args.query}"`;
+        }
+        if (toolName.includes('write_to_file') || toolName.includes('file_write')) {
+            return `Wrote ${args.file_path || args.path}`;
+        }
+        if (toolName.includes('file_edit') || toolName.includes('modify_file')) {
+            return `Edited ${args.file_path || args.path}`;
+        }
+        if (toolName.includes('git_status')) {
+            return 'Checked git status';
+        }
+        if (data && typeof data === 'object' && 'status' in data) {
+            const st = String(data.status);
+            if (st === 'failed' || st === 'error') return `${getToolLabel(name)} failed`;
+            if (st === 'blocked') return `${getToolLabel(name)} blocked`;
+            if (st === 'success' || st === 'ok') return getToolLabel(name);
+        }
+    } catch {
+        /* fall through */
+    }
+    return getToolLabel(name);
+}
+
+/**
+ * Strip tool-call markup and raw JSON from assistant message text.
+ * Used by chat panel — keep prose only (Cursor-style).
+ */
+export function cleanAgentContent(raw: string): string {
+    if (!raw) return '';
+    let s = raw;
+
+    s = s.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
+    s = s.replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '');
+    s = s.replace(/<function>[\s\S]*?<\/function>/g, '');
+    s = s.replace(/<invoke>[\s\S]*?<\/invoke>/g, '');
+
+    s = s.replace(/```[a-z]*\n([\s\S]*?)```/gi, (match, inner) => {
+        return isToolCallJson(inner.trim()) || isToolResultJson(inner.trim()) ? '' : match;
+    });
+    s = s.replace(/```\s*(\{[\s\S]*?\})\s*```/g, (match, inner) => {
+        return isToolCallJson(inner) || isToolResultJson(inner) ? '' : match;
+    });
+
+    s = s.split('\n').filter((line) => {
+        const t = line.trim();
+        if (!t) return true;
+        if (/^Executing tool:/i.test(t)) return false;
+        if (isToolCallJson(t) || isToolResultJson(t)) return false;
+        if (/^\{"status"\s*:/.test(t)) return false;
+        return true;
+    }).join('\n');
+
+    s = s.replace(/<<<< SEARCH[\s\S]*?>>>>/g, '');
+    s = s.replace(/<<<<<<[\s\S]*?>>>>>>>/g, '');
+    s = s.replace(/MISSION_ACCOMPLISHED/g, '');
+    s = s.replace(/TASK_COMPLETE/g, '');
+
+    s = s.replace(/\$\s*\\(?:text|mathit|mathrm|mathbf|mathcal|mathsf|mathtt)\{([^{}]{1,6})\}\s*\$/g,
+        (_m, inner) => String(inner));
+    s = s.replace(/(?:^|[^\w])\$([A-Za-z0-9])\$(?=[^\w]|$)/g, (_m, ch) => ch);
+    s = s.replace(/(?:\b[A-Za-z]\b\s+){3,}/g, (m) => m.replace(/\s+/g, ''));
+
+    s = s.replace(/\n{3,}/g, '\n\n').trim();
+    return s;
+}
+
+/** One-line summary for activity terminal tool results. */
+export function summarizeToolResult(name: string, result: string, args?: any): string {
+    let parsedArgs = args;
+    if (!parsedArgs) {
+        parsedArgs = {};
+    }
+    const summary = formatToolSummary(name, parsedArgs, result);
+    if (summary !== getToolLabel(name)) return summary;
+
+    try {
+        const data = typeof result === 'string' ? JSON.parse(result) : result;
+        if (data && typeof data === 'object') {
+            if (typeof data.message === 'string' && data.message.trim()) {
+                return data.message.trim().slice(0, 200);
+            }
+            if (typeof data.stderr === 'string' && data.stderr.trim()) {
+                return data.stderr.trim().split(/\r?\n/)[0].slice(0, 200);
+            }
+            if (typeof data.stdout === 'string' && data.stdout.trim()) {
+                return data.stdout.trim().split(/\r?\n/)[0].slice(0, 200);
+            }
+            if (data.status === 'failed' || data.status === 'error') {
+                return `${getToolLabel(name)} failed`;
+            }
+        }
+    } catch {
+        /* plain text */
+    }
+
+    const lines = result.split(/\r?\n/).filter(Boolean);
+    const head = (lines[0] ?? '').trim();
+    if (head.startsWith('{') && isToolResultJson(head)) {
+        return formatToolSummary(name, parsedArgs, head);
+    }
+    return head.slice(0, 200) || getToolLabel(name);
+}

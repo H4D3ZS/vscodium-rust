@@ -1,5 +1,9 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from './store';
+import {
+    agUpsertSubagent,
+    persistAgentTrajectoryEvent,
+} from './infrastructure/antigravity/antigravityClient';
 
 export interface AgentSession {
     id: string;
@@ -24,7 +28,6 @@ export class TaskManager {
         };
 
         try {
-            // Ensure .agent/sessions directory exists
             const sessionDir = `${root}/.agent/sessions`;
             await invoke('create_directory', { path: sessionDir });
 
@@ -75,16 +78,11 @@ export class TaskManager {
 }
 
 /**
- * SubAgentManager handles the orchestration of specialized agents for specific tasks.
- * In this architecture, it primarily works by tagging messages and tasks
- * so the backend can switch context if needed.
+ * SubAgentManager — Antigravity-style subagent orchestration + trajectory persistence.
  */
 export class SubAgentManager {
     static async delegateTask(taskId: string, objective: string): Promise<void> {
         const state = useStore.getState();
-
-        // This is now called via the backend 'spawn_subagent' tool
-        // which returns a task_id that the frontend then listens for.
 
         state.updateAgentTask({
             id: taskId,
@@ -93,12 +91,35 @@ export class SubAgentManager {
             progress: 10
         });
 
+        const root = state.activeRoot;
+        const cascadeId = state.activeCascadeId;
+        if (root && cascadeId) {
+            void agUpsertSubagent(root, cascadeId, {
+                id: taskId,
+                name: objective.slice(0, 40),
+                status: 'running',
+                parent_id: cascadeId,
+                started_at: Date.now(),
+                progress: 10,
+            });
+        }
+
         console.log(`[SubAgentManager] Task ${taskId} delegated: ${objective}`);
     }
 
-    static handleProgress(payload: { task_id: string, status: string, progress: number, message?: string, result?: string, error?: string }) {
+    static handleProgress(payload: {
+        task_id?: string;
+        id?: string;
+        status: string;
+        progress: number;
+        message?: string;
+        title?: string;
+        result?: string;
+        error?: string;
+    }) {
         const state = useStore.getState();
-        const { task_id, status, progress, message, result, error } = payload;
+        const task_id = payload.task_id || payload.id || 'subagent';
+        const { status, progress, message, result, error } = payload;
 
         state.updateAgentTask({
             id: task_id,
@@ -106,6 +127,27 @@ export class SubAgentManager {
             progress: progress,
             message: message || (status === 'completed' ? 'Task finished.' : undefined)
         });
+
+        const root = state.activeRoot;
+        const cascadeId = state.activeCascadeId;
+        if (root && cascadeId) {
+            void agUpsertSubagent(root, cascadeId, {
+                id: task_id,
+                name: payload.title || `Subagent ${String(task_id).slice(0, 6)}`,
+                status,
+                parent_id: cascadeId,
+                started_at: Date.now(),
+                summary: message || result || error,
+                progress,
+            });
+            void persistAgentTrajectoryEvent(root, cascadeId, {
+                kind: 'subagent',
+                title: message || payload.title || 'Subagent',
+                detail: result || error,
+                subagentId: task_id,
+                success: status === 'completed',
+            });
+        }
 
         if (status === 'completed' && result) {
             state.addAgentMessage('assistant', `[SUB-AGENT ${task_id.slice(0, 4)} COMPLETED]\n\n${result}`, true);

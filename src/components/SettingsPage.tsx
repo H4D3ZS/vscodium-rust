@@ -7,6 +7,7 @@ import AccountSettingsPanel from './AccountSettingsPanel';
 import KeybindingsPanel from './KeybindingsPanel';
 import SteeringPanel from './SteeringPanel';
 import HooksPanel from './HooksPanel';
+import AntigravityHooksPanel from './AntigravityHooksPanel';
 import { airiBiology } from '../airi/biology';
 import { airiConsciousness } from '../airi/consciousness';
 import { type FeatureName, type ProviderName, defaultModelSelectionOfFeature } from '../model_capabilities';
@@ -950,6 +951,7 @@ const SettingsPage: React.FC = () => {
         { id: 'ollama', label: 'Ollama', icon: 'server-environment', agentCategory: 'ollama' },
         { id: 'steering', label: 'Steering', icon: 'symbol-keyword', customRender: () => <SteeringPanel />, groupStart: 'Workflow' },
         { id: 'hooks', label: 'Hooks', icon: 'zap', customRender: () => <HooksPanel /> },
+        { id: 'ag-hooks', label: 'Lifecycle Hooks', icon: 'debug-breakpoint-log', customRender: () => <AntigravityHooksPanel /> },
         { id: 'workflow', label: 'Specs & Workflow', icon: 'tasklist', customRender: () => <WorkflowPanel /> },
         { id: 'mcps', label: 'MCP & Tools', icon: 'plug', agentCategory: 'mcps' },
         { id: 'airi', label: 'Sentient Core', icon: 'beaker', customRender: () => <AIRICorePanel />, groupStart: 'Advanced' },

@@ -128,6 +128,8 @@ export interface AgentSlice {
     currentPhaseStatus: string;
     currentThought: { logic: string; action: string; confidence?: number } | null;
     agentUiMode: 'chat' | 'airi';
+    /** Cursor-style chat: hide raw tool names/JSON in panel; tooling lives in terminal. */
+    agentCleanUi: boolean;
     ttsStrategy: 'elevenlabs' | 'openai' | 'browser' | 'qwen' | 'qwen-native';
     airiVisionEnabled: boolean;
     airiVisionModel: string;
@@ -155,6 +157,9 @@ export interface AgentSlice {
     /** Bumped after history restore so UI clears live tool-call overlays. */
     chatRestoreToken: number;
     artifactReviewPolicy: 'always_proceed' | 'request_review';
+    /** Antigravity-style cascade/run id for brain + trajectory persistence. */
+    activeCascadeId: string | null;
+    setActiveCascadeId: (id: string | null) => void;
     terminalAutoExecution: 'always_proceed' | 'request_review';
     contextSlots: SemanticSlot[];
     activeFileContext: { symbols: string[]; related_files: string[]; relevant_lessons: SemanticSlot[] } | null;
@@ -231,6 +236,7 @@ export interface AgentSlice {
     setAiriConsciousnessEnabled: (v: boolean) => void;
     setAiriConsciousnessModel: (model: string) => void;
     setAgentUiMode: (mode: 'chat' | 'airi') => void;
+    setAgentCleanUi: (v: boolean) => void;
     setTtsStrategy: (strategy: 'elevenlabs' | 'openai' | 'browser' | 'qwen' | 'qwen-native') => void;
     setArtifactReviewPolicy: (policy: 'always_proceed' | 'request_review') => void;
     setTerminalAutoExecution: (policy: 'always_proceed' | 'request_review') => void;
@@ -310,6 +316,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     currentPhaseStatus: 'Waiting for task...',
     currentThought: null,
     agentUiMode: (localStorage.getItem('agentUiMode') as 'chat' | 'airi') || 'chat',
+    agentCleanUi: (typeof localStorage !== 'undefined') ? localStorage.getItem('agent.cleanUi') !== '0' : true,
     ttsStrategy: (localStorage.getItem('ttsStrategy') as any) || 'elevenlabs',
     customModes: loadCustomModes(),
     addCustomMode: (m: CustomMode) => set((s: any) => {
@@ -345,6 +352,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     activeAgentThreadId: '',
     chatRestoreToken: 0,
     artifactReviewPolicy: 'request_review',
+    activeCascadeId: null,
     terminalAutoExecution: 'request_review',
     contextSlots: [],
     activeFileContext: null,
@@ -556,9 +564,23 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         });
     },
 
-    pushTrajectoryEvent: (evt) => set((s) => ({
-        agentTrajectory: [...s.agentTrajectory.slice(-199), { id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ts: Date.now(), turn: s.currentTurnId, ...evt }],
-    })),
+    pushTrajectoryEvent: (evt) => {
+        set((s) => ({
+            agentTrajectory: [...s.agentTrajectory.slice(-199), { id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ts: Date.now(), turn: s.currentTurnId, ...evt }],
+        }));
+        const st = get();
+        if (st.activeRoot && st.activeCascadeId) {
+            import('../infrastructure/antigravity/antigravityClient').then(m =>
+                m.persistAgentTrajectoryEvent(st.activeRoot!, st.activeCascadeId!, {
+                    kind: evt.kind,
+                    title: evt.title,
+                    detail: evt.detail,
+                    tool: evt.tool,
+                    success: evt.success,
+                }),
+            ).catch(() => {});
+        }
+    },
     clearTrajectory: () => set({ agentTrajectory: [] }),
     openTrajectory: () => set({ isTrajectoryOpen: true }),
     closeTrajectory: () => set({ isTrajectoryOpen: false }),
@@ -754,12 +776,17 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         })();
     },
     setAgentUiMode: (agentUiMode) => { localStorage.setItem('agentUiMode', agentUiMode); set({ agentUiMode }); },
+    setAgentCleanUi: (agentCleanUi) => {
+        localStorage.setItem('agent.cleanUi', agentCleanUi ? '1' : '0');
+        set({ agentCleanUi });
+    },
     setTtsStrategy: (strategy) => {
         localStorage.setItem('ttsStrategy', strategy);
         set({ ttsStrategy: strategy });
         import('../voice').then(({ setProvider }) => setProvider(strategy)).catch(() => { });
     },
     setArtifactReviewPolicy: (policy) => set({ artifactReviewPolicy: policy }),
+    setActiveCascadeId: (id) => set({ activeCascadeId: id }),
     setTerminalAutoExecution: (policy) => set({ terminalAutoExecution: policy }),
 
     createAgentThread: (name) => {

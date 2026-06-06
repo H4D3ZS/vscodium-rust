@@ -1,6 +1,7 @@
 import React from 'react';
 import { useStore } from '../../store';
 import { Volume2, VolumeX } from 'lucide-react';
+import ScreenRecordingButton from '../agent/ScreenRecordingButton';
 
 interface ChatToolbarProps {
     mode: string;
@@ -45,6 +46,8 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 <div onClick={onAttach} style={{ cursor: 'pointer', opacity: 0.5, display: 'flex', alignItems: 'center' }} title="Attach File (Neural Gist)">
                     <i className="codicon codicon-attach" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '13px' }} />
                 </div>
+
+                <ScreenRecordingButton />
 
                 <span
                     onClick={onModeClick}

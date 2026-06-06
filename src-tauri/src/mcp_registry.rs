@@ -309,4 +309,39 @@ impl McpRegistry {
         self.initialize_servers().await?;
         Ok(())
     }
+
+    /// Merge workspace MCP configs: `.cursor/mcp.json`, `.kiro/settings/mcp.json`.
+    pub async fn merge_workspace_config(&self, root: &std::path::Path) -> Result<()> {
+        let paths = crate::workspace_compat::workspace_mcp_paths(root);
+        let mut merged = false;
+        for path in paths {
+            let Some(ws) = crate::workspace_compat::load_mcp_from_path(&path) else {
+                continue;
+            };
+            let Some(obj) = ws.get("mcpServers").and_then(|v| v.as_object()) else {
+                continue;
+            };
+            {
+                let mut cfg = self.config.write().await;
+                for (name, val) in obj {
+                    if cfg.mcp_servers.contains_key(name) {
+                        continue;
+                    }
+                    if let Ok(server_cfg) = serde_json::from_value::<McpServerConfig>(val.clone()) {
+                        cfg.mcp_servers.insert(name.clone(), server_cfg);
+                        merged = true;
+                    }
+                }
+            }
+        }
+        if merged {
+            let cfg = self.config.read().await;
+            let content = serde_json::to_string_pretty(&*cfg)?;
+            drop(cfg);
+            self.ensure_config_file()?;
+            std::fs::write(&self.config_path, content)?;
+            self.initialize_servers().await?;
+        }
+        Ok(())
+    }
 }
