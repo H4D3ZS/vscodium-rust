@@ -221,6 +221,16 @@ export function cleanAgentContent(raw: string): string {
     return s;
 }
 
+/** Avoid wiping streamed markdown when the final payload is empty or tool-only. */
+export function shouldReplaceAgentContent(existing: string, incoming: string): boolean {
+    const ex = (existing || '').trim();
+    const inc = (incoming || '').trim();
+    if (!inc) return false;
+    if (!ex) return true;
+    if (inc.length < 160 && ex.length > inc.length * 2) return false;
+    return true;
+}
+
 /** One-line summary for activity terminal tool results. */
 export function summarizeToolResult(name: string, result: string, args?: any): string {
     let parsedArgs = args;

@@ -1,9 +1,15 @@
 # iPhone Emulator — Setup & Required Files
 
 The iPhone-emulator **integration** ships with the IDE (`src-tauri/src/iphone_emulator.rs`
-+ `src/components/IPhoneEmulatorPanel.tsx`). It drives the **`acheron`** C++ hypervisor,
-streams the serial console + boot logs into the IDE, captures the display, and feeds
-touch events back.
++ `src/components/IPhoneEmulatorPanel.tsx`). On **macOS** (Apple Silicon, Intel, Hackintosh
+with Xcode), the **iPhone** tab uses a headless **Xcode Simulator mirror** adapted from
+[codex-plusplus-ios-simulator](https://github.com/b-nnett/codex-plusplus-ios-simulator)
+(`src-tauri/src/ios_simulator.rs` + `MacIOSSimulatorPanel.tsx`) — no `Simulator.app`
+window, tap/keyboard/home via CoreSimulator helpers compiled on first use.
+
+On **Windows/Linux**, the panel drives the **`acheron`** C++ hypervisor (`IPhoneAcheronPanel`),
+streams the serial console + boot logs, captures the display, and feeds touch events back.
+Use the **Legacy** button on macOS if you still want acheron there.
 
 What is **NOT** in this repository (intentionally — too large / device firmware /
 machine-specific) and must be provided locally:
@@ -15,8 +21,22 @@ machine-specific) and must be provided locally:
 | `Virtual-iPhone-Emulator/` app + ramdisk artifacts | Standalone/proprietary, large | Generated into `<project>/out/…` by `acheron prepare` |
 
 > The repo's `.gitignore` excludes `Virtual-iPhone-Emulator/`, `*.ipsw`, and the build
-> output. Cloning gives you a **buildable IDE**; the emulator feature simply stays idle
-> until you provide these files. On a Mac (M1) the IDE compiles and runs fine without them.
+> output. Cloning gives you a **buildable IDE**; the acheron feature stays idle until you
+> provide these files. On macOS you can use the Xcode Simulator mirror without acheron.
+
+---
+
+## macOS — Xcode Simulator mirror (recommended)
+
+Requirements (same as Codex++ tweak):
+
+- Full **Xcode** installed (not Command Line Tools only)
+- `sudo xcode-select -s /Applications/Xcode.app` if needed
+- At least one iOS simulator runtime downloaded in Xcode
+
+Open **Devices → iPhone**, pick a device, click **▶ Mirror**. Helpers compile once to
+`~/Library/Caches/com.hades.vscode-rust-app/ios-simulator/`. Source helpers live in
+`tools/ios-simulator/helpers/` (MIT, from codex-plusplus-ios-simulator).
 
 ---
 

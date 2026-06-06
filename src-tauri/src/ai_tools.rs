@@ -2616,6 +2616,8 @@ impl ShellTranslator {
         if cfg!(target_os = "windows") {
             match shell_hint {
                 "bash" | "sh" => {
+                    final_command = Self::normalize_windows_paths_for_bash(&final_command);
+                    final_command = Self::translate_unix_commands_for_bash(&final_command);
                     // Only use SH if it actually exists, otherwise fallback to native
                     if let Some(sh_path) = Self::find_sh_path() {
                         return (sh_path, vec!["-c".to_string(), final_command]);
@@ -2650,6 +2652,43 @@ impl ShellTranslator {
             // Linux/macOS
             ("sh".to_string(), vec!["-c".to_string(), final_command])
         }
+    }
+
+    /// Git Bash treats `\` as escape — `C:\Users\...` becomes `C:Users...`.
+    /// Convert drive paths to `/c/Users/...` before `sh -c`.
+    pub fn normalize_windows_paths_for_bash(command: &str) -> String {
+        if !cfg!(windows) {
+            return command.to_string();
+        }
+        use regex::Regex;
+        let drive_back = Regex::new(r"(?i)([A-Za-z]):\\").expect("drive regex");
+        let mut out = drive_back
+            .replace_all(command, |caps: &regex::Captures| {
+                format!("/{}/", caps[1].to_ascii_lowercase())
+            })
+            .into_owned();
+        let drive_fwd = Regex::new(r"(?i)([A-Za-z]):/").expect("drive fwd regex");
+        out = drive_fwd
+            .replace_all(&out, |caps: &regex::Captures| {
+                format!("/{}/", caps[1].to_ascii_lowercase())
+            })
+            .into_owned();
+        out.replace('\\', "/")
+    }
+
+    /// Map cmd.exe habits to POSIX when we know we're in bash/sh.
+    fn translate_unix_commands_for_bash(command: &str) -> String {
+        let mut c = command.to_string();
+        if c.trim() == "dir /b" || c.trim() == "dir" {
+            return if c.contains("/b") { "ls -1".to_string() } else { "ls -la".to_string() };
+        }
+        if c.contains("dir /b") {
+            c = c.replace("dir /b", "ls -1");
+        }
+        if c.starts_with("type ") {
+            c = c.replacen("type ", "cat ", 1);
+        }
+        c
     }
 }
 
@@ -7683,6 +7722,24 @@ mod security_audit_pattern_tests {
         assert!(!category_matches("Command Injection", "let total = sum(a, b);"));
         assert!(!category_matches("SQL Injection", "let name = format!(\"hello {}\", who);"));
         assert!(!category_matches("Weak Cryptographic Hash", "let id = md5sum_label;"));
+    }
+}
+
+// TODO(ai_tools): these tests pre-date the AiTools::new(...) refactor that
+#[cfg(test)]
+mod shell_translator_tests {
+    use super::ShellTranslator;
+
+    #[test]
+    fn bash_normalizes_windows_drive_paths() {
+        let cmd = r"cd C:\Users\HADES\Desktop\proj && dir /b";
+        let normalized = ShellTranslator::normalize_windows_paths_for_bash(cmd);
+        if cfg!(windows) {
+            assert!(normalized.contains("/c/Users/HADES/Desktop/proj"));
+            assert!(!normalized.contains('\\'));
+        } else {
+            assert_eq!(normalized, cmd);
+        }
     }
 }
 

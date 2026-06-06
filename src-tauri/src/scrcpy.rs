@@ -1,10 +1,12 @@
 //! scrcpy Integration - Embed Android emulator in IDE
-//! 
+//!
 //! Provides commands to start/stop scrcpy stream, spawn emulator headless, and capture frames
 
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
+use crate::android_sdk::{adb_exists, emulator_path, get_adb_cmd};
 
 static SCRCPY_RUNNING: AtomicBool = AtomicBool::new(false);
 static EMULATOR_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -48,14 +50,11 @@ pub async fn spawn_emulator_headless(avd_name: String, port: u16) -> Result<Stri
     }
 
     // Find emulator.exe path
-    let emulator_path = std::env::var("ANDROID_HOME")
-        .or_else(|_| std::env::var("ANDROID_SDK_ROOT"))
-        .map(|sdk| format!("{}\\emulator\\emulator.exe", sdk))
-        .unwrap_or_else(|_| "C:\\Users\\HADES\\AppData\\Local\\Android\\Sdk\\emulator\\emulator.exe".to_string());
+    let emulator_path = emulator_path();
 
     // Start emulator in background (no display window on Windows isn't directly supported,
     // but we can minimize it and use scrcpy for display)
-    let emulator_result = Command::new(&emulator_path)
+    let emulator_result = Command::new(emulator_path.to_string_lossy().as_ref())
         .args(&[
             "-avd", &avd_name,
             "-no-audio",
@@ -71,7 +70,7 @@ pub async fn spawn_emulator_headless(avd_name: String, port: u16) -> Result<Stri
         Ok(child) => Ok(child),
         Err(_) => {
             // Fallback: start with window, we'll capture via scrcpy anyway
-            Command::new(&emulator_path)
+            Command::new(emulator_path.to_string_lossy().as_ref())
                 .args(&[
                     "-avd", &avd_name,
                     "-no-audio",
@@ -91,9 +90,7 @@ pub async fn spawn_emulator_headless(avd_name: String, port: u16) -> Result<Stri
             for _ in 0..30 {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 
-                let output = Command::new("adb")
-                    .args(&["devices"])
-                    .output();
+                let output = get_adb_cmd().arg("devices").output();
 
                 if let Ok(out) = output {
                     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -167,18 +164,14 @@ pub fn stop_scrcpy_stream() -> Result<String, String> {
 /// Capture single frame from emulator
 #[tauri::command]
 pub async fn capture_emulator_frame(device_id: String) -> Result<String, String> {
-    // Check if adb is available
-    let adb_check = Command::new("adb")
-        .args(&["version"])
-        .output();
-    
-    if adb_check.is_err() {
-        return Err("ADB not found in PATH. Install Android SDK Platform-Tools.".to_string());
+    if !adb_exists() {
+        return Err(
+            "ADB not found. Install Android SDK Platform-Tools or set ANDROID_HOME.".to_string(),
+        );
     }
 
-    // Use adb screencap
-    let output = Command::new("adb")
-        .args(&["-s", &device_id, "shell", "screencap", "-p"])
+    let output = get_adb_cmd()
+        .args(["-s", &device_id, "exec-out", "screencap", "-p"])
         .output()
         .map_err(|e| format!("Failed to run adb: {}", e))?;
 
@@ -205,8 +198,8 @@ pub async fn capture_emulator_frame(device_id: String) -> Result<String, String>
 /// Send tap event to emulator
 #[tauri::command]
 pub async fn send_emulator_tap(device_id: String, x: i32, y: i32) -> Result<String, String> {
-    Command::new("adb")
-        .args(&["-s", &device_id, "shell", "input", "tap", &x.to_string(), &y.to_string()])
+    get_adb_cmd()
+        .args(["-s", &device_id, "shell", "input", "tap", &x.to_string(), &y.to_string()])
         .output()
         .map_err(|e| format!("Failed to send tap: {}", e))?;
 
@@ -223,8 +216,8 @@ pub async fn send_emulator_swipe(
     y2: i32,
     duration: i32,
 ) -> Result<String, String> {
-    Command::new("adb")
-        .args(&[
+    get_adb_cmd()
+        .args([
             "-s", &device_id,
             "shell", "input", "swipe",
             &x1.to_string(), &y1.to_string(),
@@ -243,8 +236,8 @@ pub async fn send_emulator_text(device_id: String, text: String) -> Result<Strin
     // Escape special characters for adb
     let escaped = text.replace(' ', "%s").replace('"', "\\\"");
     
-    Command::new("adb")
-        .args(&["-s", &device_id, "shell", "input", "text", &escaped])
+    get_adb_cmd()
+        .args(["-s", &device_id, "shell", "input", "text", &escaped])
         .output()
         .map_err(|e| format!("Failed to send text: {}", e))?;
 
@@ -254,8 +247,8 @@ pub async fn send_emulator_text(device_id: String, text: String) -> Result<Strin
 /// Send key event to emulator
 #[tauri::command]
 pub async fn send_emulator_key(device_id: String, keycode: i32) -> Result<String, String> {
-    Command::new("adb")
-        .args(&["-s", &device_id, "shell", "input", "keyevent", &keycode.to_string()])
+    get_adb_cmd()
+        .args(["-s", &device_id, "shell", "input", "keyevent", &keycode.to_string()])
         .output()
         .map_err(|e| format!("Failed to send key: {}", e))?;
 
