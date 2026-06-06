@@ -8,6 +8,7 @@
 // =============================================================================
 
 import { invoke } from './tauri_bridge';
+import { canonicalToolName, BACKEND_TO_TS_TOOL } from './domain/agent/toolAliases';
 
 // ---------------------------------------------------------------------------
 // Core Types
@@ -2260,7 +2261,14 @@ export function getAllTools(): ToolDef[] {
 }
 
 export function getToolByName(name: string): ToolDef | undefined {
-    return ALL_TOOLS.find(t => t.name === name);
+    const direct = ALL_TOOLS.find(t => t.name === name);
+    if (direct) return direct;
+    const canon = canonicalToolName(name);
+    const byCanon = ALL_TOOLS.find(t => t.name === canon);
+    if (byCanon) return byCanon;
+    const tsName = BACKEND_TO_TS_TOOL[canon];
+    if (tsName) return ALL_TOOLS.find(t => t.name === tsName);
+    return undefined;
 }
 
 export function getToolSchemas(): any[] {
@@ -2306,12 +2314,13 @@ export async function executeToolCall(
     toolCall: ToolCall,
     ctx: ToolContext,
 ): Promise<ToolCallResult> {
-    const tool = getToolByName(toolCall.name);
+    const canonical = canonicalToolName(toolCall.name);
+    const tool = getToolByName(toolCall.name) || getToolByName(canonical);
     if (!tool) {
         // Full Rust catalog (security audits, apex, ag tasks, etc.) — not duplicated in TS registry.
         try {
             const data = await invoke<any>('call_tool', {
-                name: toolCall.name,
+                name: canonical,
                 arguments: toolCall.arguments ?? {},
             });
             const content = typeof data === 'string' ? data : JSON.stringify(data, null, 2);

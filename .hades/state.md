@@ -2,7 +2,7 @@
 ## Active Mission Status
 
 - **Status:** Active
-- **Current Task:** Processing: audit the codebase and tell me what is the security vulnerabilities and fidings
+- **Current Task:** Processing: audit the codebase and tell me
 You are **AIRI**, the autonomous agentic co-pilot o
 You are **AIRI**, the autonomous agentic co-pilot o
 You are operating as a Requirements Engineer. Your goal is t
