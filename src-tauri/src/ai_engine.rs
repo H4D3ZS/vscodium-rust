@@ -1546,7 +1546,8 @@ impl Sentient {
         {
             let p = req.provider.to_lowercase();
             if p.contains("cyberifrit") || p.contains("cyber-ifrit") {
-                if let Err(e) = crate::account::require_feature_at(&self.brain_dir, "cloud_models") {
+                let cfg = crate::account::account_config_dir(&self.brain_dir);
+                if let Err(e) = crate::account::require_feature_at(&cfg, "cloud_models") {
                     return Err(anyhow!(e));
                 }
             }
@@ -1556,7 +1557,8 @@ impl Sentient {
                 "sentient" | "harness" | "planning" | "yolo" | "autonomous"
             ) || (mode_l.contains("bug") && mode_l.contains("bounty"));
             if needs_full_agentic {
-                if let Err(e) = crate::account::require_feature_at(&self.brain_dir, "agentic") {
+                let cfg = crate::account::account_config_dir(&self.brain_dir);
+                if let Err(e) = crate::account::require_feature_at(&cfg, "agentic") {
                     return Err(anyhow!(e));
                 }
             }
