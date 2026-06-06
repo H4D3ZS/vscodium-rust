@@ -1265,8 +1265,7 @@ impl Sentient {
                 let ok = status.is_success() && !models.is_empty();
                 let hint = if !status.is_success() {
                     match status_code {
-                        401 | 403 => "Server replied with auth failure. The bearer is missing or wrong — paste the same secret you set as OLLAMA_BEARER on nginx, then click Save token.",
-                        402 => "Connected, but your plan does not include Cyber-Ifrit Cloud (HTTP 402). Start the free 1-day trial in Settings → Account, subscribe to Pro+, or use Local Ollama / your own API keys.",
+                        401 | 402 | 403 => Self::ollama_auth_hint(&url_trim, status_code),
                         404 => "Reached the server but neither /api/tags nor /v1/api/tags is exposed. Add a `location /api/` block to your nginx config (see tools/vps-ollama-proxy/bootstrap.sh).",
                         502 | 503 | 504 => "Nginx gateway error: upstream Ollama may be down, or nginx limit_conn/limit_req is throttling your client IP. Raise OLLAMA_CONN_PER_IP on the VPS (tools/vps-ollama-proxy/bootstrap.sh) and reload nginx.",
                         _ => "Server returned a non-2xx status. See the body preview below.",
@@ -5595,6 +5594,22 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
     fn is_cyberifrit_managed_ollama_url(url: &str) -> bool {
         let u = url.to_lowercase();
         u.contains("ai.cyberifrit.xyz") || u.contains("api.cyberifrit.xyz")
+    }
+
+    fn ollama_auth_hint(base_url: &str, status_code: u16) -> &'static str {
+        if Self::is_cyberifrit_managed_ollama_url(base_url) {
+            return match status_code {
+                401 => "Sign in to Cyber-Ifrit (Settings → Account) to use Cyber-Ifrit Cloud.",
+                402 => "Your plan does not include Cyber-Ifrit Cloud. Start the free 1-day trial, subscribe to Pro+, or use Local Ollama / your own API keys.",
+                403 => "Cyber-Ifrit Cloud access denied. Sync Settings → Account or upgrade your plan.",
+                _ => "Cyber-Ifrit Cloud auth failed — sign in and sync Settings → Account.",
+            };
+        }
+        match status_code {
+            401 | 403 => "Server replied with auth failure. If your Ollama proxy requires a bearer token, paste it in Settings → Providers.",
+            402 => "Connected, but this endpoint rejected the request (HTTP 402). Check your subscription or proxy policy.",
+            _ => "Server returned a non-2xx status. See the body preview below.",
+        }
     }
 
     /// Ollama bearer: explicit `ollama` key first, else Supabase session JWT on managed cloud.

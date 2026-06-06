@@ -1348,7 +1348,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                     autoComplete="off"
                                     value={ollamaBearerDraft}
                                     onChange={(e) => setOllamaBearerDraft(e.target.value)}
-                                    placeholder={ollamaBearerSaved ? 'Token saved — paste new to replace' : 'Same secret as OLLAMA_BEARER on nginx'}
+                                    placeholder={ollamaBearerSaved ? 'Token saved — paste new to replace' : 'Bearer for self-hosted Ollama proxy (optional)'}
                                     style={{ flex: 1, background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '4px 8px', fontSize: '12px' }}
                                 />
                                 <button

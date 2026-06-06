@@ -90,9 +90,11 @@ async function probeOllamaEndpoint(
         if (diag?.ok) return { ok: true, error: '' };
         let msg = diag?.hint || diag?.error || (diag?.status != null ? `HTTP ${diag.status}` : 'Gateway unreachable');
         if (!diag?.bearer_configured) {
-            msg = `${msg} — sign in to Cyber-Ifrit so your subscription token is sent.`;
+            msg = 'Sign in to Cyber-Ifrit (Settings → Account) so your subscription token is sent.';
         } else if (diag?.status === 402) {
-            msg = 'Active subscription or trial required (HTTP 402).';
+            msg = 'Your plan does not include Cyber-Ifrit Cloud (HTTP 402). Start the free trial or upgrade to Pro+.';
+        } else if (diag?.status === 401) {
+            msg = 'Sign in to Cyber-Ifrit (Settings → Account) to use Cyber-Ifrit Cloud.';
         }
         return { ok: false, error: msg };
     } catch (e: any) {
