@@ -2104,7 +2104,8 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 }
             } catch { /* spans optional */ }
             const aimMsg = `### BRAIN (AIM — ${totalFiles || '?'} files indexed, ${confidence}% confidence)\n\
-**ZERO-GREP ENFORCED:** glob/grep/list/shell-ls are BLOCKED while AIM is warm. Use view_file, aim_query_spans, semantic_search.\n\
+**Zero-grep orientation:** use BRAIN for structure — don't root-list or shell-ls the repo.\n\
+**Tools still available:** targeted grep, scoped glob, search_codebase, view_file, run_command (build/test/git).\n\
 ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.`;
             messages.unshift({ role: 'system' as const, content: aimMsg, tool_calls: null, metadata: null });
         }
