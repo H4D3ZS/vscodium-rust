@@ -45,6 +45,9 @@ mod ghost_runtime;
 mod hades_harness;
 mod hades_vision;
 mod iphone_emulator;
+mod ios_stream;
+mod ios_sim_native;
+mod ios_sim_embed;
 mod ios_simulator;
 mod kairos;
 mod knowledge_distiller;
@@ -198,6 +201,15 @@ pub fn run() {
                     }
                 }
             });
+
+            // Dev builds: native fullscreen (hides macOS Dock / uses full display).
+            // Release builds keep the normal resizable window from tauri.conf.json.
+            #[cfg(debug_assertions)]
+            if let Some(w) = app.get_webview_window("main") {
+                if let Err(e) = w.set_fullscreen(true) {
+                    eprintln!("[dev] set_fullscreen failed: {e}");
+                }
+            }
 
             // Memory watchdog — trim aggressively to stay in the 80–150MB idle band.
             // Monaco + an open file will push higher; this catches runaway agent/indexer RAM.
@@ -688,6 +700,13 @@ pub fn run() {
             ios_simulator::ios_sim_send_touch,
             ios_simulator::ios_sim_send_home,
             ios_simulator::ios_sim_mirror_running,
+            ios_simulator::ios_sim_warmup,
+            ios_simulator::ios_sim_pause,
+            ios_simulator::ios_sim_resume,
+            ios_simulator::ios_sim_session_state,
+            ios_simulator::ios_sim_stream_url,
+            ios_simulator::ios_sim_stream_status,
+            ios_simulator::ios_sim_embed_layout,
             mobile_toolchain::resolve_mobile_toolchain_paths,
             mobile_toolchain::run_vphone_doctor,
             mobile_toolchain::install_vphone_toolchain,

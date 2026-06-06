@@ -311,7 +311,13 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                     }
                     if (p.toLowerCase() === 'ollama' && models.length > 0) set({ ollamaStatus: 'running' });
                 } catch (e: any) {
-                    if (!(e && typeof e === 'string' && e.includes('API key not found'))) console.error(`Failed to fetch models for ${p}:`, e);
+                    const msg = typeof e === 'string' ? e : String(e ?? '');
+                    const quiet =
+                        msg.includes('API key not found') ||
+                        msg.includes('Connection refused') ||
+                        msg.includes('not reachable') ||
+                        msg.includes('error trying to connect');
+                    if (!quiet) console.error(`Failed to fetch models for ${p}:`, e);
                     if (p.toLowerCase() === 'ollama') set({ ollamaStatus: 'error' });
                 }
             }

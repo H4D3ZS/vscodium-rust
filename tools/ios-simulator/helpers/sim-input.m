@@ -172,7 +172,7 @@ static id bootedDevice(id deviceSet) {
         if (st.intValue != 3) continue; // Booted
         if (gTargetUDID.length) {
             NSString *udid = [[d valueForKey:@"UDID"] description];
-            if (![udid isEqualToString:gTargetUDID]) continue;
+            if ([udid caseInsensitiveCompare:gTargetUDID] != NSOrderedSame) continue;
         }
         return d;
     }
@@ -375,9 +375,8 @@ int main(int argc, const char **argv) {
             gTargetUDID = [NSString stringWithUTF8String:argv[1]];
             elog(@"[sim-input] target udid=%@", gTargetUDID);
         }
-        // Pre-warm: try to attach now so first event has no latency
-        ensureHID();
-        elog(@"[sim-input] ready");
+        // HID attaches lazily on first event (device may still be finishing boot).
+        elog(@"[sim-input] ready (HID attaches when device is booted)");
 
         NSFileHandle *in = [NSFileHandle fileHandleWithStandardInput];
         NSMutableData *buf = [NSMutableData new];

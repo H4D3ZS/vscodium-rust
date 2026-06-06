@@ -5,9 +5,8 @@ import IPhoneEmulatorPanel from './IPhoneEmulatorPanel';
 import MobileToolchainPanel from './MobileToolchainPanel';
 
 /**
- * Unified Emulator Panel
- * Shows Android OR iPhone based on store state
- * Integrated in right sidebar
+ * Unified Emulator Panel — side-by-side mobile dev in the IDE.
+ * iPhone uses one headless CoreSimulator session (pauses when another tab is selected).
  */
 const UnifiedEmulatorPanel: React.FC = () => {
     const activeEmulator = useStore(state => state.emulatorPanelPosition);

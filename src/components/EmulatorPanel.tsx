@@ -60,8 +60,7 @@ const EmulatorPanel: React.FC = () => {
         try {
             const avds = await invoke<AVD[]>('list_available_avds');
             setAvailableAvds(avds);
-        } catch (err) {
-            console.error('Failed to load AVDs:', err);
+        } catch {
             setAvailableAvds([]);
         }
     };
