@@ -31,6 +31,41 @@ func eprint(_ s: String) {
     FileHandle.standardError.write((s + "\n").data(using: .utf8) ?? Data())
 }
 
+let captureScale: CGFloat = {
+    guard let s = ProcessInfo.processInfo.environment["SIM_CAPTURE_SCALE"],
+          let v = Double(s), v > 0.1, v <= 1.0 else { return 0.65 }
+    return CGFloat(v)
+}()
+
+let captureQuality: Double = {
+    guard let s = ProcessInfo.processInfo.environment["SIM_CAPTURE_QUALITY"],
+          let v = Double(s), v > 0.05, v <= 1.0 else { return 0.40 }
+    return v
+}()
+
+let captureMinInterval: TimeInterval = {
+    guard let s = ProcessInfo.processInfo.environment["SIM_CAPTURE_MIN_MS"],
+          let v = Double(s), v >= 8 else { return 33 }
+    return v / 1000.0
+}()
+
+/// Long-edge cap — sidebar display is small; encoding full 1179×2556 is wasted work.
+let captureMaxPx: Int = {
+    guard let s = ProcessInfo.processInfo.environment["SIM_CAPTURE_MAX_PX"],
+          let v = Int(s), v >= 240 else { return 540 }
+    return v
+}()
+
+func fitScale(for extent: CGRect) -> CGFloat {
+    let long = max(extent.width, extent.height)
+    guard long > 0 else { return 1 }
+    var scale = captureScale
+    if captureMaxPx > 0, long > CGFloat(captureMaxPx) {
+        scale = min(scale, CGFloat(captureMaxPx) / long)
+    }
+    return min(scale, 1.0)
+}
+
 // MARK: - dlopen private framework
 
 let CS_PATH = "/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator"
@@ -86,12 +121,25 @@ func defaultDeviceSet(_ ctx: AnyObject) -> AnyObject? {
     return ds
 }
 
+let targetUDID: String? = {
+    guard CommandLine.arguments.count > 1 else { return nil }
+    let u = CommandLine.arguments[1].trimmingCharacters(in: .whitespacesAndNewlines)
+    return u.isEmpty ? nil : u.lowercased()
+}()
+
 func bootedDevice(_ deviceSet: AnyObject) -> NSObject? {
     guard let devices = (deviceSet as AnyObject).value(forKey: "devices") as? NSArray else { return nil }
     for d in devices {
         let dev = d as AnyObject
         let state = (dev.value(forKey: "state") as? NSNumber)?.intValue ?? -1
-        if state == 3 /* booted */ { return dev as? NSObject }
+        if state != 3 /* booted */ { continue }
+        guard let booted = dev as? NSObject else { continue }
+        if let want = targetUDID {
+            let udid = ((dev.value(forKey: "UDID") as? NSUUID)?.uuidString ?? "").lowercased()
+            if udid == want { return booted }
+            continue
+        }
+        return booted
     }
     return nil
 }
@@ -142,6 +190,7 @@ final class Stream {
     var width: Int = 0
     var height: Int = 0
     var encoding = false  // drop-frame guard
+    var lastEncode = Date.distantPast
 
     init(descriptor: NSObject, device: NSObject) {
         self.descriptor = descriptor
@@ -247,6 +296,9 @@ final class Stream {
     }
 
     func handle(surface: IOSurface) {
+        let now = Date()
+        if now.timeIntervalSince(lastEncode) < captureMinInterval { return }
+
         // Drop frames if encoder is busy (stay near real-time).
         objc_sync_enter(self)
         if encoding { objc_sync_exit(self); return }
@@ -256,14 +308,19 @@ final class Stream {
             objc_sync_enter(self); encoding = false; objc_sync_exit(self)
         }
 
-        let ci = CIImage(ioSurface: surface)
+        let ciRaw = CIImage(ioSurface: surface)
+        let scale = fitScale(for: ciRaw.extent)
+        let ci = scale < 0.99
+            ? ciRaw.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            : ciRaw
         let opts: [CIImageRepresentationOption: Any] = [
-            CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.55
+            CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): captureQuality
         ]
         guard let jpeg = ciContext.jpegRepresentation(
             of: ci,
             colorSpace: CGColorSpaceCreateDeviceRGB(),
             options: opts) else { return }
+        lastEncode = now
 
         var lenBE = UInt32(jpeg.count).bigEndian
         let header = withUnsafeBytes(of: &lenBE) { Data($0) }
@@ -276,7 +333,6 @@ final class Stream {
             exit(0)
         }
         frameCount += 1
-        let now = Date()
         let dt = now.timeIntervalSince(lastReportTime)
         if dt >= 5 {
             eprint("[sim-capture] fps≈\(Int(Double(frameCount) / dt))")
@@ -303,41 +359,47 @@ sigInt.setEventHandler { currentStream?.stop(); exit(0) }
 sigInt.resume()
 signal(SIGINT, SIG_IGN)
 
+func attachIfNeeded() {
+    if let dev = bootedDevice(ds) {
+        let udid = (dev.value(forKey: "UDID") as? NSUUID)?.uuidString ?? "?"
+        if udid != currentDeviceUDID {
+            currentStream?.stop()
+            currentStream = nil
+            if let disp = findDisplayDescriptor(dev) {
+                let s = Stream(descriptor: disp, device: dev)
+                s.start()
+                currentStream = s
+                currentDeviceUDID = udid
+            } else {
+                eprint("[sim-capture] no display descriptor on booted device (will retry)")
+            }
+        }
+    } else if currentStream != nil {
+        eprint("[sim-capture] booted device gone")
+        currentStream?.stop()
+        currentStream = nil
+        currentDeviceUDID = ""
+    } else if targetUDID != nil {
+        let info = ["type": "no-booted-device"]
+        if let data = try? JSONSerialization.data(withJSONObject: info),
+           let s = String(data: data, encoding: .utf8) { eprint("[sim-capture] " + s) }
+    }
+}
+
 DispatchQueue.global(qos: .userInitiated).async {
     var notifiedNoBoot = false
     while true {
-        if let dev = bootedDevice(ds) {
-            let udid = (dev.value(forKey: "UDID") as? NSUUID)?.uuidString ?? "?"
-            if udid != currentDeviceUDID {
-                currentStream?.stop()
-                currentStream = nil
-                if let disp = findDisplayDescriptor(dev) {
-                    let s = Stream(descriptor: disp, device: dev)
-                    s.start()
-                    currentStream = s
-                    currentDeviceUDID = udid
-                    notifiedNoBoot = false
-                } else {
-                    // Descriptor isn't ready yet (early boot). Don't latch the
-                    // udid; retry on next poll.
-                    eprint("[sim-capture] no display descriptor on booted device (will retry)")
-                }
-            }
-        } else {
-            if currentStream != nil {
-                eprint("[sim-capture] booted device gone")
-                currentStream?.stop()
-                currentStream = nil
-                currentDeviceUDID = ""
-            }
-            if !notifiedNoBoot {
-                let info = ["type":"no-booted-device"]
-                if let data = try? JSONSerialization.data(withJSONObject: info),
-                   let s = String(data: data, encoding: .utf8) { eprint("[sim-capture] " + s) }
-                notifiedNoBoot = true
-            }
+        attachIfNeeded()
+        if currentStream == nil, bootedDevice(ds) == nil, !notifiedNoBoot {
+            let info = ["type": "no-booted-device"]
+            if let data = try? JSONSerialization.data(withJSONObject: info),
+               let s = String(data: data, encoding: .utf8) { eprint("[sim-capture] " + s) }
+            notifiedNoBoot = true
+        } else if currentStream != nil {
+            notifiedNoBoot = false
         }
-        Thread.sleep(forTimeInterval: 1.5)
+        // Fast poll while attaching; relax once streaming.
+        Thread.sleep(forTimeInterval: currentStream == nil ? 0.08 : 0.5)
     }
 }
 

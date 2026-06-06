@@ -134,9 +134,10 @@ pub fn install_vphone_toolchain() -> Result<Value, String> {
 #[tauri::command]
 pub fn get_mobile_toolchain_env() -> Result<Value, String> {
     let root = resolve_vphone_root();
-    let developer_dir = root.as_ref().map(|_r| {
+    let developer_dir = root.as_ref().map(|r| {
         #[cfg(windows)]
         {
+            let _ = r;
             r"C:\Program Files\vphone\Xcode.app\Contents\Developer".to_string()
         }
         #[cfg(target_os = "macos")]

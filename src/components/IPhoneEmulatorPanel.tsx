@@ -9,7 +9,7 @@ function isMacOS(): boolean {
     return /Mac/i.test(platform) || /Mac OS X/i.test(ua);
 }
 
-/** Routes to Xcode headless mirror on macOS; acheron/vPhone hypervisor elsewhere. */
+/** macOS: CoreSimulator panel. Other platforms: legacy hypervisor. */
 const IPhoneEmulatorPanel: React.FC = () => {
     if (isMacOS()) {
         return <MacIOSSimulatorPanel />;

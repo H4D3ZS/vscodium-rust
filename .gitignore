@@ -14,7 +14,8 @@ dist-ssr
 antigravity-workflows/
 open-antigravity/
 vscodium/
-antigravity/
+/antigravity/
+!src/infrastructure/antigravity/
 claude-code-fork/
 manus_ai_source_code/
 manus-ai-source-code/
@@ -31,7 +32,8 @@ antigravity-ide*/
 antigravity_ide*/
 
 # IDE binaries — never commit these
-cursor/
+/cursor/
+!src/components/cursor/
 Cursor/
 Kiro/
 kiro/
@@ -68,6 +70,8 @@ Virtual-iPhone-Emulator/
 src-tauri/target/
 src-tauri/zed/
 native/
+!tools/ios-simulator/native/
+!tools/ios-simulator/native/**
 "config/api_keys.json"  
 "src-tauri/config/api_keys.json"  
 "*.env"  
