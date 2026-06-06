@@ -23,8 +23,9 @@ export interface McpCatalogEntry {
     name: string;
     description: string;
     category: McpCatalogCategory;
-    command: string;
-    args: string[];
+    /** Required for stdio servers; omit for HTTP entries. */
+    command?: string;
+    args?: string[];
     /** Pre-filled env keys (values filled at install time). */
     envFields?: McpEnvField[];
     type?: 'stdio' | 'http';
@@ -58,6 +59,63 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     { id: 'slack', name: 'Slack', category: 'cloud', description: 'Read and post Slack messages.', command: 'npx', args: ['-y', '@modelcontextprotocol/server-slack'], envFields: [{ key: 'SLACK_BOT_TOKEN', label: 'Slack bot token', secret: true }] },
 
     // ── Security (optional — heavy external toolchain) ──
+    {
+        id: 'ida-pro-idalib',
+        name: 'IDA Pro MCP (Headless)',
+        category: 'security',
+        description:
+            '245+ live RE tools via idalib-mcp (decompile, disasm, xrefs, patches, py_eval). Requires IDA Pro 8.3+ — IDA Free not supported.',
+        command: 'uvx',
+        args: ['--from', 'git+https://github.com/mrexodia/ida-pro-mcp', 'idalib-mcp', '--stdio'],
+        envFields: [{ key: 'IDA_MCP_MAX_WORKERS', label: 'Max worker processes (optional)', placeholder: '4' }],
+        needsConfig:
+            'Prereqs: Python 3.11+, uv, IDA Pro (paid). Activate idalib once (Windows): uv run "C:\\Program Files\\IDA Professional 9.x\\idalib\\python\\py-activate-idalib.py". Call idb_open() before other tools; pass database=<session_id> on every call.',
+        tags: ['reverse-engineering', 'ida', 'binary-analysis', 'mcp'],
+    },
+    {
+        id: 'ida-pro-http',
+        name: 'IDA Pro MCP (GUI Plugin)',
+        category: 'security',
+        description:
+            'Connect to IDA Pro GUI plugin MCP server (live database). Start MCP inside IDA first — for interactive RE sessions.',
+        type: 'http',
+        serverUrl: 'http://127.0.0.1:13337/mcp',
+        needsConfig:
+            'Install plugin: pip install https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip then ida-pro-mcp --install. Restart IDA. Enable MCP in IDA and ensure port 13337 is listening. SSE alternative: http://127.0.0.1:8744/sse',
+        tags: ['reverse-engineering', 'ida', 'binary-analysis', 'mcp'],
+    },
+    {
+        id: 'ghidra-pyghidra',
+        name: 'Ghidra MCP (Headless)',
+        category: 'security',
+        description:
+            'Headless Ghidra via pyghidra-mcp — decompile, xrefs, structs, batch analysis. No Ghidra GUI required.',
+        command: 'uvx',
+        args: [
+            '--from',
+            'git+https://github.com/clearbluejar/pyghidra-mcp',
+            'pyghidra-mcp',
+            '-t',
+            'stdio',
+            '--project-path',
+            './ghidra-projects',
+        ],
+        envFields: [{ key: 'GHIDRA_INSTALL_DIR', label: 'Ghidra install path', placeholder: 'C:\\ghidra_12.0_PUBLIC' }],
+        needsConfig: 'Set GHIDRA_INSTALL_DIR to your Ghidra root. Edit --project-path (last args) to a writable directory.',
+        tags: ['reverse-engineering', 'ghidra', 'binary-analysis', 'mcp'],
+    },
+    {
+        id: 'ghidra-mcp-http',
+        name: 'Ghidra MCP (Plugin HTTP)',
+        category: 'security',
+        description:
+            'Connect to GhidraMCP plugin HTTP server (200+ tools when Ghidra CodeBrowser is open with a binary loaded).',
+        type: 'http',
+        serverUrl: 'http://127.0.0.1:8089/',
+        needsConfig:
+            'Install bethington/ghidra-mcp Ghidra extension. In CodeBrowser: File → Configure → GhidraMCP, then Tools → GhidraMCP → Start MCP Server. Bridge HTTP mode: http://127.0.0.1:8081/mcp',
+        tags: ['reverse-engineering', 'ghidra', 'binary-analysis', 'mcp'],
+    },
     { id: 'hexstrike', name: 'HexStrike AI', category: 'security', description: '150+ pentest CLI tools via MCP. Run separately; requires Python + tool deps.', command: 'python', args: ['-m', 'hexstrike_mcp'], needsConfig: 'Clone github.com/0x4m4/hexstrike-ai and install deps first. Use absolute python path.', tags: ['bug-bounty', 'pentest'] },
 
     // ── Productivity ──

@@ -60,6 +60,12 @@ pub(crate) const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
     "apex_threat_anticipate", "apex_simulate_attack", "apex_pentest_report",
     "binary_mach_o_scanner", "file_entropy_analysis", "network_port_scanner",
     "extract_strings", "hex_dump", "apex_scan_url",
+    // Pentest generators + recon — must stay visible to local models
+    "reverse_shell_generate", "security_listener_generate", "payload_encode",
+    "shellcode_recipe_generate", "csp_bypass_analyze", "exploit_lookup", "network_scan",
+    "security_scan", "audit_dependencies", "disassemble", "get_binary_info",
+    // Common model alias names (resolved via tool_aliases.rs, kept in schema filter)
+    "run_terminal_cmd", "run_command", "nmap", "searchsploit", "vuln_hunt",
     // Live web pentest / bug-bounty against a target URL. Without these, a local
     // security model (e.g. sec-eng-neuraldevil) gets NO web tooling — the first
     // essential-tools retain stripped them before the domain filter could keep
@@ -2125,6 +2131,9 @@ impl Sentient {
                     "apex_threat_anticipate","apex_simulate_attack","apex_pentest_report",
                     "apex_scan_url","binary_mach_o_scanner","file_entropy_analysis",
                     "network_port_scanner","extract_strings","hex_dump",
+                    "exploit_lookup","network_scan","reverse_shell_generate",
+                    "payload_encode","shellcode_recipe_generate","security_listener_generate",
+                    "csp_bypass_analyze","security_scan","audit_dependencies",
                     // Live web pentest — the high-value meta-tool for "audit this url"
                     "web_security_audit","deep_security_audit","ai_vuln_hunt",
                     // Research
@@ -3818,175 +3827,8 @@ impl Sentient {
                         "call_id": tool_call.id
                     }));
 
-                    let mut tool_name = tool_call.function.name.clone();
-                    // EXTENSIVE TOOL ALIASES for "Do Anything" capability & Windows/Linux Parity
-                    if tool_name == "write_file"
-                        || tool_name == "create_file"
-                        || tool_name == "save_file"
-                        || tool_name == "file_write"
-                        || tool_name == "write"
-                    {
-                        tool_name = "write_to_file".to_string();
-                    }
-                    if tool_name == "view_file"
-                        || tool_name == "read_file"
-                        || tool_name == "file_read"
-                        || tool_name == "cat"
-                        || tool_name == "read"
-                    {
-                        tool_name = "view_file".to_string();
-                    }
-                    if tool_name == "ls" || tool_name == "dir" || tool_name == "list_dir" {
-                        tool_name = "list_files".to_string();
-                    }
-                    if tool_name == "find" || tool_name == "glob" || tool_name == "find_files"
-                        || tool_name == "glob_file_search" || tool_name == "file_glob"
-                        || tool_name == "glob_files"
-                    {
-                        tool_name = "find_by_name".to_string();
-                    }
-                    if tool_name == "search" || tool_name == "find_in_files" {
-                        tool_name = "search_files".to_string();
-                    }
-                    if tool_name == "codebase_search" || tool_name == "codebaseSearch" {
-                        tool_name = "search_codebase".to_string();
-                    }
-                    if tool_name == "semantic_search" || tool_name == "search_index" || tool_name == "find_context" {
-                        tool_name = "semantic_search".to_string();
-                    }
-                    if tool_name == "find_symbols" || tool_name == "lookup_symbols" || tool_name == "symbols" {
-                        tool_name = "find_symbols".to_string();
-                    }
-                    if tool_name == "read_file_lines" || tool_name == "read_range" || tool_name == "file_lines" || tool_name == "head" || tool_name == "tail" {
-                        tool_name = "read_file_lines".to_string();
-                    }
-                    if tool_name == "extract_strings" || tool_name == "strings" || tool_name == "get_strings" {
-                        tool_name = "extract_strings".to_string();
-                    }
-                    if tool_name == "hex_dump" || tool_name == "hexdump" || tool_name == "hex" {
-                        tool_name = "hex_dump".to_string();
-                    }
-                    if tool_name == "list_active_processes" || tool_name == "ps" || tool_name == "processes" || tool_name == "top" {
-                        tool_name = "list_active_processes".to_string();
-                    }
-                    if tool_name == "apply_patch" || tool_name == "patch" || tool_name == "apply_diff" {
-                        tool_name = "apply_patch".to_string();
-                    }
-                    if tool_name == "str_replace"
-                        || tool_name == "string_replace"
-                        || tool_name == "replace_in_file"
-                        || tool_name == "edit_file"
-                        || tool_name == "file_edit"
-                        || tool_name == "replace_code"
-                    {
-                        tool_name = "str_replace".to_string();
-                    }
-                    if tool_name == "ide_get_state" || tool_name == "get_ide_state" || tool_name == "state" || tool_name == "editor_state" {
-                        tool_name = "ide_get_state".to_string();
-                    }
-                    if tool_name == "network_port_scanner" || tool_name == "scan_ports" || tool_name == "nmap" || tool_name == "port_scan" {
-                        tool_name = "network_port_scanner".to_string();
-                    }
-                    if tool_name == "binary_mach_o_scanner" || tool_name == "macho_scan" || tool_name == "kernel_scan" {
-                        tool_name = "binary_mach_o_scanner".to_string();
-                    }
-                    if tool_name == "file_entropy_analysis" || tool_name == "entropy" || tool_name == "packer_check" {
-                        tool_name = "file_entropy_analysis".to_string();
-                    }
-                    if tool_name == "dev_cargo_diagnostics" || tool_name == "check" || tool_name == "cargo_check" || tool_name == "diagnostics" {
-                        tool_name = "dev_cargo_diagnostics".to_string();
-                    }
-                    if tool_name == "sh"
-                        || tool_name == "bash"
-                        || tool_name == "execute"
-                        || tool_name == "exec"
-                        || tool_name == "command"
-                        || tool_name == "cmd"
-                        || tool_name == "run"
-                        || tool_name == "terminal"
-                        || tool_name == "run_terminal_cmd"
-                        || tool_name == "run_terminal_command"
-                        || tool_name == "execute_command"
-                        || tool_name == "execute_bash"
-                        || tool_name == "shell_command"
-                        || tool_name == "run_shell_command"
-                        || tool_name == "terminal_command"
-                    {
-                        tool_name = "run_command".to_string();
-                    }
-                    if tool_name == "ls"
-                        || tool_name == "list_files"
-                        || tool_name == "list_dir"
-                        || tool_name == "list_directory"
-                        || tool_name == "dir"
-                        || tool_name == "files"
-                    {
-                        tool_name = "list_files".to_string();
-                    }
-                    if tool_name == "read_file"
-                        || tool_name == "cat"
-                        || tool_name == "view"
-                        || tool_name == "get_file"
-                        || tool_name == "read"
-                    {
-                        tool_name = "view_file".to_string();
-                    }
-                    if tool_name == "mkdir" || tool_name == "md" || tool_name == "create_dir" {
-                        tool_name = "create_directory".to_string();
-                    }
-                    if tool_name == "terminal_send"
-                        || tool_name == "send_terminal"
-                        || tool_name == "term_send"
-                        || tool_name == "type_to_terminal"
-                    {
-                        tool_name = "terminal_send_data".to_string();
-                    }
-                    if tool_name == "terminal_read"
-                        || tool_name == "read_terminal"
-                        || tool_name == "term_read"
-                        || tool_name == "get_output"
-                    {
-                        tool_name = "terminal_read_output".to_string();
-                    }
-                    if tool_name == "search"
-                        || tool_name == "find_string"
-                        || tool_name == "grep_search"
-                    {
-                        tool_name = "grep".to_string();
-                    }
-                    if tool_name == "research"
-                        || tool_name == "web_search"
-                        || tool_name == "internet_search"
-                        || tool_name == "browse"
-                    {
-                        tool_name = "browser_subagent".to_string();
-                    }
-                    if tool_name == "ask" || tool_name == "query_web" {
-                        tool_name = "perplexity_ask".to_string();
-                    }
-                    // Coding / editing aliases — common hallucinations from small models
-                    if tool_name == "edit_file"
-                        || tool_name == "edit"
-                        || tool_name == "search_replace"
-                        || tool_name == "replace"
-                        || tool_name == "str_replace_editor"
-                        || tool_name == "code_edit"
-                    {
-                        tool_name = "search_replace_edit".to_string();
-                    }
-                    if tool_name == "patch"
-                        || tool_name == "patch_lines"
-                        || tool_name == "line_edit"
-                        || tool_name == "replace_lines"
-                    {
-                        tool_name = "patch_file_content".to_string();
-                    }
-                    if tool_name == "propose_edit" || tool_name == "suggest_edit" || tool_name == "draft_edit" {
-                        tool_name = "ai_propose_edit".to_string();
-                    }
-                    if tool_name == "verify" || tool_name == "build" || tool_name == "cargo_build" || tool_name == "test" {
-                        tool_name = "verify_implementation".to_string();
-                    }
+                    let mut tool_name =
+                        crate::tool_aliases::canonical_tool_name(&tool_call.function.name).to_string();
 
                     // Trigger mission progress if relevant
                     if tool_name == "manage_task" {
@@ -5649,103 +5491,9 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         tools
     }
 
-    /// Offensive security specialized tools integrated into toolset
+    /// Offensive tools are defined in `AiTools::list_tools()` with live execution handlers.
     fn get_offensive_tools(&self) -> Vec<Value> {
-        vec![
-            json!({
-                "type": "function",
-                "function": {
-                    "name": "generate_0day_exploit",
-                    "description": "Create zero-day exploit with autonomous PoC",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "target_os": {"type": "string"},
-                            "vulnerability_desc": {"type": "string"},
-                            "constraints": {"type": "string"}
-                        },
-                        "required": ["target_os", "vulnerability_desc"]
-                    }
-                }
-            }),
-            json!({
-                "type": "function",
-                "function": {
-                    "name": "reverse_engineer_firmware",
-                    "description": "Automate firmware unpack, patch, and vuln discovery",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "firmware_path": {"type": "string"},
-                            "target_device": {"type": "string"}
-                        },
-                        "required": ["firmware_path", "target_device"]
-                    }
-                }
-            }),
-            json!({
-                "type": "function",
-                "function": {
-                    "name": "develop_web_mobile_app",
-                    "description": "Develop full-stack web/mobile app with code reviews",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "platform": {"type": "string"},
-                            "specifications": {"type": "string"},
-                            "languages": {"type": "array", "items": {"type": "string"}}
-                        },
-                        "required": ["platform", "specifications"]
-                    }
-                }
-            }),
-            json!({
-                "type": "function",
-                "function": {
-                    "name": "kernel_exploit_chain",
-                    "description": "Automate kernel exploit chain creation and testing",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "kernel_version": {"type": "string"},
-                            "target_arch": {"type": "string"},
-                            "exploit_constraints": {"type": "string"}
-                        },
-                        "required": ["kernel_version", "target_arch"]
-                    }
-                }
-            }),
-            json!({
-                "type": "function",
-                "function": {
-                    "name": "jailbreak_activation_bypass",
-                    "description": "Create jailbreak and activation bypass for iOS devices",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "ios_version": {"type": "string"},
-                            "device_model": {"type": "string"}
-                        },
-                        "required": ["ios_version", "device_model"]
-                    }
-                }
-            }),
-            json!({
-                "type": "function",
-                "function": {
-                    "name": "advanced_reverse_engineering",
-                    "description": "Run advanced reverse engineering on binaries and firmware",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "binary_path": {"type": "string"},
-                            "analysis_depth": {"type": "integer"}
-                        },
-                        "required": ["binary_path"]
-                    }
-                }
-            }),
-        ]
+        vec![]
     }
 
     fn is_cyberifrit_managed_ollama_url(url: &str) -> bool {
@@ -6616,6 +6364,12 @@ mod tests {
             "extract_strings",
             "hex_dump",
             "secrets_scan",
+            "reverse_shell_generate",
+            "exploit_lookup",
+            "network_scan",
+            "web_security_audit",
+            "ai_vuln_hunt",
+            "deep_security_audit",
         ] {
             assert!(
                 OLLAMA_ESSENTIAL_TOOLS.contains(&tool),

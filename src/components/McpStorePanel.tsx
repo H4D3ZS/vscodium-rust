@@ -115,9 +115,12 @@ const McpStorePanel: React.FC = () => {
             if (entry.type === 'http' && entry.serverUrl) {
                 await addMcpServer(entry.name, { type: 'http', serverUrl: entry.serverUrl });
             } else {
+                if (!entry.command) {
+                    throw new Error('Catalog entry missing command');
+                }
                 const config: Record<string, unknown> = {
                     command: entry.command,
-                    args: [...entry.args],
+                    args: [...(entry.args ?? [])],
                     enabled: true,
                 };
                 if (Object.keys(env).length) config.env = env;

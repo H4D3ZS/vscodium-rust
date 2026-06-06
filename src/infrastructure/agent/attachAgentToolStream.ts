@@ -4,7 +4,8 @@
  */
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
-import { canonicalToolName, parseToolArgs } from '../../domain/agent/agentToolBlocks';
+import { canonicalToolName } from '../../domain/agent/toolAliases';
+import { parseToolArgs } from '../../domain/agent/agentToolBlocks';
 
 let attached = false;
 let timer: ReturnType<typeof setInterval> | null = null;
