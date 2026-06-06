@@ -3526,6 +3526,17 @@ impl Sentient {
                 request_id, active_provider
             );
 
+            if active_provider == "ollama" {
+                self.emit_event("ollama-progress", json!({
+                    "progress": 2,
+                    "status": "prefill",
+                    "elapsed_secs": 0,
+                    "tokens_per_sec": 0,
+                    "remaining_secs": 0,
+                    "message": "Evaluating prompt on local model (40B+ can take several minutes before first token)…"
+                }));
+            }
+
             {
                 if let Some(msg) = self.stopped_message() {
                     println!("[AI] Loop interrupted by stop signal (mid-iteration)");
@@ -3610,8 +3621,32 @@ impl Sentient {
                                 last_progress_emit = std::time::Instant::now();
                             }
                         }
-                        // Ollama native format
-                        else if let Some(content) = val["message"]["content"].as_str() {
+                        // Ollama native /api/chat — thinking models stream `message.thinking`
+                        // long before `message.content`; without this the UI looks frozen for minutes.
+                        if let Some(thinking) = val["message"]["thinking"].as_str() {
+                            if !thinking.is_empty() {
+                                self.emit_event("ai-thinking", json!({ "thought": thinking }));
+                                tokens_count += thinking.chars().count().max(1) / 4;
+                                if active_provider == "ollama"
+                                    && last_progress_emit.elapsed().as_millis() >= 500
+                                {
+                                    let elapsed = start_time.elapsed().as_secs();
+                                    self.emit_event("ollama-progress", json!({
+                                        "progress": 15,
+                                        "status": "thinking",
+                                        "elapsed_secs": elapsed,
+                                        "tokens_per_sec": 0,
+                                        "remaining_secs": 0,
+                                    }));
+                                    last_progress_emit = std::time::Instant::now();
+                                }
+                            }
+                        }
+                        // Ollama native format — answer tokens
+                        if let Some(content) = val["message"]["content"].as_str() {
+                            if content.is_empty() {
+                                // thinking-only chunk; already handled above
+                            } else {
                             full_content.push_str(content);
                             delta_to_emit = Some(content.to_string());
                             tokens_count += content.chars().count() / 4;
@@ -3642,6 +3677,7 @@ impl Sentient {
                                 
                                 last_progress_emit = std::time::Instant::now();
                             }
+                            }
                         }
                         // Anthropic: prompt-cache telemetry. message_start carries token
                         // usage incl. cache_read (billed ~0.1x) and cache_creation (~1.25x).
@@ -3649,7 +3685,7 @@ impl Sentient {
                         // iterations once the stable prefix is warm. NOTE: this only applies
                         // to the API (x-api-key, pay-per-token) path, not the claude.ai
                         // subscription/WebUI path, which isn't billed per token.
-                        else if val["type"] == "message_start" {
+                        if val["type"] == "message_start" {
                             let usage = &val["message"]["usage"];
                             let input = usage["input_tokens"].as_u64().unwrap_or(0);
                             let cache_read = usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
@@ -3670,7 +3706,7 @@ impl Sentient {
                             }));
                         }
                         // Anthropic format
-                        else if val["type"] == "content_block_delta" {
+                        if val["type"] == "content_block_delta" {
                             if let Some(content) = val["delta"]["text"].as_str() {
                                 full_content.push_str(content);
                                 delta_to_emit = Some(content.to_string());
