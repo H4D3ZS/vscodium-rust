@@ -2623,11 +2623,12 @@ impl Sentient {
                     role: "system".to_string(),
                     content: Some(MessageContent::Text(format!(
                         "### [ZERO-GREP ENFORCED] AIM index active — {} files\n\
-                         The codebase map is ALREADY in ### BRAIN. Blind exploration is BLOCKED:\n\
-                         - Do NOT call glob, grep, list_files, search_codebase, find_by_name, list_dir_tree\n\
-                         - Do NOT run shell recon (ls, dir, find, tree, Get-ChildItem)\n\
-                         USE: view_file(path), aim_query_spans, semantic_search, find_symbols\n\
-                         grep is only allowed after iteration 5 for a specific symbol you already identified.",
+                         ### BRAIN already contains the project tree — do NOT re-discover it.\n\
+                         **Blocked (orientation only):** root `list_files`, `list_dir_tree`, shell `ls`/`dir`/`find`/`tree`, \
+                         broad grep (TODO/FIXME/import/.*), repo-wide `**/*` globs.\n\
+                         **Still allowed — use freely when needed:** targeted `grep` (specific symbol/string), \
+                         scoped `glob` (e.g. `backend/**/*.py`), `search_codebase`, `semantic_search`, \
+                         `view_file`, `run_command` for build/test/git.",
                         aim_indexed_files
                     ))),
                     ..Default::default()
@@ -6082,17 +6083,16 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
     }
 
 
-    /// Cursor-style zero-grep: block blind filesystem recon when AIM already indexed the tree.
+    /// Cursor-style zero-grep: block *orientation* recon when AIM already has the tree.
+    /// Targeted grep/glob/search remain available — only blind "what's in this repo?" is blocked.
     async fn intercept_zero_grep_orientation(
         &self,
         tool_name: &str,
         args: &Value,
         iteration: usize,
     ) -> Option<Value> {
-        const ZERO_GREP_MAX_ITER: usize = 4;
-
         let indexed = self.memory_store.get_project_tree().await.len();
-        if indexed == 0 || iteration > ZERO_GREP_MAX_ITER {
+        if indexed == 0 {
             return None;
         }
 
@@ -6101,42 +6101,111 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             Some(json!({
                 "status": "blocked_zero_grep",
                 "message": format!(
-                    "ZERO-GREP (AIM — {indexed} files indexed). {hint}\n\nTree: {summary}\n\n\
-                     Next: view_file(path) | aim_query_spans | semantic_search | find_symbols"
+                    "ZERO-GREP (AIM — {indexed} files). {hint}\n\nTree: {summary}\n\n\
+                     Structure is in ### BRAIN. For targeted work you MAY still use grep/glob \
+                     with a specific pattern or path — not repo-wide orientation."
                 ),
                 "indexed_files": indexed,
             }))
         };
 
-        const TREE_TOOLS: &[&str] = &[
-            "list_files", "list_directory", "glob", "find_by_name", "find",
-            "list_dir_tree", "search_files", "search_codebase",
-        ];
+        // Full-tree listing — never needed when AIM has the tree (any iteration).
+        if tool_name == "list_dir_tree" {
+            return block("list_dir_tree is orientation-only — use ### BRAIN for structure.");
+        }
 
-        if TREE_TOOLS.contains(&tool_name) {
-            return block(&format!(
-                "Tool `{tool_name}` blocked — structure is in ### BRAIN. Do not walk the filesystem."
-            ));
+        if tool_name == "list_files" || tool_name == "list_directory" {
+            let path = args
+                .get("path")
+                .or_else(|| args.get("directory"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
+            if Self::is_root_orientation_path(path, &self.ai_tools.get_root_path()) {
+                return block(&format!(
+                    "Root list_files('{path}') blocked — paths are in ### BRAIN. \
+                     list_files(subdir) is OK for a specific folder you already identified."
+                ));
+            }
+            return None;
+        }
+
+        if tool_name == "glob" || tool_name == "find_by_name" || tool_name == "find" {
+            let pattern = args
+                .get("pattern")
+                .or_else(|| args.get("pattern_or_path"))
+                .or_else(|| args.get("glob_pattern"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("*");
+            if iteration <= 1 && Self::is_broad_glob_pattern(pattern) {
+                return block(&format!(
+                    "Broad glob '{pattern}' blocked on early iteration — use ### BRAIN or a scoped glob like `backend/**/*.rs`."
+                ));
+            }
+            return None;
         }
 
         if tool_name == "grep" {
-            return block(&format!(
-                "Tool `grep` blocked on iteration {iteration} while AIM is warm. \
-                 Use semantic_search or aim_query_spans, then view_file."
-            ));
+            let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+            if iteration <= 1 && Self::is_orientation_grep_pattern(pattern) {
+                return block(&format!(
+                    "Orientation grep '{pattern}' blocked — use semantic_search/aim_query_spans first, \
+                     or grep a specific symbol you already know (e.g. a function name)."
+                ));
+            }
+            return None;
         }
 
         if tool_name == "run_command" || tool_name == "bash" {
             if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
                 if Self::is_shell_recon_command(cmd) {
                     return block(&format!(
-                        "Shell recon blocked (`{cmd}`). The project tree is in ### BRAIN — not via ls/find/dir."
+                        "Shell recon blocked (`{cmd}`). Tree is in ### BRAIN. \
+                         run_command for cargo/npm/git/test is always OK."
                     ));
                 }
             }
         }
 
         None
+    }
+
+    fn is_root_orientation_path(path: &str, root: &Path) -> bool {
+        let root_norm = root.to_string_lossy().trim_end_matches(['/', '\\']).to_string();
+        let path_norm = path.trim().trim_end_matches(['/', '\\']);
+        path_norm.is_empty()
+            || path_norm == "."
+            || path_norm == "./"
+            || path_norm == "/"
+            || Path::new(path_norm) == root
+            || path_norm.eq_ignore_ascii_case(&root_norm)
+            || root.ends_with(path_norm)
+    }
+
+    /// Repo-wide or extension-only globs used to "discover" a codebase.
+    fn is_broad_glob_pattern(pattern: &str) -> bool {
+        let p = pattern.trim();
+        p.is_empty()
+            || p == "*"
+            || p == "**"
+            || p == "**/*"
+            || p == "*.*"
+            || p.starts_with("*.") && !p.contains('/') && !p.contains('\\')
+            || (p.contains('*') && !p.contains('/') && !p.contains('\\') && p.len() <= 6)
+    }
+
+    /// Grep patterns used to map a repo instead of finding one known thing.
+    fn is_orientation_grep_pattern(pattern: &str) -> bool {
+        let p = pattern.trim();
+        if p.is_empty() || p == ".*" || p == "." || p.len() < 3 {
+            return true;
+        }
+        let lower = p.to_ascii_lowercase();
+        const ORIENT: &[&str] = &[
+            "todo", "fixme", "hack", "xxx", "import ", "require(", "require ",
+            "from ", "class ", "function ", "def ", "fn ", "struct ", "interface ",
+            "export ", "module.exports", "@ts-ignore", "eslint-disable",
+        ];
+        ORIENT.iter().any(|o| lower.contains(o))
     }
 
     /// True when a shell command is filesystem orientation (ls/find/tree), not build/test/git.
