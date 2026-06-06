@@ -1089,6 +1089,16 @@ impl Sentient {
         8192
     }
 
+    /// Ollama only honors `num_ctx` / `num_predict` inside the `options` object
+    /// (top-level fields are ignored → default 4096 ctx → exceed_context_size_error).
+    fn ollama_inference_options(model: &str, temperature: f32, num_predict: u32) -> Value {
+        json!({
+            "num_ctx": Self::recommended_num_ctx(model),
+            "num_predict": num_predict,
+            "temperature": temperature,
+        })
+    }
+
     /// Returns true if the model supports vision / image input via Ollama.
     /// Ollama passes images as a top-level `images` array (base64) on each message.
     fn is_vision_model(model: &str) -> bool {
@@ -3109,7 +3119,6 @@ impl Sentient {
                     req.temperature.unwrap_or(0.6)
                 };
 
-                let num_ctx = Self::recommended_num_ctx(&active_model);
                 let is_vision = Self::is_vision_model(&active_model);
                 let ollama_messages = Self::build_ollama_messages(&final_messages, is_vision);
 
@@ -3136,9 +3145,8 @@ impl Sentient {
                     base["temperature"] = json!(ollama_temp);
                 }
                 if is_local_inference {
-                    // num_ctx/num_predict are Ollama-specific; cloud providers (Google, OpenAI, etc.) reject them.
-                    base["num_ctx"] = json!(num_ctx);
-                    base["num_predict"] = json!(8192);
+                    // num_ctx/num_predict must live under `options` for Ollama (/v1 and /api).
+                    base["options"] = Self::ollama_inference_options(&active_model, ollama_temp, 8192);
                 }
                 base
             };
@@ -3390,6 +3398,49 @@ impl Sentient {
                         .await
                         .map_err(|e| anyhow!("HTTP fallback request failed: {}", e))?;
                         
+                    if !response.status().is_success() {
+                        let f_status = response.status();
+                        let f_body = response.text().await.unwrap_or_default();
+                        return Err(anyhow!("AI Provider Error ({}): {}", f_status, f_body));
+                    }
+                } else if status.as_u16() == 400
+                    && active_provider.to_lowercase() == "ollama"
+                    && body.contains("exceed_context_size_error")
+                {
+                    // Prompt still too large even after options.num_ctx — trim hard and retry once.
+                    println!(
+                        "[AI] Context overflow on {} ({}). Trimming history and retrying.",
+                        active_model, body.chars().take(200).collect::<String>()
+                    );
+                    let trim_budget = Self::recommended_num_ctx(&active_model).saturating_mul(2).saturating_mul(4) / 3;
+                    messages = self.trim_context(messages, trim_budget.min(12_000)).await;
+                    let retry_temp = if is_chat_mode {
+                        req.temperature.unwrap_or(0.75)
+                    } else {
+                        req.temperature.unwrap_or(0.6)
+                    };
+                    if let serde_json::Value::Object(ref mut map) = payload {
+                        if let Some(msgs) = map.get_mut("messages") {
+                            *msgs = json!(Self::build_ollama_messages(
+                                &messages,
+                                Self::is_vision_model(&active_model),
+                            ));
+                        }
+                        let smaller_ctx = (Self::recommended_num_ctx(&active_model) / 2).max(8192);
+                        map.insert(
+                            "options".to_string(),
+                            json!({
+                                "num_ctx": smaller_ctx,
+                                "num_predict": 4096,
+                                "temperature": retry_temp,
+                            }),
+                        );
+                    }
+                    response = request
+                        .json(&payload)
+                        .send()
+                        .await
+                        .map_err(|e| anyhow!("HTTP context-trim retry failed: {}", e))?;
                     if !response.status().is_success() {
                         let f_status = response.status();
                         let f_body = response.text().await.unwrap_or_default();
@@ -4951,13 +5002,13 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         let payload = if is_ollama {
             let is_vision = Self::is_vision_model(&req.model);
             let messages = Self::build_ollama_messages(&req.messages, is_vision);
+            let temp = req.temperature.unwrap_or(0.1);
             json!({
                 "model": req.model,
                 "messages": messages,
-                "temperature": req.temperature.unwrap_or(0.1),
+                "temperature": temp,
                 "stream": false,
-                "num_ctx": Self::recommended_num_ctx(&req.model),
-                "num_predict": 1024,
+                "options": Self::ollama_inference_options(&req.model, temp, 1024),
             })
         } else {
             let trimmed = if is_highway_family(effective_provider) {
