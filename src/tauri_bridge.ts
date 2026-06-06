@@ -28,6 +28,15 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     return Promise.resolve(null as any);
 }
 
+/** Map an on-disk path to a WebView-safe asset URL (no base64 IPC). */
+export function convertFileSrc(filePath: string): string {
+    const tauri = (window as any).__TAURI__;
+    if (tauri?.core?.convertFileSrc) {
+        return tauri.core.convertFileSrc(filePath);
+    }
+    return `asset://localhost/${encodeURIComponent(filePath)}`;
+}
+
 export async function listen<T = any>(event: string, handler: (event: { payload: T; [k: string]: any }) => void): Promise<() => void> {
     const tauri = (window as any).__TAURI__;
 

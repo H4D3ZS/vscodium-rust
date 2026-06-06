@@ -18,6 +18,8 @@ pub fn get_android_sdk_path() -> String {
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| "C:\\Users\\Default".to_string());
     let locations = [
+        format!("{home}/Library/Android/sdk"),
+        format!("{home}/Android/Sdk"),
         format!("{home}\\AppData\\Local\\Android\\Sdk"),
         format!("{home}\\Android\\Sdk"),
         "C:\\Android\\Sdk".to_string(),

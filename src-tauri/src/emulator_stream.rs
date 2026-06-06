@@ -19,10 +19,46 @@ static FRAME_COUNT: AtomicUsize = AtomicUsize::new(0);
 static CAPTURE_TASK: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new(None);
 static STREAM_DEVICE: Mutex<Option<String>> = Mutex::new(None);
 
-fn get_avdmanager_cmd() -> Command {
-    let p = format!("{}\\cmdline-tools\\latest\\bin\\avdmanager.bat", get_android_sdk_path());
-    if std::path::Path::new(&p).exists() { hidden_command(p) }
-    else { hidden_command(format!("{}\\tools\\bin\\avdmanager.bat", get_android_sdk_path())) }
+fn resolve_avdmanager() -> Option<std::path::PathBuf> {
+    let sdk = std::path::PathBuf::from(get_android_sdk_path());
+    #[cfg(target_os = "windows")]
+    {
+        let latest = sdk.join("cmdline-tools").join("latest").join("bin").join("avdmanager.bat");
+        if latest.exists() {
+            return Some(latest);
+        }
+        let legacy = sdk.join("tools").join("bin").join("avdmanager.bat");
+        if legacy.exists() {
+            return Some(legacy);
+        }
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        for rel in [
+            "cmdline-tools/latest/bin/avdmanager",
+            "tools/bin/avdmanager",
+        ] {
+            let p = sdk.join(rel);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+        None
+    }
+}
+
+fn get_avdmanager_cmd() -> Option<Command> {
+    resolve_avdmanager().map(|p| {
+        #[cfg(target_os = "windows")]
+        {
+            hidden_command(p.to_string_lossy().to_string())
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Command::new(p)
+        }
+    })
 }
 
 fn _get_emulator_cmd() -> Command {
@@ -96,7 +132,12 @@ pub struct EmulatorProcess {
 /// List available AVDs
 #[tauri::command]
 pub async fn list_available_avds() -> Result<Vec<AndroidVirtualDevice>, String> {
-    let output = get_avdmanager_cmd().args(&["list", "avd"]).output()
+    let Some(mut cmd) = get_avdmanager_cmd() else {
+        return Ok(vec![]);
+    };
+    let output = cmd
+        .args(["list", "avd"])
+        .output()
         .map_err(|e| format!("avdmanager: {}", e))?;
     if !output.status.success() {
         return Err(format!("avdmanager failed: {}", String::from_utf8_lossy(&output.stderr)));
@@ -129,7 +170,12 @@ pub async fn list_available_avds() -> Result<Vec<AndroidVirtualDevice>, String> 
 pub async fn create_avd(name: String, device: Option<String>, image: Option<String>) -> Result<String, String> {
     let d = device.unwrap_or_else(|| "pixel_4".to_string());
     let img = image.unwrap_or_else(|| "system-images;android-34;google_apis_playstore;x86_64".to_string());
-    let output = get_avdmanager_cmd().args(&["create", "avd", "-n", &name, "-k", &img, "-d", &d, "-f"]).output()
+    let Some(mut cmd) = get_avdmanager_cmd() else {
+        return Err("Android SDK not found — install Android Studio or set ANDROID_HOME".into());
+    };
+    let output = cmd
+        .args(["create", "avd", "-n", &name, "-k", &img, "-d", &d, "-f"])
+        .output()
         .map_err(|e| format!("avdmanager: {}", e))?;
     if output.status.success() {
         Ok(format!("AVD '{}' created", name))
