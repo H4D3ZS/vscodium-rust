@@ -93,10 +93,11 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
             const activeFile = stFa.activeEditorPath || stFa.tabs?.find((t: any) => t.id === stFa.activeTabId)?.path;
             if (blocks.length > 0 && activeFile) {
                 blocks.forEach((blk: any) => {
-                    invoke('propose_file_change', {
+                    invoke('preview_search_replace', {
                         path: activeFile,
                         searchText: blk.original,
                         replaceText: blk.updated,
+                        description: 'Fast apply (Composer-style)',
                     }).catch(() => { /* non-fatal */ });
                 });
             }
@@ -176,6 +177,14 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         if (cache[key] === text) return;
         cache[key] = text;
         useStore.getState().addAgentMessage('assistant', `### ${payload.provider || 'WebUI'} response\n\n${text}`);
+    });
+
+    listen<any>('ai-advisor-fallback', (event) => {
+        const msg = event.payload?.error
+            ? `Planner timed out or failed — continuing with executor (${event.payload?.fallback_model || 'primary model'}).`
+            : 'Planner unavailable — continuing with executor.';
+        useStore.getState().addAgentMessage('assistant', `ℹ️ ${msg}`);
+        useStore.getState().setAgentCurrentAction(null);
     });
 
     listen<any>('propose-edit', (event) => {

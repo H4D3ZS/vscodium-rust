@@ -1011,19 +1011,27 @@ pub fn ai_modify_file(
 
 #[tauri::command]
 pub async fn propose_file_change(
+    app: AppHandle,
     _state: State<'_, EditorState>,
     path: String,
     content: String,
     description: String,
 ) -> Result<Value, String> {
-    // Check if path is valid (stub for now, needs logic)
     let path_buf = PathBuf::from(&path);
-    
+
     let old_content = if path_buf.exists() {
         fs::read_to_string(&path_buf).unwrap_or_default()
     } else {
         String::new()
     };
+
+    let payload = json!({
+        "path": path,
+        "old_content": old_content,
+        "new_content": content,
+        "description": description
+    });
+    let _ = app.emit("propose-edit", &payload);
 
     Ok(json!({
         "path": path,
@@ -1031,6 +1039,47 @@ pub async fn propose_file_change(
         "newContent": content,
         "description": description
     }))
+}
+
+/// Composer-style fast apply: merge a SEARCH/REPLACE block and open the diff review panel.
+#[tauri::command]
+pub async fn preview_search_replace(
+    app: AppHandle,
+    state: State<'_, EditorState>,
+    path: String,
+    search_text: String,
+    replace_text: String,
+    description: Option<String>,
+) -> Result<(), String> {
+    use crate::patch_engine::PatchBlock;
+
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("File not found: {path}"));
+    }
+    let old_content = fs::read_to_string(&path_buf).map_err(|e| e.to_string())?;
+    let patch = PatchBlock {
+        search: search_text,
+        replace: replace_text,
+    };
+    let mut pe = state.patch_engine.lock().await;
+    let new_content = pe
+        .apply_patches(&path_buf, &old_content, &[patch])
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let desc = description.unwrap_or_else(|| "Search/replace preview".to_string());
+    app.emit(
+        "propose-edit",
+        json!({
+            "path": path,
+            "old_content": old_content,
+            "new_content": new_content,
+            "description": desc,
+        }),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 #[tauri::command]
 pub async fn compress_session_data(
@@ -1381,6 +1430,21 @@ pub struct OllamaLibraryEntry {
 }
 
 static OLLAMA_LIBRARY: &str = include_str!("../resources/ollama_library.json");
+static OLLAMA_LOCAL_REGISTRY: &str = include_str!("../resources/ollama_local_registry.json");
+
+fn load_ollama_catalog() -> Result<Vec<OllamaLibraryEntry>, String> {
+    let mut all: Vec<OllamaLibraryEntry> =
+        serde_json::from_str(OLLAMA_LIBRARY).map_err(|e| format!("catalog parse: {e}"))?;
+    let local: Vec<OllamaLibraryEntry> =
+        serde_json::from_str(OLLAMA_LOCAL_REGISTRY).unwrap_or_default();
+    let mut seen: std::collections::HashSet<String> = all.iter().map(|e| e.name.clone()).collect();
+    for e in local {
+        if seen.insert(e.name.clone()) {
+            all.insert(0, e);
+        }
+    }
+    Ok(all)
+}
 
 /// Search the bundled Ollama model catalog (offline-safe). Used by the first-run wizard.
 #[tauri::command]
@@ -1390,8 +1454,7 @@ pub async fn search_ollama_library(
 ) -> Result<Vec<OllamaLibraryEntry>, String> {
     let cap = limit.unwrap_or(24).min(60);
     let q = query.trim().to_lowercase();
-    let all: Vec<OllamaLibraryEntry> =
-        serde_json::from_str(OLLAMA_LIBRARY).map_err(|e| format!("catalog parse: {e}"))?;
+    let all = load_ollama_catalog()?;
     if q.is_empty() {
         return Ok(all.into_iter().take(cap).collect());
     }
@@ -1405,7 +1468,7 @@ pub async fn search_ollama_library(
         .take(cap)
         .collect();
     if hits.is_empty() {
-        hits = serde_json::from_str::<Vec<OllamaLibraryEntry>>(OLLAMA_LIBRARY)
+        hits = load_ollama_catalog()
             .unwrap_or_default()
             .into_iter()
             .filter(|e| e.name.to_lowercase().starts_with(&q))

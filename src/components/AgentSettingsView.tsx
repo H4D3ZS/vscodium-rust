@@ -3,6 +3,7 @@ import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
 import { CYBERIFRIT_CLOUD_OLLAMA_URL } from '../store/inferenceSlice';
 import { classifyModels, modelKey } from '../model_capabilities';
+import { WORKSTATION_PRESETS, applyWorkstationPreset } from '../lib/workstationPresets';
 import ElevenLabsVoicePicker from './ElevenLabsVoicePicker';
 import MemoryPanel from './MemoryPanel';
 
@@ -1331,6 +1332,36 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 />
                             </>
                         )}
+                        <div style={{ marginTop: '12px', padding: '10px', border: '1px solid var(--vscode-panel-border)', borderRadius: '6px' }}>
+                            <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px' }}>Workstation presets (Composer-style stack)</div>
+                            <p style={{ margin: '0 0 8px', fontSize: '10px', opacity: 0.6, lineHeight: 1.4 }}>
+                                Local unlimited Ollama — sets remote URL, planner, and executor in one click.
+                            </p>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {WORKSTATION_PRESETS.map((preset) => (
+                                    <button
+                                        key={preset.id}
+                                        type="button"
+                                        title={preset.desc}
+                                        onClick={() => {
+                                            const host = preset.ollamaMode === 'remote' ? customOllamaUrl : undefined;
+                                            void applyWorkstationPreset(preset, host).catch((e) => alert(String(e)));
+                                        }}
+                                        style={{
+                                            fontSize: '10px',
+                                            padding: '5px 10px',
+                                            borderRadius: '4px',
+                                            border: '1px solid var(--vscode-panel-border)',
+                                            background: 'var(--vscode-button-secondaryBackground, #333)',
+                                            color: 'inherit',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                         <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '10px', fontFamily: 'monospace' }}>
                             Active endpoint: <span style={{ color: '#a5b4fc' }}>{ollamaUrl || '(none)'}</span>
                         </div>

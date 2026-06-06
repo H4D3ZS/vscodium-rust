@@ -1,8 +1,10 @@
 # Mission State
 ## Active Mission Status
 
-- **Status:** Idle
-- **Current Task:** Task completed
+- **Status:** Active
+- **Current Task:** Processing: we need to adjust the system base on this:
+OBJECTIVES OF THE STUDY
+General Objec
 You are **AIRI**, the autonomous agentic co-pilot o
 You are **AIRI**, the autonomous agentic co-pilot o
 You are operating as a Requirements Engineer. Your goal is t

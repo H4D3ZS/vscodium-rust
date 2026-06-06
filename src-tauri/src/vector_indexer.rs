@@ -219,18 +219,19 @@ impl VectorIndexer {
 
         // Collect all indexable files
         let extensions = &["rs", "ts", "tsx", "js", "jsx", "py", "go", "c", "cpp", "h", "hpp", "java", "cs", "rb"];
-        let exclude_dirs = &["node_modules", "target", ".git", "dist", "build", "vendor", "__pycache__"];
+        let ignore_set = crate::cursor_compat::CursorIgnoreSet::load(
+            root,
+            crate::cursor_compat::IgnoreScope::Indexing,
+        );
 
         let files: Vec<PathBuf> = WalkDir::new(root.as_path())
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| {
                 e.file_type().is_file() &&
+                !ignore_set.is_ignored(e.path()) &&
                 e.path().extension().map_or(false, |ext| {
                     extensions.contains(&ext.to_str().unwrap_or(""))
-                }) &&
-                !e.path().components().any(|c| {
-                    exclude_dirs.contains(&c.as_os_str().to_str().unwrap_or(""))
                 })
             })
             .map(|e| e.path().to_path_buf())

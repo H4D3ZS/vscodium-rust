@@ -2,6 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { AppState } from './index';
 import { normalizeOllamaUrl } from './utils';
+import { mergeLocalRegistryHints } from '../lib/localOllamaRegistry';
 
 export interface InferenceSlice {
     ollamaUrl: string;
@@ -307,6 +308,9 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                         continue;
                     } else {
                         models = await invoke<string[]>('list_provider_models', { provider: p });
+                        if (p.toLowerCase() === 'ollama' && get().ollamaServerMode === 'local') {
+                            models = mergeLocalRegistryHints(models);
+                        }
                         allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
                     }
                     if (p.toLowerCase() === 'ollama' && models.length > 0) set({ ollamaStatus: 'running' });

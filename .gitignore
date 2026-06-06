@@ -38,6 +38,8 @@ Cursor/
 Kiro/
 kiro/
 cursor-ide/
+# Cursor IDE extract (reference only — Anysphere proprietary, do not commit)
+cursor/
 kiro-ide/
 
 
