@@ -72,6 +72,7 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
             : (typeof event.payload === 'string' ? event.payload : '');
         const content = cleanAgentContent(raw);
         updateLastAgentMessage(content);
+        useStore.getState().finalizeAgentToolBlocks?.();
         if (/MISSION_ACCOMPLISHED|TASK_COMPLETE/i.test(raw)) {
             const mode = useStore.getState().agentMode || 'Agent';
             void notifyAgentComplete({

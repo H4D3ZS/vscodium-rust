@@ -1057,6 +1057,54 @@ impl MemoryStore {
         sessions
     }
 
+    /// Read `session_messages` from an `.aim` archive without repointing `aim_path`.
+    async fn read_session_messages_from_file(path: &PathBuf) -> Vec<ChatMessage> {
+        if !path.exists() {
+            return Vec::new();
+        }
+        let Ok(bytes) = tokio::fs::read(path).await else {
+            return Vec::new();
+        };
+        let header_end = aim_header_end(&bytes);
+        if header_end == 0 {
+            return Vec::new();
+        }
+        let Ok(header) = serde_json::from_slice::<Value>(&bytes[0..header_end]) else {
+            return Vec::new();
+        };
+        let Some(msgs_val) = header
+            .get("kortex")
+            .and_then(|k| k.get("session_messages"))
+        else {
+            return Vec::new();
+        };
+        serde_json::from_value(msgs_val.clone()).unwrap_or_default()
+    }
+
+    /// Restore a saved conversation into the live workspace memory (`memory.aim`)
+    /// so the chat panel AND the next `ai_chat` turn share the same context.
+    pub async fn restore_session_from_path(&self, path: PathBuf) -> Vec<ChatMessage> {
+        let messages = Self::read_session_messages_from_file(&path).await;
+        if messages.is_empty() {
+            return messages;
+        }
+        {
+            let mut lock = self.messages.write().await;
+            *lock = messages.clone();
+        }
+        self.is_dirty.store(true, Ordering::SeqCst);
+        self.persist().await;
+        self.is_dirty.store(false, Ordering::SeqCst);
+        messages
+    }
+
+    pub async fn flush_to_disk(&self) {
+        if self.is_dirty.load(Ordering::SeqCst) {
+            self.persist().await;
+            self.is_dirty.store(false, Ordering::SeqCst);
+        }
+    }
+
     pub async fn archive_current_session(&self) {
         let path_lock = self.aim_path.read().await;
         if let Some(current_path) = path_lock.as_ref() {

@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import MessageBody from '../agent/MessageBody';
+import AgentToolBlocks from './AgentToolBlocks';
+import ComposerThinkingBlock from './ComposerThinkingBlock';
 import type { AgentMessage } from '../../store';
 import { useStore } from '../../store';
-import { cleanAgentContent, getToolLabel } from '../../domain/agent/cleanAgentContent';
+import { cleanAgentContent, getToolLabel, formatCursorActivityLine } from '../../domain/agent/cleanAgentContent';
 
 interface ChatMessageProps {
     msg: AgentMessage;
     idx: number;
     isAgentThinking: boolean;
+    isLastMessage?: boolean;
     onCopy: (content: string, idx: number) => void;
     onEditStart: (idx: number, content: string) => void;
     onRestoreCheckpoint?: (msg: AgentMessage) => void;
@@ -20,55 +23,33 @@ interface ChatMessageProps {
 }
 
 const AgentToolSteps: React.FC<{ steps: NonNullable<AgentMessage['steps']>; cleanUi: boolean }> = ({ steps, cleanUi }) => {
-    const [expanded, setExpanded] = useState(false);
     if (!steps.length) return null;
 
-    const running = steps.filter((s) => s.status === 'running').length;
-    const failed = steps.filter((s) => s.status === 'error').length;
-    const done = steps.filter((s) => s.status === 'success').length;
-
     if (cleanUi) {
-        const label = running > 0
-            ? `Working… (${running} active)`
-            : failed > 0
-                ? `Used ${steps.length} tools · ${failed} failed`
-                : `Used ${steps.length} tool${steps.length === 1 ? '' : 's'}`;
-
         return (
-            <details
-                open={expanded}
-                onToggle={(e) => setExpanded((e.target as HTMLDetailsElement).open)}
-                style={{ marginBottom: '8px' }}
-            >
-                <summary style={{
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                    opacity: 0.55,
-                    listStyle: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    userSelect: 'none',
-                }}>
-                    <i className="codicon codicon-tools" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px' }} />
-                    <span>{label}</span>
-                    {running > 0 && (
-                        <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#3794ff', animation: 'hubPulse 1s infinite' }} />
-                    )}
-                </summary>
-                <div style={{ marginTop: '6px', paddingLeft: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {steps.map((step, sIdx) => {
-                        const statusColor = step.status === 'running' ? '#3794ff' : step.status === 'success' ? '#89d185' : step.status === 'error' ? '#f48771' : '#555';
-                        const text = step.summary || getToolLabel(step.name);
-                        return (
-                            <div key={sIdx} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '10px', opacity: 0.75 }}>
-                                <span style={{ color: statusColor, fontSize: '8px', marginTop: '3px' }}>●</span>
-                                <span>{text}</span>
-                            </div>
-                        );
-                    })}
-                </div>
-            </details>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
+                {steps.map((step, sIdx) => {
+                    const statusColor = step.status === 'running' ? '#3794ff' : step.status === 'success' ? 'rgba(255,255,255,0.45)' : step.status === 'error' ? '#f48771' : '#555';
+                    const detail = step.args ? (typeof step.args === 'string' ? step.args : JSON.stringify(step.args)) : undefined;
+                    const text = step.summary
+                        || formatCursorActivityLine(step.name, getToolLabel(step.name), detail, step.status === 'success' ? true : step.status === 'error' ? false : undefined);
+                    return (
+                        <div key={sIdx} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '11px', lineHeight: 1.45 }}>
+                            <span style={{
+                                color: statusColor,
+                                width: '5px',
+                                height: '5px',
+                                borderRadius: '50%',
+                                marginTop: '5px',
+                                flexShrink: 0,
+                                background: statusColor,
+                                animation: step.status === 'running' ? 'hubPulse 1s infinite' : undefined,
+                            }} />
+                            <span style={{ opacity: step.status === 'running' ? 0.9 : 0.55, wordBreak: 'break-word' }}>{text}</span>
+                        </div>
+                    );
+                })}
+            </div>
         );
     }
 
@@ -88,7 +69,7 @@ const AgentToolSteps: React.FC<{ steps: NonNullable<AgentMessage['steps']>; clea
 };
 
 const ChatMessage: React.FC<ChatMessageProps> = ({
-    msg, idx, isAgentThinking,
+    msg, idx, isAgentThinking, isLastMessage,
     onCopy, onEditStart, onRestoreCheckpoint,
     lastCopiedIdx, editingMsgIdx, editValue,
     onEditChange, onEditSave, onEditCancel,
@@ -99,7 +80,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     const hasThoughts = !!msg.thoughts;
     const hasSteps = msg.steps && msg.steps.length > 0;
     const hasContext = msg.context && msg.context.length > 0;
-    const shouldRender = hasContent || hasThoughts || hasSteps || hasContext;
+    const hasToolBlocks = msg.toolBlocks && msg.toolBlocks.length > 0;
+    const shouldRender = hasContent || hasThoughts || hasSteps || hasContext || hasToolBlocks;
     if (!shouldRender) return null;
 
     return (
@@ -163,11 +145,14 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                     </div>
                 ) : (
                     <>
-                        {msg.thoughts && (
-                            <details style={{ marginBottom: '8px', opacity: 0.6 }}>
-                                <summary style={{ fontSize: '10px', cursor: 'pointer', fontWeight: 600 }}>Cognitive trace...</summary>
-                                <div style={{ fontSize: '10px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>{msg.thoughts}</div>
-                            </details>
+                        {msg.thoughts && !(isAgentThinking && isLastMessage) && (
+                            <ComposerThinkingBlock
+                                thoughts={msg.thoughts}
+                                durationMs={msg.thoughtDurationMs}
+                            />
+                        )}
+                        {hasToolBlocks && (
+                            <AgentToolBlocks blocks={msg.toolBlocks!} compact />
                         )}
                         {hasSteps && (
                             <AgentToolSteps steps={msg.steps!} cleanUi={agentCleanUi && msg.role === 'assistant'} />

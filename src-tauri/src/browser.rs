@@ -1,3 +1,4 @@
+use crate::process_ext::{CommandExtHidden, TokioCommandExtHidden};
 use serde_json::{Value, json};
 use regex::Regex;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -79,9 +80,12 @@ fn invisible_playwright_pythonpath() -> Option<std::path::PathBuf> {
 fn python_exe() -> String {
     for cand in ["python", "py", "python3"] {
         let ok = std::process::Command::new(cand)
+            .hidden()
             .arg("--version")
-            .output()
-            .map(|o| o.status.success())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
             .unwrap_or(false);
         if ok {
             return cand.to_string();
@@ -124,6 +128,7 @@ async fn start_sidecar() -> Result<BrowserProc, String> {
         }
     };
     let mut command = Command::new(&cmd);
+    command.hidden();
     if let Some(p) = &arg {
         command.arg(p);
         if let Some(ip_src) = invisible_playwright_pythonpath() {
@@ -135,15 +140,30 @@ async fn start_sidecar() -> Result<BrowserProc, String> {
             command.env("PYTHONPATH", merged);
         }
     }
+    // Sidecar is headless — stderr is piped (not inherited) so Windows never
+    // flashes a console window. Playwright progress is logged to the IDE log.
     let mut child = command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::inherit()) // show Playwright download / launch progress
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("spawn browser sidecar ({cmd}): {e}. For source runs: pip install playwright invisible_playwright"))?;
     let stdin = child.stdin.take().ok_or("sidecar: no stdin")?;
     let stdout = child.stdout.take().ok_or("sidecar: no stdout")?;
+    if let Some(stderr) = child.stderr.take() {
+        tauri::async_runtime::spawn(async move {
+            let mut reader = BufReader::new(stderr);
+            let mut line = String::new();
+            while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                let t = line.trim();
+                if !t.is_empty() {
+                    eprintln!("[browser-sidecar] {t}");
+                }
+                line.clear();
+            }
+        });
+    }
     Ok(BrowserProc { child, stdin, stdout: BufReader::new(stdout) })
 }
 

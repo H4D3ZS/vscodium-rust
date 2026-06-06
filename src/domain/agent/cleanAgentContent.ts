@@ -75,6 +75,67 @@ function isToolResultJson(text: string): boolean {
     return false;
 }
 
+export function formatCursorActivityLine(
+    tool: string | undefined,
+    title: string,
+    detail?: string,
+    success?: boolean,
+): string {
+    const name = (tool || '').toLowerCase();
+    let args: Record<string, unknown> = {};
+    if (detail) {
+        try {
+            const parsed = JSON.parse(detail);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                args = parsed as Record<string, unknown>;
+            }
+        } catch { /* plain text detail */ }
+    }
+
+    if (name.includes('grep') || name.includes('search_codebase') || name.includes('semantic_search')) {
+        const pattern = String(args.pattern || args.query || title || 'pattern');
+        const path = args.path || args.file_path;
+        return path ? `Grepped \`${pattern}\` in ${basename(String(path))}` : `Grepped \`${pattern}\``;
+    }
+    if (name.includes('list_files') || name.includes('list_directory') || name === 'glob') {
+        const path = args.path || args.directory_path || args.pattern || 'workspace';
+        return `Explored ${basename(String(path))}`;
+    }
+    if (name.includes('view_file') || name.includes('file_read')) {
+        return `Read ${basename(String(args.file_path || args.path || title))}`;
+    }
+    if (name.includes('write_to_file') || name.includes('file_write') || name.includes('search_replace')) {
+        return `Edited ${basename(String(args.file_path || args.path || title))}`;
+    }
+    if (name.includes('run_command') || name === 'bash') {
+        const cmd = String(args.command || detail || '').slice(0, 60);
+        return cmd ? `Ran \`${cmd}\`` : 'Ran shell command';
+    }
+    if (name.includes('web_security_audit') || name.includes('apex_scan')) {
+        const url = args.url || args.target;
+        return url ? `Audited ${String(url)}` : 'Web security audit';
+    }
+    if (name.includes('browser_navigate')) {
+        return `Navigated to ${args.url || title}`;
+    }
+    if (name.includes('browser_open')) {
+        return 'Opened stealth browser';
+    }
+    if (name.includes('sec_distro_inventory')) {
+        return 'Inventoried Kali/Parrot tools';
+    }
+
+    const base = title || getToolLabel(tool || 'tool');
+    if (success === false) return `✗ ${base}`;
+    if (success === true) return base;
+    return base;
+}
+
+function basename(p: string): string {
+    const parts = p.replace(/\\/g, '/').split('/');
+    return parts[parts.length - 1] || p;
+}
+
 export function formatToolSummary(name: string, args: any, result: any): string {
     try {
         const data = typeof result === 'string' ? JSON.parse(result) : result;

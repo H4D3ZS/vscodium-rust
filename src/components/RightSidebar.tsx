@@ -2254,32 +2254,7 @@ const RightSidebar: React.FC = () => {
                                     </div>
                                 )}
 
-                                {/* Live tool activity — verbose feed hidden in clean UI (see AIRI Activity terminal). */}
-                                {agentCleanUi && isAgentThinking && (
-                                    <div style={{
-                                        margin: '8px 10px 4px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        fontSize: '11px',
-                                        opacity: 0.45,
-                                    }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#3794ff', display: 'inline-block', animation: 'hubPulse 1s infinite' }} />
-                                            <span>
-                                                Working
-                                                {liveToolCalls[0]?.status === 'running' && liveToolCalls[0]?.label
-                                                    ? ` · ${liveToolCalls[0].label}`
-                                                    : '…'}
-                                            </span>
-                                        </div>
-                                        <span
-                                            onClick={() => useStore.getState().openTrajectory()}
-                                            style={{ cursor: 'pointer', fontSize: '10px', opacity: 0.6 }}
-                                            title="Open agent trajectory"
-                                        >⏱</span>
-                                    </div>
-                                )}
+                                {/* Live tool activity — Cursor-style feed rendered inside ChatMessageList. */}
 
                                 {!agentCleanUi && (isAgentThinking || liveToolCalls.length > 0) && (() => {
                                     // Deduplicate consecutive same-tool calls → show label + count badge
@@ -2779,7 +2754,7 @@ const RightSidebar: React.FC = () => {
                             <div
                                 onClick={() => setAgentCleanUi(!agentCleanUi)}
                                 style={{ cursor: 'pointer', color: agentCleanUi ? '#60a5fa' : 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600 }}
-                                title={agentCleanUi ? 'Clean UI — tooling in Activity terminal' : 'Verbose UI — show live tool feed in chat'}
+                                title={agentCleanUi ? 'Clean UI — Cursor-style tool log in chat' : 'Verbose UI — show live tool feed in chat'}
                             >
                                 CLEAN
                             </div>

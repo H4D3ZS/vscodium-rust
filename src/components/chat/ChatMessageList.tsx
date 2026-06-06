@@ -3,7 +3,10 @@
  */
 import React, { useRef, useEffect } from 'react';
 import ChatMessage from './ChatMessage';
+import AgentToolBlocks from './AgentToolBlocks';
+import ComposerThinkingBlock from './ComposerThinkingBlock';
 import type { AgentMessage } from '../../store';
+import { useStore } from '../../store';
 
 interface ChatMessageListProps {
     messages: AgentMessage[];
@@ -33,12 +36,23 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
     onRestoreCheckpoint,
 }) => {
     const endRef = useRef<HTMLDivElement>(null);
+    const liveBlocks = useStore((s) => s.agentToolBlocks);
+    const lastAssistantThoughts = useStore((s) => {
+        const last = s.agentMessages[s.agentMessages.length - 1];
+        return last?.role === 'assistant' ? (last.thoughts || s.currentThought?.logic || '') : '';
+    });
 
     useEffect(() => {
         endRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages.length, isAgentThinking]);
+    }, [messages.length, isAgentThinking, liveBlocks.length]);
 
-    if (messages.length === 0) return null;
+    useEffect(() => {
+        if (!isAgentThinking && liveBlocks.length > 0) {
+            useStore.getState().finalizeAgentToolBlocks?.();
+        }
+    }, [isAgentThinking, liveBlocks.length]);
+
+    if (messages.length === 0 && !isAgentThinking) return null;
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px 10px', gap: '10px', flex: 1 }}>
@@ -47,6 +61,7 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
                     key={`${msg.timestamp ?? idx}-${msg.role}`}
                     msg={msg}
                     idx={idx}
+                    isLastMessage={idx === messages.length - 1}
                     isAgentThinking={isAgentThinking}
                     onCopy={onCopy}
                     onEditStart={onEditStart}
@@ -59,6 +74,14 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
                     onEditCancel={onEditCancel}
                 />
             ))}
+            {(isAgentThinking || liveBlocks.length > 0) && (
+                <>
+                    {isAgentThinking && lastAssistantThoughts && (
+                        <ComposerThinkingBlock thoughts={lastAssistantThoughts} isStreaming />
+                    )}
+                    <AgentToolBlocks blocks={liveBlocks} />
+                </>
+            )}
             <div ref={endRef} />
         </div>
     );
