@@ -168,9 +168,29 @@ fn entitlements_for(account: &Account) -> Entitlements {
     }
 }
 
+/// Resolve the IDE config directory that holds `account.json`.
+/// `Sentient` stores `brain_dir = config_dir/brain` — entitlement checks must
+/// use the parent, not `brain/` itself (otherwise a fresh Community default
+/// is loaded and cloud_models always fails).
+pub fn account_config_dir(data_dir: &Path) -> PathBuf {
+    let name = data_dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    if name.eq_ignore_ascii_case("brain") {
+        data_dir
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| data_dir.to_path_buf())
+    } else {
+        data_dir.to_path_buf()
+    }
+}
+
 /// Check whether the local account has a named entitlement feature.
 pub fn has_feature_at(config_dir: &Path, feature: &str) -> bool {
-    let acc = AccountManager::load(config_dir);
+    let dir = account_config_dir(config_dir);
+    let acc = AccountManager::load(&dir);
     entitlements_for(&acc).features.iter().any(|f| f == feature)
 }
 
@@ -275,8 +295,14 @@ pub async fn account_tos_status(state: State<'_, EditorState>, doc_id: String) -
 /// Entitlement check used to gate features (e.g. "bug_bounty").
 #[tauri::command]
 pub async fn account_has_feature(state: State<'_, EditorState>, feature: String) -> Result<bool, String> {
-    let acc = AccountManager::load(&state.config_dir);
-    Ok(entitlements_for(&acc).features.iter().any(|f| f == &feature))
+    let view = build_view(&state.config_dir).await;
+    let ok = view
+        .get("entitlements")
+        .and_then(|e| e.get("features"))
+        .and_then(|f| f.as_array())
+        .map(|arr| arr.iter().any(|v| v.as_str() == Some(feature.as_str())))
+        .unwrap_or(false);
+    Ok(ok)
 }
 
 /// Set the subscription tier. LOCAL/dev path for now — in production this is
@@ -424,7 +450,7 @@ async fn build_view(config_dir: &Path) -> serde_json::Value {
     if let Some(rs) = sync_from_supabase(config_dir).await {
         signed_in = true;
         acc.tier = rs.tier;
-        status = rs.status;
+        status = rs.status.clone();
         current_period_end = rs.current_period_end;
         if rs.email.is_some() {
             acc.email = rs.email;
@@ -434,11 +460,17 @@ async fn build_view(config_dir: &Path) -> serde_json::Value {
                 acc.addons.push(ra);
             }
         }
+        // Paid subscription wins over the local 1-day trial banner/state.
+        if acc.tier != Tier::Community && matches!(rs.status.as_str(), "active" | "past_due") {
+            acc.trial_ends_at = None;
+        }
         let _ = AccountManager::save(config_dir, &acc); // cache for offline
     }
 
     let ent = entitlements_for(&acc);
-    let on_trial = trial_active(&acc);
+    let paid_active = acc.tier != Tier::Community
+        && matches!(status.as_str(), "active" | "past_due" | "trialing");
+    let on_trial = trial_active(&acc) && !paid_active;
     serde_json::json!({
         "account": acc,
         "tier_label": if on_trial { "Free Trial".to_string() } else { acc.tier.label().to_string() },
