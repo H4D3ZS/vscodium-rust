@@ -159,6 +159,36 @@ impl AiTools {
         json!({})
     }
 
+    async fn config_dir(&self) -> Option<std::path::PathBuf> {
+        let handle = self.app_handle.lock().await.clone()?;
+        let state: tauri::State<crate::EditorState> = handle.state();
+        Some(state.config_dir.clone())
+    }
+
+    /// Backend SaaS gate — complements frontend checks in `agent.ts`.
+    async fn gate_tool_entitlement(&self, tool: &str) -> Result<()> {
+        let Some(dir) = self.config_dir().await else { return Ok(()); };
+        match tool {
+            "aim_pack_context" | "aim_query_spans" => {
+                crate::account::require_feature_at(&dir, "neural_vfs").map_err(|e| anyhow!(e))
+            }
+            "reverse_shell_generate" | "security_listener_generate" | "csp_bypass_analyze"
+            | "shellcode_recipe_generate" | "payload_encode"
+            | "ai_vuln_hunt" | "web_security_audit" | "deep_security_audit" | "weaponize_env"
+            | "network_port_scanner" | "binary_mach_o_scanner" | "generate_0day_exploit"
+            | "apex_red_team_scan" | "apex_scan_url" | "apex_simulate_attack"
+            | "apex_full_sweep" | "apex_pentest_report" | "apex_quick_check" => {
+                crate::account::require_security_suite(&dir).map_err(|e| anyhow!(e))
+            }
+            "apex_architect_design" | "apex_threat_anticipate" | "apex_perf_optimize"
+            | "apex_self_improve" | "apex_security_explain" | "apex_predict_failures"
+            | "spawn_subagent" | "browser_subagent" => {
+                crate::account::require_feature_at(&dir, "agentic").map_err(|e| anyhow!(e))
+            }
+            _ => Ok(()),
+        }
+    }
+
     pub async fn set_apex(&self, apex: Arc<crate::apex_orchestrator::ApexOrchestrator>) {
         let mut a = self.apex.lock().await;
         *a = Some(apex);
@@ -1282,6 +1312,68 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "reverse_shell_generate".to_string(),
+                description: "Generate one-liner reverse shell payloads for authorized pentest labs. Supports bash, python, powershell, php, ruby, nc, node, go, rust, java, csharp, and more. Template only — no network I/O.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "language": { "type": "string", "description": "Target language/runtime (bash, python, powershell, php, …)" },
+                        "host": { "type": "string", "description": "Attacker/listener IP or hostname (LHOST)" },
+                        "port": { "type": "integer", "description": "Listener port (LPORT)" },
+                        "shell": { "type": "string", "description": "Optional shell binary path (/bin/bash, cmd.exe, …)" }
+                    },
+                    "required": ["host", "port"]
+                }),
+            },
+            ToolDefinition {
+                name: "security_listener_generate".to_string(),
+                description: "Generate listener commands for authorized red-team labs: netcat, ncat, socat, Metasploit handler, pwncat.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "kind": { "type": "string", "description": "nc, ncat, socat_tcp, socat_udp, msf, pwncat" },
+                        "host": { "type": "string", "description": "Bind address (0.0.0.0 default)" },
+                        "port": { "type": "integer", "description": "Listen port" }
+                    },
+                    "required": ["port"]
+                }),
+            },
+            ToolDefinition {
+                name: "csp_bypass_analyze".to_string(),
+                description: "Parse a Content-Security-Policy header and return directive breakdown, weaknesses, and bypass research angles (JSONP, unsafe-inline, base-uri, etc.).".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "header": { "type": "string", "description": "Raw CSP header value" },
+                        "csp": { "type": "string", "description": "Alias for header" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "shellcode_recipe_generate".to_string(),
+                description: "Return msfvenom / assembly recipes for shellcode generation on authorized lab machines. Does not emit executable shellcode bytes.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "platform": { "type": "string", "description": "windows, linux, osx" },
+                        "arch": { "type": "string", "description": "x64, x86, elf, macho" },
+                        "payload": { "type": "string", "description": "Metasploit payload name (default shell_reverse_tcp)" }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "payload_encode".to_string(),
+                description: "Encode a payload string for authorized testing: base64, URL, hex, or double-URL encoding.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "payload": { "type": "string", "description": "Raw payload text" },
+                        "encoding": { "type": "string", "description": "base64, url, hex, double_url" }
+                    },
+                    "required": ["payload", "encoding"]
+                }),
+            },
+            ToolDefinition {
                 name: "file_entropy_analysis".to_string(),
                 description: "Calculate bit-level entropy to detect packed or encrypted sections (Malware Research).".to_string(),
                 input_schema: json!({
@@ -1527,6 +1619,7 @@ impl AiTools {
 
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
         let canonical = Self::canonical_tool_name(name);
+        self.gate_tool_entitlement(canonical).await?;
         match canonical {
             "find_api_keys" => self.find_api_keys(arguments).await,
             "analyze_file_symbols" => self.analyze_file_symbols(arguments).await,
@@ -1666,6 +1759,13 @@ impl AiTools {
             | "disassemble"
             | "get_binary_info" => self.handle_research_tool(canonical, arguments).await,
 
+            // Obsidian-style security generators (deterministic templates)
+            "reverse_shell_generate"
+            | "security_listener_generate"
+            | "csp_bypass_analyze"
+            | "shellcode_recipe_generate"
+            | "payload_encode" => self.handle_security_generator(canonical, arguments).await,
+
             // ═══ APEX Intelligence Framework Tools ═══
             "apex_red_team_scan"
             | "apex_scan_url"
@@ -1681,6 +1781,60 @@ impl AiTools {
             | "apex_pentest_report" => self.handle_apex_tool(canonical, arguments).await,
 
             _ => Err(anyhow!("Unknown tool: {}", name)),
+        }
+    }
+
+    async fn handle_security_generator(&self, name: &str, args: Value) -> Result<Value> {
+        if let Some(dir) = self.config_dir().await {
+            let acct = crate::account::AccountManager::load(&dir);
+            if !crate::account::AccountManager::has_accepted(&acct, "bug-bounty") {
+                return Err(anyhow!(
+                    "Accept Bug Bounty Terms in Settings → Account before using security generators."
+                ));
+            }
+        }
+        use crate::security_generators::{
+            analyze_csp, encode_payload, listener_config, reverse_shell, shellcode_recipe,
+        };
+        match name {
+            "reverse_shell_generate" => {
+                let language = args.get("language").and_then(|v| v.as_str()).unwrap_or("bash");
+                let host = args.get("host").and_then(|v| v.as_str()).unwrap_or("");
+                let port = args.get("port").and_then(|v| v.as_u64()).unwrap_or(4444) as u16;
+                let shell = args.get("shell").and_then(|v| v.as_str());
+                let payload = reverse_shell(language, host, port, shell).map_err(|e| anyhow!(e))?;
+                Ok(json!({ "language": language, "host": host, "port": port, "payload": payload }))
+            }
+            "security_listener_generate" => {
+                let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("nc");
+                let host = args.get("host").and_then(|v| v.as_str()).unwrap_or("0.0.0.0");
+                let port = args.get("port").and_then(|v| v.as_u64()).unwrap_or(4444) as u16;
+                let command = listener_config(kind, host, port).map_err(|e| anyhow!(e))?;
+                Ok(json!({ "kind": kind, "command": command }))
+            }
+            "csp_bypass_analyze" => {
+                let header = args
+                    .get("header")
+                    .or_else(|| args.get("csp"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                Ok(analyze_csp(header))
+            }
+            "shellcode_recipe_generate" => {
+                let platform = args.get("platform").and_then(|v| v.as_str()).unwrap_or("windows");
+                let arch = args.get("arch").and_then(|v| v.as_str()).unwrap_or("x64");
+                let payload = args
+                    .get("payload")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("shell_reverse_tcp");
+                Ok(shellcode_recipe(platform, arch, payload))
+            }
+            "payload_encode" => {
+                let payload = args.get("payload").and_then(|v| v.as_str()).unwrap_or("");
+                let encoding = args.get("encoding").and_then(|v| v.as_str()).unwrap_or("base64");
+                encode_payload(payload, encoding).map_err(|e| anyhow!(e))
+            }
+            _ => unreachable!(),
         }
     }
 
@@ -4157,6 +4311,9 @@ impl AiTools {
                 .unwrap_or(entry.path())
                 .to_string_lossy()
                 .to_string();
+            if audit_skip_path(&rel) {
+                continue;
+            }
 
             let numbered: String = content
                 .lines()
@@ -4191,14 +4348,14 @@ impl AiTools {
             }));
         }
 
-        // ── Stage 2: hypothesis generation (cheap, high recall) ──
-        let hypo_sys = "You are a high-recall vulnerability hypothesis generator for a security audit. \
-For the given source chunk, list EVERY potentially attackable point. Optimize for RECALL — better to include \
-a weak candidate than miss a real bug; false positives are filtered later. Look for missing/broken \
-authorization (IDOR, missing access checks), injection (SQL/command/template/XSS), unsafe input handling, \
-SSRF, path traversal, insecure deserialization, weak crypto, auth/session flaws, and business-logic \
-inconsistencies. Reply ONLY with a JSON array; each item: \
-{\"file\":\"path\",\"line\":<int>,\"category\":\"short label\",\"cwe\":\"CWE-XXX\",\"why\":\"one sentence\"}. \
+        // ── Stage 2: hypothesis generation (cheap, balanced precision/recall) ──
+        let hypo_sys = "You are a vulnerability analyst for authorized security audits. \
+Report ONLY issues with a plausible exploit path: untrusted input reaching a dangerous sink, \
+a missing authorization check on a sensitive action, or a clearly unsafe default exposed to users. \
+SKIP: test/mock/fixture code, comments, dead code, style issues, generic hardening advice, \
+and hypothetical attacks without a visible source→sink path. \
+Reply ONLY with a JSON array; each item: \
+{\"file\":\"path\",\"line\":<int>,\"category\":\"short label\",\"cwe\":\"CWE-XXX\",\"why\":\"concrete attack path in one sentence\"}. \
 No prose, no markdown fences.";
         let mut candidates: Vec<Value> = Vec::new();
         for (i, ch) in chunks.iter().enumerate() {
@@ -4223,11 +4380,11 @@ No prose, no markdown fences.";
                 "scope": scope, "chunks": chunks.len(), "files_scanned": files_scanned, "findings": []
             }));
         }
-        if candidates.len() > 120 {
-            candidates.truncate(120);
+        if candidates.len() > 60 {
+            candidates.truncate(60);
         }
 
-        // ── Stage 3a: mid model drops obvious false positives ──
+        // ── Stage 3a: mid model drops weak / hypothetical candidates ──
         push_activity(
             &self.activity_log,
             "ai-action",
@@ -4236,10 +4393,12 @@ No prose, no markdown fences.";
                 "tool": "ai_vuln_hunt"
             }),
         );
-        let filter_sys = "You are a triage filter in a security audit. Given a JSON array of vulnerability \
-candidates, drop the obvious false positives (no attacker-controlled input, already guarded by an upper layer, \
-not security-relevant). Keep anything plausible. Reply ONLY with a JSON array of the SURVIVING candidates \
-(the same objects you kept). No prose, no fences.";
+        let filter_sys = "You are a strict triage filter. DROP a candidate unless ALL are true: \
+(1) attacker-controlled or cross-tenant input is visible or strongly implied, \
+(2) the dangerous sink or missing control is in the cited file/line, \
+(3) it is not test/mock/example/fixture code. \
+Remove generic CWE spam, linter-style nits, and 'could be X if Y' hypotheticals. \
+Reply ONLY with a JSON array of SURVIVING candidates (same object shape). No prose, no fences.";
         let cand_json = serde_json::to_string(&candidates).unwrap_or_else(|_| "[]".to_string());
         let mut survivors: Vec<Value> = candidates.clone();
         if let Ok(reply) = self.vuln_llm(&engine, &mid.0, &mid.1, filter_sys, &cand_json, 0.1).await {
@@ -4250,7 +4409,7 @@ not security-relevant). Keep anything plausible. Reply ONLY with a JSON array of
             }
         }
 
-        // ── Stage 3b: strong model confirms + enriches ──
+        // ── Stage 3b: strong model confirms in small batches (reduces hallucination) ──
         push_activity(
             &self.activity_log,
             "ai-action",
@@ -4259,40 +4418,42 @@ not security-relevant). Keep anything plausible. Reply ONLY with a JSON array of
                 "tool": "ai_vuln_hunt"
             }),
         );
-        let confirm_sys = "You are the senior validator in a security audit. For each candidate, decide if it is \
-a REAL, exploitable vulnerability. Be honest: if confirming would require undocumented service policy, set \
-policy_dependent=true; if the security control may legitimately live in another component you cannot see, set \
-cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop the rejects); each item: \
-{\"title\":\"\",\"severity\":\"CRITICAL|HIGH|MEDIUM|LOW\",\"cwe\":\"CWE-XXX\",\"category\":\"\",\"path\":\"\",\
-\"line\":<int>,\"evidence\":\"code or reason\",\"impact\":\"\",\"remediation\":\"\",\"poc\":\"steps or payload\",\
-\"confidence\":0.0,\"policy_dependent\":false,\"cross_component\":false}. No prose, no fences.";
-        let surv_json = serde_json::to_string(&survivors).unwrap_or_else(|_| "[]".to_string());
+        let confirm_sys = "You are the senior validator in an authorized security audit. \
+For each candidate, CONFIRM only if the cited line supports a real exploit path. \
+REJECT lint noise, framework-safe patterns, and guesses. \
+If policy docs are needed to decide, set policy_dependent=true and confidence<=0.5. \
+If the fix may live in another service, set cross_component=true and confidence<=0.55. \
+Reply ONLY with a JSON array of CONFIRMED findings; each item: \
+{\"title\":\"\",\"severity\":\"CRITICAL|HIGH|MEDIUM|LOW\",\"cwe\":\"CWE-XXX\",\"category\":\"\",\
+\"path\":\"\",\"line\":<int>,\"description\":\"what is wrong\",\"evidence\":\"exact code fragment\",\
+\"attack_scenario\":\"step-by-step exploit narrative\",\"impact\":\"business/security impact\",\
+\"remediation\":\"specific fix\",\"poc\":\"minimal repro steps or payload\",\"confidence\":0.0,\
+\"policy_dependent\":false,\"cross_component\":false}. No prose, no fences.";
         let mut findings: Vec<Value> = Vec::new();
-        if let Ok(reply) = self.vuln_llm(&engine, &strong.0, &strong.1, confirm_sys, &surv_json, 0.1).await {
-            if let Some(Value::Array(arr)) = extract_json_loose(&reply) {
-                findings = arr;
+        for batch in survivors.chunks(10) {
+            let batch_json = serde_json::to_string(batch).unwrap_or_else(|_| "[]".to_string());
+            if let Ok(reply) = self.vuln_llm(&engine, &strong.0, &strong.1, confirm_sys, &batch_json, 0.05).await {
+                if let Some(Value::Array(arr)) = extract_json_loose(&reply) {
+                    findings.extend(arr);
+                }
             }
         }
-        // Strong tier unavailable/unparseable → keep survivors as low-confidence findings.
-        if findings.is_empty() {
-            for c in &survivors {
-                findings.push(json!({
-                    "title": c.get("category").and_then(|v| v.as_str()).unwrap_or("Potential issue"),
-                    "severity": "LOW",
-                    "cwe": c.get("cwe").cloned().unwrap_or(json!("CWE-0")),
-                    "category": c.get("category").cloned().unwrap_or(json!("unverified")),
-                    "path": c.get("file").cloned().unwrap_or(json!("")),
-                    "line": c.get("line").cloned().unwrap_or(json!(0)),
-                    "evidence": c.get("why").cloned().unwrap_or(json!("")),
-                    "impact": "",
-                    "remediation": "Manual review required — strong-tier confirmation was unavailable.",
-                    "poc": "",
-                    "confidence": 0.3,
-                    "policy_dependent": false,
-                    "cross_component": false
-                }));
-            }
-        }
+        // Deterministic post-filter: verify file/line/evidence — never promote unverified survivors.
+        findings = tighten_security_findings(&root, findings, 0.60);
+        let manual_review: Vec<Value> = findings
+            .iter()
+            .filter(|f| {
+                f.get("policy_dependent").and_then(|v| v.as_bool()).unwrap_or(false)
+                    || f.get("cross_component").and_then(|v| v.as_bool()).unwrap_or(false)
+                    || f.get("confidence").and_then(|v| v.as_f64()).unwrap_or(1.0) < 0.65
+            })
+            .cloned()
+            .collect();
+        findings.retain(|f| {
+            !f.get("policy_dependent").and_then(|v| v.as_bool()).unwrap_or(false)
+                && !f.get("cross_component").and_then(|v| v.as_bool()).unwrap_or(false)
+                && f.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.0) >= 0.65
+        });
 
         // ── Normalize + id + sort by severity ──
         let sev_rank = |s: &str| -> u8 {
@@ -4319,7 +4480,7 @@ cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop t
             *by_sev.entry(s).or_insert(0) += 1;
         }
 
-        // ── Markdown report ──
+        // ── Markdown report (HackerOne-style detail) ──
         let mut report_path = String::new();
         if write_report {
             let ts = std::time::SystemTime::now()
@@ -4329,44 +4490,32 @@ cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop t
             let reports_dir = root.join("reports");
             let _ = fs::create_dir_all(&reports_dir);
             let file = reports_dir.join(format!("vuln-hunt-{}.md", ts));
-            let mut md = String::new();
-            md.push_str(&format!(
-                "# AI Vulnerability Hunt\n\n- **Scope:** `{}`\n- **Files scanned:** {}\n- **Chunks:** {}\n- **Candidates:** {}\n- **Confirmed findings:** {}\n- **Tiers:** cheap `{}|{}` → mid `{}|{}` → strong `{}|{}`\n\n",
-                scope, files_scanned, chunks.len(), candidates.len(), findings.len(),
+            let fs_s = files_scanned.to_string();
+            let ch_s = chunks.len().to_string();
+            let cand_s = candidates.len().to_string();
+            let surv_s = survivors.len().to_string();
+            let conf_s = findings.len().to_string();
+            let man_s = manual_review.len().to_string();
+            let tiers_s = format!(
+                "cheap `{}|{}` → mid `{}|{}` → strong `{}|{}`",
                 cheap.0, cheap.1, mid.0, mid.1, strong.0, strong.1
-            ));
-            md.push_str("## Summary by severity\n\n| Severity | Count |\n|----------|------:|\n");
-            for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"] {
-                if let Some(c) = by_sev.get(sev) {
-                    md.push_str(&format!("| {} | {} |\n", sev, c));
-                }
-            }
-            md.push_str("\n## Findings\n\n");
-            for f in &findings {
-                let flag = |k: &str| f.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
-                let mut notes = String::new();
-                if flag("policy_dependent") {
-                    notes.push_str("  ⚠️ policy-dependent (needs policy doc to confirm)");
-                }
-                if flag("cross_component") {
-                    notes.push_str("  ⚠️ cross-component (control may live elsewhere)");
-                }
-                md.push_str(&format!(
-                    "### {} — {}\n- **Severity:** {}  ·  **CWE:** {}  ·  **Confidence:** {:.2}{}\n- **Location:** `{}:{}`\n- **Evidence:** {}\n- **Impact:** {}\n- **PoC:** {}\n- **Remediation:** {}\n\n",
-                    f.get("id").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("title").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("severity").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("cwe").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                    notes,
-                    f.get("path").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("line").and_then(|v| v.as_u64()).unwrap_or(0),
-                    f.get("evidence").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("impact").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("poc").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("remediation").and_then(|v| v.as_str()).unwrap_or(""),
-                ));
-            }
+            );
+            let md = render_security_report(
+                "AI Vulnerability Hunt",
+                &[
+                    ("Scope", scope.as_str()),
+                    ("Files scanned", &fs_s),
+                    ("Chunks", &ch_s),
+                    ("Raw candidates", &cand_s),
+                    ("After triage", &surv_s),
+                    ("Confirmed", &conf_s),
+                    ("Manual review queue", &man_s),
+                    ("Tiers", &tiers_s),
+                ],
+                &findings,
+                &manual_review,
+                &*root,
+            );
             if fs::write(&file, md).is_ok() {
                 report_path = file
                     .strip_prefix(&*root)
@@ -4383,6 +4532,7 @@ cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop t
             "candidates": candidates.len(),
             "survivors": survivors.len(),
             "total_findings": findings.len(),
+            "manual_review": manual_review.len(),
             "by_severity": by_sev,
             "tiers": {
                 "cheap": format!("{}|{}", cheap.0, cheap.1),
@@ -4391,8 +4541,9 @@ cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop t
             },
             "report_path": report_path,
             "findings": findings,
-            "summary": format!("AI vuln-hunt: {} confirmed finding(s) from {} candidate(s) across {} chunk(s)/{} file(s). Report: {}",
-                findings.len(), candidates.len(), chunks.len(), files_scanned,
+            "manual_review_queue": manual_review,
+            "summary": format!("AI vuln-hunt: {} confirmed, {} queued for manual review (from {} candidates). Report: {}",
+                findings.len(), manual_review.len(), candidates.len(),
                 if report_path.is_empty() { "(not written)".to_string() } else { report_path.clone() }),
         }))
     }
@@ -4467,6 +4618,7 @@ cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop t
             let content = match fs::read_to_string(entry.path()) { Ok(c) => c, Err(_) => continue };
             files_scanned += 1;
             let rel = entry.path().strip_prefix(&*root).unwrap_or(entry.path()).to_string_lossy().to_string();
+            if audit_skip_path(&rel) { continue; }
             for (line_no, line) in content.lines().enumerate() {
                 if findings.len() >= max_findings { break; }
                 if line.len() > 1000 { continue; }
@@ -4507,6 +4659,7 @@ cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop t
         }
 
         // ── Consolidate + sort by severity ───────────────────────────────────
+        findings = tighten_security_findings(&root, findings, 0.45);
         findings.sort_by_key(|f| sev_rank(f.get("severity").and_then(|v| v.as_str()).unwrap_or("INFO")));
         let mut by_sev: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
         for f in &findings {
@@ -4522,32 +4675,37 @@ cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop t
             let reports_dir = root.join("reports");
             let _ = fs::create_dir_all(&reports_dir);
             let file = reports_dir.join(format!("security-audit-{}.md", ts));
-            let mut md = String::new();
-            md.push_str(&format!("# Security Audit Report\n\n- **Scope:** `{}`\n- **Depth:** {}\n- **Files scanned:** {}\n- **Total findings:** {}\n\n",
-                scope, depth, files_scanned, findings.len()));
-            md.push_str("## Summary by severity\n\n| Severity | Count |\n|----------|------:|\n");
-            for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] {
-                if let Some(c) = by_sev.get(sev) { md.push_str(&format!("| {} | {} |\n", sev, c)); }
-            }
-            if !dep_notes.is_empty() {
-                md.push_str("\n## Dependency posture\n\n");
-                for n in &dep_notes { md.push_str(&format!("- {}\n", n)); }
-            }
-            md.push_str("\n## Findings\n\n");
-            for f in &findings {
-                md.push_str(&format!(
-                    "### {} — {} [{}]\n- **Severity:** {}  ·  **CWE:** {}\n- **Location:** `{}:{}`\n- **Evidence:** `{}`\n- **Remediation:** {}\n\n",
-                    f.get("id").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("title").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("category").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("severity").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("cwe").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("path").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("line").and_then(|v| v.as_u64()).unwrap_or(0),
-                    f.get("evidence").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("remediation").and_then(|v| v.as_str()).unwrap_or(""),
-                ));
-            }
+            let files_scanned_s = files_scanned.to_string();
+            let total_s = findings.len().to_string();
+            let md = if dep_notes.is_empty() {
+                render_security_report(
+                    "Static Security Audit",
+                    &[
+                        ("Scope", scope.as_str()),
+                        ("Depth", depth.as_str()),
+                        ("Files scanned", &files_scanned_s),
+                        ("Total findings", &total_s),
+                    ],
+                    &findings,
+                    &[],
+                    &*root,
+                )
+            } else {
+                let dep_block = dep_notes.join("; ");
+                render_security_report(
+                    "Static Security Audit",
+                    &[
+                        ("Scope", scope.as_str()),
+                        ("Depth", depth.as_str()),
+                        ("Files scanned", &files_scanned_s),
+                        ("Total findings", &total_s),
+                        ("Dependencies", &dep_block),
+                    ],
+                    &findings,
+                    &[],
+                    &*root,
+                )
+            };
             if fs::write(&file, md).is_ok() {
                 report_path = file.strip_prefix(&*root).unwrap_or(&file).to_string_lossy().to_string();
             }
@@ -6993,7 +7151,39 @@ cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop t
     }
 
     pub async fn verify_implementation(&self, args: Value) -> Result<Value> {
-        let command = args["command"].as_str().unwrap_or("cargo check");
+        // Shadow VFS + cargo check when a patched file is supplied (MCTS verify seam).
+        if let (Some(path), Some(content)) = (
+            args.get("path").and_then(|v| v.as_str()),
+            args.get("content").and_then(|v| v.as_str()),
+        ) {
+            let rel = path.trim_start_matches("./").trim_start_matches('\\').trim_start_matches('/');
+            let harness = {
+                let h_lock = self.app_handle.lock().await;
+                let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
+                let state: tauri::State<crate::EditorState> = h.state();
+                state.ai_engine.harness.clone()
+            };
+            match harness.verify_candidate(std::path::Path::new(rel), content) {
+                Ok(diags) => {
+                    let ok = diags.iter().all(|d| d.level != "error");
+                    return Ok(json!({
+                        "status": if ok { "verified" } else { "failed" },
+                        "method": "shadow_cargo_check",
+                        "path": rel,
+                        "diagnostics": diags,
+                        "errors": diags.iter().filter(|d| d.level == "error").count(),
+                    }));
+                }
+                Err(e) => {
+                    return Ok(json!({
+                        "status": "skipped",
+                        "method": "shadow_cargo_check",
+                        "reason": e.to_string(),
+                    }));
+                }
+            }
+        }
+        let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("cargo check");
         self.run_command(json!({ "command": command, "shell_hint": "powershell" })).await
     }
 
@@ -7054,6 +7244,228 @@ cross_component=true. Reply ONLY with a JSON array of CONFIRMED findings (drop t
 
 }
 
+/// Paths that should not feed bug-bounty / static audit findings (tests, mocks, vendored code).
+fn audit_skip_path(rel: &str) -> bool {
+    let l = rel.replace('\\', "/").to_lowercase();
+    [
+        "/test/", "/tests/", "/__tests__/", "/spec/", "/mocks/", "/mock/",
+        "/fixtures/", "/fixture/", "/examples/", "/vendor/", "/node_modules/",
+        ".test.", ".spec.", "_test.", "_mock.", "/generated/", "/dist/",
+        "/target/", "/.git/",
+    ]
+    .iter()
+    .any(|p| l.contains(p))
+}
+
+fn read_line_context(root: &std::path::Path, rel: &str, line: usize, radius: usize) -> Option<(String, String)> {
+    let full = root.join(rel);
+    let content = fs::read_to_string(&full).ok()?;
+    let lines: Vec<&str> = content.lines().collect();
+    if line == 0 || line > lines.len() {
+        return None;
+    }
+    let lo = line.saturating_sub(radius + 1);
+    let hi = (line + radius).min(lines.len());
+    let window = lines[lo..hi]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| format!("{:>4}| {}", lo + i + 1, l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some((lines[line - 1].to_string(), window))
+}
+
+fn evidence_matches_line(evidence: &str, line: &str, window: &str) -> bool {
+    let ev = evidence.trim();
+    if ev.len() < 8 {
+        return true;
+    }
+    let norm = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    let needle: String = ev.chars().take(80).collect();
+    let n = norm(&needle);
+    if n.len() < 8 {
+        return true;
+    }
+    norm(line).contains(&n) || norm(window).contains(&n)
+}
+
+fn finding_path_line(f: &Value) -> (String, usize) {
+    let path = f
+        .get("path")
+        .or_else(|| f.get("file"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let line = f.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    (path, line)
+}
+
+/// Drop duplicate / unverifiable / low-confidence findings after LLM stages.
+fn tighten_security_findings(root: &std::path::Path, findings: Vec<Value>, min_confidence: f64) -> Vec<Value> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for f in findings {
+        let (path, line) = finding_path_line(&f);
+        if path.is_empty() {
+            continue;
+        }
+        if audit_skip_path(&path) {
+            continue;
+        }
+        let conf = f.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.55);
+        if conf < min_confidence {
+            continue;
+        }
+        if line > 0 {
+            let Some((ln, window)) = read_line_context(root, &path, line, 2) else {
+                continue;
+            };
+            let ev = f.get("evidence").and_then(|v| v.as_str()).unwrap_or("");
+            if !evidence_matches_line(ev, &ln, &window) {
+                continue;
+            }
+        }
+        let key = format!(
+            "{}:{}:{}",
+            path,
+            line,
+            f.get("cwe").and_then(|v| v.as_str()).unwrap_or("")
+        );
+        if !seen.insert(key) {
+            continue;
+        }
+        out.push(f);
+    }
+    out
+}
+
+fn severity_counts(findings: &[Value]) -> std::collections::BTreeMap<String, u64> {
+    let mut by_sev = std::collections::BTreeMap::new();
+    for f in findings {
+        let s = f
+            .get("severity")
+            .and_then(|v| v.as_str())
+            .unwrap_or("INFO")
+            .to_uppercase();
+        *by_sev.entry(s).or_insert(0) += 1;
+    }
+    by_sev
+}
+
+fn render_finding_block(f: &Value, root: &std::path::Path) -> String {
+    let (path, line) = finding_path_line(f);
+    let id = f.get("id").and_then(|v| v.as_str()).unwrap_or("FIND");
+    let title = f.get("title").and_then(|v| v.as_str()).unwrap_or("Finding");
+    let sev = f.get("severity").and_then(|v| v.as_str()).unwrap_or("MEDIUM");
+    let cwe = f.get("cwe").and_then(|v| v.as_str()).unwrap_or("—");
+    let conf = f.get("confidence").and_then(|v| v.as_f64());
+    let desc = f
+        .get("description")
+        .and_then(|v| v.as_str())
+        .or_else(|| f.get("why").and_then(|v| v.as_str()))
+        .unwrap_or("");
+    let attack = f
+        .get("attack_scenario")
+        .and_then(|v| v.as_str())
+        .or_else(|| f.get("poc").and_then(|v| v.as_str()))
+        .unwrap_or("");
+    let impact = f.get("impact").and_then(|v| v.as_str()).unwrap_or("");
+    let evidence = f.get("evidence").and_then(|v| v.as_str()).unwrap_or("");
+    let remediation = f.get("remediation").and_then(|v| v.as_str()).unwrap_or("");
+    let poc = f.get("poc").and_then(|v| v.as_str()).unwrap_or("");
+
+    let mut block = format!(
+        "### {id} — {title}\n\n| Field | Value |\n|-------|-------|\n| **Severity** | {sev} |\n| **CWE** | {cwe} |\n| **Location** | `{path}:{line}` |\n",
+    );
+    if let Some(c) = conf {
+        block.push_str(&format!("| **Confidence** | {c:.2} |\n"));
+    }
+    if !desc.is_empty() {
+        block.push_str(&format!("\n**Description**\n\n{desc}\n"));
+    }
+    if !attack.is_empty() && attack != poc {
+        block.push_str(&format!("\n**Attack scenario**\n\n{attack}\n"));
+    }
+    if line > 0 {
+        if let Some((_, window)) = read_line_context(root, &path, line, 3) {
+            block.push_str(&format!("\n**Code context**\n\n```\n{window}\n```\n"));
+        }
+    } else if !evidence.is_empty() {
+        block.push_str(&format!("\n**Evidence**\n\n`{evidence}`\n"));
+    }
+    if !impact.is_empty() {
+        block.push_str(&format!("\n**Impact**\n\n{impact}\n"));
+    }
+    if !poc.is_empty() {
+        block.push_str(&format!("\n**Proof of concept / reproduction**\n\n{poc}\n"));
+    }
+    if !remediation.is_empty() {
+        block.push_str(&format!("\n**Remediation**\n\n{remediation}\n"));
+    }
+    block.push('\n');
+    block
+}
+
+/// Shared Markdown report for vuln-hunt, static audit, and web audit tools.
+fn render_security_report(
+    title: &str,
+    meta: &[(&str, &str)],
+    findings: &[Value],
+    manual_review: &[Value],
+    root: &std::path::Path,
+) -> String {
+    let by_sev = severity_counts(findings);
+    let mut md = format!("# {title}\n\n## Executive summary\n\n");
+    if findings.is_empty() {
+        md.push_str("No confirmed vulnerabilities met evidence and confidence thresholds in this run.\n\n");
+    } else {
+        md.push_str(&format!(
+            "**{} confirmed finding(s)**",
+            findings.len()
+        ));
+        if let Some(c) = by_sev.get("CRITICAL") {
+            md.push_str(&format!(" including **{c} CRITICAL**"));
+        }
+        if let Some(h) = by_sev.get("HIGH") {
+            md.push_str(&format!(", **{h} HIGH**"));
+        }
+        md.push_str(".\n\n");
+    }
+    if !manual_review.is_empty() {
+        md.push_str(&format!(
+            "⚠️ **{} item(s)** need manual review (policy-dependent, cross-component, or low confidence).\n\n",
+            manual_review.len()
+        ));
+    }
+    md.push_str("## Scope & methodology\n\n");
+    for (k, v) in meta {
+        md.push_str(&format!("- **{k}:** {v}\n"));
+    }
+    md.push_str("\nPipeline: static/heuristic signals → LLM triage → evidence verification at cited line → confidence threshold.\n\n");
+    md.push_str("## Summary by severity\n\n| Severity | Count |\n|----------|------:|\n");
+    for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] {
+        if let Some(c) = by_sev.get(sev) {
+            md.push_str(&format!("| {sev} | {c} |\n"));
+        }
+    }
+    md.push_str("\n## Confirmed findings\n\n");
+    if findings.is_empty() {
+        md.push_str("_None._\n\n");
+    } else {
+        for f in findings {
+            md.push_str(&render_finding_block(f, root));
+        }
+    }
+    if !manual_review.is_empty() {
+        md.push_str("## Manual review queue\n\n");
+        md.push_str("_These were not promoted to confirmed — verify before reporting externally._\n\n");
+        for f in manual_review {
+            md.push_str(&render_finding_block(f, root));
+        }
+    }
+    md
+}
+
 /// Heuristic CWE source-scan patterns used by `deep_security_audit`.
 /// (category, severity, CWE, regex, remediation). Module-level so the pattern set
 /// can be unit-tested without constructing a full `AiTools` instance.
@@ -7062,7 +7474,7 @@ pub(crate) fn security_audit_patterns()
 {
     &[
         ("OS Command Injection", "HIGH", "CWE-78", r"(?i)(os\.system|subprocess\.(call|Popen|run)[^)]*shell\s*=\s*True|child_process\.(exec|execSync)|Runtime\.getRuntime\(\)\.exec)", "Never pass untrusted input to a shell; use argument arrays / parameterized APIs."),
-        ("SQL Injection", "HIGH", "CWE-89", r#"(?i)(execute|query|exec_sql|format!)\s*\([^;]*(SELECT|INSERT|UPDATE|DELETE)[^;]*(\+|\$\{|%s|\{\})"#, "Use parameterized queries / prepared statements, never string concatenation."),
+        ("SQL Injection", "HIGH", "CWE-89", r#"(?i)(execute|query|exec_sql)\s*\(\s*[^)]*(\+\s*|\|\|\s*|\.format\s*\(|format!\s*\([^)]*(\+|\{))"#, "Use parameterized queries / prepared statements, never string concatenation."),
         ("Cross-Site Scripting", "MEDIUM", "CWE-79", r"(?i)(innerHTML\s*=|dangerouslySetInnerHTML|document\.write\s*\()", "Escape/encode output; prefer textContent or a sanitizer (DOMPurify)."),
         ("Unsafe Deserialization", "HIGH", "CWE-502", r"(?i)(pickle\.loads|cPickle\.loads|Marshal\.load|unserialize\s*\(|ObjectInputStream)", "Use safe loaders / allow-lists / signed payloads."),
         ("Weak Cryptographic Hash", "MEDIUM", "CWE-327", r"(?i)\b(md5|sha1)\s*\(", "Use SHA-256+; bcrypt/scrypt/argon2 for passwords."),

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { runCodebaseSecurityReview } from '../../application/security/runCodebaseSecurityReview';
 import { severityColor, severityRank, type SecurityFinding, type SecuritySeverity } from '../../domain/security/SecurityFinding';
+import SecurityArsenalPanel from './SecurityArsenalPanel';
 
 const SEVERITIES: SecuritySeverity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
 
@@ -26,6 +27,7 @@ const SecurityReviewPanel: React.FC = () => {
 
     const [filter, setFilter] = useState<SecuritySeverity | 'ALL'>('ALL');
     const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [tab, setTab] = useState<'review' | 'arsenal'>('review');
 
     const filtered = useMemo(() => {
         if (!report) return [];
@@ -66,15 +68,32 @@ const SecurityReviewPanel: React.FC = () => {
 
     if (!activeRoot) {
         return (
-            <div style={{ padding: 20, textAlign: 'center', fontSize: 12, opacity: 0.65 }}>
-                <i className="codicon codicon-shield" style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: 0.4 }} />
-                Open a folder to run a codebase security review.
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                {tab === 'arsenal' ? (
+                    <SecurityArsenalPanel onOpenReview={() => setTab('review')} />
+                ) : (
+                    <div style={{ padding: 20, textAlign: 'center', fontSize: 12, opacity: 0.65 }}>
+                        <i className="codicon codicon-shield" style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: 0.4 }} />
+                        Open a folder to run a codebase security review.
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    if (tab === 'arsenal') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <SecurityArsenalPanel onOpenReview={() => setTab('review')} />
             </div>
         );
     }
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+            <TabBar tab={tab} setTab={setTab} />
             {/* Action bar */}
             <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--vscode-panel-border)', flexShrink: 0 }}>
                 <button
@@ -301,5 +320,29 @@ const SecurityReviewPanel: React.FC = () => {
         </div>
     );
 };
+
+const TabBar: React.FC<{ tab: 'review' | 'arsenal'; setTab: (t: 'review' | 'arsenal') => void }> = ({ tab, setTab }) => (
+    <div style={{ display: 'flex', gap: 4, padding: '8px 10px', borderBottom: '1px solid var(--vscode-panel-border)', flexShrink: 0 }}>
+        {(['review', 'arsenal'] as const).map((t) => (
+            <button
+                key={t}
+                type="button"
+                onClick={() => setTab(t)}
+                style={{
+                    padding: '5px 12px',
+                    borderRadius: 6,
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    background: tab === t ? 'var(--vscode-button-background, #4daafc)' : 'transparent',
+                    color: tab === t ? 'var(--vscode-button-foreground, #fff)' : 'inherit',
+                }}
+            >
+                {t === 'review' ? 'Code Review' : 'Security Arsenal'}
+            </button>
+        ))}
+    </div>
+);
 
 export default SecurityReviewPanel;

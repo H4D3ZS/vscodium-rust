@@ -62,6 +62,8 @@ mod memory_store;
 mod patch_engine;
 mod performance_commands;
 mod security_distiller;
+mod security_generators;
+mod security_generator_commands;
 mod system_commands;
 mod task_planner;
 mod terminal_commands;
@@ -246,6 +248,12 @@ pub fn run() {
             account::account_add_tokens,
             account::account_start_trial,
             account::account_open_billing,
+            // ═══ Security Arsenal (Obsidian-style generators) ═══
+            security_generator_commands::security_reverse_shell,
+            security_generator_commands::security_listener,
+            security_generator_commands::security_csp_analyze,
+            security_generator_commands::security_shellcode_recipe,
+            security_generator_commands::security_encode_payload,
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
             ai_commands::aim_inspect,

@@ -549,10 +549,70 @@ impl ApexOrchestrator {
             pred_self.predict_failures(&pred_code, None).await
         });
 
+        // Architect — stack recommendation for this module
+        let arch_url = self.ollama_url.lock().await.clone();
+        let arch_ws = self.workspace_root.lock().await.clone();
+        let arch_cfg = self.config_dir.lock().await.clone();
+        let arch_self = Self::new(&arch_url, arch_ws, arch_cfg);
+        let arch_desc = format!(
+            "Review this {} module at {} and recommend architecture improvements:\n```\n{}\n```",
+            language,
+            file_owned,
+            &code_owned[..code_owned.len().min(4000)]
+        );
+        let arch_handle = tokio::spawn(async move { arch_self.architect_design(&arch_desc).await });
+
+        // Threat anticipation
+        let threat_url = self.ollama_url.lock().await.clone();
+        let threat_ws = self.workspace_root.lock().await.clone();
+        let threat_cfg = self.config_dir.lock().await.clone();
+        let threat_self = Self::new(&threat_url, threat_ws, threat_cfg);
+        let threat_code = code_owned.clone();
+        let threat_ctx = format!("file: {file_owned}, language: {language}");
+        let threat_handle = tokio::spawn(async move {
+            threat_self.threat_anticipate(&threat_code, &threat_ctx).await
+        });
+
+        // Self-improve (single pass — full sweep must stay bounded)
+        let si_url = self.ollama_url.lock().await.clone();
+        let si_ws = self.workspace_root.lock().await.clone();
+        let si_cfg = self.config_dir.lock().await.clone();
+        let si_self = Self::new(&si_url, si_ws, si_cfg);
+        let si_code = code_owned.clone();
+        let si_lang = lang_owned.clone();
+        let si_handle = tokio::spawn(async move { si_self.self_improve(&si_code, &si_lang, 1).await });
+
+        // Explainable security audit
+        let ex_url = self.ollama_url.lock().await.clone();
+        let ex_ws = self.workspace_root.lock().await.clone();
+        let ex_cfg = self.config_dir.lock().await.clone();
+        let ex_self = Self::new(&ex_url, ex_ws, ex_cfg);
+        let ex_code = code_owned.clone();
+        let ex_lang = lang_owned.clone();
+        let explain_handle = tokio::spawn(async move {
+            ex_self.security_audit_explain(&ex_code, &ex_lang).await
+        });
+
+        // Multi-system correlation (single-file preview for sweep context)
+        let ms_url = self.ollama_url.lock().await.clone();
+        let ms_ws = self.workspace_root.lock().await.clone();
+        let ms_cfg = self.config_dir.lock().await.clone();
+        let ms_self = Self::new(&ms_url, ms_ws, ms_cfg);
+        let ms_name = file_owned.clone();
+        let ms_code = code_owned.clone();
+        let multi_handle = tokio::spawn(async move {
+            ms_self.multi_system_scan(vec![(ms_name, ms_code)]).await
+        });
+
         // Collect results
         let rt_result = rt_handle.await.unwrap_or(Err("Red team scan failed".to_string()));
         let perf_result = perf_handle.await.unwrap_or(Err("Perf scan failed".to_string()));
         let pred_result = pred_handle.await.unwrap_or(Err("Prediction failed".to_string()));
+        let arch_result = arch_handle.await.unwrap_or(Err("Architect scan failed".to_string()));
+        let threat_result = threat_handle.await.unwrap_or(Err("Threat scan failed".to_string()));
+        let si_result = si_handle.await.unwrap_or(Err("Self-improve failed".to_string()));
+        let explain_result = explain_handle.await.unwrap_or(Err("Explainer failed".to_string()));
+        let multi_result = multi_handle.await.unwrap_or(Err("Multi-system scan failed".to_string()));
 
         let elapsed = start.elapsed().as_millis();
 
@@ -569,15 +629,41 @@ impl ApexOrchestrator {
             Ok(r) => json!(r),
             Err(e) => json!({"error": e}),
         };
+        let arch_json = match &arch_result {
+            Ok(r) => json!(r),
+            Err(e) => json!({"error": e}),
+        };
+        let threat_json = match &threat_result {
+            Ok(r) => json!(r),
+            Err(e) => json!({"error": e}),
+        };
+        let si_json = match &si_result {
+            Ok(r) => json!(r),
+            Err(e) => json!({"error": e}),
+        };
+        let explain_json = match &explain_result {
+            Ok(r) => json!(r),
+            Err(e) => json!({"error": e}),
+        };
+        let multi_json = match &multi_result {
+            Ok(r) => json!(r),
+            Err(e) => json!({"error": e}),
+        };
 
         let result = json!({
             "sweep_id": uuid::Uuid::new_v4().to_string(),
             "file": file_path,
             "language": language,
             "duration_ms": elapsed,
+            "engines_run": 7,
             "red_team": rt_json,
             "performance": perf_json,
             "predictions": pred_json,
+            "architect": arch_json,
+            "threat": threat_json,
+            "self_improve": si_json,
+            "explainer": explain_json,
+            "multi_system": multi_json,
         });
 
         // Push to feed

@@ -92,10 +92,18 @@ const App: React.FC = () => {
         // Default subscribed users to managed cloud model (Cyber-Ifrit Qwen 35B).
         invoke<any>('account_get').then((acct) => {
             if (!acct?.signed_in) return;
+            const features: string[] = acct?.entitlements?.features || [];
+            const hasCloud = features.includes('cloud_models') || acct?.trial_active;
             const st = useStore.getState();
+            if (hasCloud && !localStorage.getItem('cyberifrit.cloudOnboarded')) {
+                try { localStorage.setItem('cyberifrit.cloudOnboarded', '1'); } catch { /* */ }
+                st.setOllamaServerMode?.('cloud');
+                void st.syncOllamaEndpoint?.().then(() => st.refreshAvailableModels());
+            }
             const current = (st.agentModel || '').trim();
-            if (current) return;
-            st.setAgentModel?.('cyberifrit|cyberifrit/qwen3.6:35b');
+            if (!current && hasCloud) {
+                st.setAgentModel?.('cyberifrit|cyberifrit/qwen3.6:35b');
+            }
         }).catch(() => { /* offline / first launch */ });
 
         import('./application/workspace/restoreWorkspaceOnBoot').then(({ restoreWorkspaceOnBoot }) =>
