@@ -102,9 +102,9 @@ const AccountSettingsPanel: React.FC = () => {
     };
     const subscribe = (subTier: string) => {
         if (!signedIn) { setMsg('Sign in first to subscribe.'); return; }
-        setMsg('Opening checkout in your browser…');
+        setMsg('Opening QR Ph checkout in your browser…');
         invoke('account_subscribe', { tier: subTier })
-            .then(() => setMsg('Checkout opened — complete payment in your browser, then Sync.'))
+            .then(() => setMsg('Scan the QR on the website — when paid, click Sync here.'))
             .catch((e) => setMsg(String(e)));
     };
     const openBilling = () => { invoke('account_open_billing').catch(() => {}); };
