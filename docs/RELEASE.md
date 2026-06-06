@@ -28,17 +28,39 @@ prefers this frozen exe and only falls back to system Python for source/dev runs
 > Skip this and the installer still builds, but browser automation will require
 > the user to have Python + `pip install playwright invisible_playwright`.
 
+## 2b. Bundle claurst (optional external agent backend)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-claurst.ps1
+```
+
+→ `src-tauri\binaries\claurst.exe`. Shipped in the same `binaries/*` bundle.
+Settings → Agent Engine → **Claurst** uses this process (GPL, kept at arm's length).
+Default engine remains **Sentient** (built-in).
+
+Both sidecars are built automatically by `npm run prebuild:sidecar` before `tauri build`.
+
 ## 3. Build the installer
 
 ```powershell
-npx tauri build
+npm run build:tauri
 ```
 
-Outputs in `src-tauri\target\release\bundle\`:
-- `msi\VSCodium Rust IDE_0.1.0_x64_en-US.msi`  (WiX)
-- `nsis\VSCodium Rust IDE_0.1.0_x64-setup.exe`  (NSIS — friendlier installer)
+(`prebuild:sidecar` + frontend `build` + `npx tauri build` — same as `scripts\release.ps1`.)
 
-`bundle.targets` is `"all"`; to emit only NSIS: `npx tauri build --bundles nsis`.
+Outputs in `src-tauri\target\release\bundle\`:
+- `nsis\VSCodium Rust IDE_0.1.0_x64-setup.exe`  (Windows — default installer)
+
+Windows builds **NSIS only** (WiX `.msi` omitted — per-user `%LOCALAPPDATA%\Programs\`
+install fails Tauri's MSI ICE validation). Default path:
+
+`%LOCALAPPDATA%\Programs\VSCodium Rust IDE`
+
+(Antigravity / VS Code style — no admin, no `Program Files`, writable app data.)
+
+If you previously installed via MSI under `Program Files`, uninstall that copy first.
+
+`bundle.targets` is `["nsis", ...]` (Windows NSIS only). To emit only NSIS: `npx tauri build --bundles nsis`.
 
 ## 3. (Optional) Harden against reverse-engineering — Themida
 
@@ -70,9 +92,10 @@ The IDE is **free to download** (works with local Ollama + your own API keys).
 Payment unlocks **Cyber-Ifrit Cloud** managed models (enforced in-app + at the AMD
 gateway). So the download link is public:
 
-1. Upload the `-setup.exe` to **GitHub Releases** (or Netlify/S3).
-2. The site's `/download` page + nav button point at that release asset
-   (`PUBLIC_DOWNLOAD_URL` in the portfolio `.env`, falls back to the releases page).
+1. Upload the `-setup.exe` to **GitHub Releases** (tag e.g. `Release-Platforms-Binary`).
+2. Set `PUBLIC_DOWNLOAD_URL` in the portfolio `.env` / Netlify to the direct asset URL
+   (e.g. `.../releases/download/Release-Platforms-Binary/VSCodium.Rust.IDE_0.1.0_x64-setup.exe`).
+   The site's `/download` page uses this; falls back to the same URL baked into `download.astro`.
 
 ## 6. macOS (M1) — same flow
 

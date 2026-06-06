@@ -421,12 +421,35 @@ async fn build_view(config_dir: &Path) -> serde_json::Value {
 
 /// Start the one-time 1-day free trial — unlimited prompts + all features
 /// (including security) for 24h. Idempotent: refuses if already used.
+/// Also syncs Supabase `subscriptions.status=trialing` so the AMD cloud gateway
+/// grants access (otherwise the VPS returns HTTP 402 while the IDE looks entitled).
 #[tauri::command]
 pub async fn account_start_trial(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
     let mut acc = AccountManager::load(&state.config_dir);
     if acc.trial_used {
         return Err("Your free trial has already been used.".to_string());
     }
+
+    if let Some(sess) = crate::auth::valid_session(&state.config_dir).await {
+        let site = site_base(&state.config_dir);
+        let resp = reqwest::Client::new()
+            .post(format!("{site}/api/start-trial"))
+            .bearer_auth(&sess.access_token)
+            .header("Content-Type", "application/json")
+            .send()
+            .await
+            .map_err(|e| format!("Could not reach billing API: {e}"))?;
+        let ok = resp.status().is_success();
+        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+        if !ok {
+            let msg = body
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Could not start trial on server.");
+            return Err(msg.to_string());
+        }
+    }
+
     acc.trial_ends_at = Some(now() + 86_400); // 24 hours
     acc.trial_used = true;
     AccountManager::save(&state.config_dir, &acc)?;

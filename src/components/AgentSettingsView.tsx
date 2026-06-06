@@ -1282,11 +1282,11 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         {ollamaServerMode === 'cloud' && (
                             <>
                                 <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: '#c4b5fd' }}>
-                                    Cyber-Ifrit Cloud — included with subscription
+                                    Cyber-Ifrit Cloud — Pro plan or free trial
                                 </div>
                                 <p style={{ margin: '0 0 10px', fontSize: '11px', opacity: 0.65, lineHeight: 1.45 }}>
-                                    Sign in, pick a model in the AI panel, and inference runs on our AMD MI300X.
-                                    Your account token is sent automatically — no API key needed.
+                                    Sign in, then start the <strong>1-day free trial</strong> (Settings → Account) or subscribe to Pro+.
+                                    Your token is sent automatically — Community (free) tier cannot use the shared AMD GPU.
                                 </p>
                                 <div style={{
                                     padding: '8px 10px', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace',
@@ -1450,6 +1450,12 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         : `✗ Cannot list models${ollamaDiag.status ? ` (HTTP ${ollamaDiag.status})` : ''}`}
                                 </div>
                                 <div style={{ opacity: 0.85, marginBottom: '6px' }}>{ollamaDiag.hint}</div>
+                                {ollamaDiag.status === 402 && (
+                                    <div style={{ fontSize: '11px', marginBottom: '8px', padding: '8px', borderRadius: '6px', background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)' }}>
+                                        <strong>Not a connection failure</strong> — the VPS responded but denied cloud access for your tier.
+                                        Open <strong>Settings → Account</strong> to start the 1-day trial or upgrade to Pro Developer.
+                                    </div>
+                                )}
                                 <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 8px', fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: '10px', opacity: 0.85 }}>
                                     <span style={{ opacity: 0.6 }}>endpoint</span><span style={{ wordBreak: 'break-all' }}>{ollamaDiag.endpoint}</span>
                                     <span style={{ opacity: 0.6 }}>bearer</span><span>{ollamaDiag.bearer_configured ? 'sent (Authorization: Bearer …)' : 'not configured'}</span>

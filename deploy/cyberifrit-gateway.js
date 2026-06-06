@@ -16,6 +16,10 @@ const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT || "12", 10); // in-f
 const MAX_QUEUE = parseInt(process.env.MAX_QUEUE || "200", 10);          // waiting room
 const PAID_TIERS = ["pro_developer", "security_researcher", "enterprise"];
 const OK_STATUS = ["active", "trialing", "past_due"]; // past_due = grace
+const ADMIN_EMAILS = (process.env.SUPERADMIN_EMAILS || process.env.ADMIN_EMAILS || "")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
 
 // ── Fair FIFO concurrency queue ──────────────────────────────────────────────
 let active = 0;
@@ -47,14 +51,23 @@ async function authorize(jwt) {
     if (!u || !u.id) {
       v = { ok: false, code: 401, msg: "invalid token" };
     } else {
+      const email = (u.email || "").toLowerCase();
+      if (ADMIN_EMAILS.length && email && ADMIN_EMAILS.includes(email)) {
+        v = { ok: true, uid: u.id, tier: "admin" };
+      } else {
       const sub = await fetch(
-        `${SUPABASE_URL}/rest/v1/subscriptions?user_id=eq.${u.id}&select=tier,status`,
+        `${SUPABASE_URL}/rest/v1/subscriptions?user_id=eq.${u.id}&select=tier,status,current_period_end`,
         { headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` } }
       ).then((r) => r.json()).then((r) => (Array.isArray(r) ? r[0] : null));
-      const ok = sub && OK_STATUS.includes(sub.status) &&
+      let ok = sub && OK_STATUS.includes(sub.status) &&
         (PAID_TIERS.includes(sub.tier) || sub.status === "trialing");
+      // Expire trialing when current_period_end is in the past (1-day free trial).
+      if (ok && sub.status === "trialing" && sub.current_period_end) {
+        if (new Date(sub.current_period_end).getTime() <= Date.now()) ok = false;
+      }
       v = ok ? { ok: true, uid: u.id, tier: sub.tier }
              : { ok: false, code: 402, msg: "active subscription or trial required" };
+      }
     }
   } catch (e) {
     v = { ok: false, code: 503, msg: "auth backend unavailable" };
