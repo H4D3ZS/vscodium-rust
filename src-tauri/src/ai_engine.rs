@@ -2372,17 +2372,38 @@ impl Sentient {
                 .replace("{WORKFLOW_LIST}", &workflows_text);
 
             let mode = req.mode.as_deref().unwrap_or("Fast");
-            let mode_instruction = match mode {
-                "Planning" => "CORE OBJECTIVE: You are in AUTONOMOUS RESEARCH & PREP mode. \
+            let zero_grep_planning = if aim_indexed_files > 0 {
+                format!(
+                    "CORE OBJECTIVE: AUTONOMOUS RESEARCH & PREP with AIM zero-grep ({} files indexed). \
+                     1. Use ### BRAIN + `view_file` + `aim_query_spans` + `semantic_search` — do NOT glob/grep/list/shell-ls to orient. \
+                     2. Build `implementation_plan.md` / `task.md` from what you already know + targeted file reads. \
+                     3. If the request is actionable, proceed to execution immediately.",
+                    aim_indexed_files
+                )
+            } else {
+                "CORE OBJECTIVE: You are in AUTONOMOUS RESEARCH & PREP mode. \
                     1. Use `list_files`, `view_file`, `grep`, `search_codebase`, and `semantic_search` to perform exhaustive research. \
                     2. Build a complete `implementation_plan.md` and `task.md`. \
-                    3. If the user request is clear and actionable, PROCEED TO EXECUTION IMMEDIATELY. Do not wait for a 'Go' if you have the context to start.",
-                "Sentient" => "CORE OBJECTIVE: You are in SENTIENT mode — NON-STOP PURE EXECUTION. \
+                    3. If the user request is clear and actionable, PROCEED TO EXECUTION IMMEDIATELY. Do not wait for a 'Go' if you have the context to start.".to_string()
+            };
+            let zero_grep_sentient = if aim_indexed_files > 0 {
+                format!(
+                    "CORE OBJECTIVE: SENTIENT mode — NON-STOP EXECUTION. AIM zero-grep active ({} files). \
+                     PHASE 1 (KNOW): Use ### BRAIN — no glob/grep/list/shell tree walks. \
+                     PHASE 2 (DO): Write/fix/build. PHASE 3 (SHIP): Verify with cargo/npm tests.",
+                    aim_indexed_files
+                )
+            } else {
+                "CORE OBJECTIVE: You are in SENTIENT mode — NON-STOP PURE EXECUTION. \
                     You are a 'Neural Daredevil'. You do not speak; you only perform. \
                     PHASE 1 (SCAN): Research everything. \
                     PHASE 2 (DO): Write every file, fix every bug, build the entire feature in one autonomous burst. \
                     PHASE 3 (SHIP): Verify, build, and confirm success. \
-                    You NEVER ask for permission. You NEVER state what you 'could' do. You just DO it until mission completion.",
+                    You NEVER ask for permission. You NEVER state what you 'could' do. You just DO it until mission completion.".to_string()
+            };
+            let mode_instruction = match mode {
+                "Planning" => zero_grep_planning.as_str(),
+                "Sentient" => zero_grep_sentient.as_str(),
                 "Harness" => "CORE OBJECTIVE: You are in HARNESS ENGINEERING mode. \
                     You run as an engineering harness, not a chat bot. Each iteration receives a fresh, bounded context rebuilt from Kortex AIM memory, the latest user mission, recent tool results, and current diagnostics. \
                     Strict loop: inspect the exact files needed, patch or run commands, verify, store the lesson, then continue. \
@@ -2592,6 +2613,25 @@ impl Sentient {
             if iteration > 0 {
                 messages.retain(|m| !(m.role == "system"
                     && m.content.as_ref().map(|c| c.as_str().contains("[PLAN PHASE")).unwrap_or(false)));
+            }
+
+            // Cursor-style zero-grep: re-inject enforcement each run when AIM is warm.
+            if aim_indexed_files > 0 && iteration <= 4 {
+                messages.retain(|m| !(m.role == "system"
+                    && m.content.as_ref().map(|c| c.as_str().contains("[ZERO-GREP ENFORCED]")).unwrap_or(false)));
+                messages.push(ChatMessage {
+                    role: "system".to_string(),
+                    content: Some(MessageContent::Text(format!(
+                        "### [ZERO-GREP ENFORCED] AIM index active — {} files\n\
+                         The codebase map is ALREADY in ### BRAIN. Blind exploration is BLOCKED:\n\
+                         - Do NOT call glob, grep, list_files, search_codebase, find_by_name, list_dir_tree\n\
+                         - Do NOT run shell recon (ls, dir, find, tree, Get-ChildItem)\n\
+                         USE: view_file(path), aim_query_spans, semantic_search, find_symbols\n\
+                         grep is only allowed after iteration 5 for a specific symbol you already identified.",
+                        aim_indexed_files
+                    ))),
+                    ..Default::default()
+                });
             }
 
             // ── Reflection checkpoint (long-horizon coherence + live plan progress) ──
@@ -6042,71 +6082,92 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
     }
 
 
-    /// Block orientation-only recon when AIM has already indexed the workspace.
-    /// Returns a synthetic tool result instead of listing/grepping the tree.
+    /// Cursor-style zero-grep: block blind filesystem recon when AIM already indexed the tree.
     async fn intercept_zero_grep_orientation(
         &self,
         tool_name: &str,
         args: &Value,
         iteration: usize,
     ) -> Option<Value> {
+        const ZERO_GREP_MAX_ITER: usize = 4;
+
         let indexed = self.memory_store.get_project_tree().await.len();
-        if indexed == 0 || iteration > 2 {
+        if indexed == 0 || iteration > ZERO_GREP_MAX_ITER {
             return None;
         }
 
-        const ORIENT_TOOLS: &[&str] = &["list_files", "list_directory", "glob", "find_by_name"];
+        let summary = self.memory_store.get_project_tree_summary().await;
+        let block = |hint: &str| {
+            Some(json!({
+                "status": "blocked_zero_grep",
+                "message": format!(
+                    "ZERO-GREP (AIM — {indexed} files indexed). {hint}\n\nTree: {summary}\n\n\
+                     Next: view_file(path) | aim_query_spans | semantic_search | find_symbols"
+                ),
+                "indexed_files": indexed,
+            }))
+        };
 
-        if ORIENT_TOOLS.contains(&tool_name) {
-            let path = args
-                .get("path")
-                .or_else(|| args.get("directory"))
-                .or_else(|| args.get("pattern_or_path"))
-                .and_then(|v| v.as_str())
-                .unwrap_or(".");
-            let root = self.ai_tools.get_root_path();
-            let root_norm = root.to_string_lossy().trim_end_matches(['/', '\\']).to_string();
-            let path_norm = path.trim().trim_end_matches(['/', '\\']);
-            let is_root_list = path_norm.is_empty()
-                || path_norm == "."
-                || path_norm == "./"
-                || path_norm == "/"
-                || Path::new(path_norm) == root.as_path()
-                || path_norm.eq_ignore_ascii_case(&root_norm)
-                || root.ends_with(path_norm);
+        const TREE_TOOLS: &[&str] = &[
+            "list_files", "list_directory", "glob", "find_by_name", "find",
+            "list_dir_tree", "search_files", "search_codebase",
+        ];
 
-            if is_root_list {
-                let summary = self.memory_store.get_project_tree_summary().await;
-                return Some(json!({
-                    "status": "blocked_zero_grep",
-                    "message": format!(
-                        "ZERO-GREP: {indexed} files already indexed in AIM/BRAIN. Do NOT list the tree — \
-                         structure is in ### BRAIN. Use view_file(path), aim_query_spans, or semantic_search.\n\n{summary}"
-                    ),
-                    "indexed_files": indexed,
-                }));
-            }
+        if TREE_TOOLS.contains(&tool_name) {
+            return block(&format!(
+                "Tool `{tool_name}` blocked — structure is in ### BRAIN. Do not walk the filesystem."
+            ));
         }
 
-        if tool_name == "grep" && iteration <= 1 {
-            let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
-            let broad = pattern.is_empty()
-                || pattern == ".*"
-                || pattern == "."
-                || pattern.len() < 4;
-            if broad {
-                let summary = self.memory_store.get_project_tree_summary().await;
-                return Some(json!({
-                    "status": "blocked_zero_grep",
-                    "message": format!(
-                        "ZERO-GREP: broad grep '{pattern}' skipped — {indexed} files indexed. \
-                         Use semantic_search/aim_query_spans or view_file.\n\n{summary}"
-                    ),
-                }));
+        if tool_name == "grep" {
+            return block(&format!(
+                "Tool `grep` blocked on iteration {iteration} while AIM is warm. \
+                 Use semantic_search or aim_query_spans, then view_file."
+            ));
+        }
+
+        if tool_name == "run_command" || tool_name == "bash" {
+            if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
+                if Self::is_shell_recon_command(cmd) {
+                    return block(&format!(
+                        "Shell recon blocked (`{cmd}`). The project tree is in ### BRAIN — not via ls/find/dir."
+                    ));
+                }
             }
         }
 
         None
+    }
+
+    /// True when a shell command is filesystem orientation (ls/find/tree), not build/test/git.
+    fn is_shell_recon_command(cmd: &str) -> bool {
+        let c = cmd.trim().to_lowercase();
+        if c.is_empty() {
+            return false;
+        }
+        // Build / test / VCS — always allowed
+        const ALLOW: &[&str] = &[
+            "cargo ", "cargo\n", "npm ", "pnpm ", "yarn ", "npx ", "node --",
+            "git ", "pytest", "python -m", "python3 -m", "dotnet ", "go test",
+            "go build", "make ", "vitest", "jest ", "tsc", "eslint", "prettier",
+            "webpack", "vite ", "flutter ", "gradle ", "mvn ", "composer ",
+        ];
+        if ALLOW.iter().any(|a| c.contains(a)) {
+            return false;
+        }
+        const RECON: &[&str] = &[
+            " ls", "ls ", "ls\n", "ls\r", "\nls", "&& ls", "; ls", "| ls",
+            " dir", "dir ", "dir\n", "dir /", "dir/w",
+            "tree ", "tree\n", " find ", "find ", " fd ", "fdfind ",
+            "get-childitem", "gci ", "get-childitem",
+            "rg --files", "rg -l ''", "glob ", "pwd", "where.exe ",
+            "select-string", "sls ",
+        ];
+        if c == "ls" || c == "dir" || c == "pwd" || c == "tree" {
+            return true;
+        }
+        RECON.iter().any(|r| c.contains(r))
+            || (c.starts_with("cd ") && (c.contains("&& ls") || c.contains("; ls") || c.contains("dir")))
     }
 
     /// Intercept `run_command` shell file-write patterns and convert to `write_to_file` args.
