@@ -1075,7 +1075,6 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             { key: 'deepseek', label: 'DeepSeek (API)', placeholder: 'sk-… (platform.deepseek.com)' },
                             { key: 'mimo', label: 'Xiaomi MiMo (Token Plan)', placeholder: 'MiMo API key (platform.xiaomimimo.com)', baseUrlKey: 'mimo_base_url', baseUrlLabel: 'MiMo Base URL (Optional)', baseUrlPlaceholder: 'https://api.xiaomimimo.com/v1' },
                             { key: 'highwayapi', label: 'JieKou AI / Highway API (Claude Opus 4.8)', placeholder: 'JieKou / Highway API key', baseUrlKey: 'highwayapi_base_url', baseUrlLabel: 'JieKou OpenAI-compatible Base URL (Optional)', baseUrlPlaceholder: 'https://api.highwayapi.ai/openai' },
-                            { key: 'cyberifrit', label: 'Cyber-Ifrit Cloud', placeholder: 'Cyber-Ifrit key / JWT', baseUrlKey: 'cyberifrit_base_url', baseUrlLabel: 'Cyber-Ifrit Base URL (your AMD backend)', baseUrlPlaceholder: 'https://api.cyberifrit.xyz' },
                             { key: 'mistral', label: 'Mistral', placeholder: 'Mistral API key' },
                             { key: 'xai', label: 'xAI', placeholder: 'xai-...' },
                             { key: 'cerebras', label: 'Cerebras', placeholder: 'csk-...' },

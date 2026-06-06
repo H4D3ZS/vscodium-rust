@@ -8,6 +8,7 @@
 const http = require("http");
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+const SITE_AUTH = (process.env.CYBERIFRIT_AUTH_URL || "https://cyberifrit.xyz").replace(/\/$/, "");
 const ANON = process.env.SUPABASE_ANON_KEY || "";
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const OLLAMA = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
@@ -41,6 +42,10 @@ function release() {
 const cache = new Map(); // jwt -> { v, t }
 async function authorize(jwt) {
   if (!jwt) return { ok: false, code: 401, msg: "no token" };
+  // Enterprise API keys (cf_live_* / cf_test_*)
+  if (jwt.startsWith("cf_live_") || jwt.startsWith("cf_test_")) {
+    return authorizeApiKey(jwt);
+  }
   const hit = cache.get(jwt);
   if (hit && hit.t > Date.now()) return hit.v;
   let v;
@@ -73,6 +78,28 @@ async function authorize(jwt) {
     v = { ok: false, code: 503, msg: "auth backend unavailable" };
   }
   cache.set(jwt, { v, t: Date.now() + (v.ok ? 60000 : 30000) }); // cache 60s ok / 30s deny
+  return v;
+}
+
+async function authorizeApiKey(key) {
+  const hit = cache.get(key);
+  if (hit && hit.t > Date.now()) return hit.v;
+  let v;
+  try {
+    const r = await fetch(`${SITE_AUTH}/api/v1/authorize-key`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (r.ok) {
+      const d = await r.json().catch(() => ({}));
+      v = { ok: true, uid: d.user_id || "apikey", tier: d.tier || "enterprise" };
+    } else {
+      const d = await r.json().catch(() => ({}));
+      v = { ok: false, code: r.status === 402 ? 402 : 401, msg: d.error || "invalid api key" };
+    }
+  } catch {
+    v = { ok: false, code: 503, msg: "api key auth unavailable" };
+  }
+  cache.set(key, { v, t: Date.now() + (v.ok ? 60000 : 30000) });
   return v;
 }
 

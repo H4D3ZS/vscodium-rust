@@ -1164,6 +1164,27 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
     }
 
+    // ── Pro agentic mode gate (Sentient / Harness / Planning) ─────────────
+    {
+        const mode = store.getState().agentMode || '';
+        const modeL = mode.toLowerCase();
+        const needsProAgentic = modeL === 'sentient' || modeL === 'harness' || modeL === 'planning'
+            || modeL === 'yolo' || modeL.includes('bug bounty') || modeL === 'bugbounty';
+        if (needsProAgentic) {
+            try {
+                const ok = await invoke<boolean>('account_has_feature', { feature: 'agentic' });
+                if (!ok) {
+                    store.getState().addAgentMessage?.('assistant',
+                        '🔒 **Full agentic modes (Sentient, Harness, Bug Bounty) require Pro Developer or higher.**\n\n' +
+                        'Community tier includes basic chat + local Ollama. Start the **1-day free trial** or subscribe in **Settings → Account**.');
+                    try { store.getState().openSettings?.('agent'); } catch { /* */ }
+                    store.getState().setIsAgentThinking?.(false);
+                    return;
+                }
+            } catch { /* backend hiccup */ }
+        }
+    }
+
     // ── Subscription quota gate (tied to the account) ──────────────────────
     // Each AI turn counts against the plan's request budget (backend
     // `account_check_and_count` — local-authoritative, mirrored to Supabase when
@@ -1172,7 +1193,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     try {
         const q = await invoke<{ allowed: boolean; reason?: string; used_day?: number; limit_day?: number; used_month?: number; limit_month?: number; tier?: string }>('account_check_and_count');
         if (q && q.allowed === false) {
-            const cap = q.reason === 'daily'
+            const cap = q.reason === 'tokens'
+                ? `monthly token budget (${(q as any).used_tokens}/${(q as any).limit_tokens})`
+                : q.reason === 'daily'
                 ? `daily limit (${q.used_day}/${q.limit_day})`
                 : `monthly limit (${q.used_month}/${q.limit_month})`;
             store.getState().addAgentMessage?.('assistant',

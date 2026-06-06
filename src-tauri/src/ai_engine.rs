@@ -1504,6 +1504,26 @@ impl Sentient {
             return self.single_shot_completion(req).await;
         }
 
+        // ── SaaS entitlement enforcement (backend — not UI-only) ─────────────
+        {
+            let p = req.provider.to_lowercase();
+            if p.contains("cyberifrit") || p.contains("cyber-ifrit") {
+                if let Err(e) = crate::account::require_feature_at(&self.brain_dir, "cloud_models") {
+                    return Err(anyhow!(e));
+                }
+            }
+            let mode_l = req.mode.as_deref().unwrap_or("agent").to_ascii_lowercase();
+            let needs_full_agentic = matches!(
+                mode_l.as_str(),
+                "sentient" | "harness" | "planning" | "yolo" | "autonomous"
+            ) || (mode_l.contains("bug") && mode_l.contains("bounty"));
+            if needs_full_agentic {
+                if let Err(e) = crate::account::require_feature_at(&self.brain_dir, "agentic") {
+                    return Err(anyhow!(e));
+                }
+            }
+        }
+
         // Detect "local quantized model" providers early — used throughout the
         // function for budget decisions. Ollama, the antigravity local proxy,
         // AND the local DeepSeek-ANE server (llama.cpp / MLX on Apple Silicon)
