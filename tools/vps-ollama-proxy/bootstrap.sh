@@ -31,13 +31,17 @@ else
 fi
 
 : "${OLLAMA_DOMAIN:?Set OLLAMA_DOMAIN in .env (hostname only, e.g. ai.cyberifrit.xyz)}"
-: "${OLLAMA_BEARER:?Set OLLAMA_BEARER in .env (shared secret, no double quotes)}"
 : "${LE_EMAIL:?Set LE_EMAIL in .env (Certbot registration email)}"
+
+# Per-user entitlement gate (Netlify /api/cloud-authorize). Clients send the user's
+# Supabase JWT as Authorization: Bearer <access_token> — not a shared static secret.
+CLOUD_AUTHZ_URL="${CLOUD_AUTHZ_URL:-https://cyberifrit.xyz/api/cloud-authorize}"
+CLOUD_AUTHZ_HOST="${CLOUD_AUTHZ_HOST:-cyberifrit.xyz}"
 
 [[ -n "${LE_EMAIL// }" ]] || die "LE_EMAIL is empty"
 [[ "${OLLAMA_DOMAIN}" != *://* ]] || die "OLLAMA_DOMAIN must be hostname only (no http:// or https://)"
-[[ "${OLLAMA_BEARER}" == *'"'* ]] && die "OLLAMA_BEARER must not contain double quotes"
 [[ "${LE_EMAIL}" == *@* ]] || die "LE_EMAIL should look like an email address"
+[[ "${CLOUD_AUTHZ_URL}" == https://* ]] || die "CLOUD_AUTHZ_URL must be https://…"
 
 # Let's Encrypt / ACME policy blocks certificates for IANA example/reserved names.
 case "${OLLAMA_DOMAIN}" in
@@ -63,9 +67,6 @@ for origin in ${CORS_ORIGIN}; do
   [[ -z "${CORS_FALLBACK}" ]] && CORS_FALLBACK="${origin}"
   CORS_MAP_BODY+="    \"${origin}\" \"${origin}\";"$'\n'
 done
-
-AUTH_EXPECTED="Bearer ${OLLAMA_BEARER}"
-MAP_LINE="\"${AUTH_EXPECTED}\" 1;"
 
 info "Checking DNS for ${OLLAMA_DOMAIN} ..."
 PUB_IP="$(curl -4 -fsS https://ifconfig.me 2>/dev/null || curl -4 -fsS https://api.ipify.org || true)"
@@ -102,7 +103,9 @@ info "Writing rate-limit zones (${ZONES_FILE}) — rate=${OLLAMA_RATE_PER_SEC}r/
 cat >"${ZONES_FILE}" <<ZONES
 limit_req_zone \$binary_remote_addr zone=ollama_rl:10m rate=${OLLAMA_RATE_PER_SEC}r/s;
 limit_conn_zone \$binary_remote_addr zone=ollama_conn:10m;
+proxy_cache_path /var/cache/nginx/authz levels=1:2 keys_zone=authz:10m max_size=64m inactive=120s use_temp_path=off;
 ZONES
+mkdir -p /var/cache/nginx/authz
 
 mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
 SITE_PATH="/etc/nginx/sites-available/${OLLAMA_DOMAIN}.conf"
@@ -192,20 +195,8 @@ if [[ -f /etc/letsencrypt/ssl-dhparams.pem ]] && ! grep -q '^[[:space:]]*ssl_dhp
   printf '\nssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;\n' >>"${LE_SSL_OPTS}"
 fi
 
-info "Writing HTTPS + Ollama proxy + auth + CORS ..."
-# map_hash_bucket_size: long "Bearer <token>" keys exceed default 64 -> nginx emerg
-# include options-ssl-nginx.conf (created above if certbot did not install it).
+info "Writing HTTPS + Ollama proxy + entitlement auth + CORS ..."
 cat >"${SITE_PATH}" <<NGX
-map_hash_bucket_size 512;
-map_hash_max_size 4096;
-
-map \$http_authorization \$ollama_auth_ok {
-    default 0;
-    ${MAP_LINE}
-}
-
-# Reflect a known Origin so multiple end-user surfaces work without using "*"
-# (which is incompatible with Authorization-bearing requests in some browsers).
 map \$http_origin \$cors_origin_allowed {
     default "${CORS_FALLBACK}";
 ${CORS_MAP_BODY}}
@@ -232,6 +223,8 @@ server {
     ssl_certificate_key ${CERT_DIR}/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
 
+    resolver 1.1.1.1 8.8.8.8 valid=300s;
+
     add_header Access-Control-Allow-Origin \$cors_origin_allowed always;
     add_header Vary "Origin" always;
     add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
@@ -241,12 +234,38 @@ server {
 
     if (\$request_method = OPTIONS) { return 204; }
 
-    if (\$ollama_auth_ok = 0) { return 401; }
+    # Internal entitlement check — forwards the end-user's Supabase JWT to Netlify.
+    location = /cloud-authz {
+        internal;
+        proxy_pass               ${CLOUD_AUTHZ_URL};
+        proxy_method             GET;
+        proxy_pass_request_body  off;
+        proxy_set_header         Content-Length "";
+        proxy_set_header         Authorization \$http_authorization;
+        proxy_set_header         Host ${CLOUD_AUTHZ_HOST};
+        proxy_ssl_server_name    on;
+        proxy_cache              authz;
+        proxy_cache_key          \$http_authorization;
+        proxy_cache_valid        200 60s;
+        proxy_cache_valid        401 403 30s;
+    }
+
+    location @authz_401 {
+        default_type application/json;
+        return 401 '{"error":"sign_in_required"}';
+    }
+    location @authz_402 {
+        default_type application/json;
+        return 402 '{"error":"not_entitled","message":"Your plan does not include Cyber-Ifrit Cloud. Start the free trial or upgrade to Pro+."}';
+    }
 
     limit_req zone=ollama_rl burst=${OLLAMA_BURST} nodelay;
     limit_conn ollama_conn ${OLLAMA_CONN_PER_IP};
 
     location /v1/ {
+        auth_request   /cloud-authz;
+        error_page     401 = @authz_401;
+        error_page     403 = @authz_402;
         rewrite ^/v1/api/(.*)\$ /api/\$1 break;
         proxy_pass ${OLLAMA_UPSTREAM};
         proxy_http_version 1.1;
@@ -264,6 +283,9 @@ server {
     # /api/pull (pulling new models), and any client that doesn't speak the
     # OpenAI-compat /v1 dialect (e.g. ollama CLI, vscodium-rust IDE settings).
     location /api/ {
+        auth_request   /cloud-authz;
+        error_page     401 = @authz_401;
+        error_page     403 = @authz_402;
         proxy_pass ${OLLAMA_UPSTREAM};
         proxy_http_version 1.1;
         proxy_set_header Host ${OLLAMA_PROXY_HOST};
@@ -299,9 +321,7 @@ fi
 
 info "Smoke: HTTPS /v1/models without auth (expect 401)"
 curl -sk -o /dev/null -w "  %{http_code}\n" "https://${OLLAMA_DOMAIN}/v1/models" || true
-info "Smoke: HTTPS /v1/models with Bearer (expect 200)"
-curl -sk -o /dev/null -w "  %{http_code}\n" -H "Authorization: Bearer ${OLLAMA_BEARER}" "https://${OLLAMA_DOMAIN}/v1/models" || true
-info "Smoke: HTTPS /api/tags with Bearer (expect 200; used by ollama CLI + vscodium-rust)"
-curl -sk -o /dev/null -w "  %{http_code}\n" -H "Authorization: Bearer ${OLLAMA_BEARER}" "https://${OLLAMA_DOMAIN}/api/tags" || true
-
-info "Done. Clients: https://${OLLAMA_DOMAIN} (both /api/ and /v1/) + Authorization: Bearer <OLLAMA_BEARER>"
+info "Smoke: HTTPS /api/tags without auth (expect 401)"
+curl -sk -o /dev/null -w "  %{http_code}\n" "https://${OLLAMA_DOMAIN}/api/tags" || true
+info "Done. Clients send Authorization: Bearer <Supabase access token> (signed-in IDE user)."
+info "Entitlement gate: ${CLOUD_AUTHZ_URL} (see Cyber-Ifrit-Portfolio/docs/CLOUD_ENTITLEMENT.md)"

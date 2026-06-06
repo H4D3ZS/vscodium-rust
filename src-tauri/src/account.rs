@@ -462,37 +462,30 @@ pub async fn account_sync(state: State<'_, EditorState>) -> Result<serde_json::V
     Ok(build_view(&state.config_dir).await)
 }
 
-/// Start a PayMongo subscription for `tier`: asks the website billing function
-/// (with the user's Supabase JWT) for a hosted checkout URL, opens it in the
-/// system browser, and returns the URL.
+/// Open the website QR Ph checkout for `tier` (live billing path). Requires sign-in
+/// so `/pay` can use the same Supabase session as the browser account page.
 #[tauri::command]
 pub async fn account_subscribe(
     state: State<'_, EditorState>,
     tier: String,
 ) -> Result<serde_json::Value, String> {
-    let sess = crate::auth::valid_session(&state.config_dir)
+    let _sess = crate::auth::valid_session(&state.config_dir)
         .await
         .ok_or_else(|| "Sign in first to subscribe.".to_string())?;
-    let site = site_base(&state.config_dir);
-    let resp = reqwest::Client::new()
-        .post(format!("{site}/api/create-subscription"))
-        .bearer_auth(&sess.access_token)
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({ "tier": tier }))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    let ok = resp.status().is_success();
-    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    if !ok {
-        return Err(body.get("error").and_then(|v| v.as_str()).unwrap_or("could not start checkout").to_string());
+    let allowed = ["pro_developer", "security_researcher", "enterprise"];
+    if !allowed.contains(&tier.as_str()) {
+        return Err(format!("unknown tier: {tier}"));
     }
-    let url = body.get("checkout_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    if url.is_empty() {
-        return Err("billing did not return a checkout URL".into());
-    }
+    let site = site_base(&state.config_dir).trim_end_matches('/').to_string();
+    // Website checkout uses cf_session (browser) — not the IDE session. Send users
+    // through /account first so they sign in on the site, then land on /pay.
+    let pay_path = format!("/pay?kind=subscription&tier={tier}");
+    let url = format!(
+        "{site}/account?next={}",
+        urlencoding::encode(&pay_path)
+    );
     let _ = open_in_browser(&url);
-    Ok(serde_json::json!({ "checkout_url": url }))
+    Ok(serde_json::json!({ "checkout_url": url, "method": "qrph" }))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
