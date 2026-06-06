@@ -365,7 +365,10 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
         catch (e: any) { get().addMitmLog(`Error stopping server: ${e}`); }
     },
     addMitmLog: (log) => set((s) => ({ mitmLogs: [...s.mitmLogs, `[${new Date().toLocaleTimeString()}] ${log}`].slice(-100) })),
-    addMcpServer: async (name, config) => { try { await invoke('add_mcp_server', { name, config }); await get().listMcpServers(); } catch { } },
+    addMcpServer: async (name, config) => {
+        await invoke('add_mcp_server', { name, config });
+        await get().listMcpServers();
+    },
     removeMcpServer: async (name) => { try { await invoke('remove_mcp_server', { name }); await get().listMcpServers(); } catch { } },
     listMcpServers: async () => { try { const servers = await invoke<any[]>('list_mcp_servers'); set({ mcpServers: servers }); } catch { } },
     setMcpServerEnabled: async (name, enabled) => { try { await invoke('set_mcp_server_enabled', { name, enabled }); await get().listMcpServers(); } catch { } },

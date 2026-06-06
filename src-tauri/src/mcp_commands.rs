@@ -4,6 +4,27 @@ use crate::mcp_registry;
 use serde_json::{json, Value};
 
 #[tauri::command]
+pub async fn detect_ghidra_install_dir(path: String) -> Result<Value, String> {
+    match crate::mcp_resolver::resolve_ghidra_install_dir(&path) {
+        Ok(resolved) => Ok(json!({ "ok": true, "path": resolved })),
+        Err(e) => Ok(json!({ "ok": false, "error": e.to_string() })),
+    }
+}
+
+#[tauri::command]
+pub async fn detect_ida_install_dir(path: String) -> Result<Value, String> {
+    match crate::mcp_resolver::resolve_ida_install_dir(&path) {
+        Ok(resolved) => {
+            if let Err(e) = crate::mcp_resolver::ensure_idalib_activated(&resolved) {
+                return Ok(json!({ "ok": false, "error": e.to_string() }));
+            }
+            Ok(json!({ "ok": true, "path": resolved, "idalib_activated": true }))
+        }
+        Err(e) => Ok(json!({ "ok": false, "error": e.to_string() })),
+    }
+}
+
+#[tauri::command]
 pub async fn list_mcp_servers(state: State<'_, EditorState>) -> Result<Value, String> {
     Ok(json!(state.mcp_registry.list_servers().await))
 }

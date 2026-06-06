@@ -100,28 +100,45 @@ impl McpRegistry {
         Ok(())
     }
 
-    async fn add_server_internal(&self, name: &str, config: McpServerConfig) -> Result<()> {
+    async fn add_server_internal(&self, name: &str, config: McpServerConfig) -> Result<McpServerConfig> {
         if !config.enabled() {
-            return Ok(());
+            return Ok(config);
         }
-        let client = match config {
+        let config_dir = self
+            .config_path
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf();
+        let prepared = crate::mcp_resolver::prepare_server_config(&config, &config_dir)?;
+        let client = match &prepared {
             McpServerConfig::Stdio {
                 command,
                 args,
                 env,
                 cwd,
-                enabled: _,
+                ..
             } => {
                 let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let cwd_path = cwd.as_deref().map(std::path::Path::new);
-                McpClient::spawn_with_env(&command, args_refs, &env, cwd_path).await?
+                McpClient::spawn_with_env(command, args_refs, env, cwd_path).await
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "MCP server '{name}' failed to start ({command}): {e}. \
+                             Check Manage → Refresh after fixing GHIDRA_INSTALL_DIR / PATH."
+                        )
+                    })?
             }
-            McpServerConfig::Http { server_url, enabled: _, .. } => McpClient::connect_http(server_url)?,
+            McpServerConfig::Http { server_url, .. } => McpClient::connect_http(server_url.clone())?,
         };
+
+        client
+            .call("list_tools", Value::Object(Default::default()))
+            .await
+            .map_err(|e| anyhow::anyhow!("MCP server '{name}' started but list_tools failed: {e}"))?;
 
         let mut servers = self.servers.write().await;
         servers.insert(name.to_string(), client);
-        Ok(())
+        Ok(prepared)
     }
 
     /// Toggle a server on or off. When toggling off, the running client
@@ -217,10 +234,10 @@ impl McpRegistry {
     }
 
     pub async fn add_server(&self, name: String, config: McpServerConfig) -> Result<()> {
-        self.add_server_internal(&name, config.clone()).await?;
+        let prepared = self.add_server_internal(&name, config).await?;
 
         let mut cfg = self.config.write().await;
-        cfg.mcp_servers.insert(name, config);
+        cfg.mcp_servers.insert(name, prepared);
 
         let content = serde_json::to_string_pretty(&*cfg)?;
         if let Some(parent) = self.config_path.parent() {
