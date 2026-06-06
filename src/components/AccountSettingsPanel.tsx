@@ -1,13 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { invoke } from '../tauri_bridge';
 
-// Account & Terms — Supabase sign-in, subscription tier + entitlements (synced
-// from the billing backend), the Bug-Bounty Terms of Service, and the MiMo
-// add-on. Purchases go through PayMongo checkout (opened in the system browser);
-// the IDE reflects the server-authoritative state.
+// Community edition — local entitlements + Bug-Bounty ToS. Hosted billing lives on
+// cyberifrit.xyz (Cyber-Ifrit Pro), not in this open-source build.
 
 const BUG_BOUNTY_TOS_ID = 'bug-bounty';
 const BUG_BOUNTY_TOS_VERSION = '1.0';
+const PRO_PRICING_URL = 'https://cyberifrit.xyz/pricing';
 
 const BUG_BOUNTY_TOS = `BUG BOUNTY / OFFENSIVE-SECURITY TERMS OF SERVICE (v1.0)
 
@@ -41,136 +40,55 @@ interface AccountView {
     tier_price_usd: number;
     entitlements: { daily_requests: number; monthly_requests: number; features: string[] };
     status?: string;
-    current_period_end?: string | null;
-    signed_in?: boolean;
-    trial_active?: boolean;
-    trial_ends_at?: number | null;
-    trial_used?: boolean;
+    community_edition?: boolean;
 }
-
-const TIERS = [
-    { id: 'community', sub: '', label: 'Community', price: 'Free', quota: '50 / day', accent: '#8a8a8a' },
-    { id: 'pro', sub: 'pro_developer', label: 'Pro Developer', price: '$30/mo', quota: '5,000 / mo', accent: '#4daafc' },
-    { id: 'security', sub: 'security_researcher', label: 'Security Researcher', price: '$75/mo', quota: '~20K / mo', accent: '#f7768e' },
-    { id: 'enterprise', sub: 'enterprise', label: 'Enterprise', price: '$225/mo', quota: 'Custom', accent: '#bb9af7' },
-];
 
 const AccountSettingsPanel: React.FC = () => {
     const [data, setData] = useState<AccountView | null>(null);
     const [usage, setUsage] = useState<{ used_tokens: number; limit_tokens: number; used_month: number; limit_month: number } | null>(null);
     const [tosAccepted, setTosAccepted] = useState(false);
     const [showTos, setShowTos] = useState(false);
-    const [hasMimo, setHasMimo] = useState(false);
-
-    // Auth state
-    const [signedIn, setSignedIn] = useState(false);
-    const [email, setEmail] = useState('');
-    const [pw, setPw] = useState('');
-    const [authMsg, setAuthMsg] = useState('');
-    const [busy, setBusy] = useState(false);
-    const [msg, setMsg] = useState('');
 
     const refresh = useCallback(() => {
-        invoke<{ signed_in: boolean; email?: string }>('auth_session')
-            .then((s) => { setSignedIn(!!s.signed_in); if (s.email) setEmail(s.email); })
-            .catch(() => {});
         invoke<AccountView>('account_get').then((d) => {
             setData(d);
-            setHasMimo((d.account.addons || []).some((a) => a.id === 'mimo_pro'));
-            window.dispatchEvent(new Event('account:changed')); // refresh status-bar chip
+            window.dispatchEvent(new Event('account:changed'));
         }).catch(() => {});
         invoke<{ used_tokens: number; limit_tokens: number; used_month: number; limit_month: number }>('account_usage').then(setUsage).catch(() => {});
         invoke<boolean>('account_tos_status', { docId: BUG_BOUNTY_TOS_ID }).then(setTosAccepted).catch(() => {});
     }, []);
     useEffect(() => { refresh(); }, [refresh]);
 
-    const doSignIn = (signup: boolean) => {
-        setAuthMsg('…'); setBusy(true);
-        invoke<{ signed_in?: boolean; needs_confirmation?: boolean }>(signup ? 'auth_sign_up' : 'auth_sign_in', { email, password: pw })
-            .then((r) => {
-                setBusy(false); setPw('');
-                if (r.needs_confirmation) { setAuthMsg('Check your email to confirm, then sign in.'); return; }
-                setAuthMsg(''); refresh();
-            })
-            .catch((e) => { setBusy(false); setAuthMsg(String(e)); });
-    };
-    const signOut = () => { invoke('auth_sign_out').then(() => { setSignedIn(false); refresh(); }).catch(() => {}); };
-
     const acceptTos = () => {
         invoke('account_accept_tos', { docId: BUG_BOUNTY_TOS_ID, version: BUG_BOUNTY_TOS_VERSION })
             .then(() => { setShowTos(false); refresh(); }).catch(() => {});
     };
-    const subscribe = (subTier: string) => {
-        if (!signedIn) { setMsg('Sign in first to subscribe.'); return; }
-        setMsg('Opening QR Ph checkout in your browser…');
-        invoke('account_subscribe', { tier: subTier })
-            .then(() => setMsg('Scan the QR on the website — when paid, click Sync here.'))
-            .catch((e) => setMsg(String(e)));
-    };
-    const openBilling = () => { invoke('account_open_billing').catch(() => {}); };
-    const sync = () => { setMsg('Syncing…'); invoke('account_sync').then(() => { setMsg(''); refresh(); }).catch((e) => setMsg(String(e))); };
-    const startTrial = () => { setMsg('Starting trial…'); invoke('account_start_trial').then(() => { setMsg(''); refresh(); }).catch((e) => setMsg(String(e))); };
-
-    const trialHoursLeft = data?.trial_ends_at ? Math.max(0, Math.ceil((data.trial_ends_at * 1000 - Date.now()) / 3_600_000)) : 0;
-
-    const status = data?.status || 'local';
-    const statusColor = status === 'active' ? '#9ece6a' : status === 'past_due' ? '#e0af68' : status === 'unpaid' ? '#f7768e' : '#8a8a8a';
+    const openPro = () => { invoke('account_open_billing').catch(() => window.open(PRO_PRICING_URL, '_blank')); };
 
     return (
         <div style={{ padding: '4px 4px 40px', color: 'var(--vscode-foreground)' }}>
-            <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 4px' }}>Account &amp; Subscription</h2>
+            <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 4px' }}>Account</h2>
             <p style={{ fontSize: 12, opacity: 0.6, margin: '0 0 18px' }}>
-                Sign in, manage your plan, accept the Bug-Bounty Terms, and add-ons.
+                Community edition — local Ollama, agentic tools, and security features. Cloud AI requires Cyber-Ifrit Pro.
             </p>
 
-            {/* Auth */}
-            <SectionLabel>Sign in</SectionLabel>
-            {signedIn ? (
-                <div style={{ marginBottom: 22, padding: '12px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <i className="codicon codicon-verified-filled" style={{ fontSize: 18, color: '#9ece6a' }} />
-                    <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{email || 'Signed in'}</div>
-                        <div style={{ fontSize: 11, opacity: 0.55 }}>Entitlements sync from your subscription.</div>
-                    </div>
-                    <button onClick={sync} style={btnGhost}>Sync</button>
-                    <button onClick={signOut} style={btnGhost}>Sign out</button>
-                </div>
-            ) : (
-                <div style={{ marginBottom: 22, padding: '14px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" type="email" style={inp} />
-                        <input value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Password" type="password" style={inp}
-                            onKeyDown={(e) => { if (e.key === 'Enter') doSignIn(false); }} />
-                        <div style={{ display: 'flex', gap: 8 }}>
-                            <button disabled={busy} onClick={() => doSignIn(false)} style={{ ...btnPrimary, flex: 1 }}>Sign in</button>
-                            <button disabled={busy} onClick={() => doSignIn(true)} style={{ ...btnGhost, flex: 1 }}>Sign up</button>
-                        </div>
-                        {authMsg && <div style={{ fontSize: 11, opacity: 0.7 }}>{authMsg}</div>}
-                    </div>
-                </div>
-            )}
-
-            {/* Current plan */}
+            {/* Community plan */}
             {data && (
-                <div style={{ marginBottom: 22, padding: '12px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))', background: 'var(--vscode-editorWidget-background, rgba(255,255,255,0.02))' }}>
+                <div style={{ marginBottom: 22, padding: '12px 16px', borderRadius: 10, border: '1px solid rgba(158,206,106,0.35)', background: 'linear-gradient(135deg, rgba(158,206,106,0.12), rgba(158,206,106,0.02))' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <i className="codicon codicon-account" style={{ fontSize: 18, opacity: 0.8 }} />
+                        <i className="codicon codicon-package" style={{ fontSize: 18, color: '#9ece6a' }} />
                         <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 14, fontWeight: 600 }}>{data.tier_label} {data.tier_price_usd > 0 ? `· $${data.tier_price_usd}/mo` : '· Free'}</div>
-                            <div style={{ fontSize: 11, opacity: 0.55 }}>
-                                {data.entitlements.daily_requests > 0 ? `${data.entitlements.daily_requests} requests/day` : `${data.entitlements.monthly_requests || 'Custom'} requests/mo`}
+                            <div style={{ fontSize: 14, fontWeight: 600 }}>{data.tier_label} · Free &amp; open source</div>
+                            <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>
+                                Unlimited local AI via Ollama · full agentic + security tooling after ToS
                             </div>
                         </div>
-                        <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 10, background: `${statusColor}22`, color: statusColor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{status}</span>
+                        <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 10, background: 'rgba(158,206,106,0.2)', color: '#9ece6a', fontWeight: 700, textTransform: 'uppercase' }}>MIT</span>
                     </div>
-                    {data.current_period_end && (
-                        <div style={{ fontSize: 11, opacity: 0.5, marginTop: 6 }}>Renews {new Date(data.current_period_end).toLocaleDateString()}</div>
-                    )}
-                    {/* Usage meters */}
                     {usage && (
                         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            <UsageBar label="Tokens this month" used={usage.used_tokens} limit={usage.limit_tokens} fmt={fmtK} />
-                            <UsageBar label="Requests this month" used={usage.used_month} limit={usage.limit_month} fmt={(n) => n.toLocaleString()} />
+                            <UsageBar label="Tokens this month (local meter)" used={usage.used_tokens} limit={usage.limit_tokens} fmt={fmtK} />
+                            <UsageBar label="Requests this month (local meter)" used={usage.used_month} limit={usage.limit_month} fmt={(n) => n.toLocaleString()} />
                         </div>
                     )}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
@@ -181,95 +99,18 @@ const AccountSettingsPanel: React.FC = () => {
                 </div>
             )}
 
-            {/* 1-day free trial */}
-            {data?.trial_active ? (
-                <div style={{ marginBottom: 22, padding: '14px 16px', borderRadius: 10, border: '1px solid rgba(158,206,106,0.5)', background: 'linear-gradient(135deg, rgba(158,206,106,0.15), rgba(158,206,106,0.03))' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <i className="codicon codicon-rocket" style={{ fontSize: 20, color: '#9ece6a' }} />
-                        <div>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: '#9ece6a' }}>Free Trial active — everything unlocked</div>
-                            <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
-                                Unlimited prompts, agentic AI & full security tooling · {trialHoursLeft}h left
-                            </div>
-                        </div>
-                    </div>
+            {/* Upgrade CTA */}
+            <SectionLabel>Cyber-Ifrit Pro (hosted cloud)</SectionLabel>
+            <div style={{ marginBottom: 22, padding: '16px', borderRadius: 10, border: '1px solid rgba(77,170,252,0.45)', background: 'linear-gradient(135deg, rgba(77,170,252,0.12), rgba(187,154,247,0.05))' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Need cloud AI on AMD MI300X?</div>
+                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 12, lineHeight: 1.5 }}>
+                    Neural VFS compression, managed cloud models, trials, and QR Ph billing are hosted services — not part of this repo.
+                    Subscribe at cyberifrit.xyz to unlock <b>ai.cyberifrit.xyz</b> from the IDE.
                 </div>
-            ) : !data?.trial_used ? (
-                <div style={{ marginBottom: 22, padding: '16px', borderRadius: 10, border: '1px solid rgba(77,170,252,0.5)', background: 'linear-gradient(135deg, rgba(77,170,252,0.14), rgba(187,154,247,0.06))' }}>
-                    <div style={{ fontSize: 15, fontWeight: 700 }}>🚀 Start your 1-day free trial</div>
-                    <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4, marginBottom: 12 }}>
-                        24 hours of <b>unlimited</b> prompts, full agentic AI, autonomous tasks, and the complete security / bug-bounty suite. No card required.
-                    </div>
-                    <button onClick={startTrial} style={{ ...btnPrimary, padding: '9px 18px', fontSize: 13 }}>Activate free trial</button>
-                </div>
-            ) : (
-                <div style={{ marginBottom: 22, padding: '12px 16px', borderRadius: 10, border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.1))', opacity: 0.75 }}>
-                    <div style={{ fontSize: 12 }}>Your free trial has ended. Subscribe below to keep unlimited access.</div>
-                </div>
-            )}
-
-            {/* Plan picker → PayMongo checkout */}
-            <SectionLabel>Plans</SectionLabel>
-            <div className="settings-plan-grid">
-                {TIERS.map((t) => {
-                    const active = data?.account.tier === (t.sub || 'community');
-                    const isCommunity = t.id === 'community';
-                    return (
-                        <div key={t.id} onClick={() => { if (!isCommunity && !active) subscribe(t.sub); }} style={{
-                            cursor: isCommunity || active ? 'default' : 'pointer', padding: '12px 14px', borderRadius: 8,
-                            border: `1px solid ${active ? t.accent : 'var(--vscode-panel-border, rgba(255,255,255,0.12))'}`,
-                            background: active ? `${t.accent}22` : 'var(--vscode-editorWidget-background, rgba(255,255,255,0.02))',
-                            opacity: isCommunity && !active ? 0.7 : 1,
-                        }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: t.accent }}>{t.label}</div>
-                            <div style={{ fontSize: 18, fontWeight: 700, margin: '4px 0' }}>{t.price}</div>
-                            <div style={{ fontSize: 11, opacity: 0.55 }}>{t.quota} AI requests</div>
-                            {active && <div style={{ fontSize: 10, color: t.accent, marginTop: 4, fontWeight: 700 }}>✓ Current</div>}
-                            {!active && !isCommunity && <div style={{ fontSize: 10, opacity: 0.55, marginTop: 4 }}>Subscribe →</div>}
-                        </div>
-                    );
-                })}
+                <button onClick={openPro} style={{ ...btnPrimary, padding: '9px 18px', fontSize: 13 }}>
+                    View Cyber-Ifrit Pro plans →
+                </button>
             </div>
-            <button onClick={openBilling} style={{ ...btnGhost, marginBottom: 24 }}>Manage billing &amp; payment method →</button>
-            {msg && <div style={{ fontSize: 11, opacity: 0.7, margin: '-12px 0 18px' }}>{msg}</div>}
-
-            {/* Limited Premium add-on */}
-            <SectionLabel>Add-ons</SectionLabel>
-            <div className={`settings-premium-card${hasMimo ? ' settings-premium-card--owned' : ''}`}>
-                <div className="settings-premium-badge">Limited · 7 days</div>
-                <div className="settings-premium-layout">
-                    <div className="settings-premium-icon-wrap">
-                        <i className="codicon codicon-sparkle settings-premium-icon" />
-                    </div>
-                    <div className="settings-premium-body">
-                        <h3 className="settings-premium-title">Limited Premium</h3>
-                        <p className="settings-premium-desc">
-                            Premium cloud reasoning model with extended context. One-time 7-day access — limited early-access seats.
-                        </p>
-                        <ul className="settings-premium-features">
-                            <li>Priority cloud inference</li>
-                            <li>Extended reasoning depth</li>
-                            <li>Full agent + security tooling</li>
-                        </ul>
-                    </div>
-                    <div className="settings-premium-cta">
-                        <div className="settings-premium-price">
-                            <span className="settings-premium-amount">$10</span>
-                            <span className="settings-premium-period">/ 7 days</span>
-                        </div>
-                        <span className="settings-premium-fx">≈ ₱692.50 PHP</span>
-                        <button
-                            type="button"
-                            className="settings-premium-btn"
-                            onClick={openBilling}
-                            disabled={hasMimo}
-                        >
-                            {hasMimo ? '✓ Active' : 'Get Premium Access'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div style={{ marginBottom: 24 }} />
 
             {/* Bug Bounty ToS */}
             <SectionLabel>Bug Bounty — Terms of Service</SectionLabel>
@@ -303,12 +144,6 @@ const AccountSettingsPanel: React.FC = () => {
     );
 };
 
-const inp: React.CSSProperties = {
-    width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13,
-    background: 'var(--vscode-input-background, rgba(0,0,0,0.25))',
-    border: '1px solid var(--vscode-input-border, rgba(255,255,255,0.12))',
-    color: 'var(--vscode-input-foreground, inherit)', outline: 'none',
-};
 const btnPrimary: React.CSSProperties = {
     padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
     background: 'var(--vscode-button-background, #4daafc)', color: 'var(--vscode-button-foreground, #fff)',
