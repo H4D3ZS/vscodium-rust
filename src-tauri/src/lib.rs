@@ -305,6 +305,7 @@ pub fn run() {
             ai_commands::call_tool,
             ai_commands::grep_files,
             ai_commands::propose_file_change,
+            ai_commands::preview_search_replace,
             ai_commands::set_ollama_url,
             ai_commands::list_workspace_rules,
             ai_commands::reindex_workspace,

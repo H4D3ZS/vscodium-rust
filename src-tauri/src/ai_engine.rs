@@ -279,6 +279,18 @@ pub fn normalize_ollama_base_url(raw: &str) -> String {
         .to_string()
 }
 
+/// Strip `:cloud` / `-cloud` suffixes — local agent runs must not target Ollama Cloud IDs.
+fn sanitize_ollama_model_id(raw: &str) -> String {
+    let mut s = raw.trim().to_string();
+    if s.ends_with(":cloud") {
+        s.truncate(s.len().saturating_sub(":cloud".len()));
+    }
+    if s.ends_with("-cloud") {
+        s.truncate(s.len().saturating_sub("-cloud".len()));
+    }
+    s
+}
+
 fn ollama_should_infer_scheme(s: &str) -> bool {
     let head = s
         .split('/')
@@ -3232,10 +3244,12 @@ impl Sentient {
             // Send prompt to AI provider
             let request_url = endpoint.clone();
 
-            let timeout_secs = if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
-                600 // Increased to 10 minutes for 72B model initialization
+            let timeout_secs = if was_advisor_iteration {
+                45 // Planner must not block the agent loop for minutes (Composer-style responsiveness)
+            } else if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
+                600 // Local / proxy — large models need warm-up time
             } else {
-                120 // Increased to 2 minutes for cloud models to handle peak load
+                120
             };
             let mut request = self
                 .client
@@ -5256,10 +5270,14 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                                 if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
                                     for m in models {
                                         if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
-                                            model_names.push(name.to_string());
+                                            model_names.push(sanitize_ollama_model_id(name));
                                         }
                                     }
                                 }
+                                model_names = model_names
+                                    .into_iter()
+                                    .map(|m| sanitize_ollama_model_id(&m))
+                                    .collect();
                                 return Ok(model_names);
                             }
                             Ok(resp) if resp.status().as_u16() == 404 => {

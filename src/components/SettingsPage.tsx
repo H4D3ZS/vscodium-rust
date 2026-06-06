@@ -13,6 +13,7 @@ import { airiConsciousness } from '../airi/consciousness';
 import { type FeatureName, type ProviderName, defaultModelSelectionOfFeature } from '../model_capabilities';
 import WorkspaceSettingsPanel from './settings/WorkspaceSettingsPanel';
 import InferenceBackendPanel from './settings/InferenceBackendPanel';
+import CursorParityPanel from './cursor/CursorParityPanel';
 import '../settings.css';
 
 // ── Provider list ──────────────────────────────────────────────────────────
@@ -948,6 +949,7 @@ const SettingsPage: React.FC = () => {
             </>
         ) },
         { id: 'workspace', label: 'Workspace', icon: 'folder', customRender: () => <WorkspaceSettingsPanel />, groupStart: 'Project' },
+        { id: 'cursor-parity', label: 'Cursor Parity', icon: 'checklist', customRender: () => <CursorParityPanel /> },
         { id: 'ollama', label: 'Ollama', icon: 'server-environment', agentCategory: 'ollama' },
         { id: 'steering', label: 'Steering', icon: 'symbol-keyword', customRender: () => <SteeringPanel />, groupStart: 'Workflow' },
         { id: 'hooks', label: 'Hooks', icon: 'zap', customRender: () => <HooksPanel /> },
