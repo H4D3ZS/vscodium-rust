@@ -41,6 +41,88 @@ use crate::hades_vision;
 use crate::apex_orchestrator::ApexOrchestrator;
 use tauri::Manager;
 
+/// Windows blocks writes under `Program Files`; the MSI default launch cwd is
+/// often the install dir — use AppData instead.
+fn is_protected_install_path(path: &PathBuf) -> bool {
+    let s = path.to_string_lossy().to_lowercase();
+    #[cfg(windows)]
+    {
+        s.contains("\\program files") || s.contains("\\program files (x86)")
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = s;
+        false
+    }
+}
+
+fn paths_same(a: &PathBuf, b: &PathBuf) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
+fn is_dir_writable(path: &PathBuf) -> bool {
+    if is_protected_install_path(path) {
+        return false;
+    }
+    if std::fs::create_dir_all(path).is_err() {
+        return false;
+    }
+    let probe = path.join(".write_probe");
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&probe)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Startup workspace root: never use a read-only install directory.
+fn resolve_startup_root(config_dir: &PathBuf) -> PathBuf {
+    let mut root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    let mut check_path = root.clone();
+    for _ in 0..3 {
+        if check_path.join("package.json").exists() || check_path.join(".git").exists() {
+            root = check_path;
+            break;
+        }
+        if let Some(parent) = check_path.parent() {
+            check_path = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+
+    let exe_install = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+
+    if let Some(ref install) = exe_install {
+        if paths_same(&root, install) {
+            let fb = config_dir.join("default_workspace");
+            let _ = fs::create_dir_all(&fb);
+            return fb;
+        }
+    }
+
+    if !is_dir_writable(&root) {
+        let fb = config_dir.join("default_workspace");
+        let _ = fs::create_dir_all(&fb);
+        return fb;
+    }
+
+    root
+}
+
 pub struct EditorState {
     pub buffers: tokio::sync::Mutex<HashMap<String, Rope>>,
     pub active_path: tokio::sync::Mutex<Option<String>>,
@@ -139,21 +221,7 @@ impl EditorState {
             let _ = fs::create_dir_all(&config_dir);
         }
 
-        let mut root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-
-        // Find project root by searching for package.json or .git up to 3 levels
-        let mut check_path = root.clone();
-        for _ in 0..3 {
-            if check_path.join("package.json").exists() || check_path.join(".git").exists() {
-                root = check_path;
-                break;
-            }
-            if let Some(parent) = check_path.parent() {
-                check_path = parent.to_path_buf();
-            } else {
-                break;
-            }
-        }
+        let root = resolve_startup_root(&config_dir);
         let auth_state = Arc::new(ai_auth::AuthState::new());
         let browser_state = Arc::new(browser::BrowserState::new());
         let memory_optimizer = Arc::new(memory_optimizer::MemoryOptimizer::new());
@@ -240,7 +308,14 @@ impl EditorState {
         // already provides AIM-based codebase awareness. Vector indexing only
         // runs when the user explicitly invokes vector_search, which loads
         // the SQLite-backed embeddings on demand. Saves 50-100MB at startup.
-        let vector_indexer = Arc::new(VectorIndexer::new(root.clone()).expect("Failed to init vector indexer"));
+        let vector_indexer = Arc::new(
+            VectorIndexer::new(root.clone(), config_dir.clone())
+                .unwrap_or_else(|e| {
+                    eprintln!("[VectorIndexer] init failed ({e}); using config dir fallback");
+                    VectorIndexer::new(config_dir.join("default_workspace"), config_dir.clone())
+                        .expect("Failed to init vector indexer in config dir")
+                }),
+        );
 
         // Initialize Git Checkpoints (auto-snapshot before AI edits)
         let git_checkpoints = Arc::new(GitCheckpoint::new(root.clone()));

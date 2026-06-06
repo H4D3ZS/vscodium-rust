@@ -1266,6 +1266,7 @@ impl Sentient {
                 let hint = if !status.is_success() {
                     match status_code {
                         401 | 403 => "Server replied with auth failure. The bearer is missing or wrong — paste the same secret you set as OLLAMA_BEARER on nginx, then click Save token.",
+                        402 => "Connected, but your plan does not include Cyber-Ifrit Cloud (HTTP 402). Start the free 1-day trial in Settings → Account, subscribe to Pro+, or use Local Ollama / your own API keys.",
                         404 => "Reached the server but neither /api/tags nor /v1/api/tags is exposed. Add a `location /api/` block to your nginx config (see tools/vps-ollama-proxy/bootstrap.sh).",
                         502 | 503 | 504 => "Nginx gateway error: upstream Ollama may be down, or nginx limit_conn/limit_req is throttling your client IP. Raise OLLAMA_CONN_PER_IP on the VPS (tools/vps-ollama-proxy/bootstrap.sh) and reload nginx.",
                         _ => "Server returned a non-2xx status. See the body preview below.",

@@ -221,20 +221,25 @@ function ClaurstBackendCard() {
             />
             <div className="settings-row-description" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span>
-                    {checking ? '⏳ checking…'
+                    {agentBackend === 'sentient'
+                        ? 'Using built-in Sentient (default). Claurst is an optional alternate engine — only needed if you select it above.'
+                        : checking ? '⏳ checking…'
                         : status?.available ? `✅ claurst found${status.version ? ` — ${status.version}` : ''}`
                         : `⚠ ${status?.reason || 'claurst not found'}`}
                 </span>
-                <button
-                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
-                        background: 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.08))',
-                        color: 'var(--vscode-button-secondaryForeground, inherit)',
-                        border: '1px solid var(--vscode-widget-border, rgba(255,255,255,0.15))' }}
-                    onClick={refresh} disabled={checking}>Re-check</button>
+                {agentBackend === 'claurst' && (
+                    <button
+                        style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
+                            background: 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.08))',
+                            color: 'var(--vscode-button-secondaryForeground, inherit)',
+                            border: '1px solid var(--vscode-widget-border, rgba(255,255,255,0.15))' }}
+                        onClick={refresh} disabled={checking}>Re-check</button>
+                )}
             </div>
-            {!status?.available && (
+            {agentBackend === 'claurst' && !status?.available && (
                 <pre style={{ fontSize: 11, opacity: 0.7, marginTop: 8, whiteSpace: 'pre-wrap' }}>
-{`Build once:  cd claurst/src-rust && cargo build --release --bin claurst
+{`Release MSI includes claurst.exe when built with npm run build:tauri.
+Dev build:  cd claurst/src-rust && cargo build --release --bin claurst
 Or set env:  CLAURST_BIN=<path to claurst.exe>`}
                 </pre>
             )}

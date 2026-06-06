@@ -27,7 +27,7 @@ export async function initMobile() {
             </div>
 
             <div class="mobile-ios-section" style="padding: 10px; border-top: 1px solid var(--vscode-panel-border);">
-                <div style="font-size: 11px; font-weight: 600; margin-bottom: 8px; color: var(--vscode-descriptionForeground); text-transform: uppercase;">iOS Simulators</div>
+                <div style="font-size: 11px; font-weight: 600; margin-bottom: 8px; color: var(--vscode-descriptionForeground); text-transform: uppercase;">iOS Emulator</div>
                 <div id="ios-list" style="display: flex; flex-direction: column; gap: 4px;">
                     <div class="ios-item hoverable" id="vphone-ios-item" style="padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: 4px; font-size: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <i class="codicon codicon-device-mobile"></i> <span>Virtual iPhone Emulator 26.3.1 JB</span>

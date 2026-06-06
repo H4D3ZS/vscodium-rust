@@ -65,14 +65,10 @@ pub struct IndexingProgress {
 }
 
 impl VectorIndexer {
-    pub fn new(root_path: PathBuf) -> anyhow::Result<Self> {
-        let db_path = root_path.join(".kortex").join("vector_index.db");
-        
-        // Create directory if it doesn't exist
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
+    /// `fallback_dir` is used when `root_path` is read-only (e.g. `Program Files`
+    /// when the app is launched from its install folder without a project open).
+    pub fn new(root_path: PathBuf, fallback_dir: PathBuf) -> anyhow::Result<Self> {
+        let db_path = Self::resolve_db_path(&root_path, &fallback_dir)?;
         let conn = Connection::open(&db_path)?;
         
         // Enable WAL mode for better concurrent performance
@@ -101,6 +97,23 @@ impl VectorIndexer {
                 progress_percent: 0.0,
             })),
         })
+    }
+
+    fn resolve_db_path(root: &Path, fallback_dir: &Path) -> anyhow::Result<PathBuf> {
+        let preferred = root.join(".kortex").join("vector_index.db");
+        if Self::ensure_db_parent(&preferred).is_ok() {
+            return Ok(preferred);
+        }
+        let fb = fallback_dir.join(".kortex").join("vector_index.db");
+        Self::ensure_db_parent(&fb)?;
+        Ok(fb)
+    }
+
+    fn ensure_db_parent(db_path: &Path) -> anyhow::Result<()> {
+        let parent = db_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("invalid vector index path"))?;
+        std::fs::create_dir_all(parent).map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     fn create_tables(conn: &Connection) -> anyhow::Result<()> {

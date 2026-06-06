@@ -28,8 +28,8 @@ use tokio::process::Command;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// Locate the `claurst` binary. Order: explicit env override → built release
-/// binary inside the bundled workspace → anything on PATH.
+/// Locate the `claurst` binary. Order: explicit env override → MSI/NSIS bundle
+/// (`src-tauri/binaries/claurst.exe`) → dev workspace build → PATH.
 fn find_claurst() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("CLAURST_BIN") {
         let pb = PathBuf::from(p);
@@ -39,6 +39,29 @@ fn find_claurst() -> Option<PathBuf> {
     }
 
     let exe = if cfg!(windows) { "claurst.exe" } else { "claurst" };
+
+    // Installer layout: shipped via bundle.resources "binaries/*"
+    if let Ok(cur) = std::env::current_exe() {
+        if let Some(dir) = cur.parent() {
+            for root in [
+                dir.join("binaries"),
+                dir.join("resources").join("binaries"),
+                dir.to_path_buf(),
+            ] {
+                let cand = root.join(exe);
+                if cand.is_file() {
+                    return Some(cand);
+                }
+            }
+        }
+    }
+    // Dev after prebuild:sidecar
+    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
+        let cand = PathBuf::from(manifest).join("binaries").join(exe);
+        if cand.is_file() {
+            return Some(cand);
+        }
+    }
 
     // Candidate roots: the project working dir and a couple of likely parents,
     // so this resolves whether the IDE runs from src-tauri/ or the repo root.
@@ -79,7 +102,7 @@ pub async fn claurst_status() -> Result<Value, String> {
     let Some(bin) = find_claurst() else {
         return Ok(json!({
             "available": false,
-            "reason": "claurst binary not found. Build it: cd claurst/src-rust && cargo build --release --bin claurst (or set CLAURST_BIN)."
+            "reason": "claurst binary not found. Run npm run prebuild:sidecar before release, or: cd claurst/src-rust && cargo build --release --bin claurst (or set CLAURST_BIN)."
         }));
     };
 

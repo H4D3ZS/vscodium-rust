@@ -11,11 +11,12 @@ Or step-by-step:
 ```powershell
 npm run typecheck
 powershell -ExecutionPolicy Bypass -File scripts\fetch-lsp-binaries.ps1   # once
-powershell -ExecutionPolicy Bypass -File scripts\build-sidecar.ps1        # once (needs invisible_playwright)
+powershell -ExecutionPolicy Bypass -File scripts\build-sidecar.ps1        # once (invisible_playwright)
+powershell -ExecutionPolicy Bypass -File scripts\build-claurst.ps1        # once (optional agent backend)
 npm run build:tauri
 ```
 
-Output: `src-tauri\target\release\bundle\` (NSIS/MSI).
+Output: `src-tauri\target\release\bundle\nsis\` (`VSCodium Rust IDE_*-setup.exe`).
 
 ## Bundled runtime
 
@@ -23,9 +24,12 @@ Output: `src-tauri\target\release\bundle\` (NSIS/MSI).
 |-----------|----------|--------|
 | LSP servers | `src-tauri/binaries/lsp/` | rust-analyzer, gopls, pyright, tsserver |
 | Stealth browser | `src-tauri/binaries/browser-agent.exe` | invisible_playwright via PyInstaller |
+| Claurst agent | `src-tauri/binaries/claurst.exe` | optional external agent backend (GPL, separate process) |
 | Extension host | `src-tauri/ext-host/` | Open VSX extensions |
 
-Dev mode uses Python + `invisible_playwright/src` on `PYTHONPATH` when `browser-agent.exe` is absent.
+Dev mode uses Python + `invisible_playwright/src` on `PYTHONPATH` when `browser-agent.exe` is absent. Claurst falls back to `claurst/src-rust/target/release/` in dev when `claurst.exe` is not prebuilt.
+
+Both sidecars are built automatically by `npm run prebuild:sidecar` (runs before `npx tauri build`).
 
 ## Pre-ship smoke test
 
