@@ -316,6 +316,13 @@ impl EditorState {
                         .expect("Failed to init vector indexer in config dir")
                 }),
         );
+        {
+            let vi_for_tools = vector_indexer.clone();
+            let tools = sentient.ai_tools.clone();
+            tauri::async_runtime::spawn(async move {
+                tools.set_vector_indexer(vi_for_tools).await;
+            });
+        }
 
         // Initialize Git Checkpoints (auto-snapshot before AI edits)
         let git_checkpoints = Arc::new(GitCheckpoint::new(root.clone()));

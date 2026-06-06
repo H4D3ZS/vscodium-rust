@@ -63,7 +63,7 @@ export interface GlobalSettings {
 export const defaultGlobalSettings: GlobalSettings = {
     autoRefreshModels: true,
     aiInstructions: '',
-    enableAutocomplete: false,
+    enableAutocomplete: true,
     syncApplyToChat: true,
     enableFastApply: true,
     chatMode: 'agent',
@@ -187,6 +187,24 @@ const openSourceModels: Record<string, Partial<ModelCapabilities>> = {
         reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
         contextWindow: 32_768, reservedOutputTokenSpace: 8_192,
     },
+    'kimi': {
+        supportsSystemMessage: 'system-role',
+        supportsFIM: false,
+        reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+        contextWindow: 256_000, reservedOutputTokenSpace: 16_384,
+    },
+    'glm': {
+        supportsSystemMessage: 'system-role',
+        supportsFIM: false,
+        reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+        contextWindow: 200_000, reservedOutputTokenSpace: 16_384,
+    },
+    'minimax': {
+        supportsSystemMessage: 'system-role',
+        supportsFIM: false,
+        reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+        contextWindow: 256_000, reservedOutputTokenSpace: 16_384,
+    },
     'starcoder2': {
         supportsFIM: true,
         supportsSystemMessage: false,
@@ -281,6 +299,7 @@ const deepseekModels: Record<string, ModelCapabilities> = {
     // DeepSeek-V4-Pro — permanent 75%-off pricing, automatic server-side context
     // caching (cache-hit input is ~120x cheaper). Ideal resell/rebrand executor.
     'deepseek-v4-pro': { contextWindow: 128_000, reservedOutputTokenSpace: 8_192, cost: { cache_read: 0.003625, input: 0.435, output: 0.87 }, downloadable: false, supportsFIM: false, supportsSystemMessage: 'system-role', specialToolFormat: 'openai-style', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] } },
+    'deepseek-v4-flash': { contextWindow: 128_000, reservedOutputTokenSpace: 8_192, cost: { cache_read: 0.002, input: 0.2, output: 0.4 }, downloadable: false, supportsFIM: false, supportsSystemMessage: 'system-role', specialToolFormat: 'openai-style', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: false } },
 };
 
 // Xiaomi MiMo — OpenAI/Anthropic-compatible coding models (Token Plan subscription
@@ -367,9 +386,13 @@ function fuzzyLookup(modelName: string): Partial<ModelCapabilities> | null {
     if (m.includes('grok-3') || m.includes('grok3')) return { ...xAIModels['grok-3'] };
     if (m.includes('grok')) return { ...xAIModels['grok-2'] };
 
-    if (m.includes('deepseek-v4') || m.includes('v4-pro')) return { ...deepseekModels['deepseek-v4-pro'] };
+    if (m.includes('deepseek-v4') || m.includes('v4-pro') || m.includes('v4-flash')) return { ...deepseekModels['deepseek-v4-pro'] };
     if (m.includes('deepseek-reasoner') || m.includes('deepseek-r1')) return { ...deepseekModels['deepseek-reasoner'] };
     if (m.includes('deepseek')) return { ...deepseekModels['deepseek-chat'] };
+
+    if (m.includes('kimi')) return openSourceModels.kimi as ModelCapabilities;
+    if (m.includes('glm')) return openSourceModels.glm as ModelCapabilities;
+    if (m.includes('minimax')) return openSourceModels.minimax as ModelCapabilities;
 
     if (m.includes('codestral')) return openSourceModels.codestral as ModelCapabilities;
     if (m.includes('devstral')) return openSourceModels.devstral as ModelCapabilities;
@@ -537,6 +560,13 @@ function plannerScore(m: AvailableModelLite): number {
     if (id.includes('o1')) return 86;
     if (id.includes('gpt-4.1') && !id.includes('mini') && !id.includes('nano')) return 82;
     if (id.includes('deepseek') && (id.includes('r1') || id.includes('reason'))) return 80;
+    if (id.includes('deepseek') && (id.includes('v4') || id.includes('v4-pro'))) return 85;
+    if (id.includes('kimi')) return id.includes('k2.6') || id.includes('k2-6') ? 92 : 78;
+    if (id.includes('glm')) return id.includes('5.1') || id.includes('5-1') ? 86 : 72;
+    if (id.includes('minimax') && id.includes('m2.7')) return 84;
+    if (id.includes('minimax') && id.includes('m3')) return 82;
+    if (id.includes('minimax')) return 70;
+    if (id.includes('qwen3.5') || id.includes('qwen3-5')) return 83;
     if (id.includes('gpt-4o') && !id.includes('mini')) return 78;
     if (id.includes('grok-3') && !id.includes('mini')) return 74;
     if (id.includes('claude')) return 70;
@@ -551,6 +581,9 @@ function plannerScore(m: AvailableModelLite): number {
 function executorScore(m: AvailableModelLite): number {
     const id = String(m.id || '').toLowerCase();
     if (id.includes('coder')) return 100;
+    if (id.includes('minimax') && id.includes('m3')) return 98;
+    if (id.includes('kimi') && id.includes('k2.6')) return 94;
+    if (id.includes('glm') && id.includes('5.1')) return 90;
     if (id.includes('codestral') || id.includes('starcoder')) return 95;
     if (id.includes('devstral')) return 88;
     if (id.includes('haiku')) return 85;
@@ -571,7 +604,16 @@ function executorScore(m: AvailableModelLite): number {
  */
 export function classifyModels(models: AvailableModelLite[]): PlannerExecutorPick {
     // Never pick apiradar (removed: leaked-key aggregator, unreachable → hangs the loop).
-    const list = (models || []).filter((m) => m && m.id && String(m.provider || '').toLowerCase() !== 'apiradar');
+    const list = (models || []).filter((m) => {
+        if (!m || !m.id) return false;
+        const p = String(m.provider || '').toLowerCase();
+        if (p === 'apiradar') return false;
+        // Ollama tags in the picker were already fetched — treat as reachable.
+        if (p === 'ollama') return true;
+        // Skip cloud-only model names that aren't installed locally.
+        if (/:cloud$|-cloud$/i.test(m.id)) return false;
+        return true;
+    });
     if (list.length === 0) return { planner: null, executor: null };
     if (list.length === 1) return { planner: list[0], executor: list[0] };
 

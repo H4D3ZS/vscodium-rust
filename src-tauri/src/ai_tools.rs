@@ -32,6 +32,7 @@ pub struct AiTools {
     pub ghost_runtime: Arc<crate::ghost_runtime::GhostRuntime>,
     pub shadow_workspace: Arc<crate::shadow_workspace::ShadowWorkspace>,
     pub apex: Arc<tokio::sync::Mutex<Option<Arc<crate::apex_orchestrator::ApexOrchestrator>>>>,
+    vector_indexer: Arc<tokio::sync::Mutex<Option<Arc<crate::vector_indexer::VectorIndexer>>>>,
     /// Shared live-activity buffer (same Arc as `Sentient.activity_log`). The
     /// streamed-command reader threads push `{kind,payload}` JSON lines here so
     /// the activity terminal can drain them — `h.emit` is dead in the webview.
@@ -136,6 +137,7 @@ impl AiTools {
             ghost_runtime,
             shadow_workspace,
             apex: Arc::new(tokio::sync::Mutex::new(apex)),
+            vector_indexer: Arc::new(tokio::sync::Mutex::new(None)),
             activity_log,
         }
     }
@@ -192,6 +194,11 @@ impl AiTools {
     pub async fn set_apex(&self, apex: Arc<crate::apex_orchestrator::ApexOrchestrator>) {
         let mut a = self.apex.lock().await;
         *a = Some(apex);
+    }
+
+    pub async fn set_vector_indexer(&self, indexer: Arc<crate::vector_indexer::VectorIndexer>) {
+        let mut v = self.vector_indexer.lock().await;
+        *v = Some(indexer);
     }
 
     pub async fn set_root_path(&self, root_path: PathBuf) {
@@ -1038,7 +1045,7 @@ impl AiTools {
             },
             ToolDefinition {
                 name: "semantic_search".to_string(),
-                description: "High-speed indexed search across the project matrix for keywords or file relationships.".to_string(),
+                description: "Semantic @codebase search: AIM memory slots plus ranked vector index chunks (run Index in Settings → Cursor Parity first).".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -3639,25 +3646,52 @@ impl AiTools {
     }
 
     async fn semantic_search(&self, args: Value) -> Result<Value> {
-        let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing query"))?.to_lowercase();
+        let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing query"))?.to_string();
+        let q_lower = query.to_lowercase();
+        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
         let slots: Vec<crate::memory_store::SemanticSlot> = self.memory_store.slots.read().await.clone();
         
         let mut results = Vec::new();
         for slot in slots {
-            if slot.content.to_lowercase().contains(&query) || 
-               slot.tags.iter().any(|t| t.to_lowercase().contains(&query)) ||
-               slot.id.to_lowercase().contains(&query) 
+            if slot.content.to_lowercase().contains(&q_lower) || 
+               slot.tags.iter().any(|t| t.to_lowercase().contains(&q_lower)) ||
+               slot.id.to_lowercase().contains(&q_lower) 
             {
                 results.push(json!({
+                    "source": "aim",
                     "id": slot.id,
                     "category": slot.category,
                     "relevance_tags": slot.tags,
                     "path_hint": slot.content
                 }));
             }
-            if results.len() > 50 { break; }
+            if results.len() >= limit { break; }
         }
-        Ok(json!(results))
+
+        if results.len() < limit {
+            if let Some(indexer) = self.vector_indexer.lock().await.clone() {
+                let remaining = limit - results.len();
+                if let Ok(hits) = indexer.search_codebase(&query, remaining).await {
+                    for hit in hits {
+                        results.push(json!({
+                            "source": "vector_index",
+                            "file": hit.file_path,
+                            "start_line": hit.start_line,
+                            "end_line": hit.end_line,
+                            "relevance_score": hit.relevance_score,
+                            "preview": hit.context,
+                            "content": hit.content.chars().take(240).collect::<String>(),
+                        }));
+                    }
+                }
+            }
+        }
+
+        Ok(json!({
+            "query": query,
+            "results": results,
+            "count": results.len()
+        }))
     }
 
     /// Packs the entire indexed codebase into a compact semantic map.
@@ -5446,19 +5480,22 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             .map(|s| s.split(',').map(|e| e.trim().to_string()).collect());
 
         let root = self.root_path.lock().await.clone();
+        let ignore_set = crate::cursor_compat::CursorIgnoreSet::load(
+            &root,
+            crate::cursor_compat::IgnoreScope::AiAccess,
+        );
         let mut text_matches: Vec<Value> = Vec::new();
 
-        // 1. Text grep across files
-        let ignore = &["node_modules", "target", ".git", "dist", ".next"];
+        // 1. Text grep across files (respects .cursorignore / .cursorindexingignore)
         for entry in walkdir::WalkDir::new(&root)
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
         {
             let path = entry.path();
-            let path_str = path.to_string_lossy();
-
-            if ignore.iter().any(|ig| path_str.contains(ig)) { continue; }
+            if ignore_set.is_ignored(path) {
+                continue;
+            }
 
             if let Some(ref types) = file_types {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -5470,7 +5507,7 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
                     if line.to_lowercase().contains(&q_lower) {
                         let rel = path.strip_prefix(&root)
                             .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_else(|_| path_str.to_string());
+                            .unwrap_or_else(|_| path.to_string_lossy().to_string());
                         text_matches.push(json!({
                             "file": rel,
                             "line": i + 1,
@@ -5507,12 +5544,43 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             if symbol_matches.len() >= 20 { break; }
         }
 
+        // 3. Vector index chunk matches (@codebase-style ranked snippets)
+        let mut vector_matches: Vec<Value> = Vec::new();
+        if let Some(indexer) = self.vector_indexer.lock().await.clone() {
+            if let Ok(hits) = indexer.search_codebase(&query, max_results).await {
+                for hit in hits {
+                    vector_matches.push(json!({
+                        "file": hit.file_path,
+                        "start_line": hit.start_line,
+                        "end_line": hit.end_line,
+                        "relevance_score": hit.relevance_score,
+                        "preview": hit.context,
+                    }));
+                }
+            }
+            if symbol_matches.len() < 20 {
+                if let Ok(sym_hits) = indexer.find_symbol(&query).await {
+                    for hit in sym_hits {
+                        if symbol_matches.len() >= 20 { break; }
+                        symbol_matches.push(json!({
+                            "symbol": hit.context,
+                            "file": hit.file_path,
+                            "line_start": hit.start_line,
+                            "source": "vector_index"
+                        }));
+                    }
+                }
+            }
+        }
+
         Ok(json!({
             "query": query,
             "text_matches": text_matches,
             "symbol_matches": symbol_matches,
+            "vector_matches": vector_matches,
             "total_text": text_matches.len(),
-            "total_symbols": symbol_matches.len()
+            "total_symbols": symbol_matches.len(),
+            "total_vector": vector_matches.len()
         }))
     }
 
