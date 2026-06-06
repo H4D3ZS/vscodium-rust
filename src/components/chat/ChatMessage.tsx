@@ -151,6 +151,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                 durationMs={msg.thoughtDurationMs}
                             />
                         )}
+                        {hasContent && (
+                            <MessageBody content={cleaned} allowApply={msg.role === 'assistant' && !isAgentThinking} />
+                        )}
                         {hasToolBlocks && (
                             <AgentToolBlocks blocks={msg.toolBlocks!} compact />
                         )}
@@ -170,7 +173,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                 ))}
                             </div>
                         )}
-                        <MessageBody content={cleaned} allowApply={msg.role === 'assistant' && !isAgentThinking} />
                     </>
                 )}
             </div>

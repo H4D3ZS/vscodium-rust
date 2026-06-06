@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../store';
-import { ScrcpyEmbed, getScrcpyForDevice, stopAllScrcpyInstances } from '../utils/scrcpy-embed';
+import AndroidEmulatorDisplay from './AndroidEmulatorDisplay';
 
 interface AVD {
     name: string;
@@ -23,12 +23,8 @@ const EmulatorPanel: React.FC = () => {
     const emulatorPosition = useStore(state => state.emulatorLayout);
     const setEmulatorPosition = useStore(state => state.setEmulatorLayout);
     
-    const scrcpyContainerRef = useRef<HTMLDivElement>(null);
-    const scrcpyInstance = useRef<ScrcpyEmbed | null>(null);
-
     const [availableAvds, setAvailableAvds] = useState<AVD[]>([]);
     const [runningEmulators, setRunningEmulators] = useState<RunningEmulator[]>([]);
-    const [streamStarted, setStreamStarted] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [spawnStatus, setSpawnStatus] = useState<string>('');
 
@@ -50,10 +46,13 @@ const EmulatorPanel: React.FC = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // Auto-start stream when device is selected
+    // Auto-start view when device is selected (AndroidEmulatorDisplay handles stream)
     useEffect(() => {
-        if (activeDevice && !streamStarted) {
-            handleStartStream(activeDevice);
+        if (activeDevice && runningEmulators.some((e) => e.device_id === activeDevice)) {
+            return;
+        }
+        if (activeDevice) {
+            loadRunningEmulators();
         }
     }, [activeDevice]);
 
@@ -154,67 +153,46 @@ const EmulatorPanel: React.FC = () => {
         }
     };
 
-    const handleStartStream = async (deviceId: string) => {
-        try {
-            setActiveDevice(deviceId);
-            setStreamStarted(true);
-            
-            // Start embedded scrcpy stream
-            if (scrcpyContainerRef.current) {
-                scrcpyInstance.current = getScrcpyForDevice(deviceId);
-                await scrcpyInstance.current.start(scrcpyContainerRef.current);
-            }
-        } catch (err) {
-            console.error('Failed to start stream:', err);
-        }
-    };
-
     const handleLaunchEmulator = async (avdName: string) => {
         setIsLoading(true);
         setSpawnStatus(`Launching "${avdName}"...`);
 
         try {
-            // First check if emulator is already running
             const emulators = await invoke<RunningEmulator[]>('list_running_emulators');
-            
+
             if (emulators.length === 0) {
-                // Spawn emulator
                 const result = await invoke<string>('spawn_emulator_by_name', { avdName });
                 setSpawnStatus(result);
-                
-                // Wait for boot
-                setSpawnStatus('Waiting for emulator to boot (30-60 seconds)...');
-                await new Promise(resolve => setTimeout(resolve, 30000));
-                
-                // Reload running emulators
-                await loadRunningEmulators();
+
+                setSpawnStatus('Waiting for emulator to boot (up to 3 min)...');
+                for (let i = 0; i < 60; i++) {
+                    await new Promise((r) => setTimeout(r, 3000));
+                    const running = await invoke<RunningEmulator[]>('list_running_emulators');
+                    if (running.length > 0) {
+                        setActiveDevice(running[0].device_id);
+                        setSpawnStatus('Emulator ready — embedded display active.');
+                        setIsLoading(false);
+                        return;
+                    }
+                }
             }
-            
-            // Get device ID
+
             const updated = await invoke<RunningEmulator[]>('list_running_emulators');
-            const deviceId = updated.length > 0 ? updated[0].device_id : 'emulator-5554';
-            
-            setSpawnStatus(`Starting screen capture: ${deviceId}...`);
-            setActiveDevice(deviceId);
-            
-            // Start scrcpy stream
-            await handleStartStream(deviceId);
-            
-            setIsLoading(false);
-            setSpawnStatus('Emulator screen active!');
-            
-        } catch (err: any) {
-            setSpawnStatus(`Error: ${err.message || err}`);
+            if (updated.length > 0) {
+                setActiveDevice(updated[0].device_id);
+                setSpawnStatus('Emulator screen active!');
+            } else {
+                setSpawnStatus('Emulator still booting — select it from Running when online.');
+            }
+        } catch (err: unknown) {
+            setSpawnStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
             setIsLoading(false);
         }
     };
 
     const handleStopStream = async () => {
-        if (scrcpyInstance.current) {
-            await scrcpyInstance.current.stop();
-            scrcpyInstance.current = null;
-        }
-        setStreamStarted(false);
+        await invoke('stop_emulator_stream').catch(() => {});
         setActiveDevice('');
     };
 
@@ -488,76 +466,10 @@ const EmulatorPanel: React.FC = () => {
         );
     }
 
-    // Device selected - show embedded scrcpy stream
+    // Device selected - embedded ADB stream
     return (
-        <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--vscode-editor-background)', overflow: 'hidden' }}>
-            {/* Header */}
-            <div style={{ width: '100%', padding: '10px 12px', background: 'var(--vscode-panel-background)', borderBottom: '1px solid var(--vscode-panel-border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ec9b0', boxShadow: '0 0 8px #4ec9b0' }}></div>
-                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-sideBar-foreground)' }}>{activeDevice}</span>
-                <span style={{ fontSize: '10px', opacity: 0.5, marginLeft: 'auto', background: 'var(--vscode-badge-background)', padding: '2px 6px', borderRadius: '3px' }}>
-                    📡 Embedded
-                </span>
-                <button
-                    onClick={togglePosition}
-                    style={{
-                        padding: '2px 6px',
-                        fontSize: '10px',
-                        background: 'transparent',
-                        color: 'var(--vscode-descriptionForeground)',
-                        border: '1px solid var(--vscode-panel-border)',
-                        borderRadius: '3px',
-                        cursor: 'pointer',
-                        marginLeft: '4px'
-                    }}
-                    title="Move panel"
-                >
-                    {emulatorPosition === 'left' ? '➡️' : '⬅️'}
-                </button>
-            </div>
-
-            {/* Embedded scrcpy Stream */}
-            <div 
-                ref={scrcpyContainerRef}
-                style={{ 
-                    flex: 1, 
-                    background: '#000',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                }}
-            >
-                <div style={{ color: 'var(--vscode-editor-foreground, #888)', fontSize: '12px' }}>
-                    {streamStarted ? 'Loading emulator stream...' : 'Starting stream...'}
-                </div>
-            </div>
-
-            {/* Footer with controls */}
-            <div style={{ 
-                padding: '8px 12px', 
-                fontSize: '10px', 
-                opacity: 0.5, 
-                borderTop: '1px solid var(--vscode-panel-border)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-            }}>
-                <span>Click on emulator to interact</span>
-                <button
-                    onClick={handleStopStream}
-                    style={{
-                        padding: '4px 8px',
-                        fontSize: '10px',
-                        background: 'var(--vscode-button-secondaryBackground)',
-                        color: 'var(--vscode-button-secondaryForeground)',
-                        border: '1px solid var(--vscode-panel-border)',
-                        borderRadius: '3px',
-                        cursor: 'pointer'
-                    }}
-                >
-                    ✕ Close Stream
-                </button>
-            </div>
+        <div style={{ width: '100%', height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <AndroidEmulatorDisplay deviceId={activeDevice} onClose={() => void handleStopStream()} />
         </div>
     );
 };

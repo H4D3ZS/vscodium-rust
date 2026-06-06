@@ -24,7 +24,7 @@ import {
     rejectFocusedPendingChange,
 } from '../../application/editor/navigatePendingChange';
 import { notifyAgentComplete } from '../../application/agent/notifyAgentComplete';
-import { cleanAgentContent } from '../../domain/agent/cleanAgentContent';
+import { cleanAgentContent, shouldReplaceAgentContent } from '../../domain/agent/cleanAgentContent';
 
 let attached = false;
 
@@ -71,7 +71,11 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
             ? event.payload.content
             : (typeof event.payload === 'string' ? event.payload : '');
         const content = cleanAgentContent(raw);
-        updateLastAgentMessage(content);
+        const last = useStore.getState().agentMessages.at(-1);
+        const existing = last?.role === 'assistant' ? cleanAgentContent(last.content || '') : '';
+        if (shouldReplaceAgentContent(existing, content)) {
+            updateLastAgentMessage(content);
+        }
         useStore.getState().finalizeAgentToolBlocks?.();
         if (/MISSION_ACCOMPLISHED|TASK_COMPLETE/i.test(raw)) {
             const mode = useStore.getState().agentMode || 'Agent';

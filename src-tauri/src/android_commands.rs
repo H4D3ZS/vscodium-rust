@@ -115,11 +115,12 @@ pub fn adb_install_and_run(_state: State<'_, EditorState>, _apk_path: String) ->
 pub async fn get_android_config(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
     let sdk_path = state.android_sdk_path.lock().await;
     let adb_found = if let Some(path) = sdk_path.as_ref() {
-        std::path::PathBuf::from(path)
-            .join("platform-tools/adb")
-            .exists()
+        let base = std::path::PathBuf::from(path);
+        base.join("platform-tools/adb.exe").exists()
+            || base.join("platform-tools/adb").exists()
+            || base.join("platform-tools").join("adb.exe").exists()
     } else {
-        false
+        crate::android_sdk::adb_exists()
     };
  
     Ok(serde_json::json!({

@@ -2303,7 +2303,13 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         // dropped buffer), write the authoritative final text from the call.
         const ft = typeof finalText === 'string' ? finalText.trim() : '';
         if (!streamedAny && ft && !isAgentRunAborted()) {
-            store.getState().updateLastAgentMessage?.(ft);
+            const { cleanAgentContent, shouldReplaceAgentContent } = await import('./domain/agent/cleanAgentContent');
+            const cleaned = cleanAgentContent(ft);
+            const last = store.getState().agentMessages.at(-1);
+            const existing = last?.role === 'assistant' ? cleanAgentContent(last.content || '') : '';
+            if (shouldReplaceAgentContent(existing, cleaned)) {
+                store.getState().updateLastAgentMessage?.(cleaned);
+            }
         }
 
         console.log('[Agent] Full ai_chat loop completed successfully.');

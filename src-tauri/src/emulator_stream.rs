@@ -7,6 +7,7 @@
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use crate::android_sdk::{adb_exists, emulator_path, get_adb_cmd, get_android_sdk_path};
 use crate::process_ext::hidden_command;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
@@ -16,30 +17,7 @@ static EMULATOR_RUNNING: AtomicBool = AtomicBool::new(false);
 static STREAM_RUNNING: AtomicBool = AtomicBool::new(false);
 static FRAME_COUNT: AtomicUsize = AtomicUsize::new(0);
 static CAPTURE_TASK: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new(None);
-
-fn get_android_sdk_path() -> String {
-    for var in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
-        if let Ok(val) = std::env::var(var) {
-            if std::path::Path::new(&val).exists() { return val; }
-        }
-    }
-    let home = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
-    let locations: Vec<String> = vec![
-        format!("{}\\AppData\\Local\\Android\\Sdk", home),
-        format!("{}\\Android\\Sdk", home),
-        "C:\\Android\\Sdk".to_string(),
-        "C:\\Program Files\\Android\\Sdk".to_string(),
-        "C:\\Program Files (x86)\\Android\\Sdk".to_string(),
-    ];
-    for loc in &locations {
-        if std::path::Path::new(loc).exists() { return loc.clone(); }
-    }
-    format!("{}\\AppData\\Local\\Android\\Sdk", home)
-}
-
-fn get_adb_cmd() -> Command {
-    hidden_command(format!("{}\\platform-tools\\adb.exe", get_android_sdk_path()))
-}
+static STREAM_DEVICE: Mutex<Option<String>> = Mutex::new(None);
 
 fn get_avdmanager_cmd() -> Command {
     let p = format!("{}\\cmdline-tools\\latest\\bin\\avdmanager.bat", get_android_sdk_path());
@@ -48,7 +26,7 @@ fn get_avdmanager_cmd() -> Command {
 }
 
 fn _get_emulator_cmd() -> Command {
-    Command::new(format!("{}\\emulator\\emulator.exe", get_android_sdk_path()))
+    Command::new(emulator_path())
 }
 
 /// Minimize emulator window by title or class
@@ -169,22 +147,25 @@ pub async fn spawn_emulator_by_name(avd_name: String) -> Result<String, String> 
     }
 
     // Check ADB and AVD
-    let adb = format!("{}\\platform-tools\\adb.exe", get_android_sdk_path());
-    if !std::path::Path::new(&adb).exists() {
-        return Err(format!("ADB not found at {}", adb));
+    if !adb_exists() {
+        let adb = crate::android_sdk::adb_path();
+        return Err(format!(
+            "ADB not found (looked at {}). Install Android SDK Platform-Tools or set ANDROID_HOME.",
+            adb.display()
+        ));
     }
     let avds = list_available_avds().await?;
     if !avds.iter().any(|a| a.name == avd_name) {
         return Err(format!("AVD '{}' not found. Available: {}", avd_name,
             avds.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ")));
     }
-    let emu = format!("{}\\emulator\\emulator.exe", get_android_sdk_path());
-    if !std::path::Path::new(&emu).exists() {
-        return Err(format!("Emulator not found at {}", emu));
+    let emu = emulator_path();
+    if !emu.exists() {
+        return Err(format!("Emulator not found at {}", emu.display()));
     }
 
     println!("[Emulator] Launching '{}' headless...", avd_name);
-    match hidden_command(&emu).args(&[
+    match hidden_command(emu.to_string_lossy().as_ref()).args(&[
         "-avd", &avd_name,
         "-no-audio",
         "-no-window",              // KEY: NO external window (Android Studio style)
@@ -270,15 +251,21 @@ pub fn list_running_emulators() -> Result<Vec<EmulatorProcess>, String> {
 /// Start ADB screencap streaming (no separate window needed).
 /// Captures frames via `adb exec-out screencap -p` and emits `emulator:frame` events.
 #[tauri::command]
-pub async fn start_emulator_stream(app: AppHandle, _device_id: String) -> Result<String, String> {
+pub async fn start_emulator_stream(app: AppHandle, device_id: String) -> Result<String, String> {
     if CAPTURE_TASK.lock().unwrap().is_some() {
         return Err("Stream already running".to_string());
     }
+    let device = if device_id.trim().is_empty() {
+        "emulator-5554".to_string()
+    } else {
+        device_id.trim().to_string()
+    };
+    *STREAM_DEVICE.lock().unwrap() = Some(device.clone());
     STREAM_RUNNING.store(true, Ordering::SeqCst);
 
     let app_clone = app.clone();
     let handle = tokio::spawn(async move {
-        let device = "emulator-5554";
+        let device = device;
         let mut last_frame = std::time::Instant::now();
         let min_interval = std::time::Duration::from_millis(100); // ~10fps max
         let mut consecutive_failures = 0;
@@ -297,7 +284,7 @@ pub async fn start_emulator_stream(app: AppHandle, _device_id: String) -> Result
 
             // Capture via ADB screencap (built into Android SDK, no external deps)
             let mut adb = get_adb_cmd();
-            adb.args(&["-s", device, "exec-out", "screencap", "-p"]);
+            adb.args(&["-s", &device, "exec-out", "screencap", "-p"]);
             
             match adb.output() {
                 Ok(output) => {
@@ -351,6 +338,7 @@ pub async fn start_emulator_stream(app: AppHandle, _device_id: String) -> Result
 pub async fn stop_emulator_stream() -> Result<String, String> {
     EMULATOR_RUNNING.store(false, Ordering::SeqCst);
     STREAM_RUNNING.store(false, Ordering::SeqCst);
+    *STREAM_DEVICE.lock().unwrap() = None;
     let mut task = CAPTURE_TASK.lock().unwrap();
     if let Some(h) = task.take() { h.abort(); }
     Ok("Stream stopped".to_string())

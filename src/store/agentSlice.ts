@@ -8,6 +8,7 @@ import type {
 import type { AgentToolBlock } from '../domain/agent/agentToolBlocks';
 import { createToolBlock, enrichEditBlockFromResult } from '../domain/agent/agentToolBlocks';
 import { toolsMatchForFinish } from '../domain/agent/toolAliases';
+import { cleanAgentContent, shouldReplaceAgentContent } from '../domain/agent/cleanAgentContent';
 
 /** A user-defined agent mode (Kilo-style): name + persona prompt + optional model. */
 export interface CustomMode {
@@ -486,6 +487,13 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
             } else if (rawContent.startsWith('<think>') && !rawContent.includes('</think>')) {
                 newThoughts = rawContent.replace('<think>', '').trim();
                 newContent = '';
+            }
+            const existingClean = cleanAgentContent(last.content || '');
+            const incomingClean = cleanAgentContent(newContent);
+            if (!shouldReplaceAgentContent(existingClean, incomingClean)) {
+                newContent = last.content || '';
+            } else {
+                newContent = incomingClean;
             }
             const thoughtStartedAt = last.thoughtStartedAt ?? (newThoughts ? Date.now() : undefined);
             const thoughtDurationMs = newThoughts && newContent && thoughtStartedAt

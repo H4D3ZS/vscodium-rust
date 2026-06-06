@@ -59,7 +59,7 @@ Our catalog (`src/mcp/mcpCatalog.ts`) mirrors that pattern:
 - Official `@modelcontextprotocol/server-*` packages
 - Google Cloud `@toolbox-sdk/server --prebuilt` entries (same as Antigravity docs)
 - Optional community servers (Context7, HexStrike) with explicit setup notes
-- **Reverse engineering MCP** (IDA Pro, Ghidra) — install from MCP Store → Security; requires local IDA/Ghidra licenses and `uv`
+- **Reverse engineering MCP** (IDA Pro, Ghidra) — install from MCP Store → Security; requires local IDA/Ghidra licenses (Python 3.11+; `uv` optional — IDE falls back to `pip install` from GitHub)
 
 ### Reverse engineering MCP (IDA Pro + Ghidra)
 
@@ -67,7 +67,7 @@ These are **not** built into the IDE binary. Install from **MCP Store → Securi
 
 | Store entry | Upstream | When to use |
 |-------------|----------|-------------|
-| **IDA Pro MCP (Headless)** | [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp) | `idalib-mcp --stdio` — best for agent loops, CI, multi-IDB workers |
+| **IDA Pro MCP (Headless)** | [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp) | `idalib-mcp --stdio` — set `IDA_INSTALL_DIR` (e.g. `E:\IDA Professional 9.1`); idalib auto-activated |
 | **IDA Pro MCP (GUI Plugin)** | same | HTTP to running IDA (`http://127.0.0.1:13337/mcp`) — interactive GUI RE |
 | **Ghidra MCP (Headless)** | [clearbluejar/pyghidra-mcp](https://github.com/clearbluejar/pyghidra-mcp) | Headless Ghidra project via `uvx` |
 | **Ghidra MCP (Plugin HTTP)** | [bethington/ghidra-mcp](https://github.com/bethington/ghidra-mcp) | Ghidra CodeBrowser open + plugin server |

@@ -67,9 +67,12 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
             '245+ live RE tools via idalib-mcp (decompile, disasm, xrefs, patches, py_eval). Requires IDA Pro 8.3+ — IDA Free not supported.',
         command: 'uvx',
         args: ['--from', 'git+https://github.com/mrexodia/ida-pro-mcp', 'idalib-mcp', '--stdio'],
-        envFields: [{ key: 'IDA_MCP_MAX_WORKERS', label: 'Max worker processes (optional)', placeholder: '4' }],
+        envFields: [
+            { key: 'IDA_INSTALL_DIR', label: 'IDA Pro install path', placeholder: 'E:\\IDA Professional 9.1' },
+            { key: 'IDA_MCP_MAX_WORKERS', label: 'Max worker processes (optional)', placeholder: '4' },
+        ],
         needsConfig:
-            'Prereqs: Python 3.11+, uv, IDA Pro (paid). Activate idalib once (Windows): uv run "C:\\Program Files\\IDA Professional 9.x\\idalib\\python\\py-activate-idalib.py". Call idb_open() before other tools; pass database=<session_id> on every call.',
+            'Requires paid IDA Pro 8.3+ (not IDA Free). Auto-activates idalib and pip-installs from GitHub if uv is missing. Flow: idb_open(path) → use returned database=<session_id> on every tool call.',
         tags: ['reverse-engineering', 'ida', 'binary-analysis', 'mcp'],
     },
     {
@@ -100,8 +103,8 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
             '--project-path',
             './ghidra-projects',
         ],
-        envFields: [{ key: 'GHIDRA_INSTALL_DIR', label: 'Ghidra install path', placeholder: 'C:\\ghidra_12.0_PUBLIC' }],
-        needsConfig: 'Set GHIDRA_INSTALL_DIR to your Ghidra root. Edit --project-path (last args) to a writable directory.',
+        envFields: [{ key: 'GHIDRA_INSTALL_DIR', label: 'Ghidra install path', placeholder: 'E:\\Ghidra or E:\\ghidra_12.0_PUBLIC' }],
+        needsConfig: 'Point to the folder containing ghidraRun.bat (or its parent). Empty E:\\Ghidra will fail — extract Ghidra there first. Uses py + pip if uv is missing.',
         tags: ['reverse-engineering', 'ghidra', 'binary-analysis', 'mcp'],
     },
     {

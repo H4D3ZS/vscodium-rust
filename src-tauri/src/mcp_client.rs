@@ -86,8 +86,13 @@ impl McpClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        for (k, v) in env {
+        for (k, v) in std::env::vars() {
             cmd.env(k, v);
+        }
+        for (k, v) in env {
+            if !v.trim().is_empty() {
+                cmd.env(k, v);
+            }
         }
         if let Some(dir) = cwd {
             cmd.current_dir(dir);

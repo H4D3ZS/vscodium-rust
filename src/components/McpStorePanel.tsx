@@ -112,6 +112,32 @@ const McpStorePanel: React.FC = () => {
         setInstalling(entry.id);
         setMsg('');
         try {
+            const cleanEnv = Object.fromEntries(
+                Object.entries(env).filter(([, v]) => (v || '').trim().length > 0),
+            );
+
+            if (cleanEnv.GHIDRA_INSTALL_DIR) {
+                const det = await invoke<{ ok?: boolean; path?: string; error?: string }>(
+                    'detect_ghidra_install_dir',
+                    { path: cleanEnv.GHIDRA_INSTALL_DIR },
+                );
+                if (!det?.ok) {
+                    throw new Error(det?.error || 'Invalid Ghidra path');
+                }
+                if (det.path) cleanEnv.GHIDRA_INSTALL_DIR = det.path;
+            }
+
+            if (cleanEnv.IDA_INSTALL_DIR) {
+                const det = await invoke<{ ok?: boolean; path?: string; error?: string }>(
+                    'detect_ida_install_dir',
+                    { path: cleanEnv.IDA_INSTALL_DIR },
+                );
+                if (!det?.ok) {
+                    throw new Error(det?.error || 'Invalid IDA Pro path');
+                }
+                if (det.path) cleanEnv.IDA_INSTALL_DIR = det.path;
+            }
+
             if (entry.type === 'http' && entry.serverUrl) {
                 await addMcpServer(entry.name, { type: 'http', serverUrl: entry.serverUrl });
             } else {
@@ -123,11 +149,13 @@ const McpStorePanel: React.FC = () => {
                     args: [...(entry.args ?? [])],
                     enabled: true,
                 };
-                if (Object.keys(env).length) config.env = env;
+                if (Object.keys(cleanEnv).length) config.env = cleanEnv;
                 await addMcpServer(entry.name, config);
             }
             await listMcpServers();
-            setMsg(`Installed ${entry.name}. Agent can use its tools on the next turn.`);
+            const res = await invoke<{ count?: number }>('list_mcp_tools');
+            const count = res?.count ?? 0;
+            setMsg(`Installed ${entry.name} — ${count} MCP tool${count === 1 ? '' : 's'} available to the agent.`);
             setInstallTarget(null);
             setEnvDraft({});
         } catch (e) {
@@ -141,7 +169,13 @@ const McpStorePanel: React.FC = () => {
         if (isInstalled(entry)) return;
         if (entry.envFields?.length) {
             setInstallTarget(entry);
-            setEnvDraft(Object.fromEntries(entry.envFields.map(f => [f.key, ''])));
+            const defaults: Record<string, string> = {};
+            for (const f of entry.envFields) {
+                if (f.key === 'GHIDRA_INSTALL_DIR') defaults[f.key] = 'E:\\Ghidra';
+                else if (f.key === 'IDA_INSTALL_DIR') defaults[f.key] = 'E:\\IDA Professional 9.1';
+                else defaults[f.key] = '';
+            }
+            setEnvDraft(defaults);
             return;
         }
         void runInstall(entry, {});

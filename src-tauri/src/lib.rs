@@ -29,6 +29,7 @@ mod ai_project_commands;
 mod airi_bridge;
 mod claurst_bridge;
 mod android_commands;
+mod android_sdk;
 mod apex_commands;
 mod attachment_manager;
 mod binary_analyzer;
@@ -44,6 +45,7 @@ mod ghost_runtime;
 mod hades_harness;
 mod hades_vision;
 mod iphone_emulator;
+mod ios_simulator;
 mod kairos;
 mod knowledge_distiller;
 mod kortex_commands;
@@ -57,6 +59,8 @@ mod port_commands;
 mod mcp_client;
 mod mcp_commands;
 mod mcp_registry;
+mod mcp_resolver;
+mod mobile_toolchain;
 mod mcp_server;
 mod memory_layer;
 pub mod memory_optimizer;
@@ -527,6 +531,8 @@ pub fn run() {
             // ═══ File Commands ═══
             file_commands::refresh_file_tree,
             // ═══ MCP ═══
+            mcp_commands::detect_ghidra_install_dir,
+            mcp_commands::detect_ida_install_dir,
             mcp_commands::add_mcp_server,
             mcp_commands::remove_mcp_server,
             mcp_commands::list_mcp_servers,
@@ -674,6 +680,18 @@ pub fn run() {
             iphone_emulator::launch_vphone,
             iphone_emulator::prepare_ios_firmware,
             iphone_emulator::create_stub_ramdisk,
+            ios_simulator::ios_sim_preflight,
+            ios_simulator::ios_sim_list_devices,
+            ios_simulator::ios_sim_boot_device,
+            ios_simulator::ios_sim_start_mirror,
+            ios_simulator::ios_sim_stop_mirror,
+            ios_simulator::ios_sim_send_touch,
+            ios_simulator::ios_sim_send_home,
+            ios_simulator::ios_sim_mirror_running,
+            mobile_toolchain::resolve_mobile_toolchain_paths,
+            mobile_toolchain::run_vphone_doctor,
+            mobile_toolchain::install_vphone_toolchain,
+            mobile_toolchain::get_mobile_toolchain_env,
             window_commands::win_minimize,
             window_commands::win_toggle_maximize,
             window_commands::win_close,

@@ -2,6 +2,7 @@ import React from 'react';
 import { useStore } from '../store';
 import EmulatorPanel from './EmulatorPanel';
 import IPhoneEmulatorPanel from './IPhoneEmulatorPanel';
+import MobileToolchainPanel from './MobileToolchainPanel';
 
 /**
  * Unified Emulator Panel
@@ -83,12 +84,35 @@ const UnifiedEmulatorPanel: React.FC = () => {
                 >
                     🍎 iPhone
                 </button>
+                <button
+                    onClick={() => useStore.getState().setEmulatorPanelPosition('toolchain')}
+                    style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        background: activeEmulator === 'toolchain'
+                            ? 'var(--vscode-button-background)'
+                            : 'transparent',
+                        color: activeEmulator === 'toolchain'
+                            ? 'var(--vscode-button-foreground)'
+                            : 'var(--vscode-descriptionForeground)',
+                        border: 'none',
+                        borderBottom: activeEmulator === 'toolchain'
+                            ? '2px solid var(--vscode-button-background)'
+                            : '2px solid transparent',
+                        cursor: 'pointer',
+                    }}
+                >
+                    🔧 Toolchain
+                </button>
             </div>
 
             {/* Emulator content */}
             <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {activeEmulator === 'android' && <EmulatorPanel />}
                 {activeEmulator === 'iphone' && <IPhoneEmulatorPanel />}
+                {activeEmulator === 'toolchain' && <MobileToolchainPanel />}
             </div>
         </div>
     );
