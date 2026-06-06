@@ -38,14 +38,21 @@ pub async fn apex_quick_check(
     serde_json::to_value(&findings).map_err(|e| e.to_string())
 }
 
-/// Red Team: Simulate a specific attack vector
+/// Red Team: Execute a LIVE attack chain (real curl/nmap/audits — not LLM simulation)
 #[tauri::command]
 pub async fn apex_simulate_attack(
     state: State<'_, EditorState>,
     target: String,
     attack_type: String,
 ) -> Result<Value, String> {
-    state.apex.red_team().simulate_attack(&target, &attack_type).await
+    state
+        .ai_tools
+        .call_tool(
+            "apex_simulate_attack",
+            serde_json::json!({ "target": target, "attack_type": attack_type }),
+        )
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Red Team: Generate pentest report

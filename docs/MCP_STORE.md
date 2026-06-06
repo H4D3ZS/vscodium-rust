@@ -59,6 +59,24 @@ Our catalog (`src/mcp/mcpCatalog.ts`) mirrors that pattern:
 - Official `@modelcontextprotocol/server-*` packages
 - Google Cloud `@toolbox-sdk/server --prebuilt` entries (same as Antigravity docs)
 - Optional community servers (Context7, HexStrike) with explicit setup notes
+- **Reverse engineering MCP** (IDA Pro, Ghidra) — install from MCP Store → Security; requires local IDA/Ghidra licenses and `uv`
+
+### Reverse engineering MCP (IDA Pro + Ghidra)
+
+These are **not** built into the IDE binary. Install from **MCP Store → Security & Research**:
+
+| Store entry | Upstream | When to use |
+|-------------|----------|-------------|
+| **IDA Pro MCP (Headless)** | [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp) | `idalib-mcp --stdio` — best for agent loops, CI, multi-IDB workers |
+| **IDA Pro MCP (GUI Plugin)** | same | HTTP to running IDA (`http://127.0.0.1:13337/mcp`) — interactive GUI RE |
+| **Ghidra MCP (Headless)** | [clearbluejar/pyghidra-mcp](https://github.com/clearbluejar/pyghidra-mcp) | Headless Ghidra project via `uvx` |
+| **Ghidra MCP (Plugin HTTP)** | [bethington/ghidra-mcp](https://github.com/bethington/ghidra-mcp) | Ghidra CodeBrowser open + plugin server |
+
+After install: **Manage → Refresh**. Agent system prompt includes `{MCP_SUMMARY}` listing connected tool names (`decompile`, `xrefs_to`, `int_convert`, …).
+
+**IDA headless flow:** `idb_open(path)` → use returned `database` session id on every tool call → `decompile` / `disasm` / `analyze_funcs`.
+
+**Prompt tip (from upstream):** tell the agent to use `int_convert` for base conversions — never let the LLM convert hex/decimal manually.
 
 ### What we intentionally do not copy
 

@@ -6,7 +6,8 @@ import type {
     AgentMessage, AgentStep, Artifact, AttachedContext, AgentTask, TaskArtifact, SemanticSlot,
 } from './types';
 import type { AgentToolBlock } from '../domain/agent/agentToolBlocks';
-import { createToolBlock, enrichEditBlockFromResult, toolsMatchForFinish } from '../domain/agent/agentToolBlocks';
+import { createToolBlock, enrichEditBlockFromResult } from '../domain/agent/agentToolBlocks';
+import { toolsMatchForFinish } from '../domain/agent/toolAliases';
 
 /** A user-defined agent mode (Kilo-style): name + persona prompt + optional model. */
 export interface CustomMode {

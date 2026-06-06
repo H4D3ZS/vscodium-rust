@@ -206,6 +206,7 @@ PHASE → TOOL MAPPING (use what's installed):
 - Creds: hashcat, john, hydra (authorized brute on owned lab accounts only)
 - AD/Post: bloodhound, crackmapexec/netexec, impacket-* (internal pentest scope)
 - Mobile/RE: apktool, jadx, frida, ghidra, radare2
+- IDA/Ghidra MCP (agent): install from IDE MCP Store → Security — ida-pro-mcp (decompile/xrefs/patch) or pyghidra-mcp; requires local licenses + uv
 - Parrot ops: anonsurf for anonymity on authorized external tests (when ROE allows)
 
 VIGILANTE / GREY-HAT RESEARCH (still requires authorization):

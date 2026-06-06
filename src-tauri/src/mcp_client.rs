@@ -73,7 +73,9 @@ impl McpClient {
 
         #[cfg(target_os = "windows")]
         {
-            if command == "npx" || command == "npm" || command == "yarn" || command == "pnpm" {
+            if command == "npx" || command == "npm" || command == "yarn" || command == "pnpm"
+                || command == "uv" || command == "uvx"
+            {
                 final_command = format!("{}.cmd", command);
             }
         }

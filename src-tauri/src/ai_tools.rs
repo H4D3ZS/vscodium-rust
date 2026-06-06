@@ -465,20 +465,8 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
-                name: "code_generation".into(),
-                description: "Generate code in multiple languages".into(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "language": {"type": "string"},
-                        "specification": {"type": "string"},
-                    },
-                    "required": ["language", "specification"]
-                }),
-            },
-            ToolDefinition {
                 name: "generate_0day_exploit".into(),
-                description: "Create zero-day exploit with autonomous PoC".into(),
+                description: "Build a LIVE exploit scaffold: runs exploit_lookup (searchsploit/NVD), generates reverse-shell/listener payloads, writes PoC report to disk. Not an LLM fantasy PoC.".into(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -491,57 +479,20 @@ impl AiTools {
             },
             ToolDefinition {
                 name: "reverse_engineer_firmware".into(),
-                description: "Automate firmware unpack, patch, and vuln discovery".into(),
+                description: "LIVE firmware/binary analysis: get_binary_info + extract_strings + entropy + secrets_scan (+ disassembly at depth≥2). Real file analysis, not simulated.".into(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
                         "firmware_path": {"type": "string"},
-                        "target_device": {"type": "string"}
+                        "target_device": {"type": "string"},
+                        "analysis_depth": {"type": "integer", "default": 1}
                     },
-                    "required": ["firmware_path", "target_device"]
-                }),
-            },
-            ToolDefinition {
-                name: "develop_web_mobile_app".into(),
-                description: "Develop full-stack web/mobile app with code reviews".into(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "platform": {"type": "string"},
-                        "specifications": {"type": "string"},
-                        "languages": {"type": "array", "items": {"type": "string"}}
-                    },
-                    "required": ["platform", "specifications"]
-                }),
-            },
-            ToolDefinition {
-                name: "kernel_exploit_chain".into(),
-                description: "Automate kernel exploit chain creation and testing".into(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "kernel_version": {"type": "string"},
-                        "target_arch": {"type": "string"},
-                        "exploit_constraints": {"type": "string"}
-                    },
-                    "required": ["kernel_version", "target_arch"]
-                }),
-            },
-            ToolDefinition {
-                name: "jailbreak_activation_bypass".into(),
-                description: "Create jailbreak and activation bypass for iOS devices".into(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "ios_version": {"type": "string"},
-                        "device_model": {"type": "string"}
-                    },
-                    "required": ["ios_version", "device_model"]
+                    "required": ["firmware_path"]
                 }),
             },
             ToolDefinition {
                 name: "network_scan".into(),
-                description: "Perform an automated network scan (nmap) on a target host or range.".into(),
+                description: "LIVE network recon: runs real nmap (or curl/ping fallback) against the target. Returns actual command stdout/stderr.".into(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -553,7 +504,7 @@ impl AiTools {
             },
             ToolDefinition {
                 name: "exploit_lookup".into(),
-                description: "Search for known exploits based on a service name or CVE ID.".into(),
+                description: "LIVE exploit/CVE lookup via searchsploit or NVD API curl. Returns real search results, not fake EDB rows.".into(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -564,12 +515,12 @@ impl AiTools {
             },
             ToolDefinition {
                 name: "advanced_reverse_engineering".into(),
-                description: "Run advanced reverse engineering on binaries and firmware".into(),
+                description: "LIVE binary RE chain (alias of reverse_engineer_firmware): metadata, strings, entropy, secrets, optional disassembly.".into(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
                         "binary_path": {"type": "string"},
-                        "analysis_depth": {"type": "integer"}
+                        "analysis_depth": {"type": "integer", "default": 2}
                     },
                     "required": ["binary_path"]
                 }),
@@ -1581,7 +1532,7 @@ impl AiTools {
             },
             ToolDefinition {
                 name: "apex_simulate_attack".to_string(),
-                description: "Simulate a specific attack vector against a target. Generates: attack timeline, payload construction, expected responses, detection indicators, and evasion techniques. Use for penetration testing simulation.".to_string(),
+                description: "Execute a LIVE attack chain against an authorized target — runs real curl/nmap/web_security_audit/deep_security_audit probes and returns actual command output (NOT an LLM simulation). Use for sqli, xss, ssrf, lfi, rce, auth_bypass on in-scope bug-bounty/pentest targets.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
@@ -1607,52 +1558,7 @@ impl AiTools {
 
     /// Map frontend / model alias names to canonical backend handlers.
     fn canonical_tool_name(name: &str) -> &str {
-        let n = name.trim();
-        if n.eq_ignore_ascii_case("run_terminal_cmd")
-            || n.eq_ignore_ascii_case("run_terminal_command")
-            || n.eq_ignore_ascii_case("execute_command")
-            || n.eq_ignore_ascii_case("execute_bash")
-            || n.eq_ignore_ascii_case("shell_command")
-            || n.eq_ignore_ascii_case("run_shell_command")
-            || n.eq_ignore_ascii_case("terminal_command")
-            || n.eq_ignore_ascii_case("glob_file_search")
-            || n.eq_ignore_ascii_case("file_glob")
-            || n.eq_ignore_ascii_case("glob_files")
-            || n.eq_ignore_ascii_case("codebase_search")
-            || n.eq_ignore_ascii_case("codebaseSearch")
-        {
-            if n.eq_ignore_ascii_case("glob_file_search")
-                || n.eq_ignore_ascii_case("file_glob")
-                || n.eq_ignore_ascii_case("glob_files")
-            {
-                return "find_by_name";
-            }
-            if n.eq_ignore_ascii_case("codebase_search") || n.eq_ignore_ascii_case("codebaseSearch") {
-                return "search_codebase";
-            }
-            return "run_command";
-        }
-        match n {
-            "bash" | "sh" | "shell" | "exec" | "execute" | "cmd" | "run" | "terminal" => {
-                "run_command"
-            }
-            "file_read" | "read_file" | "cat" | "read" | "view" | "get_file" => "view_file",
-            "file_write" | "write_file" | "create_file" | "save_file" | "write" => {
-                "write_to_file"
-            }
-            "file_edit" | "edit_file" | "edit" | "string_replace" | "replace_in_file"
-            | "replace_code" | "str_replace_editor" | "code_edit" | "search_replace" => {
-                "str_replace"
-            }
-            "glob" | "find" | "find_files" => "find_by_name",
-            "list_directory" | "list_dir" | "ls" | "dir" | "files" => "list_files",
-            "read_url_content" | "fetch_url" => "web_fetch",
-            "search" | "find_string" | "grep_search" | "find_in_files" | "grep" => "grep",
-            "mkdir" | "md" | "create_dir" => "create_directory",
-            "internet_search" | "browse" => "web_search",
-            "terminal_get_state" => "terminal_list",
-            other => other,
-        }
+        crate::tool_aliases::canonical_tool_name(name)
     }
 
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
@@ -1665,8 +1571,6 @@ impl AiTools {
                 self.handle_ag_tool(canonical, arguments).await
             }
             "project_rules" => self.handle_project_rules(arguments).await,
-            "develop_web_mobile_app" | "kernel_exploit_chain" | "jailbreak_activation_bypass"
-            | "advanced_reverse_engineering" => self.handle_capability_stub(canonical).await,
             // Filesystem Operations — all tools handled by handle_fs_tool
             "view_file"
             | "write_to_file"
@@ -1773,16 +1677,11 @@ impl AiTools {
             "use_skill" => self.handle_use_skill(arguments).await,
             "search_skills" => self.handle_search_skills(arguments).await,
 
-            // Experimental / Stubs
-            "code_generation" => {
-                Ok(serde_json::json!({"result": "Code generated (Mock Implementation)"}))
+            // Live offensive-security tools (real shell / file analysis)
+            "generate_0day_exploit" => self.handle_live_exploit_scaffold(arguments).await,
+            "reverse_engineer_firmware" | "advanced_reverse_engineering" => {
+                self.handle_live_binary_analysis(arguments, canonical).await
             }
-            "generate_0day_exploit" => {
-                Ok(serde_json::json!({"status": "Autonomous PoC generating... (Functional Stub)"}))
-            }
-            "reverse_engineer_firmware" => Ok(
-                serde_json::json!({"analysis": "Firmware analysis successful. (Functional Stub)"}),
-            ),
             "network_scan" => self.handle_network_scan(arguments).await,
             "exploit_lookup" => self.handle_exploit_lookup(arguments).await,
 
@@ -1819,8 +1718,45 @@ impl AiTools {
             | "apex_quick_check"
             | "apex_pentest_report" => self.handle_apex_tool(canonical, arguments).await,
 
+            // TS-parity workflow tools (also in OLLAMA_ESSENTIAL_TOOLS)
+            "todo_write" | "task_create" | "task_update" => {
+                self.handle_todo_tool(canonical, arguments).await
+            }
+
             _ => Err(anyhow!("Unknown tool: {}", name)),
         }
+    }
+
+    /// Cursor/TS `todo_write` / `task_*` — persist markdown task lists to disk.
+    async fn handle_todo_tool(&self, name: &str, args: Value) -> Result<Value> {
+        let path = args
+            .get("file_path")
+            .or_else(|| args.get("path"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(match name {
+                "task_create" | "task_update" => "tasks.md",
+                _ => "TODO.md",
+            });
+        let content = args
+            .get("content")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| {
+                if name == "task_create" {
+                    if let Some(title) = args.get("title").and_then(|v| v.as_str()) {
+                        return format!("- [ ] {}\n", title);
+                    }
+                }
+                if let Some(desc) = args.get("description").and_then(|v| v.as_str()) {
+                    return desc.to_string();
+                }
+                String::new()
+            });
+        self.handle_fs_tool(
+            "write_to_file",
+            json!({ "path": path, "content": content }),
+        )
+        .await
     }
 
     async fn handle_security_generator(&self, name: &str, args: Value) -> Result<Value> {
@@ -1878,23 +1814,185 @@ impl AiTools {
     }
 
     async fn handle_network_scan(&self, args: Value) -> Result<Value> {
-        let target = args["target"].as_str().unwrap_or("127.0.0.1");
+        let target = args["target"].as_str().unwrap_or("").trim();
+        if target.is_empty() {
+            return Err(anyhow!("Missing target"));
+        }
+        let intensity = args["intensity"].as_str().unwrap_or("normal");
+        let cmd = crate::pentest_executor::build_network_scan_command(target, intensity);
+        let result = self.run_command(json!({ "command": cmd })).await?;
         Ok(json!({
-            "status": "Scanning target...",
+            "execution_mode": "live",
+            "tool": "network_scan",
             "target": target,
-            "results": format!("Nmap scan report for {}\nHost is up.\nNot shown: 998 closed ports\nPORT   STATE SERVICE\n80/tcp open  http\n22/tcp open  ssh", target),
-            "binary_artifact": ".aim/scans/scan_latest.aim"
+            "command": cmd,
+            "result": result,
         }))
     }
 
     async fn handle_exploit_lookup(&self, args: Value) -> Result<Value> {
-        let query = args["query"].as_str().unwrap_or("");
+        let query = args["query"].as_str().unwrap_or("").trim();
+        if query.is_empty() {
+            return Err(anyhow!("Missing query"));
+        }
+        let cmd = crate::pentest_executor::build_exploit_lookup_command(query);
+        let result = self.run_command(json!({ "command": cmd })).await?;
         Ok(json!({
+            "execution_mode": "live",
+            "tool": "exploit_lookup",
             "query": query,
-            "matches": [
-                {"title": format!("{} Remote Code Execution", query), "id": "EDB-1337", "platform": "linux"},
-                {"title": format!("{} Privilege Escalation", query), "id": "CVE-2024-9999", "platform": "windows"}
-            ]
+            "command": cmd,
+            "result": result,
+        }))
+    }
+
+    /// Live attack chain — real audits + shell probes. Replaces LLM-only "simulation".
+    async fn execute_live_attack_chain(&self, args: Value) -> Result<Value> {
+        let target = args["target"].as_str().ok_or_else(|| anyhow!("Missing target"))?.trim();
+        let attack_type = args["attack_type"].as_str().ok_or_else(|| anyhow!("Missing attack_type"))?;
+        let mut steps: Vec<Value> = Vec::new();
+
+        if let Ok(inv) = self.handle_fs_tool("sec_distro_inventory", json!({})).await {
+            steps.push(json!({ "step": "sec_distro_inventory", "result": inv }));
+        }
+
+        if crate::pentest_executor::is_http_target(target) {
+            let audit = self.web_security_audit(json!({
+                "url": target,
+                "write_report": true,
+            })).await?;
+            steps.push(json!({ "step": "web_security_audit", "result": audit }));
+
+            for cmd in crate::pentest_executor::build_url_attack_probes(target, attack_type) {
+                let probe = self.run_command(json!({ "command": cmd })).await?;
+                steps.push(json!({ "step": "live_probe", "command": cmd, "result": probe }));
+            }
+        } else if target.contains('/') || target.contains('\\') {
+            if let Ok(content) = std::fs::read_to_string(target) {
+                let audit = self.handle_fs_tool("deep_security_audit", json!({
+                    "path": target,
+                    "content": content,
+                })).await?;
+                steps.push(json!({ "step": "deep_security_audit", "result": audit }));
+            }
+            let secrets = self.handle_fs_tool("secrets_scan", json!({ "path": target })).await?;
+            steps.push(json!({ "step": "secrets_scan", "result": secrets }));
+        } else {
+            for cmd in crate::pentest_executor::build_host_attack_probes(target, attack_type) {
+                let probe = self.run_command(json!({ "command": cmd })).await?;
+                steps.push(json!({ "step": "live_probe", "command": cmd, "result": probe }));
+            }
+        }
+
+        let report_path = format!("reports/live-attack-{}.md", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+        let body = format!(
+            "# Live Attack Chain\n\n- **Target:** {target}\n- **Type:** {attack_type}\n- **Mode:** live execution (not LLM simulation)\n\n## Steps\n\n```json\n{}\n```\n",
+            serde_json::to_string_pretty(&steps).unwrap_or_default()
+        );
+        let _ = self.handle_fs_tool("write_to_file", json!({
+            "path": report_path,
+            "content": body,
+        })).await;
+
+        Ok(json!({
+            "execution_mode": "live",
+            "attack_type": attack_type,
+            "target": target,
+            "steps_executed": steps.len(),
+            "report_path": report_path,
+            "steps": steps,
+            "note": "All steps ran real tools (curl/nmap/audits). No LLM simulation output.",
+        }))
+    }
+
+    /// Live exploit scaffold — lookup + payload templates written to disk.
+    async fn handle_live_exploit_scaffold(&self, args: Value) -> Result<Value> {
+        let target_os = args["target_os"].as_str().unwrap_or("linux");
+        let vuln_desc = args["vulnerability_desc"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing vulnerability_desc"))?;
+        let constraints = args.get("constraints").and_then(|v| v.as_str()).unwrap_or("");
+
+        let lookup = self.handle_exploit_lookup(json!({ "query": vuln_desc })).await?;
+        let listener = self
+            .handle_security_generator(
+                "security_listener_generate",
+                json!({ "kind": "nc", "host": "0.0.0.0", "port": 4444 }),
+            )
+            .await?;
+        let lang = if target_os.to_lowercase().contains("win") {
+            "powershell"
+        } else {
+            "bash"
+        };
+        let shell = self
+            .handle_security_generator(
+                "reverse_shell_generate",
+                json!({ "language": lang, "host": "ATTACKER_IP", "port": 4444 }),
+            )
+            .await?;
+
+        let report_path = format!("reports/exploit-scaffold-{}.md", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+        let body = format!(
+            "# Live Exploit Scaffold\n\n- **Target OS:** {target_os}\n- **Vulnerability:** {vuln_desc}\n- **Constraints:** {constraints}\n\n## Exploit lookup (live)\n\n```json\n{}\n```\n\n## Listener\n\n```json\n{}\n```\n\n## Reverse shell template\n\n```json\n{}\n```\n",
+            serde_json::to_string_pretty(&lookup).unwrap_or_default(),
+            serde_json::to_string_pretty(&listener).unwrap_or_default(),
+            serde_json::to_string_pretty(&shell).unwrap_or_default(),
+        );
+        self.handle_fs_tool("write_to_file", json!({
+            "path": report_path,
+            "content": body,
+        }))
+        .await?;
+
+        Ok(json!({
+            "execution_mode": "live",
+            "tool": "generate_0day_exploit",
+            "report_path": report_path,
+            "exploit_lookup": lookup,
+            "listener": listener,
+            "reverse_shell": shell,
+        }))
+    }
+
+    /// Live binary/firmware analysis chain.
+    async fn handle_live_binary_analysis(&self, args: Value, tool_name: &str) -> Result<Value> {
+        let path = args
+            .get("firmware_path")
+            .or_else(|| args.get("binary_path"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing firmware_path or binary_path"))?;
+        let depth = args.get("analysis_depth").and_then(|v| v.as_u64()).unwrap_or(1);
+
+        let info = self
+            .handle_research_tool("get_binary_info", json!({ "path": path }))
+            .await?;
+        let strings = self.handle_fs_tool("extract_strings", json!({ "path": path })).await?;
+        let entropy = self
+            .handle_fs_tool("file_entropy_analysis", json!({ "path": path }))
+            .await?;
+        let secrets = self.handle_fs_tool("secrets_scan", json!({ "path": path })).await?;
+
+        let mut analysis = json!({
+            "get_binary_info": info,
+            "extract_strings": strings,
+            "file_entropy_analysis": entropy,
+            "secrets_scan": secrets,
+        });
+
+        if depth >= 2 {
+            let disasm = self
+                .handle_research_tool("disassemble", json!({ "path": path }))
+                .await?;
+            analysis["disassemble"] = disasm;
+        }
+
+        Ok(json!({
+            "execution_mode": "live",
+            "tool": tool_name,
+            "path": path,
+            "analysis_depth": depth,
+            "analysis": analysis,
         }))
     }
 
@@ -1963,9 +2061,8 @@ impl AiTools {
                 apex.full_sweep(&code, &file_path, &language).await.map_err(|e| anyhow!(e))
             },
             "apex_simulate_attack" => {
-                let target = arguments["target"].as_str().ok_or_else(|| anyhow!("Missing target"))?.to_string();
-                let attack_type = arguments["attack_type"].as_str().ok_or_else(|| anyhow!("Missing attack_type"))?.to_string();
-                apex.red_team().simulate_attack(&target, &attack_type).await.map_err(|e| anyhow!(e))
+                drop(apex_guard);
+                self.execute_live_attack_chain(arguments).await
             },
             "apex_architect_design" => {
                 let desc = arguments["description"].as_str().ok_or_else(|| anyhow!("Missing description"))?.to_string();
@@ -2080,18 +2177,6 @@ impl AiTools {
             "status": "success",
             "rules": chunks.join("\n\n"),
             "count": chunks.len(),
-        }))
-    }
-
-    async fn handle_capability_stub(&self, name: &str) -> Result<Value> {
-        Ok(json!({
-            "status": "stub",
-            "tool": name,
-            "message": format!(
-                "`{}` is registered but not fully automated yet. Use `run_command`, `web_security_audit`, \
-                 `deep_security_audit`, `ai_vuln_hunt`, or `apex_red_team_scan` for real offensive-security work.",
-                name
-            ),
         }))
     }
 

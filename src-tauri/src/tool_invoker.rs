@@ -23,6 +23,12 @@ pub enum ToolLevel {
 }
 
 pub fn classify_tool(name: &str) -> ToolLevel {
+    if is_mcp_mutation_tool(name) {
+        return ToolLevel::Dangerous;
+    }
+    if is_mcp_write_tool(name) {
+        return ToolLevel::Caution;
+    }
     match name {
         // Destructive / irreversible — shell execution, deletions, git history changes
         "remove_item" | "run_command" | "ghost_test" | "terminal_send_data"
@@ -49,6 +55,43 @@ pub fn classify_tool(name: &str) -> ToolLevel {
         // Everything else is read-only / safe
         _ => ToolLevel::Safe,
     }
+}
+
+/// IDA Pro / Ghidra MCP tools that mutate the IDB or run arbitrary code.
+fn is_mcp_mutation_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "patch_asm"
+            | "patch"
+            | "put_int"
+            | "py_eval"
+            | "dbg_write"
+            | "dbg_start"
+            | "dbg_exit"
+            | "dbg_continue"
+            | "dbg_run_to"
+            | "dbg_step_into"
+            | "dbg_step_over"
+            | "idb_save"
+    ) || (name.starts_with("dbg_") && !matches!(name, "dbg_regs" | "dbg_regs_all" | "dbg_gpregs" | "dbg_stacktrace" | "dbg_bps" | "dbg_read"))
+}
+
+/// MCP tools that rename/annotate/type — reversible but write to the database.
+fn is_mcp_write_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "set_comments"
+            | "define_func"
+            | "define_code"
+            | "undefine"
+            | "declare_type"
+            | "declare_stack"
+            | "delete_stack"
+            | "set_type"
+            | "rename"
+            | "add_bookmark"
+            | "infer_types"
+    )
 }
 
 impl ToolInvoker {
@@ -135,7 +178,8 @@ impl ToolInvoker {
     /// Only fall back to MCP when the name is absent from AiTools — not when a
     /// registered tool fails mid-execution (e.g. str_replace miss, browser crash).
     fn is_unknown_tool_error(err: &anyhow::Error) -> bool {
-        err.to_string().starts_with("Unknown tool:")
+        let msg = err.to_string();
+        msg.starts_with("Unknown tool:") || msg.starts_with("Tool not found:")
     }
 }
 
@@ -207,6 +251,19 @@ mod tests {
         ] {
             assert!(is_caution(tool), "{tool} must be Caution (file write)");
         }
+    }
+
+    /// IDA/Ghidra MCP mutation tools must prompt before patching IDB or running py_eval.
+    #[test]
+    fn ida_mcp_mutation_tools_are_gated() {
+        assert!(is_dangerous("patch_asm"));
+        assert!(is_dangerous("py_eval"));
+        assert!(is_dangerous("dbg_write"));
+        assert!(is_caution("set_comments"));
+        assert!(is_caution("rename"));
+        assert!(is_safe("decompile"));
+        assert!(is_safe("xrefs_to"));
+        assert!(is_safe("int_convert"));
     }
 
     /// Read-only tools (and unknown tools) default to Safe.

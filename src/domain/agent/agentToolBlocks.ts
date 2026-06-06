@@ -1,5 +1,7 @@
 /** Cursor-style tool invocation cards shown inline in the agent chat. */
 
+import { canonicalToolName, toolsMatchForFinish } from './toolAliases';
+
 export type AgentToolBlockKind = 'terminal' | 'read' | 'edit' | 'search' | 'todo' | 'generic';
 export type AgentToolBlockStatus = 'running' | 'done' | 'error';
 
@@ -55,36 +57,8 @@ export function classifyToolKind(tool: string): AgentToolBlockKind {
     return 'generic';
 }
 
-/** Map model / Cursor alias names to canonical backend tool ids. */
-export function canonicalToolName(name: string): string {
-    const t = (name || '').trim().toLowerCase().replace(/-/g, '_');
-    const map: Record<string, string> = {
-        bash: 'run_command', sh: 'run_command', shell: 'run_command', exec: 'run_command',
-        execute: 'run_command', cmd: 'run_command', run: 'run_command', terminal: 'run_command',
-        run_terminal_cmd: 'run_command', run_terminal_command: 'run_command',
-        execute_command: 'run_command', execute_bash: 'run_command', shell_command: 'run_command',
-        run_shell_command: 'run_command', terminal_command: 'run_command',
-        read_file: 'view_file', file_read: 'view_file', cat: 'view_file', read: 'view_file',
-        view: 'view_file', get_file: 'view_file',
-        write_file: 'write_to_file', file_write: 'write_to_file', create_file: 'write_to_file',
-        save_file: 'write_to_file', write: 'write_to_file',
-        glob: 'find_by_name', find_files: 'find_by_name', glob_file_search: 'find_by_name',
-        file_glob: 'find_by_name', glob_files: 'find_by_name',
-        ls: 'list_files', list_dir: 'list_files', list_directory: 'list_files', dir: 'list_files',
-        files: 'list_files', list: 'list_files',
-        grep: 'grep', grep_search: 'grep', find_in_files: 'grep', find_string: 'grep',
-        search: 'grep', ripgrep: 'grep',
-        codebase_search: 'search_codebase', semantic_search: 'search_codebase',
-        find: 'find_by_name', search_files: 'search_files',
-    };
-    return map[t] || t;
-}
-
-export function toolsMatchForFinish(a: string, b: string, callIdA?: string, callIdB?: string): boolean {
-    if (callIdA && callIdB && callIdA === callIdB) return true;
-    if (a === b) return true;
-    return canonicalToolName(a) === canonicalToolName(b);
-}
+// Re-export for callers that imported from this module
+export { canonicalToolName, toolsMatchForFinish } from './toolAliases';
 
 /** Quiet recon steps (glob/list/grep) collapse unless running or failed. */
 export function isQuietReconBlock(block: AgentToolBlock): boolean {
