@@ -67,8 +67,20 @@ const Workbench: React.FC = () => {
     const toggleZenMode = useStore(state => (state as any).toggleZenMode);
 
     // Ctrl+\ = toggle split editor (global listener, works regardless of Monaco focus)
-    // Ctrl+Shift+V = toggle the markdown side-by-side preview (VS Code parity)
+    // Ctrl+Shift+V = toggle markdown side-by-side preview (VS Code parity)
     // Ctrl+K Z = toggle zen mode; Escape exits zen mode
+    useEffect(() => {
+        const openPreviewHandler = (e: Event) => {
+            const path = (e as CustomEvent).detail?.path as string | undefined;
+            if (!path) return;
+            import('../application/editor/openFile').then(({ openFileWithMarkdownPreview }) => {
+                openFileWithMarkdownPreview(path).catch(console.error);
+            });
+        };
+        window.addEventListener('ide:open-markdown-preview', openPreviewHandler);
+        return () => window.removeEventListener('ide:open-markdown-preview', openPreviewHandler);
+    }, []);
+
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && isZenMode) {

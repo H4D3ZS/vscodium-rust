@@ -25,6 +25,7 @@ export interface EditorSlice {
     isSplitEditorOpen: boolean;
     focusedHunkId: string | null;
     isMarkdownPreviewOpen: boolean;
+    markdownPreviewWidthPct: number;
     isVisualLabOpen: boolean;
     isVisualLabFullScreen: boolean;
     isVisualLabSplitView: boolean;
@@ -74,6 +75,7 @@ export interface EditorSlice {
     openMarkdownPreview: () => void;
     closeMarkdownPreview: () => void;
     toggleMarkdownPreview: () => void;
+    setMarkdownPreviewWidthPct: (pct: number) => void;
     setVisualLabMode: (mode: 'none' | 'json' | 'flow' | 'erd' | 'summary') => void;
     setVisualLabData: (data: any) => void;
     setIsVisualLabFullScreen: (v: boolean) => void;
@@ -113,6 +115,12 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     isSplitEditorOpen: false,
     focusedHunkId: null,
     isMarkdownPreviewOpen: false,
+    markdownPreviewWidthPct: (() => {
+        try {
+            const v = parseFloat(localStorage.getItem('editor.markdownPreviewWidthPct') || '42');
+            return Number.isFinite(v) ? Math.min(70, Math.max(22, v)) : 42;
+        } catch { return 42; }
+    })(),
     isVisualLabOpen: false,
     isVisualLabFullScreen: false,
     isVisualLabSplitView: false,
@@ -480,6 +488,11 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     openMarkdownPreview: () => set({ isMarkdownPreviewOpen: true }),
     closeMarkdownPreview: () => set({ isMarkdownPreviewOpen: false }),
     toggleMarkdownPreview: () => set(s => ({ isMarkdownPreviewOpen: !s.isMarkdownPreviewOpen })),
+    setMarkdownPreviewWidthPct: (pct) => {
+        const clamped = Math.min(70, Math.max(22, pct));
+        try { localStorage.setItem('editor.markdownPreviewWidthPct', String(clamped)); } catch { /* */ }
+        set({ markdownPreviewWidthPct: clamped });
+    },
 
     setVisualLabMode: (mode) => set({ visualLabMode: mode }),
     setVisualLabData: (data) => set({ visualLabData: data }),

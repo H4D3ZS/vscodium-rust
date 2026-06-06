@@ -16,10 +16,22 @@ function detectLanguage(filename: string): string {
 
 /** Open a file in the editor (or focus existing tab). */
 export async function openFile(path: string): Promise<void> {
+    await openFileInternal(path, false);
+}
+
+/** Open markdown and show VS Code–style side-by-side preview. */
+export async function openFileWithMarkdownPreview(path: string): Promise<void> {
+    await openFileInternal(path, true);
+}
+
+async function openFileInternal(path: string, withPreview: boolean): Promise<void> {
     const st = useStore.getState();
     const existing = st.tabs.find((t) => t.path === path);
     if (existing) {
         st.setActiveTab(existing.id);
+        if (withPreview && detectLanguage(path) === 'markdown') {
+            useStore.getState().openMarkdownPreview?.();
+        }
         return;
     }
 
@@ -44,4 +56,7 @@ export async function openFile(path: string): Promise<void> {
         history.push(id);
         return { tabs: [...state.tabs, tab], activeTabId: id, tabHistory: history, tabHistoryIndex: history.length - 1 };
     });
+    if (withPreview && tab.language === 'markdown') {
+        useStore.getState().openMarkdownPreview?.();
+    }
 }

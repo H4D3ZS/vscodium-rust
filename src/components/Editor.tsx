@@ -9,6 +9,7 @@ import MarkdownPreview from './MarkdownPreview';
 import BrandedWelcomeScreen from './BrandedWelcomeScreen';
 import PredictiveEditOverlay from './PredictiveEditOverlay';
 import { invoke, listen } from '../tauri_bridge';
+import { isMarkdownPath } from '../lib/markdown';
 
 // Map file extension → LSP language id
 function getLspLanguageId(path: string): string {
@@ -59,6 +60,8 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     const toggleVisualLab = useStore(state => state.toggleVisualLab);
     const isGitBlameVisible = useStore(state => (state as any).isGitBlameVisible ?? false);
     const toggleGitBlame = useStore(state => (state as any).toggleGitBlame);
+    const isMarkdownPreviewOpen = useStore(state => (state as any).isMarkdownPreviewOpen ?? false);
+    const toggleMarkdownPreview = useStore(state => (state as any).toggleMarkdownPreview);
     const setVisualLabMode = useStore(state => state.setVisualLabMode);
     const debugBreakpoints = useStore(state => state.debugBreakpoints);
 
@@ -1185,6 +1188,34 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                 >
                     {activeTab.path.endsWith('.sql') ? <Database size={12} /> : <FileJson size={12} />}
                     {activeTab.path.endsWith('.sql') ? 'Visualize Schema' : 'Visualize Content'}
+                </button>
+            )}
+
+            {isMarkdownPath(activeTab.path) && (
+                <button
+                    onClick={() => toggleMarkdownPreview?.()}
+                    title="Open Preview to the Side (Ctrl+Shift+V)"
+                    style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '40px',
+                        zIndex: 100,
+                        background: isMarkdownPreviewOpen ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.06)',
+                        border: `1px solid ${isMarkdownPreviewOpen ? 'rgba(56, 189, 248, 0.45)' : 'rgba(255,255,255,0.12)'}`,
+                        borderRadius: '6px',
+                        color: isMarkdownPreviewOpen ? '#38bdf8' : 'inherit',
+                        padding: '4px 10px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer',
+                        backdropFilter: 'blur(4px)',
+                    }}
+                >
+                    <i className="codicon codicon-open-preview" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                    Preview
                 </button>
             )}
 

@@ -1374,6 +1374,19 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "sec_distro_inventory".to_string(),
+                description: "Detect Kali Linux / Parrot OS / Debian security distro and probe PATH for curated offensive tools (nmap, nuclei, sqlmap, ffuf, bloodhound, impacket, anonsurf, etc.). Call at the START of every red-team / bug-bounty engagement on GNU/Linux — then use available native tools via run_command instead of reinventing scripts. Returns JSON: distro, tools_available by category, tools_missing, install hints.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            "description": "Optional filter: recon_osint, web_app, network_sniff, wireless, exploitation, credentials, post_exploit_ad, reverse_engineering, parrot_privacy_ops, container_cloud"
+                        }
+                    }
+                }),
+            },
+            ToolDefinition {
                 name: "file_entropy_analysis".to_string(),
                 description: "Calculate bit-level entropy to detect packed or encrypted sections (Malware Research).".to_string(),
                 input_schema: json!({
@@ -1594,7 +1607,32 @@ impl AiTools {
 
     /// Map frontend / model alias names to canonical backend handlers.
     fn canonical_tool_name(name: &str) -> &str {
-        match name {
+        let n = name.trim();
+        if n.eq_ignore_ascii_case("run_terminal_cmd")
+            || n.eq_ignore_ascii_case("run_terminal_command")
+            || n.eq_ignore_ascii_case("execute_command")
+            || n.eq_ignore_ascii_case("execute_bash")
+            || n.eq_ignore_ascii_case("shell_command")
+            || n.eq_ignore_ascii_case("run_shell_command")
+            || n.eq_ignore_ascii_case("terminal_command")
+            || n.eq_ignore_ascii_case("glob_file_search")
+            || n.eq_ignore_ascii_case("file_glob")
+            || n.eq_ignore_ascii_case("glob_files")
+            || n.eq_ignore_ascii_case("codebase_search")
+            || n.eq_ignore_ascii_case("codebaseSearch")
+        {
+            if n.eq_ignore_ascii_case("glob_file_search")
+                || n.eq_ignore_ascii_case("file_glob")
+                || n.eq_ignore_ascii_case("glob_files")
+            {
+                return "find_by_name";
+            }
+            if n.eq_ignore_ascii_case("codebase_search") || n.eq_ignore_ascii_case("codebaseSearch") {
+                return "search_codebase";
+            }
+            return "run_command";
+        }
+        match n {
             "bash" | "sh" | "shell" | "exec" | "execute" | "cmd" | "run" | "terminal" => {
                 "run_command"
             }
@@ -1609,7 +1647,7 @@ impl AiTools {
             "glob" | "find" | "find_files" => "find_by_name",
             "list_directory" | "list_dir" | "ls" | "dir" | "files" => "list_files",
             "read_url_content" | "fetch_url" => "web_fetch",
-            "search" | "find_string" | "grep_search" | "find_in_files" => "grep",
+            "search" | "find_string" | "grep_search" | "find_in_files" | "grep" => "grep",
             "mkdir" | "md" | "create_dir" => "create_directory",
             "internet_search" | "browse" => "web_search",
             "terminal_get_state" => "terminal_list",
@@ -1673,6 +1711,7 @@ impl AiTools {
             | "file_entropy_analysis"
             | "secrets_scan"
             | "weaponize_env"
+            | "sec_distro_inventory"
             | "deep_security_audit"
             | "web_security_audit"
             | "ai_vuln_hunt"
@@ -2150,6 +2189,7 @@ impl AiTools {
             "file_entropy_analysis" => self.file_entropy_analysis(arguments).await,
             "secrets_scan" => self.secrets_scan(arguments).await,
             "weaponize_env" => self.weaponize_env(arguments).await,
+            "sec_distro_inventory" => self.sec_distro_inventory(arguments).await,
             "deep_security_audit" => self.deep_security_audit(arguments).await,
             "web_security_audit" => self.web_security_audit(arguments).await,
             "ai_vuln_hunt" => self.ai_vuln_hunt(arguments).await,
@@ -2893,6 +2933,14 @@ impl AiTools {
             .get("command")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing command"))?;
+        if let Some(reason) = crate::pentest_scope::block_localhost_pivot(command) {
+            return Ok(json!({
+                "status": "blocked",
+                "error": reason,
+                "command": command,
+                "hint": "Use the exact in-scope URL from the user. See .agent/skills/bugbounty-hunter/SKILL.md"
+            }));
+        }
         let background = args
             .get("background")
             .and_then(|v| v.as_bool())
@@ -4955,31 +5003,21 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             let root = self.root_path.lock().await.clone();
             let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs()).unwrap_or(0);
-            let reports_dir = root.join("reports");
+            let slug = crate::pentest_report::slugify_host(&url);
+            let reports_dir = root.join("reports").join(&slug);
             let _ = fs::create_dir_all(&reports_dir);
-            let file = reports_dir.join(format!("web-audit-{}.md", ts));
-            let mut md = String::new();
-            md.push_str(&format!("# Web Security Audit Report\n\n- **Target:** `{}`\n- **Final URL:** `{}`\n- **HTTP status:** {}\n- **Total findings:** {}\n\n",
-                url, final_url, http_status, findings.len()));
-            md.push_str("## Summary by severity\n\n| Severity | Count |\n|----------|------:|\n");
-            for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] {
-                if let Some(c) = by_sev.get(sev) { md.push_str(&format!("| {} | {} |\n", sev, c)); }
-            }
-            md.push_str("\n## Findings\n\n");
-            for f in &findings {
-                md.push_str(&format!(
-                    "### {} — {} [{}]\n- **Severity:** {}  ·  **CWE:** {}  ·  **Confidence:** {}\n- **Target:** `{}`\n- **Evidence:** `{}`\n- **Remediation:** {}\n\n",
-                    f.get("id").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("title").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("category").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("severity").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("cwe").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("confidence").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("path").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("evidence").and_then(|v| v.as_str()).unwrap_or(""),
-                    f.get("remediation").and_then(|v| v.as_str()).unwrap_or(""),
-                ));
-            }
+            let file = reports_dir.join(format!("PENTEST-REPORT-{}.md", ts));
+            let md = crate::pentest_report::render_web_pentest_report(
+                crate::pentest_report::ReportMeta {
+                    target: &url,
+                    final_url: &final_url,
+                    http_status: &http_status.to_string(),
+                    assessment_type: "External Web Application (Automated)",
+                    in_scope: &format!("- `{}`\n- Final resolved URL: `{}`", url, final_url),
+                    out_of_scope: "- localhost / 127.0.0.1 / LAN\n- Unrelated domain spellings\n- Third-party assets unless explicitly scoped",
+                },
+                &findings,
+            );
             if fs::write(&file, md).is_ok() {
                 report_path = file.strip_prefix(&root).unwrap_or(&file).to_string_lossy().to_string();
             }
@@ -4997,6 +5035,9 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             "summary": format!("Web audit of {}: {} finding(s). Report: {}",
                 final_url, findings.len(),
                 if report_path.is_empty() { "(not written)".to_string() } else { report_path.clone() }),
+            "open_preview_hint": if report_path.is_empty() { Value::Null } else {
+                json!({ "path": report_path, "preview": true })
+            },
         }))
     }
 
@@ -5083,6 +5124,11 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             "findings": findings,
             "truncated": findings.len() >= max_findings,
         }))
+    }
+
+    async fn sec_distro_inventory(&self, args: Value) -> Result<Value> {
+        let category = args.get("category").and_then(|v| v.as_str());
+        Ok(crate::sec_distro::inventory_json(category))
     }
 
     async fn weaponize_env(&self, args: Value) -> Result<Value> {

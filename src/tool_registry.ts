@@ -198,6 +198,12 @@ export const FileWriteTool: ToolDef = {
                 path: input.file_path,
                 content: input.content,
             });
+            const p = String(input.file_path || '');
+            if (/\.(md|markdown)$/i.test(p) && (/\/reports\//i.test(p.replace(/\\/g, '/')) || /PENTEST-REPORT/i.test(p))) {
+                window.dispatchEvent(new CustomEvent('ide:open-markdown-preview', {
+                    detail: { path: p },
+                }));
+            }
             return ok({ filePath: input.file_path, type: 'written' });
         } catch (e: any) {
             return fail(`Failed to write file: ${e.message || e}`);
