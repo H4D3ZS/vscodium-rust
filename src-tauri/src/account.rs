@@ -534,6 +534,40 @@ struct Usage {
     day_count: u32,
     #[serde(default)]
     tokens_month: u64, // input+output tokens this month
+    #[serde(default)]
+    tokens_day: u64, // input+output tokens today (mirrored to usage_daily)
+}
+
+fn mirror_usage_daily(
+    url: &str,
+    anon: &str,
+    bearer: &str,
+    uid: &str,
+    day: &str,
+    count: u32,
+    tokens: u64,
+) {
+    let url = url.to_string();
+    let anon = anon.to_string();
+    let bearer = bearer.to_string();
+    let uid = uid.to_string();
+    let day = day.to_string();
+    tauri::async_runtime::spawn(async move {
+        let _ = reqwest::Client::new()
+            .post(format!("{url}/rest/v1/usage_daily?on_conflict=user_id,date_yyyy_mm_dd"))
+            .header("apikey", &anon)
+            .bearer_auth(&bearer)
+            .header("Content-Type", "application/json")
+            .header("Prefer", "resolution=merge-duplicates")
+            .json(&serde_json::json!([{
+                "user_id": uid,
+                "date_yyyy_mm_dd": day,
+                "count": count,
+                "tokens": tokens,
+            }]))
+            .send()
+            .await;
+    });
 }
 
 fn usage_path(config_dir: &Path) -> PathBuf {
@@ -559,19 +593,34 @@ fn save_usage(config_dir: &Path, u: &Usage) {
 #[tauri::command]
 pub async fn account_add_tokens(state: State<'_, EditorState>, tokens: u64) -> Result<(), String> {
     let month = chrono::Local::now().format("%Y-%m").to_string();
+    let day = chrono::Local::now().format("%Y-%m-%d").to_string();
     let mut u = load_usage(&state.config_dir);
     if u.month != month {
         u.month = month.clone();
         u.month_count = 0;
         u.tokens_month = 0;
     }
+    if u.day != day {
+        u.day = day.clone();
+        u.tokens_day = 0;
+    }
     u.tokens_month = u.tokens_month.saturating_add(tokens);
+    u.tokens_day = u.tokens_day.saturating_add(tokens);
     save_usage(&state.config_dir, &u);
 
     if let Some(sess) = crate::auth::valid_session(&state.config_dir).await {
         let (url, anon) = crate::auth::supabase_config(&state.config_dir);
         if !url.is_empty() {
-            let (period, toks, uid, token) = (month, u.tokens_month, sess.user_id.clone(), sess.access_token.clone());
+            let (period, toks, uid, token, day_snap, day_count, day_tokens) = (
+                month,
+                u.tokens_month,
+                sess.user_id.clone(),
+                sess.access_token.clone(),
+                u.day.clone(),
+                u.day_count,
+                u.tokens_day,
+            );
+            mirror_usage_daily(&url, &anon, &token, &uid, &day_snap, day_count, day_tokens);
             tauri::async_runtime::spawn(async move {
                 let _ = reqwest::Client::new()
                     .post(format!("{url}/rest/v1/usage_counters?on_conflict=user_id,period_yyyymm"))
@@ -608,6 +657,7 @@ pub async fn account_check_and_count(state: State<'_, EditorState>) -> Result<se
     if u.day != day {
         u.day = day.clone();
         u.day_count = 0;
+        u.tokens_day = 0;
     }
 
     let token_limit = ent.monthly_tokens;
@@ -647,7 +697,16 @@ pub async fn account_check_and_count(state: State<'_, EditorState>) -> Result<se
     if let Some(sess) = crate::auth::valid_session(&state.config_dir).await {
         let (url, anon) = crate::auth::supabase_config(&state.config_dir);
         if !url.is_empty() {
-            let (period, count, uid, token) = (month.clone(), u.month_count, sess.user_id.clone(), sess.access_token.clone());
+            let (period, count, uid, token, day_snap, day_count, day_tokens) = (
+                month.clone(),
+                u.month_count,
+                sess.user_id.clone(),
+                sess.access_token.clone(),
+                u.day.clone(),
+                u.day_count,
+                u.tokens_day,
+            );
+            mirror_usage_daily(&url, &anon, &token, &uid, &day_snap, day_count, day_tokens);
             tauri::async_runtime::spawn(async move {
                 let _ = reqwest::Client::new()
                     .post(format!("{url}/rest/v1/usage_counters?on_conflict=user_id,period_yyyymm"))
