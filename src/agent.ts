@@ -2089,18 +2089,24 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
             Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('aim-timeout')), ms))]);
         const { getAimTrustManifest, queryAimSpans } = await import('./kortex/aim-vfs');
-        const manifest = await withTimeout(getAimTrustManifest(), 1500);
-        if (manifest && (manifest as any).confidence > 40) {
-            const spans: any = await withTimeout(queryAimSpans({ query: userPrompt.slice(0, 300) }), 1500);
-            const hits = spans?.spans ?? spans?.results ?? [];
-            if (hits.length > 0) {
-                const preview = hits.slice(0, 8).map((r: any) =>
-                    `- ${r.file ?? r.path ?? ''}${r.line ? ':' + r.line : ''} [${r.kind ?? r.category ?? 'code'}] ${(r.preview ?? r.snippet ?? r.summary ?? '').slice(0, 90)}`
-                ).join('\n');
-                const totalFiles = (manifest as any).total_files ?? (manifest as any).file_count ?? '?';
-                const aimMsg = `### BRAIN (AIM — ${totalFiles} files indexed, ${(manifest as any).confidence}% confidence)\nZero-grep mode: go directly to the relevant file.\n${preview}\nCall aim_pack_context for the full semantic map.`;
-                messages.unshift({ role: 'system' as const, content: aimMsg, tool_calls: null, metadata: null });
-            }
+        const manifest = await withTimeout(getAimTrustManifest(), 2000);
+        const totalFiles = (manifest as any)?.total_files ?? (manifest as any)?.file_count ?? 0;
+        const confidence = (manifest as any)?.confidence ?? 0;
+        if (manifest && (confidence > 25 || totalFiles > 0)) {
+            let preview = '';
+            try {
+                const spans: any = await withTimeout(queryAimSpans({ query: userPrompt.slice(0, 300) }), 2000);
+                const hits = spans?.spans ?? spans?.results ?? [];
+                if (hits.length > 0) {
+                    preview = hits.slice(0, 8).map((r: any) =>
+                        `- ${r.file ?? r.path ?? ''}${r.line ? ':' + r.line : ''} [${r.kind ?? r.category ?? 'code'}] ${(r.preview ?? r.snippet ?? r.summary ?? '').slice(0, 90)}`
+                    ).join('\n');
+                }
+            } catch { /* spans optional */ }
+            const aimMsg = `### BRAIN (AIM — ${totalFiles || '?'} files indexed, ${confidence}% confidence)\n\
+**ZERO-GREP ENFORCED:** glob/grep/list/shell-ls are BLOCKED while AIM is warm. Use view_file, aim_query_spans, semantic_search.\n\
+${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.`;
+            messages.unshift({ role: 'system' as const, content: aimMsg, tool_calls: null, metadata: null });
         }
     } catch { /* non-fatal — AIM enhancement is best-effort */ }
 
@@ -2235,13 +2241,12 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             ollama_url: routingOllamaUrl
         });
 
-        const { beginAgentRun, isAgentRunAborted, registerStreamPollTimer, clearStreamPollTimer } =
+        const { beginAgentRun, isAgentRunAborted, registerStreamPollTimer, clearStreamPollTimer, startAgentRunWatchdog, stopAgentRunWatchdog, bumpAgentRunActivity } =
             await import('./application/agent/agentRunSession');
         beginAgentRun();
 
-        // Race the full loop against a 120s timeout (generous for large models
-        // but prevents the UI from spinning forever if the backend or Ollama
-        // is truly unreachable).
+        // Activity-aware watchdog: only stops after 20 min *idle* (no tools/tokens),
+        // not a fixed 600s wall clock — local Ollama agent runs can legitimately take 30+ min.
         const storeSnapshot = store.getState() as any;
         const fullCall = invoke<string>("ai_chat", {
             request: {
@@ -2260,13 +2265,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 reasoning_effort: storeSnapshot.currentReasoningEffort ?? null,
             }
         });
-        const fullTimeout = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(
-                `ai_chat timed out after 600s.\n\n` +
-                `Provider: \`${routingProvider}\`  ·  Model: \`${routingModel}\`\n\n` +
-                `The model may still be generating output or executing a long chain of tool operations.`
-            )), 600_000)
-        );
+        const fullTimeout = new Promise<never>((_, reject) => {
+            startAgentRunWatchdog(reject);
+        });
 
         // ── Live token streaming via poll ───────────────────────────────────
         // The `ai-content-delta` event is dead in this webview, so the streamed
@@ -2284,6 +2285,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                 const chunk = await invoke<string>('chat_stream_drain');
                 if (chunk && !isAgentRunAborted()) {
                     streamedAny = true;
+                    bumpAgentRunActivity();
                     store.getState().appendLastAgentMessage?.(chunk);
                 }
             } catch { /* backend busy */ }
@@ -2297,6 +2299,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             finalText = (await Promise.race([fullCall, fullTimeout])) as string;
         } finally {
             clearStreamPollTimer();
+            stopAgentRunWatchdog();
             if (!isAgentRunAborted()) await drainOnce(); // flush any tail tokens
         }
         // Fallback / reconcile: if nothing streamed (non-streaming provider or a
@@ -4160,6 +4163,9 @@ async function resolveSpecialMentions(context: any[], query: string, activeRoot:
 
 listen('ai-tool-call', (event: { payload: { name: string, args: string | any } | any }) => {
     if (event.payload && event.payload.name) {
+        void import('./application/agent/agentRunSession').then(({ bumpAgentRunActivity }) =>
+            bumpAgentRunActivity(),
+        );
         console.log("AI_TOOL_CALL RECEIVED:", event.payload.name);
         const { addAgentStep, updateAgentStepStatus } = useStore.getState();
         let args = {};
