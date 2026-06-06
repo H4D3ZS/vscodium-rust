@@ -16,6 +16,7 @@ import { scheduleDeferredInit } from './memory_budget';
 // keeping the initial bundle ~200KB smaller and saving renderer RAM.
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const MultiFileReview = lazy(() => import('./components/agent/MultiFileReview'));
+const OllamaFirstLaunchWizard = lazy(() => import('./components/onboarding/OllamaFirstLaunchWizard'));
 const TrajectoryPanel = lazy(() => import('./components/agent/TrajectoryPanel'));
 const QuickOpen = lazy(() => import('./components/QuickOpen'));
 const ToolPermissionDialog = lazy(() => import('./components/ToolPermissionDialog'));
@@ -177,6 +178,7 @@ const App: React.FC = () => {
             <TrustDialog />
             <Suspense fallback={null}>
                 <ToolPermissionDialog />
+                <OllamaFirstLaunchWizard />
                 <MultiFileReview />
                 <TrajectoryPanel />
             </Suspense>

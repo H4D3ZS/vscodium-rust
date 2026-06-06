@@ -23,6 +23,7 @@ pub mod process_ext;
 mod ai_agent_commands;
 mod ai_patch_commands;
 mod antigravity_commands;
+mod antigravity_compat;
 mod ai_project_commands;
 mod airi_bridge;
 mod claurst_bridge;
@@ -97,6 +98,10 @@ mod marketplace;
 mod architecture;
 mod performance;
 mod rules_engine;
+mod cursor_compat;
+mod cursor_commands;
+mod workspace_compat;
+mod workspace_commands;
 mod scrcpy;
 mod shadow_workspace;
 mod specs_commands;
@@ -288,6 +293,7 @@ pub fn run() {
             ai_commands::get_ollama_ps,
             ai_commands::diagnose_ollama,
             ai_commands::list_provider_models,
+            ai_commands::search_ollama_library,
             ai_commands::ollama_native_get,
             ai_commands::ollama_native_post,
             ai_commands::set_ai_model,
@@ -301,6 +307,23 @@ pub fn run() {
             ai_commands::archive_chat_session,
             ai_commands::create_new_session,
             ai_commands::agent_activity_drain,
+            cursor_commands::cursor_scan_project,
+            cursor_commands::cursor_init_project,
+            cursor_commands::cursor_append_debug_log,
+            cursor_commands::cursor_list_worktrees,
+            cursor_commands::cursor_create_worktree,
+            cursor_commands::cursor_reload_workspace,
+            workspace_commands::workspace_scan,
+            workspace_commands::workspace_init,
+            workspace_commands::workspace_reload,
+            workspace_commands::workspace_get_steering,
+            workspace_commands::workspace_steering_prompt,
+            workspace_commands::workspace_dispatch_hooks,
+            workspace_commands::workspace_list_hooks,
+            workspace_commands::workspace_save_hook,
+            workspace_commands::workspace_delete_hook,
+            workspace_commands::workspace_list_agent_runs,
+            workspace_commands::workspace_save_agent_run,
             ai_commands::chat_stream_drain,
             ai_commands::agent_proposals_drain,
             ai_commands::revert_file_content,
@@ -322,6 +345,22 @@ pub fn run() {
             antigravity_commands::ag_phase_wrap,
             antigravity_commands::ag_get_workflows,
             antigravity_commands::ag_get_rules,
+            antigravity_commands::ag_init_layout,
+            antigravity_commands::ag_brain_list,
+            antigravity_commands::ag_brain_list_cascades,
+            antigravity_commands::ag_brain_save_artifact,
+            antigravity_commands::ag_brain_save_media,
+            antigravity_commands::ag_list_trajectories,
+            antigravity_commands::ag_get_trajectory,
+            antigravity_commands::ag_save_trajectory,
+            antigravity_commands::ag_append_trajectory_step,
+            antigravity_commands::ag_upsert_subagent,
+            antigravity_commands::ag_load_lifecycle_hooks,
+            antigravity_commands::ag_save_lifecycle_hooks,
+            antigravity_commands::ag_dispatch_lifecycle_hooks,
+            antigravity_commands::ag_get_autonomy_policies,
+            antigravity_commands::ag_save_autonomy_policies,
+            antigravity_commands::ag_apply_autonomy_preset,
             // ═══ AI Patching ═══
             ai_patch_commands::accept_sentient_patch,
             ai_patch_commands::reject_sentient_patch,

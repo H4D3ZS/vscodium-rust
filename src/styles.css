@@ -4241,3 +4241,236 @@ button, input, textarea, select,
     background: rgba(255, 255, 255, 0.06);
     font-family: var(--font-mono);
 }
+
+/* ── Ollama first-run wizard ── */
+.ollama-wizard-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 120000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(8px);
+}
+
+.ollama-wizard-card {
+    width: min(560px, 100%);
+    max-height: min(90vh, 720px);
+    overflow: auto;
+    border-radius: 16px;
+    border: 1px solid rgba(249, 115, 22, 0.35);
+    background: linear-gradient(165deg, rgba(30, 24, 18, 0.98) 0%, rgba(12, 12, 14, 0.98) 100%);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+    padding: 28px;
+}
+
+.ollama-wizard-header h2 {
+    margin: 8px 0 6px;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--foreground, #fff);
+}
+
+.ollama-wizard-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #f97316;
+    border: 1px solid rgba(249, 115, 22, 0.4);
+    border-radius: 999px;
+    padding: 4px 10px;
+}
+
+.ollama-wizard-sub {
+    font-size: 13px;
+    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.62);
+    margin: 0;
+}
+
+.ollama-wizard-body {
+    margin-top: 20px;
+}
+
+.ollama-wizard-list {
+    margin: 0 0 20px;
+    padding-left: 1.1rem;
+    font-size: 13px;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.78);
+}
+
+.ollama-wizard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.ollama-wizard-primary {
+    flex: 1 1 auto;
+    min-width: 160px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 10px;
+    background: #f97316;
+    color: #111;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.ollama-wizard-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ollama-wizard-ghost {
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.ollama-wizard-center {
+    text-align: center;
+    padding: 24px 0;
+}
+
+.ollama-wizard-spinner {
+    width: 32px;
+    height: 32px;
+    margin: 0 auto 12px;
+    border: 3px solid rgba(249, 115, 22, 0.2);
+    border-top-color: #f97316;
+    border-radius: 50%;
+    animation: ollama-wizard-spin 0.8s linear infinite;
+}
+
+@keyframes ollama-wizard-spin {
+    to { transform: rotate(360deg); }
+}
+
+.ollama-wizard-warn {
+    font-size: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(224, 175, 104, 0.12);
+    border: 1px solid rgba(224, 175, 104, 0.35);
+    color: #e0af68;
+    margin-bottom: 14px;
+}
+
+.ollama-wizard-warn a {
+    color: #fbbf24;
+}
+
+.ollama-wizard-row {
+    margin-bottom: 14px;
+}
+
+.ollama-wizard-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.45);
+    margin-bottom: 6px;
+}
+
+.ollama-wizard-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ollama-wizard-chip {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.ollama-wizard-chip.is-active {
+    border-color: rgba(249, 115, 22, 0.55);
+    background: rgba(249, 115, 22, 0.15);
+    color: #fdba74;
+}
+
+.ollama-wizard-input {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.35);
+    color: #fff;
+    font-size: 13px;
+}
+
+.ollama-wizard-models {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 240px;
+    overflow-y: auto;
+    margin-bottom: 14px;
+}
+
+.ollama-wizard-model {
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+}
+
+.ollama-wizard-model.is-selected {
+    border-color: rgba(249, 115, 22, 0.55);
+    background: rgba(249, 115, 22, 0.1);
+}
+
+.ollama-wizard-model-name {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.ollama-wizard-model-meta {
+    display: block;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.45);
+    margin-top: 2px;
+}
+
+.ollama-wizard-model-desc {
+    display: block;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
+.ollama-wizard-error {
+    font-size: 12px;
+    color: #f7768e;
+    margin-bottom: 10px;
+}
+
+.ollama-wizard-success {
+    font-size: 15px;
+    font-weight: 600;
+    color: #9ece6a;
+}

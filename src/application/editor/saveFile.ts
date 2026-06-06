@@ -12,18 +12,6 @@ export async function saveActiveFile(): Promise<void> {
         tabs: state.tabs.map((t) => (t.id === activeTabId ? { ...t, isModified: false } : t)),
     }));
 
-    const hooks = useStore.getState().agentHooks;
-    const matchingHooks = hooks.filter(
-        (h) =>
-            h.enabled
-            && (h.trigger || 'on_save') === 'on_save'
-            && new RegExp(h.pattern.replace(/\*/g, '.*')).test(tab.path),
-    );
-    for (const hook of matchingHooks) {
-        const globalRule = useStore.getState().globalSteeringRule;
-        const fullPrompt = `[Triggered by save on ${tab.path}]\n`
-            + (globalRule ? `Global Rule: ${globalRule}\n` : '')
-            + `Task: ${hook.prompt}`;
-        useStore.getState().runBackgroundAgent(fullPrompt).catch(console.error);
-    }
+    const { runWorkspaceHooks } = await import('../workspace/runWorkspaceHooks');
+    await runWorkspaceHooks('on_save', tab.path);
 }

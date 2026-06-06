@@ -1,5 +1,6 @@
 import React from 'react';
 import { useStore } from '../store';
+import CursorProjectPanel from './cursor/CursorProjectPanel';
 
 interface RulesManagerProps {
     onClose?: () => void;
@@ -24,6 +25,10 @@ export const RulesManager: React.FC<RulesManagerProps> = ({ onClose }) => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h2 style={{ margin: 0, fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Steering Rules & Hooks</h2>
                 {onClose && <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}>×</button>}
+            </div>
+
+            <div style={{ marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: 16 }}>
+                <CursorProjectPanel />
             </div>
 
             <div style={{ marginBottom: '24px' }}>

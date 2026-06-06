@@ -1,7 +1,16 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+
+use crate::workspace_compat::resolve_specs_dir;
+use crate::antigravity_compat::{
+    append_trajectory_step, apply_autonomy_preset, dispatch_lifecycle_hooks,
+    ensure_antigravity_scaffold, list_brain_artifacts, list_brain_cascades, list_trajectories,
+    load_autonomy_policies, load_lifecycle_hooks, save_autonomy_policies, save_brain_artifact,
+    save_brain_media, save_lifecycle_hooks, save_trajectory, upsert_subagent, AutonomyPolicies,
+    BrainArtifactInfo, LifecycleHookResult, SubagentState, TrajectoryRecord, TrajectoryStep,
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AgTask {
@@ -72,28 +81,28 @@ fn scan_tasks_file(path: &std::path::Path, spec_dir: &str) -> Vec<AgTask> {
 
 #[tauri::command]
 pub fn ag_list_all_tasks(root: String) -> Result<Vec<AgTask>, String> {
-    let specs_dir = PathBuf::from(&root).join("specs");
-    if !specs_dir.exists() {
-        return Ok(vec![]);
-    }
-
+    let root_path = PathBuf::from(&root);
     let mut all_tasks = Vec::new();
-    let mut entries: Vec<_> = fs::read_dir(&specs_dir)
-        .map_err(|e| e.to_string())?
-        .flatten()
-        .filter(|e| e.path().is_dir())
-        .collect();
 
-    // Sort by directory name (date-based slugs sort chronologically)
-    entries.sort_by_key(|e| e.file_name());
-
-    for entry in entries {
-        let spec_path = entry.path();
-        let tasks_path = spec_path.join("tasks.md");
-        if tasks_path.exists() {
+    for specs_dir in crate::workspace_compat::spec_roots(&root_path) {
+        if !specs_dir.exists() {
+            continue;
+        }
+        let mut entries: Vec<_> = fs::read_dir(&specs_dir)
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let spec_path = entry.path();
+            let tasks_path = spec_path.join("tasks.md");
+            if !tasks_path.exists() {
+                // Kiro uses tasks.md at spec root — also try requirements/design layout without tasks
+                continue;
+            }
             let spec_dir = spec_path.to_string_lossy().to_string();
-            let tasks = scan_tasks_file(&tasks_path, &spec_dir);
-            all_tasks.extend(tasks);
+            all_tasks.extend(scan_tasks_file(&tasks_path, &spec_dir));
         }
     }
 
@@ -142,9 +151,9 @@ pub fn ag_create_spec(root: String, slug: String, description: String) -> Result
         .filter(|c| c.is_alphanumeric() || *c == '-')
         .collect::<String>();
     let dir_name = format!("{}-{}", date, safe_slug);
-    let spec_dir = PathBuf::from(&root).join("specs").join(&dir_name);
-
-    fs::create_dir_all(&spec_dir).map_err(|e| e.to_string())?;
+    let spec_root = resolve_specs_dir(Path::new(&root));
+    fs::create_dir_all(&spec_root).map_err(|e| e.to_string())?;
+    let spec_dir = spec_root.join(&dir_name);
 
     let spec_md = format!(
         "# {}\n\n{}\n\n## Background\n\nTODO\n\n## Goals\n\n- TODO\n\n## Non-Goals\n\n- TODO\n\n## Acceptance Criteria\n\n- [ ] TODO\n",
@@ -240,7 +249,13 @@ pub struct RuleInfo {
 #[tauri::command]
 pub fn ag_get_rules(root: String) -> Result<Vec<RuleInfo>, String> {
     let mut result = Vec::new();
-    let dirs = [".agent/rules", ".agents/rules", ".cursor/rules"];
+    let dirs = [
+        ".agent/rules",
+        ".agents/rules",
+        ".cursor/rules",
+        ".kiro/steering",
+        ".agent/steering",
+    ];
 
     for dir in &dirs {
         let path = PathBuf::from(&root).join(dir);
@@ -301,4 +316,138 @@ fn extract_first_heading(content: &str) -> Option<String> {
         .lines()
         .find(|l| l.starts_with("# "))
         .map(|l| l[2..].trim().to_string())
+}
+
+// ── Antigravity brain / trajectory / hooks / autonomy ─────────────────────────
+
+#[tauri::command]
+pub fn ag_init_layout(root: String) -> Result<(), String> {
+    ensure_antigravity_scaffold(Path::new(&root)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ag_brain_list(root: String, cascade_id: String) -> Result<Vec<BrainArtifactInfo>, String> {
+    Ok(list_brain_artifacts(Path::new(&root), &cascade_id))
+}
+
+#[tauri::command]
+pub fn ag_brain_list_cascades(root: String) -> Result<Vec<String>, String> {
+    Ok(list_brain_cascades(Path::new(&root)))
+}
+
+#[tauri::command]
+pub fn ag_brain_save_artifact(
+    root: String,
+    cascade_id: String,
+    filename: String,
+    content: String,
+    artifact_type: String,
+    summary: Option<String>,
+) -> Result<String, String> {
+    save_brain_artifact(
+        Path::new(&root),
+        &cascade_id,
+        &filename,
+        &content,
+        &artifact_type,
+        summary.as_deref(),
+    )
+    .map(|p| p.to_string_lossy().to_string())
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ag_brain_save_media(
+    root: String,
+    cascade_id: String,
+    png_base64: String,
+    summary: Option<String>,
+) -> Result<String, String> {
+    save_brain_media(
+        Path::new(&root),
+        &cascade_id,
+        &png_base64,
+        summary.as_deref(),
+    )
+    .map(|p| p.to_string_lossy().to_string())
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ag_list_trajectories(root: String) -> Result<Vec<TrajectoryRecord>, String> {
+    Ok(list_trajectories(Path::new(&root)))
+}
+
+#[tauri::command]
+pub fn ag_get_trajectory(root: String, cascade_id: String) -> Result<Option<TrajectoryRecord>, String> {
+    Ok(crate::antigravity_compat::load_trajectory(Path::new(&root), &cascade_id))
+}
+
+#[tauri::command]
+pub fn ag_save_trajectory(root: String, record: TrajectoryRecord) -> Result<String, String> {
+    save_trajectory(Path::new(&root), &record)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ag_append_trajectory_step(
+    root: String,
+    cascade_id: String,
+    step: TrajectoryStep,
+) -> Result<TrajectoryRecord, String> {
+    append_trajectory_step(Path::new(&root), &cascade_id, step).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ag_upsert_subagent(
+    root: String,
+    cascade_id: String,
+    subagent: SubagentState,
+) -> Result<(), String> {
+    upsert_subagent(Path::new(&root), &cascade_id, subagent).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ag_load_lifecycle_hooks(root: String) -> Result<serde_json::Value, String> {
+    Ok(load_lifecycle_hooks(Path::new(&root)))
+}
+
+#[tauri::command]
+pub fn ag_save_lifecycle_hooks(root: String, hooks: serde_json::Value) -> Result<String, String> {
+    save_lifecycle_hooks(Path::new(&root), &hooks)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ag_dispatch_lifecycle_hooks(
+    root: String,
+    event: String,
+    context: String,
+) -> Result<Vec<LifecycleHookResult>, String> {
+    dispatch_lifecycle_hooks(Path::new(&root), &event, &context).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ag_get_autonomy_policies(root: String) -> Result<AutonomyPolicies, String> {
+    Ok(load_autonomy_policies(Path::new(&root)))
+}
+
+#[tauri::command]
+pub fn ag_save_autonomy_policies(root: String, policies: AutonomyPolicies) -> Result<String, String> {
+    save_autonomy_policies(Path::new(&root), &policies)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ag_apply_autonomy_preset(
+    root: String,
+    preset: String,
+    secure_mode: bool,
+) -> Result<AutonomyPolicies, String> {
+    let policies = apply_autonomy_preset(&preset, secure_mode);
+    save_autonomy_policies(Path::new(&root), &policies).map_err(|e| e.to_string())?;
+    Ok(policies)
 }

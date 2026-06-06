@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../store';
+import {
+    workspaceDeleteHook,
+    workspaceListHooks,
+    workspaceSaveHook,
+    type KiroHookFile,
+} from '../infrastructure/workspace/workspaceProject';
 
 interface HookDef {
     id: string;
@@ -9,6 +14,10 @@ interface HookDef {
     glob?: string;
     prompt: string;
     enabled: boolean;
+    /** On-disk `.hooks/*.json` path when persisted as Kiro hook */
+    filePath?: string;
+    /** local = Settings-only (commit/test triggers); disk = `.hooks/` */
+    storage?: 'disk' | 'local';
 }
 
 const TRIGGERS = [
@@ -47,38 +56,150 @@ const BUILTIN_HOOKS: HookDef[] = [
 ];
 
 const HOOKS_STORAGE_KEY = 'hades.hooks';
+const DISK_TRIGGERS = new Set(['on_save', 'on_file_create', 'manual']);
 
-function loadHooks(): HookDef[] {
-    try {
-        const stored = localStorage.getItem(HOOKS_STORAGE_KEY);
-        if (stored) return JSON.parse(stored);
-    } catch { }
-    return BUILTIN_HOOKS.map(h => ({ ...h }));
+function kiroToHookDef(h: KiroHookFile): HookDef | null {
+    const id = h.id || 'hook';
+    const name = h.name || id;
+    let trigger = 'manual';
+    let glob: string | undefined;
+    if (h.when.type === 'fileEdited') {
+        trigger = 'on_save';
+        glob = h.when.pattern;
+    } else if (h.when.type === 'fileCreated') {
+        trigger = 'on_file_create';
+        glob = h.when.pattern;
+    } else if (h.when.type === 'userTriggered') {
+        trigger = 'manual';
+    } else {
+        return null;
+    }
+    if (h.then.type !== 'askAgent') {
+        return null;
+    }
+    return {
+        id,
+        name,
+        trigger,
+        glob,
+        prompt: h.then.prompt || '',
+        enabled: h.enabled !== false,
+        filePath: h.file_path,
+        storage: 'disk',
+    };
 }
 
-function saveHooks(hooks: HookDef[]) {
+function hookDefToKiro(h: HookDef): KiroHookFile {
+    let when: KiroHookFile['when'];
+    if (h.trigger === 'on_save') {
+        when = { type: 'fileEdited', pattern: h.glob || '**/*' };
+    } else if (h.trigger === 'on_file_create') {
+        when = { type: 'fileCreated', pattern: h.glob || '**/*' };
+    } else {
+        when = { type: 'userTriggered' };
+    }
+    return {
+        id: h.id,
+        name: h.name,
+        when,
+        then: { type: 'askAgent', prompt: h.prompt },
+        enabled: h.enabled,
+    };
+}
+
+function loadLocalHooks(): HookDef[] {
     try {
-        localStorage.setItem(HOOKS_STORAGE_KEY, JSON.stringify(hooks));
-    } catch { }
+        const stored = localStorage.getItem(HOOKS_STORAGE_KEY);
+        if (stored) {
+            return (JSON.parse(stored) as HookDef[]).map(h => ({ ...h, storage: 'local' as const }));
+        }
+    } catch { /* ignore */ }
+    return BUILTIN_HOOKS.map(h => ({ ...h, storage: 'local' as const }));
+}
+
+function saveLocalHooks(hooks: HookDef[]) {
+    const localOnly = hooks.filter(h => h.storage === 'local' || !DISK_TRIGGERS.has(h.trigger));
+    try {
+        localStorage.setItem(HOOKS_STORAGE_KEY, JSON.stringify(localOnly));
+    } catch { /* ignore */ }
 }
 
 const HooksPanel: React.FC = () => {
-    const [hooks, setHooks] = useState<HookDef[]>(loadHooks);
+    const [hooks, setHooks] = useState<HookDef[]>([]);
     const [editing, setEditing] = useState<HookDef | null>(null);
     const [editDraft, setEditDraft] = useState<HookDef | null>(null);
+    const [loading, setLoading] = useState(false);
     const activeRoot = useStore(s => s.activeRoot);
+    const setAgentHooks = useStore(s => s.setAgentHooks);
+
+    const syncStoreHooks = useCallback((all: HookDef[]) => {
+        setAgentHooks?.(all.map(h => ({
+            id: h.id,
+            name: h.name,
+            pattern: h.glob || '.*',
+            prompt: h.prompt,
+            enabled: h.enabled,
+            trigger: h.trigger,
+        })));
+    }, [setAgentHooks]);
+
+    const refreshHooks = useCallback(async () => {
+        setLoading(true);
+        try {
+            const diskRaw = activeRoot ? await workspaceListHooks(activeRoot).catch(() => []) : [];
+            const disk = diskRaw.map(kiroToHookDef).filter(Boolean) as HookDef[];
+            const local = loadLocalHooks().filter(h => !DISK_TRIGGERS.has(h.trigger) || h.storage === 'local');
+            const merged = [...disk, ...local];
+            setHooks(merged);
+            syncStoreHooks(merged);
+        } finally {
+            setLoading(false);
+        }
+    }, [activeRoot, syncStoreHooks]);
+
+    useEffect(() => { void refreshHooks(); }, [refreshHooks]);
+
+    const persistHook = async (h: HookDef): Promise<HookDef> => {
+        if (!activeRoot || !DISK_TRIGGERS.has(h.trigger)) {
+            return { ...h, storage: 'local' };
+        }
+        const filename = `${h.id}.json`;
+        const path = await workspaceSaveHook(filename, hookDefToKiro(h), activeRoot);
+        return { ...h, filePath: path, storage: 'disk' };
+    };
 
     const updateHooks = (next: HookDef[]) => {
         setHooks(next);
-        saveHooks(next);
+        saveLocalHooks(next);
+        syncStoreHooks(next);
     };
 
-    const toggleEnabled = (id: string) => {
-        updateHooks(hooks.map(h => h.id === id ? { ...h, enabled: !h.enabled } : h));
+    const toggleEnabled = async (id: string) => {
+        const target = hooks.find(h => h.id === id);
+        if (!target) return;
+        const updated = { ...target, enabled: !target.enabled };
+        if (updated.storage === 'disk' && activeRoot) {
+            try {
+                const saved = await persistHook(updated);
+                updateHooks(hooks.map(h => h.id === id ? saved : h));
+            } catch (e) {
+                console.error('Hook toggle failed:', e);
+            }
+            return;
+        }
+        updateHooks(hooks.map(h => h.id === id ? updated : h));
     };
 
-    const deleteHook = (id: string) => {
+    const deleteHook = async (id: string) => {
         if (!confirm('Delete this hook?')) return;
+        const target = hooks.find(h => h.id === id);
+        if (target?.filePath && activeRoot) {
+            try {
+                await workspaceDeleteHook(target.filePath, activeRoot);
+            } catch (e) {
+                console.error('Hook delete failed:', e);
+            }
+        }
         updateHooks(hooks.filter(h => h.id !== id));
         if (editing?.id === id) setEditing(null);
     };
@@ -88,9 +209,22 @@ const HooksPanel: React.FC = () => {
         setEditDraft({ ...h });
     };
 
-    const saveEdit = () => {
+    const saveEdit = async () => {
         if (!editDraft) return;
-        updateHooks(hooks.map(h => h.id === editDraft.id ? editDraft : h));
+        const isDisk = DISK_TRIGGERS.has(editDraft.trigger);
+        let saved: HookDef = { ...editDraft, storage: isDisk ? 'disk' : 'local' };
+        if (isDisk && activeRoot) {
+            try {
+                saved = await persistHook(saved);
+            } catch (e) {
+                console.error('Hook save failed:', e);
+                return;
+            }
+        }
+        const exists = hooks.some(h => h.id === editDraft.id);
+        updateHooks(exists
+            ? hooks.map(h => h.id === editDraft.id ? saved : h)
+            : [...hooks, saved]);
         setEditing(null);
     };
 
@@ -98,17 +232,17 @@ const HooksPanel: React.FC = () => {
         const newHook: HookDef = {
             id: `hook-${Date.now()}`,
             name: 'New Hook',
-            trigger: 'manual',
+            trigger: 'on_save',
+            glob: '**/*',
             prompt: '',
             enabled: true,
+            storage: 'disk',
         };
-        updateHooks([...hooks, newHook]);
         startEdit(newHook);
     };
 
     const runManual = async (h: HookDef) => {
-        const store = (window as any).useStore?.getState();
-        if (!store) return;
+        const store = useStore.getState();
         store.addAgentMessage?.('user', `[HOOK: ${h.name}]\n\n${h.prompt}`);
         store.addAgentMessage?.('assistant', '');
         store.setIsAgentThinking?.(true);
@@ -129,10 +263,16 @@ const HooksPanel: React.FC = () => {
                 <span className="settings-badge new">Agent</span>
             </div>
             <p className="settings-section-subtitle">
-                Hooks trigger AI actions automatically on IDE events. Enable hooks to automate repetitive tasks like documentation, commit messages, and test fixes.
+                Hooks trigger AI actions on IDE events. Save/on-create/manual hooks persist to
+                <code style={{ margin: '0 4px' }}>.hooks/*.json</code>
+                (Kiro-compatible). Commit and test-fail hooks stay in local settings until wired.
             </p>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ fontSize: 11, opacity: 0.45 }}>
+                    {activeRoot ? `.hooks/ under workspace` : 'Open a folder to persist disk hooks'}
+                    {loading ? ' · loading…' : ''}
+                </span>
                 <button className="settings-button" onClick={addNew} style={{ fontSize: 12 }}>
                     + New Hook
                 </button>
@@ -179,6 +319,9 @@ const HooksPanel: React.FC = () => {
                                     </span>
                                     {h.glob && (
                                         <span style={{ fontSize: 10, opacity: 0.4, fontFamily: 'monospace' }}>{h.glob}</span>
+                                    )}
+                                    {h.storage === 'disk' && (
+                                        <span style={{ fontSize: 10, opacity: 0.35 }}>· .hooks</span>
                                     )}
                                 </div>
                                 {h.prompt && (

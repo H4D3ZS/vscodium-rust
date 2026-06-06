@@ -162,6 +162,9 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
                     import('../application/lsp/bootstrapLanguageServer').then(m =>
                         m.bootstrapLanguageServer(cleaned),
                     );
+                    import('../infrastructure/workspace/workspaceProject').then(m =>
+                        m.syncWorkspaceCompat(cleaned),
+                    );
                 })
                 .catch((err) => {
                     console.warn('[store] set_active_root rejected:', err);

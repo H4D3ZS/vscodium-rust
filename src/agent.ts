@@ -22,6 +22,7 @@ import {
 } from './system_prompt.ts';
 import { getAimTrustManifest, queryAimSpans } from './kortex/aim-vfs';
 import { extractSearchReplaceBlocks, classifyModels, modelKey } from './model_capabilities';
+import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentContent';
 // AIRI Digital Entity Integration - The Sentient Core
 import { airiAgentBridge, activateAIRIAgent } from './airi_agent_bridge';
 
@@ -576,9 +577,9 @@ export async function handleAgentChat(inputElement: HTMLTextAreaElement) {
     // Add empty assistant message for streaming
     state.addAgentMessage('assistant', '');
     state.setIsAgentThinking(true);
-    // Instant motion (<200ms): show a status the moment the turn starts, before the
-    // model's first token. agentCurrentAction is a status indicator, separate from the
-    // streamed message body, so it never collides with incoming content deltas.
+    if (useStore.getState().agentCleanUi) {
+        useStore.getState().addAiriActivityTerminal?.().catch(() => { });
+    }
     state.setAgentCurrentAction('Thinking…');
 
     try {
@@ -763,25 +764,17 @@ async function buildIdeContext(): Promise<string> {
             }
         } catch (_) { /* antigravity commands may not be available in older builds */ }
 
-        // ── Kiro Steering: inject .agent/steering/*.md ──────────────────────
+        // ── Steering: `.kiro/steering` + `.agent/steering` (backend also injects in system prompt) ──
         try {
-            const steeringDir = `${activeRoot}/.agent/steering`;
-            await invoke('create_directory', { path: steeringDir }).catch(() => null);
-            const entries = await invoke<any[]>('list_directory', { path: steeringDir }).catch(() => []);
-            const mdFiles = (entries || []).filter((e: any) => !e.is_dir && e.name.endsWith('.md'));
-            if (mdFiles.length > 0) {
-                parts.push(`\n## Project Steering (.agent/steering)`);
-                parts.push(`*(These instructions are ALWAYS active. Follow them for every response.)*`);
-                for (const entry of mdFiles.slice(0, 8)) {
-                    try {
-                        const content = await invoke<string>('read_file', { path: entry.path });
-                        if (content) {
-                            parts.push(`\n### ${entry.name.replace('.md', '')}\n${content.trim()}`);
-                        }
-                    } catch (_) {}
+            const steering = await invoke<any[]>('workspace_get_steering', { root: activeRoot }).catch(() => []);
+            if (steering && steering.length > 0) {
+                parts.push(`\n## Project Steering`);
+                parts.push(`*(Always active — Cursor / Kiro / Antigravity compatible.)*`);
+                for (const doc of steering.slice(0, 8)) {
+                    parts.push(`\n### ${doc.name} [${doc.source}]\n${(doc.content || '').trim()}`);
                 }
             }
-        } catch (_) { /* steering dir may not exist */ }
+        } catch (_) { /* steering optional */ }
     }
 
     // Append user-attached context items (Attachments, Mentions, Workflows)
@@ -1161,6 +1154,15 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
                     return;
                 }
             } catch { /* backend hiccup — do not hard-block on a transient error */ }
+        }
+    }
+
+    // Antigravity cascade — brain + trajectory persistence for this agent run
+    {
+        const st = store.getState();
+        if (!st.activeCascadeId && st.activeRoot) {
+            const { newCascadeId } = await import('./infrastructure/antigravity/antigravityClient');
+            st.setActiveCascadeId?.(newCascadeId());
         }
     }
 
@@ -2322,6 +2324,18 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     } finally {
         // Always clear thinking state — prevents infinite spinner
         try { store.getState().setIsAgentThinking?.(false); } catch { /* non-fatal */ }
+        // Local-first trust UX: surface diff review after Ollama agent edits
+        try {
+            const st = store.getState();
+            const verifyOn = localStorage.getItem('localVerifyMode') === '1';
+            const localBackend =
+                st.inferenceBackend === 'ollama'
+                || st.ollamaServerMode === 'local'
+                || (st.agentModel || '').toLowerCase().startsWith('ollama|');
+            if (verifyOn && localBackend && (st.pendingAgentEdits?.length ?? 0) > 0) {
+                st.openMultiFileReview?.();
+            }
+        } catch { /* non-fatal */ }
     }
 }
 
@@ -3833,7 +3847,7 @@ listen('ai-thinking', (event: { payload: { thought: string } | any }) => {
 listen('ai-content', (event: { payload: { content: string } | any }) => {
     if (event.payload && event.payload.content) {
         console.log("AI_CONTENT RECEIVED:", event.payload.content.substring(0, 50) + "...");
-        useStore.getState().updateLastAgentMessage(event.payload.content);
+        useStore.getState().updateLastAgentMessage(cleanAgentContent(event.payload.content));
     }
 });
 
@@ -4058,42 +4072,6 @@ async function resolveSpecialMentions(context: any[], query: string, activeRoot:
     return resolved;
 }
 
-function formatToolSummary(name: string, args: any, result: any): string {
-    try {
-        const data = typeof result === 'string' ? JSON.parse(result) : result;
-        const toolName = name.toLowerCase();
-
-        if (toolName.includes('list_files') || toolName.includes('list_directory') || toolName.includes('ls')) {
-            const count = Array.isArray(data) ? data.length : (data.filenames ? data.filenames.length : 0);
-            return `Listed ${count} items in ${args.path || args.directory_path || 'root'}`;
-        }
-        if (toolName.includes('view_file') || toolName.includes('file_read') || toolName.includes('cat')) {
-            return `Read ${args.file_path || args.path} (${data.numLines || 'all'} lines)`;
-        }
-        if (toolName.includes('run_command') || toolName.includes('bash') || toolName.includes('sh')) {
-            const cmd = args.command || '';
-            const shortCmd = cmd.length > 30 ? cmd.substring(0, 30) + '...' : cmd;
-            return `Executed: ${shortCmd}`;
-        }
-        if (toolName.includes('grep') || toolName.includes('search')) {
-            const count = Array.isArray(data) ? data.length : 0;
-            return `Found ${count} matches for "${args.pattern || args.query}"`;
-        }
-        if (toolName.includes('write_to_file') || toolName.includes('file_write')) {
-            return `Wrote ${args.file_path || args.path}`;
-        }
-        if (toolName.includes('file_edit') || toolName.includes('modify_file')) {
-            return `Edited ${args.file_path || args.path}`;
-        }
-        if (toolName.includes('git_status')) {
-            return `Checked git status`;
-        }
-    } catch (e) {
-        // Fallback to generic summary if parsing fails
-    }
-    return `Executed ${name}`;
-}
-
 listen('ai-tool-call', (event: { payload: { name: string, args: string | any } | any }) => {
     if (event.payload && event.payload.name) {
         console.log("AI_TOOL_CALL RECEIVED:", event.payload.name);
@@ -4136,10 +4114,6 @@ listen('ai-tool-result', (event: { payload: { name: string, result: string, bloc
         const summary = formatToolSummary(event.payload.name, args, event.payload.result);
         updateAgentStepStatus(event.payload.name, event.payload.blocked ? 'running' : 'success', event.payload.result, summary, event.payload.call_id);
 
-        // ═══════════════════════════════════════════════════════════
-        // AIRI SELF-LEARNING - Learn from tool outcomes
-        // AIRI learns whether her actions succeeded or failed
-        // ═══════════════════════════════════════════════════════════
         if (airiInitialized) {
             const outcome = event.payload.blocked ? 'failure' : 'success';
             void getAiriSelfLearning().then((sl) =>

@@ -19,9 +19,9 @@ function RustLogo({ size = 56 }: { size?: number }) {
 }
 
 const PILLARS = [
-    { title: 'Performance', desc: 'Zero-cost abstractions and Rust efficiency.' },
-    { title: 'Privacy', desc: 'Local-first processing, safe and secure.' },
-    { title: 'Autonomy', desc: 'Integrated AIRI sentient core with full filesystem access.' },
+    { title: 'Local Ollama', desc: 'Native agent + tools on open models — not a bolt-on extension.' },
+    { title: 'Privacy', desc: 'Code stays on your machine. Cloud is optional.' },
+    { title: 'Autonomy', desc: 'Full agent loop with checkpoints and diff review.' },
 ] as const;
 
 const START_ACTIONS = [

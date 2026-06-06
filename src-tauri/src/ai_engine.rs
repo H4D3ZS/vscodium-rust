@@ -619,15 +619,53 @@ impl Sentient {
 
     pub fn set_root_path(&self, root_path: PathBuf) {
         let tools = self.ai_tools.clone();
-        let rp = root_path.clone();
+        let rules = self.rules_engine.clone();
+        let mcp = self.mcp_registry.clone();
+        let ms = self.memory_store.clone();
+        let rp_tools = root_path.clone();
+        let rp_mount = root_path.clone();
+        let rp_mcp = root_path.clone();
+        rules.set_root(root_path);
+
         tauri::async_runtime::spawn(async move {
-            tools.set_root_path(rp).await;
+            tools.set_root_path(rp_tools).await;
         });
 
-        let ms = self.memory_store.clone();
         tauri::async_runtime::spawn(async move {
-            ms.mount(Some(root_path)).await;
+            ms.mount(Some(rp_mount)).await;
         });
+
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = mcp.merge_workspace_config(&rp_mcp).await {
+                eprintln!("[cursor] MCP merge failed: {e}");
+            }
+        });
+    }
+
+    /// Reload Cursor + Kiro + Antigravity workspace layout.
+    pub async fn reload_workspace(&self, root: &std::path::Path) -> Result<serde_json::Value> {
+        use crate::workspace_compat::{scan_workspace, load_environment, format_environment_for_prompt, append_debug_log, format_steering_for_prompt, load_steering_docs};
+        self.rules_engine.set_root(root.to_path_buf());
+        self.mcp_registry.merge_workspace_config(root).await?;
+        let scan = scan_workspace(root)?;
+        let steering_prompt = format_steering_for_prompt(&load_steering_docs(root));
+        let _ = append_debug_log(root, serde_json::json!({
+            "kind": "workspace_reload",
+            "cursor_rules": scan.cursor.rules_count,
+            "steering": scan.steering_count,
+            "kiro_hooks": scan.kiro_hooks_count,
+            "mcp_servers": scan.cursor.mcp_server_count + scan.kiro_mcp_count,
+        }));
+        Ok(serde_json::json!({
+            "scan": scan,
+            "environment_prompt": load_environment(root).map(|e| format_environment_for_prompt(&e)),
+            "steering_prompt": steering_prompt,
+        }))
+    }
+
+    /// Back-compat alias.
+    pub async fn reload_cursor_workspace(&self, root: &std::path::Path) -> Result<serde_json::Value> {
+        self.reload_workspace(root).await
     }
 
     /// Main autonomous reasoning loop with iterative tool invocation and task planning.
@@ -2212,7 +2250,13 @@ impl Sentient {
                 \nSKILLS: You have thousands of specialized skills in `.agent/skills/`. Use them to master any domain. \
                 {MCP_SUMMARY}";
 
-            let rules_text = self.rules_engine.format_rules_for_prompt();
+            let mut rules_text = self.rules_engine.format_rules_for_prompt();
+            if let Some(env) = crate::cursor_compat::load_environment(&root) {
+                rules_text.push_str(&crate::cursor_compat::format_environment_for_prompt(&env));
+            }
+            rules_text.push_str(&crate::workspace_compat::format_steering_for_prompt(
+                &crate::workspace_compat::load_steering_docs(&root),
+            ));
             let workflows_text = self.workflow_engine.format_workflows_for_prompt();
 
             // .cursorrules / .clinerules auto-load from project root

@@ -2542,8 +2542,28 @@ impl AiTools {
         // apply_shadow_patch, and disk reads all agree (notably on Windows).
         if full_path.exists() {
             if let Ok(canon) = std::fs::canonicalize(&full_path) {
+                let ignore = crate::cursor_compat::CursorIgnoreSet::load(
+                    root,
+                    crate::cursor_compat::IgnoreScope::AiAccess,
+                );
+                if ignore.is_ignored(&canon) {
+                    return Err(anyhow::anyhow!(
+                        "Path blocked by .cursorignore: {}",
+                        canon.display()
+                    ));
+                }
                 return Ok(canon);
             }
+        }
+        let ignore = crate::cursor_compat::CursorIgnoreSet::load(
+            root,
+            crate::cursor_compat::IgnoreScope::AiAccess,
+        );
+        if ignore.is_ignored(&full_path) {
+            return Err(anyhow::anyhow!(
+                "Path blocked by .cursorignore: {}",
+                full_path.display()
+            ));
         }
         Ok(full_path)
     }
