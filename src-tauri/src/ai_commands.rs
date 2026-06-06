@@ -1369,4 +1369,46 @@ pub async fn aim_inspect(state: State<'_, EditorState>, path: String) -> Result<
     Ok(val)
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
+pub struct OllamaLibraryEntry {
+    name: String,
+    ram_gb: u32,
+    tags: Vec<String>,
+    desc: String,
+}
+
+static OLLAMA_LIBRARY: &str = include_str!("../resources/ollama_library.json");
+
+/// Search the bundled Ollama model catalog (offline-safe). Used by the first-run wizard.
+#[tauri::command]
+pub async fn search_ollama_library(
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<OllamaLibraryEntry>, String> {
+    let cap = limit.unwrap_or(24).min(60);
+    let q = query.trim().to_lowercase();
+    let all: Vec<OllamaLibraryEntry> =
+        serde_json::from_str(OLLAMA_LIBRARY).map_err(|e| format!("catalog parse: {e}"))?;
+    if q.is_empty() {
+        return Ok(all.into_iter().take(cap).collect());
+    }
+    let mut hits: Vec<OllamaLibraryEntry> = all
+        .into_iter()
+        .filter(|e| {
+            e.name.to_lowercase().contains(&q)
+                || e.desc.to_lowercase().contains(&q)
+                || e.tags.iter().any(|t| t.to_lowercase().contains(&q))
+        })
+        .take(cap)
+        .collect();
+    if hits.is_empty() {
+        hits = serde_json::from_str::<Vec<OllamaLibraryEntry>>(OLLAMA_LIBRARY)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|e| e.name.to_lowercase().starts_with(&q))
+            .take(cap)
+            .collect();
+    }
+    Ok(hits)
+}
 

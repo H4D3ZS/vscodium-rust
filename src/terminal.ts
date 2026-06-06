@@ -22,6 +22,7 @@ import {
   resolveTerminalTheme,
 } from './infrastructure/terminal/terminalThemes.ts';
 import '@xterm/xterm/css/xterm.css';
+import { summarizeToolResult } from './domain/agent/cleanAgentContent';
 
 // Re-export domain types for legacy imports.
 export type { TerminalProfile } from './domain/terminal/TerminalProfile.ts';
@@ -637,18 +638,18 @@ export class TerminalManager {
       const calls = this.activityCalls.get(id);
       const prior = callId ? calls?.get(callId) : undefined;
       const tag = prior?.name || name || 'tool';
-      const lines = result.split(/\r?\n/);
-      const head = truncate(lines[0] ?? '', 320);
-      const extra = lines.length > 1 ? ` \x1b[2m(+${lines.length - 1} more lines)\x1b[0m` : '';
+      let parsedArgs: Record<string, unknown> = {};
+      try {
+        if (prior?.argPreview) parsedArgs = JSON.parse(prior.argPreview);
+      } catch { /* ignore */ }
+      const summary = summarizeToolResult(tag, result, parsedArgs);
       const marker = blocked ? '\x1b[1;35m⏸\x1b[0m' : '\x1b[1;32m✔\x1b[0m';
-      term.writeln(`${ts()} ${marker} \x1b[1m${tag}\x1b[0m \x1b[2m→\x1b[0m ${head}${extra}`);
+      term.writeln(`${ts()} ${marker} \x1b[1m${tag}\x1b[0m \x1b[2m→\x1b[0m ${summary}`);
       if (callId && calls) calls.delete(callId);
     };
 
-    const writeAction = (payload: any) => {
-      const action = String(payload?.action ?? '').trim();
-      const tool = payload?.tool ? ` \x1b[2m[${payload.tool}]\x1b[0m` : '';
-      if (action) term.writeln(`${ts()} \x1b[1;34m•\x1b[0m ${action}${tool}`);
+    const writeAction = (_payload: any) => {
+      // Skipped — ai-tool-call already logs ▶ name; avoids duplicate "Executing tool:" lines.
     };
 
     const writeChat = (payload: any) => {

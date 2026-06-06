@@ -1,49 +1,77 @@
 use std::path::{Path, PathBuf};
 use std::fs;
+use std::sync::RwLock;
 use serde::{Deserialize, Serialize};
+use crate::cursor_compat::{load_cursor_rules, format_rules_for_prompt, CursorRuleFrontmatter};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AgentRule {
     pub name: String,
     pub content: String,
     pub file_path: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub globs: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub always_apply: Option<bool>,
 }
 
 pub struct RulesEngine {
-    pub workspace_root: PathBuf,
+    workspace_root: RwLock<PathBuf>,
 }
 
 impl RulesEngine {
     pub fn new(root: PathBuf) -> Self {
-        Self { workspace_root: root }
+        Self {
+            workspace_root: RwLock::new(root),
+        }
+    }
+
+    pub fn set_root(&self, root: PathBuf) {
+        if let Ok(mut w) = self.workspace_root.write() {
+            *w = root;
+        }
+    }
+
+    fn root(&self) -> PathBuf {
+        self.workspace_root.read().map(|r| r.clone()).unwrap_or_else(|_| PathBuf::from("."))
     }
 
     pub fn get_workspace_rules(&self) -> Vec<AgentRule> {
+        let root = self.root();
         let mut rules = Vec::new();
 
-        // Our native rule locations
-        self.scan_dir(&self.workspace_root.join(".agents").join("rules"), &mut rules);
-        self.scan_dir(&self.workspace_root.join(".agent").join("rules"),  &mut rules);
+        self.scan_dir(&root.join(".agents").join("rules"), &mut rules);
+        self.scan_dir(&root.join(".agent").join("rules"),  &mut rules);
 
-        // Cursor IDE compatibility: read `.cursor/rules/*.mdc` (and `.md`) so
-        // any project pulled from a Cursor user's machine keeps its rules
-        // active without manual migration. `.mdc` is Cursor's native suffix.
-        self.scan_dir(&self.workspace_root.join(".cursor").join("rules"),  &mut rules);
+        if let Ok(cursor_rules) = load_cursor_rules(&root) {
+            for cr in cursor_rules {
+                rules.push(AgentRule {
+                    name: cr.name,
+                    content: cr.content,
+                    file_path: cr.file_path,
+                    description: cr.frontmatter.as_ref().and_then(|f| f.description.clone()),
+                    globs: cr.frontmatter.as_ref().and_then(|f| f.globs.clone()),
+                    always_apply: cr.frontmatter.as_ref().and_then(|f| f.always_apply),
+                });
+            }
+        }
 
-        // Legacy single-file rules — Cursor's old `.cursorrules` and the
-        // common AI-tool conventions `AGENTS.md` / `CLAUDE.md` at root.
         for (name, fname) in [
-            ("cursorrules", ".cursorrules"),
             ("agents",      "AGENTS.md"),
             ("claude",      "CLAUDE.md"),
         ] {
-            let p = self.workspace_root.join(fname);
+            let p = root.join(fname);
             if p.is_file() {
                 if let Ok(content) = fs::read_to_string(&p) {
                     rules.push(AgentRule {
                         name: name.to_string(),
                         content,
                         file_path: p,
+                        description: None,
+                        globs: None,
+                        always_apply: Some(true),
                     });
                 }
             }
@@ -69,6 +97,9 @@ impl RulesEngine {
                             name,
                             content,
                             file_path: path,
+                            description: None,
+                            globs: None,
+                            always_apply: Some(true),
                         });
                     }
                 }
@@ -77,13 +108,26 @@ impl RulesEngine {
     }
 
     pub fn format_rules_for_prompt(&self) -> String {
-        let rules = self.get_workspace_rules();
-        if rules.is_empty() { return String::new(); }
+        self.format_rules_for_prompt_with_file(None)
+    }
 
-        let mut output = String::from("\n### WORKSPACE RULES:\n");
-        for rule in rules {
-            output.push_str(&format!("\n#### Rule: {}\n{}\n", rule.name, rule.content));
-        }
-        output
+    pub fn format_rules_for_prompt_with_file(&self, active_file: Option<&str>) -> String {
+        let root = self.root();
+        let cursor_rules: Vec<crate::cursor_compat::CursorRule> = self
+            .get_workspace_rules()
+            .into_iter()
+            .map(|r| crate::cursor_compat::CursorRule {
+                name: r.name,
+                content: r.content,
+                file_path: r.file_path,
+                frontmatter: Some(CursorRuleFrontmatter {
+                    description: r.description,
+                    globs: r.globs,
+                    always_apply: r.always_apply,
+                }),
+            })
+            .collect();
+        let _ = root; // root already reflected in get_workspace_rules
+        format_rules_for_prompt(&cursor_rules, active_file)
     }
 }

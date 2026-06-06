@@ -11,46 +11,27 @@ use notify::{Watcher, RecursiveMode, RecommendedWatcher, Event, EventKind};
 use tokio::sync::mpsc;
 use rayon::prelude::*;
 use sha2::{Sha256, Digest};
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
-/// Compiled set of ignore rules read from `.cursorignore`,
-/// `.cursorindexignore`, and `.gitignore` at the workspace root. Cached
-/// in `ContextIndexer` so we don't recompile on every file event.
+/// Indexing-only ignores via `cursor_compat` (excludes `.cursorignore`).
 #[derive(Clone)]
 struct IgnoreSet {
     root: PathBuf,
-    matchers: Vec<Arc<Gitignore>>,
+    matcher: crate::cursor_compat::CursorIgnoreSet,
 }
 
 impl IgnoreSet {
     fn load(root: &Path) -> Self {
-        let mut matchers = Vec::new();
-        // Cursor IDE's two native ignore files. `.cursorignore` hides files
-        // from both indexing and AI access; `.cursorindexignore` only hides
-        // them from indexing. For our index pipeline both behave the same.
-        for name in [".hadesignore", ".cursorignore", ".cursorindexignore", ".gitignore"] {
-            let p = root.join(name);
-            if !p.is_file() { continue; }
-            let mut b = GitignoreBuilder::new(root);
-            let _ = b.add(&p);
-            if let Ok(gi) = b.build() {
-                matchers.push(Arc::new(gi));
-            }
+        Self {
+            root: root.to_path_buf(),
+            matcher: crate::cursor_compat::CursorIgnoreSet::load(
+                root,
+                crate::cursor_compat::IgnoreScope::Indexing,
+            ),
         }
-        IgnoreSet { root: root.to_path_buf(), matchers }
     }
 
     fn is_ignored(&self, path: &Path) -> bool {
-        if self.matchers.is_empty() { return false; }
-        let is_dir = path.is_dir();
-        let rel_target = path.strip_prefix(&self.root).unwrap_or(path);
-        for gi in &self.matchers {
-            match gi.matched_path_or_any_parents(rel_target, is_dir) {
-                ignore::Match::Ignore(_) => return true,
-                _ => {}
-            }
-        }
-        false
+        self.matcher.is_ignored(path)
     }
 }
 
