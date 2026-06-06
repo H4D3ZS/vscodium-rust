@@ -156,10 +156,17 @@ const StatusBar: React.FC = () => {
             return sum + Math.ceil(txt.length / 4);
         }, 0);
         const model = (useStore.getState() as any).agentModel ?? '';
-        const max = model.toLowerCase().includes('gemini-2.5') ? 1048576
-            : model.toLowerCase().includes('gemini') ? 131072
-            : model.toLowerCase().includes('claude') ? 200000
-            : model.toLowerCase().includes('gpt-4') ? 128000
+        const ml = model.toLowerCase();
+        const paramMatch = ml.match(/(?:^|[/:\-_])(\d+)b(?:[^a-z]|$)/);
+        const paramB = paramMatch ? parseInt(paramMatch[1], 10) : 0;
+        const max = ml.includes('gemini-2.5') ? 1048576
+            : ml.includes('gemini') ? 131072
+            : ml.includes('claude') ? 200000
+            : ml.includes('gpt-4') ? 128000
+            : paramB >= 30 ? 32768
+            : paramB >= 14 ? 24576
+            : paramB >= 8 ? 16384
+            : ml.includes('ollama') || ml.includes('/') || ml.includes(':') ? 8192
             : 128000;
         return { used, max, pct: Math.min(100, Math.round((used / max) * 100)) };
     }, [agentMessages]);
