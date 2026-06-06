@@ -1099,6 +1099,20 @@ impl Sentient {
         })
     }
 
+    /// Last-chance guard: force `options.num_ctx` on every Ollama payload before POST.
+    fn ensure_ollama_payload(payload: &mut Value, model: &str, temperature: f32, num_predict: u32) {
+        if let Some(obj) = payload.as_object_mut() {
+            obj.remove("num_ctx");
+            obj.remove("num_predict");
+            let num_ctx = Self::recommended_num_ctx(model);
+            obj.insert(
+                "options".to_string(),
+                Self::ollama_inference_options(model, temperature, num_predict),
+            );
+            println!("[AI] Ollama payload num_ctx={} model={}", num_ctx, model);
+        }
+    }
+
     /// Returns true if the model supports vision / image input via Ollama.
     /// Ollama passes images as a top-level `images` array (base64) on each message.
     fn is_vision_model(model: &str) -> bool {
@@ -1725,6 +1739,14 @@ impl Sentient {
         // even 8K-context Ollama models can afford it. Only the verbose full
         // knowledge summary (thousands of tokens) is gated to cloud models.
         let aim_indexed_files = self.memory_store.get_project_tree().await.len();
+        let user_prompt_chars = req
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.role == "user")
+            .and_then(|m| m.content.as_ref())
+            .map(|c| c.as_str().len())
+            .unwrap_or(0);
         {
             let indexed_count = aim_indexed_files;
 
@@ -1745,7 +1767,13 @@ impl Sentient {
                 // small model means a long prompt-eval before the first token — which reads
                 // as "stuck/Thinking…". Keep it tight; the agent pulls more via
                 // aim_query_spans / grep / view_file on demand.
-                let map_chars = if Self::is_small_model_name(&req.model) {
+                // When the user pastes a long spec (capstone objectives, etc.), shrink BRAIN
+                // so prompt + tools fit inside num_ctx.
+                let map_chars = if user_prompt_chars > 8_000 {
+                    2_000
+                } else if user_prompt_chars > 3_000 {
+                    4_000
+                } else if Self::is_small_model_name(&req.model) {
                     raw_budget.min(8_000)   // ~2K tokens — snappy on 3B–7B local models
                 } else {
                     raw_budget.min(14_000)
@@ -2859,6 +2887,26 @@ impl Sentient {
                 }
             }
 
+            // Ollama: preflight trim so pasted specs + tool schemas fit inside num_ctx.
+            if active_provider.to_lowercase() == "ollama" {
+                let num_ctx = Self::recommended_num_ctx(&active_model);
+                let est = Self::estimate_messages_tokens(&messages);
+                let tool_overhead = if tools.is_empty() { 512 } else { 6_000 };
+                let max_prompt_tokens = num_ctx
+                    .saturating_mul(70)
+                    .saturating_div(100)
+                    .saturating_sub(tool_overhead);
+                if est > max_prompt_tokens {
+                    println!(
+                        "[AI] Preflight trim: ~{} tok + ~{} tools > {} budget (num_ctx={})",
+                        est, tool_overhead, max_prompt_tokens, num_ctx
+                    );
+                    messages = self
+                        .trim_context(messages, max_prompt_tokens.saturating_mul(4))
+                        .await;
+                }
+            }
+
             let mut payload = if active_provider.to_lowercase() == "anthropic" {
 
                 // Transform messages for Anthropic API format.
@@ -3235,6 +3283,15 @@ impl Sentient {
                 }
             }
 
+            if active_provider.to_lowercase() == "ollama" {
+                let ollama_temp = if is_chat_mode {
+                    req.temperature.unwrap_or(0.75)
+                } else {
+                    req.temperature.unwrap_or(0.6)
+                };
+                Self::ensure_ollama_payload(&mut payload, &active_model, ollama_temp, 8192);
+            }
+
             // Get session first (async)
             let mut session_opt = None;
             if active_provider.ends_with("(Browser)") {
@@ -3426,15 +3483,16 @@ impl Sentient {
                                 Self::is_vision_model(&active_model),
                             ));
                         }
-                        let smaller_ctx = (Self::recommended_num_ctx(&active_model) / 2).max(8192);
+                        let retry_ctx = Self::recommended_num_ctx(&active_model);
                         map.insert(
                             "options".to_string(),
                             json!({
-                                "num_ctx": smaller_ctx,
+                                "num_ctx": retry_ctx,
                                 "num_predict": 4096,
                                 "temperature": retry_temp,
                             }),
                         );
+                        println!("[AI] Context retry with num_ctx={}", retry_ctx);
                     }
                     response = request
                         .json(&payload)
@@ -5914,13 +5972,13 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                         .clone()
                         .unwrap_or_else(|| "http://127.0.0.1:11434".to_string()),
                 );
-                if base.ends_with("/v1/chat/completions") {
-                    base
-                } else if base.ends_with("/v1") {
-                    format!("{}/chat/completions", base)
-                } else {
-                    format!("{}/v1/chat/completions", base)
-                }
+                let root = base
+                    .trim_end_matches('/')
+                    .trim_end_matches("/v1/chat/completions")
+                    .trim_end_matches("/chat/completions")
+                    .trim_end_matches("/v1")
+                    .trim_end_matches("/api/chat");
+                format!("{}/api/chat", root)
             }
             _ => {
                 if let Ok(url) = std::env::var("OPENAI_BASE_URL") {
