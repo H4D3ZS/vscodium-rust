@@ -1714,8 +1714,9 @@ impl Sentient {
         // The compact gist is ~100 tokens. Always inject for ALL providers —
         // even 8K-context Ollama models can afford it. Only the verbose full
         // knowledge summary (thousands of tokens) is gated to cloud models.
+        let aim_indexed_files = self.memory_store.get_project_tree().await.len();
         {
-            let indexed_count = self.memory_store.get_project_tree().await.len();
+            let indexed_count = aim_indexed_files;
 
             // TOTAL-RECALL codebase map (not lossy RAG): inject the COMPLETE map
             // of every file + every symbol, sized to ~35% of the model's context
@@ -1748,6 +1749,13 @@ impl Sentient {
                          to orient. Only `view_file` to read an exact body, or `aim_query_spans` for more.\n",
                     );
                     project_memory.push_str(&codebase_map);
+                    if codebase_map.contains("truncated") {
+                        project_memory.push_str(&format!(
+                            "\nTree summary ({} total paths): {}\n",
+                            indexed_count,
+                            self.memory_store.get_project_tree_summary().await
+                        ));
+                    }
                     project_memory.push('\n');
                 } else {
                     project_memory.push_str(
@@ -2360,11 +2368,21 @@ impl Sentient {
                 Operate as an explicit, technical operator: name the TTPs, write the actual code, run the actual commands, capture the actual output. Use real tools (`secrets_scan`, `weaponize_env`, `run_command`, `web_security_audit`, `sec_distro_inventory`, `grep`, `write_to_file`) not pseudo-code. \
                 The ONLY rule is dual-use: every offensive step you demonstrate gets paired with the matching defensive counter (detection rule, hardening patch, monitoring hook). That pairing IS the safety model — it ensures the work is useful for both red team and blue team simultaneously.";
 
+            let fs_awareness = if aim_indexed_files > 0 {
+                format!(
+                    "AIM BRAIN active ({} files indexed). Structure is in ### BRAIN — do NOT list_files/grep to orient. \
+                     Use `view_file`, `aim_query_spans`, or `semantic_search`; grep only with a specific symbol/string.",
+                    aim_indexed_files
+                )
+            } else {
+                "You may use `list_files`, `grep`, `search_codebase`, and `semantic_search` to explore.".to_string()
+            };
             let dynamic_env_context = format!(
-                "\n### DYNAMIC ENVIRONMENT CONTEXT:\n- **Current OS**: {}\n- **Project Root**: {}\n- **Timestamp**: {}\n- **File System Awareness**: You are empowered to use `list_files`, `grep`, `search_codebase`, and `semantic_search` to explore the depth of this project.\n",
+                "\n### DYNAMIC ENVIRONMENT CONTEXT:\n- **Current OS**: {}\n- **Project Root**: {}\n- **Timestamp**: {}\n- **File System Awareness**: {}\n",
                 std::env::consts::OS,
                 root.display(),
-                chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                fs_awareness
             );
 
             let system_prompt = if is_small_model {
@@ -2648,35 +2666,48 @@ impl Sentient {
                 && !messages.iter().any(|m| m.role == "system"
                     && m.content.as_ref().map(|c| c.as_str().contains("[PLAN PHASE")).unwrap_or(false))
             {
+                let plan_recon = if aim_indexed_files > 0 {
+                    "you MAY use read-only tools (view_file, aim_query_spans, semantic_search, find_symbols) \
+                     to read specific files — do NOT list_files/grep to orient; ### BRAIN already has the tree"
+                } else {
+                    "you MAY use read-only recon tools (view_file, grep, list_files, search_codebase, find_symbols) \
+                     to ground the plan in real code"
+                };
                 messages.push(ChatMessage {
                     role: "system".to_string(),
-                    content: Some(MessageContent::Text(
+                    content: Some(MessageContent::Text(format!(
                         "### [PLAN PHASE — deep reasoning]\nYou are the PLANNER. Do NOT edit files \
                          or run mutating commands in this turn. First reason deeply about the user's \
-                         request and the codebase; you MAY use read-only recon tools (view_file, grep, \
-                         list_files, search_codebase, find_symbols) to ground the plan in real code. \
+                         request and the codebase; {plan_recon}. \
                          Then output a numbered implementation plan between <TASK_PLAN> and </TASK_PLAN>. \
                          Each step must name the concrete file(s) to touch and end with an explicit \
                          verification step (e.g. `cargo check`, `npm run typecheck`, or a test). Do not \
-                         write implementation code in this message — execution happens next.".to_string(),
-                    )),
+                         write implementation code in this message — execution happens next."
+                    ))),
                     ..Default::default()
                 });
             }
 
             // 1. PHASE TRACKING & TELEMETRY
             if req.mode.as_deref() == Some("Sentient") {
+                let architect_recon = if aim_indexed_files > 0 {
+                    "Use `get_symbol_graph` and the ### BRAIN map — do NOT list_files/grep to orient."
+                } else {
+                    "Use `get_symbol_graph` and `list_files` to map out dependencies."
+                };
+                let architect_msg = format!(
+                    "SYSTEM: [PERSONA: ARCHITECT] You are the Lead Architect. Conduct a deep-dive research of the current project state. {architect_recon} Your goal is to identify tech debt and create a mission plan before any code is written."
+                );
                 let (phase, status, system_instruction) = match iteration {
-                    0 => ("ANALYZE", "Architect scanning project structure...", 
-                          "SYSTEM: [PERSONA: ARCHITECT] You are the Lead Architect. Conduct a deep-dive research of the current project state. Use `get_symbol_graph` and `list_files` to map out dependencies. Your goal is to identify tech debt and create a mission plan before any code is written."),
+                    0 => ("ANALYZE", "Architect scanning project structure...", architect_msg),
                     1 => ("PLAN", "Architect drafting technical implementation strategy...",
-                          "SYSTEM: [PERSONA: ARCHITECT] Based on your analysis, use `create_mission_plan` to document your strategy in `task.md`. Ensure every task has a verification step."),
+                          "SYSTEM: [PERSONA: ARCHITECT] Based on your analysis, use `create_mission_plan` to document your strategy in `task.md`. Ensure every task has a verification step.".to_string()),
                     2..=15 => ("EXECUTE", "Implementer applying surgical patches...",
-                          "SYSTEM: [PERSONA: IMPLEMENTER] You are the Senior Implementer. To edit a file: (1) Call search_replace_edit with the SEARCH/REPLACE blocks. (2) Immediately call apply_shadow_patch on the same path to commit the change to disk. Or use write_to_file for new files. DO NOT stop after staging — always apply. Use patch_file_content for line-range edits."),
+                          "SYSTEM: [PERSONA: IMPLEMENTER] You are the Senior Implementer. To edit a file: (1) Call search_replace_edit with the SEARCH/REPLACE blocks. (2) Immediately call apply_shadow_patch on the same path to commit the change to disk. Or use write_to_file for new files. DO NOT stop after staging — always apply. Use patch_file_content for line-range edits.".to_string()),
                     16..=25 => ("VERIFY", "Auditor running regressions and validating consistency...",
-                          "SYSTEM: [PERSONA: AUDITOR] You are the QA Auditor. Implement verification gates using `verify_implementation`. If tests fail, you MUST report back for re-reasoning. Do not allow 'MISSION_ACCOMPLISHED' until build/tests pass."),
+                          "SYSTEM: [PERSONA: AUDITOR] You are the QA Auditor. Implement verification gates using `verify_implementation`. If tests fail, you MUST report back for re-reasoning. Do not allow 'MISSION_ACCOMPLISHED' until build/tests pass.".to_string()),
                     _ => ("REPORT", "Compiling results and distilling lessons...",
-                          "SYSTEM: [PHASE: REPORT] Task lifecycle ending. Summarize accomplishments and record architectural decisions via `save_knowledge_brief`."),
+                          "SYSTEM: [PHASE: REPORT] Task lifecycle ending. Summarize accomplishments and record architectural decisions via `save_knowledge_brief`.".to_string()),
                 };
 
                 println!("[SENTIENT-CORE] Entering Phase: {} | Iteration: {}", phase, iteration);
@@ -4015,14 +4046,21 @@ impl Sentient {
                     // approve/deny before the tool runs (B9 per-tool permission prompts).
                     let app_handle_ref = self.app_handle.read().ok()
                         .and_then(|g| g.clone());
-                    let mut tool_result = self.tool_invoker
-                        .execute_tool_with_permission(
-                            &tool_name,
-                            &tool_args_json.to_string(),
-                            app_handle_ref.as_ref(),
-                            Some(&self.permission_senders),
-                        )
-                        .await;
+                    let mut tool_result = if let Some(blocked) = self
+                        .intercept_zero_grep_orientation(&tool_name, &tool_args_json, iteration)
+                        .await
+                    {
+                        Ok(blocked)
+                    } else {
+                        self.tool_invoker
+                            .execute_tool_with_permission(
+                                &tool_name,
+                                &tool_args_json.to_string(),
+                                app_handle_ref.as_ref(),
+                                Some(&self.permission_senders),
+                            )
+                            .await
+                    };
 
                     // Append pre-check warning to result so AI sees it and can self-correct
                     if let (Some(warning), Ok(ref mut val)) = (pre_check_warning, &mut tool_result) {
@@ -5858,6 +5896,73 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         }
     }
 
+
+    /// Block orientation-only recon when AIM has already indexed the workspace.
+    /// Returns a synthetic tool result instead of listing/grepping the tree.
+    async fn intercept_zero_grep_orientation(
+        &self,
+        tool_name: &str,
+        args: &Value,
+        iteration: usize,
+    ) -> Option<Value> {
+        let indexed = self.memory_store.get_project_tree().await.len();
+        if indexed == 0 || iteration > 2 {
+            return None;
+        }
+
+        const ORIENT_TOOLS: &[&str] = &["list_files", "list_directory", "glob", "find_by_name"];
+
+        if ORIENT_TOOLS.contains(&tool_name) {
+            let path = args
+                .get("path")
+                .or_else(|| args.get("directory"))
+                .or_else(|| args.get("pattern_or_path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
+            let root = self.ai_tools.get_root_path();
+            let root_norm = root.to_string_lossy().trim_end_matches(['/', '\\']).to_string();
+            let path_norm = path.trim().trim_end_matches(['/', '\\']);
+            let is_root_list = path_norm.is_empty()
+                || path_norm == "."
+                || path_norm == "./"
+                || path_norm == "/"
+                || Path::new(path_norm) == root.as_path()
+                || path_norm.eq_ignore_ascii_case(&root_norm)
+                || root.ends_with(path_norm);
+
+            if is_root_list {
+                let summary = self.memory_store.get_project_tree_summary().await;
+                return Some(json!({
+                    "status": "blocked_zero_grep",
+                    "message": format!(
+                        "ZERO-GREP: {indexed} files already indexed in AIM/BRAIN. Do NOT list the tree — \
+                         structure is in ### BRAIN. Use view_file(path), aim_query_spans, or semantic_search.\n\n{summary}"
+                    ),
+                    "indexed_files": indexed,
+                }));
+            }
+        }
+
+        if tool_name == "grep" && iteration <= 1 {
+            let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+            let broad = pattern.is_empty()
+                || pattern == ".*"
+                || pattern == "."
+                || pattern.len() < 4;
+            if broad {
+                let summary = self.memory_store.get_project_tree_summary().await;
+                return Some(json!({
+                    "status": "blocked_zero_grep",
+                    "message": format!(
+                        "ZERO-GREP: broad grep '{pattern}' skipped — {indexed} files indexed. \
+                         Use semantic_search/aim_query_spans or view_file.\n\n{summary}"
+                    ),
+                }));
+            }
+        }
+
+        None
+    }
 
     /// Intercept `run_command` shell file-write patterns and convert to `write_to_file` args.
     /// Returns Some(args) if the command looks like a file write, None otherwise.
