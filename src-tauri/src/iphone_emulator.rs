@@ -8,6 +8,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use crate::process_ext::hidden_command;
 use tauri::{AppHandle, Emitter, State};
 
 pub struct IPhoneEmulatorManager {
@@ -94,7 +95,7 @@ impl IPhoneEmulatorManager {
 
         println!("[iPhone] Launching: {} {}", exe.display(), args.join(" "));
 
-        let mut child = Command::new(&exe)
+        let mut child = hidden_command(&exe)
             .args(&args)
             .current_dir(&project_path)
             .stdout(Stdio::piped())
@@ -373,7 +374,7 @@ pub async fn prepare_ios_firmware(
     };
     emit(format!("[prepare] acheron prepare --ipsw {} --out {}", ipsw_path, out), "system");
 
-    let mut child = Command::new(&exe)
+    let mut child = hidden_command(&exe)
         .args(["prepare", "--ipsw", &ipsw_path, "--out", &out])
         .current_dir(&project_path)
         .stdout(Stdio::piped())

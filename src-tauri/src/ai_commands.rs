@@ -1230,9 +1230,8 @@ pub async fn sync_agent_messages(
     state: State<'_, EditorState>,
     messages: Vec<ChatMessage>,
 ) -> Result<(), String> {
-    use std::sync::atomic::Ordering;
     state.ai_engine.memory_store.store_conversation(&messages).await;
-    state.ai_engine.memory_store.is_dirty.store(true, Ordering::Relaxed);
+    state.ai_engine.memory_store.flush_to_disk().await;
     Ok(())
 }
 #[tauri::command]
@@ -1241,9 +1240,13 @@ pub async fn list_chat_sessions(state: State<'_, EditorState>) -> Result<Value, 
 }
 
 #[tauri::command]
-pub async fn load_chat_session(state: State<'_, EditorState>, path: String) -> Result<(), String> {
-    state.ai_engine.memory_store.load_from_path(PathBuf::from(path)).await;
-    Ok(())
+pub async fn load_chat_session(state: State<'_, EditorState>, path: String) -> Result<Value, String> {
+    let messages = state
+        .ai_engine
+        .memory_store
+        .restore_session_from_path(PathBuf::from(path))
+        .await;
+    Ok(json!(messages))
 }
 
 #[tauri::command]

@@ -1,15 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { marked } from 'marked';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
+import { parseMarkdown, isMarkdownPath } from '../lib/markdown';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  MarkdownPreview — VS Code-style side-by-side preview for .md files.
-//
-//  Mounted to the right of the editor when the active file is markdown
-//  and the user has toggled preview on (Ctrl+Shift+V or the preview
-//  button in the editor toolbar). Reads content from the active tab in
-//  the store so it stays live as the user edits — no debouncing because
-//  marked is fast and the document is usually small.
+//  MarkdownPreview — resizable side-by-side preview for .md files.
+//  Ctrl+Shift+V or toolbar button toggles visibility. Drag the left edge to
+//  resize; layout adapts when the pane is narrow.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MarkdownPreview: React.FC = () => {
@@ -19,33 +15,33 @@ const MarkdownPreview: React.FC = () => {
     });
     const visible = useStore(s => (s as any).isMarkdownPreviewOpen);
     const close = useStore(s => (s as any).closeMarkdownPreview);
+    const widthPct = useStore(s => (s as any).markdownPreviewWidthPct ?? 42);
+    const setWidthPct = useStore(s => (s as any).setMarkdownPreviewWidthPct);
 
-    // Track the rendered HTML in state so opening the preview reruns it
-    // when content changes. Marked is synchronous in modern versions, but
-    // we still memoize so React doesn't re-parse on unrelated re-renders.
-    const html = useMemo(() => {
-        if (!activeTab?.content) return '';
-        try {
-            return marked.parse(activeTab.content) as string;
-        } catch (e) {
-            return `<pre style="color:#f87171;">Markdown parse error: ${String(e)}</pre>`;
-        }
-    }, [activeTab?.content]);
+    const html = useMemo(() => parseMarkdown(activeTab?.content || ''), [activeTab?.content]);
+    const isMd = !!activeTab && isMarkdownPath(activeTab.path || '');
 
-    // Auto-close when the active file leaves markdown — saves a click.
-    const isMd = !!activeTab && (
-        activeTab.language === 'markdown' ||
-        /\.(md|markdown|mdx?)$/i.test(activeTab.path || '')
-    );
     useEffect(() => {
         if (!isMd && visible) close?.();
     }, [isMd, visible, close]);
 
     const [collapsedToc, setCollapsedToc] = useState(false);
+    const [narrow, setNarrow] = useState(false);
+    const paneRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const el = paneRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver(([entry]) => {
+            setNarrow(entry.contentRect.width < 380);
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [visible]);
+
     const toc = useMemo(() => {
         if (!activeTab?.content) return [] as { depth: number; text: string }[];
-        const lines = activeTab.content.split('\n');
-        return lines
+        return activeTab.content.split('\n')
             .map(l => l.match(/^(#{1,4})\s+(.+)$/))
             .filter(Boolean)
             .map((m: RegExpMatchArray | null) => ({
@@ -54,104 +50,109 @@ const MarkdownPreview: React.FC = () => {
             }));
     }, [activeTab?.content]);
 
+    const startResize = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        document.body.style.cursor = 'col-resize';
+        document.body.classList.add('resizing');
+
+        const onMove = (ev: MouseEvent) => {
+            const row = paneRef.current?.parentElement;
+            if (!row) return;
+            const rect = row.getBoundingClientRect();
+            const pct = ((rect.right - ev.clientX) / rect.width) * 100;
+            setWidthPct?.(pct);
+        };
+        const onUp = () => {
+            document.body.style.cursor = '';
+            document.body.classList.remove('resizing');
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, [setWidthPct]);
+
+    const fileName = (activeTab?.path || '').split(/[\\/]/).pop() || 'document.md';
+
+    const handleExportPdf = () => {
+        void import('../lib/markdownPdf').then(({ exportMarkdownToPdf }) => {
+            exportMarkdownToPdf(fileName.replace(/\.md$/i, ''), html);
+        });
+    };
+
     if (!visible || !isMd) return null;
 
+    const showToc = toc.length > 0 && !collapsedToc && !narrow;
+
     return (
-        <div
-            style={{
-                flex: '0 0 50%',
-                borderLeft: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.06))',
-                background: 'var(--vscode-editor-background)',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-            }}
-        >
+        <>
             <div
+                className="resizer-v markdown-preview-resizer"
+                onMouseDown={startResize}
+                title="Drag to resize preview"
+            />
+            <div
+                ref={paneRef}
+                className={`markdown-preview-pane${narrow ? ' markdown-preview-pane--narrow' : ''}`}
                 style={{
-                    padding: '4px 10px',
-                    borderBottom: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.06))',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontSize: 11,
-                    opacity: 0.85,
+                    flex: `0 0 ${widthPct}%`,
+                    minWidth: 220,
+                    maxWidth: '70%',
                 }}
             >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <i className="codicon codicon-preview" style={iconStyle} />
-                    Preview · {(activeTab?.path || '').split(/[\\/]/).pop()}
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                    {toc.length > 0 && (
-                        <button onClick={() => setCollapsedToc(c => !c)} style={btnNeutral} title="Toggle table of contents">
-                            <i className="codicon codicon-list-tree" style={iconStyle} />
-                        </button>
-                    )}
-                    <button onClick={() => close?.()} style={btnNeutral} title="Close preview">
-                        <i className="codicon codicon-close" style={iconStyle} />
-                    </button>
-                </div>
-            </div>
-            <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-                {!collapsedToc && toc.length > 0 && (
-                    <div
-                        style={{
-                            flex: '0 0 180px',
-                            overflowY: 'auto',
-                            borderRight: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.06))',
-                            padding: '8px 0',
-                            background: 'rgba(0,0,0,0.15)',
-                        }}
-                    >
-                        <div style={{ padding: '0 12px', fontSize: 10, opacity: 0.5, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                            Contents
-                        </div>
-                        {toc.map((h, i) => (
-                            <div
-                                key={i}
-                                style={{
-                                    padding: `2px 12px 2px ${12 + (h.depth - 1) * 10}px`,
-                                    fontSize: 11,
-                                    opacity: 0.8,
-                                    cursor: 'pointer',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                }}
-                                onClick={() => {
-                                    // Jump the editor to the heading line. We
-                                    // re-derive the line number by scanning the
-                                    // text for the heading match.
-                                    const ix = (activeTab?.content || '').split('\n').findIndex(l =>
-                                        l.match(new RegExp(`^#{${h.depth}}\\s+${h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`))
-                                    );
-                                    if (ix >= 0) {
-                                        window.dispatchEvent(new CustomEvent('editor:jump-to-line', {
-                                            detail: { path: activeTab?.path, line: ix + 1, column: 1 },
-                                        }));
-                                    }
-                                }}
-                                title={h.text}
-                            >
-                                {h.text}
-                            </div>
-                        ))}
+                <div className="markdown-preview-toolbar">
+                    <div className="markdown-preview-toolbar__title">
+                        <i className="codicon codicon-open-preview" style={iconStyle} />
+                        Preview · {fileName}
                     </div>
-                )}
-                <div
-                    className="markdown-content"
-                    style={{
-                        flex: 1,
-                        overflowY: 'auto',
-                        padding: '14px 20px',
-                        fontSize: 13,
-                        lineHeight: 1.7,
-                    }}
-                    dangerouslySetInnerHTML={{ __html: html }}
-                />
+                    <div className="markdown-preview-toolbar__actions">
+                        {toc.length > 0 && !narrow && (
+                            <button onClick={() => setCollapsedToc(c => !c)} style={btnNeutral} title="Toggle table of contents">
+                                <i className="codicon codicon-list-tree" style={iconStyle} />
+                            </button>
+                        )}
+                        <button onClick={handleExportPdf} style={btnNeutral} title="Export as PDF (system print dialog — no extra bundle size)">
+                            <i className="codicon codicon-printer" style={iconStyle} />
+                        </button>
+                        <button onClick={() => close?.()} style={btnNeutral} title="Close preview">
+                            <i className="codicon codicon-close" style={iconStyle} />
+                        </button>
+                    </div>
+                </div>
+                <div className="markdown-preview-body">
+                    {showToc && (
+                        <nav className="markdown-preview-toc" aria-label="Table of contents">
+                            <div className="markdown-preview-toc__label">Contents</div>
+                            {toc.map((h, i) => (
+                                <button
+                                    key={i}
+                                    type="button"
+                                    className="markdown-preview-toc__item"
+                                    style={{ paddingLeft: `${12 + (h.depth - 1) * 10}px` }}
+                                    onClick={() => {
+                                        const ix = (activeTab?.content || '').split('\n').findIndex(l =>
+                                            l.match(new RegExp(`^#{${h.depth}}\\s+${h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`))
+                                        );
+                                        if (ix >= 0) {
+                                            window.dispatchEvent(new CustomEvent('editor:jump-to-line', {
+                                                detail: { path: activeTab?.path, line: ix + 1, column: 1 },
+                                            }));
+                                        }
+                                    }}
+                                    title={h.text}
+                                >
+                                    {h.text}
+                                </button>
+                            ))}
+                        </nav>
+                    )}
+                    <div
+                        className="markdown-content markdown-preview-content"
+                        dangerouslySetInnerHTML={{ __html: html }}
+                    />
+                </div>
             </div>
-        </div>
+        </>
     );
 };
 

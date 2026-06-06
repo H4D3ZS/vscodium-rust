@@ -7,6 +7,7 @@
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use crate::process_ext::hidden_command;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -37,13 +38,13 @@ fn get_android_sdk_path() -> String {
 }
 
 fn get_adb_cmd() -> Command {
-    Command::new(format!("{}\\platform-tools\\adb.exe", get_android_sdk_path()))
+    hidden_command(format!("{}\\platform-tools\\adb.exe", get_android_sdk_path()))
 }
 
 fn get_avdmanager_cmd() -> Command {
     let p = format!("{}\\cmdline-tools\\latest\\bin\\avdmanager.bat", get_android_sdk_path());
-    if std::path::Path::new(&p).exists() { Command::new(p) }
-    else { Command::new(format!("{}\\tools\\bin\\avdmanager.bat", get_android_sdk_path())) }
+    if std::path::Path::new(&p).exists() { hidden_command(p) }
+    else { hidden_command(format!("{}\\tools\\bin\\avdmanager.bat", get_android_sdk_path())) }
 }
 
 fn _get_emulator_cmd() -> Command {
@@ -183,7 +184,7 @@ pub async fn spawn_emulator_by_name(avd_name: String) -> Result<String, String> 
     }
 
     println!("[Emulator] Launching '{}' headless...", avd_name);
-    match Command::new(&emu).args(&[
+    match hidden_command(&emu).args(&[
         "-avd", &avd_name,
         "-no-audio",
         "-no-window",              // KEY: NO external window (Android Studio style)

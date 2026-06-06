@@ -5,6 +5,8 @@ import type { AppState } from './index';
 import type {
     AgentMessage, AgentStep, Artifact, AttachedContext, AgentTask, TaskArtifact, SemanticSlot,
 } from './types';
+import type { AgentToolBlock } from '../domain/agent/agentToolBlocks';
+import { createToolBlock, enrichEditBlockFromResult, toolsMatchForFinish } from '../domain/agent/agentToolBlocks';
 
 /** A user-defined agent mode (Kilo-style): name + persona prompt + optional model. */
 export interface CustomMode {
@@ -55,8 +57,19 @@ function parseThought(thought: any): { logic: string; action: string; confidence
     return null;
 }
 
+/** Normalize Tauri `get_agent_messages` / `load_chat_session` payloads. */
+function normalizeBackendMessages(raw: unknown): any[] {
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === 'object') {
+        const o = raw as Record<string, unknown>;
+        if (Array.isArray(o.messages)) return o.messages;
+        if (Array.isArray(o.data)) return o.data;
+    }
+    return [];
+}
+
 /** Normalize Rust ChatMessage JSON into UI AgentMessage rows. */
-function mapBackendChatMessages(raw: any[]): AgentMessage[] {
+export function mapBackendChatMessages(raw: unknown): AgentMessage[] {
     const extract = (c: any): string => {
         if (c == null) return '';
         if (typeof c === 'string') return c;
@@ -66,19 +79,25 @@ function mapBackendChatMessages(raw: any[]): AgentMessage[] {
             if (typeof c.Text === 'string') return c.Text;
             if (typeof c.content === 'string') return c.content;
             if (Array.isArray(c.parts)) return extract(c.parts);
+            // serde untagged enum sometimes round-trips as {"Text":"..."}
+            const keys = Object.keys(c);
+            if (keys.length === 1 && typeof (c as any)[keys[0]] === 'string') {
+                return String((c as any)[keys[0]]);
+            }
         }
         return String(c);
     };
-    return (raw || [])
+    return normalizeBackendMessages(raw)
         .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant'))
         .map((m: any, i: number) => ({
-            id: m.id || `restored-${i}`,
+            id: m.id || `restored-${i}-${m.role}`,
             role: m.role as 'user' | 'assistant',
             content: extract(m.content),
             timestamp: m.timestamp
                 ?? m.metadata?.timestamp
                 ?? (typeof m.metadata === 'object' ? m.metadata?.['timestamp'] : undefined)
-                ?? Date.now(),
+                ?? Date.now() + i,
+            steps: [],
         }))
         .filter((m) => m.content.trim().length > 0);
 }
@@ -110,6 +129,8 @@ export interface AgentSlice {
         kind: 'tool_call' | 'tool_result' | 'content' | 'phase' | 'error';
         tool?: string; title: string; detail?: string; success?: boolean; turn?: number;
     }[];
+    /** Live Cursor-style tool cards for the current agent turn (terminal stream, reads, edits). */
+    agentToolBlocks: AgentToolBlock[];
     isTrajectoryOpen: boolean;
     currentTurnId: number;
     backgroundAgents: { id: string; prompt: string; status: 'pending' | 'running' | 'done' | 'error'; result: string; startedAt: number; finishedAt?: number }[];
@@ -201,6 +222,12 @@ export interface AgentSlice {
     truncateAgentMessages: (index: number) => void;
     pushTrajectoryEvent: (evt: { kind: 'tool_call' | 'tool_result' | 'content' | 'phase' | 'error'; tool?: string; title: string; detail?: string; success?: boolean }) => void;
     clearTrajectory: () => void;
+    clearAgentToolBlocks: () => void;
+    registerAgentToolCall: (tool: string, args: unknown, callId?: string) => void;
+    appendAgentToolOutput: (streamId: string, line: string, stream?: string) => void;
+    bindAgentToolStream: (streamId: string, command: string) => void;
+    finishAgentToolCall: (tool: string, success: boolean, result?: string, streamId?: string, callId?: string) => void;
+    finalizeAgentToolBlocks: () => void;
     openTrajectory: () => void;
     closeTrajectory: () => void;
     beginNewTurn: () => void;
@@ -295,6 +322,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     agentRootAccess: true,
     agentCurrentAction: null,
     agentTrajectory: [],
+    agentToolBlocks: [],
     isTrajectoryOpen: false,
     currentTurnId: 0,
     backgroundAgents: [],
@@ -398,9 +426,25 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         const isSubAgent = typeof contextOrSubAgent === 'boolean' ? contextOrSubAgent : false;
         const context = Array.isArray(contextOrSubAgent) ? contextOrSubAgent : [];
         const timestamp = Date.now();
+
+        let agentMessages = state.agentMessages;
+        let agentToolBlocks = state.agentToolBlocks;
+        if (role === 'user' && state.agentToolBlocks.length > 0) {
+            const msgs = [...state.agentMessages];
+            const last = msgs[msgs.length - 1];
+            if (last?.role === 'assistant') {
+                msgs[msgs.length - 1] = {
+                    ...last,
+                    toolBlocks: [...(last.toolBlocks || []), ...state.agentToolBlocks],
+                };
+            }
+            agentMessages = msgs;
+            agentToolBlocks = [];
+        }
+
         const newMessage: any = { role, content, context, timestamp, isSubAgentResponse: isSubAgent, steps: role === 'assistant' ? [] : undefined };
         invoke('store_message', { role, content: typeof content === 'string' ? content : JSON.stringify(content), timestamp }).catch(console.error);
-        let newMessages = [...state.agentMessages, newMessage];
+        let newMessages = [...agentMessages, newMessage];
         const cap = MAX_AGENT_MESSAGES_IN_UI;
         if (newMessages.length > cap) {
             newMessages = newMessages.slice(newMessages.length - cap).map((m, i, arr) => {
@@ -423,7 +467,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
             ...agentThreads,
             [threadId]: { ...agentThreads[threadId], messages: newMessages },
         };
-        return { agentMessages: newMessages, activeAgentThreadId: threadId, agentThreads };
+        return { agentMessages: newMessages, activeAgentThreadId: threadId, agentThreads, agentToolBlocks };
     }),
 
     updateLastAgentMessage: (content) => set((state) => {
@@ -442,7 +486,17 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                 newThoughts = rawContent.replace('<think>', '').trim();
                 newContent = '';
             }
-            messages[lastIndex] = { ...last, content: newContent, thoughts: newThoughts };
+            const thoughtStartedAt = last.thoughtStartedAt ?? (newThoughts ? Date.now() : undefined);
+            const thoughtDurationMs = newThoughts && newContent && thoughtStartedAt
+                ? Date.now() - thoughtStartedAt
+                : last.thoughtDurationMs;
+            messages[lastIndex] = {
+                ...last,
+                content: newContent,
+                thoughts: newThoughts || last.thoughts,
+                thoughtStartedAt,
+                thoughtDurationMs,
+            };
         }
         const threadId = state.activeAgentThreadId;
         const agentThreads = threadId && state.agentThreads[threadId]
@@ -482,7 +536,12 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                     newContent += delta;
                 }
             }
-            messages[lastIndex] = { ...last, content: newContent, thoughts: newThoughts, raw_buffer: fullRaw };
+            messages[lastIndex] = { ...last, content: newContent, thoughts: newThoughts, raw_buffer: fullRaw,
+                thoughtStartedAt: last.thoughtStartedAt ?? (newThoughts ? Date.now() : undefined),
+                thoughtDurationMs: newThoughts && newContent && last.thoughtStartedAt
+                    ? Date.now() - last.thoughtStartedAt
+                    : last.thoughtDurationMs,
+            };
             const threadId = state.activeAgentThreadId;
             const agentThreads = threadId && state.agentThreads[threadId]
                 ? { ...state.agentThreads, [threadId]: { ...state.agentThreads[threadId], messages } }
@@ -492,7 +551,18 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         return state;
     }),
 
-    updateLastAgentThought: (thought) => { set({ currentThought: parseThought(thought) }); },
+    updateLastAgentThought: (thought) => set((state) => {
+        const messages = [...state.agentMessages];
+        const last = messages[messages.length - 1];
+        if (last?.role === 'assistant') {
+            messages[messages.length - 1] = {
+                ...last,
+                thoughts: thought,
+                thoughtStartedAt: last.thoughtStartedAt ?? Date.now(),
+            };
+        }
+        return { agentMessages: messages, currentThought: parseThought(thought) };
+    }),
 
     addAgentStep: (name, type, args, callId) => set((state) => {
         const messages = [...state.agentMessages];
@@ -582,6 +652,102 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         }
     },
     clearTrajectory: () => set({ agentTrajectory: [] }),
+    clearAgentToolBlocks: () => set({ agentToolBlocks: [] }),
+
+    registerAgentToolCall: (tool, args, callId) => set((state) => {
+        if (callId && state.agentToolBlocks.some((b) => b.id === callId)) return state;
+        const block = createToolBlock(tool, args, callId);
+        // Skip duplicate recon cards within 1.5s (glob/list spam)
+        if (block.kind === 'search' || block.kind === 'read') {
+            const dup = [...state.agentToolBlocks].reverse().find((b) =>
+                b.title === block.title && b.tool === block.tool && Date.now() - b.ts < 1500,
+            );
+            if (dup) return state;
+        }
+        return { agentToolBlocks: [...state.agentToolBlocks.slice(-24), block] };
+    }),
+
+    appendAgentToolOutput: (streamId, line, stream) => set((state) => ({
+        agentToolBlocks: state.agentToolBlocks.map((b) => {
+            if (b.streamId !== streamId) return b;
+            const prefix = stream === 'stderr' ? '[stderr] ' : '';
+            return { ...b, outputLines: [...b.outputLines, prefix + line].slice(-40) };
+        }),
+    })),
+
+    bindAgentToolStream: (streamId, command) => set((state) => {
+        let matched = false;
+        const blocks = state.agentToolBlocks.map((b) => {
+            if (matched || b.kind !== 'terminal' || b.status !== 'running') return b;
+            if (b.streamId && b.streamId !== streamId) return b;
+            matched = true;
+            return {
+                ...b,
+                streamId,
+                command: command || b.command,
+                title: command ? (command.length > 72 ? command.slice(0, 72) + '…' : command) : b.title,
+            };
+        });
+        if (!matched) {
+            blocks.push({
+                id: `tb-stream-${streamId}`,
+                kind: 'terminal',
+                tool: 'run_command',
+                title: command.length > 72 ? command.slice(0, 72) + '…' : command,
+                status: 'running',
+                ts: Date.now(),
+                streamId,
+                command,
+                outputLines: [],
+            });
+        }
+        return { agentToolBlocks: blocks.slice(-24) };
+    }),
+
+    finishAgentToolCall: (tool, success, result, streamId, callId) => set((state) => {
+        const blocks = state.agentToolBlocks.map((b) => {
+            const match = streamId
+                ? b.streamId === streamId
+                : callId
+                    ? b.id === callId
+                    : toolsMatchForFinish(b.tool, tool) && b.status === 'running';
+            if (!match) return b;
+            let next = { ...b, status: success ? 'done' as const : 'error' as const };
+            if (result && b.kind === 'edit') {
+                const enriched = enrichEditBlockFromResult(next, result);
+                next = {
+                    ...enriched,
+                    status: success ? 'done' as const : 'error' as const,
+                    preview: enriched.preview || (result.length < 500 ? result.slice(0, 400) : enriched.preview),
+                };
+            }
+            return next;
+        });
+        return { agentToolBlocks: blocks };
+    }),
+
+    finalizeAgentToolBlocks: () => set((state) => {
+        if (!state.agentToolBlocks.length) return state;
+        const msgs = [...state.agentMessages];
+        const lastIdx = msgs.length - 1;
+        const last = msgs[lastIdx];
+        if (last?.role === 'assistant') {
+            msgs[lastIdx] = {
+                ...last,
+                toolBlocks: [...(last.toolBlocks || []), ...state.agentToolBlocks],
+            };
+            const threadId = state.activeAgentThreadId;
+            const agentThreads = threadId && state.agentThreads[threadId]
+                ? {
+                    ...state.agentThreads,
+                    [threadId]: { ...state.agentThreads[threadId], messages: msgs },
+                }
+                : state.agentThreads;
+            return { agentMessages: msgs, agentThreads, agentToolBlocks: [] };
+        }
+        return { agentToolBlocks: [] };
+    }),
+
     openTrajectory: () => set({ isTrajectoryOpen: true }),
     closeTrajectory: () => set({ isTrajectoryOpen: false }),
     beginNewTurn: () => set((s) => ({ currentTurnId: s.currentTurnId + 1 })),
@@ -917,13 +1083,13 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                 (t: any) => t.chatSessionPath === path,
             )?.id;
 
-            const isCurrent = state.chatSessions.find((s: any) => s.path === path)?.is_current;
-            if (!isCurrent) {
-                await invoke('load_chat_session', { path });
+            // Always reload from disk → live memory.aim (fixes empty UI + missing AI context).
+            const raw = await invoke<unknown>('load_chat_session', { path });
+            let messages = mapBackendChatMessages(raw);
+            if (messages.length === 0) {
+                const fallback = await invoke<unknown>('get_agent_messages');
+                messages = mapBackendChatMessages(fallback);
             }
-
-            const raw = await invoke<any[]>('get_agent_messages');
-            const messages = mapBackendChatMessages(raw);
 
             if (messages.length === 0) {
                 console.warn('[loadChatSession] no messages for', path);
@@ -931,6 +1097,9 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                     isAgentThinking: false,
                     isAgentPaused: false,
                     agentCurrentAction: null,
+                    agentTrajectory: [],
+                    agentSteps: [],
+                    agentToolBlocks: [],
                     chatRestoreToken: Date.now(),
                 });
                 return;
@@ -939,13 +1108,20 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
             const firstUser = messages.find((m) => m.role === 'user');
             const title = firstUser?.content?.slice(0, 48)?.trim() || 'Restored chat';
 
+            const restoredState = {
+                isAgentThinking: false,
+                isAgentPaused: false,
+                agentCurrentAction: null,
+                agentTrajectory: [],
+                agentSteps: [],
+                agentToolBlocks: [],
+                chatRestoreToken: Date.now(),
+                agentMessages: messages,
+            };
+
             if (existingId) {
                 set((s: any) => ({
-                    isAgentThinking: false,
-                    isAgentPaused: false,
-                    agentCurrentAction: null,
-                    chatRestoreToken: Date.now(),
-                    agentMessages: messages,
+                    ...restoredState,
                     activeAgentThreadId: existingId,
                     agentThreads: {
                         ...s.agentThreads,
@@ -961,11 +1137,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
             } else {
                 const threadId = `restored-${Date.now()}`;
                 set((s: any) => ({
-                    isAgentThinking: false,
-                    isAgentPaused: false,
-                    agentCurrentAction: null,
-                    chatRestoreToken: Date.now(),
-                    agentMessages: messages,
+                    ...restoredState,
                     activeAgentThreadId: threadId,
                     agentThreads: {
                         ...s.agentThreads,
@@ -982,6 +1154,8 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                 }));
             }
 
+            const { syncAgentMessagesToBackend } = await import('../application/agent/syncAgentMessages');
+            await syncAgentMessagesToBackend().catch(() => {});
             get().refreshChatSessions();
         } catch (e) { console.error('[loadChatSession] failed:', e); }
     },
