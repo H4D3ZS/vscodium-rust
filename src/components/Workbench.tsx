@@ -341,13 +341,15 @@ const Workbench: React.FC = () => {
 
             <Suspense fallback={<PanelFallback />}><DocumentOutline /></Suspense>
             {localStorage.getItem('airi.companion') === '1' && (
-                <Suspense fallback={<PanelFallback />}><AiriOverlay /></Suspense>
+                <>
+                    <Suspense fallback={<PanelFallback />}><AiriOverlay /></Suspense>
+                    <Suspense fallback={<PanelFallback />}><ThoughtProcess /></Suspense>
+                </>
             )}
             <Suspense fallback={<PanelFallback />}><SpecsToCodeWizard /></Suspense>
             {useStore(state => state.pendingChanges).length > 0 && (
                 <Suspense fallback={<PanelFallback />}><DiffViewer /></Suspense>
             )}
-            <Suspense fallback={<PanelFallback />}><ThoughtProcess /></Suspense>
             {useStore(state => {
                 const s = state.taskPlannerState?.state;
                 return s === 'Planning' || s === 'Running' || s === 'Reviewing';
