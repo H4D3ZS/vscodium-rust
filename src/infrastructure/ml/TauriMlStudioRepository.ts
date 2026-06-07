@@ -1,6 +1,7 @@
 import { invoke } from '../../tauri_bridge';
 import type {
     IMlStudioRepository,
+    MlCompareRunSeries,
     MlDatasetEntry,
     MlRunMetrics,
     MlRunSummary,
@@ -25,8 +26,14 @@ export class TauriMlStudioRepository implements IMlStudioRepository {
             root, csvName, targetColumn, valRatio,
         });
     }
-    train(root: string) {
-        return invoke<{ ok: boolean; job_id?: string; run_id?: string }>('ml_studio_train', { root });
+    train(root: string, resumeRunId?: string) {
+        return invoke<{ ok: boolean; job_id?: string; run_id?: string; resumed?: boolean }>('ml_studio_train', {
+            root,
+            resumeRunId: resumeRunId ?? null,
+        });
+    }
+    cancelTrain(root: string, runId: string) {
+        return invoke<{ ok: boolean; cancelled?: boolean }>('ml_studio_cancel_train', { root, runId });
     }
     listRuns(root: string) {
         return invoke<MlRunSummary[]>('ml_studio_list_runs', { root });
@@ -49,11 +56,17 @@ export class TauriMlStudioRepository implements IMlStudioRepository {
     modelSummary(root: string, runId: string) {
         return invoke<Record<string, unknown>>('ml_studio_model_summary', { root, runId });
     }
+    modelGraph(root: string, runId: string) {
+        return invoke<{ svg: string; path?: string }>('ml_studio_model_graph', { root, runId });
+    }
     exportModel(root: string, runId: string, format: string) {
         return invoke<Record<string, unknown>>('ml_studio_export_model', { root, runId, format });
     }
     pretrainedGallery(root: string) {
         return invoke<Record<string, unknown>>('ml_studio_pretrained_gallery', { root });
+    }
+    loadPretrained(root: string, modelId: string, source: string) {
+        return invoke<Record<string, unknown>>('ml_studio_load_pretrained', { root, modelId, source });
     }
     hpo(root: string, mode: string, trials: number) {
         return invoke<Record<string, unknown>>('ml_studio_hpo', { root, mode, trials });
@@ -66,6 +79,12 @@ export class TauriMlStudioRepository implements IMlStudioRepository {
     }
     benchmark(root: string, runId: string, iterations: number) {
         return invoke<Record<string, unknown>>('ml_studio_benchmark', { root, runId, iterations });
+    }
+    augmentPreview(root: string, samples = 4) {
+        return invoke<Record<string, unknown>>('ml_studio_augment_preview', { root, samples });
+    }
+    compareRuns(root: string, runIds: string[]) {
+        return invoke<{ runs: MlCompareRunSeries[] }>('ml_studio_compare_runs', { root, runIds });
     }
     listExperiments(root: string) {
         return invoke<Record<string, unknown>[]>('ml_studio_list_experiments', { root });

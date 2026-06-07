@@ -1,16 +1,20 @@
 //! ML Studio — dataset prep, training jobs, inference for `.hades/ml/` projects.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use tauri::State;
 
 use crate::jobs::JobManager;
 use crate::process_ext::hidden_command;
 use crate::pytorch_commands;
+
+static ML_TRAIN_PIDS: LazyLock<Mutex<HashMap<String, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MlStudioConfig {
@@ -19,6 +23,22 @@ pub struct MlStudioConfig {
     pub hidden_size: u32,
     pub val_ratio: f64,
     pub embed_model: String,
+    #[serde(default = "default_early_stop")]
+    pub early_stop_patience: u32,
+    #[serde(default = "default_model_template")]
+    pub model_template: String,
+    #[serde(default = "default_model_source")]
+    pub model_source: String,
+}
+
+fn default_early_stop() -> u32 {
+    3
+}
+fn default_model_template() -> String {
+    "tabular_mlp".to_string()
+}
+fn default_model_source() -> String {
+    "builtin".to_string()
 }
 
 impl Default for MlStudioConfig {
@@ -29,6 +49,9 @@ impl Default for MlStudioConfig {
             hidden_size: 64,
             val_ratio: 0.2,
             embed_model: "nomic-embed-text".to_string(),
+            early_stop_patience: 3,
+            model_template: "tabular_mlp".to_string(),
+            model_source: "builtin".to_string(),
         }
     }
 }
@@ -63,9 +86,17 @@ pub struct MlEpochMetric {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MlConfusionMatrix {
+    pub labels: Vec<String>,
+    pub matrix: Vec<Vec<i64>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MlRunMetrics {
     pub status: String,
+    #[serde(default)]
     pub run_id: String,
+    #[serde(default)]
     pub total_epochs: u32,
     pub current_epoch: Option<u32>,
     pub lr: Option<f64>,
@@ -76,6 +107,15 @@ pub struct MlRunMetrics {
     pub stale_epochs: Option<u32>,
     pub early_stop_patience: Option<u32>,
     pub early_stop: Option<bool>,
+    #[serde(default)]
+    pub early_stopped: Option<bool>,
+    #[serde(default)]
+    pub val_acc: Option<f64>,
+    #[serde(default)]
+    pub val_loss: Option<f64>,
+    #[serde(default)]
+    pub confusion_matrix: Option<MlConfusionMatrix>,
+    #[serde(default)]
     pub history: Vec<MlEpochMetric>,
 }
 
@@ -110,7 +150,7 @@ fn write_config(path: &Path, cfg: &MlStudioConfig) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-fn     copy_scripts_to(ml: &Path) -> Result<(), String> {
+fn copy_scripts_to(ml: &Path) -> Result<(), String> {
     let dst = ml.join("scripts");
     std::fs::create_dir_all(&dst).map_err(|e| e.to_string())?;
     for name in [
@@ -296,6 +336,7 @@ print(json.dumps({{"ok": True, **manifest}}))
 #[tauri::command]
 pub async fn ml_studio_train(
     root: String,
+    resume_run_id: Option<String>,
     job_manager: State<'_, Arc<JobManager>>,
 ) -> Result<serde_json::Value, String> {
     let ml = ml_root(&root);
@@ -304,7 +345,15 @@ pub async fn ml_studio_train(
         return Err("No prepared dataset — run Prepare Data first".to_string());
     }
     let cfg = read_config(&ml.join("config.json"));
-    let run_id = format!("run-{}", chrono::Utc::now().timestamp());
+    let run_id = if let Some(ref rid) = resume_run_id {
+        let ckpt = ml.join("runs").join(rid).join("checkpoint.pt");
+        if !ckpt.exists() {
+            return Err(format!("No checkpoint.pt for run {rid} — train from scratch instead"));
+        }
+        rid.clone()
+    } else {
+        format!("run-{}", chrono::Utc::now().timestamp())
+    };
     let run_dir = ml.join("runs").join(&run_id);
     std::fs::create_dir_all(&run_dir).map_err(|e| e.to_string())?;
 
@@ -313,6 +362,14 @@ pub async fn ml_studio_train(
             .map_err(|e| e.to_string())?;
     if let Some(obj) = manifest.as_object_mut() {
         obj.insert("run_id".to_string(), serde_json::Value::String(run_id.clone()));
+        if resume_run_id.is_some() {
+            obj.insert(
+                "resume_from".to_string(),
+                serde_json::Value::String(run_id.clone()),
+            );
+        } else {
+            obj.remove("resume_from");
+        }
     }
     std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap())
         .map_err(|e| e.to_string())?;
@@ -334,6 +391,7 @@ pub async fn ml_studio_train(
     let root_clone = root.clone();
     let jobs = job_manager.inner().clone();
     let job_id_spawn = job_id.clone();
+    let run_id_spawn = run_id.clone();
     let epochs = cfg.epochs.max(1);
 
     tokio::task::spawn_blocking(move || {
@@ -344,6 +402,11 @@ pub async fn ml_studio_train(
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| e.to_string())?;
+
+        let pid = child.id();
+        if let Ok(mut pids) = ML_TRAIN_PIDS.lock() {
+            pids.insert(run_id_spawn.clone(), pid);
+        }
 
         let stdout = child.stdout.take();
         let rt = tokio::runtime::Handle::current();
@@ -377,6 +440,9 @@ pub async fn ml_studio_train(
             }
         }
         let status = child.wait().map_err(|e| e.to_string())?;
+        if let Ok(mut pids) = ML_TRAIN_PIDS.lock() {
+            pids.remove(&run_id_spawn);
+        }
         rt.block_on(jobs.complete(
             &job_id_spawn,
             status.success(),
@@ -385,7 +451,52 @@ pub async fn ml_studio_train(
         Ok::<(), String>(())
     });
 
-    Ok(serde_json::json!({ "ok": true, "job_id": job_id, "run_id": run_id }))
+    Ok(serde_json::json!({
+        "ok": true,
+        "job_id": job_id,
+        "run_id": run_id,
+        "resumed": resume_run_id.is_some(),
+    }))
+}
+
+#[tauri::command]
+pub async fn ml_studio_cancel_train(root: String, run_id: String) -> Result<serde_json::Value, String> {
+    let pid = ML_TRAIN_PIDS
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&run_id)
+        .copied();
+    if let Some(pid) = pid {
+        #[cfg(windows)]
+        {
+            let _ = hidden_command("taskkill")
+                .args(["/PID", &pid.to_string(), "/F"])
+                .output();
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = hidden_command("kill")
+                .args(["-9", &pid.to_string()])
+                .output();
+        }
+        if let Ok(mut pids) = ML_TRAIN_PIDS.lock() {
+            pids.remove(&run_id);
+        }
+        let live_path = ml_root(&root).join("runs").join(&run_id).join("live_metrics.json");
+        if live_path.exists() {
+            if let Ok(text) = std::fs::read_to_string(&live_path) {
+                if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert("status".to_string(), serde_json::json!("cancelled"));
+                    }
+                    let _ = std::fs::write(&live_path, serde_json::to_string_pretty(&v).unwrap_or_default());
+                }
+            }
+        }
+        Ok(serde_json::json!({ "ok": true, "cancelled": true }))
+    } else {
+        Err(format!("No active training process for run {run_id}"))
+    }
 }
 
 #[tauri::command]
@@ -502,6 +613,11 @@ pub async fn ml_studio_install_deps() -> Result<serde_json::Value, String> {
             "scikit-learn",
             "onnx",
             "onnxscript",
+            "optuna",
+            "pillow",
+            "timm",
+            "transformers",
+            "torchvision",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -715,4 +831,57 @@ pub async fn ml_studio_export_report(root: String, run_id: String) -> Result<Str
     let report_path = run_dir.join("report.md");
     std::fs::write(&report_path, &md).map_err(|e| e.to_string())?;
     Ok(md)
+}
+
+#[tauri::command]
+pub async fn ml_studio_model_graph(root: String, run_id: String) -> Result<serde_json::Value, String> {
+    let model = ml_root(&root).join("runs").join(&run_id).join("model.pt");
+    if !model.exists() {
+        return Err(format!("No model for run {run_id}"));
+    }
+    let model_str = model.to_string_lossy().into_owned();
+    toolkit(&root, &["model_graph", "--model", &model_str])
+}
+
+#[tauri::command]
+pub async fn ml_studio_augment_preview(root: String, samples: u32) -> Result<serde_json::Value, String> {
+    toolkit(
+        &root,
+        &[
+            "augment_preview",
+            "--root",
+            &root,
+            "--samples",
+            &samples.to_string(),
+        ],
+    )
+}
+
+#[tauri::command]
+pub async fn ml_studio_load_pretrained(
+    root: String,
+    model_id: String,
+    source: String,
+) -> Result<serde_json::Value, String> {
+    toolkit(
+        &root,
+        &[
+            "load_pretrained",
+            "--root",
+            &root,
+            "--model-id",
+            &model_id,
+            "--source",
+            &source,
+        ],
+    )
+}
+
+#[tauri::command]
+pub async fn ml_studio_compare_runs(
+    root: String,
+    run_ids: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    let runs = run_ids.join(",");
+    toolkit(&root, &["compare_runs", "--root", &root, "--runs", &runs])
 }

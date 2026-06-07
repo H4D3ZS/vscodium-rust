@@ -53,6 +53,22 @@ def write_live(run_dir: Path, payload: dict) -> None:
     )
 
 
+def save_checkpoint(run_dir: Path, model, opt, epoch, history, best_val_loss, best_val_acc, best_epoch, stale_epochs):
+    torch.save(
+        {
+            "epoch": epoch,
+            "model": model.state_dict(),
+            "optimizer": opt.state_dict(),
+            "history": history,
+            "best_val_loss": best_val_loss,
+            "best_val_acc": best_val_acc,
+            "best_epoch": best_epoch,
+            "stale_epochs": stale_epochs,
+        },
+        run_dir / "checkpoint.pt",
+    )
+
+
 def main():
     root = Path(sys.argv[1])
     ml = root / ".hades" / "ml"
@@ -68,7 +84,8 @@ def main():
     lr = float(cfg.get("learning_rate", 0.001))
     hidden = int(cfg.get("hidden_size", 64))
     patience = int(cfg.get("early_stop_patience", 3))
-    run_id = manifest.get("run_id", "latest")
+    resume_from = manifest.get("resume_from") or cfg.get("resume_from")
+    run_id = manifest.get("run_id") or resume_from or "latest"
     run_dir = ml / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -107,7 +124,24 @@ def main():
     best_epoch = 0
     stale_epochs = 0
     early_stopped = False
+    start_epoch = 0
     n_train = len(loader.dataset)
+
+    ckpt_path = run_dir / "checkpoint.pt"
+    if resume_from and ckpt_path.exists():
+        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+        model.load_state_dict(ckpt["model"])
+        opt.load_state_dict(ckpt["optimizer"])
+        history = ckpt.get("history", [])
+        best_val_loss = float(ckpt.get("best_val_loss", best_val_loss))
+        best_val_acc = float(ckpt.get("best_val_acc", best_val_acc))
+        best_epoch = int(ckpt.get("best_epoch", 0))
+        stale_epochs = int(ckpt.get("stale_epochs", 0))
+        start_epoch = int(ckpt.get("epoch", 0))
+        if (run_dir / "model.pt").exists():
+            prev = torch.load(run_dir / "model.pt", map_location=device, weights_only=False)
+            model.load_state_dict(prev["state_dict"])
+        print(f"Resuming from epoch {start_epoch} (run {run_id})", flush=True)
 
     live = {
         "status": "training",
@@ -123,7 +157,7 @@ def main():
     }
     write_live(run_dir, live)
 
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
 
@@ -175,6 +209,10 @@ def main():
                     "hidden_size": hidden,
                 },
                 run_dir / "model.pt",
+            )
+            save_checkpoint(
+                run_dir, model, opt, epoch + 1, history,
+                best_val_loss, best_val_acc, best_epoch, stale_epochs,
             )
         else:
             stale_epochs += 1
@@ -236,6 +274,7 @@ def main():
     final = {
         "status": "done",
         "run_id": run_id,
+        "total_epochs": epochs,
         "epochs_requested": epochs,
         "epochs_run": len(history),
         "early_stopped": early_stopped,

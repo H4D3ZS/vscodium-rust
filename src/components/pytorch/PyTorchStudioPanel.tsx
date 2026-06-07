@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { detectPyTorch, installPyTorch, verifyPyTorch } from '../../application/pytorch/pytorchSetup';
 import {
+    cancelMlTrain,
     getMlConfig,
     getMlActiveRun,
     initMlStudio,
@@ -38,6 +39,9 @@ const DEFAULT_CONFIG: MlStudioConfig = {
     hidden_size: 64,
     val_ratio: 0.2,
     embed_model: 'nomic-embed-text',
+    early_stop_patience: 3,
+    model_template: 'tabular_mlp',
+    model_source: 'builtin',
 };
 
 const gpuLabel = (d: PyTorchDetectResult | null) => {
@@ -66,6 +70,7 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
     const [error, setError] = useState<string | null>(null);
     const [log, setLog] = useState<string>('');
     const [activeRunId, setActiveRunId] = useState<string | null>(null);
+    const [resumeRunId, setResumeRunId] = useState('');
 
     const columns = useMemo(() => {
         const d = datasets.find((x) => x.name === selectedCsv);
@@ -124,16 +129,31 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
         }
     };
 
-    const onTrain = async () => {
+    const onTrain = async (resume?: string) => {
         setBusy('train');
         setError(null);
         try {
             await saveMlConfig(root, config);
-            const res = await trainMlModel(root);
+            const res = await trainMlModel(root, resume || undefined);
             setActiveRunId(res.run_id ?? null);
-            setLog(`Training started: job ${res.job_id}, run ${res.run_id}\nOpen Dashboard tab for live charts.`);
+            const action = res.resumed ? 'Resumed' : 'Started';
+            setLog(`${action} training: job ${res.job_id}, run ${res.run_id}\nOpen Dashboard tab for live charts.`);
             setTab('dashboard');
             setTimeout(() => void refreshAll(), 3000);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const onCancelTrain = async () => {
+        if (!activeRunId) return;
+        setBusy('cancel');
+        try {
+            await cancelMlTrain(root, activeRunId);
+            setLog(`Cancelled training for ${activeRunId}`);
+            await refreshAll();
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
         } finally {
@@ -321,10 +341,37 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
                             onChange={(e) => setConfig({ ...config, learning_rate: parseFloat(e.target.value) || 0.001 })} /></label>
                         <label className="afi-muted">Hidden size<input type="number" className="settings-input" value={config.hidden_size} min={8} max={512}
                             onChange={(e) => setConfig({ ...config, hidden_size: parseInt(e.target.value, 10) || 64 })} /></label>
+                        <label className="afi-muted">Early-stop patience<input type="number" className="settings-input" value={config.early_stop_patience} min={1} max={20}
+                            onChange={(e) => setConfig({ ...config, early_stop_patience: parseInt(e.target.value, 10) || 3 })} /></label>
                     </div>
-                    <button type="button" className="settings-button success" disabled={!!busy} onClick={() => void onTrain()}>
-                        {busy === 'train' ? 'Starting…' : 'Start training job'}
-                    </button>
+                    {config.model_template !== 'tabular_mlp' && (
+                        <p className="afi-subtle" style={{ fontSize: 11, marginBottom: 8 }}>
+                            Pretrained template: <code>{config.model_source}/{config.model_template}</code> (tabular CSV still uses MLP; vision models apply when image data is prepared)
+                        </p>
+                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                        <button type="button" className="settings-button success" disabled={!!busy} onClick={() => void onTrain()}>
+                            {busy === 'train' ? 'Starting…' : 'Start new training'}
+                        </button>
+                        {activeRunId && (
+                            <button type="button" className="settings-button" disabled={!!busy} onClick={() => void onCancelTrain()}>
+                                {busy === 'cancel' ? 'Cancelling…' : 'Cancel active run'}
+                            </button>
+                        )}
+                    </div>
+                    {runs.length > 0 && (
+                        <div style={{ marginBottom: 12 }}>
+                            <label className="afi-muted" style={{ display: 'block', marginBottom: 4 }}>Resume from checkpoint</label>
+                            <select className="settings-select" value={resumeRunId} onChange={(e) => setResumeRunId(e.target.value)} style={{ width: '100%', marginBottom: 6 }}>
+                                <option value="">Select run with checkpoint.pt…</option>
+                                {runs.map((r) => <option key={r.id} value={r.id}>{r.id} (acc {r.val_acc?.toFixed(3) ?? '?'})</option>)}
+                            </select>
+                            <button type="button" className="settings-button" disabled={!!busy || !resumeRunId}
+                                onClick={() => void onTrain(resumeRunId)}>
+                                Resume training
+                            </button>
+                        </div>
+                    )}
                     <p className="afi-subtle" style={{ marginTop: 8 }}>Runs under .hades/ml/runs/ — live charts on Dashboard tab.</p>
                     {runs.length > 0 && (
                         <ul className="afi-muted" style={{ marginTop: 10 }}>
@@ -361,7 +408,7 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
 
             {tab === 'experiments' && (
                 <div className="settings-card">
-                    <ExperimentsPanel root={root} />
+                    <ExperimentsPanel root={root} runs={runs} />
                 </div>
             )}
 
