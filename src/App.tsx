@@ -86,7 +86,10 @@ const App: React.FC = () => {
         else document.body.classList.add('is-web');
         // ----------------------------------------
 
-        const { refreshAvailableModels, setActiveRoot, activeRoot, refreshFileTree, syncOllamaEndpoint } = useStore.getState();
+        const { refreshAvailableModels, setActiveRoot, activeRoot, refreshFileTree, syncOllamaEndpoint, agentMode } = useStore.getState();
+        import('./lib/agentAutonomy').then(({ ensureAgenticAutonomy }) => {
+            void ensureAgenticAutonomy(agentMode);
+        });
         // Push resolved Ollama URL into Rust (cloud/local/self-hosted) before model refresh.
         void syncOllamaEndpoint?.().then(() => refreshAvailableModels()).catch(() => refreshAvailableModels());
 

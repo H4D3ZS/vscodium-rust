@@ -234,38 +234,106 @@ pub fn format_grep_results(hits: &[SearchResult]) -> String {
         .join("\n")
 }
 
-/// Parse `grep -E?o?i? ... PATTERN FILE` or `rg ... PATTERN FILE` into tool args.
-/// Only intercepts when grep/rg is the sole command (no curl/python pipelines).
-pub fn try_parse_shell_grep(cmd: &str) -> Option<serde_json::Value> {
-    let substantive: Vec<&str> = cmd
+/// When a shell command is `curl … && rg …`, run the prefix in shell first, then ripgrep.
+pub struct ShellGrepIntercept {
+    pub prefix: Option<String>,
+    pub args: serde_json::Value,
+}
+
+/// Parse `grep`/`rg` in a bash command into `grep` tool args.
+/// Handles `curl > f && rg PATTERN f`, multi-line scripts (last grep line), and combined flags.
+pub fn try_intercept_shell_grep(cmd: &str) -> Option<ShellGrepIntercept> {
+    let normalized = normalize_shell_command(cmd);
+    if normalized.is_empty() {
+        return None;
+    }
+
+    for sep in ["&&", "||", ";"] {
+        if let Some(idx) = normalized.rfind(sep) {
+            let prefix = normalized[..idx].trim().trim_end_matches('\\').trim();
+            let tail = normalized[idx + sep.len()..].trim();
+            if !prefix.is_empty() {
+                if let Some(args) = try_parse_grep_segment(tail) {
+                    return Some(ShellGrepIntercept {
+                        prefix: Some(prefix.to_string()),
+                        args,
+                    });
+                }
+            }
+        }
+    }
+
+    let lines: Vec<&str> = cmd
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect();
+    if lines.len() > 1 {
+        if let Some(args) = try_parse_grep_segment(lines.last()?) {
+            let prefix = lines[..lines.len() - 1].join("\n");
+            return Some(ShellGrepIntercept {
+                prefix: Some(prefix),
+                args,
+            });
+        }
+    }
 
-    if substantive.len() != 1 {
+    try_parse_grep_segment(&normalized).map(|args| ShellGrepIntercept {
+        prefix: None,
+        args,
+    })
+}
+
+/// Back-compat: simple grep-only commands (no compound prefix).
+pub fn try_parse_shell_grep(cmd: &str) -> Option<serde_json::Value> {
+    try_intercept_shell_grep(cmd)
+        .filter(|i| i.prefix.is_none())
+        .map(|i| i.args)
+}
+
+/// True when the command invokes shell grep/rg but we cannot safely intercept it.
+pub fn command_uses_shell_grep(cmd: &str) -> bool {
+    let n = normalize_shell_command(cmd).to_lowercase();
+    if n.is_empty() {
+        return false;
+    }
+    n.starts_with("grep ")
+        || n.starts_with("egrep ")
+        || n.starts_with("fgrep ")
+        || n.starts_with("rg ")
+        || n.contains(" grep ")
+        || n.contains(" egrep ")
+        || n.contains(" fgrep ")
+        || n.contains(" rg ")
+}
+
+fn normalize_shell_command(cmd: &str) -> String {
+    cmd.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| l.trim_end_matches('\\').trim())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn try_parse_grep_segment(segment: &str) -> Option<serde_json::Value> {
+    let grep_stage = segment.split('|').next()?.trim();
+    if grep_stage.contains("<<") {
         return None;
     }
 
-    let line = substantive[0];
-
-    let lower = line.to_lowercase();
+    let lower = grep_stage.to_lowercase();
     let (rest, is_rg) = if lower.starts_with("rg ") {
-        (&line[3..], true)
+        (&grep_stage[3..], true)
     } else if lower.starts_with("grep ") {
-        (&line[5..], false)
+        (&grep_stage[5..], false)
     } else if lower.starts_with("egrep ") {
-        (&line[6..], false)
+        (&grep_stage[6..], false)
     } else if lower.starts_with("fgrep ") {
-        (&line[6..], false)
+        (&grep_stage[6..], false)
     } else {
         return None;
     };
-
-    // Skip pipes — only intercept simple single-command searches
-    if rest.contains('|') || rest.contains("<<") {
-        return None;
-    }
 
     let parts = shell_split(rest);
     if parts.is_empty() {
@@ -275,6 +343,9 @@ pub fn try_parse_shell_grep(cmd: &str) -> Option<serde_json::Value> {
     let mut pattern: Option<String> = None;
     let mut path: Option<String> = None;
     let mut include: Option<String> = None;
+    let mut case_insensitive = false;
+    let mut fixed_string = false;
+
     let mut i = 0;
     while i < parts.len() {
         let p = &parts[i];
@@ -287,6 +358,19 @@ pub fn try_parse_shell_grep(cmd: &str) -> Option<serde_json::Value> {
             } else if p == "-g" || p == "--glob" {
                 i += 1;
                 include = parts.get(i).cloned();
+            } else if p == "-A" || p == "-B" || p == "-C" || p == "--context" {
+                i += 2;
+                continue;
+            } else if p.starts_with("--context=") {
+                i += 1;
+                continue;
+            } else {
+                if p.contains('i') {
+                    case_insensitive = true;
+                }
+                if p.contains('F') || p == "--fixed-strings" {
+                    fixed_string = true;
+                }
             }
             i += 1;
             continue;
@@ -303,6 +387,8 @@ pub fn try_parse_shell_grep(cmd: &str) -> Option<serde_json::Value> {
     let mut args = serde_json::json!({
         "query": pattern,
         "pattern": pattern,
+        "case_insensitive": case_insensitive,
+        "fixed_string": fixed_string,
     });
     if let Some(p) = path {
         args["path"] = serde_json::json!(p);
@@ -310,11 +396,7 @@ pub fn try_parse_shell_grep(cmd: &str) -> Option<serde_json::Value> {
     if let Some(g) = include {
         args["include"] = serde_json::json!(g);
     }
-    if is_rg {
-        args["_intercepted_from"] = serde_json::json!("rg");
-    } else {
-        args["_intercepted_from"] = serde_json::json!("grep");
-    }
+    args["_intercepted_from"] = serde_json::json!(if is_rg { "rg" } else { "grep" });
     Some(args)
 }
 
@@ -372,6 +454,23 @@ mod tests {
         let v = try_parse_shell_grep("rg -n \"TODO\" src/").unwrap();
         assert_eq!(v["query"], "TODO");
         assert_eq!(v["path"], "src/");
+    }
+
+    #[test]
+    fn parse_grep_with_context_flag() {
+        let v = try_parse_shell_grep("grep -A 20 \"url\" bundle.js").unwrap();
+        assert_eq!(v["query"], "url");
+        assert_eq!(v["path"], "bundle.js");
+    }
+
+    #[test]
+    fn parse_compound_curl_and_rg() {
+        let v = try_intercept_shell_grep(
+            "curl -s https://example.com/a.js > index_bundle.js && rg -o '\"https://[^\"]+\"' index_bundle.js",
+        )
+        .unwrap();
+        assert!(v.prefix.as_ref().unwrap().contains("curl"));
+        assert_eq!(v.args["path"], "index_bundle.js");
     }
 
     #[test]

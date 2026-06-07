@@ -5,6 +5,7 @@ import ComposerThinkingBlock from './ComposerThinkingBlock';
 import type { AgentMessage } from '../../store';
 import { useStore } from '../../store';
 import { cleanAgentContent, getToolLabel, formatCursorActivityLine } from '../../domain/agent/cleanAgentContent';
+import { shouldAutoAcceptEverything } from '../../lib/agentAutonomy';
 
 interface ChatMessageProps {
     msg: AgentMessage;
@@ -75,6 +76,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     onEditChange, onEditSave, onEditCancel,
 }) => {
     const agentCleanUi = useStore((s) => s.agentCleanUi);
+    const agentMode = useStore((s) => s.agentMode);
     const cleaned = cleanAgentContent(msg.content || '');
     const hasContent = !!cleaned;
     const hasThoughts = !!msg.thoughts;
@@ -152,7 +154,10 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                             />
                         )}
                         {hasContent && (
-                            <MessageBody content={cleaned} allowApply={msg.role === 'assistant' && !isAgentThinking} />
+                            <MessageBody
+                                content={cleaned}
+                                allowApply={msg.role === 'assistant' && !isAgentThinking && !shouldAutoAcceptEverything(agentMode)}
+                            />
                         )}
                         {hasToolBlocks && (
                             <AgentToolBlocks blocks={msg.toolBlocks!} compact />

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { marked } from 'marked';
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
+import { isToolCallJson, isToolResultJson } from '../../domain/agent/cleanAgentContent';
 
 // ── Custom Interactive Blocks ────────────────────────────────────────────────
 const ClarifyingQuestionBlock: React.FC<{ data: any }> = ({ data }) => {
@@ -193,6 +194,11 @@ const CodeBlock: React.FC<{
     const [copied, setCopied] = useState(false);
     const [applied, setApplied] = useState<'ok' | 'err' | null>(null);
     const [busy, setBusy] = useState(false);
+    const isToolPayload = useMemo(
+        () => isToolCallJson(body.trim()) || isToolResultJson(body.trim()),
+        [body],
+    );
+    const showApply = allowApply && !isToolPayload;
 
     const onCopy = useCallback(() => {
         navigator.clipboard.writeText(body).then(() => {
@@ -283,7 +289,7 @@ const CodeBlock: React.FC<{
                         <i className={`codicon codicon-${copied ? 'check' : 'copy'}`} style={iconStyle} />
                         {copied ? 'Copied' : 'Copy'}
                     </button>
-                    {allowApply && (
+                    {showApply && (
                         <>
                             <button
                                 onClick={onInsert}
