@@ -57,14 +57,23 @@ impl ActivationManager {
     }
 
     fn matches_activation_event(&self, pattern: &str, event: &str) -> bool {
-         if pattern == "*" {
-             return true;
-         }
-         // Simple exact match or prefix match (e.g. onLanguage:rust)
-         if pattern == event {
-             return true;
-         }
-         // TODO: Implement more complex glob matching
-         false
+        if pattern == "*" {
+            return true;
+        }
+        if pattern == event {
+            return true;
+        }
+        if pattern.starts_with("onCommand:") {
+            let cmd = &pattern["onCommand:".len()..];
+            return event == pattern || event == cmd || event == &format!("onCommand:{cmd}");
+        }
+        if pattern.starts_with("onLanguage:")
+            || pattern.starts_with("onView:")
+            || pattern.starts_with("onStartupFinished")
+            || pattern.starts_with("workspaceContains:")
+        {
+            return pattern == event;
+        }
+        false
     }
 }

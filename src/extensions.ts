@@ -1,5 +1,6 @@
 import { invoke } from './tauri_bridge.ts';
 import { useStore } from './store.ts';
+import { wireExtHostBridge } from './application/extensions/ExtHostBridge';
 
 export async function initExtensions() {
     console.log("DEBUG: initExtensions called");
@@ -18,6 +19,7 @@ export async function initExtensions() {
                 })),
             }).catch(() => {});
         }
+        await wireExtHostBridge();
         console.log("Extension host initialized");
     } catch (err) {
         console.error("Failed to initialize extension host:", err);

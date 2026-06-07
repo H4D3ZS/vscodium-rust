@@ -169,10 +169,44 @@ pub async fn get_installed_extensions(
 }
 
 #[tauri::command]
-pub fn install_vsix(_state: State<'_, EditorState>, path: String) -> Result<(), String> {
-    // Basic stub for manual VSIX installation
-    println!("Installing VSIX from {}", path);
-    Ok(())
+pub async fn install_vsix(
+    state: State<'_, EditorState>,
+    path: String,
+) -> Result<extension_host::ExtensionMetadata, String> {
+    let vsix_path = std::path::PathBuf::from(&path);
+    if !vsix_path.is_file() {
+        return Err(format!("VSIX not found: {}", vsix_path.display()));
+    }
+
+    let extensions_dir = {
+        let eh = state.ext_host.lock().await;
+        eh.primary_extensions_dir()
+    };
+
+    let (_id, target_dir) =
+        marketplace::install_vsix_from_path(&vsix_path, &extensions_dir).map_err(|e| e.to_string())?;
+
+    let mut package_json_path = target_dir.join("package.json");
+    if !package_json_path.exists() {
+        package_json_path = target_dir.join("extension").join("package.json");
+    }
+
+    if package_json_path.exists() {
+        let content = fs::read_to_string(&package_json_path).map_err(|e| e.to_string())?;
+        if let Ok(mut meta) = serde_json::from_str::<extension_host::ExtensionMetadata>(&content) {
+            meta.extension_path = package_json_path.parent().unwrap().to_path_buf();
+            if meta.id.is_empty() {
+                let publisher = meta.publisher.clone().unwrap_or_else(|| "undefined".to_string());
+                meta.id = format!("{}.{}", publisher, meta.name);
+            }
+            let mut eh = state.ext_host.lock().await;
+            eh.scan_extensions().map_err(|e| e.to_string())?;
+            let _ = eh.add_extension(meta.clone());
+            return Ok(meta);
+        }
+    }
+
+    Err("Failed to load VSIX extension metadata".to_string())
 }
 
 #[tauri::command]
