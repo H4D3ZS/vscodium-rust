@@ -1,3 +1,26 @@
+export interface MlStudioConfig {
+    epochs: number;
+    learning_rate: number;
+    hidden_size: number;
+    val_ratio: number;
+    embed_model: string;
+}
+
+export interface MlDatasetEntry {
+    name: string;
+    path: string;
+    size_bytes: number;
+    columns: string[];
+}
+
+export interface MlRunSummary {
+    id: string;
+    model_path?: string | null;
+    metrics_path?: string | null;
+    val_acc?: number | null;
+    created_at: number;
+}
+
 export interface MlEpochMetric {
     epoch: number;
     train_loss: number;
@@ -23,29 +46,7 @@ export interface MlRunMetrics {
     early_stop_patience?: number | null;
     early_stop?: boolean | null;
     history: MlEpochMetric[];
-}
-
-export interface MlStudioConfig {
-    epochs: number;
-    learning_rate: number;
-    hidden_size: number;
-    val_ratio: number;
-    embed_model: string;
-}
-
-export interface MlDatasetEntry {
-    name: string;
-    path: string;
-    size_bytes: number;
-    columns: string[];
-}
-
-export interface MlRunSummary {
-    id: string;
-    model_path?: string | null;
-    metrics_path?: string | null;
-    val_acc?: number | null;
-    created_at: number;
+    confusion_matrix?: { labels: string[]; matrix: number[][] };
 }
 
 export interface IMlStudioRepository {
@@ -60,4 +61,14 @@ export interface IMlStudioRepository {
     installDeps(): Promise<{ ok: boolean; stdout?: string; stderr?: string }>;
     getRunMetrics(root: string, runId: string): Promise<MlRunMetrics>;
     getActiveRun(root: string): Promise<string | null>;
+    datasetStats(root: string, csvName: string, targetColumn?: string): Promise<Record<string, unknown>>;
+    modelSummary(root: string, runId: string): Promise<Record<string, unknown>>;
+    exportModel(root: string, runId: string, format: string): Promise<Record<string, unknown>>;
+    pretrainedGallery(root: string): Promise<Record<string, unknown>>;
+    hpo(root: string, mode: string, trials: number): Promise<Record<string, unknown>>;
+    lrFinder(root: string, steps: number): Promise<Record<string, unknown>>;
+    gradCheck(root: string, runId: string): Promise<Record<string, unknown>>;
+    benchmark(root: string, runId: string, iterations: number): Promise<Record<string, unknown>>;
+    listExperiments(root: string): Promise<Record<string, unknown>[]>;
+    exportReport(root: string, runId: string): Promise<string>;
 }
