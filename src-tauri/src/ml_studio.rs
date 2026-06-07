@@ -50,6 +50,35 @@ pub struct MlRunSummary {
     pub created_at: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MlEpochMetric {
+    pub epoch: u32,
+    pub train_loss: f64,
+    pub val_loss: f64,
+    pub val_acc: f64,
+    pub lr: f64,
+    pub samples_per_sec: f64,
+    pub gpu_mem_mb: Option<f64>,
+    pub epoch_secs: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MlRunMetrics {
+    pub status: String,
+    pub run_id: String,
+    pub total_epochs: u32,
+    pub current_epoch: Option<u32>,
+    pub lr: Option<f64>,
+    pub device: Option<String>,
+    pub best_val_acc: Option<f64>,
+    pub best_val_loss: Option<f64>,
+    pub best_epoch: Option<u32>,
+    pub stale_epochs: Option<u32>,
+    pub early_stop_patience: Option<u32>,
+    pub early_stop: Option<bool>,
+    pub history: Vec<MlEpochMetric>,
+}
+
 fn ml_root(root: &str) -> PathBuf {
     PathBuf::from(root).join(".hades").join("ml")
 }
@@ -283,7 +312,21 @@ pub async fn ml_studio_train(
         if let Some(out) = stdout {
             let reader = BufReader::new(out);
             for line in reader.lines().filter_map(|l| l.ok()) {
-                if line.contains("epoch=") {
+                if let Some(json) = line.strip_prefix("ML_METRIC:") {
+                    if let Ok(row) = serde_json::from_str::<MlEpochMetric>(json) {
+                        let pct = ((row.epoch as f32 / epochs as f32) * 100.0) as u8;
+                        rt.block_on(jobs.update(
+                            &job_id_spawn,
+                            pct.min(99),
+                            &format!(
+                                "epoch {} loss {:.3} acc {:.1}%",
+                                row.epoch,
+                                row.val_loss,
+                                row.val_acc * 100.0
+                            ),
+                        ));
+                    }
+                } else if line.contains("epoch=") {
                     if let Some(part) = line.split('/').nth(1) {
                         if let Some(ep) = part.split_whitespace().next() {
                             if let Ok(cur) = ep.parse::<u32>() {
@@ -348,6 +391,34 @@ pub async fn ml_studio_list_runs(root: String) -> Result<Vec<MlRunSummary>, Stri
     }
     runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     Ok(runs)
+}
+
+#[tauri::command]
+pub async fn ml_studio_get_run_metrics(root: String, run_id: String) -> Result<MlRunMetrics, String> {
+    let run_dir = ml_root(&root).join("runs").join(&run_id);
+    let live = run_dir.join("live_metrics.json");
+    let final_m = run_dir.join("metrics.json");
+    let path = if live.exists() { live } else { final_m };
+    if !path.exists() {
+        return Err(format!("No metrics yet for run {run_id}"));
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| format!("parse metrics: {e}"))
+}
+
+#[tauri::command]
+pub async fn ml_studio_get_active_run(root: String) -> Result<Option<String>, String> {
+    let manifest_path = ml_root(&root).join("manifest.json");
+    if !manifest_path.exists() {
+        return Ok(None);
+    }
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    Ok(manifest
+        .get("run_id")
+        .and_then(|v| v.as_str())
+        .map(String::from))
 }
 
 #[tauri::command]
