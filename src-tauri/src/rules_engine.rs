@@ -61,6 +61,7 @@ impl RulesEngine {
         for (name, fname) in [
             ("agents",      "AGENTS.md"),
             ("claude",      "CLAUDE.md"),
+            ("soul",        "SOUL.md"),
         ] {
             let p = root.join(fname);
             if p.is_file() {
@@ -74,6 +75,19 @@ impl RulesEngine {
                         always_apply: Some(true),
                     });
                 }
+            }
+        }
+        let soul_hades = root.join(".hades").join("SOUL.md");
+        if soul_hades.is_file() {
+            if let Ok(content) = fs::read_to_string(&soul_hades) {
+                rules.push(AgentRule {
+                    name: "soul-hades".to_string(),
+                    content,
+                    file_path: soul_hades,
+                    description: Some("Hermes-style stable persona".to_string()),
+                    globs: None,
+                    always_apply: Some(true),
+                });
             }
         }
 

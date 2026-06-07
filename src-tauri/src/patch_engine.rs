@@ -46,7 +46,10 @@ impl PatchEngine {
 
         while let Some(line) = lines.next() {
             let trimmed = line.trim();
-            if trimmed == "<<<<<<< SEARCH" || trimmed == "<<<< SEARCH" {
+            if trimmed == "<<<<<<< ORIGINAL"
+                || trimmed == "<<<<<<< SEARCH"
+                || trimmed == "<<<< SEARCH"
+            {
                 let mut search_lines = Vec::new();
                 let mut replace_lines = Vec::new();
                 let mut in_replace = false;
@@ -57,7 +60,10 @@ impl PatchEngine {
                         in_replace = true;
                         continue;
                     }
-                    if inner_trimmed == ">>>>>>> REPLACE" || inner_trimmed == ">>>>" {
+                    if inner_trimmed == ">>>>>>> REPLACE"
+                        || inner_trimmed == ">>>>>>> UPDATED"
+                        || inner_trimmed == ">>>>"
+                    {
                         break;
                     }
 

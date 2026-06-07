@@ -88,7 +88,7 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         import('../../application/agent/syncAgentMessages').then(m => m.scheduleChatHistorySync()).catch(() => {});
 
         const stFa = useStore.getState() as any;
-        if (stFa.betaFastApply !== false && content.includes('<<<<<<< ORIGINAL')) {
+        if (stFa.betaFastApply !== false && (content.includes('<<<<<<< ORIGINAL') || content.includes('<<<< SEARCH') || content.includes('<<<<<<< SEARCH'))) {
             const blocks = extractSearchReplaceBlocks(content);
             const activeFile = stFa.activeEditorPath || stFa.tabs?.find((t: any) => t.id === stFa.activeTabId)?.path;
             if (blocks.length > 0 && activeFile) {

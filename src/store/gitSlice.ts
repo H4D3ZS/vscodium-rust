@@ -21,15 +21,20 @@ export const createGitSlice: StateCreator<AppState, [], [], GitSlice> = (set, ge
     generateAiCommitMessage: async () => {
         set({ isGeneratingCommitMessage: true });
         try {
-            const diff = await invoke<string>('get_git_diff', { staged: true }).catch(() => '');
-            if (!diff.trim()) { set({ isGeneratingCommitMessage: false }); return ''; }
             const state = get();
-            const model = state.agentModel || '';
-            const provider = model.includes('|') ? model.split('|')[0].toLowerCase() : (state.inferenceBackend === 'ollama' ? 'ollama' : 'openai');
+            const root = state.activeRoot || '.';
+            const diff = await invoke<string>('get_git_diff', { path: root, staged: true }).catch(() => '');
+            if (!diff.trim()) { set({ isGeneratingCommitMessage: false }); return ''; }
+            const scmSel = state.modelSelectionOfFeature?.['SCM'];
+            const rawModel = scmSel?.modelName || state.agentModel || '';
+            const provider = scmSel?.providerName
+                || (rawModel.includes('|') ? rawModel.split('|')[0].toLowerCase() : (state.inferenceBackend === 'ollama' ? 'ollama' : 'openai'));
+            const model = scmSel?.modelName
+                || (rawModel.includes('|') ? rawModel.split('|').slice(1).join('|') : rawModel);
             const result = await invoke<{ content: string }>('ai_chat_fast', {
                 request: {
                     messages: [{ role: 'user', content: `Write a concise git commit message for this diff. Format: <type>(<scope>): <description>\\n\\n<body if needed>\\n\\nTypes: feat|fix|refactor|docs|test|chore\\n\\nDiff:\\n${diff.slice(0, 4000)}` }],
-                    model: model.includes('|') ? model.split('|').slice(1).join('|') : model,
+                    model,
                     provider,
                     temperature: 0.3,
                     ollama_url: state.ollamaUrl,

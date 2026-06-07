@@ -155,6 +155,7 @@ fn copy_scripts_to(ml: &Path) -> Result<(), String> {
     std::fs::create_dir_all(&dst).map_err(|e| e.to_string())?;
     for name in [
         "train_classifier.py",
+        "train_vision.py",
         "inference.py",
         "ml_toolkit.py",
     ] {
@@ -288,6 +289,7 @@ pub async fn ml_studio_prepare_dataset(
     }
 
     let ratio = val_ratio.unwrap_or(0.2).clamp(0.05, 0.5);
+    let cfg = read_config(&ml.join("config.json"));
     let py = resolve_python()?;
     let script = format!(
         r#"
@@ -309,6 +311,7 @@ manifest = {{
     "train_csv": ".hades/ml/data/train.csv",
     "val_csv": ".hades/ml/data/val.csv",
     "target_column": "{target}",
+    "embed_model": "{embed_model}",
     "rows_train": len(train),
     "rows_val": len(val),
 }}
@@ -320,6 +323,7 @@ print(json.dumps({{"ok": True, **manifest}}))
         manifest = ml.join("manifest.json").display(),
         ratio = ratio,
         target = target_column.replace('"', ""),
+        embed_model = cfg.embed_model.replace('"', ""),
     );
     let out = hidden_command(&py)
         .args(["-c", &script])
@@ -375,11 +379,17 @@ pub async fn ml_studio_train(
         .map_err(|e| e.to_string())?;
 
     let py = resolve_python()?;
-    let train_script = ml.join("scripts").join("train_classifier.py");
+    let image_dir = ml.join("data").join("images");
+    let use_vision = image_dir.is_dir()
+        && std::fs::read_dir(&image_dir)
+            .map(|mut d| d.filter_map(|e| e.ok()).any(|e| e.path().is_dir()))
+            .unwrap_or(false);
+    let script_name = if use_vision { "train_vision.py" } else { "train_classifier.py" };
+    let train_script = ml.join("scripts").join(script_name);
     let script = if train_script.exists() {
         train_script
     } else {
-        scripts_dir().join("train_classifier.py")
+        scripts_dir().join(script_name)
     };
     if !script.exists() {
         return Err("train_classifier.py missing".to_string());

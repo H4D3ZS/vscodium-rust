@@ -81,8 +81,8 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'claurst-backend',
         name: 'Claurst external backend',
-        description: 'GPL subprocess agent — full Rust query loop at arm\'s length',
-        tier: 'partial',
+        description: 'GPL subprocess agent — session-id streaming via claurst-stream events',
+        tier: 'wired',
         sources: ['claurst'],
         hadesPath: 'claurst_bridge.rs, claurst/bridge.ts',
     },
@@ -154,18 +154,18 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'hermes-voice',
         name: 'Hermes voice mode',
-        description: 'Local STT + multi-backend TTS — complement AIRI/ElevenLabs',
-        tier: 'integrate-next',
+        description: 'Browser SpeechRecognition STT in chat + ElevenLabs/Qwen TTS',
+        tier: 'wired',
         sources: ['tools/voice_mode.py'],
-        hadesPath: 'voice.ts bridge',
+        hadesPath: 'RightSidebar.tsx, voice.ts, AIRI',
     },
     {
         id: 'hermes-soul',
         name: 'SOUL.md personality tier',
-        description: 'Stable persona file — map to HADES AGENTS.md + .aim profile',
-        tier: 'integrate-next',
+        description: 'Stable persona file — SOUL.md + .hades/SOUL.md merged into rules',
+        tier: 'wired',
         sources: ['agent/system_prompt.py'],
-        hadesPath: 'ai_prompts.rs, RulesManager',
+        hadesPath: 'rules_engine.rs, RulesManager',
     },
     {
         id: 'stop-hooks',
@@ -186,10 +186,10 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'trajectory-train',
         name: 'Trajectory export for fine-tune',
-        description: 'Log agent runs → SFT/DPO on your stack',
-        tier: 'integrate-next',
+        description: 'Export agent trajectories as JSONL for SFT/DPO pipelines',
+        tier: 'wired',
         sources: ['hermes batch_runner', 'hades_harness rewards'],
-        hadesPath: 'future trajectory_store.rs',
+        hadesPath: 'ag_export_trajectory_jsonl, TrajectoryPanel.tsx',
     },
     // ── Missing (Cursor cloud class) ──
     {
@@ -211,9 +211,10 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'remote-ssh',
         name: 'Remote SSH / dev containers',
-        description: 'Remote workspace development',
-        tier: 'missing',
+        description: 'SSH probe + remote directory listing (full workspace mount planned)',
+        tier: 'partial',
         sources: ['anysphere.remote-*'],
+        hadesPath: 'remote_commands.rs, RemoteSshPanel.tsx',
     },
 ];
 

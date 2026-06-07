@@ -583,6 +583,17 @@ pub async fn browser_get_content_summary(state: tauri::State<'_, std::sync::Arc<
 }
 
 #[tauri::command]
+pub async fn browser_status(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<Value, String> {
+    let running = state.proc.lock().await.is_some();
+    let headless = *state.headless.lock().await;
+    Ok(json!({
+        "running": running,
+        "headless": headless,
+        "sidecar": "invisible_playwright",
+    }))
+}
+
+#[tauri::command]
 #[allow(dead_code)]
 pub async fn browser_close(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<String, String> {
     state.stop_sidecar().await;
