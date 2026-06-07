@@ -197,8 +197,14 @@ impl EditorState {
     }
 
     pub fn new(app: &tauri::AppHandle) -> Self {
-        // DIAGNOSTIC: Capture panics to a log file before process exits
-        std::panic::set_hook(Box::new(|info| {
+        // DIAGNOSTIC: Capture panics before `panic = "abort"` kills the process.
+        let crash_log_dir = app
+            .path()
+            .app_log_dir()
+            .or_else(|_| app.path().app_data_dir())
+            .unwrap_or_else(|_| PathBuf::from(".config"));
+        let _ = fs::create_dir_all(&crash_log_dir);
+        std::panic::set_hook(Box::new(move |info| {
             let msg = format!(
                 "[CRASH] PANIC: {}\nLocation: {:?}\nTime: {:?}\n",
                 info,
@@ -206,13 +212,30 @@ impl EditorState {
                 std::time::SystemTime::now()
             );
             eprintln!("{}", msg);
-            let _ = std::fs::write("crash.log", &msg);
-            // Also try to append to a persistent log
-            let _ = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("vscodium_crash.log")
-                .and_then(|mut f| { use std::io::Write; writeln!(f, "{}", msg) });
+            let mut targets: Vec<PathBuf> = vec![
+                PathBuf::from("crash.log"),
+                PathBuf::from("vscodium_crash.log"),
+                crash_log_dir.join("crash.log"),
+                crash_log_dir.join("vscodium_crash.log"),
+            ];
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    targets.push(dir.join("crash.log"));
+                    targets.push(dir.join("vscodium_crash.log"));
+                }
+            }
+            targets.dedup();
+            for p in targets {
+                let _ = std::fs::write(&p, &msg);
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&p)
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        writeln!(f, "{}", msg)
+                    });
+            }
         }));
         println!("[DEBUG] Panic hook installed. Initializing EditorState...");
         let config_dir = app

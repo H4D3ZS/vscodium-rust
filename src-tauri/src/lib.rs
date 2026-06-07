@@ -4,6 +4,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 pub mod aim_store;
 pub mod account;
+pub mod enterprise_audit;
 pub mod auth;
 mod ai_auth;
 mod ai_commands;
@@ -313,6 +314,12 @@ pub fn run() {
             account::account_add_tokens,
             account::account_start_trial,
             account::account_open_billing,
+            // ═══ Enterprise (audit + org policy) ═══
+            enterprise_audit::enterprise_get_policy,
+            enterprise_audit::enterprise_set_policy,
+            enterprise_audit::enterprise_audit_list,
+            enterprise_audit::enterprise_audit_export,
+            enterprise_audit::enterprise_audit_log,
             // ═══ Security Arsenal (Obsidian-style generators) ═══
             security_generator_commands::security_reverse_shell,
             security_generator_commands::security_listener,

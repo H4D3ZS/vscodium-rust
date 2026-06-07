@@ -16,6 +16,13 @@ export const OLLAMA_RAM_TIERS = [
 
 export const OLLAMA_PRESETS: OllamaPreset[] = [
   {
+    name: 'gemma4:12b',
+    ramGb: 16,
+    tags: ['agent', 'coding', 'reasoning', 'multimodal', 'local', 'gemma4'],
+    desc: 'Gemma 4 12B — frontier local SWE agent on 16 GB laptops (Apache 2.0, native tools).',
+    recommended: true,
+  },
+  {
     name: 'qwen2.5-coder:7b',
     ramGb: 8,
     tags: ['coding', 'agent', 'popular', 'local'],

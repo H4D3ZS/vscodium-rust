@@ -2,9 +2,22 @@
 
 Legend: ✅ have · 🟡 partial · ⬜ missing
 
-Last verified: product-grade pass (chat tabs, history restore, release pipeline, Manus/invisible_playwright).
+Last verified: enterprise pass (agent onboarding, audit log, billing auto-sync).
 
 ---
+
+## Enterprise & billing
+
+| Feature | Status | Where |
+|---|---|---|
+| Agent setup onboarding (mode vs model) | ✅ | `AgentSetupWizard.tsx` |
+| Billing auto-sync on focus / post-checkout | ✅ | `billingSync.ts`, `AccountSettingsPanel` |
+| Usage meters (tokens + requests) | ✅ | `AccountSettingsPanel`, `account_usage` |
+| Enterprise org policy | ✅ | `enterprise_audit.rs`, `EnterprisePanel` |
+| Compliance audit trail (JSONL) | ✅ | `audit.jsonl`, export command |
+| Enterprise secure defaults | ✅ | `applyEnterprisePolicy.ts` |
+| SSO / team admin portal | ⬜ | website + backend (not IDE-local) |
+| Signed auto-updater | ⬜ | disabled until signing keys configured |
 
 ## Core AI coding (Cursor / Void / Kilo)
 
@@ -70,6 +83,7 @@ Last verified: product-grade pass (chat tabs, history restore, release pipeline,
 | iPhone / Android emulator | ✅ | `iphone_emulator.rs` (user-provided firmware) |
 | AIRI avatar / voice | ✅ | `AiriPanel`, `voice.ts` |
 | Local-first Ollama | ✅ | provider manager |
+| Gemma 4 12B local SWE agent | ✅ | `ai_engine.rs` (sampling, ctx, tools, thinking) |
 
 ## Release / ship
 

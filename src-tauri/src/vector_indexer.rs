@@ -372,7 +372,7 @@ impl VectorIndexer {
             let conn_lock = conn.lock().await;
             for mut chunk in chunks {
                 let embed_text: String = chunk.content.chars().take(1500).collect();
-                if let Ok(emb) = crate::embeddings::embed_text_blocking(&embed_text, None) {
+                if let Ok(emb) = crate::embeddings::embed_text_async(&embed_text, None).await {
                     chunk.embedding = Some(emb);
                 }
                 Self::store_chunk(&conn_lock, &chunk)?;

@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import AgentSettingsView, { type AgentSettingsCategory } from './AgentSettingsView';
 import AgentPermissionsPanel from './AgentPermissionsPanel';
 import AccountSettingsPanel from './AccountSettingsPanel';
+import EnterprisePanel from './EnterprisePanel';
 import KeybindingsPanel from './KeybindingsPanel';
 import SteeringPanel from './SteeringPanel';
 import HooksPanel from './HooksPanel';
@@ -963,6 +964,7 @@ const SettingsPage: React.FC = () => {
 
     const agentCategories: CategoryDef[] = [
         { id: 'account', label: 'Account', icon: 'account', customRender: () => <AccountSettingsPanel />, groupStart: 'General' },
+        { id: 'enterprise', label: 'Enterprise', icon: 'organization', customRender: () => <EnterprisePanel /> },
         { id: 'chat', label: 'Chat & Agent', icon: 'comment-discussion', customRender: () => <ChatPanel />, groupStart: 'Agent' },
         { id: 'permissions', label: 'Permissions', icon: 'shield', customRender: () => <AgentPermissionsPanel /> },
         { id: 'models', label: 'Models & API Keys', icon: 'circuit-board', customRender: () => (

@@ -1,0 +1,10 @@
+{
+  "epochs": 20,
+  "learning_rate": 0.001,
+  "hidden_size": 64,
+  "val_ratio": 0.2,
+  "embed_model": "nomic-embed-text",
+  "early_stop_patience": 3,
+  "model_template": "tabular_mlp",
+  "model_source": "builtin"
+}
