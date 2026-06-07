@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Train a small tabular classifier from .hades/ml/manifest.json (PyTorch)."""
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -31,6 +32,19 @@ def gpu_mem_mb() -> float | None:
     if not torch.cuda.is_available():
         return None
     return round(torch.cuda.max_memory_allocated() / (1024 * 1024), 1)
+
+
+def git_hash(root: Path) -> str | None:
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(root),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return out.strip() or None
+    except Exception:
+        return None
 
 
 def write_live(run_dir: Path, payload: dict) -> None:
@@ -190,6 +204,35 @@ def main():
             print(f"Early stopping at epoch {epoch+1} (no val_loss improvement for {patience} epochs)", flush=True)
             break
 
+    model.eval()
+    confusion = {}
+    with torch.no_grad():
+        preds = model(x_val).argmax(dim=1).cpu().numpy()
+        y_true = y_val.cpu().numpy()
+    try:
+        from sklearn.metrics import confusion_matrix
+
+        cm = confusion_matrix(y_true, preds, labels=list(range(len(classes))))
+        confusion = {
+            "labels": classes,
+            "matrix": cm.tolist(),
+        }
+    except ImportError:
+        confusion = {"labels": classes, "matrix": []}
+
+    gh = git_hash(root)
+    experiment = {
+        "run_id": run_id,
+        "created_at": int(time.time()),
+        "git_hash": gh,
+        "config": cfg,
+        "target_column": target,
+        "n_features": len(feature_cols),
+        "n_classes": len(classes),
+    }
+    (run_dir / "experiment.json").write_text(json.dumps(experiment, indent=2), encoding="utf-8")
+    (run_dir / "config_snapshot.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
     final = {
         "status": "done",
         "run_id": run_id,
@@ -202,6 +245,8 @@ def main():
         "device": device_name,
         "log": log_lines,
         "history": history,
+        "confusion_matrix": confusion,
+        "git_hash": gh,
     }
     (run_dir / "metrics.json").write_text(json.dumps(final, indent=2), encoding="utf-8")
     live.update({"status": "done", "early_stop": early_stopped, **{k: final[k] for k in ("val_acc", "val_loss", "early_stopped", "best_epoch")}})
