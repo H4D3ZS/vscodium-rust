@@ -983,14 +983,24 @@ function isConversationalFastPathEligible(
         || /^\s*\[INTENT\s*:/i.test(userPrompt)
         || !!inferSecurityIntent(userPrompt);
     const isQuestionOnly = /^(what|how|why|when|where|who|can you|could you|explain|tell me|describe|is there|are there)\b/i.test(userPrompt.trim());
+    const isIntroOrGreeting = /^(introduce yourself|who are you|what can you do|hello|hi|hey)\b/i.test(userPrompt.trim());
     const convoFastPath = !forceToolLoop
         && !looksLikeActionRequest(userPrompt)
         && !(context && context.length)
         && !(storeState.attachedFiles?.length)
         && !(storeState.attachedContext?.length)
-        && (isQuestionOnly || activeMode === 'Chat');
+        && (isQuestionOnly || activeMode === 'Chat' || isIntroOrGreeting);
+    // Harness / Agent: simple questions should not spin up the full tool loop.
+    const harnessSimpleChat =
+        (activeMode === 'Harness' || activeMode === 'Agent' || activeMode === 'Execution')
+        && !forceToolLoop
+        && !looksLikeActionRequest(userPrompt)
+        && userPrompt.trim().length < 400
+        && !(context && context.length)
+        && !(storeState.attachedFiles?.length)
+        && !(storeState.attachedContext?.length);
     const chatFastEligible = activeMode === 'Chat' && !forceToolLoop;
-    return chatFastEligible || resolveCustomReadOnly(storeState) || convoFastPath;
+    return chatFastEligible || resolveCustomReadOnly(storeState) || convoFastPath || harnessSimpleChat;
 }
 
 function shouldForceFullAgentLoop(userPrompt: string, storeState: any, modelTag: string): boolean {
@@ -2473,6 +2483,12 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
             model: routingModel,
             ollama_url: routingOllamaUrl
         });
+
+        if (routingProvider === 'ollama') {
+            store.getState().updateLastAgentMessage?.(
+                `⏳ *Loading **${routingModel}** on local Ollama — first reply can take 1–2 min while the model loads…*`,
+            );
+        }
 
         const { beginAgentRun, isAgentRunAborted, registerStreamPollTimer, clearStreamPollTimer, startAgentRunWatchdog, stopAgentRunWatchdog, bumpAgentRunActivity } =
             await import('./application/agent/agentRunSession');
