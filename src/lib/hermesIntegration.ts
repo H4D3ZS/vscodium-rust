@@ -63,8 +63,9 @@ export const HERMES_INTEGRATION: HermesIntegrationFeature[] = [
         id: 'gateway-cron',
         name: 'Gateway + cron scheduler',
         hermesPath: 'gateway/run.py, tools/cronjob_tools.py',
-        hadesPath: 'Background agents panel (planned)',
-        status: 'planned',
+        hadesPath: 'hermes_gateway.rs, HermesGatewayPanel.tsx',
+        status: 'partial',
+        note: 'OpenAI-compatible :8642 gateway wired; cron job stub accepts POST /v1/cron/jobs.',
     },
     {
         id: 'memory-plugins',

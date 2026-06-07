@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     compareMlRuns,
     exportMlModel,
+    exportMlOnnx,
     exportMlReport,
     getMlAugmentPreview,
     getMlDatasetStats,
@@ -179,6 +180,7 @@ export const ModelPanel: React.FC<{ root: string; runId: string | null; runs: { 
 }) => {
     const [summary, setSummary] = useState<Record<string, unknown> | null>(null);
     const [graphSvg, setGraphSvg] = useState<string | null>(null);
+    const [onnxPath, setOnnxPath] = useState<string | null>(null);
     const [gallery, setGallery] = useState<{ id: string; source: string; task: string; desc?: string }[]>([]);
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
@@ -222,8 +224,24 @@ export const ModelPanel: React.FC<{ root: string; runId: string | null; runs: { 
             </div>
             {graphSvg && (
                 <div style={{ ...card, overflow: 'auto' }}>
-                    <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8 }}>Architecture graph</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div style={{ fontWeight: 600, fontSize: 12 }}>Architecture graph</div>
+                        {runId && (
+                            <button type="button" className={btn} disabled={busy} onClick={() => void (async () => {
+                                setBusy(true);
+                                try {
+                                    const r = await exportMlOnnx(root, runId);
+                                    setOnnxPath(r.onnx_path ?? null);
+                                    if (r.onnx_path) window.open('https://netron.app/', '_blank');
+                                } catch (e) { setMsg(String(e)); }
+                                finally { setBusy(false); }
+                            })()}>
+                                Open in Netron (ONNX)
+                            </button>
+                        )}
+                    </div>
                     <div dangerouslySetInnerHTML={{ __html: graphSvg }} />
+                    {onnxPath && <p className="afi-subtle" style={{ fontSize: 10, marginTop: 6 }}>ONNX: {onnxPath}</p>}
                 </div>
             )}
             {summary && (

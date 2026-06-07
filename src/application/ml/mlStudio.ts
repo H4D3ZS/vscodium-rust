@@ -8,7 +8,8 @@ export const listMlData = (root: string) => mlStudioRepository.listData(root);
 export const prepareMlDataset = (
     root: string, csvName: string, targetColumn: string, valRatio?: number,
 ) => mlStudioRepository.prepareDataset(root, csvName, targetColumn, valRatio);
-export const trainMlModel = (root: string, resumeRunId?: string) => mlStudioRepository.train(root, resumeRunId);
+export const trainMlModel = (root: string, resumeRunId?: string, workerId?: string) =>
+    mlStudioRepository.train(root, resumeRunId, workerId);
 export const cancelMlTrain = (root: string, runId: string) => mlStudioRepository.cancelTrain(root, runId);
 export const listMlRuns = (root: string) => mlStudioRepository.listRuns(root);
 export const runMlInference = (root: string, runId: string, input: Record<string, number>) =>
@@ -35,3 +36,5 @@ export const getMlAugmentPreview = (root: string, samples?: number) =>
 export const compareMlRuns = (root: string, runIds: string[]) => mlStudioRepository.compareRuns(root, runIds);
 export const listMlExperiments = (root: string) => mlStudioRepository.listExperiments(root);
 export const exportMlReport = (root: string, runId: string) => mlStudioRepository.exportReport(root, runId);
+export const listMlWorkers = (root: string) => mlStudioRepository.listWorkers(root);
+export const exportMlOnnx = (root: string, runId: string) => mlStudioRepository.exportOnnx(root, runId);
