@@ -1,16 +1,11 @@
 use crate::EditorState;
 use crate::ai_engine::{AiRequest, ChatMessage, MessageContent, AiResponse, normalize_ollama_base_url};
+use crate::ripgrep_search::{self, RipgrepQuery};
+pub use crate::ripgrep_search::SearchResult;
 use tauri::{State, AppHandle, Emitter};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::fs;
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct SearchResult {
-    pub path: String,
-    pub line: usize,
-    pub content: String,
-}
 
 #[tauri::command]
 pub async fn grep_files(
@@ -22,72 +17,23 @@ pub async fn grep_files(
     let root = if let Some(p) = path {
         PathBuf::from(p)
     } else {
-        state.active_root.lock().await.clone().unwrap_or_else(|| PathBuf::from("."))
+        state
+            .active_root
+            .lock()
+            .await
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."))
     };
 
-    let mut results = Vec::new();
-
-    // 1. Try ripgrep (Optimized for speed)
-    let rg_result = std::process::Command::new("rg")
-        .args(&["-n", "--no-heading", "--max-count=100", "--color=never"])
-        .args(include.as_ref().map(|i| vec!["-g", i]).unwrap_or_default())
-        .arg(&pattern)
-        .current_dir(&root)
-        .output();
-
-    if let Ok(output) = rg_result {
-        if output.status.success() || !output.stdout.is_empty() {
-             let stdout = String::from_utf8_lossy(&output.stdout);
-             for line in stdout.lines().take(100) {
-                 let parts: Vec<&str> = line.splitn(3, ':').collect();
-                 if parts.len() == 3 {
-                     if let Ok(ln) = parts[1].parse::<usize>() {
-                         results.push(SearchResult {
-                             path: parts[0].to_string(),
-                             line: ln,
-                             content: parts[2].trim().to_string(),
-                         });
-                     }
-                 }
-             }
-             if !results.is_empty() { return Ok(results); }
-        }
-    }
-
-    // 2. Fallback: Pure-Rust Resident Search (WalkDir + Regex)
-    println!("[DEBUG] Ripgrep unavailable. Activating internal search engine for: {}", pattern);
-    let re = regex::RegexBuilder::new(&pattern)
-        .case_insensitive(true)
-        .build()
-        .map_err(|e| format!("Invalid regex pattern: {}", e))?;
-
-    let walker = ignore::WalkBuilder::new(&root)
-        .standard_filters(true)
-        .max_depth(Some(10))
-        .build();
-
-    for entry in walker.flatten() {
-        let is_file = entry.file_type().map(|t| t.is_file()).unwrap_or(false);
-        if is_file {
-            let path = entry.path();
-            if let Ok(content) = fs::read_to_string(path) {
-                if content.len() > 1_000_000 { continue; } // Skip huge binaries
-                for (i, line) in content.lines().enumerate() {
-                    if re.is_match(line) {
-                        results.push(SearchResult {
-                            path: path.to_string_lossy().to_string(),
-                            line: i + 1,
-                            content: line.trim().to_string(),
-                        });
-                        if results.len() >= 100 { break; }
-                    }
-                }
-            }
-        }
-        if results.len() >= 100 { break; }
-    }
-
-    Ok(results)
+    ripgrep_search::ripgrep_search(RipgrepQuery {
+        pattern: &pattern,
+        root: &root,
+        include: include.as_deref(),
+        max_results: 100,
+        case_insensitive: true,
+        fixed_string: false,
+        file: None,
+    })
 }
 
 #[tauri::command]

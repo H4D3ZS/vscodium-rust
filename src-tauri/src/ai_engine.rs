@@ -2349,6 +2349,7 @@ impl Sentient {
                 3. FULL AUTONOMY: Never ask permission to use tools. Never say 'I would' or 'I could'. Just DO it. \
                 4. ITERATIVE: If a build fails, READ the error, PATCH the file, verify again. Loop until green. \
                 5. TERMINAL: Use run_command for shell operations (install packages, run scripts, etc.). \
+                   For searching file contents use the `grep` tool (bundled ripgrep — ships with the IDE, no install). NEVER run shell `grep`, `egrep`, or `rg` in bash. \
                    On Windows with Git Bash: write multi-line Python/shell to a file with write_to_file, then run `python script.py` — NEVER use `python -c \"...\"` one-liners with nested quotes/regex (they break). For JS bundle analysis: write extract_endpoints.py, run it, read stdout. \
                 6. MEMORY: After completing a task, call save_knowledge_brief to record the solution. \
                 \n\nCRITICAL TOOL SEQUENCE FOR EDITING:\n\
@@ -3241,7 +3242,7 @@ impl Sentient {
                             You are a local coding agent. Be terse, concrete, tool-first. \
                             Do NOT explain or plan in prose — ACT immediately with tools.\n\
                             One tool call per JSON block. Wait for the result before next action.\n\
-                            Prefer minimal file edits. Verify with bash/grep after writes.\n\
+                            Prefer minimal file edits. Verify with the `grep` tool (ripgrep) after writes — never shell grep/rg.\n\
                             When the task is fully complete, output MISSION_ACCOMPLISHED on its own line.\n\n\
                             ### TOOL CALL FORMAT\n\
                             Output EXACTLY this JSON block (no extra text before/after):\n\
@@ -4295,6 +4296,15 @@ impl Sentient {
                                 println!("[Intercept] Routing run_command file-write to write_to_file: {}", cmd);
                                 tool_name = "write_to_file".to_string();
                                 tool_args_json = write_args;
+                            } else if let Some(grep_args) =
+                                crate::ripgrep_search::try_parse_shell_grep(cmd)
+                            {
+                                println!(
+                                    "[Intercept] Routing shell grep/rg → ripgrep grep tool: {}",
+                                    cmd.lines().last().unwrap_or(cmd)
+                                );
+                                tool_name = "grep".to_string();
+                                tool_args_json = grep_args;
                             }
                         }
                     }

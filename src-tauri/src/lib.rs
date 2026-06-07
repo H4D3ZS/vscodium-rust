@@ -29,6 +29,7 @@ mod ai_project_commands;
 mod airi_bridge;
 mod claurst_bridge;
 mod remote_commands;
+mod ripgrep_search;
 mod hermes_gateway;
 mod ann_index;
 mod streaming_tool_executor;
@@ -193,13 +194,19 @@ pub fn run() {
                 fs::create_dir_all(&state.config_dir).ok();
             }
 
-            // Bundle PortableGit into %LOCALAPPDATA%\\HADES\\git on first launch (non-blocking).
+            // Bundle PortableGit + ripgrep into %LOCALAPPDATA%\\HADES\\ on first launch.
             tauri::async_runtime::spawn(async {
                 match tauri::async_runtime::spawn_blocking(ide_shell::ensure_portable_git_installed).await {
                     Ok(Ok(true)) => println!("[ide_shell] PortableGit installed to HADES home."),
                     Ok(Ok(false)) => {}
                     Ok(Err(e)) => eprintln!("[ide_shell] PortableGit install: {e}"),
                     Err(e) => eprintln!("[ide_shell] ensure_portable_git task failed: {e}"),
+                }
+                match tauri::async_runtime::spawn_blocking(ide_shell::ensure_ripgrep_installed).await {
+                    Ok(Ok(true)) => println!("[ide_shell] ripgrep installed to HADES home."),
+                    Ok(Ok(false)) => {}
+                    Ok(Err(e)) => eprintln!("[ide_shell] ripgrep install: {e}"),
+                    Err(e) => eprintln!("[ide_shell] ensure_ripgrep task failed: {e}"),
                 }
             });
 
@@ -330,6 +337,7 @@ pub fn run() {
             ide_shell::ide_shell_status,
             ide_shell::ide_git_bash_path,
             ide_shell::ide_ensure_portable_git,
+            ide_shell::ide_ensure_ripgrep,
             hermes_skills::hermes_integration_status,
             hermes_skills::hermes_skills_list,
             hermes_skills::hermes_skills_get,

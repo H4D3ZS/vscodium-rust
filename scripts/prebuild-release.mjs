@@ -27,6 +27,27 @@ function runPs1(script) {
     });
 }
 
+function fetchBundledRipgrep() {
+    const rgBin = join(root, 'src-tauri', 'bundles', 'ripgrep', platform() === 'win32' ? 'rg.exe' : 'rg');
+    if (existsSync(rgBin) && !process.env.FORCE_BUNDLE_FETCH) {
+        console.log('[prebuild] ripgrep bundle present — skip (FORCE_BUNDLE_FETCH=1 to re-fetch).');
+        return;
+    }
+    console.log('[prebuild] Fetching bundled ripgrep …');
+    try {
+        execSync('node scripts/fetch-ripgrep.mjs', { cwd: root, stdio: 'inherit' });
+    } catch (e) {
+        console.warn('[prebuild] fetch-ripgrep.mjs failed (non-fatal for dev):', e?.message ?? e);
+    }
+    if (!existsSync(rgBin)) {
+        console.warn('[prebuild] ripgrep not ready — run node scripts/fetch-ripgrep.mjs');
+    } else {
+        console.log('[prebuild] OK — ripgrep bundle ready.');
+    }
+}
+
+fetchBundledRipgrep();
+
 if (platform() !== 'win32') {
     console.log('[prebuild] Skipping Windows sidecar freeze on non-Windows (dev uses Python + cargo paths).');
     process.exit(0);
