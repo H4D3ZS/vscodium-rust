@@ -430,8 +430,15 @@ const StatusBar: React.FC = () => {
                         }}
                         title={
                             isIndexingCodebase
-                                ? `Indexing in progress: ${indexingProgress?.files_processed ?? 0}/${indexingProgress?.total_files ?? 0} files. Click to re-index.`
-                                : "Codebase fully indexed. Click to re-index."
+                                ? `Vector index in progress: ${indexingProgress?.files_processed ?? 0}/${indexingProgress?.total_files ?? 0} files` +
+                                  (indexingProgress?.progress_percent != null
+                                      ? ` (${Math.round(indexingProgress.progress_percent)}%)`
+                                      : '') +
+                                  (indexingProgress?.current_file
+                                      ? `\nCurrent: ${indexingProgress.current_file}`
+                                      : '') +
+                                  '\n\nHover for details. Click when done to re-index.'
+                                : 'Vector index complete. Click to re-index workspace.'
                         }
                     >
                         <i
@@ -449,8 +456,15 @@ const StatusBar: React.FC = () => {
                                 <>
                                     <span>Indexing</span>
                                     <span style={{ fontWeight: 600, color: '#00c6ff' }}>
-                                        {indexingProgress?.progress_percent != null ? `${indexingProgress.progress_percent}%` : '...'}
+                                        {indexingProgress?.progress_percent != null
+                                            ? `${Math.round(indexingProgress.progress_percent)}%`
+                                            : '…'}
                                     </span>
+                                    {(indexingProgress?.total_files ?? 0) > 0 && (
+                                        <span style={{ opacity: 0.75, fontSize: '10px' }}>
+                                            {indexingProgress!.files_processed}/{indexingProgress!.total_files}
+                                        </span>
+                                    )}
                                 </>
                             ) : (
                                 <span style={{ opacity: 0.9 }}>Indexed</span>
