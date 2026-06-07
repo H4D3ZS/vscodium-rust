@@ -22,8 +22,6 @@ pub struct AttachmentManager {
     pub processing_lock: Mutex<()>,
 }
 
-const VISION_MODELS: &[&str] = &["gemma3", "moondream", "llava", "bakllava", "minicpm-v"];
-
 impl AttachmentManager {
     pub fn new() -> Self {
         Self {
@@ -49,8 +47,12 @@ impl AttachmentManager {
         if is_image {
              println!("[DEBUG] Visual Asset detected. Checking for Ollama vision models...");
              
-             // 1. Find a vision-capable model
-             let vision_model = self.find_vision_model().await;
+             // 1. Find a vision-capable model (local Ollama)
+             let vision_model = crate::vision_sidecar::discover_best_vision_model(
+                 "http://127.0.0.1:11434",
+                 "",
+             )
+             .await;
              let mut visual_summary = String::new();
              
              if let Some(vm) = vision_model {
@@ -205,25 +207,6 @@ impl AttachmentManager {
         }
         
         Err(format!("Ollama embedding format not recognized. Response: {}", body))
-    }
-
-    async fn find_vision_model(&self) -> Option<String> {
-        let client = reqwest::Client::new();
-        let res = client.get("http://127.0.0.1:11434/api/tags").send().await.ok()?;
-        let json: serde_json::Value = res.json().await.ok()?;
-        
-        if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
-            for v_model in VISION_MODELS {
-                for m in models {
-                    if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
-                        if name.contains(v_model) {
-                            return Some(name.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        None
     }
 
     async fn generate_visual_summary(&self, image_path: &std::path::Path, model: &str) -> Result<String, String> {
