@@ -133,6 +133,19 @@ const openSourceModels: Record<string, Partial<ModelCapabilities>> = {
         reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
         contextWindow: 16_000, reservedOutputTokenSpace: 4_096,
     },
+    'gemma4': {
+        supportsSystemMessage: 'system-role',
+        supportsFIM: false,
+        specialToolFormat: 'openai-style',
+        reasoningCapabilities: {
+            supportsReasoning: true,
+            canTurnOffReasoning: true,
+            canIOReasoning: true,
+            openSourceThinkTags: ['<|channel>thought', '<channel|>'],
+        },
+        contextWindow: 128_000,
+        reservedOutputTokenSpace: 8_192,
+    },
     'gemma': {
         supportsSystemMessage: 'system-role',
         supportsFIM: false,
@@ -398,6 +411,7 @@ function fuzzyLookup(modelName: string): Partial<ModelCapabilities> | null {
     if (m.includes('codestral')) return openSourceModels.codestral as ModelCapabilities;
     if (m.includes('devstral')) return openSourceModels.devstral as ModelCapabilities;
     if (m.includes('phi4') || m.includes('phi-4')) return openSourceModels.phi4 as ModelCapabilities;
+    if (m.includes('gemma4') || m.includes('gemma-4')) return openSourceModels.gemma4 as ModelCapabilities;
     if (m.includes('gemma')) return openSourceModels.gemma as ModelCapabilities;
     if (m.includes('llama3.3')) return openSourceModels['llama3.3'] as ModelCapabilities;
     if (m.includes('llama3.2')) return openSourceModels['llama3.2'] as ModelCapabilities;

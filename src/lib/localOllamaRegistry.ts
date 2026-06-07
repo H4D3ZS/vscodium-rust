@@ -96,6 +96,15 @@ export const LOCAL_OLLAMA_REGISTRY: LocalOllamaEntry[] = [
     recommended: true,
   },
   {
+    pullTag: 'gemma4:12b',
+    ramGb: 16,
+    tags: ['agent', 'coding', 'reasoning', 'multimodal', 'gemma4'],
+    role: 'agent',
+    desc: 'Official Ollama Gemma 4 12B — reasoning, tools, coding, vision on 16 GB+.',
+    recommended: true,
+    rank: 9,
+  },
+  {
     pullTag: 'batiai/gemma4-e4b:q4',
     ramGb: 16,
     tags: ['small', 'rank-9'],

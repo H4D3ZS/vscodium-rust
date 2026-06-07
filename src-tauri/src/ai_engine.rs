@@ -1005,6 +1005,64 @@ impl Sentient {
         None
     }
 
+    /// Gemma 4 family (Ollama `gemma4:*`) — reasoning, native tools, multimodal.
+    fn is_gemma4_model(model: &str) -> bool {
+        let m = model.to_lowercase();
+        m.contains("gemma4") || m.contains("gemma-4")
+    }
+
+    /// Ollama sampling tuned per model family (Gemma 4 uses publisher defaults).
+    fn ollama_sampling(model: &str, is_chat_mode: bool, req_temp: Option<f32>) -> (f32, f32, u32) {
+        if Self::is_gemma4_model(model) {
+            // https://ollama.com/library/gemma4:12b — temp=1.0, top_p=0.95, top_k=64
+            return (req_temp.unwrap_or(1.0), 0.95, 64);
+        }
+        let temp = if is_chat_mode {
+            req_temp.unwrap_or(0.75)
+        } else {
+            req_temp.unwrap_or(0.6)
+        };
+        (temp, 1.0, 40)
+    }
+
+    fn ollama_num_predict(model: &str, is_chat_mode: bool) -> u32 {
+        if Self::is_gemma4_model(model) && !is_chat_mode {
+            return 16_384;
+        }
+        8192
+    }
+
+    /// Strip Gemma 4 `<|channel>thought` blocks from assistant text (keep final answer).
+    fn strip_gemma4_thought_channels(content: &str) -> (String, Vec<String>) {
+        let mut out = String::new();
+        let mut thoughts = Vec::new();
+        let mut pos = 0usize;
+        while pos < content.len() {
+            if let Some(rel) = content[pos..].find("<|channel>thought") {
+                let start = pos + rel;
+                out.push_str(&content[pos..start]);
+                let after_marker = start + "<|channel>thought".len();
+                if let Some(end_rel) = content[after_marker..].find("<channel|>") {
+                    let end = after_marker + end_rel;
+                    let thought = content[after_marker..end]
+                        .trim_start_matches('\n')
+                        .trim();
+                    if !thought.is_empty() {
+                        thoughts.push(thought.to_string());
+                    }
+                    pos = end + "<channel|>".len();
+                } else {
+                    out.push_str(&content[start..]);
+                    break;
+                }
+            } else {
+                out.push_str(&content[pos..]);
+                break;
+            }
+        }
+        (out.trim().to_string(), thoughts)
+    }
+
     /// Returns whether a model is "small" (≤ 7B params) based on its name.
     /// Small models use the JSON-in-system-prompt tool protocol.
     /// 8B+ models use native OpenAI-compatible function calling.
@@ -1046,6 +1104,12 @@ impl Sentient {
         if m.contains("claude") { return 180_000; }
         if m.contains("gpt-4o") || m.contains("gpt-4-turbo") { return 128_000; }
         if m.contains("gemini") { return 128_000; }
+        if Self::is_gemma4_model(model) {
+            if m.contains("26b") || m.contains("31b") {
+                return 256_000;
+            }
+            return 131_072; // Gemma 4 12B / E-series — 128K native
+        }
         if m.contains("qwen3.6") || m.contains("qwen3-6") { return 65_536; }
         if m.contains("qwen3") || m.contains("qwen-3") { return 32_768; }
         if let Some(n) = Self::parse_model_param_count(&m) {
@@ -1064,6 +1128,16 @@ impl Sentient {
     /// Large models (14B+) use CPU-offloaded layers → can afford bigger context from RAM.
     fn recommended_num_ctx(model: &str) -> usize {
         let m = model.to_lowercase();
+
+        if Self::is_gemma4_model(model) {
+            if m.contains("26b") || m.contains("31b") {
+                return 32768;
+            }
+            if m.contains("12b") || m.contains("e4b") {
+                return 32768; // 128K native; 32K fits laptop RAM for multi-file agent loops
+            }
+            return 16384; // e2b / edge
+        }
 
         // Parse parameter count to tier context window
         let param_count = Self::parse_model_param_count(&m).unwrap_or(0);
@@ -1094,11 +1168,17 @@ impl Sentient {
     /// Ollama only honors `num_ctx` / `num_predict` inside the `options` object
     /// (top-level fields are ignored → default 4096 ctx → exceed_context_size_error).
     fn ollama_inference_options(model: &str, temperature: f32, num_predict: u32) -> Value {
-        json!({
+        let (_, top_p, top_k) = Self::ollama_sampling(model, false, Some(temperature));
+        let mut opts = json!({
             "num_ctx": Self::recommended_num_ctx(model),
             "num_predict": num_predict,
             "temperature": temperature,
-        })
+        });
+        if Self::is_gemma4_model(model) {
+            opts["top_p"] = json!(top_p);
+            opts["top_k"] = json!(top_k);
+        }
+        opts
     }
 
     /// Last-chance guard: force `options.num_ctx` on every Ollama payload before POST.
@@ -3232,6 +3312,10 @@ impl Sentient {
                 let mut ollama_system = system_msg.clone();
 
                 if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
+                    // Gemma 4 thinking mode — Ollama handles chat template; we only prefix system.
+                    if Self::is_gemma4_model(&active_model) && !is_chat_mode && !ollama_system.starts_with("<|think|>") {
+                        ollama_system = format!("<|think|>\n{ollama_system}");
+                    }
                     if is_chat_mode {
                         ollama_system.push_str(
                             "\n\nIMPORTANT: You are in CHAT mode. Respond naturally with plain text only. \
@@ -3339,13 +3423,14 @@ impl Sentient {
                     });
                 }
 
-                // For Ollama: lower temperature improves tool call reliability.
-                // 0.85 is fine for chat but causes hallucinated JSON for tool calls.
-                let ollama_temp = if is_chat_mode {
-                    req.temperature.unwrap_or(0.75)
-                } else {
-                    req.temperature.unwrap_or(0.6)
-                };
+                // For Ollama: lower temperature improves tool call reliability on most models.
+                // Gemma 4 uses publisher defaults (temp 1.0) — see ollama_sampling().
+                let (ollama_temp, _, _) = Self::ollama_sampling(
+                    &active_model,
+                    is_chat_mode,
+                    req.temperature,
+                );
+                let ollama_predict = Self::ollama_num_predict(&active_model, is_chat_mode);
 
                 let is_vision = Self::is_vision_model(&active_model);
                 let ollama_messages =
@@ -3375,7 +3460,7 @@ impl Sentient {
                 }
                 if is_local_inference {
                     // num_ctx/num_predict must live under `options` for Ollama (/v1 and /api).
-                    base["options"] = Self::ollama_inference_options(&active_model, ollama_temp, 8192);
+                    base["options"] = Self::ollama_inference_options(&active_model, ollama_temp, ollama_predict);
                 }
                 base
             };
@@ -3465,13 +3550,14 @@ impl Sentient {
             }
 
             if active_provider.to_lowercase() == "ollama" {
-                let ollama_temp = if is_chat_mode {
-                    req.temperature.unwrap_or(0.75)
-                } else {
-                    req.temperature.unwrap_or(0.6)
-                };
+                let (ollama_temp, _, _) = Self::ollama_sampling(
+                    &active_model,
+                    is_chat_mode,
+                    req.temperature,
+                );
+                let ollama_predict = Self::ollama_num_predict(&active_model, is_chat_mode);
                 if !ollama_openai_compat {
-                    Self::ensure_ollama_payload(&mut payload, &active_model, ollama_temp, 8192);
+                    Self::ensure_ollama_payload(&mut payload, &active_model, ollama_temp, ollama_predict);
                 }
             }
 
@@ -4090,10 +4176,19 @@ impl Sentient {
                 }
             }
 
-            // Think-tag stripping for Ollama reasoning models (qwen3, deepseek-r1, qwq).
-            // Extract <think>...</think> blocks → emit as ai-thinking, remove from response.
+            // Think-tag stripping for Ollama reasoning models (qwen3, deepseek-r1, qwq, gemma4).
+            // Extract reasoning blocks → emit as ai-thinking, remove from response.
             {
                 let m = active_model.to_lowercase();
+                if Self::is_gemma4_model(&active_model)
+                    && (full_content.contains("<|channel>thought") || full_content.contains("<channel|>"))
+                {
+                    let (clean, thoughts) = Self::strip_gemma4_thought_channels(&full_content);
+                    for t in thoughts {
+                        self.emit_event("ai-thinking", json!({ "thought": t }));
+                    }
+                    full_content = clean;
+                }
                 let is_think_model = m.contains("qwen3") || m.contains("qwq")
                     || m.contains("deepseek-r1") || m.contains("r1:");
                 if is_think_model && full_content.contains("<think>") {

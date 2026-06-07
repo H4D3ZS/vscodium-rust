@@ -281,8 +281,15 @@ pub async fn account_accept_tos(
 ) -> Result<(), String> {
     let mut acc = AccountManager::load(&state.config_dir);
     acc.tos.retain(|t| !(t.doc_id == doc_id && t.version == version));
-    acc.tos.push(TosAcceptance { doc_id, version, accepted_at: now() });
-    AccountManager::save(&state.config_dir, &acc)
+    acc.tos.push(TosAcceptance { doc_id: doc_id.clone(), version: version.clone(), accepted_at: now() });
+    AccountManager::save(&state.config_dir, &acc)?;
+    let _ = crate::enterprise_audit::append_audit(
+        &state.config_dir,
+        "user",
+        "account.tos_accept",
+        serde_json::json!({ "doc_id": doc_id, "version": version }),
+    );
+    Ok(())
 }
 
 /// Has the account accepted a given ToS document (any version)?
@@ -318,7 +325,14 @@ pub async fn account_set_tier(state: State<'_, EditorState>, tier: String) -> Re
         "enterprise" => Tier::Enterprise,
         other => return Err(format!("unknown tier: {other}")),
     };
-    AccountManager::save(&state.config_dir, &acc)
+    AccountManager::save(&state.config_dir, &acc)?;
+    let _ = crate::enterprise_audit::append_audit(
+        &state.config_dir,
+        "user",
+        "account.tier_set",
+        serde_json::json!({ "tier": tier }),
+    );
+    Ok(())
 }
 
 /// Acquire an add-on (e.g. the MiMo pre-model promo). LOCAL/dev path — real
@@ -519,6 +533,12 @@ pub async fn account_start_trial(state: State<'_, EditorState>) -> Result<serde_
     acc.trial_ends_at = Some(now() + 86_400); // 24 hours
     acc.trial_used = true;
     AccountManager::save(&state.config_dir, &acc)?;
+    let _ = crate::enterprise_audit::append_audit(
+        &state.config_dir,
+        "user",
+        "account.trial_start",
+        serde_json::json!({ "ends_at": acc.trial_ends_at }),
+    );
     Ok(build_view(&state.config_dir).await)
 }
 
@@ -551,6 +571,12 @@ pub async fn account_subscribe(
         urlencoding::encode(&pay_path)
     );
     let _ = open_in_browser(&url);
+    let _ = crate::enterprise_audit::append_audit(
+        &state.config_dir,
+        "user",
+        "account.checkout_open",
+        serde_json::json!({ "tier": tier, "url": url }),
+    );
     Ok(serde_json::json!({ "checkout_url": url, "method": "qrph" }))
 }
 

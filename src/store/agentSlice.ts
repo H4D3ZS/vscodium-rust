@@ -316,7 +316,13 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     agentModel: (() => {
         if (typeof localStorage === 'undefined') return '';
         const saved = localStorage.getItem('agentModel') || '';
-        const oldDefaults = new Set(['Ollama|airi-fast:latest', 'Ollama|qwen3:35b', 'qwen3:35b', 'cyberifrit|qwen3:35b', 'cyberifrit|cyberifrit/qwen3:35b', 'huihui_ai/qwen2.5-coder-abliterate:7b', 'Ollama|huihui_ai/qwen2.5-coder-abliterate:7b']);
+        const oldDefaults = new Set([
+            'Ollama|airi-fast:latest', 'Ollama|qwen3:35b', 'qwen3:35b',
+            'cyberifrit|qwen3:35b', 'cyberifrit|cyberifrit/qwen3:35b',
+            'huihui_ai/qwen2.5-coder-abliterate:7b', 'Ollama|huihui_ai/qwen2.5-coder-abliterate:7b',
+            // Legacy fake model — Antigravity is a workflow layer, not an LLM id.
+            'Antigravity|antigravity-sentient', 'antigravity|antigravity-sentient',
+        ]);
         if (oldDefaults.has(saved)) { localStorage.removeItem('agentModel'); return ''; }
         return saved;
     })(),
@@ -409,7 +415,15 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         set({ agentMode });
         onAgentModeChanged(agentMode);
     },
-    setAgentModel: (agentModel) => { try { localStorage.setItem('agentModel', agentModel); } catch { } set({ agentModel }); },
+    setAgentModel: (agentModel) => {
+        const stale = new Set(['antigravity|antigravity-sentient', 'Antigravity|antigravity-sentient']);
+        if (stale.has(agentModel)) {
+            console.warn('[agent] antigravity-sentient is not a real model — pick Ollama/Cyber-Ifrit from the toolbar.');
+            agentModel = '';
+        }
+        try { localStorage.setItem('agentModel', agentModel); } catch { }
+        set({ agentModel });
+    },
     setPlannerModel: (plannerModel) => { try { localStorage.setItem('agent.plannerModel', plannerModel); } catch { } set({ plannerModel }); },
     setPlannerEnabled: (plannerEnabled) => { try { localStorage.setItem('agent.plannerEnabled', plannerEnabled ? '1' : '0'); } catch { } set({ plannerEnabled }); },
     setHybridAuto: (hybridAuto) => { try { localStorage.setItem('agent.hybridAuto', hybridAuto ? '1' : '0'); } catch { } set({ hybridAuto }); },
