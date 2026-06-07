@@ -1,10 +1,28 @@
 # VSCodium-Rust | Agentic & Sovereign IDE
 
-A groundbreaking, high-performance implementation of the VS Code architecture, rewritten from the ground up using **Rust**, **Tauri**, and **TypeScript**. 
+**A friend of AI engineers** — local models, agent loops, and PyTorch ML Studio in one native IDE.
+Train on your GPU, iterate with agents on your code, and keep weights + data on your machine.
 
-VSCodium-Rust is more than an editor — it is a **full-scale, ultra-lightweight agentic development environment** designed for **Data Sovereignty, Speed, and "Parallel Mind" Engineering.**
+A high-performance implementation of the VS Code architecture, rewritten using **Rust**, **Tauri**, and **TypeScript**.
+
+VSCodium-Rust is a **full-scale, ultra-lightweight agentic development environment** designed for **data sovereignty, ML experimentation, and parallel-mind engineering.**
 
 ![VSCodium-Rust Agentic View](pics/1.png)
+
+---
+
+## Friend of AI engineers
+
+We built this IDE for people who ship models *and* ship software:
+
+| Pillar | What you get |
+|--------|----------------|
+| **Local-first** | Ollama + optional cloud keys — your data stays yours |
+| **PyTorch ML Studio** | Setup → data → train → dashboard → export (TorchStudio-inspired) |
+| **Agent-native** | Autonomous loop, shadow VFS verify, Hermes skills, MCP |
+| **Research-ready** | Security modes, browser automation, reverse-engineering hooks |
+
+See [docs/FRIEND_OF_AI_ENGINEERS.md](docs/FRIEND_OF_AI_ENGINEERS.md) for the full manifesto.
 
 ---
 
@@ -44,7 +62,17 @@ VSCodium-Rust is designed for developers who demand **freedom from corporate fil
 - **JSON Schema Parity:** All IDE tools are exposed via standard formats, ensuring any tool-calling model (Llama 3, Mistral) can be fully agentic within your workspace.
 - **Pay Only for What You Use:** Bring your own API keys for hosted models (Anthropic, OpenAI, Gemini) and eliminate redundant subscriptions.
 
-### 📊 5. Visual Lab & Data Flow Builder
+### 📊 5. PyTorch ML Studio (Friend of ML engineers)
+In-IDE machine learning — inspired by [TorchStudio](https://www.torchstudio.ai/), wired for local sovereignty:
+
+- **Full pipeline:** CSV/image datasets → train → live loss/acc charts → confusion matrix → ONNX/TorchScript export
+- **Experiment tooling:** Optuna HPO, LR finder, grad check, multi-run comparison, checkpoint resume
+- **Model hub:** torchvision, timm, and HuggingFace gallery with one-click weight load
+- **Architecture graph:** Layer SVG visualization in the Model tab
+
+Open from the activity bar (PyTorch beaker) or Settings → PyTorch ML Studio.
+
+### 📊 6. Visual Lab & Data Flow Builder
 A powerful, **Rust-backend-driven** visualization engine for complex data structures:
 - **Instant JSON/SQL Visualization:** Toggle a visual graph view for any JSON file or SQL schema directly from the editor.
 - **Cross-Format Support:** Intelligent parsers for JSON (hierarchical), SQL (ERDs), and MongoDB/BSON documents.
@@ -84,6 +112,6 @@ To use AI features, you must subscribe to Cyber-Ifrit Cloud at https://cyberifri
 
 ---
 
-**VSCodium-Rust is for any developer who demands speed, privacy, and full architectural sovereignty.**
+**VSCodium-Rust is for AI engineers who demand speed, privacy, local GPUs, and full architectural sovereignty.**
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/H4D3ZS)

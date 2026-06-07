@@ -15,6 +15,7 @@ import WorkspaceSettingsPanel from './settings/WorkspaceSettingsPanel';
 import InferenceBackendPanel from './settings/InferenceBackendPanel';
 import PlatformHubPanel from './platform/PlatformHubPanel';
 import { openPyTorchStudio } from '../application/pytorch/openPyTorchStudio';
+import { AI_ENGINEER_LEAD } from '../lib/aiEngineerManifesto';
 import PyTorchLogo from './pytorch/PyTorchLogo';
 import SkillStorePanel from './skills/SkillStorePanel';
 import LspLanguagesPanel from './settings/LspLanguagesPanel';
@@ -988,12 +989,12 @@ const SettingsPage: React.FC = () => {
                         <div>
                             <div style={{ fontWeight: 700 }}>PyTorch ML Studio</div>
                             <p className="afi-desc" style={{ margin: '4px 0 0' }}>
-                                Lives below the in-IDE browser panel (activity bar → PyTorch logo, under the globe).
+                                {AI_ENGINEER_LEAD}
                             </p>
                         </div>
                     </div>
                     <button type="button" className="settings-button success" onClick={() => openPyTorchStudio()}>
-                        Open Browser + ML Studio
+                        Open ML Studio
                     </button>
                     <p className="afi-subtle" style={{ marginTop: 12, fontSize: 11 }}>
                         NVIDIA CUDA and AMD ROCm installs ·{' '}

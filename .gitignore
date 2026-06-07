@@ -68,6 +68,12 @@ api_keys.json
 .aim/
 **/.aim/
 
+# Local ML runtime artifacts (per-machine; scripts ship from scripts/ml/)
+src-tauri/.hades/
+**/.hades/ml/runs/
+**/.hades/ml/data/train.csv
+**/.hades/ml/data/val.csv
+
 # Proprietary — has own git repo, not a submodule
 Virtual-iPhone-Emulator/
 
