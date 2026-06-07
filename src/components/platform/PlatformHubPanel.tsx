@@ -5,6 +5,7 @@ import {
     TIER_LABEL,
     agentFirstIdeSummary,
 } from '../../lib/agentFirstIdeParity';
+import { AI_ENGINEER_TAGLINE } from '../../lib/aiEngineerManifesto';
 import {
     CURSOR_PARITY_GROUPS,
     STATUS_COLOR,
@@ -52,9 +53,9 @@ const PlatformHubPanel: React.FC = () => {
             <div style={{ marginBottom: 16 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Platform status</div>
                 <p className="afi-lead">
-                    This page tracks what HADES ships today vs what is still on the roadmap.
-                    It is an <strong>internal checklist</strong>, not a promise that every Cursor/Hermes feature is cloned.
-                    Use <strong>Shipped</strong> to see working capabilities; open <strong>Roadmap</strong> only when planning work.
+                    {AI_ENGINEER_TAGLINE} This page tracks what ships today vs roadmap —
+                    an <strong>internal checklist</strong>, not a promise that every Cursor/Hermes feature is cloned.
+                    Use <strong>Shipped</strong> for working capabilities; <strong>Roadmap</strong> when planning work.
                 </p>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
                     <Pill label="Cursor shipped" value={String(cursorSummary.done)} color={STATUS_COLOR.done} />

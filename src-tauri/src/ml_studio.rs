@@ -224,7 +224,7 @@ pub async fn ml_studio_init(root: String) -> Result<serde_json::Value, String> {
     if !readme.exists() {
         std::fs::write(
             &readme,
-            "# HADES ML Studio\n\nPlace CSV datasets in `data/`. Use Settings → PyTorch ML Studio to prepare, train, and infer.\n",
+            "# HADES ML Studio\n\nA friend of AI engineers — train, experiment, and export without leaving the IDE.\n\nPlace CSV datasets in `data/` or images in `data/images/<class>/`. Use PyTorch ML Studio to prepare, train, compare runs, and infer.\n",
         )
         .map_err(|e| e.to_string())?;
     }

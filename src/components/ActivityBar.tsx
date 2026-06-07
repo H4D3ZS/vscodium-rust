@@ -32,7 +32,7 @@ const ActivityBar: React.FC = () => {
         { id: 'debug-view', icon: 'debug-alt', title: 'Run and Debug (Ctrl+Shift+D)' },
         { id: 'extensions-view', icon: 'extensions', title: 'Extensions (Ctrl+Shift+X)' },
         { id: 'browser-panel', icon: 'globe', title: 'External Browser — live Firefox (Ctrl+Shift+U)', isBrowser: true },
-        { id: 'pytorch-studio', icon: 'beaker', title: 'PyTorch ML Studio — setup, train, infer (click again to close)', isPyTorch: true },
+        { id: 'pytorch-studio', icon: 'beaker', title: 'PyTorch ML Studio — friend of AI engineers (click again to close)', isPyTorch: true },
         ...extensionItems
             .filter((ext: any) => {
                 const id = String(ext.id || '').toLowerCase();
