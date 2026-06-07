@@ -1189,6 +1189,79 @@ impl MemoryStore {
         self.project_tree.read().await.clone()
     }
 
+    /// Drop indexed paths that do not exist under `root` (stale cross-project .aim bleed).
+    /// Returns (before_count, after_count).
+    pub async fn prune_project_tree_to_workspace(&self, root: &std::path::Path) -> (usize, usize) {
+        let tree = self.project_tree.read().await.clone();
+        let before = tree.len();
+        if before == 0 {
+            return (0, 0);
+        }
+        let kept: Vec<String> = tree
+            .into_iter()
+            .filter(|p| {
+                let full = if std::path::Path::new(p).is_absolute() {
+                    std::path::PathBuf::from(p)
+                } else {
+                    root.join(p)
+                };
+                full.exists()
+            })
+            .collect();
+        let after = kept.len();
+        if after != before {
+            let mut lock = self.project_tree.write().await;
+            *lock = kept;
+            self.is_dirty.store(true, Ordering::SeqCst);
+        }
+        (before, after)
+    }
+
+    /// Closest indexed paths when a requested file is missing (basename match + prefix).
+    pub async fn suggest_similar_paths(&self, requested: &str, limit: usize) -> Vec<String> {
+        let req = requested.replace('\\', "/");
+        let base = std::path::Path::new(&req)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let tree = self.project_tree.read().await.clone();
+        if tree.is_empty() || base.is_empty() {
+            return Vec::new();
+        }
+        let mut scored: Vec<(i32, String)> = tree
+            .into_iter()
+            .filter_map(|p| {
+                let norm = p.replace('\\', "/");
+                let fname = std::path::Path::new(&norm)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let mut score = 0i32;
+                if fname == base {
+                    score += 100;
+                } else if fname.contains(&base) || base.contains(&fname) {
+                    score += 50;
+                }
+                if norm.to_ascii_lowercase().contains(&base) {
+                    score += 10;
+                }
+                if score > 0 {
+                    Some((score, p))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        scored
+            .into_iter()
+            .take(limit)
+            .map(|(_, p)| p)
+            .collect()
+    }
+
     /// Returns true if the workspace has never been indexed — signals that we
     /// should trigger an immediate background index cycle on first chat.
     pub async fn needs_initial_index(&self) -> bool {
