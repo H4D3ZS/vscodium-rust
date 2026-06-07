@@ -2638,6 +2638,7 @@ impl ShellTranslator {
 
     pub fn translate_command(command: &str, shell_hint: &str) -> (String, Vec<String>) {
         let mut final_command = command.to_string();
+        let shell_hint = Self::effective_shell_hint(command, shell_hint);
         
         if cfg!(target_os = "windows") {
             match shell_hint {
@@ -2680,8 +2681,9 @@ impl ShellTranslator {
         }
     }
 
-    /// Git Bash treats `\` as escape — `C:\Users\...` becomes `C:Users...`.
-    /// Convert drive paths to `/c/Users/...` before `sh -c`.
+    /// Git Bash treats `\` in `C:\Users\...` as escapes. Convert drive paths to
+    /// `/c/Users/...` before `sh -c`. **Never** blanket-replace `\` → `/` — that
+    /// destroys grep regex, Python `\n`, and JSON escapes in one-liners.
     pub fn normalize_windows_paths_for_bash(command: &str) -> String {
         if !cfg!(windows) {
             return command.to_string();
@@ -2699,7 +2701,39 @@ impl ShellTranslator {
                 format!("/{}/", caps[1].to_ascii_lowercase())
             })
             .into_owned();
-        out.replace('\\', "/")
+        // Only normalize backslashes inside Git-Bash path tokens (/c/Users\foo\bar).
+        let path_token = Regex::new("/[a-z]/[^\\s\"']+").expect("path token");
+        out = path_token
+            .replace_all(&out, |caps: &regex::Captures| caps[0].replace('\\', "/"))
+            .into_owned();
+        out
+    }
+
+    /// Heuristic: route through Git Bash when the command uses POSIX tooling.
+    pub fn prefers_git_bash(command: &str) -> bool {
+        let c = command.to_lowercase();
+        const MARKERS: &[&str] = &[
+            "grep ", "grep\t", "curl ", "head ", "tail ", "sed ", "awk ", "sort ", "uniq ",
+            "wc ", "find ", "chmod ", "export ", "source ", "&&", "||", "| ", "python -c",
+            "pip install", "npm run", "cargo ", "./", "sh ", "bash ", "index_bundle",
+        ];
+        MARKERS.iter().any(|m| c.contains(m))
+    }
+
+    fn effective_shell_hint<'a>(command: &'a str, shell_hint: &'a str) -> &'a str {
+        if !cfg!(windows) {
+            return shell_hint;
+        }
+        if shell_hint == "bash" || shell_hint == "sh" {
+            return shell_hint;
+        }
+        if shell_hint == "run_command"
+            && Self::find_sh_path().is_some()
+            && Self::prefers_git_bash(command)
+        {
+            return "bash";
+        }
+        shell_hint
     }
 
     /// Map cmd.exe habits to POSIX when we know we're in bash/sh.
@@ -7872,10 +7906,41 @@ mod shell_translator_tests {
         let normalized = ShellTranslator::normalize_windows_paths_for_bash(cmd);
         if cfg!(windows) {
             assert!(normalized.contains("/c/Users/HADES/Desktop/proj"));
-            assert!(!normalized.contains('\\'));
         } else {
             assert_eq!(normalized, cmd);
         }
+    }
+
+    #[test]
+    fn bash_preserves_regex_and_python_escapes() {
+        let grep = r#"grep -oE "(['\"])/(api|v1|v2)/[^'\"]+(['\"])" index.js"#;
+        let py = r#"python -c "import re; print('\n'.join(['a']))""#;
+        if cfg!(windows) {
+            assert!(grep.contains(r#"['\"]"#), "grep quotes must survive: {grep}");
+            assert!(py.contains(r"\n"), "python \\n must survive: {py}");
+            assert_eq!(
+                ShellTranslator::normalize_windows_paths_for_bash(grep),
+                grep
+            );
+            assert_eq!(ShellTranslator::normalize_windows_paths_for_bash(py), py);
+        }
+    }
+
+    #[test]
+    fn bash_normalizes_python_script_path() {
+        let cmd = r"python C:\Users\HADES\Desktop\pentesting\analyze_js.py";
+        if cfg!(windows) {
+            let n = ShellTranslator::normalize_windows_paths_for_bash(cmd);
+            assert!(n.contains("/c/Users/HADES/Desktop/pentesting/analyze_js.py"));
+            assert!(!n.contains('\\'));
+        }
+    }
+
+    #[test]
+    fn prefers_git_bash_for_grep_curl() {
+        assert!(ShellTranslator::prefers_git_bash("grep -Eo api index.js"));
+        assert!(ShellTranslator::prefers_git_bash("curl -s https://example.com > out.js"));
+        assert!(!ShellTranslator::prefers_git_bash("Get-ChildItem"));
     }
 }
 

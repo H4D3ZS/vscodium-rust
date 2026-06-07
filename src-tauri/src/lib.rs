@@ -49,6 +49,7 @@ mod stop_hooks;
 mod embeddings;
 mod apex_commands;
 mod attachment_manager;
+mod vision_sidecar;
 mod binary_analyzer;
 mod context_indexer;
 pub mod context_quantizer;
@@ -686,6 +687,8 @@ pub fn run() {
             voice_commands::elevenlabs_get_voices,
             // ═══ Workspace ═══
             attachment_manager::select_and_process_attachment,
+            vision_sidecar::discover_vision_models_cmd,
+            vision_sidecar::vision_sidecar_process_attachments,
             kortex_commands::save_kortex_memory,
             kortex_commands::load_kortex_memory,
             kortex_commands::load_kortex_metadata,
