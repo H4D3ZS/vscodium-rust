@@ -482,6 +482,8 @@ pub fn run() {
             ml_studio::ml_studio_prepare_dataset,
             ml_studio::ml_studio_train,
             ml_studio::ml_studio_list_runs,
+            ml_studio::ml_studio_get_run_metrics,
+            ml_studio::ml_studio_get_active_run,
             ml_studio::ml_studio_infer,
             ml_studio::ml_studio_install_deps,
             stop_hooks::stop_hooks_get,

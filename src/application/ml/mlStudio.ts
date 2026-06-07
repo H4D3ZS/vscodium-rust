@@ -16,3 +16,5 @@ export const listMlRuns = (root: string) => mlStudioRepository.listRuns(root);
 export const runMlInference = (root: string, runId: string, input: Record<string, number>) =>
     mlStudioRepository.infer(root, runId, input);
 export const installMlDeps = () => mlStudioRepository.installDeps();
+export const getMlRunMetrics = (root: string, runId: string) => mlStudioRepository.getRunMetrics(root, runId);
+export const getMlActiveRun = (root: string) => mlStudioRepository.getActiveRun(root);

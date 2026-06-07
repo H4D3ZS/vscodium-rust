@@ -2,6 +2,7 @@ import { invoke } from '../../tauri_bridge';
 import type {
     IMlStudioRepository,
     MlDatasetEntry,
+    MlRunMetrics,
     MlRunSummary,
     MlStudioConfig,
 } from '../../domain/ml/IMlStudioRepository';
@@ -38,6 +39,12 @@ export class TauriMlStudioRepository implements IMlStudioRepository {
     }
     installDeps() {
         return invoke<{ ok: boolean; stdout?: string; stderr?: string }>('ml_studio_install_deps');
+    }
+    getRunMetrics(root: string, runId: string) {
+        return invoke<MlRunMetrics>('ml_studio_get_run_metrics', { root, runId });
+    }
+    getActiveRun(root: string) {
+        return invoke<string | null>('ml_studio_get_active_run', { root });
     }
 }
 

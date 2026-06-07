@@ -3,6 +3,7 @@ import { useStore } from '../../store';
 import { detectPyTorch, installPyTorch, verifyPyTorch } from '../../application/pytorch/pytorchSetup';
 import {
     getMlConfig,
+    getMlActiveRun,
     initMlStudio,
     installMlDeps,
     listMlData,
@@ -18,7 +19,9 @@ import { PYTORCH_BEGINNER_LESSONS } from '../../lib/pytorchLessons';
 import PyTorchLogo from './PyTorchLogo';
 import { closeCenterWorkbench } from '../../application/layout/closeCenterWorkbench';
 
-type Tab = 'setup' | 'data' | 'train' | 'infer' | 'learn';
+import TrainingDashboard from './TrainingDashboard';
+
+type Tab = 'setup' | 'data' | 'train' | 'dashboard' | 'infer' | 'learn';
 
 const PYTORCH_DOCS = 'https://docs.pytorch.org/docs/2.12/index.html';
 const ROCM_DOCS = 'https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installrad/windows/install-pytorch.html';
@@ -56,6 +59,7 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [log, setLog] = useState<string>('');
+    const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
     const columns = useMemo(() => {
         const d = datasets.find((x) => x.name === selectedCsv);
@@ -74,6 +78,8 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
             const r = await listMlRuns(root);
             setRuns(r);
             if (!selectedRun && r[0]) setSelectedRun(r[0].id);
+            const active = await getMlActiveRun(root);
+            if (active) setActiveRunId(active);
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
         }
@@ -118,8 +124,9 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
         try {
             await saveMlConfig(root, config);
             const res = await trainMlModel(root);
-            setLog(`Training started: job ${res.job_id}, run ${res.run_id}\nWatch progress in Bottom Panel → Jobs.`);
-            setTab('infer');
+            setActiveRunId(res.run_id ?? null);
+            setLog(`Training started: job ${res.job_id}, run ${res.run_id}\nOpen Dashboard tab for live charts.`);
+            setTab('dashboard');
             setTimeout(() => void refreshAll(), 3000);
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
@@ -147,6 +154,7 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
         { id: 'setup', label: 'Setup' },
         { id: 'data', label: 'Data' },
         { id: 'train', label: 'Train' },
+        { id: 'dashboard', label: 'Dashboard' },
         { id: 'infer', label: 'Inference' },
         { id: 'learn', label: 'Learn' },
     ];
@@ -305,14 +313,40 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
                     <button type="button" className="settings-button success" disabled={!!busy} onClick={() => void onTrain()}>
                         {busy === 'train' ? 'Starting…' : 'Start training job'}
                     </button>
-                    <p className="afi-subtle" style={{ marginTop: 8 }}>Runs appear under .hades/ml/runs/ — progress in Bottom Panel → Jobs.</p>
+                    <p className="afi-subtle" style={{ marginTop: 8 }}>Runs under .hades/ml/runs/ — live charts on Dashboard tab.</p>
                     {runs.length > 0 && (
                         <ul className="afi-muted" style={{ marginTop: 10 }}>
                             {runs.slice(0, 5).map((r) => (
-                                <li key={r.id}>{r.id} — val_acc {r.val_acc?.toFixed(4) ?? 'n/a'}</li>
+                                <li key={r.id}>
+                                    <button type="button" className="settings-button" style={{ padding: '2px 6px', fontSize: 11 }}
+                                        onClick={() => { setActiveRunId(r.id); setTab('dashboard'); }}>
+                                        {r.id}
+                                    </button>
+                                    {' '}— val_acc {r.val_acc?.toFixed(4) ?? 'n/a'}
+                                </li>
                             ))}
                         </ul>
                     )}
+                </div>
+            )}
+
+            {tab === 'dashboard' && (
+                <div className="settings-card">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                        <div style={{ fontWeight: 600 }}>Training dashboard</div>
+                        <select
+                            className="settings-select"
+                            value={activeRunId ?? ''}
+                            onChange={(e) => setActiveRunId(e.target.value || null)}
+                            style={{ minWidth: 160 }}
+                        >
+                            <option value="">Select run…</option>
+                            {runs.map((r) => (
+                                <option key={r.id} value={r.id}>{r.id}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <TrainingDashboard root={root} runId={activeRunId} />
                 </div>
             )}
 
