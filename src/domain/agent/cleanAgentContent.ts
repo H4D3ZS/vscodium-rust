@@ -32,6 +32,8 @@ const TOOL_LABELS: Record<string, string> = {
     browser_read_dom: 'Reading page',
     browser_click: 'Clicking element',
     browser_screenshot: 'Taking screenshot',
+    web_fetch: 'Web fetch',
+    file_write: 'Writing file',
 };
 
 export function getToolLabel(name: string): string {
@@ -39,8 +41,32 @@ export function getToolLabel(name: string): string {
     return name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Heuristic: model tool JSON even when truncated / invalid JSON (e.g. huge file_write body). */
+export function looksLikeToolCallText(text: string): boolean {
+    const t = text.trim();
+    if (!t.startsWith('{')) return false;
+    return (
+        /"(?:name|tool)"\s*:\s*"/.test(t)
+        && /"(?:arguments|parameters|args|input|content)"\s*:/.test(t)
+    ) || /"tool_calls"\s*:/.test(t) || /"function_call"\s*:/.test(t);
+}
+
+/** One-line human label for inline tool JSON shown in chat. */
+export function summarizeToolCallText(text: string): string {
+    const name = text.match(/"(?:name|tool)"\s*:\s*"([^"]+)"/)?.[1] || 'tool';
+    const label = getToolLabel(name);
+    const url = text.match(/"url"\s*:\s*"([^"]+)"/)?.[1];
+    if (url) return `${label} · ${url}`;
+    const path = text.match(/"(?:path|file_path|filename)"\s*:\s*"([^"\\]+)"/)?.[1];
+    if (path) return `${label} · ${path.replace(/\\/g, '/')}`;
+    const cmd = text.match(/"command"\s*:\s*"([^"]{0,80})/)?.[1];
+    if (cmd) return `${label} · ${cmd}${cmd.length >= 80 ? '…' : ''}`;
+    return label;
+}
+
 /** Returns true if a JSON string looks like a tool call object */
 export function isToolCallJson(text: string): boolean {
+    if (looksLikeToolCallText(text)) return true;
     try {
         const t = text.trim();
         if (!t.startsWith('{') && !t.startsWith('[')) return false;
@@ -51,7 +77,7 @@ export function isToolCallJson(text: string): boolean {
                 || 'tool_calls' in parsed
                 || 'function_call' in parsed;
         }
-    } catch { /* not valid JSON */ }
+    } catch { /* truncated / invalid JSON from streaming models */ }
     return false;
 }
 
@@ -158,7 +184,7 @@ export function formatToolSummary(name: string, args: any, result: any): string 
             return `Found ${count} matches for "${args.pattern || args.query}"`;
         }
         if (toolName.includes('write_to_file') || toolName.includes('file_write')) {
-            return `Wrote ${args.file_path || args.path}`;
+            return `Wrote ${args.file_path || args.path || args.filename || 'file'}`;
         }
         if (toolName.includes('file_edit') || toolName.includes('modify_file')) {
             return `Edited ${args.file_path || args.path}`;
@@ -191,18 +217,24 @@ export function cleanAgentContent(raw: string): string {
     s = s.replace(/<function>[\s\S]*?<\/function>/g, '');
     s = s.replace(/<invoke>[\s\S]*?<\/invoke>/g, '');
 
-    s = s.replace(/```[a-z]*\n([\s\S]*?)```/gi, (match, inner) => {
-        return isToolCallJson(inner.trim()) || isToolResultJson(inner.trim()) ? '' : match;
+    s = s.replace(/```[a-z0-9_:.-]*\s*\n?([\s\S]*?)```/gi, (match, inner) => {
+        const trimmed = inner.trim();
+        return isToolCallJson(trimmed) || isToolResultJson(trimmed) ? '' : match;
     });
     s = s.replace(/```\s*(\{[\s\S]*?\})\s*```/g, (match, inner) => {
         return isToolCallJson(inner) || isToolResultJson(inner) ? '' : match;
+    });
+
+    // Unclosed streaming fences that are clearly tool JSON
+    s = s.replace(/```(?:json)?\s*\n(\{\s*"name"\s*:[\s\S]*)$/gi, (match, inner) => {
+        return looksLikeToolCallText(inner) || isToolResultJson(inner) ? '' : match;
     });
 
     s = s.split('\n').filter((line) => {
         const t = line.trim();
         if (!t) return true;
         if (/^Executing tool:/i.test(t)) return false;
-        if (isToolCallJson(t) || isToolResultJson(t)) return false;
+        if (looksLikeToolCallText(t) || isToolCallJson(t) || isToolResultJson(t)) return false;
         if (/^\{"status"\s*:/.test(t)) return false;
         return true;
     }).join('\n');
