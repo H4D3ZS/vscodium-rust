@@ -4,6 +4,7 @@ import { loadWorkspaceSettings, saveWorkspaceSettings } from '../../application/
 import WorktreesPanel from '../platform/WorktreesPanel';
 import RemoteSshPanel from '../platform/RemoteSshPanel';
 import CanvasArtifactPanel from '../platform/CanvasArtifactPanel';
+import HermesGatewayPanel from '../platform/HermesGatewayPanel';
 
 const WorkspaceSettingsPanel: React.FC = () => {
     const activeRoot = useStore((s) => s.activeRoot);
@@ -43,6 +44,7 @@ const WorkspaceSettingsPanel: React.FC = () => {
         <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 20 }}>
             <WorktreesPanel root={activeRoot} />
             <RemoteSshPanel />
+            <HermesGatewayPanel />
             <div className="settings-card" style={{ maxWidth: 520 }}>
                 <div style={{ fontWeight: 700, marginBottom: 8 }}>Canvas artifacts</div>
                 <CanvasArtifactPanel />

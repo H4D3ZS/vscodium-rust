@@ -54,6 +54,7 @@ pub struct VectorIndexer {
     file_hashes: Arc<RwLock<HashMap<PathBuf, String>>>,
     is_indexing: Arc<RwLock<bool>>,
     indexing_progress: Arc<RwLock<IndexingProgress>>,
+    ann: Arc<std::sync::Mutex<crate::ann_index::AnnIndex>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +85,12 @@ impl VectorIndexer {
         // Create tables
         Self::create_tables(&conn)?;
 
+        let kortex_dir = db_path.parent().unwrap_or(&db_path).to_path_buf();
+        let ann = Arc::new(std::sync::Mutex::new(crate::ann_index::AnnIndex::new(kortex_dir)));
+        if let Ok(a) = ann.lock() {
+            let _ = a.load();
+        }
+
         Ok(Self {
             db_path: db_path.clone(),
             root_path: Arc::new(RwLock::new(root_path)),
@@ -99,6 +106,7 @@ impl VectorIndexer {
                 chunks_created: 0,
                 progress_percent: 0.0,
             })),
+            ann,
         })
     }
 
@@ -185,6 +193,41 @@ impl VectorIndexer {
         if let Ok(mut hashes) = self.file_hashes.write() {
             hashes.clear();
         }
+        let kortex_dir = db_path.parent().unwrap_or(&db_path).to_path_buf();
+        if let Ok(mut a) = self.ann.lock() {
+            *a = crate::ann_index::AnnIndex::new(kortex_dir);
+            let _ = a.load();
+        }
+        Ok(())
+    }
+
+    async fn rebuild_ann_from_db(&self) -> anyhow::Result<()> {
+        if let Ok(a) = self.ann.lock() {
+            let _ = a.clear();
+        }
+        let rows: Vec<(String, Vec<u8>)> = {
+            let conn = self.conn.lock().await;
+            let mut stmt = conn.prepare(
+                "SELECT id, embedding FROM code_chunks WHERE embedding IS NOT NULL",
+            )?;
+            let mapped = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?.unwrap_or_default(),
+                ))
+            })?;
+            mapped
+                .filter_map(|r| r.ok())
+                .filter(|(_, b)| !b.is_empty())
+                .collect()
+        };
+        if let Ok(a) = self.ann.lock() {
+            for (id, blob) in rows {
+                if let Some(emb) = Self::parse_embedding_blob(&blob) {
+                    let _ = a.upsert(&id, &emb);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -221,9 +264,10 @@ impl VectorIndexer {
         let file_hashes = self.file_hashes.clone();
         let indexing_progress = self.indexing_progress.clone();
         let is_indexing = self.is_indexing.clone();
+        let ann = self.ann.clone();
 
         tokio::spawn(async move {
-            let result = Self::run_indexing_internal(&root, &conn, &file_hashes, &indexing_progress).await;
+            let result = Self::run_indexing_internal(&root, &conn, &file_hashes, &indexing_progress, &ann).await;
 
             // Mark indexing as complete
             if let Ok(mut indexing) = is_indexing.write() {
@@ -243,6 +287,7 @@ impl VectorIndexer {
         conn: &Arc<Mutex<Connection>>,
         file_hashes: &Arc<RwLock<HashMap<PathBuf, String>>>,
         indexing_progress: &Arc<RwLock<IndexingProgress>>,
+        ann: &Arc<std::sync::Mutex<crate::ann_index::AnnIndex>>,
     ) -> anyhow::Result<()> {
         println!("[VECTOR_INDEX] Starting codebase indexing for: {:?}", root);
 
@@ -365,6 +410,35 @@ impl VectorIndexer {
 
         println!("[VECTOR_INDEX] Indexing complete: {} files, {} chunks, {} symbols", 
                  total_files, chunks_created, symbols_extracted);
+
+        // Rebuild ANN flat index from stored embeddings
+        if let Ok(a) = ann.lock() {
+            let _ = a.clear();
+        }
+        let rows: Vec<(String, Vec<u8>)> = {
+            let conn_lock = conn.lock().await;
+            let mut stmt = conn_lock.prepare(
+                "SELECT id, embedding FROM code_chunks WHERE embedding IS NOT NULL",
+            )?;
+            let mapped = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?.unwrap_or_default(),
+                ))
+            })?;
+            mapped
+                .filter_map(|r| r.ok())
+                .filter(|(_, b)| !b.is_empty())
+                .collect()
+        };
+        if let Ok(a) = ann.lock() {
+            for (id, blob) in rows {
+                if let Some(emb) = Self::parse_embedding_blob(&blob) {
+                    let _ = a.upsert(&id, &emb);
+                }
+            }
+            println!("[VECTOR_INDEX] ANN flat index: {} vectors", a.len());
+        }
 
         {
             let mut progress = indexing_progress.write().map_err(|_| anyhow::anyhow!("Lock poisoned"))?;
@@ -662,6 +736,46 @@ impl VectorIndexer {
 
     pub async fn search_codebase(&self, query: &str, limit: usize) -> anyhow::Result<Vec<SearchResult>> {
         let query_embedding = crate::embeddings::embed_text_async(query, None).await.ok();
+
+        // ANN fast path — hydrate top-k from SQLite by chunk id
+        if let Some(ref qe) = query_embedding {
+            let hits = self
+                .ann
+                .lock()
+                .ok()
+                .and_then(|ann| ann.search(qe, limit.saturating_mul(3).max(limit)).ok())
+                .unwrap_or_default();
+            if !hits.is_empty() {
+                let conn = self.conn.lock().await;
+                let mut ann_results = Vec::new();
+                for (chunk_id, ann_score) in hits {
+                    let row = conn.query_row(
+                        "SELECT file_path, content, start_line, end_line FROM code_chunks WHERE id = ?1",
+                        params![chunk_id],
+                        |row| {
+                            Ok(SearchResult {
+                                file_path: row.get(0)?,
+                                content: row.get(1)?,
+                                start_line: row.get::<_, i64>(2)? as usize,
+                                end_line: row.get::<_, i64>(3)? as usize,
+                                relevance_score: ann_score * 10.0,
+                                context: Self::extract_context(
+                                    &row.get::<_, String>(1)?,
+                                    &query.to_lowercase(),
+                                ),
+                            })
+                        },
+                    );
+                    if let Ok(r) = row {
+                        ann_results.push(r);
+                    }
+                }
+                if ann_results.len() >= limit {
+                    ann_results.truncate(limit);
+                    return Ok(ann_results);
+                }
+            }
+        }
 
         let conn = self.conn.lock().await;
 

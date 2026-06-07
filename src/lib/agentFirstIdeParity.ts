@@ -105,10 +105,10 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'vector-index',
         name: 'Semantic codebase index',
-        description: 'Vector + AIM search with Ollama embeddings at index time',
+        description: 'Flat ANN top-k + SQLite chunks with Ollama embeddings',
         tier: 'wired',
-        sources: ['cursor-retrieval'],
-        hadesPath: 'vector_indexer.rs, embeddings.rs',
+        sources: ['cursor-retrieval', 'turbovec'],
+        hadesPath: 'vector_indexer.rs, ann_index.rs, embeddings.rs',
     },
     // ── Integrate next (from Hermes + Claude map) ──
     {
@@ -130,15 +130,15 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'hermes-acp',
         name: 'ACP streaming (native port)',
-        description: 'Tool streaming patterns from Hermes acp — port to ai_engine, no subprocess',
-        tier: 'integrate-next',
-        sources: ['hermes acp_adapter'],
-        hadesPath: 'ai_engine.rs streaming (planned)',
+        description: 'Parallel read-only tool batch during agent turns',
+        tier: 'wired',
+        sources: ['hermes acp_adapter', 'claude-map/StreamingToolExecutor.ts'],
+        hadesPath: 'streaming_tool_executor.rs, ai_engine.rs',
     },
     {
         id: 'pytorch-ml-studio',
         name: 'PyTorch ML Studio',
-        description: 'Friend-of-ML-engineers pipeline: datasets, Optuna HPO, graphs, export — TorchStudio-class',
+        description: 'Datasets, Optuna HPO, remote SSH workers, Netron ONNX, TorchStudio-class',
         tier: 'hades-advantage',
         sources: ['pytorch.org', 'torchstudio.ai'],
         hadesPath: 'ml_studio.rs, PyTorchStudioPanel.tsx, scripts/ml/',
@@ -146,10 +146,10 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'hermes-gateway',
         name: 'Hermes gateway + cron',
-        description: 'Telegram/Discord/scheduled agents + OpenAI-compatible :8642 API',
-        tier: 'integrate-next',
+        description: 'OpenAI-compatible :8642 local API + cron job stub',
+        tier: 'wired',
         sources: ['gateway/run.py'],
-        hadesPath: 'planned native gateway',
+        hadesPath: 'hermes_gateway.rs, HermesGatewayPanel.tsx',
     },
     {
         id: 'hermes-voice',
@@ -179,9 +179,9 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
         id: 'streaming-tools',
         name: 'Streaming tool executor',
         description: 'Parallel safe tools during model stream',
-        tier: 'integrate-next',
+        tier: 'wired',
         sources: ['claude-map/StreamingToolExecutor.ts'],
-        hadesPath: 'ai_engine.rs',
+        hadesPath: 'streaming_tool_executor.rs, ai_engine.rs',
     },
     {
         id: 'trajectory-train',
@@ -211,8 +211,8 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'remote-ssh',
         name: 'Remote SSH / dev containers',
-        description: 'SSH probe + remote directory listing (full workspace mount planned)',
-        tier: 'partial',
+        description: 'SSH mount mirror, sync push/pull, remote exec',
+        tier: 'wired',
         sources: ['anysphere.remote-*'],
         hadesPath: 'remote_commands.rs, RemoteSshPanel.tsx',
     },

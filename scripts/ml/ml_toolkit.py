@@ -462,6 +462,22 @@ def cmd_model_graph(args):
     print(json.dumps({"svg": svg, "path": str(out_path)}))
 
 
+def cmd_export_onnx(args):
+    model, ckpt = load_checkpoint(Path(args.model))
+    sample = torch.zeros(1, len(ckpt["feature_cols"]))
+    onnx_path = Path(args.model).parent / "model.onnx"
+    torch.onnx.export(
+        model,
+        sample,
+        str(onnx_path),
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+        opset_version=17,
+    )
+    print(json.dumps({"ok": True, "onnx_path": str(onnx_path)}))
+
+
 def cmd_augment_preview(args):
     root = Path(args.root)
     ml = root / ".hades" / "ml"
@@ -636,6 +652,9 @@ def main():
     mg = sub.add_parser("model_graph")
     mg.add_argument("--model", required=True)
 
+    ox = sub.add_parser("export_onnx")
+    ox.add_argument("--model", required=True)
+
     ap = sub.add_parser("augment_preview")
     ap.add_argument("--root", required=True)
     ap.add_argument("--samples", default="4")
@@ -671,6 +690,7 @@ def main():
         "grad_check": cmd_grad_check,
         "benchmark": cmd_benchmark,
         "model_graph": cmd_model_graph,
+        "export_onnx": cmd_export_onnx,
         "augment_preview": cmd_augment_preview,
         "load_pretrained": cmd_load_pretrained,
         "compare_runs": cmd_compare_runs,

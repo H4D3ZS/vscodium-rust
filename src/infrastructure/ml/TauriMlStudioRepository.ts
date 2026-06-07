@@ -26,10 +26,11 @@ export class TauriMlStudioRepository implements IMlStudioRepository {
             root, csvName, targetColumn, valRatio,
         });
     }
-    train(root: string, resumeRunId?: string) {
-        return invoke<{ ok: boolean; job_id?: string; run_id?: string; resumed?: boolean }>('ml_studio_train', {
+    train(root: string, resumeRunId?: string, workerId?: string) {
+        return invoke<{ ok: boolean; job_id?: string; run_id?: string; resumed?: boolean; remote?: boolean }>('ml_studio_train', {
             root,
             resumeRunId: resumeRunId ?? null,
+            workerId: workerId ?? null,
         });
     }
     cancelTrain(root: string, runId: string) {
@@ -91,6 +92,15 @@ export class TauriMlStudioRepository implements IMlStudioRepository {
     }
     exportReport(root: string, runId: string) {
         return invoke<string>('ml_studio_export_report', { root, runId });
+    }
+    listWorkers(root: string) {
+        return invoke<{ id: string; host: string; user: string; port: number; remote_root: string; python: string; cuda?: boolean }[]>('ml_studio_list_workers', { root });
+    }
+    saveWorker(root: string, worker: { id: string; host: string; user: string; port: number; remote_root: string; python: string; cuda?: boolean }) {
+        return invoke<void>('ml_studio_save_worker', { root, worker });
+    }
+    exportOnnx(root: string, runId: string) {
+        return invoke<{ ok: boolean; onnx_path?: string }>('ml_studio_export_onnx', { root, runId });
     }
 }
 

@@ -112,7 +112,7 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         cursorRef: 'workbench contributions',
         features: [
             { id: 'canvas', name: 'Canvas / Glass artifacts', description: 'Rich visual agent output panel', cursorRef: 'Canvas', status: 'done', hadesPath: 'CanvasArtifactPanel.tsx, ag_brain_*' },
-            { id: 'remote-ssh', name: 'Remote SSH / dev containers', description: 'Remote workspace development', cursorRef: 'anysphere.remote-*', status: 'partial', hadesPath: 'remote_commands.rs, RemoteSshPanel.tsx' },
+            { id: 'remote-ssh', name: 'Remote SSH / dev containers', description: 'Mount remote workspace via rsync mirror + sync push/pull', cursorRef: 'anysphere.remote-*', status: 'done', hadesPath: 'remote_commands.rs, RemoteSshPanel.tsx' },
             { id: 'mobile', name: 'Mobile / iOS mirror', description: 'Device preview & stream', cursorRef: '—', status: 'done', hadesPath: 'ios_simulator.rs, UnifiedEmulatorPanel' },
             { id: 'scm-ai', name: 'AI commit messages', description: 'Generate git commit from diff', cursorRef: 'cursor.generateGitCommitMessage', status: 'done', hadesPath: 'gitSlice.ts, get_git_diff' },
         ],

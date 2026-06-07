@@ -29,6 +29,9 @@ mod ai_project_commands;
 mod airi_bridge;
 mod claurst_bridge;
 mod remote_commands;
+mod hermes_gateway;
+mod ann_index;
+mod streaming_tool_executor;
 mod ide_shell;
 mod hermes_skills;
 mod skill_audit;
@@ -503,6 +506,10 @@ pub fn run() {
             ml_studio::ml_studio_augment_preview,
             ml_studio::ml_studio_load_pretrained,
             ml_studio::ml_studio_compare_runs,
+            ml_studio::ml_studio_list_workers,
+            ml_studio::ml_studio_save_worker,
+            ml_studio::ml_studio_export_onnx,
+            ml_studio::ml_studio_netron_url,
             stop_hooks::stop_hooks_get,
             stop_hooks::stop_hooks_save,
             stop_hooks::stop_hooks_run,
@@ -726,9 +733,21 @@ pub fn run() {
             browser::browser_get_content_summary,
             browser::browser_status,
             browser::browser_capture_vision_context,
-            // ═══ Remote SSH (probe) ═══
+            // ═══ Remote SSH ═══
             remote_commands::remote_ssh_probe,
             remote_commands::remote_ssh_list_dir,
+            remote_commands::remote_ssh_mount,
+            remote_commands::remote_ssh_sync_pull,
+            remote_commands::remote_ssh_sync_push,
+            remote_commands::remote_ssh_disconnect,
+            remote_commands::remote_ssh_status,
+            remote_commands::remote_ssh_exec,
+            remote_commands::remote_ssh_read_file,
+            remote_commands::remote_ssh_write_file,
+            // ═══ Hermes gateway (:8642) ═══
+            hermes_gateway::hermes_gateway_start,
+            hermes_gateway::hermes_gateway_stop,
+            hermes_gateway::hermes_gateway_status,
             // ═══ Vector Search ═══
             vector_commands::vector_index_codebase,
             vector_commands::vector_search_codebase,

@@ -4085,7 +4085,22 @@ impl Sentient {
 
             // Process tool calls if present
             if let Some(tool_calls) = &chat_message.tool_calls {
-                for tool_call in tool_calls {
+                let prefetch_specs: Vec<(String, String)> = tool_calls
+                    .iter()
+                    .map(|tc| {
+                        (
+                            crate::tool_aliases::canonical_tool_name(&tc.function.name).to_string(),
+                            tc.function.arguments.clone(),
+                        )
+                    })
+                    .collect();
+                let mut prefetched = crate::streaming_tool_executor::prefetch_parallel_tools(
+                    &self.tool_invoker,
+                    &prefetch_specs,
+                )
+                .await;
+
+                for (tool_idx, tool_call) in tool_calls.iter().enumerate() {
                     self.wait_if_paused().await; // Wait here before executing each individual tool
                     
                     if self.is_stopped() {
@@ -4283,7 +4298,9 @@ impl Sentient {
                     // approve/deny before the tool runs (B9 per-tool permission prompts).
                     let app_handle_ref = self.app_handle.read().ok()
                         .and_then(|g| g.clone());
-                    let mut tool_result = if let Some(blocked) = self
+                    let mut tool_result: Result<serde_json::Value, String> = if let Some(cached) = prefetched.remove(&tool_idx) {
+                        cached
+                    } else if let Some(blocked) = self
                         .intercept_zero_grep_orientation(&tool_name, &tool_args_json, iteration)
                         .await
                     {
@@ -4297,6 +4314,7 @@ impl Sentient {
                                 Some(&self.permission_senders),
                             )
                             .await
+                            .map_err(|e| e.to_string())
                     };
 
                     // Append pre-check warning to result so AI sees it and can self-correct
