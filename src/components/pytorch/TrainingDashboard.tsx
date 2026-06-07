@@ -220,4 +220,5 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({ root, runId, poll
     );
 };
 
+export { MiniLineChart };
 export default TrainingDashboard;
