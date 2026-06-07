@@ -12,6 +12,7 @@
     "typecheck": "node --stack-size=10000 node_modules/typescript/bin/tsc",
     "build": "vite build --configLoader native",
     "prebuild:sidecar": "node scripts/prebuild-release.mjs",
+    "fetch:ripgrep": "node scripts/fetch-ripgrep.mjs",
     "build:tauri": "npm run prebuild:sidecar && npm run build && npx tauri build",
     "build:mac": "bash scripts/build-macos-universal.sh",
     "build:mac:arm64": "npm run prebuild:sidecar && npm run build && npx tauri build -- --target aarch64-apple-darwin",
