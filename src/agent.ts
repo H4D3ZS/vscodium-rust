@@ -1047,9 +1047,10 @@ async function runConversationalFastChat(opts: {
     routingModel: string;
     routingOllamaUrl: string;
     inferenceBackend: string;
+    context?: any[];
     onUpdate?: (msg: string) => void;
 }): Promise<boolean> {
-    const { store, userPrompt, routingProvider, routingModel, routingOllamaUrl, inferenceBackend, onUpdate } = opts;
+    const { store, userPrompt, routingProvider, routingModel, routingOllamaUrl, inferenceBackend, context = [], onUpdate } = opts;
     const storeState = store.getState();
     if (shouldForceFullAgentLoop(userPrompt, storeState, routingModel || storeState.agentModel || '')) return false;
     if (!isConversationalFastPathEligible(userPrompt, storeState)) return false;
@@ -1101,11 +1102,15 @@ async function runConversationalFastChat(opts: {
             metadata: null,
         }));
 
+    const isLocal = isLocalInferenceRoute(store);
+    const fileBlock = await formatAttachedFilesForPrompt(context, isLocal ? 8000 : 12000);
+
     const systemContent =
         'You are AIRI, a concise coding assistant in VSCodium-Rust IDE. Answer directly in markdown. ' +
-        'When codebase context is provided below, summarize structure, stack, and main modules from it — ' +
-        'do NOT say you will list the repo or run tools; answer now from the context.' +
-        aimBlock;
+        'When codebase or file context is provided below, answer from it — do NOT say a file is missing if its contents are included. ' +
+        'Do NOT say you will list the repo or run tools; answer now from the context.' +
+        aimBlock +
+        fileBlock;
 
     const fastMessages = [
         { role: 'system', content: systemContent, tool_calls: null, metadata: null },
@@ -2019,6 +2024,14 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
 
     setAiStatus('alive');
 
+    const storeStateEarly = store.getState();
+    const activeRootEarly = storeStateEarly.activeRoot || '';
+    const contextWithInline = await resolveInlineFileMentions(
+        userPrompt,
+        activeRootEarly,
+        context || storeStateEarly.attachedFiles || [],
+    );
+
     // Early fast chat — skip heavy system prompt + tool schemas for simple questions.
     if (await runConversationalFastChat({
         store,
@@ -2027,6 +2040,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         routingModel,
         routingOllamaUrl,
         inferenceBackend,
+        context: contextWithInline,
         onUpdate,
     })) {
         logTaskToMemory(userPrompt).catch(() => { });
@@ -2038,7 +2052,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     const activeRoot = storeState.activeRoot || '';
 
     // Resolve special @mentions (@codebase, @web, @git, @docs) before sending
-    const resolvedContext = await resolveSpecialMentions(context || storeState.attachedFiles || [], userPrompt, activeRoot);
+    const resolvedContext = await resolveSpecialMentions(contextWithInline, userPrompt, activeRoot);
 
     // Vision sidecar — text-only agent + image attachments → local VL summary (Cursor-style)
     let attachmentContext = resolvedContext;
@@ -4198,14 +4212,96 @@ listen('ai-content', (event: { payload: { content: string } | any }) => {
     }
 });
 
+async function formatAttachedFilesForPrompt(items: any[], maxCharsPerFile = 8000): Promise<string> {
+    const parts: string[] = [];
+    for (const item of items) {
+        if (!item || (item.type !== 'mention' && item.type !== 'file' && item.type !== 'attachment')) continue;
+        let content = item.data;
+        if (!content && item.path) {
+            try {
+                content = await invoke<string>('read_file', { path: item.path });
+            } catch {
+                content = `(Could not read ${item.name || item.path})`;
+            }
+        }
+        if (!content) continue;
+        const text = String(content);
+        const clipped = text.length > maxCharsPerFile
+            ? `${text.slice(0, maxCharsPerFile)}\n… (truncated)`
+            : text;
+        parts.push(`### File: ${item.name || item.path}\n\`\`\`\n${clipped}\n\`\`\``);
+    }
+    return parts.length ? `\n\n## Referenced files\n${parts.join('\n\n')}` : '';
+}
+
+const INLINE_SPECIAL_MENTIONS = new Set([
+    'codebase', 'web', 'git', 'docs', 'symbol', 'folder', 'problems', 'terminal',
+]);
+
+/** Parse `@filename` tokens in the user message and load matching workspace files. */
+async function resolveInlineFileMentions(
+    query: string,
+    activeRoot: string,
+    existing: any[],
+): Promise<any[]> {
+    const out = [...existing];
+    const seen = new Set(
+        existing.map((c) => String(c.path || c.name || '').replace(/\\/g, '/').toLowerCase()),
+    );
+    const re = /@([^\s@,;:]+)/g;
+    let m: RegExpExecArray | null;
+    const files = (window as any).useStore?.getState?.()?.getFlattenedFiles?.() || [];
+    const rootNorm = activeRoot.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
+
+    while ((m = re.exec(query)) !== null) {
+        const raw = m[1].replace(/^@+/, '').trim();
+        if (!raw || INLINE_SPECIAL_MENTIONS.has(raw.toLowerCase())) continue;
+
+        const target = raw.replace(/\\/g, '/').toLowerCase();
+        const hit = files.find((f) => {
+            const name = f.name.toLowerCase();
+            const pathNorm = f.path.replace(/\\/g, '/').toLowerCase();
+            const rel = rootNorm && pathNorm.startsWith(rootNorm)
+                ? pathNorm.slice(rootNorm.length).replace(/^\//, '')
+                : pathNorm;
+            return (
+                name === target
+                || rel === target
+                || rel.endsWith(`/${target}`)
+                || pathNorm.endsWith(`/${target}`)
+            );
+        });
+        if (!hit) continue;
+        const key = hit.path.replace(/\\/g, '/').toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        let data = '';
+        try {
+            data = await invoke<string>('read_file', { path: hit.path });
+        } catch {
+            data = `(Error reading ${hit.path})`;
+        }
+        out.push({
+            id: hit.path,
+            type: 'mention',
+            name: hit.name,
+            path: hit.path,
+            data,
+        });
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Special @mention resolution — @codebase, @web, @git, @docs
 // ---------------------------------------------------------------------------
 async function resolveSpecialMentions(context: any[], query: string, activeRoot: string): Promise<any[]> {
+    const withInline = await resolveInlineFileMentions(query, activeRoot, context);
     const resolved: any[] = [];
     let hasCodebase = false;
 
-    for (const item of context) {
+    for (const item of withInline) {
         if (item.type !== 'special') {
             resolved.push(item);
             continue;

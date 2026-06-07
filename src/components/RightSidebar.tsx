@@ -1143,13 +1143,7 @@ const RightSidebar: React.FC = () => {
         ));
     }, [messages]);
 
-    useEffect(() => {
-        // Keep the newest message in view as the conversation grows.
-        const container = document.querySelector('.right-sidebar-messages');
-        if (container) {
-            container.scrollTop = container.scrollHeight;
-        }
-    }, [visibleMessages]);
+    const chatScrollRef = useRef<HTMLDivElement>(null);
 
     // Track current activity from live tool calls
     const [currentActivity, setCurrentActivity] = React.useState<AvatarState>('idle');
@@ -2164,7 +2158,7 @@ const RightSidebar: React.FC = () => {
                     /* ── CHAT / MISSION HUB MODE ── */
                     <div className="right-sidebar-body">
                         {view === 'chat' ? (
-                            <div className={`right-sidebar-messages right-sidebar-scroll ${messages.length === 0 ? 'right-sidebar-empty-chat' : ''}`} style={{ justifyContent: 'flex-start', alignItems: 'stretch', paddingTop: 0 }}>
+                            <div ref={chatScrollRef} className={`right-sidebar-messages right-sidebar-scroll ${messages.length === 0 ? 'right-sidebar-empty-chat' : ''}`} style={{ justifyContent: 'flex-start', alignItems: 'stretch', paddingTop: 0 }}>
 
                                 {/* AIRI Sentient Header — only rendered when VRM is enabled */}
                                 {showVrmAvatar ? (
@@ -2349,6 +2343,7 @@ const RightSidebar: React.FC = () => {
                                 ))}
 
                                 <ChatMessageList
+                                    scrollContainerRef={chatScrollRef}
                                     messages={visibleMessages}
                                     isAgentThinking={isAgentThinking}
                                     lastCopiedIdx={lastCopiedIdx}
