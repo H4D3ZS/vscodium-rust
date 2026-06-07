@@ -1146,20 +1146,124 @@ impl Sentient {
         false
     }
 
+    /// Ensure tool `arguments` string is valid JSON (Ollama rejects malformed history).
+    fn sanitize_tool_arguments(raw: &str) -> String {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return "{}".to_string();
+        }
+        if serde_json::from_str::<Value>(trimmed).is_ok() {
+            return trimmed.to_string();
+        }
+        let mut s = trimmed.to_string();
+        let mut depth = 0i32;
+        let mut in_str = false;
+        let mut esc = false;
+        for ch in s.chars() {
+            if esc {
+                esc = false;
+                continue;
+            }
+            if ch == '\\' && in_str {
+                esc = true;
+                continue;
+            }
+            if ch == '"' {
+                in_str = !in_str;
+                continue;
+            }
+            if !in_str {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => depth -= 1,
+                    _ => {}
+                }
+            }
+        }
+        if in_str {
+            s.push('"');
+        }
+        for _ in 0..depth.max(0) {
+            s.push('}');
+        }
+        if serde_json::from_str::<Value>(&s).is_ok() {
+            return s;
+        }
+        "{}".to_string()
+    }
+
+    fn truncate_for_ollama(s: &str, max: usize) -> String {
+        if s.len() <= max {
+            return s.to_string();
+        }
+        format!(
+            "{}… [truncated {} chars]",
+            &s[..max],
+            s.len().saturating_sub(max)
+        )
+    }
+
+    /// Serialize tool calls for Ollama. OpenAI-compat (`/v1`) wants `arguments` as a JSON
+    /// string; native `/api/chat` accepts a parsed object (avoids template parser 400s).
+    fn ollama_tool_calls_json(calls: &[ToolCall], openai_compat: bool) -> Value {
+        json!(
+            calls
+                .iter()
+                .map(|tc| {
+                    let args_str = Self::sanitize_tool_arguments(&tc.function.arguments);
+                    let mut func = json!({ "name": tc.function.name });
+                    if openai_compat {
+                        func["arguments"] = json!(args_str);
+                    } else {
+                        let args_val: Value =
+                            serde_json::from_str(&args_str).unwrap_or(json!({}));
+                        func["arguments"] = args_val;
+                    }
+                    json!({
+                        "id": if tc.id.is_empty() { Value::Null } else { json!(&tc.id) },
+                        "type": tc.type_field,
+                        "function": func,
+                    })
+                })
+                .collect::<Vec<_>>()
+        )
+    }
+
+    async fn ollama_use_openai_compat_endpoint(&self, req: &AiRequest, model: &str) -> bool {
+        let base = self.resolved_ollama_base(req).await;
+        let m = model.to_lowercase();
+        Self::is_cyberifrit_managed_ollama_url(&base)
+            || m.contains("bugtrace")
+            || model.contains("hf.co/")
+    }
+
     /// Transform `ChatMessage` list into a Ollama-compatible JSON messages array.
     /// For vision models: extracts `image_url` content parts → `images: [base64]` field.
     /// For text-only or non-vision Ollama models: serialises messages normally.
-    fn build_ollama_messages(messages: &[ChatMessage], vision: bool) -> Value {
-        let msg_array: Vec<Value> = messages.iter().map(|m| {
+    fn build_ollama_messages(messages: &[ChatMessage], vision: bool, openai_compat: bool) -> Value {
+        const TOOL_CONTENT_MAX: usize = 48_000;
+        let msg_array: Vec<Value> = messages
+            .iter()
+            .map(|m| {
             let role = &m.role;
+            let role_lc = role.to_lowercase();
 
             match &m.content {
                 None | Some(MessageContent::Text(_)) => {
-                    let text = m.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
+                    let mut text = m.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
+                    if role_lc == "tool" {
+                        text = Self::truncate_for_ollama(&text, TOOL_CONTENT_MAX);
+                    }
                     let mut obj = json!({ "role": role, "content": text });
                     // Pass tool_calls through if present (Ollama native tools)
                     if let Some(tc) = &m.tool_calls {
-                        obj["tool_calls"] = json!(tc);
+                        if !tc.is_empty() {
+                            obj["tool_calls"] = Self::ollama_tool_calls_json(tc, openai_compat);
+                            // Duplicate ```json tool blocks in content break Ollama parsers.
+                            if role_lc == "assistant" {
+                                obj["content"] = json!("");
+                            }
+                        }
                     }
                     if let Some(tcid) = &m.tool_call_id {
                         obj["tool_call_id"] = json!(tcid);
@@ -2788,6 +2892,12 @@ impl Sentient {
                 }
             }
 
+            let ollama_openai_compat = if active_provider.to_lowercase() == "ollama" {
+                self.ollama_use_openai_compat_endpoint(&req, &active_model).await
+            } else {
+                false
+            };
+
             // Inject the one-shot PLAN-phase directive for the planner's iter-0. Downstream
             // try_parse_task_plan() lifts <TASK_PLAN> into the task-planner UI. The directive
             // is stripped once iteration > 0 (see top of loop) so the executor is never told
@@ -3260,7 +3370,8 @@ impl Sentient {
                 };
 
                 let is_vision = Self::is_vision_model(&active_model);
-                let ollama_messages = Self::build_ollama_messages(&final_messages, is_vision);
+                let ollama_messages =
+                    Self::build_ollama_messages(&final_messages, is_vision, ollama_openai_compat);
 
                 let is_local_inference = matches!(
                     active_provider.to_lowercase().as_str(),
@@ -3381,7 +3492,9 @@ impl Sentient {
                 } else {
                     req.temperature.unwrap_or(0.6)
                 };
-                Self::ensure_ollama_payload(&mut payload, &active_model, ollama_temp, 8192);
+                if !ollama_openai_compat {
+                    Self::ensure_ollama_payload(&mut payload, &active_model, ollama_temp, 8192);
+                }
             }
 
             // Get session first (async)
@@ -3573,6 +3686,7 @@ impl Sentient {
                             *msgs = json!(Self::build_ollama_messages(
                                 &messages,
                                 Self::is_vision_model(&active_model),
+                                ollama_openai_compat,
                             ));
                         }
                         let retry_ctx = Self::recommended_num_ctx(&active_model);
@@ -3976,6 +4090,10 @@ impl Sentient {
                 "AI Stream finished. Total content length: {}",
                 full_content.len()
             );
+
+            for tc in &mut native_tool_calls {
+                tc.function.arguments = Self::sanitize_tool_arguments(&tc.function.arguments);
+            }
             
             // Emit completion event with final stats for Ollama
             if active_provider == "ollama" {
@@ -5201,16 +5319,22 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
 
         let payload = if is_ollama {
             let is_vision = Self::is_vision_model(&req.model);
-            let messages = Self::build_ollama_messages(&req.messages, is_vision);
+            let ollama_openai_compat =
+                self.ollama_use_openai_compat_endpoint(&req, &req.model).await;
+            let messages =
+                Self::build_ollama_messages(&req.messages, is_vision, ollama_openai_compat);
             let temp = req.temperature.unwrap_or(0.1);
             let chat_stream = req.feature.as_deref() == Some("Chat");
-            json!({
+            let mut body = json!({
                 "model": req.model,
                 "messages": messages,
                 "temperature": temp,
                 "stream": chat_stream,
-                "options": Self::ollama_inference_options(&req.model, temp, 1024),
-            })
+            });
+            if !ollama_openai_compat {
+                body["options"] = Self::ollama_inference_options(&req.model, temp, 1024);
+            }
+            body
         } else {
             let trimmed = if is_highway_family(effective_provider) {
                 trim_assistant_prefill(&req.messages)
@@ -5225,9 +5349,12 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                 (String::new(), trimmed.clone())
             };
             let is_vision = Self::is_vision_model(&req.model);
+            let ollama_openai_compat =
+                self.ollama_use_openai_compat_endpoint(&req, &req.model).await;
             let api_messages = Self::build_ollama_messages(
                 if use_top_level { &conv_messages } else { &trimmed },
                 is_vision,
+                ollama_openai_compat,
             );
             let mut body = json!({
                 "model": req.model,
@@ -6185,7 +6312,15 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
                     .trim_end_matches("/chat/completions")
                     .trim_end_matches("/v1")
                     .trim_end_matches("/api/chat");
-                format!("{}/api/chat", root)
+                let m = req.model.to_lowercase();
+                if Self::is_cyberifrit_managed_ollama_url(root)
+                    || m.contains("bugtrace")
+                    || req.model.contains("hf.co/")
+                {
+                    format!("{}/v1/chat/completions", root)
+                } else {
+                    format!("{}/api/chat", root)
+                }
             }
             _ => {
                 if let Ok(url) = std::env::var("OPENAI_BASE_URL") {
