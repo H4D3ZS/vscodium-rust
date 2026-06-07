@@ -16,7 +16,10 @@ export interface SpecsSlice {
     setSpecsWizardOpen: (open: boolean) => void;
     setSpecsWizardStep: (step: 'generator' | 'status' | 'project') => void;
     setCurrentSpecProjectId: (id: number | null) => void;
-    startIndexingCodebase: () => Promise<void>;
+    /** Start vector indexing. Pass `{ force: true }` to re-index when idle (never restarts a run in progress). */
+    startIndexingCodebase: (options?: { force?: boolean }) => Promise<void>;
+    /** Refresh progress from backend without starting a new index. */
+    refreshIndexingProgress: () => Promise<void>;
     pollIndexingProgress: () => Promise<void>;
 }
 
@@ -35,11 +38,15 @@ export const createSpecsSlice: StateCreator<AppState, [], [], SpecsSlice> = (set
     setSpecsWizardStep: (step) => set({ specsWizardStep: step }),
     setCurrentSpecProjectId: (id) => set({ currentSpecProjectId: id }),
 
-    startIndexingCodebase: async () => {
+    refreshIndexingProgress: async () => {
+        await get().pollIndexingProgress();
+    },
+
+    startIndexingCodebase: async (options?: { force?: boolean }) => {
         const { activeRoot, indexingEnabled, isIndexingCodebase } = get();
         if (!activeRoot || !indexingEnabled) return;
         if (isIndexingCodebase) {
-            get().pollIndexingProgress();
+            await get().pollIndexingProgress();
             return;
         }
         set({ isIndexingCodebase: true, indexingProgress: null });
