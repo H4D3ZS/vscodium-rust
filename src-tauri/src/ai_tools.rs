@@ -2788,6 +2788,29 @@ impl AiTools {
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
 
+        if !full_path.exists() {
+            let suggestions = self
+                .memory_store
+                .suggest_similar_paths(path_str, 8)
+                .await;
+            let tree_sample = self.memory_store.get_project_tree_summary().await;
+            let mut msg = format!(
+                "File not found: '{path_str}' (resolved: {}). \
+                 This path is NOT in the workspace — do NOT retry the same path.",
+                full_path.display()
+            );
+            if !suggestions.is_empty() {
+                msg.push_str("\n\nSimilar paths in AIM index:\n");
+                for s in &suggestions {
+                    msg.push_str(&format!("  - {s}\n"));
+                }
+            } else {
+                msg.push_str("\n\nNo similar path in AIM. Use ### BRAIN tree — not ARCHITECTURE.md/CLAUDE.md unless listed.\n");
+                msg.push_str(&format!("Indexed tree sample: {tree_sample}"));
+            }
+            return Err(anyhow!(msg));
+        }
+
         // Always read from disk. Serving `get_vfs_cache` first caused the agent
         // to "comprehend" stale buffers (e.g. empty or pre-edit snapshots) while
         // the editor showed different on-disk truth — breaking writes and reviews.
