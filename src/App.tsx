@@ -93,6 +93,9 @@ const App: React.FC = () => {
         });
         // Push resolved Ollama URL into Rust (cloud/local/self-hosted) before model refresh.
         void syncOllamaEndpoint?.().then(() => refreshAvailableModels()).catch(() => refreshAvailableModels());
+        import('./lib/localOllamaAgentDefaults').then(({ migrateLocalOllamaPlannerSettings }) => {
+            migrateLocalOllamaPlannerSettings(useStore.getState());
+        });
 
         let unsubBilling: (() => void) | undefined;
         import('./lib/billingSync').then((m) => {

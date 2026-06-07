@@ -21,7 +21,8 @@ import {
     type SystemPromptConfig,
 } from './system_prompt.ts';
 import { getAimTrustManifest, queryAimSpans } from './kortex/aim-vfs';
-import { extractSearchReplaceBlocks, classifyModels, modelKey } from './model_capabilities';
+import { extractSearchReplaceBlocks, classifyModels, modelKey, isHeavyLocalModel } from './model_capabilities';
+import { hybridPlannerAllowed } from './lib/localOllamaAgentDefaults';
 import { cleanAgentContent, formatToolSummary } from './domain/agent/cleanAgentContent';
 // AIRI Digital Entity Integration - The Sentient Core
 import { airiAgentBridge, activateAIRIAgent } from './airi_agent_bridge';
@@ -2470,7 +2471,7 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
     // action turn so stale state from a prior turn never leaks into this one.
     try {
         const ps = store.getState() as any;
-        const wantPlanner = !!ps.plannerEnabled && looksLikeActionRequest(userPrompt);
+        const wantPlanner = hybridPlannerAllowed(ps) && looksLikeActionRequest(userPrompt);
         let plannerSpec = '';
         if (wantPlanner) {
             if (!ps.hybridAuto && ps.plannerModel) {
@@ -2481,6 +2482,15 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
             }
         }
         const executorKey = `${String(routingProvider).toLowerCase()}|${routingModel}`;
+        // Never delegate iter-0 to a 30B+ local model on a consumer rig — auto-detect used to pick these.
+        if (plannerSpec) {
+            const plannerId = plannerSpec.includes('|') ? plannerSpec.split('|').slice(1).join('|') : plannerSpec;
+            const plannerProv = plannerSpec.includes('|') ? plannerSpec.split('|')[0] : routingProvider;
+            if (String(plannerProv).toLowerCase() === 'ollama' && isHeavyLocalModel(plannerId)) {
+                console.warn('[Agent] Rejecting heavy local hybrid planner:', plannerSpec);
+                plannerSpec = '';
+            }
+        }
         if (plannerSpec && plannerSpec.toLowerCase() !== executorKey.toLowerCase()) {
             console.log('[Agent] Hybrid planner:', plannerSpec, '→ executor:', executorKey);
             await invoke('set_advisor_model', { model: plannerSpec }).catch(() => { });

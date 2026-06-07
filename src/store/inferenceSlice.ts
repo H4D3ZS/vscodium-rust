@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { AppState } from './index';
 import { normalizeOllamaUrl } from './utils';
 import { mergeLocalRegistryHints } from '../lib/localOllamaRegistry';
+import { applyLocalOllamaAgentDefaults } from '../lib/localOllamaAgentDefaults';
 
 export interface InferenceSlice {
     ollamaUrl: string;
@@ -181,6 +182,9 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             localStorage.setItem('ollamaUrl', url);
             if (mode === 'cloud') localStorage.setItem('customOllamaUrl', CYBERIFRIT_CLOUD_OLLAMA_URL);
         } catch { /* ignore */ }
+        if (mode === 'local') {
+            applyLocalOllamaAgentDefaults(get() as Parameters<typeof applyLocalOllamaAgentDefaults>[0]);
+        }
         void get().syncOllamaEndpoint?.();
         // Cloud AMD requires a live Supabase session — nudge if signed out.
         if (mode === 'cloud') {
@@ -228,6 +232,9 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
         localStorage.setItem('inferenceBackend', backend);
         set({ inferenceBackend: backend });
         const st = get();
+        if (backend === 'ollama' && st.ollamaServerMode === 'local') {
+            applyLocalOllamaAgentDefaults(st as Parameters<typeof applyLocalOllamaAgentDefaults>[0]);
+        }
         if (backend === 'llama-cpp') {
             import('../tauri_bridge').then(({ invoke }) => invoke('set_ollama_url', { url: st.llamaCppUrl }).catch(() => { }));
         } else if (backend === 'ollama') {
