@@ -13,6 +13,7 @@ import {
     runMlInference,
     saveMlConfig,
     trainMlModel,
+    listMlWorkers,
 } from '../../application/ml/mlStudio';
 import type { PyTorchDetectResult, PyTorchInstallVariant, PyTorchVerifyResult } from '../../domain/pytorch/IPyTorchRepository';
 import type { MlDatasetEntry, MlRunSummary, MlStudioConfig } from '../../domain/ml/IMlStudioRepository';
@@ -72,6 +73,8 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
     const [log, setLog] = useState<string>('');
     const [activeRunId, setActiveRunId] = useState<string | null>(null);
     const [resumeRunId, setResumeRunId] = useState('');
+    const [workerId, setWorkerId] = useState('');
+    const [workers, setWorkers] = useState<{ id: string; host: string }[]>([]);
 
     const columns = useMemo(() => {
         const d = datasets.find((x) => x.name === selectedCsv);
@@ -92,6 +95,7 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
             if (!selectedRun && r[0]) setSelectedRun(r[0].id);
             const active = await getMlActiveRun(root);
             if (active) setActiveRunId(active);
+            setWorkers(await listMlWorkers(root));
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
         }
@@ -135,7 +139,7 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
         setError(null);
         try {
             await saveMlConfig(root, config);
-            const res = await trainMlModel(root, resume || undefined);
+            const res = await trainMlModel(root, resume || undefined, workerId || undefined);
             setActiveRunId(res.run_id ?? null);
             const action = res.resumed ? 'Resumed' : 'Started';
             setLog(`${action} training: job ${res.job_id}, run ${res.run_id}\nOpen Dashboard tab for live charts.`);
@@ -350,6 +354,16 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
                             Pretrained template: <code>{config.model_source}/{config.model_template}</code> (tabular CSV still uses MLP; vision models apply when image data is prepared)
                         </p>
                     )}
+                    <div style={{ marginBottom: 12 }}>
+                        <label className="afi-muted" style={{ display: 'block', marginBottom: 4 }}>Remote worker (optional)</label>
+                        <select className="settings-select" value={workerId} onChange={(e) => setWorkerId(e.target.value)} style={{ width: '100%' }}>
+                            <option value="">Local GPU/CPU</option>
+                            {workers.map((w) => <option key={w.id} value={w.id}>{w.id} @ {w.host}</option>)}
+                        </select>
+                        <p className="afi-subtle" style={{ fontSize: 10, marginTop: 4 }}>
+                            Add workers in <code>.hades/ml/workers.json</code> or via Settings → Workspace remote SSH host.
+                        </p>
+                    </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
                         <button type="button" className="settings-button success" disabled={!!busy} onClick={() => void onTrain()}>
                             {busy === 'train' ? 'Starting…' : 'Start new training'}

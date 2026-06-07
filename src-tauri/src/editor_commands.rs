@@ -91,6 +91,12 @@ pub async fn set_active_root(
             if let Err(e) = state.vector_indexer.set_workspace(path_buf.clone()).await {
                 eprintln!("[set_active_root] vector indexer rebind failed: {e}");
             }
+            let root_for_ctx = path_buf.clone();
+            let ctx = state.context_indexer.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = ctx.trigger_index_cycle().await;
+                let _ = ctx.reindex_if_needed(&root_for_ctx);
+            });
             Ok(Some(cleaned))
         }
     }

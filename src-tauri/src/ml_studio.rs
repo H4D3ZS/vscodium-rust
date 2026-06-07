@@ -341,6 +341,7 @@ print(json.dumps({{"ok": True, **manifest}}))
 pub async fn ml_studio_train(
     root: String,
     resume_run_id: Option<String>,
+    worker_id: Option<String>,
     job_manager: State<'_, Arc<JobManager>>,
 ) -> Result<serde_json::Value, String> {
     let ml = ml_root(&root);
@@ -395,14 +396,27 @@ pub async fn ml_studio_train(
         return Err("train_classifier.py missing".to_string());
     }
 
+    let epochs = cfg.epochs.max(1);
+
+    if let Some(ref wid) = worker_id {
+        return ml_studio_train_remote(
+            &root,
+            &run_id,
+            wid,
+            &script,
+            epochs,
+            (*job_manager).clone(),
+        )
+        .await;
+    }
+
     let job_id = format!("ml-train-{}", run_id);
     job_manager.register(job_id.clone(), "PyTorch training".to_string()).await;
 
     let root_clone = root.clone();
-    let jobs = job_manager.inner().clone();
+    let jobs = (*job_manager).clone();
     let job_id_spawn = job_id.clone();
     let run_id_spawn = run_id.clone();
-    let epochs = cfg.epochs.max(1);
 
     tokio::task::spawn_blocking(move || {
         let mut child = hidden_command(&py)
@@ -894,4 +908,201 @@ pub async fn ml_studio_compare_runs(
 ) -> Result<serde_json::Value, String> {
     let runs = run_ids.join(",");
     toolkit(&root, &["compare_runs", "--root", &root, "--runs", &runs])
+}
+
+// ── Remote training workers (TorchStudio-class) ─────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MlRemoteWorker {
+    pub id: String,
+    pub host: String,
+    pub user: String,
+    pub port: u16,
+    pub remote_root: String,
+    pub python: String,
+    #[serde(default)]
+    pub cuda: bool,
+}
+
+fn workers_path(root: &str) -> PathBuf {
+    ml_root(root).join("workers.json")
+}
+
+fn read_workers(root: &str) -> Vec<MlRemoteWorker> {
+    let p = workers_path(root);
+    if !p.exists() {
+        return Vec::new();
+    }
+    std::fs::read_to_string(&p)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn write_workers(root: &str, workers: &[MlRemoteWorker]) -> Result<(), String> {
+    let p = workers_path(root);
+    std::fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(&p, serde_json::to_string_pretty(workers).unwrap()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ml_studio_list_workers(root: String) -> Result<Vec<MlRemoteWorker>, String> {
+    Ok(read_workers(&root))
+}
+
+#[tauri::command]
+pub fn ml_studio_save_worker(root: String, worker: MlRemoteWorker) -> Result<(), String> {
+    let mut workers = read_workers(&root);
+    if let Some(i) = workers.iter().position(|w| w.id == worker.id) {
+        workers[i] = worker;
+    } else {
+        workers.push(worker);
+    }
+    write_workers(&root, &workers)
+}
+
+async fn ml_studio_train_remote(
+    root: &str,
+    run_id: &str,
+    worker_id: &str,
+    script: &Path,
+    epochs: u32,
+    job_manager: Arc<JobManager>,
+) -> Result<serde_json::Value, String> {
+    let worker = read_workers(root)
+        .into_iter()
+        .find(|w| w.id == worker_id)
+        .ok_or_else(|| format!("Worker '{worker_id}' not found — add in ML Studio"))?;
+
+    let job_id = format!("ml-train-remote-{}", run_id);
+    job_manager
+        .register(job_id.clone(), format!("Remote train on {}", worker.host))
+        .await;
+
+    let ml_local = ml_root(root);
+    let remote_ml = format!(
+        "{}/.hades/ml",
+        worker.remote_root.trim_end_matches('/')
+    );
+    let target = format!("{}@{}", worker.user, worker.host);
+    let port = worker.port.to_string();
+
+    // Sync project ML folder to remote worker
+    if which::which("rsync").is_ok() {
+        let mut cmd = hidden_command("rsync");
+        cmd.args([
+            "-az",
+            "-e",
+            &format!(
+                "ssh -p {} -o BatchMode=yes -o StrictHostKeyChecking=accept-new",
+                port
+            ),
+            &format!("{}/", ml_local.display()),
+            &format!("{target}:{remote_ml}/"),
+        ]);
+        let out = cmd.output().map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).to_string());
+        }
+    }
+
+    let remote_script = format!(
+        "{}/scripts/{}",
+        remote_ml,
+        script.file_name().and_then(|s| s.to_str()).unwrap_or("train_classifier.py")
+    );
+    let remote_cmd = format!(
+        "cd {} && {} -u {} {}",
+        worker.remote_root,
+        worker.python,
+        remote_script,
+        worker.remote_root
+    );
+
+    let jobs = job_manager.clone();
+    let job_id_spawn = job_id.clone();
+    let host = worker.host.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = hidden_command("ssh");
+        cmd.args([
+            "-p",
+            &port,
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=30",
+            &target,
+            &remote_cmd,
+        ]);
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let rt = tokio::runtime::Handle::current();
+        rt.block_on(jobs.update(&job_id_spawn, 5, &format!("Training on {host}")));
+        match cmd.output() {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                for line in stdout.lines() {
+                    if let Some(json) = line.strip_prefix("ML_METRIC:") {
+                        if let Ok(row) = serde_json::from_str::<MlEpochMetric>(json) {
+                            let pct = ((row.epoch as f32 / epochs as f32) * 100.0) as u8;
+                            rt.block_on(jobs.update(
+                                &job_id_spawn,
+                                pct.min(99),
+                                &format!("epoch {} loss {:.3}", row.epoch, row.val_loss),
+                            ));
+                        }
+                    }
+                }
+                rt.block_on(jobs.complete(
+                    &job_id_spawn,
+                    out.status.success(),
+                    if out.status.success() {
+                        "Remote training complete"
+                    } else {
+                        "Remote training failed"
+                    },
+                ));
+            }
+            Err(e) => {
+                rt.block_on(jobs.complete(&job_id_spawn, false, &e.to_string()));
+            }
+        }
+    });
+
+    Ok(serde_json::json!({
+        "ok": true,
+        "job_id": job_id,
+        "run_id": run_id,
+        "remote": true,
+        "worker": worker_id,
+    }))
+}
+
+#[tauri::command]
+pub async fn ml_studio_export_onnx(root: String, run_id: String) -> Result<serde_json::Value, String> {
+    let model = ml_root(&root).join("runs").join(&run_id).join("model.pt");
+    if !model.exists() {
+        return Err(format!("No model for run {run_id}"));
+    }
+    toolkit(
+        &root,
+        &[
+            "export_onnx",
+            "--model",
+            &model.to_string_lossy(),
+        ],
+    )
+}
+
+#[tauri::command]
+pub async fn ml_studio_netron_url(root: String, run_id: String) -> Result<serde_json::Value, String> {
+    let onnx = ml_studio_export_onnx(root, run_id).await?;
+    let path = onnx
+        .get("onnx_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    Ok(serde_json::json!({
+        "onnx_path": path,
+        "netron_embed": format!("https://netron.app/?embed=1"),
+        "note": "Open Netron with exported ONNX from the run folder",
+    }))
 }
