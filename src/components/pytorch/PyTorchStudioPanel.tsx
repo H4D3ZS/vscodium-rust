@@ -19,9 +19,15 @@ import { PYTORCH_BEGINNER_LESSONS } from '../../lib/pytorchLessons';
 import PyTorchLogo from './PyTorchLogo';
 import { closeCenterWorkbench } from '../../application/layout/closeCenterWorkbench';
 
-import TrainingDashboard from './TrainingDashboard';
+import {
+    DashboardPanel,
+    DatasetManagerPanel,
+    ExperimentsPanel,
+    ModelPanel,
+    ToolsPanel,
+} from './MlStudioPanels';
 
-type Tab = 'setup' | 'data' | 'train' | 'dashboard' | 'infer' | 'learn';
+type Tab = 'setup' | 'data' | 'train' | 'dashboard' | 'model' | 'experiments' | 'tools' | 'infer' | 'learn';
 
 const PYTORCH_DOCS = 'https://docs.pytorch.org/docs/2.12/index.html';
 const ROCM_DOCS = 'https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installrad/windows/install-pytorch.html';
@@ -155,6 +161,9 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
         { id: 'data', label: 'Data' },
         { id: 'train', label: 'Train' },
         { id: 'dashboard', label: 'Dashboard' },
+        { id: 'model', label: 'Model' },
+        { id: 'experiments', label: 'Experiments' },
+        { id: 'tools', label: 'Export/Debug' },
         { id: 'infer', label: 'Inference' },
         { id: 'learn', label: 'Learn' },
     ];
@@ -294,6 +303,9 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
                             <button type="button" className="settings-button success" disabled={!!busy || !targetCol} onClick={() => void onPrepare()}>
                                 {busy === 'prepare' ? 'Preparing…' : 'Prepare train/val split'}
                             </button>
+                            <div style={{ marginTop: 14 }}>
+                                <DatasetManagerPanel root={root} csvName={selectedCsv} targetCol={targetCol} />
+                            </div>
                         </>
                     )}
                 </div>
@@ -332,21 +344,30 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
 
             {tab === 'dashboard' && (
                 <div className="settings-card">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-                        <div style={{ fontWeight: 600 }}>Training dashboard</div>
-                        <select
-                            className="settings-select"
-                            value={activeRunId ?? ''}
-                            onChange={(e) => setActiveRunId(e.target.value || null)}
-                            style={{ minWidth: 160 }}
-                        >
-                            <option value="">Select run…</option>
-                            {runs.map((r) => (
-                                <option key={r.id} value={r.id}>{r.id}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <TrainingDashboard root={root} runId={activeRunId} />
+                    <DashboardPanel
+                        root={root}
+                        runId={activeRunId}
+                        runs={runs}
+                        onRun={setActiveRunId}
+                    />
+                </div>
+            )}
+
+            {tab === 'model' && (
+                <div className="settings-card">
+                    <ModelPanel root={root} runId={activeRunId} runs={runs} onRun={setActiveRunId} />
+                </div>
+            )}
+
+            {tab === 'experiments' && (
+                <div className="settings-card">
+                    <ExperimentsPanel root={root} />
+                </div>
+            )}
+
+            {tab === 'tools' && (
+                <div className="settings-card">
+                    <ToolsPanel root={root} runId={activeRunId} runs={runs} onRun={setActiveRunId} />
                 </div>
             )}
 

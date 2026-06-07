@@ -110,16 +110,54 @@ fn write_config(path: &Path, cfg: &MlStudioConfig) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-fn copy_scripts_to(ml: &Path) -> Result<(), String> {
+fn     copy_scripts_to(ml: &Path) -> Result<(), String> {
     let dst = ml.join("scripts");
     std::fs::create_dir_all(&dst).map_err(|e| e.to_string())?;
-    for name in ["train_classifier.py", "inference.py"] {
+    for name in [
+        "train_classifier.py",
+        "inference.py",
+        "ml_toolkit.py",
+    ] {
         let src = scripts_dir().join(name);
         if src.exists() {
             std::fs::copy(&src, dst.join(name)).map_err(|e| e.to_string())?;
         }
     }
     Ok(())
+}
+
+fn resolve_toolkit(root: &str) -> Result<PathBuf, String> {
+    let local = ml_root(root).join("scripts").join("ml_toolkit.py");
+    if local.exists() {
+        return Ok(local);
+    }
+    let bundled = scripts_dir().join("ml_toolkit.py");
+    if bundled.exists() {
+        return Ok(bundled);
+    }
+    Err("ml_toolkit.py missing".to_string())
+}
+
+fn run_toolkit_at(script: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
+    let py = resolve_python()?;
+    let out = hidden_command(&py)
+        .arg("-u")
+        .arg(script)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    serde_json::from_str(text.trim()).map_err(|e| format!("parse toolkit output: {e}"))
+}
+
+fn toolkit(root: &str, args: &[&str]) -> Result<serde_json::Value, String> {
+    let script = resolve_toolkit(root)?;
+    run_toolkit_at(&script, args)
 }
 
 fn csv_columns(path: &Path) -> Result<Vec<String>, String> {
@@ -456,7 +494,15 @@ pub async fn ml_studio_infer(
 pub async fn ml_studio_install_deps() -> Result<serde_json::Value, String> {
     let py = resolve_python()?;
     let out = hidden_command(&py)
-        .args(["-m", "pip", "install", "pandas"])
+        .args([
+            "-m",
+            "pip",
+            "install",
+            "pandas",
+            "scikit-learn",
+            "onnx",
+            "onnxscript",
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -466,4 +512,207 @@ pub async fn ml_studio_install_deps() -> Result<serde_json::Value, String> {
         "stdout": String::from_utf8_lossy(&out.stdout),
         "stderr": String::from_utf8_lossy(&out.stderr),
     }))
+}
+
+#[tauri::command]
+pub async fn ml_studio_dataset_stats(
+    root: String,
+    csv_name: String,
+    target_column: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let csv = if csv_name.contains('/') || csv_name.contains('\\') {
+        PathBuf::from(&csv_name)
+    } else {
+        ml_root(&root).join("data").join(&csv_name)
+    };
+    let csv_str = csv.to_string_lossy().into_owned();
+    let mut args: Vec<String> = vec![
+        "dataset_stats".into(),
+        "--csv".into(),
+        csv_str,
+    ];
+    if let Some(ref t) = target_column {
+        args.push("--target".into());
+        args.push(t.clone());
+    }
+    let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    toolkit(&root, &arg_refs)
+}
+
+#[tauri::command]
+pub async fn ml_studio_model_summary(root: String, run_id: String) -> Result<serde_json::Value, String> {
+    let model = ml_root(&root).join("runs").join(&run_id).join("model.pt");
+    if !model.exists() {
+        return Err(format!("No model for run {run_id}"));
+    }
+    let model_str = model.to_string_lossy().into_owned();
+    toolkit(
+        &root,
+        &["model_summary", "--model", &model_str],
+    )
+}
+
+#[tauri::command]
+pub async fn ml_studio_export_model(
+    root: String,
+    run_id: String,
+    format: String,
+) -> Result<serde_json::Value, String> {
+    let model = ml_root(&root).join("runs").join(&run_id).join("model.pt");
+    let model_str = model.to_string_lossy().into_owned();
+    toolkit(
+        &root,
+        &["export", "--model", &model_str, "--format", &format],
+    )
+}
+
+#[tauri::command]
+pub async fn ml_studio_pretrained_gallery(root: String) -> Result<serde_json::Value, String> {
+    toolkit(&root, &["gallery"])
+}
+
+#[tauri::command]
+pub async fn ml_studio_hpo(
+    root: String,
+    mode: String,
+    trials: u32,
+) -> Result<serde_json::Value, String> {
+    toolkit(
+        &root,
+        &[
+            "hpo",
+            "--root",
+            &root,
+            "--mode",
+            &mode,
+            "--trials",
+            &trials.to_string(),
+        ],
+    )
+}
+
+#[tauri::command]
+pub async fn ml_studio_lr_finder(root: String, steps: u32) -> Result<serde_json::Value, String> {
+    toolkit(
+        &root,
+        &["lr_finder", "--root", &root, "--steps", &steps.to_string()],
+    )
+}
+
+#[tauri::command]
+pub async fn ml_studio_grad_check(root: String, run_id: String) -> Result<serde_json::Value, String> {
+    let model = ml_root(&root).join("runs").join(&run_id).join("model.pt");
+    let model_str = model.to_string_lossy().into_owned();
+    toolkit(&root, &["grad_check", "--model", &model_str])
+}
+
+#[tauri::command]
+pub async fn ml_studio_benchmark(
+    root: String,
+    run_id: String,
+    iterations: u32,
+) -> Result<serde_json::Value, String> {
+    let model = ml_root(&root).join("runs").join(&run_id).join("model.pt");
+    let model_str = model.to_string_lossy().into_owned();
+    let iters = iterations.to_string();
+    toolkit(
+        &root,
+        &["benchmark", "--model", &model_str, "--iterations", &iters],
+    )
+}
+
+#[tauri::command]
+pub async fn ml_studio_list_experiments(root: String) -> Result<Vec<serde_json::Value>, String> {
+    let runs_dir = ml_root(&root).join("runs");
+    if !runs_dir.exists() {
+        return Ok(vec![]);
+    }
+    let cfg = read_config(&ml_root(&root).join("config.json"));
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(&runs_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+            continue;
+        }
+        let id = entry.file_name().to_string_lossy().to_string();
+        let run_path = entry.path();
+        let mut row = serde_json::json!({ "id": id });
+        for name in ["experiment.json", "metrics.json", "config_snapshot.json"] {
+            let p = run_path.join(name);
+            if p.exists() {
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                        row[name.trim_end_matches(".json")] = v;
+                    }
+                }
+            }
+        }
+        if row.get("metrics").is_none() {
+            let mp = run_path.join("metrics.json");
+            if mp.exists() {
+                if let Ok(text) = std::fs::read_to_string(&mp) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                        row["metrics"] = v.clone();
+                        row["val_acc"] = v.get("val_acc").cloned().unwrap_or_default();
+                    }
+                }
+            }
+        }
+        if !run_path.join("config_snapshot.json").exists() {
+            let snap = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+            let _ = std::fs::write(run_path.join("config_snapshot.json"), snap);
+        }
+        out.push(row);
+    }
+    out.sort_by(|a, b| {
+        b.get("experiment")
+            .and_then(|e| e.get("created_at"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            .cmp(
+                &a.get("experiment")
+                    .and_then(|e| e.get("created_at"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+            )
+    });
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn ml_studio_export_report(root: String, run_id: String) -> Result<String, String> {
+    let run_dir = ml_root(&root).join("runs").join(&run_id);
+    let metrics_path = run_dir.join("metrics.json");
+    let exp_path = run_dir.join("experiment.json");
+    let metrics: serde_json::Value = if metrics_path.exists() {
+        serde_json::from_str(&std::fs::read_to_string(&metrics_path).map_err(|e| e.to_string())?)
+            .unwrap_or_default()
+    } else {
+        serde_json::json!({})
+    };
+    let experiment: serde_json::Value = if exp_path.exists() {
+        serde_json::from_str(&std::fs::read_to_string(&exp_path).map_err(|e| e.to_string())?)
+            .unwrap_or_default()
+    } else {
+        serde_json::json!({})
+    };
+    let md = format!(
+        "# ML Experiment Report — {run_id}\n\n\
+         ## Summary\n\
+         - Val accuracy: {}\n\
+         - Best epoch: {}\n\
+         - Git commit: {}\n\
+         - Device: {}\n\n\
+         ## Config\n```json\n{}\n```\n\n\
+         ## Confusion matrix\n```json\n{}\n```\n",
+        metrics.get("val_acc").and_then(|v| v.as_f64()).map(|v| format!("{v:.4}")).unwrap_or_else(|| "n/a".into()),
+        metrics.get("best_epoch").map(|v| v.to_string()).unwrap_or_else(|| "?".into()),
+        experiment.get("git_hash").and_then(|v| v.as_str()).unwrap_or("unknown"),
+        metrics.get("device").and_then(|v| v.as_str()).unwrap_or("unknown"),
+        serde_json::to_string_pretty(&experiment.get("config").unwrap_or(&serde_json::json!({}))).unwrap_or_default(),
+        serde_json::to_string_pretty(&metrics.get("confusion_matrix").unwrap_or(&serde_json::json!({}))).unwrap_or_default(),
+    );
+    let report_path = run_dir.join("report.md");
+    std::fs::write(&report_path, &md).map_err(|e| e.to_string())?;
+    Ok(md)
 }
