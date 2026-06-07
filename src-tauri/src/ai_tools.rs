@@ -1571,7 +1571,16 @@ impl AiTools {
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
         let canonical = Self::canonical_tool_name(name);
         self.gate_tool_entitlement(canonical).await?;
-        match canonical {
+        let root = self.root_path.lock().await.clone();
+        let _ = crate::cursor_compat::append_debug_log(
+            std::path::Path::new(&root),
+            serde_json::json!({
+                "type": "tool_start",
+                "tool": name,
+                "canonical": canonical,
+            }),
+        );
+        let result = match canonical {
             "find_api_keys" => self.find_api_keys(arguments).await,
             "analyze_file_symbols" => self.analyze_file_symbols(arguments).await,
             "ag_get_next_task" | "ag_mark_task_done" | "ag_phase_wrap" | "ag_list_tasks" => {
@@ -1731,7 +1740,16 @@ impl AiTools {
             }
 
             _ => Err(anyhow!("Unknown tool: {}", name)),
-        }
+        };
+        let _ = crate::cursor_compat::append_debug_log(
+            std::path::Path::new(&root),
+            serde_json::json!({
+                "type": "tool_end",
+                "tool": name,
+                "ok": result.is_ok(),
+            }),
+        );
+        result
     }
 
     /// Cursor/TS `todo_write` / `task_*` — persist markdown task lists to disk.
@@ -3027,6 +3045,11 @@ impl AiTools {
             ));
         }
 
+        let ignore = crate::cursor_compat::CursorIgnoreSet::load(
+            &*root,
+            crate::cursor_compat::IgnoreScope::AiAccess,
+        );
+
         let mut files = Vec::new();
         if recursive {
             use walkdir::WalkDir;
@@ -3034,6 +3057,9 @@ impl AiTools {
                 .max_depth(3)
                 .into_iter()
                 .filter_entry(|e| {
+                    if ignore.is_ignored(e.path()) {
+                        return false;
+                    }
                     let name = e.file_name().to_string_lossy();
                     let is_hidden = name.starts_with('.') && name != "." && name != "..";
                     let is_ignored = name == "node_modules" || name == "target" || name == "dist" || name == "build" || name == ".git";

@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../../store';
 import { loadWorkspaceSettings, saveWorkspaceSettings } from '../../application/workspace/workspaceSettings';
+import WorktreesPanel from '../platform/WorktreesPanel';
+import RemoteSshPanel from '../platform/RemoteSshPanel';
+import CanvasArtifactPanel from '../platform/CanvasArtifactPanel';
 
 const WorkspaceSettingsPanel: React.FC = () => {
     const activeRoot = useStore((s) => s.activeRoot);
@@ -37,7 +40,14 @@ const WorkspaceSettingsPanel: React.FC = () => {
     }
 
     return (
-        <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <WorktreesPanel root={activeRoot} />
+            <RemoteSshPanel />
+            <div className="settings-card" style={{ maxWidth: 520 }}>
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>Canvas artifacts</div>
+                <CanvasArtifactPanel />
+            </div>
+
             <div style={{ fontSize: 13, fontWeight: 600 }}>Workspace Settings</div>
             <div style={{ fontSize: 11, opacity: 0.6 }}>
                 {activeRoot}/.vscode/settings.json

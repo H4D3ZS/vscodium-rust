@@ -28,6 +28,7 @@ mod antigravity_compat;
 mod ai_project_commands;
 mod airi_bridge;
 mod claurst_bridge;
+mod remote_commands;
 mod ide_shell;
 mod hermes_skills;
 mod skill_audit;
@@ -416,6 +417,7 @@ pub fn run() {
             antigravity_commands::ag_get_trajectory,
             antigravity_commands::ag_save_trajectory,
             antigravity_commands::ag_append_trajectory_step,
+            antigravity_commands::ag_export_trajectory_jsonl,
             antigravity_commands::ag_upsert_subagent,
             antigravity_commands::ag_load_lifecycle_hooks,
             antigravity_commands::ag_save_lifecycle_hooks,
@@ -594,6 +596,7 @@ pub fn run() {
             // ═══ Git Commands ═══
             git_commands::git_status,
             git_commands::git_diff,
+            git_commands::get_git_diff,
             git_commands::git_diff_file,
             git_commands::git_stage,
             git_commands::git_unstage,
@@ -721,7 +724,11 @@ pub fn run() {
             browser::browser_click,
             browser::browser_screenshot,
             browser::browser_get_content_summary,
+            browser::browser_status,
             browser::browser_capture_vision_context,
+            // ═══ Remote SSH (probe) ═══
+            remote_commands::remote_ssh_probe,
+            remote_commands::remote_ssh_list_dir,
             // ═══ Vector Search ═══
             vector_commands::vector_index_codebase,
             vector_commands::vector_search_codebase,

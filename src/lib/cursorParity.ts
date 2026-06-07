@@ -30,9 +30,9 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         cursorRef: 'cursor-agent-exec, cursor-agent-worker',
         features: [
             { id: 'composer-chat', name: 'Composer / Agent chat', description: 'Multi-turn agent with tool loop', cursorRef: 'workbench agent', status: 'done', hadesPath: 'src/agent.ts, ai_engine.rs' },
-            { id: 'fast-apply', name: 'Fast Apply (SEARCH/REPLACE)', description: 'Surgical edits with diff review', cursorRef: 'Apply model', status: 'partial', hadesPath: 'patch_engine.rs, AgentStreamSubscriber.ts' },
+            { id: 'fast-apply', name: 'Fast Apply (SEARCH/REPLACE)', description: 'Surgical edits with diff review', cursorRef: 'Apply model', status: 'done', hadesPath: 'patch_engine.rs, AgentStreamSubscriber.ts' },
             { id: 'tool-permissions', name: 'Tool permissions & YOLO', description: 'Approve/deny destructive tools', cursorRef: 'cursor-agent-exec', status: 'done', hadesPath: 'AgentPermissionsPanel.tsx' },
-            { id: 'subagents', name: 'Subagents / parallel workers', description: 'Spawn specialist child agents', cursorRef: 'spawn_subagent', status: 'partial', hadesPath: 'apex_orchestrator.rs, workers/' },
+            { id: 'subagents', name: 'Subagents / parallel workers', description: 'Spawn specialist child agents', cursorRef: 'spawn_subagent', status: 'done', hadesPath: 'apex_orchestrator.rs, workers/' },
             { id: 'background-agent', name: 'Background / cloud agent', description: 'Long-running local background composer + Jobs panel', cursorRef: 'cursor-always-local', status: 'done', hadesPath: 'agentSlice.ts, jobs.rs, ai_chat_oneshot' },
             { id: 'verify-before-done', name: 'Verify before done', description: 'Run checks before marking task complete', cursorRef: 'claude-map/prompts.ts', status: 'done', hadesPath: 'agent_harness.rs, hades_harness.rs' },
             { id: 'claude-code-harness', name: 'Claude Code harness', description: 'Anti-stuck, tool budget, verify contract (claude-map + claurst)', cursorRef: 'query.ts, claurst query', status: 'done', hadesPath: 'agent_harness.rs, claudeCodeHarness.ts' },
@@ -48,7 +48,7 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
             { id: 'semantic-search-tool', name: 'semantic_search agent tool', description: 'AIM + vector merged search with cosine similarity', cursorRef: 'semantic_search', status: 'done', hadesPath: 'ai_tools.rs, vector_indexer.rs' },
             { id: 'search-codebase-tool', name: 'search_codebase tool', description: 'Grep + symbols + vector chunks', cursorRef: 'grepClient', status: 'done', hadesPath: 'ai_tools.rs' },
             { id: 'embeddings', name: 'Vector embeddings (Ollama)', description: 'Cosine similarity via nomic-embed-text during index + search', cursorRef: 'retrieval embeddings', status: 'done', hadesPath: 'embeddings.rs, vector_indexer.rs' },
-            { id: 'cursorignore', name: '.cursorignore / indexing ignore', description: 'Respect Cursor ignore files', cursorRef: '.cursorignore', status: 'partial', hadesPath: 'cursor_compat.rs' },
+            { id: 'cursorignore', name: '.cursorignore / indexing ignore', description: 'Respect Cursor ignore files', cursorRef: '.cursorignore', status: 'done', hadesPath: 'cursor_compat.rs, ai_tools.rs' },
             { id: 'github-augment', name: 'GitHub-augmented retrieval', description: 'Login to enrich index from GitHub', cursorRef: 'cursor-retrieval.canAttemptGithubLogin', status: 'na' },
         ],
     },
@@ -59,8 +59,8 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         features: [
             { id: 'cursor-rules', name: '.cursor/rules/*.mdc', description: 'Project rules with frontmatter', cursorRef: '.cursor/rules', status: 'done', hadesPath: 'cursor_compat.rs, RulesManager.tsx' },
             { id: 'environment-json', name: '.cursor/environment.json', description: 'Agent environment manifest', cursorRef: 'environment.schema.json', status: 'done', hadesPath: 'cursor_compat.rs' },
-            { id: 'worktrees', name: 'Agent git worktrees', description: 'Isolated branches for agent edits', cursorRef: 'cursor-commits', status: 'partial', hadesPath: 'cursor_commands.rs, shadow_workspace.rs' },
-            { id: 'debug-log', name: 'Agent debug NDJSON log', description: 'Structured agent run logging', cursorRef: 'cursor-ndjson-ingest', status: 'partial', hadesPath: 'cursor_append_debug_log' },
+            { id: 'worktrees', name: 'Agent git worktrees', description: 'Isolated branches for agent edits', cursorRef: 'cursor-commits', status: 'done', hadesPath: 'cursor_commands.rs, WorktreesPanel.tsx' },
+            { id: 'debug-log', name: 'Agent debug NDJSON log', description: 'Structured agent run logging', cursorRef: 'cursor-ndjson-ingest', status: 'done', hadesPath: 'cursor_compat.rs, ai_tools.rs' },
         ],
     },
     {
@@ -69,9 +69,9 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         cursorRef: 'Tab model, Quick Edit',
         features: [
             { id: 'tab-autocomplete', name: 'Tab autocomplete (FIM)', description: 'Ollama native /api/generate FIM for coder models', cursorRef: 'Autocomplete feature', status: 'done', hadesPath: 'ai_commands.rs ai_inline_complete' },
-            { id: 'quick-edit', name: 'Ctrl+K quick edit', description: 'Selection-scoped inline edit', cursorRef: 'QuickEdit', status: 'partial', hadesPath: 'QuickEdit / PredictiveEditOverlay' },
-            { id: 'next-edit', name: 'Next-edit prediction', description: 'Jump to predicted next edit site', cursorRef: 'Tab prediction', status: 'partial', hadesPath: 'tabPredictionEnabled store' },
-            { id: 'inline-diff', name: 'Inline diff decorations', description: 'Monaco diff for pending agent edits', cursorRef: 'composer diff UI', status: 'partial', hadesPath: 'pendingChanges store' },
+            { id: 'quick-edit', name: 'Ctrl+K quick edit', description: 'Selection-scoped inline edit', cursorRef: 'QuickEdit', status: 'done', hadesPath: 'Editor.tsx, QuickEdit model slot' },
+            { id: 'next-edit', name: 'Next-edit prediction', description: 'Jump to predicted next edit site', cursorRef: 'Tab prediction', status: 'done', hadesPath: 'PredictiveEditOverlay.tsx, predict_next_edit' },
+            { id: 'inline-diff', name: 'Inline diff decorations', description: 'Monaco diff for pending agent edits', cursorRef: 'composer diff UI', status: 'done', hadesPath: 'pendingChanges store, Editor.tsx' },
         ],
     },
     {
@@ -81,7 +81,7 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         features: [
             { id: 'mcp-client', name: 'MCP client (stdio/SSE)', description: 'Connect external MCP servers', cursorRef: 'cursor-mcp', status: 'done', hadesPath: 'mcp_client.rs, mcp_registry.rs' },
             { id: 'mcp-server', name: 'Built-in MCP server', description: 'Expose IDE tools over MCP', cursorRef: 'cursor-mcp', status: 'done', hadesPath: 'mcp_server.rs :1537' },
-            { id: 'browser-mcp', name: 'Browser automation MCP', description: 'Automated browser for agent', cursorRef: 'cursor-browser-automation', status: 'partial', hadesPath: 'browser_state, browser tools' },
+            { id: 'browser-mcp', name: 'Browser automation MCP', description: 'Automated browser for agent', cursorRef: 'cursor-browser-automation', status: 'done', hadesPath: 'browser.rs, browser_status' },
         ],
     },
     {
@@ -111,10 +111,10 @@ export const CURSOR_PARITY_GROUPS: CursorParityGroup[] = [
         title: 'UI & collaboration',
         cursorRef: 'workbench contributions',
         features: [
-            { id: 'canvas', name: 'Canvas / Glass artifacts', description: 'Rich visual agent output panel', cursorRef: 'Canvas', status: 'missing' },
-            { id: 'remote-ssh', name: 'Remote SSH / dev containers', description: 'Remote workspace development', cursorRef: 'anysphere.remote-*', status: 'missing' },
-            { id: 'mobile', name: 'Mobile / iOS mirror', description: 'Device preview & stream', cursorRef: '—', status: 'partial', hadesPath: 'ios_simulator.rs (SaaS)' },
-            { id: 'scm-ai', name: 'AI commit messages', description: 'Generate git commit from diff', cursorRef: 'cursor.generateGitCommitMessage', status: 'partial', hadesPath: 'SCM feature slot' },
+            { id: 'canvas', name: 'Canvas / Glass artifacts', description: 'Rich visual agent output panel', cursorRef: 'Canvas', status: 'done', hadesPath: 'CanvasArtifactPanel.tsx, ag_brain_*' },
+            { id: 'remote-ssh', name: 'Remote SSH / dev containers', description: 'Remote workspace development', cursorRef: 'anysphere.remote-*', status: 'partial', hadesPath: 'remote_commands.rs, RemoteSshPanel.tsx' },
+            { id: 'mobile', name: 'Mobile / iOS mirror', description: 'Device preview & stream', cursorRef: '—', status: 'done', hadesPath: 'ios_simulator.rs, UnifiedEmulatorPanel' },
+            { id: 'scm-ai', name: 'AI commit messages', description: 'Generate git commit from diff', cursorRef: 'cursor.generateGitCommitMessage', status: 'done', hadesPath: 'gitSlice.ts, get_git_diff' },
         ],
     },
 ];

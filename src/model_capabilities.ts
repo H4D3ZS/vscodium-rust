@@ -522,10 +522,16 @@ export interface SearchReplaceBlock {
 
 export function extractSearchReplaceBlocks(text: string): SearchReplaceBlock[] {
     const blocks: SearchReplaceBlock[] = [];
-    const pattern = /<<<<<<< ORIGINAL\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> UPDATED/g;
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(text)) !== null) {
-        blocks.push({ original: match[1], updated: match[2] });
+    const patterns = [
+        /<<<<<<< ORIGINAL\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> UPDATED/g,
+        /<<<< SEARCH\n([\s\S]*?)\n?====\n([\s\S]*?)\n?>>>>/g,
+        /<<<<<<< SEARCH\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/g,
+    ];
+    for (const pattern of patterns) {
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(text)) !== null) {
+            blocks.push({ original: match[1], updated: match[2] });
+        }
     }
     return blocks;
 }
