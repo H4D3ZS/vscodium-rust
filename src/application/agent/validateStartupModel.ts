@@ -1,9 +1,14 @@
 import { useStore } from '../../store';
 
 const CLOUD_PROVIDERS = new Set([
-    'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
+    'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
     'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
-    'openrouter', 'cerebras', 'highwayapi', 'interfaceai', 'jiekou',
+    'openrouter', 'cerebras', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
+]);
+
+const STALE_AGENT_MODELS = new Set([
+    'antigravity|antigravity-sentient',
+    'Antigravity|antigravity-sentient',
 ]);
 
 const isHighwayApiModel = (model: unknown): boolean =>
@@ -17,6 +22,12 @@ export async function validateStartupModel(): Promise<void> {
     try {
         const st = useStore.getState();
         const currentModel = st.agentModel || '';
+        if (STALE_AGENT_MODELS.has(currentModel)) {
+            st.setAgentModel?.('');
+            try { localStorage.removeItem('agentModel'); } catch { /* */ }
+            console.warn('[validateStartupModel] Cleared legacy antigravity-sentient model — pick a real model in the chat toolbar.');
+            return;
+        }
         const providerPrefix = currentModel.includes('|')
             ? currentModel.split('|')[0].toLowerCase()
             : '';

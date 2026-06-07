@@ -337,7 +337,6 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                     if (p.toLowerCase() === 'ollama') set({ ollamaStatus: 'error' });
                 }
             }
-            allModels.push({ id: 'antigravity-sentient', provider: 'antigravity' });
             // Subscribed users: always surface curated Cyber-Ifrit cloud models.
             if (cloudEntitled && !allModels.some(m => m.provider === 'cyberifrit')) {
                 for (const id of ['cyberifrit/qwen3.6:35b', 'cyberifrit/qwen2.5-coder:32b', 'cyberifrit/qwen2.5:32b']) {

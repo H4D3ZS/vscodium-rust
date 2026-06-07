@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { invoke } from '../tauri_bridge';
+import { startBillingSyncPoll } from '../lib/billingSync';
 
 // Account & Terms — Supabase sign-in, subscription tier + entitlements (synced
 // from the billing backend), the Bug-Bounty Terms of Service, and the MiMo
@@ -83,6 +84,11 @@ const AccountSettingsPanel: React.FC = () => {
         invoke<boolean>('account_tos_status', { docId: BUG_BOUNTY_TOS_ID }).then(setTosAccepted).catch(() => {});
     }, []);
     useEffect(() => { refresh(); }, [refresh]);
+    useEffect(() => {
+        const onChange = () => refresh();
+        window.addEventListener('account:changed', onChange);
+        return () => window.removeEventListener('account:changed', onChange);
+    }, [refresh]);
 
     const doSignIn = (signup: boolean) => {
         setAuthMsg('…'); setBusy(true);
@@ -104,7 +110,10 @@ const AccountSettingsPanel: React.FC = () => {
         if (!signedIn) { setMsg('Sign in first to subscribe.'); return; }
         setMsg('Opening QR Ph checkout in your browser…');
         invoke('account_subscribe', { tier: subTier })
-            .then(() => setMsg('Scan the QR on the website — when paid, click Sync here.'))
+            .then(() => {
+                setMsg('Checkout opened — subscription syncs automatically when you return.');
+                startBillingSyncPoll();
+            })
             .catch((e) => setMsg(String(e)));
     };
     const openBilling = () => { invoke('account_open_billing').catch(() => {}); };

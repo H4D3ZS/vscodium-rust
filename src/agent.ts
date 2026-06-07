@@ -63,14 +63,33 @@ function isManagedCloudOllama(url: string, serverMode?: string): boolean {
     return serverMode === 'cloud' || /cyberifrit\.xyz/i.test(url);
 }
 
-/** Local Ollama: browser fetch. Remote/cloud: Rust (CORS + subscription JWT). */
+function isTauriDesktop(): boolean {
+    return !!(window as any).__TAURI__;
+}
+
+/** Local Ollama: Rust probe in Tauri (Ollama blocks webview CORS). Browser dev: fetch. */
 async function probeOllamaEndpoint(
     ollamaBase: string,
     serverMode?: string,
 ): Promise<{ ok: boolean; error: string }> {
     const base = normalizeOllamaUrl(ollamaBase);
-    const useBrowserFetch = isLocalOllamaHost(base) && !isManagedCloudOllama(base, serverMode);
-    if (useBrowserFetch) {
+    const isLocal = isLocalOllamaHost(base) && !isManagedCloudOllama(base, serverMode);
+
+    if (isLocal && isTauriDesktop()) {
+        try {
+            await invoke('set_ollama_url', { url: base });
+            const ok = await invoke<boolean>('check_ollama_status');
+            if (ok) return { ok: true, error: '' };
+            return {
+                ok: false,
+                error: 'Ollama is not running — start Ollama Desktop or run `ollama serve` in a terminal.',
+            };
+        } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
+        }
+    }
+
+    if (isLocal) {
         try {
             const probe = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(5000) });
             if (probe.ok) return { ok: true, error: '' };
@@ -322,10 +341,13 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
         byProvider.forEach((models, providerKey) => {
             const providerLabel = providerKey.charAt(0).toUpperCase() + providerKey.slice(1);
             models.forEach(m => {
+                const isLocal = providerKey === 'ollama' || providerKey === 'antigravity';
                 items.push({
                     label: `${m.id} (${providerLabel})`,
                     value: `${providerLabel}|${m.id}`,
-                    desc: providerKey === 'ollama' ? 'Local' : providerLabel
+                    desc: isLocal
+                        ? (providerKey === 'antigravity' ? 'Local AIM proxy (:1536)' : 'Local Ollama')
+                        : providerLabel,
                 });
             });
         });
@@ -1576,9 +1598,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // The agentModel string uses the format "Provider|modelId" for cloud models.
     const selectedProviderPrefix = agentModel?.includes('|') ? agentModel.split('|')[0].toLowerCase() : '';
     const CLOUD_PROVIDER_PREFIXES = new Set([
-        'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
+        'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
         'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
-        'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou',
+        'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
     ]);
     const selectedIsCloudModel = CLOUD_PROVIDER_PREFIXES.has(selectedProviderPrefix)
         || isHighwayApiModel(selectedModelLower)
@@ -1620,7 +1642,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             const tryHint = managedCloud
                 ? '**Try:** Settings → Ollama → **Cloud Model** → **Reconnect**. Confirm you are signed in with an active subscription.'
                 : isLocalOllamaHost(ollamaBase)
-                    ? '**Try:** Restart Ollama Desktop, run `ollama serve` in a terminal, or make sure your AIM proxy is running.'
+                    ? '**Try:** Start **Ollama Desktop** (or run `ollama serve`), then pull your model: `ollama pull gemma4:12b`. Settings → Ollama → **Test connection**.'
                     : '**Try:** Check your self-hosted Ollama URL and bearer token in Settings → Ollama.';
             const fallbackNote = managedCloud ? '' : ' (or direct fallback port 11434).';
             store.getState().updateLastAgentMessage?.(
@@ -1780,20 +1802,28 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // EXCEPTION: if the global agentModel is already a cloud provider (Google,
     // Anthropic, OpenAI…), the per-feature local-Ollama override must NOT win —
     // that was causing Gemini to silently swap to airi-fast:latest.
+    // Toolbar model wins over Settings → Chat feature default. The old override
+    // sent gemini-2.5-pro to the Ollama gateway when users picked e.g. BugTraceAI.
+    const toolbarModelChosen = !!(agentModel?.trim());
     const chatModelSel = (store.getState() as any).modelSelectionOfFeature?.['Chat'];
     const _agentModelCloudCheck = (() => {
         const am = agentModel || '';
         const prefix = am.includes('|') ? am.split('|')[0].toLowerCase() : '';
-        const CLOUD = new Set(['google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
+        const CLOUD = new Set(['google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
             'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
-            'highwayapi', 'interfaceai', 'jiekou']);
+            'highwayapi', 'interfaceai', 'jiekou', 'antigravity']);
         return CLOUD.has(prefix)
             || isHighwayApiModel(am)
             || am.toLowerCase().includes('gemini') || am.toLowerCase().includes('claude')
             || am.toLowerCase().includes('gpt-') || am.toLowerCase().includes('o1-')
             || am.toLowerCase().includes('o3-');
     })();
-    const effectiveAgentModel = (chatModelSel?.modelName && chatModelSel?.providerName && !_agentModelCloudCheck)
+    const effectiveAgentModel = (
+        chatModelSel?.modelName
+        && chatModelSel?.providerName
+        && !_agentModelCloudCheck
+        && !toolbarModelChosen
+    )
         ? `${chatModelSel.providerName}|${chatModelSel.modelName}`
         : agentModel;
 
@@ -1943,9 +1973,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         // a local model. Cloud providers (Google, Anthropic, OpenAI, …) must
         // pass through their own provider even if the local backend is Ollama.
         const CLOUD_PROVIDERS = new Set([
-            'google', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
+            'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
             'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
-            'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou',
+            'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
         ]);
         if (!CLOUD_PROVIDERS.has(normalizedProvider) && !isHighwayApiModel(routingModel)) {
             routingProvider = 'ollama';

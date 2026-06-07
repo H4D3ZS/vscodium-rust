@@ -28,6 +28,23 @@ pub enum IgnoreScope {
     AiAccess,
 }
 
+/// Strip Windows extended-length `\\?\` prefix so `C:\foo` and `\\?\C:\foo` compare equal.
+fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+/// Path relative to workspace root for gitignore matching. None when outside root.
+fn relative_to_root(root: &Path, path: &Path) -> Option<PathBuf> {
+    let root = strip_verbatim_prefix(root);
+    let path = strip_verbatim_prefix(path);
+    path.strip_prefix(&root).ok().map(|p| p.to_path_buf())
+}
+
 impl CursorIgnoreSet {
     pub fn load(root: &Path, scope: IgnoreScope) -> Self {
         let mut names: Vec<&str> = match scope {
@@ -54,7 +71,7 @@ impl CursorIgnoreSet {
             }
         }
         Self {
-            root: root.to_path_buf(),
+            root: strip_verbatim_prefix(root),
             matchers,
         }
     }
@@ -63,10 +80,15 @@ impl CursorIgnoreSet {
         if self.matchers.is_empty() {
             return false;
         }
+        // ignore::Gitignore panics if the path is not under its root (common when
+        // canonicalize() adds `\\?\` on Windows or the agent touches paths outside
+        // the workspace during bug-bounty recon). Treat out-of-root as not ignored.
+        let Some(rel) = relative_to_root(&self.root, path) else {
+            return false;
+        };
         let is_dir = path.is_dir();
-        let rel = path.strip_prefix(&self.root).unwrap_or(path);
         for gi in &self.matchers {
-            match gi.matched_path_or_any_parents(rel, is_dir) {
+            match gi.matched_path_or_any_parents(&rel, is_dir) {
                 ignore::Match::Ignore(_) => return true,
                 _ => {}
             }
@@ -515,5 +537,21 @@ mod tests {
         let (fm, body) = parse_mdc(raw);
         assert!(fm.is_some());
         assert_eq!(body.trim(), "Hello world");
+    }
+
+    #[test]
+    fn is_ignored_accepts_verbatim_canonical_paths() {
+        let dir = std::env::temp_dir().join("cursor_compat_ignore_test");
+        let _ = fs::create_dir_all(&dir);
+        let ignore_file = dir.join(".gitignore");
+        fs::write(&ignore_file, "secret.txt\n").unwrap();
+        let set = CursorIgnoreSet::load(&dir, IgnoreScope::Indexing);
+        let secret = dir.join("secret.txt");
+        fs::write(&secret, "x").unwrap();
+        let verbatim = PathBuf::from(format!(r"\\?\{}", secret.display()));
+        assert!(set.is_ignored(&secret));
+        assert!(set.is_ignored(&verbatim));
+        assert!(!set.is_ignored(&PathBuf::from(r"C:\totally\outside\file.txt")));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

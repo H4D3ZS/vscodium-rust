@@ -17,6 +17,7 @@ import { scheduleDeferredInit } from './memory_budget';
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const MultiFileReview = lazy(() => import('./components/agent/MultiFileReview'));
 const OllamaFirstLaunchWizard = lazy(() => import('./components/onboarding/OllamaFirstLaunchWizard'));
+const AgentSetupWizard = lazy(() => import('./components/onboarding/AgentSetupWizard'));
 const TrajectoryPanel = lazy(() => import('./components/agent/TrajectoryPanel'));
 const QuickOpen = lazy(() => import('./components/QuickOpen'));
 const ToolPermissionDialog = lazy(() => import('./components/ToolPermissionDialog'));
@@ -93,9 +94,17 @@ const App: React.FC = () => {
         // Push resolved Ollama URL into Rust (cloud/local/self-hosted) before model refresh.
         void syncOllamaEndpoint?.().then(() => refreshAvailableModels()).catch(() => refreshAvailableModels());
 
+        let unsubBilling: (() => void) | undefined;
+        import('./lib/billingSync').then((m) => {
+            unsubBilling = m.wireBillingFocusSync();
+        });
+
         // Default subscribed users to managed cloud model (Cyber-Ifrit Qwen 35B).
         invoke<any>('account_get').then((acct) => {
             if (!acct?.signed_in) return;
+            import('./application/enterprise/applyEnterprisePolicy').then((m) =>
+                m.applyEnterprisePolicyFromAccount(acct),
+            );
             const features: string[] = acct?.entitlements?.features || [];
             const hasCloud = features.includes('cloud_models') || acct?.trial_active;
             const st = useStore.getState();
@@ -151,7 +160,7 @@ const App: React.FC = () => {
             subscribe: useStore.subscribe,
         };
 
-        return () => { unsubAgentRuntime?.(); };
+        return () => { unsubAgentRuntime?.(); unsubBilling?.(); };
     }, []);
 
     return (
@@ -182,6 +191,7 @@ const App: React.FC = () => {
             <Suspense fallback={null}>
                 <ToolPermissionDialog />
                 <OllamaFirstLaunchWizard />
+                <AgentSetupWizard />
                 <MultiFileReview />
                 <TrajectoryPanel />
             </Suspense>
