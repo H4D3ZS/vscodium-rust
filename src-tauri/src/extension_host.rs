@@ -1,10 +1,45 @@
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use tauri::Emitter;
 
+fn resolve_ext_host_script() -> PathBuf {
+    let script = "index.js";
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for root in [
+                dir.join("resources").join("ext-host"),
+                dir.join("ext-host"),
+            ] {
+                let cand = root.join(script);
+                if cand.is_file() {
+                    return cand;
+                }
+            }
+        }
+    }
+
+    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
+        let cand = PathBuf::from(manifest).join("ext-host").join(script);
+        if cand.is_file() {
+            return cand;
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        for root in [cwd.join("src-tauri").join("ext-host"), cwd.join("ext-host")] {
+            let cand = root.join(script);
+            if cand.is_file() {
+                return cand;
+            }
+        }
+    }
+
+    PathBuf::from("ext-host").join(script)
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionMetadata {
@@ -92,9 +127,24 @@ impl ExtensionHostManager {
 
     pub fn start(&mut self, app_handle: tauri::AppHandle) -> std::io::Result<()> {
         use crate::process_ext::CommandExtHidden;
+
+        let script = resolve_ext_host_script();
+        if !script.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Extension host script not found: {}", script.display()),
+            ));
+        }
+
+        let ext_host_dir = script
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+
         let mut child = Command::new("node")
             .hidden()
-            .arg("ext-host/index.js")
+            .current_dir(&ext_host_dir)
+            .arg(&script)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -137,7 +187,7 @@ impl ExtensionHostManager {
             }
         });
 
-        println!("Extension Host started");
+        println!("Extension Host started ({})", script.display());
         Ok(())
     }
 

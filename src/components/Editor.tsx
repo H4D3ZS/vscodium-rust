@@ -11,6 +11,20 @@ import PredictiveEditOverlay from './PredictiveEditOverlay';
 import { invoke, listen } from '../tauri_bridge';
 import { ensureLanguageServerForFile } from '../application/lsp/bootstrapLanguageServer';
 import { isMarkdownPath } from '../lib/markdown';
+import {
+    syncDocumentChanged,
+    syncDocumentClosed,
+    syncDocumentOpened,
+    getLspLanguageId as extHostLanguageId,
+} from '../application/extensions/extHostDocumentSync';
+import {
+    extHostCompletions,
+    extHostDefinition,
+    extHostHover,
+    mapExtCompletionItems,
+    mapExtDefinitionToMonaco,
+    mapExtHoverToMonaco,
+} from '../application/extensions/extHostProviders';
 
 // Map file extension → LSP language id
 function getLspLanguageId(path: string): string {
@@ -81,6 +95,37 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     const editorRef = useRef<any>(null);
     const bpDecorationsRef = useRef<any>(null);
     const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const extHostChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const prevTabPathsRef = useRef<Set<string>>(new Set());
+
+    // Sync open documents to the VS Code extension host
+    useEffect(() => {
+        if (!activeTab?.path || activeTab.path.startsWith('vscode://')) return;
+        void syncDocumentOpened(
+            activeTab.path,
+            activeTab.content,
+            activeTab.language || extHostLanguageId(activeTab.path),
+        );
+    }, [activeTab?.path]);
+
+    useEffect(() => {
+        if (!activeTab?.path || activeTab.path.startsWith('vscode://')) return;
+        if (extHostChangeTimer.current) clearTimeout(extHostChangeTimer.current);
+        extHostChangeTimer.current = setTimeout(() => {
+            void syncDocumentChanged(activeTab.path, activeTab.content);
+        }, 250);
+        return () => {
+            if (extHostChangeTimer.current) clearTimeout(extHostChangeTimer.current);
+        };
+    }, [activeTab?.content, activeTab?.path]);
+
+    useEffect(() => {
+        const current = new Set(tabs.map((t) => t.path).filter(Boolean));
+        for (const path of prevTabPathsRef.current) {
+            if (!current.has(path)) void syncDocumentClosed(path);
+        }
+        prevTabPathsRef.current = current;
+    }, [tabs]);
 
     // Update active editor path in store whenever tab changes (only for primary pane)
     useEffect(() => {
@@ -358,19 +403,31 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                             startColumn: word.startColumn,
                             endColumn: word.endColumn,
                         };
+                        const lspSuggestions = (res?.items ?? []).map((item: any) => ({
+                            label: item.label,
+                            kind: lspKindToMonaco(item.kind ?? 1),
+                            insertText: item.insertText ?? item.textEdit?.newText ?? item.label,
+                            insertTextRules: item.insertTextFormat === 2 ? 4 : 0,
+                            detail: item.detail ?? '',
+                            documentation: { value: item.documentation?.value ?? item.documentation ?? '' },
+                            sortText: item.sortText ?? item.label,
+                            filterText: item.filterText ?? item.label,
+                            preselect: item.preselect ?? false,
+                            range,
+                        }));
+                        const extItems = await extHostCompletions(
+                            getFileUri(),
+                            activeTab?.path || '',
+                            lang,
+                            model.getValue(),
+                            position.lineNumber - 1,
+                            position.column - 1,
+                        );
                         return {
-                            suggestions: (res?.items ?? []).map((item: any) => ({
-                                label: item.label,
-                                kind: lspKindToMonaco(item.kind ?? 1),
-                                insertText: item.insertText ?? item.textEdit?.newText ?? item.label,
-                                insertTextRules: item.insertTextFormat === 2 ? 4 : 0,
-                                detail: item.detail ?? '',
-                                documentation: { value: item.documentation?.value ?? item.documentation ?? '' },
-                                sortText: item.sortText ?? item.label,
-                                filterText: item.filterText ?? item.label,
-                                preselect: item.preselect ?? false,
-                                range,
-                            })),
+                            suggestions: [
+                                ...lspSuggestions,
+                                ...mapExtCompletionItems(extItems, range),
+                            ],
                             incomplete: false,
                         };
                     } catch { return { suggestions: [] }; }
@@ -379,55 +436,74 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
 
             // ── Hover (doc on mouseover) ───────────────────────────────────
             const hoverDisposable = monaco.languages.registerHoverProvider(lang, {
-                provideHover: async (_model, position) => {
+                provideHover: async (model, position) => {
                     try {
                         const res = await invoke<any>('lsp_hover', {
                             uri: getFileUri(),
                             line: position.lineNumber - 1,
                             character: position.column - 1,
                         });
-                        if (!res) return null;
-                        const raw = res.contents ?? res;
-                        const contents = Array.isArray(raw) ? raw : [raw];
-                        const mdParts = contents.map((c: any) => ({
-                            value: typeof c === 'string' ? c : (c.value ?? String(c)),
-                        }));
-                        if (!mdParts.length || !mdParts[0].value) return null;
-                        const range = res.range ? {
-                            startLineNumber: res.range.start.line + 1,
-                            startColumn: res.range.start.character + 1,
-                            endLineNumber: res.range.end.line + 1,
-                            endColumn: res.range.end.character + 1,
-                        } : undefined;
-                        return { contents: mdParts, range };
+                        if (res) {
+                            const raw = res.contents ?? res;
+                            const contents = Array.isArray(raw) ? raw : [raw];
+                            const mdParts = contents.map((c: any) => ({
+                                value: typeof c === 'string' ? c : (c.value ?? String(c)),
+                            }));
+                            if (mdParts.length && mdParts[0].value) {
+                                const range = res.range ? {
+                                    startLineNumber: res.range.start.line + 1,
+                                    startColumn: res.range.start.character + 1,
+                                    endLineNumber: res.range.end.line + 1,
+                                    endColumn: res.range.end.character + 1,
+                                } : undefined;
+                                return { contents: mdParts, range };
+                            }
+                        }
+                        const extHover = await extHostHover(
+                            getFileUri(),
+                            lang,
+                            model.getValue(),
+                            position.lineNumber - 1,
+                            position.column - 1,
+                        );
+                        return mapExtHoverToMonaco(extHover, monaco);
                     } catch { return null; }
                 },
             });
 
             // ── Go To Definition ───────────────────────────────────────────
             const definitionDisposable = monaco.languages.registerDefinitionProvider(lang, {
-                provideDefinition: async (_model, position) => {
+                provideDefinition: async (model, position) => {
                     try {
                         const res = await invoke<any>('lsp_goto_definition', {
                             uri: getFileUri(),
                             line: position.lineNumber - 1,
                             character: position.column - 1,
                         });
-                        if (!res) return [];
-                        const locs = Array.isArray(res) ? res : [res];
-                        return locs.map((loc: any) => {
-                            const locUri = loc.uri ?? loc.targetUri ?? '';
-                            const r = loc.range ?? loc.targetSelectionRange ?? {};
-                            return {
-                                uri: monaco.Uri.parse(locUri.startsWith('file:') ? locUri : `file:///${locUri.replace(/\\/g, '/')}`),
-                                range: {
-                                    startLineNumber: (r.start?.line ?? 0) + 1,
-                                    startColumn: (r.start?.character ?? 0) + 1,
-                                    endLineNumber: (r.end?.line ?? 0) + 1,
-                                    endColumn: (r.end?.character ?? 0) + 1,
-                                },
-                            };
-                        });
+                        if (res) {
+                            const locs = Array.isArray(res) ? res : [res];
+                            return locs.map((loc: any) => {
+                                const locUri = loc.uri ?? loc.targetUri ?? '';
+                                const r = loc.range ?? loc.targetSelectionRange ?? {};
+                                return {
+                                    uri: monaco.Uri.parse(locUri.startsWith('file:') ? locUri : `file:///${locUri.replace(/\\/g, '/')}`),
+                                    range: {
+                                        startLineNumber: (r.start?.line ?? 0) + 1,
+                                        startColumn: (r.start?.character ?? 0) + 1,
+                                        endLineNumber: (r.end?.line ?? 0) + 1,
+                                        endColumn: (r.end?.character ?? 0) + 1,
+                                    },
+                                };
+                            });
+                        }
+                        const extDef = await extHostDefinition(
+                            getFileUri(),
+                            lang,
+                            model.getValue(),
+                            position.lineNumber - 1,
+                            position.column - 1,
+                        );
+                        return mapExtDefinitionToMonaco(extDef, monaco);
                     } catch { return []; }
                 },
             });

@@ -668,6 +668,14 @@ const vscode = createStubProxy(vscodeImpl);
 global.vscode = vscode;
 global.acquireVsCodeApi = () => vscode; // Webview compat
 
+// Extensions call require('vscode') — hook Module._load before any extension activates.
+const Module = require('module');
+const originalLoad = Module._load;
+Module._load = function vscodeModuleShim(request, parent, isMain) {
+    if (request === 'vscode') return vscode;
+    return originalLoad.call(this, request, parent, isMain);
+};
+
 const commands = new Map();
 const extensions = new Map();
 const loadedExtensions = new Map();
@@ -737,9 +745,16 @@ async function handleRequest(req) {
             break;
 
         case 'documentOpened': {
+            const normUri = normalizeDocUri(req.uri);
+            const existingIdx = vscodeImpl.workspace.textDocuments.findIndex(d =>
+                normalizeDocUri(d.uri?.toString?.() ?? d.uri) === normUri
+            );
+            if (existingIdx >= 0) {
+                vscodeImpl.workspace.textDocuments.splice(existingIdx, 1);
+            }
             const doc = {
-                uri: { fsPath: req.uri, toString: () => req.uri },
-                fileName: req.uri,
+                uri: { fsPath: normUri, toString: () => req.uri || normUri },
+                fileName: normUri,
                 languageId: req.languageId,
                 version: req.version ?? 1,
                 getText: () => req.content,
@@ -754,7 +769,10 @@ async function handleRequest(req) {
         }
 
         case 'documentChanged': {
-            const existingDoc = vscodeImpl.workspace.textDocuments.find(d => d.uri?.toString() === req.uri || d.uri === req.uri);
+            const normUri = normalizeDocUri(req.uri);
+            const existingDoc = vscodeImpl.workspace.textDocuments.find(d =>
+                normalizeDocUri(d.uri?.toString?.() ?? d.uri) === normUri
+            );
             if (existingDoc) {
                 existingDoc.content = req.content;
                 existingDoc.getText = () => req.content;
@@ -766,13 +784,19 @@ async function handleRequest(req) {
         }
 
         case 'documentSaved': {
-            const savedDoc = vscodeImpl.workspace.textDocuments.find(d => d.uri?.toString() === req.uri || d.uri === req.uri);
+            const normUri = normalizeDocUri(req.uri);
+            const savedDoc = vscodeImpl.workspace.textDocuments.find(d =>
+                normalizeDocUri(d.uri?.toString?.() ?? d.uri) === normUri
+            );
             if (savedDoc) eventHandlers.emit('onDidSaveTextDocument', savedDoc);
             break;
         }
 
         case 'documentClosed': {
-            const idx = vscodeImpl.workspace.textDocuments.findIndex(d => d.uri?.toString() === req.uri || d.uri === req.uri);
+            const normUri = normalizeDocUri(req.uri);
+            const idx = vscodeImpl.workspace.textDocuments.findIndex(d =>
+                normalizeDocUri(d.uri?.toString?.() ?? d.uri) === normUri
+            );
             if (idx >= 0) {
                 const [closed] = vscodeImpl.workspace.textDocuments.splice(idx, 1);
                 eventHandlers.emit('onDidCloseTextDocument', closed);
@@ -959,13 +983,23 @@ async function bootstrap(extensionMetadataList) {
     sendResponse({ type: 'ready', count: loadedExtensions.size });
 }
 
+function normalizeDocUri(uri) {
+    if (!uri) return '';
+    return String(uri).replace(/^file:\/\/\/?/, '').replace(/\\/g, '/');
+}
+
 async function activateExtension(extId) {
     const meta = loadedExtensions.get(extId);
     if (!meta || extensions.has(extId)) return;
 
     try {
-        const extPath = meta.extensionPath;
-        const mainFile = path.resolve(extPath, meta.main);
+        const extPath = meta.extensionPath || meta.extension_path;
+        if (!extPath) throw new Error('extensionPath missing from metadata');
+        const mainRel = meta.main || './extension.js';
+        const mainFile = path.resolve(extPath, mainRel);
+        if (!fs.existsSync(mainFile)) {
+            throw new Error(`Extension entry not found: ${mainFile}`);
+        }
         const extension = require(mainFile);
 
         if (typeof extension?.activate === 'function') {
