@@ -93,7 +93,10 @@ function fail(error: string): ToolResult {
 // ---------------------------------------------------------------------------
 export const BashTool: ToolDef = {
     name: 'bash',
-    description: `Execute a shell command on the system. Use this for running scripts, installing packages, compiling code, managing git, or any system-level task. The command runs in the project root directory. Commands run with the user's full permissions. For long-running commands, the output will be captured and returned.
+    description: `Execute a shell command on the system. Use for git, npm, cargo, curl downloads, python scripts, etc.
+
+NEVER use shell grep/egrep/rg — use the \`grep\` tool instead (bundled ripgrep, works on single files like JS bundles).
+For "curl file && grep pattern file": bash will auto-run curl then ripgrep, but prefer: curl in bash, then grep({ pattern, path }).
 
 IMPORTANT: For Python/shell with regex or nested quotes, write a .py/.sh file with write_to_file first, then run \`python script.py\`. Do NOT use python -c one-liners with complex escaping.`,
     inputSchema: {

@@ -9,6 +9,7 @@ import type { AgentToolBlock } from '../domain/agent/agentToolBlocks';
 import { createToolBlock, enrichEditBlockFromResult } from '../domain/agent/agentToolBlocks';
 import { toolsMatchForFinish } from '../domain/agent/toolAliases';
 import { cleanAgentContent, shouldReplaceAgentContent } from '../domain/agent/cleanAgentContent';
+import { onAgentModeChanged } from '../lib/agentAutonomy';
 
 /** A user-defined agent mode (Kilo-style): name + persona prompt + optional model. */
 export interface CustomMode {
@@ -403,7 +404,11 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
 
     agentBackend: ((typeof localStorage !== 'undefined' && localStorage.getItem('agent.backend')) as 'sentient' | 'claurst') || 'sentient',
     setAgentBackend: (agentBackend) => { try { localStorage.setItem('agent.backend', agentBackend); } catch { } set({ agentBackend }); },
-    setAgentMode: (agentMode) => { try { localStorage.setItem('agent.mode', agentMode); } catch { } set({ agentMode }); },
+    setAgentMode: (agentMode) => {
+        try { localStorage.setItem('agent.mode', agentMode); } catch { }
+        set({ agentMode });
+        onAgentModeChanged(agentMode);
+    },
     setAgentModel: (agentModel) => { try { localStorage.setItem('agentModel', agentModel); } catch { } set({ agentModel }); },
     setPlannerModel: (plannerModel) => { try { localStorage.setItem('agent.plannerModel', plannerModel); } catch { } set({ plannerModel }); },
     setPlannerEnabled: (plannerEnabled) => { try { localStorage.setItem('agent.plannerEnabled', plannerEnabled ? '1' : '0'); } catch { } set({ plannerEnabled }); },
