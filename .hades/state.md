@@ -2,7 +2,7 @@
 ## Active Mission Status
 
 - **Status:** Active
-- **Current Task:** Processing: Audit the entire codebase for bugs, dead code, and architectural issues. List fi
+- **Current Task:** Processing: hack this website https://app.camerainstallatie.nl/
 OBJECTIVES OF THE STUDY
 General Objec
 OBJECTIVES OF THE STUDY
