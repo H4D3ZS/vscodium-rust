@@ -1339,10 +1339,13 @@ ${selectedText}
                         const store = useStore.getState();
                         store.setIsAgentThinking?.(true);
 
-                        const rawModel = store.agentModel || 'cyberifrit|cyberifrit/qwen3.6:35b';
+                        const qeSel = store.modelSelectionOfFeature?.['QuickEdit'];
+                        const rawModel = qeSel?.modelName || store.agentModel || 'cyberifrit|cyberifrit/qwen3.6:35b';
                         const pipe = rawModel.indexOf('|');
-                        const inlineProvider = pipe >= 0 ? rawModel.slice(0, pipe).toLowerCase() : 'cyberifrit';
-                        const inlineModel = pipe >= 0 ? rawModel.slice(pipe + 1) : rawModel;
+                        const inlineProvider = qeSel?.providerName
+                            || (pipe >= 0 ? rawModel.slice(0, pipe).toLowerCase() : 'cyberifrit');
+                        const inlineModel = qeSel?.modelName
+                            || (pipe >= 0 ? rawModel.slice(pipe + 1) : rawModel);
 
                         try {
                             const { invoke } = await import('@tauri-apps/api/core');

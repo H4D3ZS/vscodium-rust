@@ -101,6 +101,8 @@ const PredictiveEditOverlay: React.FC = () => {
             const filePath = st.activeTab?.path || st.tabs?.find?.((t: any) => t.id === st.activeTabId)?.path || '';
 
             const reqId = ++aiReqIdRef.current;
+            const autoSel = st.modelSelectionOfFeature?.['Autocomplete'];
+            const modelOverride = autoSel?.modelName || st.agentModel || undefined;
             try {
                 const res: any = await invoke('predict_next_edit', {
                     content,
@@ -108,6 +110,7 @@ const PredictiveEditOverlay: React.FC = () => {
                     language,
                     filePath,
                     recentChange: lastChangeTextRef.current.slice(0, 400),
+                    modelOverride,
                 });
                 // Stale (newer edit superseded this) or editor gone.
                 if (reqId !== aiReqIdRef.current || !editorRef.current) return;

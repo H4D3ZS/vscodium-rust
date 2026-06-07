@@ -170,14 +170,20 @@ def cmd_export(args):
             opset_version=17,
         )
         results["files"].append(str(p))
-    if fmt in ("int8", "fp16", "all"):
+    if fmt in ("int8", "all"):
         try:
-            qmodel = model
-            if fmt == "fp16" or fmt == "all":
-                qmodel = model.half()
-                p = out_dir / "model.fp16.pt"
-                torch.save({"state_dict": qmodel.state_dict(), **{k: ckpt[k] for k in ("feature_cols", "classes", "hidden_size")}}, p)
-                results["files"].append(str(p))
+            qmodel = torch.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
+            p = out_dir / "model.int8.pt"
+            torch.save({"state_dict": qmodel.state_dict(), **{k: ckpt[k] for k in ("feature_cols", "classes", "hidden_size") if k in ckpt}}, p)
+            results["files"].append(str(p))
+        except Exception as e:
+            results["quantize_note"] = str(e)
+    if fmt in ("fp16", "all"):
+        try:
+            qmodel = model.half()
+            p = out_dir / "model.fp16.pt"
+            torch.save({"state_dict": qmodel.state_dict(), **{k: ckpt[k] for k in ("feature_cols", "classes", "hidden_size") if k in ckpt}}, p)
+            results["files"].append(str(p))
         except Exception as e:
             results["quantize_note"] = str(e)
     results["ok"] = True

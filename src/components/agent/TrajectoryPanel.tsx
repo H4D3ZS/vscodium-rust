@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../../store';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,9 +27,12 @@ const TrajectoryPanel: React.FC = () => {
     const open = useStore(s => s.isTrajectoryOpen);
     const close = useStore(s => s.closeTrajectory);
     const events = useStore(s => s.agentTrajectory);
+    const activeRoot = useStore(s => s.activeRoot);
+    const cascadeId = useStore(s => s.activeCascadeId);
     const clear = useStore(s => s.clearTrajectory);
     const [expandedEvt, setExpandedEvt] = useState<string | null>(null);
     const [filter, setFilter] = useState<'all' | 'tools' | 'errors'>('all');
+    const [exportMsg, setExportMsg] = useState('');
 
     const filtered = useMemo(() => {
         if (filter === 'tools') return events.filter(e => e.kind === 'tool_call' || e.kind === 'tool_result');
@@ -48,6 +52,19 @@ const TrajectoryPanel: React.FC = () => {
     }, [filtered]);
 
     if (!open) return null;
+
+    const onExportJsonl = async () => {
+        if (!activeRoot || !cascadeId) {
+            setExportMsg('Start an agent run first (no cascade id).');
+            return;
+        }
+        try {
+            const path = await invoke<string>('ag_export_trajectory_jsonl', { root: activeRoot, cascadeId });
+            setExportMsg(`Exported → ${path}`);
+        } catch (e) {
+            setExportMsg(String(e));
+        }
+    };
 
     return (
         <div
@@ -104,6 +121,9 @@ const TrajectoryPanel: React.FC = () => {
                             <option value="tools">Tool calls only</option>
                             <option value="errors">Errors only</option>
                         </select>
+                        <button onClick={() => void onExportJsonl()} style={btnNeutral} disabled={!activeRoot || !cascadeId}>
+                            <i className="codicon codicon-export" style={iconStyle} /> Export JSONL
+                        </button>
                         <button onClick={clear} style={btnNeutral}>
                             <i className="codicon codicon-clear-all" style={iconStyle} /> Clear
                         </button>
@@ -112,6 +132,12 @@ const TrajectoryPanel: React.FC = () => {
                         </button>
                     </div>
                 </div>
+
+                {exportMsg && (
+                    <div style={{ padding: '4px 16px', fontSize: 11, opacity: 0.7, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        {exportMsg}
+                    </div>
+                )}
 
                 {/* Body */}
                 <div style={{ flex: '1 1 auto', overflowY: 'auto', padding: 16 }}>

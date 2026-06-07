@@ -400,6 +400,29 @@ pub fn ag_append_trajectory_step(
 }
 
 #[tauri::command]
+pub fn ag_export_trajectory_jsonl(root: String, cascade_id: String) -> Result<String, String> {
+    let record = crate::antigravity_compat::load_trajectory(Path::new(&root), &cascade_id)
+        .ok_or_else(|| format!("No trajectory for {cascade_id}"))?;
+    let out_path = Path::new(&root).join(".agent").join("runs").join(format!("{cascade_id}.jsonl"));
+    let mut lines = Vec::new();
+    for step in &record.steps {
+        lines.push(
+            serde_json::json!({
+                "messages": [
+                    {"role": "user", "content": record.objective.clone()},
+                    {"role": "assistant", "content": format!("{}: {}", step.title, step.detail.as_deref().unwrap_or(""))},
+                ],
+                "tool": step.tool,
+                "meta": {"kind": step.kind, "ts": step.timestamp, "success": step.success},
+            })
+            .to_string(),
+        );
+    }
+    fs::write(&out_path, lines.join("\n")).map_err(|e| e.to_string())?;
+    Ok(out_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub fn ag_upsert_subagent(
     root: String,
     cascade_id: String,

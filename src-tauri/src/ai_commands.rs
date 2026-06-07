@@ -455,6 +455,7 @@ pub async fn predict_next_edit(
     language: String,
     file_path: String,
     recent_change: Option<String>,
+    model_override: Option<String>,
 ) -> Result<serde_json::Value, String> {
     use serde_json::json;
 
@@ -465,9 +466,12 @@ pub async fn predict_next_edit(
     }
 
     let current_model = state.current_model.lock().await.clone();
+    let model_name = model_override
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(current_model);
     let ollama_url_val = state.ollama_url.lock().await.clone();
     let (provider, model, ollama_url) = {
-        let m = current_model.as_str();
+        let m = model_name.as_str();
         let ml = m.to_lowercase();
         if ml.contains("claude-opus-4-8") { ("highwayapi".to_string(), m.to_string(), None) }
         else if ml.contains("claude") { ("anthropic".to_string(), m.to_string(), None) }
@@ -530,7 +534,7 @@ exists, return {{\"has_edit\":false}}. Never invent edits at the cursor itself."
         reasoning_budget: None,
         reasoning_effort: None,
         reasoning_enabled: None,
-        feature: None,
+        feature: Some("Autocomplete".to_string()),
     };
 
     let raw = state.ai_engine.clone()

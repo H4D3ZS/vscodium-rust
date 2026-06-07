@@ -11,6 +11,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 use walkdir::WalkDir;
 use sha2::{Sha256, Digest};
+use rayon::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeChunk {
@@ -675,7 +676,7 @@ impl VectorIndexer {
         )?;
 
         let scan_limit = if query_embedding.is_some() { (limit * 20) as i64 } else { (limit * 5) as i64 };
-        let rows = stmt.query_map(params![scan_limit], |row| {
+        let rows: Vec<_> = stmt.query_map(params![scan_limit], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -685,53 +686,47 @@ impl VectorIndexer {
                 row.get::<_, String>(5)?,
                 row.get::<_, Option<Vec<u8>>>(6)?,
             ))
-        })?;
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-        let mut results = Vec::new();
-
-        for row in rows {
-            let (file_path, content, start_line, end_line, _language, symbols_json, embedding_blob) = row?;
-
-            let mut score = 0.0f32;
-
-            if let (Some(ref q_emb), Some(ref blob)) = (&query_embedding, &embedding_blob) {
-                if let Some(chunk_emb) = Self::parse_embedding_blob(blob) {
-                    let sim = crate::embeddings::cosine_similarity(q_emb, &chunk_emb);
-                    if sim > 0.25 {
-                        score += sim * 10.0;
-                    }
-                }
-            }
-
-            let content_lower = content.to_lowercase();
-            for keyword in &keywords {
-                let matches = content_lower.matches(keyword).count();
-                score += matches as f32;
-
-                if let Ok(symbols) = serde_json::from_str::<Vec<String>>(&symbols_json) {
-                    for symbol in &symbols {
-                        if symbol.to_lowercase().contains(keyword) {
-                            score += 2.0;
+        let q_emb = query_embedding.clone();
+        let keywords_owned: Vec<String> = keywords.iter().map(|s| s.to_string()).collect();
+        let mut results: Vec<SearchResult> = rows
+            .par_iter()
+            .filter_map(|(file_path, content, start_line, end_line, _language, symbols_json, embedding_blob)| {
+                let mut score = 0.0f32;
+                if let (Some(ref qe), Some(ref blob)) = (&q_emb, embedding_blob) {
+                    if let Some(chunk_emb) = Self::parse_embedding_blob(blob) {
+                        let sim = crate::embeddings::cosine_similarity(qe, &chunk_emb);
+                        if sim > 0.25 {
+                            score += sim * 10.0;
                         }
                     }
                 }
-            }
-
-            if score > 0.0 {
-                results.push(SearchResult {
-                    file_path,
+                let content_lower = content.to_lowercase();
+                for keyword in &keywords_owned {
+                    let matches = content_lower.matches(keyword.as_str()).count();
+                    score += matches as f32;
+                    if let Ok(symbols) = serde_json::from_str::<Vec<String>>(symbols_json) {
+                        for symbol in &symbols {
+                            if symbol.to_lowercase().contains(keyword.as_str()) {
+                                score += 2.0;
+                            }
+                        }
+                    }
+                }
+                if score <= 0.0 {
+                    return None;
+                }
+                Some(SearchResult {
+                    file_path: file_path.clone(),
                     content: content.clone(),
-                    start_line: start_line as usize,
-                    end_line: end_line as usize,
+                    start_line: *start_line as usize,
+                    end_line: *end_line as usize,
                     relevance_score: score,
-                    context: Self::extract_context(&content, &query_lower),
-                });
-            }
-
-            if results.len() >= limit * 3 {
-                break;
-            }
-        }
+                    context: Self::extract_context(content, &query_lower),
+                })
+            })
+            .collect();
 
         results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
         results.truncate(limit);

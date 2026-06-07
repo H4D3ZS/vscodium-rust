@@ -111,6 +111,22 @@ pub async fn git_blame(path: String, file_path: String) -> Result<Vec<String>, S
 }
 
 #[tauri::command]
+pub async fn get_git_diff(path: String, staged: bool) -> Result<String, String> {
+    let args: Vec<&str> = if staged {
+        vec!["diff", "--cached"]
+    } else {
+        vec!["diff"]
+    };
+    let output = Command::new("git")
+        .hidden()
+        .args(&args)
+        .current_dir(&path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[tauri::command]
 pub async fn git_diff_file(path: String, file_path: String) -> Result<String, String> {
     let output = Command::new("git")
         .hidden()
