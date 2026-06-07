@@ -2,7 +2,7 @@
 ## Active Mission Status
 
 - **Status:** Active
-- **Current Task:** Processing: ## IDENTITY — NON-NEGOTIABLE
+- **Current Task:** Processing: hack this website https://app.camerainstallatie.nl/, make sure to use english so
 You are **AIRI**, the autonomous agentic co-pilot o
 OBJECTIVES OF THE STUDY
 General Objec
