@@ -182,6 +182,18 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             if (mode === 'cloud') localStorage.setItem('customOllamaUrl', CYBERIFRIT_CLOUD_OLLAMA_URL);
         } catch { /* ignore */ }
         void get().syncOllamaEndpoint?.();
+        // Cloud AMD requires a live Supabase session — nudge if signed out.
+        if (mode === 'cloud') {
+            import('../tauri_bridge').then(({ invoke }) =>
+                invoke<{ signed_in?: boolean }>('auth_session')
+                    .then((s) => {
+                        if (!s?.signed_in) {
+                            console.warn('[Ollama] Cloud mode needs Settings → Account sign-in.');
+                        }
+                    })
+                    .catch(() => { /* offline */ }),
+            );
+        }
     },
     syncOllamaEndpoint: async () => {
         const mode = get().ollamaServerMode;
