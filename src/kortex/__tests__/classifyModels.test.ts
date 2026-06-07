@@ -33,12 +33,22 @@ describe('classifyModels — hybrid planner/executor auto-detect', () => {
         expect(pick.executor?.id).toBe('llama3.2:3b');
     });
 
-    it('uses a large local model to plan and the coder model to execute (all-local)', () => {
+    it('never uses a 30B+ local model as planner on all-Ollama rigs', () => {
+        const pick = classifyModels([
+            { id: 'aware/qwen3.6-40b-deck-opus-neo-code:latest', provider: 'Ollama' },
+            { id: 'gemma4:12b', provider: 'Ollama' },
+            { id: 'qwen2.5-coder:7b', provider: 'Ollama' },
+        ]);
+        expect(pick.planner?.id).toBe('qwen2.5-coder:7b');
+        expect(pick.executor?.id).toBe('qwen2.5-coder:7b');
+    });
+
+    it('prefers a small local model over a large one when all models are local', () => {
         const pick = classifyModels([
             { id: 'qwen2.5:32b', provider: 'Ollama' },
             { id: 'qwen2.5-coder:7b', provider: 'Ollama' },
         ]);
-        expect(pick.planner?.id).toBe('qwen2.5:32b');
+        expect(pick.planner?.id).toBe('qwen2.5-coder:7b');
         expect(pick.executor?.id).toBe('qwen2.5-coder:7b');
     });
 

@@ -425,7 +425,11 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
         set({ agentModel });
     },
     setPlannerModel: (plannerModel) => { try { localStorage.setItem('agent.plannerModel', plannerModel); } catch { } set({ plannerModel }); },
-    setPlannerEnabled: (plannerEnabled) => { try { localStorage.setItem('agent.plannerEnabled', plannerEnabled ? '1' : '0'); } catch { } set({ plannerEnabled }); },
+    setPlannerEnabled: (plannerEnabled) => {
+        if (get().ollamaServerMode === 'local') plannerEnabled = false;
+        try { localStorage.setItem('agent.plannerEnabled', plannerEnabled ? '1' : '0'); } catch { }
+        set({ plannerEnabled });
+    },
     setHybridAuto: (hybridAuto) => { try { localStorage.setItem('agent.hybridAuto', hybridAuto ? '1' : '0'); } catch { } set({ hybridAuto }); },
     setAgentRootAccess: (_) => set({ agentRootAccess: true }),
     setAgentCurrentAction: (agentCurrentAction) => set({ agentCurrentAction }),
