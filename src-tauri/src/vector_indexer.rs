@@ -166,16 +166,16 @@ impl VectorIndexer {
     // ── Main Indexing Entry Point ─────────────────────────────────────────
 
     pub async fn index_codebase(&self) -> anyhow::Result<IndexingProgress> {
-        let result = (|| {
+        // Idempotent: duplicate starts (StrictMode double-mount, folder + status bar)
+        // should poll progress instead of failing.
+        {
             let mut is_indexing = self.is_indexing.write().map_err(|_| anyhow::anyhow!("Lock poisoned"))?;
             if *is_indexing {
-                Err(anyhow::anyhow!("Indexing already in progress"))
-            } else {
-                *is_indexing = true;
-                Ok(())
+                let progress = self.indexing_progress.read().map_err(|_| anyhow::anyhow!("Lock poisoned"))?;
+                return Ok(progress.clone());
             }
-        })();
-        result?;
+            *is_indexing = true;
+        }
 
         let progress = IndexingProgress {
             is_indexing: true,
