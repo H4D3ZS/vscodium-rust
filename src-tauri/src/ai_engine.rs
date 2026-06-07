@@ -1753,6 +1753,14 @@ impl Sentient {
                 aim_indexed_files
             ));
         }
+        if tree_before > 0 && aim_indexed_files == 0 {
+            project_memory.push_str(
+                "\n### AIM INDEX EMPTY FOR THIS WORKSPACE\n\
+                 The .aim file referenced another project — all paths were pruned. \
+                 Re-index this folder (status bar Index) before gap analysis. \
+                 Until then, use search_codebase / vector search, not phantom root docs.\n",
+            );
+        }
         let user_prompt_chars = req
             .messages
             .iter()

@@ -36,13 +36,22 @@ export const createSpecsSlice: StateCreator<AppState, [], [], SpecsSlice> = (set
     setCurrentSpecProjectId: (id) => set({ currentSpecProjectId: id }),
 
     startIndexingCodebase: async () => {
-        const { activeRoot, indexingEnabled } = get();
+        const { activeRoot, indexingEnabled, isIndexingCodebase } = get();
         if (!activeRoot || !indexingEnabled) return;
+        if (isIndexingCodebase) {
+            get().pollIndexingProgress();
+            return;
+        }
         set({ isIndexingCodebase: true, indexingProgress: null });
         try {
             await invoke('vector_index_codebase');
             get().pollIndexingProgress();
         } catch (e) {
+            const msg = String(e ?? '');
+            if (msg.includes('already in progress')) {
+                get().pollIndexingProgress();
+                return;
+            }
             console.warn('[Indexing] vector_index_codebase failed:', e);
             set({ isIndexingCodebase: false });
         }

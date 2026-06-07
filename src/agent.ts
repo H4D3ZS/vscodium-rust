@@ -2325,12 +2325,21 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
         // here sometimes don't bubble cleanly when the agent has already
         // emitted partial content. Write directly so the user always
         // sees what went wrong.
-        const msg = (e?.message ?? String(e)).slice(0, 500);
+        const raw = e?.message ?? String(e);
+        const msg = raw.slice(0, 500);
+        const ipcDead =
+            /ERR_CONNECTION_REFUSED|Failed to fetch|network error|ipc\.localhost/i.test(raw);
         console.error("Agent chat failed:", msg);
         try {
             store.getState().updateLastAgentMessage?.(
-                `**Agent loop error:** ${msg}\n\n` +
-                `Provider: \`${routingProvider}\`  ·  Model: \`${routingModel}\`  ·  URL: \`${routingOllamaUrl || '(default)'}\``
+                ipcDead
+                    ? `**Backend disconnected** during the agent run (\`ai_chat\` IPC failed).\n\n` +
+                      `Partial events may have streamed, but the loop did not finish. ` +
+                      `Restart the IDE with \`npm run dev:tauri\` (not Vite-only). ` +
+                      `If you were editing vscodium-rust, a Rust rebuild may have killed the backend mid-run.\n\n` +
+                      `Raw: \`${msg}\``
+                    : `**Agent loop error:** ${msg}\n\n` +
+                      `Provider: \`${routingProvider}\`  ·  Model: \`${routingModel}\`  ·  URL: \`${routingOllamaUrl || '(default)'}\``
             );
         } catch { /* non-fatal */ }
         setAiStatus('dead');
