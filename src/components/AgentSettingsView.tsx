@@ -987,15 +987,22 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         </select>
 
                         {/* ── Hybrid deep-reasoning planner ── */}
-                        <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--vscode-dropdown-border)' }}>
-                            <label style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                <input type="checkbox" checked={plannerEnabled} onChange={(e) => setPlannerEnabled(e.target.checked)} />
+                        <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--vscode-dropdown-border)', opacity: ollamaServerMode === 'local' ? 0.55 : 1 }}>
+                            <label style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: ollamaServerMode === 'local' ? 'not-allowed' : 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={plannerEnabled && ollamaServerMode !== 'local'}
+                                    disabled={ollamaServerMode === 'local'}
+                                    onChange={(e) => setPlannerEnabled(e.target.checked)}
+                                />
                                 Hybrid planner (deep reasoning)
                             </label>
                             <div style={{ fontSize: '10px', opacity: 0.6, margin: '4px 0 8px 22px' }}>
-                                A stronger model plans &amp; reasons (iteration 0), then the executor above carries out the plan and self-verifies with cargo check / typecheck.
+                                {ollamaServerMode === 'local'
+                                    ? 'Off for Local Ollama — single-model agent on your picked 4b–14b model (fastest on a desk PC). Enable Cloud or Self-Hosted GPU for hybrid plan→act.'
+                                    : 'A stronger model plans & reasons (iteration 0), then the executor above carries out the plan and self-verifies with cargo check / typecheck.'}
                             </div>
-                            {plannerEnabled && (
+                            {plannerEnabled && ollamaServerMode !== 'local' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginLeft: '22px' }}>
                                     <label style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                                         <input type="checkbox" checked={hybridAuto} onChange={(e) => setHybridAuto(e.target.checked)} />

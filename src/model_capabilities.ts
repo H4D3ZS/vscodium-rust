@@ -567,8 +567,23 @@ export function modelKey(m: AvailableModelLite): string {
     return `${String(m.provider || '').toLowerCase()}|${m.id}`;
 }
 
-const BIG_LOCAL = /(?::|-)(?:30b|32b|34b|65b|70b|72b|110b)\b/;
-const SMALL_LOCAL = /(?::|-)(?:0\.5b|1\.5b|1b|2b|3b|4b|7b|8b|9b|13b|14b)\b/;
+const BIG_LOCAL = /(?::|-)(?:30b|32b|34b|40b|65b|70b|72b|110b)\b/i;
+const SMALL_LOCAL = /(?::|-)(?:0\.5b|1\.5b|1b|2b|3b|4b|7b|8b|9b|12b|13b|14b)\b/i;
+const HEAVY_LOCAL = /(?:^|[/:\-_])(40|35|32|30|27|70|72|128|229)(?:b|-)|deck-opus|neo-code|abliterat/i;
+
+const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'lm-studio', 'lm_studio', 'vllm', 'local']);
+
+/** Models that will stall a consumer GPU/CPU if used as hybrid planner. */
+export function isHeavyLocalModel(modelId: string): boolean {
+    const id = String(modelId || '').toLowerCase();
+    if (HEAVY_LOCAL.test(id)) return true;
+    if (BIG_LOCAL.test(id)) return true;
+    return false;
+}
+
+function isLocalProvider(provider: string): boolean {
+    return LOCAL_PROVIDERS.has(String(provider || '').toLowerCase());
+}
 
 /** Higher = stronger reasoner. Frontier cloud > large local > mid local. */
 function plannerScore(m: AvailableModelLite): number {
@@ -622,6 +637,9 @@ function executorScore(m: AvailableModelLite): number {
  * Pick a (planner, executor) pair from the available models. The executor is the
  * best fast model that differs from the planner; if only one model exists, both
  * roles collapse to it (degrades to today's single-model behavior).
+ *
+ * All-local installs (typical 4b–14b Ollama rigs): never auto-pick 30B+ deck models
+ * as planner — that doubles cold-load time on consumer hardware.
  */
 export function classifyModels(models: AvailableModelLite[]): PlannerExecutorPick {
     // Never pick apiradar (removed: leaked-key aggregator, unreachable → hangs the loop).
@@ -638,10 +656,28 @@ export function classifyModels(models: AvailableModelLite[]): PlannerExecutorPic
     if (list.length === 0) return { planner: null, executor: null };
     if (list.length === 1) return { planner: list[0], executor: list[0] };
 
-    const planner = [...list].sort((a, b) => plannerScore(b) - plannerScore(a))[0];
     const byExecutor = [...list].sort((a, b) => executorScore(b) - executorScore(a));
-    const executor = byExecutor.find((m) => modelKey(m) !== modelKey(planner)) || byExecutor[0];
-    return { planner, executor };
+    const executor = byExecutor[0];
+    const allLocal = list.every((m) => isLocalProvider(String(m.provider || '')));
+
+    if (allLocal) {
+        const light = list.filter((m) => !isHeavyLocalModel(String(m.id || '')));
+        const pool = light.length > 0 ? light : list;
+        const plannerCandidate = [...pool]
+            .sort((a, b) => executorScore(b) - executorScore(a))[0];
+        // Same fast local model for both roles → no hybrid (avoid loading a second model).
+        if (modelKey(plannerCandidate) === modelKey(executor)) {
+            return { planner: executor, executor };
+        }
+        return { planner: plannerCandidate, executor };
+    }
+
+    const cloudPlannerPool = list.filter((m) => !isLocalProvider(String(m.provider || ''))
+        || !isHeavyLocalModel(String(m.id || '')));
+    const plannerPool = cloudPlannerPool.length > 0 ? cloudPlannerPool : list;
+    const planner = [...plannerPool].sort((a, b) => plannerScore(b) - plannerScore(a))[0];
+    const exec = byExecutor.find((m) => modelKey(m) !== modelKey(planner)) || byExecutor[0];
+    return { planner, executor: exec };
 }
 
 export function buildSearchReplacePrompt(originalFile: string, instruction: string): string {
