@@ -17,6 +17,7 @@ import {
 import type { PyTorchDetectResult, PyTorchInstallVariant, PyTorchVerifyResult } from '../../domain/pytorch/IPyTorchRepository';
 import type { MlDatasetEntry, MlRunSummary, MlStudioConfig } from '../../domain/ml/IMlStudioRepository';
 import { PYTORCH_BEGINNER_LESSONS } from '../../lib/pytorchLessons';
+import { AI_ENGINEER_LEAD, AI_ENGINEER_TAGLINE } from '../../lib/aiEngineerManifesto';
 import PyTorchLogo from './PyTorchLogo';
 import { closeCenterWorkbench } from '../../application/layout/closeCenterWorkbench';
 
@@ -212,12 +213,12 @@ const PyTorchStudioPanel: React.FC<{ mode?: 'dock' | 'settings' }> = ({ mode = '
                     </div>
                     {!isDock && (
                         <p className="afi-lead" style={{ margin: '4px 0 0' }}>
-                            Install → data → train → infer. Project: <code>{root}</code>
+                            {AI_ENGINEER_TAGLINE} Project: <code>{root}</code>
                         </p>
                     )}
                     {isDock && (
                         <p className="afi-subtle" style={{ margin: '2px 0 0', fontSize: 11 }}>
-                            NVIDIA CUDA + AMD ROCm · <code>{root}</code>
+                            {AI_ENGINEER_LEAD} · <code>{root}</code>
                         </p>
                     )}
                 </div>

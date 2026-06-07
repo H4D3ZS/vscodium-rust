@@ -138,10 +138,10 @@ export const AGENT_FIRST_IDE_FEATURES: AgentFirstIdeFeature[] = [
     {
         id: 'pytorch-ml-studio',
         name: 'PyTorch ML Studio',
-        description: 'Setup → datasets → train → inference in .hades/ml/',
-        tier: 'wired',
-        sources: ['pytorch.org/tutorials'],
-        hadesPath: 'ml_studio.rs, PyTorchStudioPanel.tsx',
+        description: 'Friend-of-ML-engineers pipeline: datasets, Optuna HPO, graphs, export — TorchStudio-class',
+        tier: 'hades-advantage',
+        sources: ['pytorch.org', 'torchstudio.ai'],
+        hadesPath: 'ml_studio.rs, PyTorchStudioPanel.tsx, scripts/ml/',
     },
     {
         id: 'hermes-gateway',

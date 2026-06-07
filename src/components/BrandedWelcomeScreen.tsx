@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { openPyTorchStudio } from '../application/pytorch/openPyTorchStudio';
+import { AI_ENGINEER_PILLARS, AI_ENGINEER_TAGLINE } from '../lib/aiEngineerManifesto';
 import { useStore } from '../store';
 
 const DISMISS_KEY = 'welcome.dismissed';
@@ -18,15 +20,12 @@ function RustLogo({ size = 56 }: { size?: number }) {
     );
 }
 
-const PILLARS = [
-    { title: 'Local Ollama', desc: 'Native agent + tools on open models — not a bolt-on extension.' },
-    { title: 'Privacy', desc: 'Code stays on your machine. Cloud is optional.' },
-    { title: 'Autonomy', desc: 'Full agent loop with checkpoints and diff review.' },
-] as const;
+const PILLARS = AI_ENGINEER_PILLARS;
 
 const START_ACTIONS = [
     { label: 'New File...', desc: 'Create in workspace', icon: 'new-file', cmd: 'explorer.newFile' },
     { label: 'Open Folder...', desc: 'Open from filesystem', icon: 'folder-opened', cmd: 'explorer.openFolder' },
+    { label: 'PyTorch ML Studio', desc: 'Train & experiment locally', icon: 'beaker', cmd: 'pytorch.mlStudio' },
     { label: 'Clone Repository...', desc: 'Sync with Git', icon: 'source-control', cmd: 'git.clone' },
     { label: 'New AI Project...', desc: 'Specs-to-Code Pipeline', icon: 'sparkle', cmd: 'specs.newProject' },
 ] as const;
@@ -74,6 +73,10 @@ const BrandedWelcomeScreen: React.FC<BrandedWelcomeScreenProps> = ({ compact = f
             s.setSpecsWizardOpen?.(true);
             return;
         }
+        if (cmd === 'pytorch.mlStudio') {
+            openPyTorchStudio();
+            return;
+        }
         (window as any).executeCommand?.(cmd);
     };
 
@@ -94,7 +97,7 @@ const BrandedWelcomeScreen: React.FC<BrandedWelcomeScreenProps> = ({ compact = f
             <div className="welcome-compact">
                 <RustLogo size={48} />
                 <h2 className="welcome-compact-title">VSCODIUM-RUST IDE</h2>
-                <p className="welcome-compact-sub">Open a file from the explorer or chat with AIRI.</p>
+                <p className="welcome-compact-sub">{AI_ENGINEER_TAGLINE}</p>
                 <button type="button" className="welcome-compact-link" onClick={() => useStore.getState().openAiriPanel?.()}>
                     Code with Agent · Ctrl+L
                 </button>
@@ -120,8 +123,7 @@ const BrandedWelcomeScreen: React.FC<BrandedWelcomeScreenProps> = ({ compact = f
                             <span className="welcome-simple-version">AIRI CORE v{APP_VERSION}</span>
                         </div>
                         <p className="welcome-simple-tagline">
-                            The ultimate high-performance, native IDE optimized for speed, autonomy,
-                            and the future of software construction.
+                            {AI_ENGINEER_TAGLINE}
                         </p>
                     </div>
                 </header>
