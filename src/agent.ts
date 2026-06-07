@@ -1993,6 +1993,31 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     // Resolve special @mentions (@codebase, @web, @git, @docs) before sending
     const resolvedContext = await resolveSpecialMentions(context || storeState.attachedFiles || [], userPrompt, activeRoot);
 
+    // Vision sidecar — text-only agent + image attachments → local VL summary (Cursor-style)
+    let attachmentContext = resolvedContext;
+    try {
+        const { applyVisionSidecar, patchLastUserMessageContext } = await import('./lib/visionSidecar');
+        const sidecar = await applyVisionSidecar(
+            attachmentContext,
+            routingModel,
+            userPrompt,
+            routingOllamaUrl,
+        );
+        if (sidecar.analyzed_count > 0) {
+            attachmentContext = sidecar.attachments;
+            patchLastUserMessageContext(store, attachmentContext);
+            store.getState().pushTrajectoryEvent?.({
+                kind: 'phase',
+                title: 'Vision sidecar',
+                detail: sidecar.message || `Analyzed ${sidecar.analyzed_count} image(s)`,
+            });
+        } else if (sidecar.message && !sidecar.skipped) {
+            console.warn('[vision-sidecar]', sidecar.message);
+        }
+    } catch (e) {
+        console.warn('[vision-sidecar] failed:', e);
+    }
+
     const tabs = (storeState as any).tabs || [];
     const aiInstructions: string = (storeState as any).voidGlobalSettings?.aiInstructions || '';
     // Load AIM brain for system prompt (non-blocking, best-effort)
@@ -2030,7 +2055,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         agentMode: storeState.agentMode || 'Execution',
         userPrompt,
         projectMemory: storeState.projectMemory || undefined,
-        attachedContext: resolvedContext,
+        attachedContext: attachmentContext,
         kortexBrain,
     };
     let systemContext = await buildSystemPrompt(promptConfig);

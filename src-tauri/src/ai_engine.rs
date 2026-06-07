@@ -1118,32 +1118,7 @@ impl Sentient {
     /// Returns true if the model supports vision / image input via Ollama.
     /// Ollama passes images as a top-level `images` array (base64) on each message.
     fn is_vision_model(model: &str) -> bool {
-        let m = model.to_lowercase();
-        // Gemma 4 family — all variants are multimodal (text + image)
-        if m.contains("gemma4") || m.contains("gemma-4") {
-            return true;
-        }
-        // Gemma 3 with explicit vision tag
-        if (m.contains("gemma3") || m.contains("gemma-3")) && m.contains("vision") {
-            return true;
-        }
-        // LLaVA family
-        if m.contains("llava") || m.contains("bakllava") || m.contains("moondream") {
-            return true;
-        }
-        // MiniCPM-V / MiMo-VL
-        if m.contains("minicpm-v") || m.contains("mimo-vl") {
-            return true;
-        }
-        // Qwen2-VL / Qwen2.5-VL
-        if (m.contains("qwen") && m.contains("-vl")) || m.contains("qwen-vl") {
-            return true;
-        }
-        // Phi-3 / Phi-4 vision
-        if m.contains("phi") && m.contains("vision") {
-            return true;
-        }
-        false
+        crate::vision_sidecar::is_vision_capable_model(model)
     }
 
     /// Ensure tool `arguments` string is valid JSON (Ollama rejects malformed history).
@@ -2374,6 +2349,7 @@ impl Sentient {
                 3. FULL AUTONOMY: Never ask permission to use tools. Never say 'I would' or 'I could'. Just DO it. \
                 4. ITERATIVE: If a build fails, READ the error, PATCH the file, verify again. Loop until green. \
                 5. TERMINAL: Use run_command for shell operations (install packages, run scripts, etc.). \
+                   On Windows with Git Bash: write multi-line Python/shell to a file with write_to_file, then run `python script.py` — NEVER use `python -c \"...\"` one-liners with nested quotes/regex (they break). For JS bundle analysis: write extract_endpoints.py, run it, read stdout. \
                 6. MEMORY: After completing a task, call save_knowledge_brief to record the solution. \
                 \n\nCRITICAL TOOL SEQUENCE FOR EDITING:\n\
                 Step 1: view_file to read current content.\n\
@@ -4298,7 +4274,16 @@ impl Sentient {
                     }
 
                     if tool_name == "run_command" {
-                         tool_args_json["shell_hint"] = json!(tool_call.function.name);
+                        let hint = tool_call.function.name.as_str();
+                        if hint == "bash" || hint == "sh" {
+                            tool_args_json["shell_hint"] = json!(hint);
+                        } else if let Some(cmd) =
+                            tool_args_json.get("command").and_then(|v| v.as_str())
+                        {
+                            if crate::ai_tools::ShellTranslator::prefers_git_bash(cmd) {
+                                tool_args_json["shell_hint"] = json!("bash");
+                            }
+                        }
                     }
 
                     // WINDOWS FILE-WRITE INTERCEPTOR: When AI uses run_command with shell redirects
