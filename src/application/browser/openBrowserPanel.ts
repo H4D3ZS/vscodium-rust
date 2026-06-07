@@ -6,19 +6,20 @@ import { useStore } from '../../store';
  * in real time while the agent drives it. NOT the in-IDE BrowserSurface iframe.
  */
 export async function launchExternalBrowser(): Promise<void> {
+    const hidden = useStore.getState().browserStealthHidden;
     useStore.getState().setExternalBrowserActive(true);
-    try {
-        const msg = await invoke<string>('browser_open');
+        try {
+        const msg = await invoke<string>('browser_open', { headless: hidden });
         console.log('[browser]', msg);
     } catch (e: unknown) {
         useStore.getState().setExternalBrowserActive(false);
         const err = e instanceof Error ? e.message : String(e);
+        console.error('[browser] launch failed:', err);
         alert(
-            'Could not launch the external browser.\n\n' +
-            'Install stealth Firefox support:\n' +
-            '  pip install playwright invisible_playwright\n\n' +
-            'Then click the globe again (first run downloads Firefox).\n\n' +
-            'Error: ' + err,
+            'Could not start the external browser sidecar.\n\n' +
+            'Release: browser-agent.exe should ship in binaries/\n' +
+            'Dev: pip install playwright invisible_playwright\n\n' +
+            err,
         );
     }
 }

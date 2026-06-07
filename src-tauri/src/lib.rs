@@ -28,8 +28,21 @@ mod antigravity_compat;
 mod ai_project_commands;
 mod airi_bridge;
 mod claurst_bridge;
+mod ide_shell;
+mod hermes_skills;
+mod skill_audit;
+mod skill_store;
 mod android_commands;
 mod android_sdk;
+mod gradle_commands;
+mod logcat_commands;
+mod logcat_service;
+mod test_commands;
+mod test_runner_service;
+mod pytorch_commands;
+mod ml_studio;
+mod stop_hooks;
+mod embeddings;
 mod apex_commands;
 mod attachment_manager;
 mod binary_analyzer;
@@ -42,6 +55,7 @@ pub mod domain;
 mod extensions_commands;
 mod file_commands;
 mod ghost_runtime;
+mod agent_harness;
 mod hades_harness;
 mod hades_vision;
 mod iphone_emulator;
@@ -57,6 +71,9 @@ pub mod kortex_kvcache;
 mod lsp_commands;
 mod lsp_manager;
 mod lsp_bundle;
+mod lsp_catalog;
+mod lsp_store;
+mod lsp_router;
 mod workspace_settings_commands;
 mod port_commands;
 mod mcp_client;
@@ -170,6 +187,16 @@ pub fn run() {
             if !state.config_dir.exists() {
                 fs::create_dir_all(&state.config_dir).ok();
             }
+
+            // Bundle PortableGit into %LOCALAPPDATA%\\HADES\\git on first launch (non-blocking).
+            tauri::async_runtime::spawn(async {
+                match tauri::async_runtime::spawn_blocking(ide_shell::ensure_portable_git_installed).await {
+                    Ok(Ok(true)) => println!("[ide_shell] PortableGit installed to HADES home."),
+                    Ok(Ok(false)) => {}
+                    Ok(Err(e)) => eprintln!("[ide_shell] PortableGit install: {e}"),
+                    Err(e) => eprintln!("[ide_shell] ensure_portable_git task failed: {e}"),
+                }
+            });
 
             // ChatGPT bridge: lazy-init on first use — a hidden webview costs ~40–80MB RSS.
 
@@ -295,6 +322,19 @@ pub fn run() {
             ai_commands::predict_next_edit,
             claurst_bridge::claurst_status,
             claurst_bridge::claurst_run,
+            ide_shell::ide_shell_status,
+            ide_shell::ide_git_bash_path,
+            ide_shell::ide_ensure_portable_git,
+            hermes_skills::hermes_integration_status,
+            hermes_skills::hermes_skills_list,
+            hermes_skills::hermes_skills_get,
+            hermes_skills::hermes_skills_search,
+            skill_store::skill_store_status,
+            skill_store::skill_store_list,
+            skill_store::skill_store_install,
+            skill_store::skill_store_uninstall,
+            skill_store::skill_store_audit,
+            skill_store::skill_store_refresh,
             ai_commands::ai_modify_file,
             ai_commands::ai_multi_cursor_edit,
             ai_commands::ai_pr_review,
@@ -389,6 +429,9 @@ pub fn run() {
             ai_patch_commands::propose_fast_edit,
             // ═══ Background Jobs ═══
             jobs::get_background_jobs,
+            jobs::register_background_job,
+            jobs::update_background_job,
+            jobs::remove_background_job,
             // ═══ APEX Intelligence ═══
             apex_commands::apex_architect_design,
             apex_commands::apex_architect_scaffold,
@@ -418,6 +461,32 @@ pub fn run() {
             android_commands::get_android_config,
             android_commands::set_android_sdk_path,
             android_commands::spawn_emulator,
+            gradle_commands::gradle_detect_project,
+            gradle_commands::gradle_sync_project,
+            gradle_commands::gradle_list_tasks,
+            gradle_commands::gradle_run_task,
+            logcat_commands::logcat_start,
+            logcat_commands::logcat_stop,
+            logcat_commands::logcat_status,
+            test_commands::test_sniff_framework,
+            test_commands::test_discover,
+            test_commands::test_run_file,
+            test_commands::test_run_all,
+            pytorch_commands::pytorch_detect,
+            pytorch_commands::pytorch_install,
+            pytorch_commands::pytorch_verify,
+            ml_studio::ml_studio_init,
+            ml_studio::ml_studio_get_config,
+            ml_studio::ml_studio_save_config,
+            ml_studio::ml_studio_list_data,
+            ml_studio::ml_studio_prepare_dataset,
+            ml_studio::ml_studio_train,
+            ml_studio::ml_studio_list_runs,
+            ml_studio::ml_studio_infer,
+            ml_studio::ml_studio_install_deps,
+            stop_hooks::stop_hooks_get,
+            stop_hooks::stop_hooks_save,
+            stop_hooks::stop_hooks_run,
             // ═══ Emulator Stream ═══
             emulator_stream::list_available_avds,
             emulator_stream::create_avd,
@@ -627,6 +696,7 @@ pub fn run() {
             kortex_kvcache::kortex_kvcache_clear,
             // ═══ Browser ═══
             browser::browser_open,
+            browser::browser_set_headless,
             browser::browser_close,
             browser::browser_navigate,
             browser::browser_read_dom,
@@ -658,6 +728,9 @@ pub fn run() {
             // ═══ LSP Commands ═══
             lsp_commands::lsp_start,
             lsp_commands::lsp_auto_start,
+            lsp_commands::lsp_ensure_for_file,
+            lsp_commands::lsp_detect_workspace,
+            lsp_commands::lsp_start_server,
             lsp_commands::lsp_bundle_status,
             lsp_commands::lsp_ensure_bundle,
             lsp_commands::lsp_send_request,
@@ -679,6 +752,15 @@ pub fn run() {
             lsp_commands::lsp_workspace_symbols,
             lsp_commands::lsp_code_lens,
             lsp_commands::lsp_document_symbols,
+            lsp_store::lsp_store_status,
+            lsp_store::lsp_store_list,
+            lsp_store::lsp_store_catalog,
+            lsp_store::lsp_store_scan_path,
+            lsp_store::lsp_store_install_preset,
+            lsp_store::lsp_store_install_path,
+            lsp_store::lsp_store_set_enabled,
+            lsp_store::lsp_store_uninstall,
+            lsp_store::lsp_store_install_npm,
             workspace_settings_commands::get_workspace_settings,
             workspace_settings_commands::update_workspace_settings,
             port_commands::list_listening_ports,

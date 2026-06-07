@@ -1,7 +1,10 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
+use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 
 pub struct DebugSession {
@@ -18,7 +21,7 @@ impl DebugManager {
         Self { active_session: None }
     }
 
-    pub fn start_session(&mut self, adapter_path: &str, app_handle: AppHandle) -> Result<(), String> {
+    pub fn start_session(&mut self, adapter_path: &str, app_handle: AppHandle) -> Result<mpsc::Receiver<()>, String> {
         use crate::process_ext::CommandExtHidden;
         let mut child = Command::new(adapter_path)
             .hidden()
@@ -32,9 +35,11 @@ impl DebugManager {
         let stdout = child.stdout.take().expect("Failed to open stdout");
         let stderr = child.stderr.take().expect("Failed to open stderr");
 
+        let (init_tx, init_rx) = mpsc::channel();
+
         let app_handle_clone = app_handle.clone();
         thread::spawn(move || {
-            read_dap_messages(BufReader::new(stdout), app_handle_clone);
+            read_dap_messages(BufReader::new(stdout), app_handle_clone, Some(init_tx));
         });
 
         let app_handle_err = app_handle.clone();
@@ -46,7 +51,14 @@ impl DebugManager {
         });
 
         self.active_session = Some(DebugSession { child, stdin });
-        Ok(())
+        Ok(init_rx)
+    }
+
+    /// Wait up to `timeout` for the debug adapter to respond to `initialize`.
+    pub fn wait_for_initialize(&self, init_rx: mpsc::Receiver<()>, timeout: Duration) -> Result<(), String> {
+        init_rx
+            .recv_timeout(timeout)
+            .map_err(|_| "Debug adapter did not respond to initialize (timeout)".into())
     }
 
     /// Send a DAP message using Content-Length framing (VS Code standard).
@@ -66,15 +78,32 @@ impl DebugManager {
     }
 }
 
+/// Format a DAP body with Content-Length header (for tests and transport).
+pub fn format_dap_frame(body: &str) -> String {
+    format!("Content-Length: {}\r\n\r\n{}", body.as_bytes().len(), body)
+}
+
 fn write_dap_message(stdin: &mut ChildStdin, body: &str) -> std::io::Result<()> {
-    let header = format!("Content-Length: {}\r\n\r\n", body.as_bytes().len());
-    stdin.write_all(header.as_bytes())?;
-    stdin.write_all(body.as_bytes())?;
+    stdin.write_all(format_dap_frame(body).as_bytes())?;
     stdin.flush()
 }
 
+fn signal_initialize_ready(init_tx: &Option<mpsc::Sender<()>>, body: &str) {
+    let Some(tx) = init_tx else { return };
+    let Ok(v) = serde_json::from_str::<Value>(body) else { return };
+    let is_init_response = v.get("type").and_then(|t| t.as_str()) == Some("response")
+        && v.get("command").and_then(|c| c.as_str()) == Some("initialize");
+    if is_init_response {
+        let _ = tx.send(());
+    }
+}
+
 /// Read DAP responses/events from adapter stdout (Content-Length framed).
-fn read_dap_messages(mut reader: BufReader<impl Read>, app: AppHandle) {
+fn read_dap_messages(
+    mut reader: BufReader<impl Read>,
+    app: AppHandle,
+    init_tx: Option<mpsc::Sender<()>>,
+) {
     loop {
         let mut content_length: Option<usize> = None;
         loop {
@@ -103,6 +132,32 @@ fn read_dap_messages(mut reader: BufReader<impl Read>, app: AppHandle) {
             break;
         }
         let body = String::from_utf8_lossy(&buf).to_string();
+        signal_initialize_ready(&init_tx, &body);
         let _ = app.emit("dap-message", body);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dap_frame_includes_content_length() {
+        let body = r#"{"type":"request","command":"initialize","seq":1}"#;
+        let frame = format_dap_frame(body);
+        assert!(frame.starts_with("Content-Length:"));
+        assert!(frame.contains(body));
+        assert_eq!(
+            frame.split("\r\n\r\n").nth(1).unwrap_or(""),
+            body
+        );
+    }
+
+    #[test]
+    fn initialize_response_signals_ready() {
+        let (tx, rx) = mpsc::channel();
+        let body = r#"{"type":"response","command":"initialize","request_seq":1,"success":true,"seq":2}"#;
+        signal_initialize_ready(&Some(tx), body);
+        assert!(rx.try_recv().is_ok());
     }
 }

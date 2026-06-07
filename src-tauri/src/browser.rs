@@ -78,7 +78,13 @@ fn invisible_playwright_pythonpath() -> Option<std::path::PathBuf> {
 /// Pick a python interpreter that exists. invisible_playwright must be importable
 /// from it (the user confirmed `python -c "import invisible_playwright"` works).
 fn python_exe() -> String {
-    for cand in ["python", "py", "python3"] {
+    let candidates: &[&str] = if cfg!(windows) {
+        // pythonw = no console window when sidecar script is used in dev
+        &["pythonw", "python", "py", "python3"]
+    } else {
+        &["python3", "python", "py"]
+    };
+    for cand in candidates {
         let ok = std::process::Command::new(cand)
             .hidden()
             .arg("--version")
@@ -91,7 +97,11 @@ fn python_exe() -> String {
             return cand.to_string();
         }
     }
-    "python".to_string()
+    if cfg!(windows) {
+        "pythonw".to_string()
+    } else {
+        "python3".to_string()
+    }
 }
 
 /// Locate a bundled, frozen sidecar shipped with the installer (PyInstaller
@@ -128,7 +138,7 @@ async fn start_sidecar() -> Result<BrowserProc, String> {
         }
     };
     let mut command = Command::new(&cmd);
-    command.hidden();
+    command.hidden_sidecar();
     if let Some(p) = &arg {
         command.arg(p);
         if let Some(ip_src) = invisible_playwright_pythonpath() {
@@ -149,6 +159,9 @@ async fn start_sidecar() -> Result<BrowserProc, String> {
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("spawn browser sidecar ({cmd}): {e}. For source runs: pip install playwright invisible_playwright"))?;
+    if let Some(pid) = child.id() {
+        crate::process_ext::suppress_child_console_after_spawn(pid);
+    }
     let stdin = child.stdin.take().ok_or("sidecar: no stdin")?;
     let stdout = child.stdout.take().ok_or("sidecar: no stdout")?;
     if let Some(stderr) = child.stderr.take() {
@@ -205,6 +218,10 @@ pub struct BrowserState {
     pub browser: tokio::sync::Mutex<Option<SendBrowser>>,
     /// The live stealth-browser sidecar process.
     pub proc: tokio::sync::Mutex<Option<BrowserProc>>,
+    /// Preferred launch mode: false = visible OS window, true = invisible desktop (off-screen).
+    pub headless: tokio::sync::Mutex<bool>,
+    /// Headless flag used for the currently running sidecar (if any).
+    active_headless: tokio::sync::Mutex<Option<bool>>,
 }
 
 impl BrowserState {
@@ -212,17 +229,46 @@ impl BrowserState {
         Self {
             browser: tokio::sync::Mutex::new(None),
             proc: tokio::sync::Mutex::new(None),
+            headless: tokio::sync::Mutex::new(false),
+            active_headless: tokio::sync::Mutex::new(None),
         }
+    }
+
+    async fn stop_sidecar(&self) {
+        let mut guard = self.proc.lock().await;
+        if let Some(mut p) = guard.take() {
+            let _ = send_cmd(&mut p, "close", json!({}), 10).await;
+            let _ = p.child.kill().await;
+        }
+        *self.browser.lock().await = None;
+        *self.active_headless.lock().await = None;
     }
 
     /// Start the stealth browser if it isn't running yet. First launch downloads
     /// the patched Firefox, so the open timeout is generous.
     pub async fn ensure_started(&self) -> Result<(), String> {
+        let headless = *self.headless.lock().await;
+        self.ensure_started_with(headless).await
+    }
+
+    pub async fn ensure_started_with(&self, headless: bool) -> Result<(), String> {
+        *self.headless.lock().await = headless;
+
+        let needs_restart = {
+            let guard = self.proc.lock().await;
+            guard.is_some()
+                && *self.active_headless.lock().await != Some(headless)
+        };
+        if needs_restart {
+            self.stop_sidecar().await;
+        }
+
         let mut guard = self.proc.lock().await;
         if guard.is_none() {
             let mut p = start_sidecar().await?;
-            send_cmd(&mut p, "open", json!({}), 180).await?;
+            send_cmd(&mut p, "open", json!({ "headless": headless }), 180).await?;
             *guard = Some(p);
+            *self.active_headless.lock().await = Some(headless);
         }
         Ok(())
     }
@@ -431,25 +477,46 @@ fn missing_security_headers(headers: &Value) -> Vec<String> {
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_open(app: tauri::AppHandle) -> Result<String, String> {
-    // FIRE-AND-FORGET. Launching the stealth Firefox — and DOWNLOADING it on first
-    // run — can take minutes. Awaiting it here blocked the UI's invoke and looked
-    // like the IDE force-quit/hung. Spawn it in the background so the UI returns
-    // instantly; the Firefox window appears when ready. Failures are logged, never
-    // fatal to the app.
+pub async fn browser_open(
+    app: tauri::AppHandle,
+    headless: Option<bool>,
+) -> Result<String, String> {
     use tauri::Manager;
+    let browser = app.state::<std::sync::Arc<BrowserState>>().inner().clone();
+    let mode_headless = headless.unwrap_or(*browser.headless.lock().await);
+    *browser.headless.lock().await = mode_headless;
     tauri::async_runtime::spawn(async move {
-        let state = app.state::<BrowserState>();
-        if let Err(e) = state.ensure_started().await {
-            eprintln!("[browser] open failed (install: pip install playwright invisible_playwright): {e}");
+        if let Err(e) = browser.ensure_started_with(mode_headless).await {
+            eprintln!("[browser] open failed: {e}");
+            eprintln!("[browser] Dev: pip install playwright invisible_playwright  |  Release: browser-agent.exe in binaries/");
         }
     });
-    Ok("Browser launching… a stealth-Firefox window will open shortly (first run downloads it).".to_string())
+    let mode = if mode_headless {
+        "hidden (invisible desktop — use VISION panel or enable visible mode in Settings → Permissions)"
+    } else {
+        "visible window"
+    };
+    Ok(format!("Browser launching ({mode})… first run may download Firefox."))
 }
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_navigate(state: tauri::State<'_, BrowserState>, url: String) -> Result<String, String> {
+pub async fn browser_set_headless(
+    state: tauri::State<'_, std::sync::Arc<BrowserState>>,
+    headless: bool,
+) -> Result<String, String> {
+    *state.headless.lock().await = headless;
+    state.stop_sidecar().await;
+    Ok(if headless {
+        "Stealth browser set to hidden (invisible desktop). Restart browser to apply.".into()
+    } else {
+        "Stealth browser set to visible window. Restart browser to apply.".into()
+    })
+}
+
+#[tauri::command]
+#[allow(dead_code)]
+pub async fn browser_navigate(state: tauri::State<'_, std::sync::Arc<BrowserState>>, url: String) -> Result<String, String> {
     let r = state.cmd("navigate", json!({ "url": url }), 60).await?;
     state.refresh_cache(&url).await;
     let status = r.get("status").map(|s| s.to_string()).unwrap_or_else(|| "?".into());
@@ -461,14 +528,14 @@ pub async fn browser_navigate(state: tauri::State<'_, BrowserState>, url: String
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_screenshot(state: tauri::State<'_, BrowserState>) -> Result<String, String> {
+pub async fn browser_screenshot(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<String, String> {
     let r = state.cmd("screenshot", json!({}), 30).await?;
     Ok(r.get("screenshot").and_then(|v| v.as_str()).unwrap_or("").to_string())
 }
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_click(state: tauri::State<'_, BrowserState>, selector: String) -> Result<String, String> {
+pub async fn browser_click(state: tauri::State<'_, std::sync::Arc<BrowserState>>, selector: String) -> Result<String, String> {
     state.cmd("click", json!({ "selector": selector }), 20).await?;
     state.refresh_cache("").await;
     Ok(format!("Clicked {}", selector))
@@ -476,21 +543,21 @@ pub async fn browser_click(state: tauri::State<'_, BrowserState>, selector: Stri
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_type(state: tauri::State<'_, BrowserState>, selector: String, text: String) -> Result<String, String> {
+pub async fn browser_type(state: tauri::State<'_, std::sync::Arc<BrowserState>>, selector: String, text: String) -> Result<String, String> {
     state.cmd("fill", json!({ "selector": selector, "text": text }), 20).await?;
     Ok(format!("Typed into {}", selector))
 }
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_read_dom(state: tauri::State<'_, BrowserState>) -> Result<String, String> {
+pub async fn browser_read_dom(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<String, String> {
     let r = state.cmd("content", json!({}), 30).await?;
     Ok(r.get("html").and_then(|v| v.as_str()).unwrap_or("").to_string())
 }
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_capture_vision_context(state: tauri::State<'_, BrowserState>) -> Result<Value, String> {
+pub async fn browser_capture_vision_context(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<Value, String> {
     capture_vision_context_internal(&state).await
 }
 
@@ -508,7 +575,7 @@ pub async fn capture_vision_context_internal(state: &BrowserState) -> Result<Val
 }
 
 #[tauri::command]
-pub async fn browser_get_content_summary(state: tauri::State<'_, BrowserState>) -> Result<Value, String> {
+pub async fn browser_get_content_summary(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<Value, String> {
     let content = state.cmd("content", json!({}), 30).await?;
     let html = content.get("html").and_then(|v| v.as_str()).unwrap_or("");
     let text = content.get("text").and_then(|v| v.as_str()).unwrap_or("");
@@ -517,13 +584,8 @@ pub async fn browser_get_content_summary(state: tauri::State<'_, BrowserState>) 
 
 #[tauri::command]
 #[allow(dead_code)]
-pub async fn browser_close(state: tauri::State<'_, BrowserState>) -> Result<String, String> {
-    let mut guard = state.proc.lock().await;
-    if let Some(mut p) = guard.take() {
-        let _ = send_cmd(&mut p, "close", json!({}), 10).await;
-        let _ = p.child.kill().await;
-    }
-    *state.browser.lock().await = None;
+pub async fn browser_close(state: tauri::State<'_, std::sync::Arc<BrowserState>>) -> Result<String, String> {
+    state.stop_sidecar().await;
     Ok("Browser closed".to_string())
 }
 

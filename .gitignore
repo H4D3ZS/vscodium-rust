@@ -32,6 +32,9 @@ antigravity-ide*/
 antigravity_ide*/
 
 # IDE binaries — never commit these
+src-tauri/binaries/lsp/clangd/
+src-tauri/binaries/browser-agent.exe
+src-tauri/binaries/lsp/typescript-language-server/node-v20.18.0-win-x64/node.exe
 /cursor/
 !src/components/cursor/
 Cursor/

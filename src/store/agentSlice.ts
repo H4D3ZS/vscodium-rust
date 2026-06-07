@@ -113,15 +113,18 @@ export interface AgentSlice {
     isYoloMode: boolean;
     isContinuousMode: boolean;
     /** Live agent browser vision (screenshot polling). Default OFF — it polls the
-     *  headless browser ~1.5s and is memory/CPU-heavy on low-spec machines. */
+     *  stealth browser ~1.5s and is memory/CPU-heavy on low-spec machines. */
     isAgentVisionEnabled: boolean;
+    /** Stealth Firefox: true = invisible desktop (off-screen), false = visible OS window. */
+    browserStealthHidden: boolean;
+    setBrowserStealthHidden: (v: boolean) => void;
     agentMode: string;
     agentModel: string;
     /** Hybrid deep-reasoning planner: strongest model PLANS, executor (agentModel) ACTS. */
     plannerModel: string;    // explicit "provider|id"; empty = auto-detect from availableModels
     plannerEnabled: boolean; // master switch for the hybrid plan→act→verify pipeline
     hybridAuto: boolean;     // true = auto-pick planner via classifyModels()
-    /** Which agent core runs turns: built-in Sentient, or the external claurst process. */
+    /** Which agent core runs turns: built-in Sentient (Hermes skills native) or external claurst. */
     agentBackend: 'sentient' | 'claurst';
     setAgentBackend: (b: 'sentient' | 'claurst') => void;
     agentRootAccess: boolean;
@@ -307,6 +310,7 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     isYoloMode: false,
     isContinuousMode: false,
     isAgentVisionEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.liveVision') === '1') || false,
+    browserStealthHidden: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.browserHidden') === '1') || false,
     agentMode: (typeof localStorage !== 'undefined' && localStorage.getItem('agent.mode')) || 'Harness',
     agentModel: (() => {
         if (typeof localStorage === 'undefined') return '';
@@ -414,6 +418,13 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
     setAgentVisionEnabled: (v) => {
         try { localStorage.setItem('agent.liveVision', v ? '1' : '0'); } catch { /* */ }
         set({ isAgentVisionEnabled: v });
+    },
+    setBrowserStealthHidden: (v) => {
+        try { localStorage.setItem('agent.browserHidden', v ? '1' : '0'); } catch { /* */ }
+        set({ browserStealthHidden: v });
+        import('../tauri_bridge').then(({ invoke }) => {
+            invoke('browser_set_headless', { headless: v }).catch(() => { /* sidecar optional */ });
+        });
     },
 
     setAgentMessages: (agentMessages) => set({ agentMessages }),
@@ -815,13 +826,18 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
 
     runBackgroundAgent: async (prompt) => {
         const id = `bg-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const jobName = prompt.slice(0, 72).replace(/\s+/g, ' ').trim() || 'Background agent';
         set((s) => ({ backgroundAgents: [...s.backgroundAgents, { id, prompt, status: 'running', result: '', startedAt: Date.now() }] }));
         try {
+            const { invoke } = await import('../tauri_bridge');
+            await invoke('register_background_job', { id, name: jobName });
+            await invoke('update_background_job', { id, progress: 5, status: 'starting' });
             const { ensureAgentRuntime } = await import('../application/performance/ensureAgentRuntime');
             await ensureAgentRuntime();
             const state = get();
             const provider = state.agentModel.includes('|') ? state.agentModel.split('|')[0] : 'ollama';
             const model = state.agentModel.includes('|') ? state.agentModel.split('|')[1] : state.agentModel;
+            await invoke('update_background_job', { id, progress: 15, status: 'running' });
             const resultText = await invoke<string>('ai_chat_oneshot', {
                 request: {
                     provider, model,
@@ -834,8 +850,11 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                     ollama_url: state.ollamaUrl,
                 },
             });
+            await invoke('update_background_job', { id, progress: 100, status: 'done' });
             set((s) => ({ backgroundAgents: s.backgroundAgents.map(b => b.id === id ? { ...b, status: 'done', result: resultText, finishedAt: Date.now() } : b) }));
         } catch (e: any) {
+            const { invoke } = await import('../tauri_bridge');
+            await invoke('update_background_job', { id, progress: 0, status: 'error' }).catch(() => {});
             set((s) => ({ backgroundAgents: s.backgroundAgents.map(b => b.id === id ? { ...b, status: 'error', result: String(e?.message ?? e), finishedAt: Date.now() } : b) }));
         }
         return id;

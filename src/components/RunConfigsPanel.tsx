@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useStore } from '../store';
 import { invoke } from '../tauri_bridge';
+import { startLaunchConfig, type LaunchConfig as DebugLaunchConfig } from '../application/debug/startLaunchConfig';
+import { tryParseJsonc, substituteVars, buildTaskCommand } from '../application/debug/runConfigUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RunConfigsPanel — VS Code Tasks + Launch configs runner.
@@ -27,39 +29,7 @@ type Task = {
     group?: string | { kind: string; isDefault?: boolean };
 };
 
-type LaunchConfig = {
-    name: string;
-    type?: string;
-    request?: string;
-    program?: string;
-    args?: string[];
-    cwd?: string;
-    env?: Record<string, string>;
-};
-
-// Strip line comments + trailing commas so we can JSON.parse jsonc-style
-// VS Code files. Doesn't handle every jsonc edge case (block comments,
-// strings containing `//`) but covers the 99% case.
-function tryParseJsonc<T>(raw: string): T | null {
-    try {
-        const sanitised = raw
-            .replace(/^\s*\/\/.*$/gm, '')        // line comments
-            .replace(/\/\*[\s\S]*?\*\//g, '')    // block comments
-            .replace(/,(\s*[\]}])/g, '$1');      // trailing commas
-        return JSON.parse(sanitised) as T;
-    } catch {
-        return null;
-    }
-}
-
-function substituteVars(s: string, ctx: { workspaceFolder?: string; file?: string }): string {
-    if (!s) return s;
-    return s
-        .replaceAll('${workspaceFolder}', ctx.workspaceFolder || '')
-        .replaceAll('${cwd}', ctx.workspaceFolder || '')
-        .replaceAll('${file}', ctx.file || '')
-        .replaceAll('${fileBasenameNoExtension}', (ctx.file || '').split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '') || '');
-}
+type LaunchConfig = DebugLaunchConfig;
 
 const RunConfigsPanel: React.FC = () => {
     const activeRoot = useStore(s => s.activeRoot);
@@ -90,9 +60,7 @@ const RunConfigsPanel: React.FC = () => {
         setLastResult(null);
         try {
             const cwd = substituteVars(t.cwd || activeRoot || '', { workspaceFolder: activeRoot || '' });
-            const cmd = substituteVars(t.command || '', { workspaceFolder: activeRoot || '', file: activeEditorPath || '' });
-            const argv = (t.args || []).map(a => substituteVars(a, { workspaceFolder: activeRoot || '', file: activeEditorPath || '' }));
-            const fullCmd = argv.length ? `${cmd} ${argv.map(a => /\s/.test(a) ? `"${a}"` : a).join(' ')}` : cmd;
+            const fullCmd = buildTaskCommand(t, { workspaceFolder: activeRoot || '', file: activeEditorPath || '' });
             const groupId = await useStore.getState().addTerminalGroup();
             const group = useStore.getState().terminalGroups.find(g => g.id === groupId);
             const termId = group?.activeInstanceId;
@@ -120,10 +88,10 @@ const RunConfigsPanel: React.FC = () => {
                 cwd: c.cwd ? substituteVars(c.cwd, { workspaceFolder: activeRoot || '', file: activeEditorPath || '' }) : activeRoot,
                 args: (c.args || []).map(a => substituteVars(a, { workspaceFolder: activeRoot || '', file: activeEditorPath || '' })),
             };
-            await invoke('debug_start', { config: { ...resolved, adapter_path: (resolved as any).adapter_path } });
-            useStore.getState().setDebugging(true, c.name);
-            const { pushBreakpointsToAdapter } = await import('../application/debug/bootstrapDebugRuntime');
-            await pushBreakpointsToAdapter();
+            await startLaunchConfig({
+                ...resolved,
+                adapter_path: (resolved as LaunchConfig & { adapter_path?: string }).adapter_path,
+            });
             setLastResult({ name: c.name, ok: true, message: 'Debug session started.' });
         } catch (e: any) {
             setLastResult({ name: c.name, ok: false, message: String(e?.message ?? e) });

@@ -131,5 +131,15 @@ fn main() {
             }
         }
     }
-    tauri_build::build()
+    tauri_build::build();
+
+    #[cfg(windows)]
+    if let Some(target) = target_dir_from_out() {
+        let dest_dir = target.join("binaries");
+        let _ = fs::create_dir_all(&dest_dir);
+        let sidecar = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries").join("browser-agent.exe");
+        if sidecar.exists() {
+            let _ = fs::copy(&sidecar, dest_dir.join("browser-agent.exe"));
+        }
+    }
 }

@@ -2596,25 +2596,26 @@ pub struct ShellTranslator;
 
 impl ShellTranslator {
     pub fn find_sh_path() -> Option<String> {
-        if cfg!(target_os = "windows") {
-            // Check common Git for Windows paths
-            let common_paths = [
-                "C:\\Program Files\\Git\\bin\\sh.exe",
-                "C:\\Program Files (x86)\\Git\\bin\\sh.exe",
-                "C:\\Program Files\\Git\\usr\\bin\\sh.exe",
-            ];
-            for path in &common_paths {
-                if std::path::Path::new(path).exists() {
-                    return Some(path.to_string());
+        crate::ide_shell::resolve_sh_exe()
+            .or_else(|| crate::ide_shell::resolve_git_bash_exe())
+            .map(|p| p.to_string_lossy().to_string())
+            .or_else(|| {
+                if cfg!(target_os = "windows") {
+                    let common_paths = [
+                        "C:\\Program Files\\Git\\bin\\sh.exe",
+                        "C:\\Program Files (x86)\\Git\\bin\\sh.exe",
+                        "C:\\Program Files\\Git\\usr\\bin\\sh.exe",
+                    ];
+                    for path in &common_paths {
+                        if std::path::Path::new(path).exists() {
+                            return Some(path.to_string());
+                        }
+                    }
+                    which::which("sh").ok().map(|p| p.to_string_lossy().to_string())
+                } else {
+                    None
                 }
-            }
-            // Check PATH
-            if let Ok(path) = which::which("sh") {
-                let p: std::path::PathBuf = path;
-                return Some(p.to_string_lossy().to_string());
-            }
-        }
-        None
+            })
     }
 
     pub fn translate_command(command: &str, shell_hint: &str) -> (String, Vec<String>) {
@@ -3165,13 +3166,18 @@ impl AiTools {
             let _ = h.emit("ai-tool-stdout-start", start_payload);
         }
 
-        let mut child = std::process::Command::new(&exec_path)
-            .hidden()
+        let mut cmd = std::process::Command::new(&exec_path);
+        cmd.hidden()
             .args(&exec_args)
             .current_dir(&*root)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        if shell_hint == "bash" || shell_hint == "sh" {
+            if let Some(path) = crate::ide_shell::augmented_path_for_git_bash() {
+                cmd.env("PATH", path);
+            }
+        }
+        let mut child = cmd.spawn()?;
 
         let child_stdout = child
             .stdout
@@ -7332,9 +7338,27 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
 
     async fn handle_use_skill(&self, args: Value) -> Result<Value> {
         let skill_name = args["SkillName"].as_str().ok_or_else(|| anyhow!("Missing SkillName"))?;
+
+        if let Some(body) = crate::hermes_skills::load_skill_body(skill_name) {
+            if let Some(meta) = crate::hermes_skills::find_skill(skill_name) {
+                if let Some(h) = self.app_handle.lock().await.as_ref() {
+                    let _ = h.emit("ai-artifact", json!({
+                        "type": "skill",
+                        "title": format!("Skill Activated: {}", meta.name),
+                        "content": body.chars().take(200).collect::<String>() + "..."
+                    }));
+                }
+                return Ok(json!({
+                    "status": "success",
+                    "skill": meta.id,
+                    "source": "hermes-integrated",
+                    "instructions": body,
+                    "info": "Hermes skill loaded natively into Sentient. Follow the instructions field for all subsequent steps."
+                }));
+            }
+        }
+
         let root = self.root_path.lock().await;
-        
-        // Search in .agent/skills/SkillName/SKILL.md or .agent/skills/SkillName.md
         let skill_paths = [
             root.join(".agent").join("skills").join(skill_name).join("SKILL.md"),
             root.join(".agent").join("skills").join(format!("{}.md", skill_name)),
@@ -7344,8 +7368,6 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
         for path in &skill_paths {
             if path.exists() {
                 let content = fs::read_to_string(path)?;
-                
-                // Emit UI event
                 if let Some(h) = self.app_handle.lock().await.as_ref() {
                     let _ = h.emit("ai-artifact", json!({
                         "type": "skill",
@@ -7353,59 +7375,56 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
                         "content": content.chars().take(200).collect::<String>() + "..."
                     }));
                 }
-
-                return Ok(json!({ 
-                    "status": "success", 
+                return Ok(json!({
+                    "status": "success",
                     "skill": skill_name,
+                    "source": "project",
                     "instructions": content,
-                    "info": "Skill activated. You MUST follow the instructions provided in the 'instructions' field for all subsequent steps."
+                    "info": "Skill activated. Follow the instructions field for all subsequent steps."
                 }));
             }
         }
 
-        Err(anyhow!("Skill '{}' not found in .agent/skills/", skill_name))
+        Err(anyhow!(
+            "Skill '{}' not found. Try search_skills or use a Hermes id like software-development/systematic-debugging",
+            skill_name
+        ))
     }
 
     async fn handle_search_skills(&self, args: Value) -> Result<Value> {
-        let query = args["Query"].as_str().ok_or_else(|| anyhow!("Missing Query"))?.to_lowercase();
+        let query = args["Query"].as_str().ok_or_else(|| anyhow!("Missing Query"))?;
+        let mut matches: Vec<String> = Vec::new();
+
+        for s in crate::hermes_skills::search_skills(query, 15) {
+            matches.push(format!("{} — {}", s.id, s.description));
+        }
+
         let root = self.root_path.lock().await;
         let skills_dir = root.join(".agent").join("skills");
-
-        if !skills_dir.exists() {
-            return Ok(json!({ "results": [], "info": "Skills directory not found." }));
-        }
-
-        let mut matches = Vec::new();
-        let max_results = 20;
-
-        // Use walkdir to search for skill names or directory names
-        use walkdir::WalkDir;
-        for entry in WalkDir::new(&skills_dir)
-            .max_depth(2)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.to_lowercase().contains(&query) && (entry.file_type().is_dir() || name.ends_with(".md")) {
-                let skill_name = if name.ends_with(".md") {
-                    name.trim_end_matches(".md").to_string()
-                } else {
-                    name
-                };
-                
-                if !matches.contains(&skill_name) {
-                    matches.push(skill_name);
+        if skills_dir.exists() {
+            use walkdir::WalkDir;
+            let q = query.to_lowercase();
+            for entry in WalkDir::new(&skills_dir).max_depth(2).into_iter().filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.to_lowercase().contains(&q) && (entry.file_type().is_dir() || name.ends_with(".md")) {
+                    let skill_name = if name.ends_with(".md") {
+                        name.trim_end_matches(".md").to_string()
+                    } else {
+                        name
+                    };
+                    if !matches.iter().any(|m| m.starts_with(&skill_name)) {
+                        matches.push(format!("{} (project)", skill_name));
+                    }
+                }
+                if matches.len() >= 25 {
+                    break;
                 }
             }
-            
-            if matches.len() >= max_results {
-                break;
-            }
         }
 
-        Ok(json!({ 
-            "results": matches, 
-            "info": format!("Found {} matching skills. Use 'use_skill' to activate one.", matches.len()) 
+        Ok(json!({
+            "results": matches,
+            "info": format!("Found {} matches. use_skill with id or folder name.", matches.len())
         }))
     }
 
