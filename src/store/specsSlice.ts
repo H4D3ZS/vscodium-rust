@@ -1,6 +1,11 @@
 ﻿import type { StateCreator } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppState } from './index';
+import {
+    clearWorkspaceIndexed,
+    isWorkspaceMarkedIndexed,
+    markWorkspaceIndexed,
+} from '../lib/indexingState';
 
 export interface SpecsSlice {
     isSpecModeActive: boolean;
@@ -20,6 +25,8 @@ export interface SpecsSlice {
     startIndexingCodebase: (options?: { force?: boolean }) => Promise<void>;
     /** Refresh progress from backend without starting a new index. */
     refreshIndexingProgress: () => Promise<void>;
+    /** Index once per workspace; skip if already indexed until user forces re-index. */
+    ensureIndexingCodebase: () => Promise<void>;
     pollIndexingProgress: () => Promise<void>;
 }
 
@@ -49,6 +56,9 @@ export const createSpecsSlice: StateCreator<AppState, [], [], SpecsSlice> = (set
             await get().pollIndexingProgress();
             return;
         }
+        if (options?.force) {
+            clearWorkspaceIndexed(activeRoot);
+        }
         set({ isIndexingCodebase: true, indexingProgress: null });
         try {
             await invoke('vector_index_codebase');
@@ -62,6 +72,29 @@ export const createSpecsSlice: StateCreator<AppState, [], [], SpecsSlice> = (set
             console.warn('[Indexing] vector_index_codebase failed:', e);
             set({ isIndexingCodebase: false });
         }
+    },
+
+    ensureIndexingCodebase: async () => {
+        const { activeRoot, indexingEnabled } = get();
+        if (!activeRoot || !indexingEnabled) return;
+
+        if (isWorkspaceMarkedIndexed(activeRoot)) {
+            set({ isIndexingCodebase: false });
+            return;
+        }
+
+        try {
+            const stats: any = await invoke('vector_get_index_stats');
+            const files = stats?.total_files ?? 0;
+            const chunks = stats?.total_chunks ?? 0;
+            if (files > 0 && chunks > 0) {
+                markWorkspaceIndexed(activeRoot, files, chunks);
+                set({ isIndexingCodebase: false });
+                return;
+            }
+        } catch { /* first index */ }
+
+        await get().startIndexingCodebase();
     },
 
     pollIndexingProgress: async () => {
@@ -78,6 +111,18 @@ export const createSpecsSlice: StateCreator<AppState, [], [], SpecsSlice> = (set
                             current_file: progress.current_file ?? '',
                         },
                     });
+                    const root = get().activeRoot;
+                    if (
+                        root
+                        && !progress.is_indexing
+                        && (progress.files_processed ?? 0) > 0
+                    ) {
+                        markWorkspaceIndexed(
+                            root,
+                            progress.files_processed ?? progress.total_files ?? 0,
+                            progress.chunks_created,
+                        );
+                    }
                     if (progress.is_indexing) setTimeout(poll, 500);
                 } else {
                     set({ isIndexingCodebase: false });

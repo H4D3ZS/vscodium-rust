@@ -939,6 +939,223 @@ function looksLikeActionRequest(text: string): boolean {
     return ACTION_VERB_REGEX.test(text);
 }
 
+function resolveCustomReadOnly(storeState: any): boolean {
+    const mode = storeState.agentMode || 'Agent';
+    if (!mode.startsWith('custom:')) return false;
+    const id = mode.slice('custom:'.length);
+    return !!(storeState.customModes || []).find((m: any) => m.id === id)?.readOnly;
+}
+
+/** Simple questions in Agent mode — skip tool loop and heavy prompt assembly. */
+function isConversationalFastPathEligible(
+    userPrompt: string,
+    storeState: any,
+    context?: any[],
+): boolean {
+    const activeMode = storeState.agentMode || 'Agent';
+    const secMode = activeMode === 'BugBounty' || activeMode === 'Bug Bounty'
+        || activeMode === 'RedTeam' || activeMode === 'Red Team'
+        || activeMode === 'BlueTeam' || activeMode === 'Blue Team';
+    const forceToolLoop = secMode
+        || /\bhttps?:\/\/\S+/i.test(userPrompt)
+        || /^\s*\[INTENT\s*:/i.test(userPrompt)
+        || !!inferSecurityIntent(userPrompt);
+    const isQuestionOnly = /^(what|how|why|when|where|who|can you|could you|explain|tell me|describe|is there|are there)\b/i.test(userPrompt.trim());
+    const convoFastPath = !forceToolLoop
+        && !looksLikeActionRequest(userPrompt)
+        && !(context && context.length)
+        && !(storeState.attachedFiles?.length)
+        && !(storeState.attachedContext?.length)
+        && (isQuestionOnly || activeMode === 'Chat');
+    const chatFastEligible = activeMode === 'Chat' && !forceToolLoop;
+    return chatFastEligible || resolveCustomReadOnly(storeState) || convoFastPath;
+}
+
+function shouldForceFullAgentLoop(userPrompt: string, storeState: any, modelTag: string): boolean {
+    const mode = storeState.agentMode || 'Agent';
+    if (mode === 'Chat') return false;
+    if (/BugBounty|Red Team|Blue Team|Sentient/i.test(mode)) return true;
+    if (/^\s*\[INTENT\s*:/i.test(userPrompt)) return true;
+    if (/\bhttps?:\/\S+/i.test(userPrompt)) return true;
+    if (looksLikeActionRequest(userPrompt)) return true;
+    const ml = (modelTag || '').toLowerCase();
+    if (/(?:^|[/:\-_])(40|35|32|70|72)(?:b|-)|qwen3\.6|qwen3-6|minimax-m2|kimi-k2/i.test(ml) && mode === 'Agent') {
+        return true;
+    }
+    return false;
+}
+
+async function pickFastChatModel(preferred: string): Promise<string> {
+    try {
+        const { pickComposer2FastChatModel } = await import('./lib/composer2Stack');
+        const c2 = await pickComposer2FastChatModel(preferred);
+        if (c2) return c2;
+    } catch { /* optional */ }
+    const ml = preferred.toLowerCase();
+    const { isHeavyAgentModel } = await import('./lib/claudeCodeHarness');
+    const isHeavy = isHeavyAgentModel(ml);
+    if (!isHeavy) return preferred;
+    try {
+        const { resolveOllamaModelTag } = await import('./airi/shared-ollama');
+        for (const tag of ['airi-fast:latest', 'gemma4:e2b', 'soft-eng-qwen:latest', 'qwen2.5:7b', 'llama3.2:3b']) {
+            const hit = await resolveOllamaModelTag(tag);
+            const h = hit.toLowerCase();
+            if (hit && !/(?:^|[/:\-_])(40|35|32|70|72)(?:b|-)|deck-opus|neo-code/.test(h)) {
+                return hit;
+            }
+        }
+    } catch { /* keep preferred */ }
+    return preferred;
+}
+
+async function runConversationalFastChat(opts: {
+    store: { getState: () => any };
+    userPrompt: string;
+    routingProvider: string;
+    routingModel: string;
+    routingOllamaUrl: string;
+    inferenceBackend: string;
+    onUpdate?: (msg: string) => void;
+}): Promise<boolean> {
+    const { store, userPrompt, routingProvider, routingModel, routingOllamaUrl, inferenceBackend, onUpdate } = opts;
+    const storeState = store.getState();
+    if (shouldForceFullAgentLoop(userPrompt, storeState, routingModel || storeState.agentModel || '')) return false;
+    if (!isConversationalFastPathEligible(userPrompt, storeState)) return false;
+
+    let chatModel = routingModel;
+    if (routingProvider === 'ollama' && routingModel) {
+        chatModel = await pickFastChatModel(routingModel);
+        try {
+            const { isComposer2HybridMode, ensureLocalChatModel, isGpuServerOnlyModel } =
+                await import('./lib/composer2Stack');
+            if (isComposer2HybridMode() || isGpuServerOnlyModel(chatModel)) {
+                chatModel = await ensureLocalChatModel(chatModel);
+            }
+        } catch { /* optional */ }
+        if (chatModel !== routingModel) {
+            console.log('[Agent] Fast chat: lighter model', chatModel, '(agent model:', routingModel, ')');
+        }
+    }
+
+    storeState.setAgentCurrentAction?.('Quick reply…');
+
+    let aimBlock = '';
+    try {
+        const withTimeout = <T,>(p: Promise<T>, ms: number) =>
+            Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
+        const { getAimTrustManifest } = await import('./kortex/aim-vfs');
+        const manifest: any = await withTimeout(getAimTrustManifest(), 900);
+        const totalFiles = manifest?.total_files ?? manifest?.file_count ?? 0;
+        const confidence = manifest?.confidence ?? 0;
+        if (manifest && (confidence > 20 || totalFiles > 0)) {
+            const packed: any = await withTimeout(
+                invoke('aim_pack_context', { query: userPrompt.slice(0, 200), maxSlots: 10 }).catch(() => null),
+                900,
+            );
+            const summary = packed?.project_summary ?? packed?.tree_summary ?? '';
+            const tree = packed?.tree_preview ?? '';
+            aimBlock = `\n### Codebase (AIM — ${totalFiles || '?'} files, ${Math.round(confidence)}% confidence)\n${summary}\n${tree}`.slice(0, 4000);
+        }
+    } catch { /* optional */ }
+
+    const agentMessages: any[] = storeState.agentMessages || [];
+    const history = agentMessages
+        .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+        .slice(-6)
+        .map((m: any) => ({
+            role: m.role,
+            content: typeof m.content === 'string' ? m.content : String(m.content ?? ''),
+            tool_calls: null,
+            metadata: null,
+        }));
+
+    const systemContent =
+        'You are AIRI, a concise coding assistant in VSCodium-Rust IDE. Answer directly in markdown. ' +
+        'When codebase context is provided below, summarize structure, stack, and main modules from it — ' +
+        'do NOT say you will list the repo or run tools; answer now from the context.' +
+        aimBlock;
+
+    const fastMessages = [
+        { role: 'system', content: systemContent, tool_calls: null, metadata: null },
+        ...history.filter((m: any) => m.role !== 'system'),
+    ];
+
+    console.log('[Agent] Fast single round-trip (early path)', { provider: routingProvider, model: chatModel });
+
+    let fastOllamaUrl = routingOllamaUrl;
+    try {
+        const { getComposer2FastOllamaUrl } = await import('./lib/composer2Stack');
+        fastOllamaUrl = getComposer2FastOllamaUrl(routingOllamaUrl);
+        if (fastOllamaUrl !== routingOllamaUrl) {
+            await invoke('set_ollama_url', { url: fastOllamaUrl }).catch(() => { });
+            console.log('[Agent] Composer 2 Fast chat → local Ollama', fastOllamaUrl);
+        }
+    } catch { /* optional */ }
+
+    let streamTimer: ReturnType<typeof setInterval> | undefined;
+    let streamedAny = false;
+    let pollBusy = false;
+    const drainOnce = async () => {
+        if (pollBusy) return;
+        pollBusy = true;
+        try {
+            const chunk = await invoke<string>('chat_stream_drain');
+            if (chunk) {
+                streamedAny = true;
+                storeState.appendLastAgentMessage?.(chunk);
+            }
+        } catch { /* busy */ }
+        finally { pollBusy = false; }
+    };
+    streamTimer = setInterval(drainOnce, 50);
+
+    try {
+        const chatCall = invoke<string>('ai_chat_fast', {
+            request: {
+                provider: routingProvider,
+                model: chatModel,
+                messages: fastMessages,
+                temperature: 0.7,
+                autonomous: false,
+                mode: 'Chat',
+                ollama_url: fastOllamaUrl,
+                tools: [],
+                feature: 'Chat',
+                reasoning_enabled: false,
+            },
+        });
+        const chatTimeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Chat reply timed out after 120s (model=${chatModel})`)), 120_000),
+        );
+        const reply = await Promise.race([chatCall, chatTimeout]);
+        await drainOnce();
+        const text = typeof reply === 'string' ? reply.trim() : '';
+        if (!streamedAny && text) {
+            storeState.updateLastAgentMessage?.(text);
+        } else if (!streamedAny && !text) {
+            storeState.updateLastAgentMessage?.('(no response)');
+        }
+        try { onUpdate?.(text); } catch { /* non-fatal */ }
+        return true;
+    } catch (e: any) {
+        storeState.updateLastAgentMessage?.(`**Chat error:** ${(e?.message ?? String(e)).slice(0, 300)}`);
+        return true;
+    } finally {
+        if (streamTimer) clearInterval(streamTimer);
+        if (fastOllamaUrl !== routingOllamaUrl) {
+            const restore =
+                routingOllamaUrl
+                || store.getState().ollamaUrl
+                || '';
+            if (restore) {
+                await invoke('set_ollama_url', { url: restore.replace(/\/$/, '') }).catch(() => { });
+            }
+        }
+        storeState.setIsAgentThinking?.(false);
+        storeState.setAgentCurrentAction?.('');
+    }
+}
+
 function normalizeWebUiProvider(provider: string): string {
     const lower = provider.toLowerCase();
     if (lower.includes('openwebui')) return 'openwebui';
@@ -1745,6 +1962,30 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         return;
     }
 
+    if (routingProvider === 'ollama') {
+        const raw = store.getState().ollamaUrl?.trim() || 'http://localhost:11434';
+        try {
+            const base = normalizeOllamaUrl(raw);
+            await invoke('set_ollama_url', { url: base }).catch(() => { });
+        } catch { /* fast path may still fail loudly below */ }
+    }
+
+    setAiStatus('alive');
+
+    // Early fast chat — skip heavy system prompt + tool schemas for simple questions.
+    if (await runConversationalFastChat({
+        store,
+        userPrompt,
+        routingProvider,
+        routingModel,
+        routingOllamaUrl,
+        inferenceBackend,
+        onUpdate,
+    })) {
+        logTaskToMemory(userPrompt).catch(() => { });
+        return;
+    }
+
     // --- Build enhanced system prompt with Claude Code-style context ---
     const storeState = store.getState();
     const activeRoot = storeState.activeRoot || '';
@@ -2131,77 +2372,6 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
             }
             _customReadOnly = !!_cm.readOnly;
             console.log(`[Agent] Custom mode "${_cm.label}" active (readOnly=${_customReadOnly}, model=${routingModel})`);
-        }
-    }
-
-    // === Fast single round-trip (NO agentic tool loop) ===
-    // Used for: Chat (read-only) mode, read-only custom modes, AND any
-    // conversational/question prompt in Agent mode (no action verb). Sending the
-    // full tool schema + heavy loop to a local model for a simple question makes
-    // first-token brutally slow / appear stuck. Questions answer instantly from
-    // the AIM codebase map already in `messages`; only true ACTION prompts
-    // (write/run/fix/build/…) fall through to the full agentic loop below.
-    // Security/recon work ALWAYS needs the agentic tool loop (browser,
-    // web_security_audit, recon, enumerate). A target URL, a detected security
-    // intent, an injected `[INTENT: …]` selector, or an explicit security mode
-    // (BugBounty/Red Team) must NEVER short-circuit to a no-tool chat reply —
-    // that's why "find security bugs in <url>" was answering with generic
-    // "use OWASP ZAP / Burp" advice instead of actually driving the tools.
-    const _secMode = activeMode === 'BugBounty' || activeMode === 'Bug Bounty'
-        || activeMode === 'RedTeam' || activeMode === 'Red Team'
-        || activeMode === 'BlueTeam' || activeMode === 'Blue Team';
-    const _hasUrlTarget = /\bhttps?:\/\/\S+/i.test(userPrompt);
-    const _hasIntentTag = /^\s*\[INTENT\s*:/i.test(userPrompt);
-    const _forceToolLoop = _secMode || _hasUrlTarget || _hasIntentTag
-        || !!inferSecurityIntent(userPrompt);
-    const _isQuestionOnly = /^(what|how|why|when|where|who|can you|could you|explain|tell me|describe|is there|are there)\b/i.test(userPrompt.trim());
-    const _convoFastPath = !_forceToolLoop
-        && !looksLikeActionRequest(userPrompt)
-        && !(context && context.length)
-        && !(store.getState().attachedFiles?.length)
-        && !(store.getState().attachedContext?.length)
-        && (_isQuestionOnly || store.getState().agentMode === 'Chat');
-    // Chat is read-only by contract, but a security mode / URL target means the
-    // user explicitly wants action — don't let Chat's fast path swallow it.
-    const _chatFastEligible = (store.getState() as any).agentMode === 'Chat' && !_forceToolLoop;
-    if (_chatFastEligible || _customReadOnly || _convoFastPath) {
-        try {
-            console.log('[Agent] Fast single round-trip (no tool loop)', { provider: routingProvider, model: routingModel, conversational: _convoFastPath });
-            // LEAN payload for local models: a short persona + the last few turns only.
-            // Sending the full AIM codebase map (built into `messages`) to a small local
-            // model means a huge prompt-eval → 120s timeouts (e.g. airi-fast). A chat
-            // doesn't need the brain; code questions go through an action prompt instead.
-            const isLocalProvider = routingProvider === 'ollama' || inferenceBackend === 'llama-cpp';
-            const leanMessages = [
-                { role: 'system', content: 'You are AIRI, a friendly, concise AI coding assistant inside the VSCodium-Rust IDE. Answer the user directly. If they ask about the codebase, suggest they use an action request so you can use your tools.', tool_calls: null, metadata: null },
-                ...messages.slice(1).slice(-6),
-            ];
-            const fastMessages = isLocalProvider ? leanMessages : messages;
-            const chatCall = invoke<string>('ai_chat_fast', {
-                request: {
-                    provider: routingProvider,
-                    model: routingModel,
-                    messages: fastMessages,
-                    temperature: 0.7,
-                    autonomous: false,
-                    mode: 'Chat',
-                    ollama_url: routingOllamaUrl,
-                    tools: [],
-                },
-            });
-            const chatTimeout = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`Chat reply timed out after 120s (model=${routingModel})`)), 120_000)
-            );
-            const reply = await Promise.race([chatCall, chatTimeout]);
-            const text = typeof reply === 'string' ? reply.trim() : '';
-            store.getState().updateLastAgentMessage?.(text || '(no response)');
-            store.getState().setIsAgentThinking?.(false);
-            try { onUpdate?.(text); } catch { /* non-fatal */ }
-            return;
-        } catch (e: any) {
-            store.getState().setIsAgentThinking?.(false);
-            store.getState().updateLastAgentMessage?.(`**Chat error:** ${(e?.message ?? String(e)).slice(0, 300)}`);
-            return;
         }
     }
 

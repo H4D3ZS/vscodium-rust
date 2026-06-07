@@ -46,6 +46,11 @@ Layers (dependencies point **inward** only):
 | Pure Chat (no tool loop) | `application/agent/runPureChatTurn` + `agent.ts` fast path |
 | Heavy feature defaults (vision OFF) | `application/agent/bootstrapHeavyFeaturesDefaults` |
 | Panel chrome | `application/layout/togglePanels` |
+| LSP bootstrap | `application/lsp/bootstrapLanguageServer` |
+| Gradle sync | `application/gradle/syncGradleProject`, `bootstrapGradleProject` |
+| Android devices / logcat | `application/android/refreshAndroidDevices`, `logcatSession` |
+| Test discovery / run | `application/test/discoverTests` |
+| Launch debug config | `application/debug/startLaunchConfig` |
 
 ## Migration status
 
@@ -69,6 +74,35 @@ Layers (dependencies point **inward** only):
 | Session planning | ✅ | ✅ | ✅ | Studio → Session tab |
 | Chat tabs + history restore | — | ✅ | ✅ | `agentThreads`, History tab |
 | Release bundle (LSP + browser) | — | — | ✅ | `scripts/release.ps1`, `prebuild-release.mjs` |
+| **Android / ADB** | ✅ | ✅ | ✅ | EmulatorPanel, LogcatPanel |
+| **Gradle build** | ✅ | ✅ | ✅ | GradleToolsPanel (Devices dock) |
+| **Logcat** | ✅ | ✅ | ✅ | BottomPanel → Logcat |
+| **Test runner** | ✅ | ✅ | ✅ | TestExplorer |
+
+## Android / Gradle / Logcat / Test bounded contexts
+
+```
+Frontend
+  src/domain/android/          — IAndroidRepository, ILogcatRepository
+  src/domain/gradle/           — IGradleRepository
+  src/domain/test/             — ITestRepository
+  src/application/android/     — refreshAndroidDevices, logcatSession
+  src/application/gradle/      — syncGradleProject, bootstrapGradleProject
+  src/application/test/        — discoverTests, runTestFile
+  src/infrastructure/android/  — TauriAndroidRepository, TauriLogcatRepository
+  src/infrastructure/gradle/   — TauriGradleRepository
+  src/infrastructure/test/     — TauriTestRepository
+
+Rust (src-tauri/src/architecture/)
+  domain/android/              — AndroidPlatformRepository port
+  domain/gradle/               — GradleBuildRepository port
+  domain/test/                 — TestRunnerRepository port
+  infrastructure/android/      — AdbAndroidRepository
+  infrastructure/gradle/       — CliGradleRepository
+  infrastructure/test/         — WorkspaceTestRunner
+  application/                 — android_service, gradle_service, logcat_service, test_runner_service
+  *_commands.rs                — thin Tauri IPC adapters
+```
 
 ## Terminal bounded context
 
@@ -119,6 +153,16 @@ Stopped events trigger `stackTrace` → `scopes` → `variables`.
 ## Rust backend mirror
 
 See `src-tauri/src/architecture/` — same layering for `ProcessMemorySnapshot` and future domains.
+
+### Regression testing
+
+| Suite | Command | Covers |
+|-------|---------|--------|
+| Frontend pure logic | `npm test` | Kortex + `application/debug`, `application/test` |
+| Rust IDE adapters | `npm run test:rust` | Gradle parsers, test runner logic, DAP framing, logcat parse |
+| Full | `npm run test:all` | Both |
+
+JetBrains-parity modules still missing hardware integration tests (adb/gradlew) — those run manually with SDK present.
 
 ## LSP bundle (production)
 

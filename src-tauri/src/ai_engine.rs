@@ -1046,6 +1046,8 @@ impl Sentient {
         if m.contains("claude") { return 180_000; }
         if m.contains("gpt-4o") || m.contains("gpt-4-turbo") { return 128_000; }
         if m.contains("gemini") { return 128_000; }
+        if m.contains("qwen3.6") || m.contains("qwen3-6") { return 65_536; }
+        if m.contains("qwen3") || m.contains("qwen-3") { return 32_768; }
         if let Some(n) = Self::parse_model_param_count(&m) {
             return match n {
                 0..=7   => 8_192,
@@ -1868,6 +1870,11 @@ impl Sentient {
                 project_memory.push_str(&format!("\n### RECENT MEMORY (decisions/state):\n{}\n", compact_gist));
             }
 
+            let hermes_skills_block = crate::hermes_skills::build_skills_catalog_for_prompt(48);
+            if !hermes_skills_block.is_empty() {
+                project_memory.push_str(&hermes_skills_block);
+            }
+
             // Cloud also gets the distilled knowledge summary, but CAPPED — cloud is
             // metered, and the request-relevant spans above already carry the specifics.
             // (Char-boundary-safe truncation; full knowledge is one aim_pack_context away.)
@@ -2480,6 +2487,11 @@ impl Sentient {
                 )
             };
 
+            let system_prompt = format!(
+                "{}{}",
+                system_prompt,
+                crate::agent_harness::harness_system_addon(&req.model),
+            );
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
                 let existing = sys_msg.content.as_ref().map(|c| c.to_text()).unwrap_or_default();
@@ -2635,6 +2647,23 @@ impl Sentient {
             if iteration > 0 {
                 messages.retain(|m| !(m.role == "system"
                     && m.content.as_ref().map(|c| c.as_str().contains("[PLAN PHASE")).unwrap_or(false)));
+            }
+
+            crate::agent_harness::apply_tool_result_budget(
+                &mut messages,
+                crate::agent_harness::DEFAULT_TOOL_RESULT_CHAR_BUDGET,
+            );
+
+            if is_persistent_mode {
+                if let Some(nudge) = crate::agent_harness::todo_nudge(iteration) {
+                    messages.retain(|m| !(m.role == "system"
+                        && m.content.as_ref().map(|c| c.as_str().contains("[TASK PROGRESS]")).unwrap_or(false)));
+                    messages.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: Some(MessageContent::Text(nudge.to_string())),
+                        ..Default::default()
+                    });
+                }
             }
 
             // Cursor-style zero-grep: re-inject enforcement each run when AIM is warm.
@@ -4732,11 +4761,7 @@ impl Sentient {
                     // Stuck-loop detection: if the model just hammered the
                     // same tool with the same arguments 3 times in a row, it's
                     // not making progress. Inject an "unstick" nudge.
-                    let stuck = recent_tool_calls.len() >= 3 && {
-                        let n = recent_tool_calls.len();
-                        recent_tool_calls[n - 1] == recent_tool_calls[n - 2]
-                            && recent_tool_calls[n - 2] == recent_tool_calls[n - 3]
-                    };
+                    let stuck = crate::agent_harness::detect_stuck_loop(&recent_tool_calls);
 
                     let base_nudge = match mode_str {
                         "BugBounty" | "Bug Bounty" => {
@@ -5160,11 +5185,12 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             let is_vision = Self::is_vision_model(&req.model);
             let messages = Self::build_ollama_messages(&req.messages, is_vision);
             let temp = req.temperature.unwrap_or(0.1);
+            let chat_stream = req.feature.as_deref() == Some("Chat");
             json!({
                 "model": req.model,
                 "messages": messages,
                 "temperature": temp,
-                "stream": false,
+                "stream": chat_stream,
                 "options": Self::ollama_inference_options(&req.model, temp, 1024),
             })
         } else {
@@ -5276,6 +5302,11 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             return Err(anyhow!("Chat request failed: {}", body));
         }
 
+        let chat_stream = is_ollama && req.feature.as_deref() == Some("Chat");
+        if chat_stream {
+            return self.single_shot_ollama_stream(resp).await;
+        }
+
         let val: Value = resp.json().await?;
         
         let raw = if effective_provider_lc == "anthropic" {
@@ -5294,6 +5325,57 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         };
 
         Ok(raw.trim().to_string())
+    }
+
+    /// Stream Ollama /api/chat for fast Chat replies — tokens land in `chat_stream_buf`.
+    async fn single_shot_ollama_stream(&self, response: reqwest::Response) -> Result<String> {
+        if let Ok(mut b) = self.chat_stream_buf.lock() {
+            b.clear();
+        }
+        let mut full = String::new();
+        let mut stream = response.bytes_stream();
+        let mut line_buf = String::new();
+        'stream: loop {
+            let next = tokio::time::timeout(Duration::from_secs(180), stream.next()).await;
+            let chunk = match next {
+                Ok(Some(Ok(c))) => c,
+                Ok(Some(Err(e))) => return Err(anyhow!("Chat stream error: {}", e)),
+                Ok(None) => break,
+                Err(_) => return Err(anyhow!("Chat stream timed out")),
+            };
+            line_buf.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(pos) = line_buf.find('\n') {
+                let line = line_buf[..pos].trim().to_string();
+                line_buf.drain(..=pos);
+                if line.is_empty() || line == "data: [DONE]" {
+                    continue;
+                }
+                let json_str = line.strip_prefix("data: ").unwrap_or(&line);
+                let val: Value = match serde_json::from_str(json_str) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if val["done"].as_bool() == Some(true) {
+                    break 'stream;
+                }
+                if let Some(thinking) = val["message"]["thinking"].as_str() {
+                    if !thinking.is_empty() {
+                        self.emit_event("ai-thinking", json!({ "thought": thinking }));
+                    }
+                }
+                let content = val.pointer("/choices/0/message/content")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| val.pointer("/message/content").and_then(|v| v.as_str()))
+                    .unwrap_or("");
+                if !content.is_empty() {
+                    full.push_str(content);
+                    if let Ok(mut b) = self.chat_stream_buf.lock() {
+                        b.push_str(content);
+                    }
+                }
+            }
+        }
+        Ok(full.trim().to_string())
     }
 
     /// Dynamically get models for a provider

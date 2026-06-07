@@ -1,6 +1,14 @@
 use crate::EditorState;
-use tauri::{State, AppHandle, Emitter};
-use serde_json::{Value, json};
+use tauri::{AppHandle, Emitter, State};
+use serde_json::{json, Value};
+
+fn root_uri(root: &str) -> String {
+    if root.starts_with('/') {
+        format!("file://{root}")
+    } else {
+        format!("file:///{}", root.replace('\\', "/"))
+    }
+}
 
 #[tauri::command]
 pub async fn lsp_start(
@@ -9,12 +17,23 @@ pub async fn lsp_start(
     command: String,
     args: Option<Vec<String>>,
 ) -> Result<(), String> {
-    let mut lsp = state.lsp_client.lock().await;
-    let a = args.unwrap_or_default();
-    lsp.start(&command, &a, app).map_err(|e| e.to_string())
+    let launch = crate::lsp_bundle::ResolvedLaunch {
+        id: "manual".into(),
+        command,
+        args: args.unwrap_or_default(),
+        source: "manual".into(),
+    };
+    let root = std::env::current_dir()
+        .unwrap_or_else(|_| state.config_dir.clone())
+        .to_string_lossy()
+        .to_string();
+    let mut router = state.lsp_router.lock().await;
+    router
+        .ensure_server("manual", &launch, &root, app)
+        .await?;
+    Ok(())
 }
 
-/// Auto-detect and start a language server for the active workspace root.
 #[tauri::command]
 pub async fn lsp_auto_start(
     state: State<'_, EditorState>,
@@ -26,52 +45,127 @@ pub async fn lsp_auto_start(
         return Err(format!("Workspace root not found: {root}"));
     }
 
-    {
-        let lsp = state.lsp_client.lock().await;
-        if lsp.is_running() {
-            return Ok(json!({ "status": "already_running" }));
-        }
-    }
+    let _ = app.emit(
+        "lsp-bundle-progress",
+        json!({ "phase": "ensure", "message": "Preparing IDE language server…" }),
+    );
 
     let config_dir = state.config_dir.clone();
-    let _ = app.emit("lsp-bundle-progress", json!({ "phase": "ensure", "message": "Preparing IDE language server…" }));
-
     let spec = crate::lsp_manager::detect_workspace_lsp_async(&root_path, &config_dir)
         .await
-        .map_err(|e| format!("{e} (run scripts/fetch-lsp-binaries.ps1 for offline TS/Python bundles)"))?;
+        .map_err(|e| format!("{e} (run scripts/fetch-lsp-binaries.ps1 for offline bundles)"))?;
 
-    {
-        let mut lsp = state.lsp_client.lock().await;
-        lsp.start(&spec.command, &spec.args, app.clone())
-            .map_err(|e| e.to_string())?;
-    }
+    let launch = crate::lsp_bundle::ResolvedLaunch {
+        id: spec.id.clone(),
+        command: spec.command,
+        args: spec.args,
+        source: "bundled".into(),
+    };
 
-    // Give the server a moment to answer initialize before initialized notification.
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    let mut router = state.lsp_router.lock().await;
+    router.ensure_server(&launch.id, &launch, &root, app).await?;
 
-    {
-        let mut lsp = state.lsp_client.lock().await;
-        lsp.send_initialized().map_err(|e| e.to_string())?;
-        let root_uri = if root.starts_with('/') {
-            format!("file://{root}")
+    Ok(json!({
+        "status": "started",
+        "id": launch.id,
+        "command": launch.command,
+        "managed": true,
+    }))
+}
+
+#[tauri::command]
+pub async fn lsp_ensure_for_file(
+    state: State<'_, EditorState>,
+    app: AppHandle,
+    root: String,
+    path: String,
+    language_id: String,
+    version: i32,
+    text: String,
+) -> Result<Value, String> {
+    let root_path = std::path::PathBuf::from(&root);
+    let file_path = std::path::PathBuf::from(&path);
+    let mut router = state.lsp_router.lock().await;
+    router
+        .ensure_for_file(
+            &file_path,
+            &root_path,
+            &state.config_dir,
+            &language_id,
+            version,
+            &text,
+            app,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn lsp_detect_workspace(
+    state: State<'_, EditorState>,
+    root: String,
+) -> Result<Value, String> {
+    let root_path = std::path::PathBuf::from(&root);
+    Ok(crate::lsp_router::detect_workspace_lsp_json(
+        &root_path,
+        &state.config_dir,
+    ))
+}
+
+#[tauri::command]
+pub async fn lsp_start_server(
+    state: State<'_, EditorState>,
+    app: AppHandle,
+    root: String,
+    server_id: String,
+) -> Result<Value, String> {
+    let root_path = std::path::PathBuf::from(&root);
+    let spec = crate::lsp_store::resolve_launch_by_server_id(
+        &server_id,
+        &state.config_dir,
+        Some(&root_path),
+    )
+    .ok_or_else(|| {
+        if crate::lsp_store::find_user_server(&server_id)
+            .map(|r| !r.enabled)
+            .unwrap_or(false)
+        {
+            format!(
+                "Language server '{server_id}' is disabled. Enable it in Settings → Language Servers."
+            )
         } else {
-            format!("file:///{}", root.replace('\\', "/"))
-        };
-        lsp.set_workspace_root(&root_uri).map_err(|e| e.to_string())?;
-    }
+            format!("Could not launch language server: {server_id}")
+        }
+    })?;
+
+    let mut router = state.lsp_router.lock().await;
+    router
+        .ensure_server(&spec.id, &spec, &root, app)
+        .await?;
 
     Ok(json!({
         "status": "started",
         "id": spec.id,
         "command": spec.command,
         "args": spec.args,
-        "managed": true,
     }))
 }
 
 #[tauri::command]
 pub async fn lsp_bundle_status(state: State<'_, EditorState>) -> Result<Value, String> {
-    Ok(crate::lsp_bundle::bundle_status(&state.config_dir))
+    let mut status = crate::lsp_bundle::bundle_status(&state.config_dir);
+    let router = state.lsp_router.lock().await;
+    if let Some(obj) = status.as_object_mut() {
+        obj.insert(
+            "userServers".into(),
+            json!(crate::lsp_store::list_user_servers()),
+        );
+        obj.insert("pool".into(), router.pool_status());
+        obj.insert(
+            "running".into(),
+            json!(router.running_server_ids().await),
+        );
+    }
+    Ok(status)
 }
 
 #[tauri::command]
@@ -96,22 +190,32 @@ pub async fn lsp_send_request(
     method: String,
     params: Value,
 ) -> Result<(), String> {
-    let mut lsp = state.lsp_client.lock().await;
-    lsp.send_request(id, &method, params)
+    let uri = params
+        .get("textDocument")
+        .and_then(|t| t.get("uri"))
+        .and_then(|u| u.as_str())
+        .unwrap_or("")
+        .to_string();
+    let mut router = state.lsp_router.lock().await;
+    let client = router
+        .client_for_uri(&uri)
+        .await
+        .ok_or_else(|| "No LSP client for document".to_string())?;
+    let mut guard = client.lock().await;
+    guard
+        .send_request(id, &method, params)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn lsp_stop(state: State<'_, EditorState>) -> Result<(), String> {
-    let mut lsp = state.lsp_client.lock().await;
-    lsp.stop();
+    state.lsp_router.lock().await.stop_all().await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn lsp_initialized(state: State<'_, EditorState>) -> Result<(), String> {
-    let mut lsp = state.lsp_client.lock().await;
-    lsp.send_initialized().map_err(|e| e.to_string())
+    Ok(())
 }
 
 #[tauri::command]
@@ -122,9 +226,12 @@ pub async fn lsp_did_open(
     version: i32,
     text: String,
 ) -> Result<(), String> {
-    let mut lsp = state.lsp_client.lock().await;
-    lsp.did_open(&uri, &language_id, version, &text)
-        .map_err(|e| e.to_string())
+    state
+        .lsp_router
+        .lock()
+        .await
+        .did_open(&uri, &language_id, version, &text)
+        .await
 }
 
 #[tauri::command]
@@ -134,15 +241,17 @@ pub async fn lsp_did_change(
     version: i32,
     text: String,
 ) -> Result<(), String> {
-    let mut lsp = state.lsp_client.lock().await;
-    lsp.did_change(&uri, version, &text)
-        .map_err(|e| e.to_string())
+    state
+        .lsp_router
+        .lock()
+        .await
+        .did_change(&uri, version, &text)
+        .await
 }
 
 #[tauri::command]
 pub async fn lsp_did_save(state: State<'_, EditorState>, uri: String) -> Result<(), String> {
-    let mut lsp = state.lsp_client.lock().await;
-    lsp.did_save(&uri).map_err(|e| e.to_string())
+    state.lsp_router.lock().await.did_save(&uri).await
 }
 
 #[tauri::command]
@@ -150,8 +259,12 @@ pub async fn lsp_set_workspace(
     state: State<'_, EditorState>,
     root_uri: String,
 ) -> Result<(), String> {
-    let mut lsp = state.lsp_client.lock().await;
-    lsp.set_workspace_root(&root_uri).map_err(|e| e.to_string())
+    state
+        .lsp_router
+        .lock()
+        .await
+        .set_workspace(&root_uri)
+        .await
 }
 
 #[tauri::command]
@@ -159,20 +272,24 @@ pub async fn lsp_change_workspace_folders(
     state: State<'_, EditorState>,
     folders: Vec<Value>,
 ) -> Result<(), String> {
-    let mut lsp = state.lsp_client.lock().await;
-    if !lsp.is_running() {
-        return Ok(());
-    }
     let pairs: Vec<(String, String)> = folders
         .iter()
         .filter_map(|f| {
             let uri = f.get("uri")?.as_str()?.to_string();
-            let name = f.get("name").and_then(|n| n.as_str()).unwrap_or("workspace").to_string();
+            let name = f
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("workspace")
+                .to_string();
             Some((uri, name))
         })
         .collect();
-    let refs: Vec<(&str, &str)> = pairs.iter().map(|(u, n)| (u.as_str(), n.as_str())).collect();
-    lsp.sync_workspace_folders(&refs, &[]).map_err(|e| e.to_string())
+    state
+        .lsp_router
+        .lock()
+        .await
+        .change_workspace_folders(pairs, &[])
+        .await
 }
 
 #[tauri::command]
@@ -181,10 +298,9 @@ pub async fn lsp_get_diagnostics(
     path: Option<String>,
 ) -> Result<Value, String> {
     let diags = state.lsp_diagnostics.read().await;
-    let result: Vec<Value> = diags.iter()
-        .filter(|(uri, _)| {
-            path.as_deref().map(|p| uri.contains(p)).unwrap_or(true)
-        })
+    let result: Vec<Value> = diags
+        .iter()
+        .filter(|(uri, _)| path.as_deref().map(|p| uri.contains(p)).unwrap_or(true))
         .map(|(uri, items)| json!({ "uri": uri, "diagnostics": items }))
         .collect();
     Ok(json!(result))
@@ -192,8 +308,7 @@ pub async fn lsp_get_diagnostics(
 
 #[tauri::command]
 pub async fn lsp_is_running(state: State<'_, EditorState>) -> Result<bool, String> {
-    let lsp = state.lsp_client.lock().await;
-    Ok(lsp.is_running())
+    Ok(state.lsp_router.lock().await.is_any_running().await)
 }
 
 #[tauri::command]
@@ -203,17 +318,22 @@ pub async fn lsp_completion(
     line: u32,
     character: u32,
 ) -> Result<Value, String> {
-    let mut client = state.lsp_client.lock().await;
-    if !client.is_running() {
-        return Ok(json!({ "items": [] }));
-    }
-    let result = client.request_with_response("textDocument/completion", json!({
-        "textDocument": { "uri": uri },
-        "position": { "line": line, "character": character },
-        "context": { "triggerKind": 1 }
-    })).await.map_err(|e| e.to_string())?;
+    let mut router = state.lsp_router.lock().await;
+    let result = router
+        .request_with_response(
+            &uri,
+            "textDocument/completion",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character },
+                "context": { "triggerKind": 1 }
+            }),
+        )
+        .await
+        .unwrap_or(json!({ "result": { "items": [] } }));
 
-    let items = result["result"]["items"].as_array()
+    let items = result["result"]["items"]
+        .as_array()
         .cloned()
         .or_else(|| result["result"].as_array().cloned())
         .unwrap_or_default();
@@ -227,14 +347,18 @@ pub async fn lsp_hover(
     line: u32,
     character: u32,
 ) -> Result<Value, String> {
-    let mut client = state.lsp_client.lock().await;
-    if !client.is_running() {
-        return Ok(json!(null));
-    }
-    let result = client.request_with_response("textDocument/hover", json!({
-        "textDocument": { "uri": uri },
-        "position": { "line": line, "character": character }
-    })).await.map_err(|e| e.to_string())?;
+    let mut router = state.lsp_router.lock().await;
+    let result = router
+        .request_with_response(
+            &uri,
+            "textDocument/hover",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character }
+            }),
+        )
+        .await
+        .unwrap_or(json!({ "result": null }));
     Ok(result["result"].clone())
 }
 
@@ -245,14 +369,18 @@ pub async fn lsp_goto_definition(
     line: u32,
     character: u32,
 ) -> Result<Value, String> {
-    let mut client = state.lsp_client.lock().await;
-    if !client.is_running() {
-        return Ok(json!(null));
-    }
-    let result = client.request_with_response("textDocument/definition", json!({
-        "textDocument": { "uri": uri },
-        "position": { "line": line, "character": character }
-    })).await.map_err(|e| e.to_string())?;
+    let mut router = state.lsp_router.lock().await;
+    let result = router
+        .request_with_response(
+            &uri,
+            "textDocument/definition",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character }
+            }),
+        )
+        .await
+        .unwrap_or(json!({ "result": null }));
     Ok(result["result"].clone())
 }
 
@@ -263,15 +391,19 @@ pub async fn lsp_find_references(
     line: u32,
     character: u32,
 ) -> Result<Value, String> {
-    let mut client = state.lsp_client.lock().await;
-    if !client.is_running() {
-        return Ok(json!([]));
-    }
-    let result = client.request_with_response("textDocument/references", json!({
-        "textDocument": { "uri": uri },
-        "position": { "line": line, "character": character },
-        "context": { "includeDeclaration": true }
-    })).await.map_err(|e| e.to_string())?;
+    let mut router = state.lsp_router.lock().await;
+    let result = router
+        .request_with_response(
+            &uri,
+            "textDocument/references",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character },
+                "context": { "includeDeclaration": true }
+            }),
+        )
+        .await
+        .unwrap_or(json!({ "result": [] }));
     Ok(result["result"].clone())
 }
 
@@ -283,28 +415,39 @@ pub async fn lsp_rename_symbol(
     character: u32,
     new_name: String,
 ) -> Result<Value, String> {
-    let mut client = state.lsp_client.lock().await;
-    if !client.is_running() {
-        return Ok(json!(null));
-    }
-    let result = client.request_with_response("textDocument/rename", json!({
-        "textDocument": { "uri": uri },
-        "position": { "line": line, "character": character },
-        "newName": new_name
-    })).await.map_err(|e| e.to_string())?;
+    let mut router = state.lsp_router.lock().await;
+    let result = router
+        .request_with_response(
+            &uri,
+            "textDocument/rename",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character },
+                "newName": new_name
+            }),
+        )
+        .await
+        .unwrap_or(json!({ "result": null }));
     Ok(result["result"].clone())
 }
 
 #[tauri::command]
-pub async fn lsp_format_document(state: State<'_, EditorState>, uri: String) -> Result<Value, String> {
-    let mut client = state.lsp_client.lock().await;
-    if !client.is_running() {
-        return Ok(json!(null));
-    }
-    let result = client.request_with_response("textDocument/formatting", json!({
-        "textDocument": { "uri": uri },
-        "options": { "tabSize": 4, "insertSpaces": true }
-    })).await.map_err(|e| e.to_string())?;
+pub async fn lsp_format_document(
+    state: State<'_, EditorState>,
+    uri: String,
+) -> Result<Value, String> {
+    let mut router = state.lsp_router.lock().await;
+    let result = router
+        .request_with_response(
+            &uri,
+            "textDocument/formatting",
+            json!({
+                "textDocument": { "uri": uri },
+                "options": { "tabSize": 4, "insertSpaces": true }
+            }),
+        )
+        .await
+        .unwrap_or(json!({ "result": null }));
     Ok(result["result"].clone())
 }
 
@@ -313,13 +456,16 @@ pub async fn lsp_workspace_symbols(
     state: State<'_, EditorState>,
     query: String,
 ) -> Result<Value, String> {
-    let mut client = state.lsp_client.lock().await;
-    if !client.is_running() {
-        return Ok(json!([]));
-    }
-    let result = client.request_with_response("workspace/symbol", json!({
-        "query": query
-    })).await.map_err(|e| e.to_string())?;
+    let uri = "file:///workspace";
+    let mut router = state.lsp_router.lock().await;
+    let result = router
+        .request_with_response(
+            uri,
+            "workspace/symbol",
+            json!({ "query": query }),
+        )
+        .await
+        .unwrap_or(json!({ "result": [] }));
     Ok(result["result"].clone())
 }
 
@@ -328,11 +474,15 @@ pub async fn lsp_code_lens(
     state: State<'_, EditorState>,
     uri: String,
 ) -> Result<Value, String> {
-    let mut client = state.lsp_client.lock().await;
-    if !client.is_running() { return Ok(json!([])); }
-    let result = client.request_with_response("textDocument/codeLens", json!({
-        "textDocument": { "uri": uri }
-    })).await.map_err(|e| e.to_string())?;
+    let mut router = state.lsp_router.lock().await;
+    let result = router
+        .request_with_response(
+            &uri,
+            "textDocument/codeLens",
+            json!({ "textDocument": { "uri": uri } }),
+        )
+        .await
+        .unwrap_or(json!({ "result": [] }));
     Ok(result["result"].clone())
 }
 
@@ -341,12 +491,14 @@ pub async fn lsp_document_symbols(
     state: State<'_, EditorState>,
     uri: String,
 ) -> Result<Value, String> {
-    let mut client = state.lsp_client.lock().await;
-    if !client.is_running() {
-        return Ok(json!([]));
-    }
-    let result = client.request_with_response("textDocument/documentSymbol", json!({
-        "textDocument": { "uri": uri }
-    })).await.map_err(|e| e.to_string())?;
+    let mut router = state.lsp_router.lock().await;
+    let result = router
+        .request_with_response(
+            &uri,
+            "textDocument/documentSymbol",
+            json!({ "textDocument": { "uri": uri } }),
+        )
+        .await
+        .unwrap_or(json!({ "result": [] }));
     Ok(result["result"].clone())
 }

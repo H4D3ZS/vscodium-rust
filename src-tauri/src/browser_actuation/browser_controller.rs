@@ -1,6 +1,7 @@
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 use serde::{Deserialize, Serialize};
+use crate::process_ext::hidden_command;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BrowserSession {
@@ -57,8 +58,8 @@ impl BrowserController {
 
         // Open browser to login
         #[cfg(target_os = "windows")]
-        let _ = Command::new("cmd")
-            .args(&["/c", &format!("start {}", url)])
+        let _ = hidden_command("cmd")
+            .args(["/c", &format!("start {}", url)])
             .output();
 
         #[cfg(target_os = "linux")]

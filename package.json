@@ -22,7 +22,9 @@
     "tauri:dev": "npx tauri dev",
     "start-mitm": "node tools/mitmserver/server.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib --quiet",
+    "test:all": "npm test && npm run test:rust"
   },
   "devDependencies": {
     "@tauri-apps/cli": "~2.10.0",

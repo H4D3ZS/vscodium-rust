@@ -51,7 +51,8 @@
     ],
     "resources": [
       "ext-host/*",
-      "binaries/*"
+      "binaries/*",
+      "bundles/*"
     ],
     "windows": {
       "certificateThumbprint": null,

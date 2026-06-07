@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import EmulatorPanel from './EmulatorPanel';
 import IPhoneEmulatorPanel from './IPhoneEmulatorPanel';
 import MobileToolchainPanel from './MobileToolchainPanel';
+import GradleToolsPanel from './android/GradleToolsPanel';
 
 /**
  * Unified Emulator Panel — side-by-side mobile dev in the IDE.
@@ -105,6 +106,28 @@ const UnifiedEmulatorPanel: React.FC = () => {
                 >
                     🔧 Toolchain
                 </button>
+                <button
+                    onClick={() => useStore.getState().setEmulatorPanelPosition('gradle')}
+                    style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        background: activeEmulator === 'gradle'
+                            ? 'var(--vscode-button-background)'
+                            : 'transparent',
+                        color: activeEmulator === 'gradle'
+                            ? 'var(--vscode-button-foreground)'
+                            : 'var(--vscode-descriptionForeground)',
+                        border: 'none',
+                        borderBottom: activeEmulator === 'gradle'
+                            ? '2px solid var(--vscode-button-background)'
+                            : '2px solid transparent',
+                        cursor: 'pointer',
+                    }}
+                >
+                    📦 Gradle
+                </button>
             </div>
 
             {/* Emulator content */}
@@ -112,6 +135,7 @@ const UnifiedEmulatorPanel: React.FC = () => {
                 {activeEmulator === 'android' && <EmulatorPanel />}
                 {activeEmulator === 'iphone' && <IPhoneEmulatorPanel />}
                 {activeEmulator === 'toolchain' && <MobileToolchainPanel />}
+                {activeEmulator === 'gradle' && <GradleToolsPanel />}
             </div>
         </div>
     );

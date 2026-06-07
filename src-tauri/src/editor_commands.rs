@@ -87,7 +87,10 @@ pub async fn set_active_root(
                 return Err(format!("active root does not exist: {}", cleaned));
             }
             *root = Some(path_buf.clone());
-            state.ai_engine.set_root_path(path_buf);
+            state.ai_engine.set_root_path(path_buf.clone());
+            if let Err(e) = state.vector_indexer.set_workspace(path_buf.clone()).await {
+                eprintln!("[set_active_root] vector indexer rebind failed: {e}");
+            }
             Ok(Some(cleaned))
         }
     }

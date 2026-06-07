@@ -1,7 +1,12 @@
+//! Thin Tauri adapters — Android bounded context (DDD delivery layer).
+
 use crate::EditorState;
+use serde_json::json;
 use tauri::State;
-use tokio::process::Command;
-use std::path::PathBuf;
+
+async fn override_sdk(state: &State<'_, EditorState>) -> Option<String> {
+    state.android_sdk_path.lock().await.clone()
+}
 
 #[tauri::command]
 pub async fn set_android_sdk_path(state: State<'_, EditorState>, path: String) -> Result<(), String> {
@@ -11,91 +16,45 @@ pub async fn set_android_sdk_path(state: State<'_, EditorState>, path: String) -
 }
 
 #[tauri::command]
-pub async fn adb_list_emulators(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
-    let sdk_path = state.android_sdk_path.lock().await;
-    let emulator_cmd = if let Some(path) = sdk_path.as_ref() {
-        let p = PathBuf::from(path);
-        if p.join("emulator/emulator").exists() {
-            p.join("emulator/emulator").to_string_lossy().to_string()
-        } else if p.join("emulator/emulator.exe").exists() {
-            p.join("emulator/emulator.exe").to_string_lossy().to_string()
-        } else {
-            "emulator".to_string()
-        }
-    } else {
-        "emulator".to_string()
-    };
+pub async fn get_android_config(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
+    let override_path = override_sdk(&state).await;
+    let cfg = state.android_service.sdk_config(override_path.as_deref());
+    Ok(json!({
+        "sdk_path": cfg.sdk_path,
+        "adb_found": cfg.adb_found,
+        "emulator_found": cfg.emulator_found,
+    }))
+}
 
-    let output = Command::new(emulator_cmd)
-        .arg("-list-avds")
-        .output()
-        .await
-        .map_err(|e| format!("Emulator error: {}", e))?;
-    
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(stdout.lines().map(|s| s.to_string()).collect())
+#[tauri::command]
+pub async fn adb_list_devices(state: State<'_, EditorState>) -> Result<Vec<serde_json::Value>, String> {
+    let override_path = override_sdk(&state).await;
+    let devices = state
+        .android_service
+        .list_devices(override_path.as_deref())?;
+    Ok(devices
+        .into_iter()
+        .map(|d| json!({ "id": d.id, "state": d.state }))
+        .collect())
+}
+
+#[tauri::command]
+pub async fn adb_list_emulators(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
+    let override_path = override_sdk(&state).await;
+    Ok(state
+        .android_service
+        .list_avds(override_path.as_deref())?
+        .into_iter()
+        .map(|a| a.name)
+        .collect())
 }
 
 #[tauri::command]
 pub async fn spawn_emulator(state: State<'_, EditorState>, avd: String) -> Result<(), String> {
-    let sdk_path = state.android_sdk_path.lock().await;
-    let emulator_cmd = if let Some(path) = sdk_path.as_ref() {
-        let p = PathBuf::from(path);
-        if p.join("emulator/emulator").exists() {
-            p.join("emulator/emulator").to_string_lossy().to_string()
-        } else if p.join("emulator/emulator.exe").exists() {
-            p.join("emulator/emulator.exe").to_string_lossy().to_string()
-        } else {
-            "emulator".to_string()
-        }
-    } else {
-        "emulator".to_string()
-    };
-
-    let _child = Command::new(emulator_cmd)
-        .arg("-avd")
-        .arg(avd)
-        .spawn()
-        .map_err(|e| format!("Failed to spawn emulator: {}", e))?;
-        
-    Ok(())
-}
-#[tauri::command]
-pub async fn adb_list_devices(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
-    let sdk_path = state.android_sdk_path.lock().await;
-    let adb_cmd = if let Some(path) = sdk_path.as_ref() {
-        let p = std::path::PathBuf::from(path);
-        if p.join("adb").exists() {
-            p.join("adb").to_string_lossy().to_string()
-        } else if p.join("platform-tools").join("adb").exists() {
-            p.join("platform-tools")
-                .join("adb")
-                .to_string_lossy()
-                .to_string()
-        } else {
-            "adb".to_string()
-        }
-    } else {
-        "adb".to_string()
-    };
-
-    let output = Command::new(&adb_cmd)
-        .arg("devices")
-        .output()
-        .await
-        .map_err(|e| format!("ADB error ({}): {}", adb_cmd, e))?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut devices = Vec::new();
-    for line in stdout.lines().skip(1) {
-        if line.is_empty() {
-            continue;
-        }
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 && parts[1] == "device" {
-            devices.push(parts[0].to_string());
-        }
-    }
-    Ok(devices)
+    let override_path = override_sdk(&state).await;
+    state
+        .android_service
+        .spawn_emulator(override_path.as_deref(), &avd)
 }
 
 #[tauri::command]
@@ -106,25 +65,19 @@ pub async fn set_active_device(state: State<'_, EditorState>, device: String) ->
 }
 
 #[tauri::command]
-pub fn adb_install_and_run(_state: State<'_, EditorState>, _apk_path: String) -> Result<(), String> {
-    // Stub for APK installation and launching
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_android_config(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
-    let sdk_path = state.android_sdk_path.lock().await;
-    let adb_found = if let Some(path) = sdk_path.as_ref() {
-        let base = std::path::PathBuf::from(path);
-        base.join("platform-tools/adb.exe").exists()
-            || base.join("platform-tools/adb").exists()
-            || base.join("platform-tools").join("adb.exe").exists()
-    } else {
-        crate::android_sdk::adb_exists()
-    };
- 
-    Ok(serde_json::json!({
-        "sdk_path": *sdk_path,
-        "adb_found": adb_found
-    }))
+pub async fn adb_install_and_run(
+    state: State<'_, EditorState>,
+    apk_path: String,
+    package: Option<String>,
+    activity: Option<String>,
+) -> Result<(), String> {
+    let override_path = override_sdk(&state).await;
+    let device = state.active_device.lock().await.clone();
+    state.android_service.install_and_launch(
+        override_path.as_deref(),
+        device.as_deref(),
+        &apk_path,
+        package.as_deref(),
+        activity.as_deref(),
+    )
 }

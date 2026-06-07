@@ -7,6 +7,7 @@ import { useStore } from '../store';
 import TabStrip from './workbench/TabStrip';
 import ToastManager from './ToastManager';
 import WorkspaceTrustBanner from './WorkspaceTrustBanner';
+import { invoke } from '@tauri-apps/api/core';
 
 const BottomPanel = lazy(() => import('./BottomPanel'));
 
@@ -17,7 +18,8 @@ const McpStorePanel = lazy(() => import('./McpStorePanel'));
 const AimViewer = lazy(() => import('./AimViewer'));
 const VisualLab = lazy(() => import('./visual/VisualLab'));
 const SpecsToCodeWizard = lazy(() => import('./SpecsToCodeWizard'));
-const BrowserSurface = lazy(() => import('./BrowserSurface'));
+const BrowserPreviewWorkbench = lazy(() => import('./browser/BrowserPreviewWorkbench'));
+const MlStudioWorkbench = lazy(() => import('./browser/MlStudioWorkbench'));
 const DiffViewer = lazy(() => import('./DiffViewer'));
 const PlanningPanel = lazy(() => import('./PlanningPanel').then(m => ({ default: m.PlanningPanel })));
 const GhostRuntimePanel = lazy(() => import('./GhostRuntimePanel').then(m => ({ default: m.GhostRuntimePanel })));
@@ -136,6 +138,12 @@ const Workbench: React.FC = () => {
 
     const hasOpenFile = activeTabId !== null && tabs.length > 0;
     const activeRoot = useStore(state => state.activeRoot);
+
+    // Sync persisted stealth-browser visibility preference to the Rust sidecar.
+    useEffect(() => {
+        const hidden = useStore.getState().browserStealthHidden;
+        invoke('browser_set_headless', { headless: hidden }).catch(() => { /* dev / no Tauri */ });
+    }, []);
 
     return (
         <div id="workbench" style={{ display: 'flex', flex: 1, height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
@@ -268,8 +276,10 @@ const Workbench: React.FC = () => {
                             </div>
                         </div>
                     </main>
+                ) : layoutMode === 'ml-studio' ? (
+                    <Suspense fallback={<PanelFallback />}><MlStudioWorkbench /></Suspense>
                 ) : (
-                    <Suspense fallback={<PanelFallback />}><BrowserSurface /></Suspense>
+                    <Suspense fallback={<PanelFallback />}><BrowserPreviewWorkbench /></Suspense>
                 )}
                 {!isZenMode && isBottomPanelOpen && (
                     <div

@@ -26,6 +26,8 @@ const AgentPermissionsPanel: React.FC = () => {
     const setAutoAccept = useStore(s => (s as any).setAutoAcceptChanges);
     const visionEnabled = useStore(s => s.isAgentVisionEnabled);
     const setVision = useStore(s => s.setAgentVisionEnabled);
+    const browserHidden = useStore(s => s.browserStealthHidden);
+    const setBrowserHidden = useStore(s => s.setBrowserStealthHidden);
 
     const activeRoot = useStore(s => s.activeRoot);
     const setArtifactReview = useStore(s => s.setArtifactReviewPolicy);
@@ -189,6 +191,12 @@ const AgentPermissionsPanel: React.FC = () => {
                     desc="Mirror the agent's browser into the IDE panel by polling screenshots while it works. OFF by default — it's memory/CPU-heavy on low-spec machines. Leave off if you rely on a cloud vision model (e.g. MiMo) instead."
                     value={visionEnabled}
                     onChange={(v) => setVision(v)}
+                />
+                <RowToggle
+                    title="Hidden stealth browser (invisible desktop)"
+                    desc="When ON, the agent's Firefox runs off-screen on a hidden Windows desktop (still real rendering — use VISION panel to watch). When OFF, a normal Firefox window opens so you can watch the agent live. Restart browser after toggling."
+                    value={browserHidden}
+                    onChange={(v) => setBrowserHidden(v)}
                 />
             </Section>
         </div>

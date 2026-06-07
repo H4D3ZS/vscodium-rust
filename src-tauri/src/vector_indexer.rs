@@ -47,7 +47,8 @@ pub struct IndexStats {
 
 pub struct VectorIndexer {
     db_path: PathBuf,
-    root_path: PathBuf,
+    root_path: Arc<RwLock<PathBuf>>,
+    fallback_dir: PathBuf,
     conn: Arc<Mutex<Connection>>,
     file_hashes: Arc<RwLock<HashMap<PathBuf, String>>>,
     is_indexing: Arc<RwLock<bool>>,
@@ -83,8 +84,9 @@ impl VectorIndexer {
         Self::create_tables(&conn)?;
 
         Ok(Self {
-            db_path,
-            root_path,
+            db_path: db_path.clone(),
+            root_path: Arc::new(RwLock::new(root_path)),
+            fallback_dir,
             conn: Arc::new(Mutex::new(conn)),
             file_hashes: Arc::new(RwLock::new(HashMap::new())),
             is_indexing: Arc::new(RwLock::new(false)),
@@ -163,6 +165,28 @@ impl VectorIndexer {
         Ok(())
     }
 
+    /// Switch vector DB to `{workspace}/.kortex/vector_index.db` when the user opens a folder.
+    pub async fn set_workspace(&self, root: PathBuf) -> anyhow::Result<()> {
+        {
+            let current = self.root_path.read().map_err(|_| anyhow::anyhow!("Lock poisoned"))?;
+            if *current == root {
+                return Ok(());
+            }
+        }
+        let db_path = Self::resolve_db_path(&root, &self.fallback_dir)?;
+        let new_conn = Connection::open(&db_path)?;
+        Self::create_tables(&new_conn)?;
+        {
+            let mut rp = self.root_path.write().map_err(|_| anyhow::anyhow!("Lock poisoned"))?;
+            *rp = root;
+        }
+        *self.conn.lock().await = new_conn;
+        if let Ok(mut hashes) = self.file_hashes.write() {
+            hashes.clear();
+        }
+        Ok(())
+    }
+
     // ── Main Indexing Entry Point ─────────────────────────────────────────
 
     pub async fn index_codebase(&self) -> anyhow::Result<IndexingProgress> {
@@ -187,7 +211,11 @@ impl VectorIndexer {
         };
         *self.indexing_progress.write().map_err(|_| anyhow::anyhow!("Lock poisoned"))? = progress.clone();
 
-        let root = self.root_path.clone();
+        let root = self
+            .root_path
+            .read()
+            .map_err(|_| anyhow::anyhow!("Lock poisoned"))?
+            .clone();
         let conn = self.conn.clone();
         let file_hashes = self.file_hashes.clone();
         let indexing_progress = self.indexing_progress.clone();
@@ -294,9 +322,13 @@ impl VectorIndexer {
 
             let chunks = Self::chunk_code(&content, extension, &relative_path);
 
-            // Store chunks
+            // Store chunks (with optional Ollama embeddings)
             let conn_lock = conn.lock().await;
-            for chunk in chunks {
+            for mut chunk in chunks {
+                let embed_text: String = chunk.content.chars().take(1500).collect();
+                if let Ok(emb) = crate::embeddings::embed_text_blocking(&embed_text, None) {
+                    chunk.embedding = Some(emb);
+                }
                 Self::store_chunk(&conn_lock, &chunk)?;
                 chunks_created += 1;
             }
@@ -628,19 +660,22 @@ impl VectorIndexer {
     // ── Search Operations ─────────────────────────────────────────────────
 
     pub async fn search_codebase(&self, query: &str, limit: usize) -> anyhow::Result<Vec<SearchResult>> {
+        let query_embedding = crate::embeddings::embed_text_async(query, None).await.ok();
+
         let conn = self.conn.lock().await;
 
         let query_lower = query.to_lowercase();
         let keywords: Vec<&str> = query_lower.split_whitespace().collect();
 
         let mut stmt = conn.prepare(
-            "SELECT file_path, content, start_line, end_line, language, symbols
+            "SELECT file_path, content, start_line, end_line, language, symbols, embedding
              FROM code_chunks
              ORDER BY timestamp DESC
              LIMIT ?1"
         )?;
 
-        let rows = stmt.query_map(params![(limit * 5) as i64], |row| {
+        let scan_limit = if query_embedding.is_some() { (limit * 20) as i64 } else { (limit * 5) as i64 };
+        let rows = stmt.query_map(params![scan_limit], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -648,17 +683,27 @@ impl VectorIndexer {
                 row.get::<_, i64>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, Option<Vec<u8>>>(6)?,
             ))
         })?;
 
         let mut results = Vec::new();
 
         for row in rows {
-            let (file_path, content, start_line, end_line, _language, symbols_json) = row?;
+            let (file_path, content, start_line, end_line, _language, symbols_json, embedding_blob) = row?;
 
-            let mut score = 0.0;
+            let mut score = 0.0f32;
+
+            if let (Some(ref q_emb), Some(ref blob)) = (&query_embedding, &embedding_blob) {
+                if let Some(chunk_emb) = Self::parse_embedding_blob(blob) {
+                    let sim = crate::embeddings::cosine_similarity(q_emb, &chunk_emb);
+                    if sim > 0.25 {
+                        score += sim * 10.0;
+                    }
+                }
+            }
+
             let content_lower = content.to_lowercase();
-
             for keyword in &keywords {
                 let matches = content_lower.matches(keyword).count();
                 score += matches as f32;
@@ -683,14 +728,26 @@ impl VectorIndexer {
                 });
             }
 
-            if results.len() >= limit {
+            if results.len() >= limit * 3 {
                 break;
             }
         }
 
         results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
+        results.truncate(limit);
 
         Ok(results)
+    }
+
+    fn parse_embedding_blob(blob: &[u8]) -> Option<Vec<f32>> {
+        if blob.len() < 4 || blob.len() % 4 != 0 {
+            return None;
+        }
+        Some(
+            blob.chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect(),
+        )
     }
 
     pub async fn find_symbol(&self, symbol_name: &str) -> anyhow::Result<Vec<SearchResult>> {
