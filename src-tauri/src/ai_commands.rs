@@ -128,6 +128,14 @@ pub async fn ai_chat(
     // Signal Kairos: user is actively using AI â€” reset idle timer
     state.kairos.report_activity().await;
 
+    // Ensure Ollama cloud/local URL is on the request (agent loop bearer auth uses it).
+    if request.ollama_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
+        let url = state.ollama_url.lock().await.clone();
+        if !url.trim().is_empty() {
+            request.ollama_url = Some(url);
+        }
+    }
+
     // Update MemoryLayer state â€” agent is now active
     let _ = state.memory_layer.update_state("Active", &format!("Processing: {}", 
         request.messages.last()
@@ -269,6 +277,12 @@ pub async fn ai_chat_oneshot(
 
     let engine = state.ai_engine.clone();
     let _silent = engine.enter_silent();
+    if request.ollama_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
+        let url = state.ollama_url.lock().await.clone();
+        if !url.trim().is_empty() {
+            request.ollama_url = Some(url);
+        }
+    }
     let result = engine
         .autonomous_loop(request, None)
         .await

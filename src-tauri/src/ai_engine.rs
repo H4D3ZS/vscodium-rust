@@ -3460,7 +3460,7 @@ impl Sentient {
             ) {
                 request = apply_highway_auth(request, &provider_key);
             } else if active_provider.to_lowercase() == "ollama" {
-                let ollama_base = normalize_ollama_base_url(&self.ollama_url.lock().await);
+                let ollama_base = self.resolved_ollama_base(&req).await;
                 let k = self.ollama_bearer_for_base(&ollama_base);
                 if !k.trim().is_empty() {
                     request = request.bearer_auth(k.trim());
@@ -3497,7 +3497,7 @@ impl Sentient {
                 } else if matches!(provider_lc.as_str(), "highwayapi" | "interfaceai" | "jiekou") {
                     fallback_request = apply_highway_auth(fallback_request, &provider_key);
                 } else if provider_lc == "ollama" {
-                    let ollama_base = normalize_ollama_base_url(&self.ollama_url.lock().await);
+                    let ollama_base = self.resolved_ollama_base(&req).await;
                     let k = self.ollama_bearer_for_base(&ollama_base);
                     if !k.trim().is_empty() {
                         fallback_request = fallback_request.bearer_auth(k.trim());
@@ -5881,6 +5881,16 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         }
     }
 
+    /// Resolve Ollama base URL: request override first, then engine state.
+    async fn resolved_ollama_base(&self, req: &AiRequest) -> String {
+        let raw = if let Some(u) = req.ollama_url.as_ref().filter(|u| !u.trim().is_empty()) {
+            u.clone()
+        } else {
+            self.ollama_url.lock().await.clone()
+        };
+        normalize_ollama_base_url(&raw)
+    }
+
     /// Ollama bearer: explicit `ollama` key first, else Supabase session JWT on managed cloud.
     fn ollama_bearer_for_base(&self, base_url: &str) -> String {
         let k = self.get_key_for_provider("ollama");
@@ -5888,11 +5898,10 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             return k;
         }
         if Self::is_cyberifrit_managed_ollama_url(base_url) {
-            if let Some(p) = self.brain_dir.parent() {
-                if let Some(s) = crate::auth::load_session(p) {
-                    if !s.access_token.is_empty() {
-                        return s.access_token;
-                    }
+            let cfg = crate::account::account_config_dir(&self.brain_dir);
+            if let Some(s) = crate::auth::load_session(&cfg) {
+                if !s.access_token.is_empty() {
+                    return s.access_token;
                 }
             }
         }
@@ -5968,10 +5977,9 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         // token). This is the "pay & subscribe → managed cloud just works, no
         // BYO key" path — the AMD gateway validates this JWT + the entitlement.
         if matches!(provider_base.as_str(), "cyberifrit" | "cyber-ifrit" | "cyberifrit-cloud") {
-            if let Some(p) = self.brain_dir.parent() {
-                if let Some(s) = crate::auth::load_session(p) {
-                    if !s.access_token.is_empty() { return s.access_token; }
-                }
+            let cfg = crate::account::account_config_dir(&self.brain_dir);
+            if let Some(s) = crate::auth::load_session(&cfg) {
+                if !s.access_token.is_empty() { return s.access_token; }
             }
         }
 
