@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { marked } from 'marked';
 import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
-import { isToolCallJson, isToolResultJson } from '../../domain/agent/cleanAgentContent';
+import { isToolCallJson, isToolResultJson, looksLikeToolCallText, summarizeToolCallText } from '../../domain/agent/cleanAgentContent';
 
 // ── Custom Interactive Blocks ────────────────────────────────────────────────
 const ClarifyingQuestionBlock: React.FC<{ data: any }> = ({ data }) => {
@@ -168,7 +168,7 @@ type Segment =
 // fence boundary.
 function splitSegments(input: string): Segment[] {
     const out: Segment[] = [];
-    const fence = /```([^\n]*)\n([\s\S]*?)```/g;
+    const fence = /```([^\n]*)\n?([\s\S]*?)```/g;
     let last = 0;
     let m: RegExpExecArray | null;
     while ((m = fence.exec(input))) {
@@ -184,6 +184,42 @@ function splitSegments(input: string): Segment[] {
     }
     return out;
 }
+
+const ToolCallChip: React.FC<{ body: string }> = ({ body }) => {
+    const summary = useMemo(() => summarizeToolCallText(body), [body]);
+    const toolName = useMemo(
+        () => body.match(/"(?:name|tool)"\s*:\s*"([^"]+)"/)?.[1] || 'tool',
+        [body],
+    );
+    const icon =
+        toolName.includes('browser') ? 'globe'
+            : toolName.includes('write') || toolName.includes('file') ? 'file'
+                : toolName.includes('grep') || toolName.includes('search') ? 'search'
+                    : toolName.includes('bash') || toolName.includes('command') ? 'terminal'
+                        : toolName.includes('web') || toolName.includes('audit') ? 'shield'
+                            : 'tools';
+
+    return (
+        <div
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                margin: '6px 0',
+                padding: '6px 10px',
+                borderRadius: 8,
+                border: '1px solid rgba(56,189,248,0.2)',
+                background: 'rgba(56,189,248,0.06)',
+                fontSize: 11,
+                color: 'rgba(255,255,255,0.78)',
+            }}
+        >
+            <i className={`codicon codicon-${icon}`} style={{ fontSize: 12, opacity: 0.7, color: '#38bdf8' }} />
+            <span style={{ flex: 1, lineHeight: 1.45 }}>{summary}</span>
+            <span style={{ fontSize: 9, opacity: 0.35, fontFamily: 'var(--font-mono, monospace)' }}>executed</span>
+        </div>
+    );
+};
 
 const CodeBlock: React.FC<{
     lang: string;
@@ -402,6 +438,15 @@ const MessageBody = React.memo(({ content, allowApply = true }: MessageBodyProps
                         } catch (e) {
                             // fallback
                         }
+                    }
+                    const trimmedBody = seg.body.trim();
+                    if (
+                        looksLikeToolCallText(trimmedBody)
+                        || isToolCallJson(trimmedBody)
+                        || isToolResultJson(trimmedBody)
+                        || (seg.lang === 'json' && trimmedBody.startsWith('{') && /"name"\s*:/.test(trimmedBody))
+                    ) {
+                        return <ToolCallChip key={i} body={trimmedBody} />;
                     }
                 }
 
