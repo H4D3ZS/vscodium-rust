@@ -1,6 +1,7 @@
 # Fetch PortableGit + Hermes skills bundle for IDE installer (Windows).
 # Output:
 #   src-tauri/bundles/portable-git/     - Git Bash for agent + terminal
+#   src-tauri/bundles/ripgrep/          - bundled rg (agent + terminal PATH)
 #   src-tauri/bundles/hermes-skills/    - vendored SKILL.md trees for offline install
 #
 # Skips download when present unless -Force or FORCE_BUNDLE_FETCH=1
@@ -81,3 +82,13 @@ if ($Force -or -not (Test-Path (Join-Path $SkillsOut "skills"))) {
 }
 
 Write-Host "[fetch-bundles] Bundles ready for tauri build."
+
+# Ripgrep (rg) — agent grep tool + Git Bash PATH
+Write-Host "[fetch-bundles] Fetching ripgrep bundle …"
+$fetchRg = Join-Path $Root "scripts\fetch-ripgrep.mjs"
+if (Test-Path $fetchRg) {
+    node $fetchRg
+    if ($LASTEXITCODE -ne 0) { throw "fetch-ripgrep.mjs failed" }
+} else {
+    Write-Warning "[fetch-bundles] fetch-ripgrep.mjs missing"
+}

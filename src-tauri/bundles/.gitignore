@@ -1,3 +1,4 @@
-# Bundled installer assets (PortableGit ~45MB). Fetched by scripts/fetch-bundles.ps1 at build time.
+# Bundled installer assets. Fetched at build time (scripts/fetch-bundles.ps1 / fetch-ripgrep.mjs).
 portable-git/
 hermes-skills/
+ripgrep/

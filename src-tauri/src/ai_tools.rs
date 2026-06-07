@@ -450,12 +450,14 @@ impl AiTools {
              },
             ToolDefinition {
                 name: "grep".to_string(),
-                description: "Fast recursive search within files using system grep or ripgrep".to_string(),
+                description: "INSTANT ripgrep (rg) search — regex or literal patterns across files. ALWAYS use this instead of shell grep/rg. Supports single files (e.g. index_bundle.js) and directories.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "query": { "type": "string", "description": "The string to search for" },
-                        "path": { "type": "string", "description": "The directory to search in (default: '.')", "default": "." }
+                        "query": { "type": "string", "description": "Regex pattern to search for (alias: pattern)" },
+                        "pattern": { "type": "string", "description": "Same as query — regex pattern" },
+                        "path": { "type": "string", "description": "File or directory (default: project root)", "default": "." },
+                        "include": { "type": "string", "description": "Optional glob filter (e.g. *.js)" }
                     },
                     "required": ["query"]
                 }),
@@ -2713,7 +2715,7 @@ impl ShellTranslator {
     pub fn prefers_git_bash(command: &str) -> bool {
         let c = command.to_lowercase();
         const MARKERS: &[&str] = &[
-            "grep ", "grep\t", "curl ", "head ", "tail ", "sed ", "awk ", "sort ", "uniq ",
+            "curl ", "head ", "tail ", "sed ", "awk ", "sort ", "uniq ",
             "wc ", "find ", "chmod ", "export ", "source ", "&&", "||", "| ", "python -c",
             "pip install", "npm run", "cargo ", "./", "sh ", "bash ", "index_bundle",
         ];
@@ -3232,10 +3234,8 @@ impl AiTools {
             .current_dir(&*root)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if shell_hint == "bash" || shell_hint == "sh" {
-            if let Some(path) = crate::ide_shell::augmented_path_for_git_bash() {
-                cmd.env("PATH", path);
-            }
+        if let Some(path) = crate::ide_shell::augmented_path_for_git_bash() {
+            cmd.env("PATH", path);
         }
         let mut child = cmd.spawn()?;
 
@@ -3704,33 +3704,28 @@ impl AiTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing query"))?;
 
-        let mut results = Vec::new();
-        use walkdir::WalkDir;
         let root = self.root_path.lock().await.clone();
-        for entry in WalkDir::new(&*root).into_iter().filter_map(|e| e.ok()) {
-            if entry.file_type().is_file() {
-                let content = fs::read_to_string(entry.path());
-                if let Ok(content) = content {
-                    for (i, line) in content.lines().enumerate() {
-                        if line.contains(query) {
-                            results.push(serde_json::json!({
-                                "file": entry.path().strip_prefix(&*root)
-                                    .map(|p| p.to_string_lossy().to_string())
-                                    .unwrap_or_else(|_| entry.path().to_string_lossy().to_string()),
-                                "line": i + 1,
-                                "match": line.trim()
-                            }));
-                        }
-                        if results.len() > 100 {
-                            break;
-                        }
-                    }
-                }
-            }
-            if results.len() > 100 {
-                break;
-            }
-        }
+        let hits = crate::ripgrep_search::ripgrep_search(crate::ripgrep_search::RipgrepQuery {
+            pattern: query,
+            root: &root,
+            include: None,
+            max_results: 100,
+            case_insensitive: true,
+            fixed_string: true,
+            file: None,
+        })
+        .map_err(|e| anyhow!(e))?;
+
+        let results: Vec<Value> = hits
+            .into_iter()
+            .map(|h| {
+                json!({
+                    "file": h.path,
+                    "line": h.line,
+                    "match": h.content
+                })
+            })
+            .collect();
         Ok(Value::Array(results))
     }
 
@@ -6033,65 +6028,45 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
     async fn grep(&self, args: Value) -> Result<Value> {
         let query_str = args
             .get("query")
+            .or_else(|| args.get("pattern"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing query"))?;
+            .ok_or_else(|| anyhow!("Missing query/pattern"))?;
         let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+        let include = args.get("include").and_then(|v| v.as_str());
 
         let root = self.root_path.lock().await;
         let base_path = self.validate_path(&root, path_str)?;
-        
-        let (full_path, _pattern) = if cfg!(target_os = "windows") {
-             self.extract_path_and_pattern(&base_path.to_string_lossy(), "*")
+
+        let file_target = if base_path.is_file() {
+            Some(base_path.clone())
         } else {
-             (base_path, "*".to_string())
+            None
+        };
+        let search_root = if base_path.is_file() {
+            base_path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| root.clone())
+        } else {
+            base_path
         };
 
-        let re = regex::RegexBuilder::new(query_str)
-            .case_insensitive(true)
-            .multi_line(true)
-            .build()?;
+        let hits = crate::ripgrep_search::ripgrep_search(crate::ripgrep_search::RipgrepQuery {
+            pattern: query_str,
+            root: &search_root,
+            include,
+            max_results: 500,
+            case_insensitive: true,
+            fixed_string: false,
+            file: file_target.as_deref(),
+        })
+        .map_err(|e| anyhow!(e))?;
 
-        let mut results = String::new();
-        use walkdir::WalkDir;
-
-        for entry in WalkDir::new(full_path).into_iter().filter_map(|e| e.ok()) {
-            if entry.file_type().is_file() {
-                let path = entry.path();
-                // Skip common large/binary dirs
-                let path_lower = path.to_string_lossy().to_lowercase();
-                if path_lower.contains("node_modules")
-                    || path_lower.contains("target")
-                    || path_lower.contains(".git")
-                    || path_lower.contains(".aim")
-                {
-                    continue;
-                }
-
-                if let Ok(content) = fs::read_to_string(path) {
-                    for (i, line) in content.lines().enumerate() {
-                        if re.is_match(line) {
-                            let rel_path = path
-                                .strip_prefix(&*root)
-                                .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or_else(|_| path.to_string_lossy().to_string());
-                            results.push_str(&format!("{}:{}: {}\n", rel_path, i + 1, line.trim()));
-                            
-                            // Safety cap for massive results
-                            if results.len() > 50000 {
-                                results.push_str("\n... truncated (too many matches) ...");
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            if results.len() > 50000 {
-                break;
-            }
-        }
-
+        let results = crate::ripgrep_search::format_grep_results(&hits);
         Ok(serde_json::json!({
             "results": results,
+            "matches": hits.len(),
+            "engine": "ripgrep",
             "status": "success"
         }))
     }

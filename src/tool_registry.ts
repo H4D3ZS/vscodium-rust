@@ -327,7 +327,7 @@ export const GlobTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const GrepTool: ToolDef = {
     name: 'grep',
-    description: `NATIVE CORE TOOL: Search for text patterns in files using ultra-fast ripgrep patterns. Returns matching lines with file paths and line numbers. ALWAYS available and optimized for Windows. Supports regex.`,
+    description: `NATIVE RIPGREP: Instant regex search via \`rg\` — project-wide or single-file (e.g. minified JS bundles). Returns path:line:match. ALWAYS use this tool; NEVER shell grep/rg in bash (slow and breaks quoting on Windows).`,
     inputSchema: {
         type: 'object',
         properties: {
