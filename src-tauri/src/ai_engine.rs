@@ -1738,7 +1738,21 @@ impl Sentient {
         // The compact gist is ~100 tokens. Always inject for ALL providers —
         // even 8K-context Ollama models can afford it. Only the verbose full
         // knowledge summary (thousands of tokens) is gated to cloud models.
-        let aim_indexed_files = self.memory_store.get_project_tree().await.len();
+        let (tree_before, aim_indexed_files) = self
+            .memory_store
+            .prune_project_tree_to_workspace(&self.ai_tools.get_root_path())
+            .await;
+        if tree_before > aim_indexed_files && tree_before.saturating_sub(aim_indexed_files) >= 10 {
+            project_memory.push_str(&format!(
+                "\n### AIM STALE PATH WARNING\n\
+                 Removed {} paths from the index that do NOT exist in this workspace \
+                 ({} → {}). Do NOT read ARCHITECTURE.md/CLAUDE.md unless listed below. \
+                 Re-index via Kortex if the tree looks incomplete.\n",
+                tree_before - aim_indexed_files,
+                tree_before,
+                aim_indexed_files
+            ));
+        }
         let user_prompt_chars = req
             .messages
             .iter()
@@ -6234,6 +6248,24 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
         ];
         if c == "ls" || c == "dir" || c == "pwd" || c == "tree" {
             return true;
+        }
+        // `dir path\to\file` or `ls README.md` — existence check, not tree recon.
+        if c.starts_with("dir ") || c.starts_with("dir\t") {
+            let rest = cmd.trim()[3..].trim();
+            if !rest.is_empty()
+                && !rest.starts_with('/')
+                && !rest.starts_with('-')
+                && !rest.eq_ignore_ascii_case("/s")
+                && !rest.eq_ignore_ascii_case("/w")
+            {
+                return false;
+            }
+        }
+        if c.starts_with("ls ") || c.starts_with("ls\t") {
+            let rest = cmd.trim()[2..].trim();
+            if !rest.is_empty() && !rest.starts_with('-') {
+                return false;
+            }
         }
         RECON.iter().any(|r| c.contains(r))
             || (c.starts_with("cd ") && (c.contains("&& ls") || c.contains("; ls") || c.contains("dir")))
