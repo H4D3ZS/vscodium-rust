@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs;
-use std::io::copy;
+use std::io::{copy, Read, Seek};
 use zip::ZipArchive;
 use anyhow::{Result, anyhow};
 use reqwest::Client;
@@ -111,6 +111,87 @@ pub async fn install_extension(
     
     Ok(format!("{}.{}", publisher, name))
 }
+
+fn extract_vsix_entries(archive: &mut ZipArchive<impl Read + Seek>, target_dir: &Path) -> Result<()> {
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let outpath = match file.enclosed_name() {
+            Some(path) => {
+                let path_str = path.to_string_lossy();
+                if path_str.starts_with("extension/") {
+                    target_dir.join(&path_str[10..])
+                } else {
+                    continue;
+                }
+            }
+            None => continue,
+        };
+
+        if file.name().ends_with('/') {
+            fs::create_dir_all(&outpath)?;
+        } else {
+            if let Some(p) = outpath.parent() {
+                if !p.exists() {
+                    fs::create_dir_all(p)?;
+                }
+            }
+            let mut outfile = fs::File::create(&outpath)?;
+            copy(&mut file, &mut outfile)?;
+        }
+    }
+    Ok(())
+}
+
+/// Install a local `.vsix` file into the extensions directory.
+pub fn install_vsix_from_path(vsix_path: &Path, extensions_dir: &Path) -> Result<(String, PathBuf)> {
+    let file = fs::File::open(vsix_path)?;
+    let mut archive = ZipArchive::new(file)?;
+
+    let mut publisher = String::new();
+    let mut name = String::new();
+    let mut version = String::new();
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        if entry.name() == "extension/package.json" {
+            let mut content = String::new();
+            entry.read_to_string(&mut content)?;
+            let pkg: serde_json::Value = serde_json::from_str(&content)?;
+            publisher = pkg
+                .get("publisher")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            name = pkg
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("extension")
+                .to_string();
+            version = pkg
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0.0.0")
+                .to_string();
+            break;
+        }
+    }
+
+    if name.is_empty() {
+        return Err(anyhow!("Invalid VSIX: missing extension/package.json"));
+    }
+
+    let target_dir = extensions_dir.join(format!("{}.{}-{}", publisher, name, version));
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir)?;
+    }
+
+    let file = fs::File::open(vsix_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    extract_vsix_entries(&mut archive, &target_dir)?;
+
+    Ok((format!("{}.{}", publisher, name), target_dir))
+}
+
 pub async fn get_extension_details(publisher: String, name: String) -> Result<serde_json::Value> {
     let client = Client::new();
     let url = format!("https://open-vsx.org/api/{}/{}", urlencoding::encode(&publisher), urlencoding::encode(&name));

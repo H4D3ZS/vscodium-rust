@@ -55,6 +55,8 @@ export const createExtensionSlice: StateCreator<AppState, [], [], ExtensionSlice
             if (iconThemeMapping?.iconDefinitions) set({ iconThemeMapping });
             const contributions = await invoke<any>('get_extension_contributions');
             if (contributions) set({ extensionContributions: contributions });
+            const { refreshExtensionCommandRegistry } = await import('../application/extensions/ExtHostBridge');
+            await refreshExtensionCommandRegistry();
         } catch (err) { console.error('Failed to refresh installed extensions:', err); }
     },
     refreshPopularExtensions: async () => {

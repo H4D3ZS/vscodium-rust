@@ -12,6 +12,9 @@ export async function saveActiveFile(): Promise<void> {
         tabs: state.tabs.map((t) => (t.id === activeTabId ? { ...t, isModified: false } : t)),
     }));
 
+    const { syncDocumentSaved } = await import('../extensions/extHostDocumentSync');
+    await syncDocumentSaved(tab.path).catch(() => {});
+
     const { runWorkspaceHooks } = await import('../workspace/runWorkspaceHooks');
     await runWorkspaceHooks('on_save', tab.path);
 }

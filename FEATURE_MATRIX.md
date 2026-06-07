@@ -2,7 +2,7 @@
 
 Legend: ✅ have · 🟡 partial · ⬜ missing
 
-Last verified: enterprise pass (agent onboarding, audit log, billing auto-sync).
+Last verified: extension host production pass (bridge, document sync, require('vscode')).
 
 ---
 
@@ -53,7 +53,8 @@ Last verified: enterprise pass (agent onboarding, audit log, billing auto-sync).
 | MCP client/server/registry | ✅ | `mcp_*.rs`, `McpManager.tsx` |
 | MCP catalog (install) | ✅ | `MCP_CATALOG` in `McpManager.tsx` |
 | Open VSX extensions | ✅ | `marketplace.rs`, ext-host |
-| Extension API coverage | 🟡 | host scaffolding; smoke-test per release |
+| VSIX install (local file) | ✅ | `install_vsix`, `marketplace.rs` |
+| Extension API coverage | 🟡 | `ExtHostBridge.ts`, `ext-host/index.js` — core path wired; webviews/tree views still partial |
 
 ## Spec-driven & automation (Kiro)
 
@@ -98,7 +99,7 @@ Last verified: enterprise pass (agent onboarding, audit log, billing auto-sync).
 
 ## Remaining post-1.0 (optional)
 
-1. Extension `vscode` API audit + fill gaps
+1. Extension webview panels + tree view UI wiring
 2. claurst deep integration (default agent backend)
 3. Tauri auto-updater + code signing
 4. macOS browser-agent freeze (PyInstaller on CI)
