@@ -1407,6 +1407,13 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
     }
 
+    // Persistent agentic modes (Bug Bounty, Harness, Sentient, …) — auto-enable
+    // YOLO + diff auto-accept so tools run without manual Allow / Apply clicks.
+    {
+        const { ensureAgenticAutonomy } = await import('./lib/agentAutonomy');
+        await ensureAgenticAutonomy(store.getState().agentMode);
+    }
+
     // ── Subscription quota gate (tied to the account) ──────────────────────
     // Each AI turn counts against the plan's request budget (backend
     // `account_check_and_count` — local-authoritative, mirrored to Supabase when

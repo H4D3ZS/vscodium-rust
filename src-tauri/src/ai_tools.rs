@@ -3150,6 +3150,49 @@ impl AiTools {
             .get("command")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing command"))?;
+        let skip_grep_intercept = args
+            .get("_grep_intercept_skip")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if !skip_grep_intercept {
+            if let Some(intercept) = crate::ripgrep_search::try_intercept_shell_grep(command) {
+                if let Some(prefix) = intercept.prefix.filter(|p| !p.trim().is_empty()) {
+                    let shell_hint = args
+                        .get("shell_hint")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("run_command");
+                    let mut prefix_args = json!({
+                        "command": prefix,
+                        "shell_hint": shell_hint,
+                        "_grep_intercept_skip": true,
+                    });
+                    if args.get("background").and_then(|v| v.as_bool()) == Some(true) {
+                        prefix_args["background"] = json!(true);
+                    }
+                    let prefix_result = Box::pin(self.run_command(prefix_args)).await?;
+                    if prefix_result.get("status").and_then(|v| v.as_str()) == Some("failed")
+                        || prefix_result.get("status").and_then(|v| v.as_str()) == Some("error")
+                    {
+                        return Ok(prefix_result);
+                    }
+                }
+                println!(
+                    "[Intercept] shell grep/rg → bundled ripgrep grep tool: {}",
+                    command.lines().last().unwrap_or(command)
+                );
+                return self.grep(intercept.args).await;
+            }
+            if crate::ripgrep_search::command_uses_shell_grep(command) {
+                return Ok(json!({
+                    "status": "blocked",
+                    "error": "Shell grep/rg is disabled — use the grep tool (bundled ripgrep).",
+                    "hint": "grep({ pattern: \"…\", path: \"file.js\" }) — works on single files and directories.",
+                    "command": command,
+                }));
+            }
+        }
+
         if let Some(reason) = crate::pentest_scope::block_localhost_pivot(command) {
             return Ok(json!({
                 "status": "blocked",
@@ -6033,6 +6076,14 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             .ok_or_else(|| anyhow!("Missing query/pattern"))?;
         let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
         let include = args.get("include").and_then(|v| v.as_str());
+        let case_insensitive = args
+            .get("case_insensitive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let fixed_string = args
+            .get("fixed_string")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let root = self.root_path.lock().await;
         let base_path = self.validate_path(&root, path_str)?;
@@ -6056,8 +6107,8 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             root: &search_root,
             include,
             max_results: 500,
-            case_insensitive: true,
-            fixed_string: false,
+            case_insensitive,
+            fixed_string,
             file: file_target.as_deref(),
         })
         .map_err(|e| anyhow!(e))?;

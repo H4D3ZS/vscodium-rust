@@ -968,49 +968,67 @@ pub async fn call_tool(
 }
 
 #[tauri::command]
-pub async fn ai_execute_command(command: String, cwd: Option<String>, timeout: Option<u64>) -> Result<String, String> {
+pub async fn ai_execute_command(
+    state: State<'_, EditorState>,
+    command: String,
+    cwd: Option<String>,
+    timeout: Option<u64>,
+) -> Result<String, String> {
     println!("[DEBUG] ai_execute_command: {}", command);
-    
-    let working_dir = cwd.map(PathBuf::from).unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    
-    let mut cmd = if cfg!(target_os = "windows") {
-        let mut c = tokio::process::Command::new("cmd");
-        c.args(&["/C", &command]);
-        c
-    } else {
-        let mut c = tokio::process::Command::new("sh");
-        c.args(&["-c", &command]);
-        c
-    };
 
-    cmd.current_dir(working_dir);
-    cmd.kill_on_drop(true);
-    
-    let timeout_ms = timeout.unwrap_or(120_000).clamp(1_000, 600_000);
-    let output = tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms),
-        cmd.output(),
-    )
-    .await
-    .map_err(|_| format!("Command timed out after {}ms: {}", timeout_ms, command))?
-    .map_err(|e| format!("Failed to spawn command: {}", e))?;
-    
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    
-    if output.status.success() {
-        if stdout.is_empty() && !stderr.is_empty() {
-             Ok(format!("Command succeeded (stderr only):\n{}", stderr))
-        } else if stdout.is_empty() {
-             Ok("Command succeeded (no output)".to_string())
+    // Route through run_command so shell grep/rg is intercepted → bundled ripgrep.
+    let mut args = json!({
+        "command": command,
+        "shell_hint": "bash",
+    });
+    if timeout.is_some() {
+        args["timeout_ms"] = json!(timeout.unwrap_or(120_000));
+    }
+    if cwd.is_some() {
+        args["cwd"] = json!(cwd);
+    }
+
+    let result = state
+        .ai_tools
+        .call_tool("run_command", args)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if result.get("status").and_then(|v| v.as_str()) == Some("blocked") {
+        return Err(
+            result
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Command blocked")
+                .to_string(),
+        );
+    }
+
+    if let Some(results) = result.get("results").and_then(|v| v.as_str()) {
+        return Ok(if results.is_empty() {
+            "No matches".to_string()
         } else {
-             Ok(stdout)
+            results.to_string()
+        });
+    }
+
+    let stdout = result.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+    let stderr = result.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
+    let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    if success {
+        if stdout.is_empty() && !stderr.is_empty() {
+            Ok(format!("Command succeeded (stderr only):\n{}", stderr))
+        } else if stdout.is_empty() {
+            Ok("Command succeeded (no output)".to_string())
+        } else {
+            Ok(stdout.to_string())
         }
     } else {
-        Err(format!("Command failed (exit {}):\nSTDOUT: {}\nSTDERR: {}", 
-            output.status.code().unwrap_or(-1),
-            stdout,
-            stderr))
+        Err(format!(
+            "Command failed:\nSTDOUT: {}\nSTDERR: {}",
+            stdout, stderr
+        ))
     }
 }
 

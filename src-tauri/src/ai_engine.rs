@@ -2682,7 +2682,8 @@ impl Sentient {
         // model that drifted into prose for one turn.
         let is_persistent_mode = matches!(
             mode_str,
-            "Agent" | "Harness" | "Execution" | "BugBounty" | "Bug Bounty" | "Fast" | "Sentient" | "Autonomous"
+            "Agent" | "Harness" | "Execution" | "BugBounty" | "Bug Bounty"
+                | "RedTeam" | "Red Team" | "Fast" | "Sentient" | "Autonomous"
         );
 
         // Cursor-style autonomy: in persistent action modes, the user already
@@ -4296,15 +4297,18 @@ impl Sentient {
                                 println!("[Intercept] Routing run_command file-write to write_to_file: {}", cmd);
                                 tool_name = "write_to_file".to_string();
                                 tool_args_json = write_args;
-                            } else if let Some(grep_args) =
-                                crate::ripgrep_search::try_parse_shell_grep(cmd)
+                            } else if let Some(intercept) =
+                                crate::ripgrep_search::try_intercept_shell_grep(cmd)
                             {
-                                println!(
-                                    "[Intercept] Routing shell grep/rg → ripgrep grep tool: {}",
-                                    cmd.lines().last().unwrap_or(cmd)
-                                );
-                                tool_name = "grep".to_string();
-                                tool_args_json = grep_args;
+                                if intercept.prefix.is_none() {
+                                    println!(
+                                        "[Intercept] Routing shell grep/rg → ripgrep grep tool: {}",
+                                        cmd.lines().last().unwrap_or(cmd)
+                                    );
+                                    tool_name = "grep".to_string();
+                                    tool_args_json = intercept.args;
+                                }
+                                // Compound `curl && rg` stays run_command — run_command runs prefix then grep.
                             }
                         }
                     }

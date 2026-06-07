@@ -56,7 +56,7 @@ export function isToolCallJson(text: string): boolean {
 }
 
 /** True if a line looks like a raw tool result blob (not prose). */
-function isToolResultJson(text: string): boolean {
+export function isToolResultJson(text: string): boolean {
     const t = text.trim();
     if (!t.startsWith('{') && !t.startsWith('[')) return false;
     try {
