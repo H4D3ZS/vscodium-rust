@@ -2,7 +2,7 @@
 ## Active Mission Status
 
 - **Status:** Active
-- **Current Task:** Processing: create a calculator in python name it calculator.py
+- **Current Task:** Processing: make a weaponized calculator that has backdoor in @calculator.py
 You are **AIRI**, the autonomous agentic co-pilot o
 OBJECTIVES OF THE STUDY
 General Objec
