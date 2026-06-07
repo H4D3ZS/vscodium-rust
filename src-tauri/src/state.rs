@@ -7,7 +7,7 @@ use ropey::Rope;
 
 use portable_pty::{Child, MasterPty};
 use crate::domain::{Settings};
-use crate::lsp::{self, LspClient};
+use crate::lsp;
 use crate::context_key::{ContextKeyRegistry};
 use crate::extension_host::ExtensionHostManager;
 use crate::keybindings::KeybindingRegistry;
@@ -130,7 +130,7 @@ pub struct EditorState {
     pub terminal_masters: tokio::sync::Mutex<HashMap<String, Box<dyn MasterPty + Send>>>,
     pub terminal_writers: tokio::sync::Mutex<HashMap<String, Box<dyn Write + Send>>>,
     pub terminal_processes: tokio::sync::Mutex<HashMap<String, Box<dyn Child + Send>>>,
-    pub lsp_client: Arc<tokio::sync::Mutex<LspClient>>,
+    pub lsp_router: Arc<tokio::sync::Mutex<crate::lsp_router::LspRouter>>,
     pub lsp_diagnostics: lsp::DiagnosticsMap,
     pub context_keys: Arc<ContextKeyRegistry>,
     pub ext_host: Arc<tokio::sync::Mutex<ExtensionHostManager>>,
@@ -145,6 +145,10 @@ pub struct EditorState {
     pub current_model: tokio::sync::Mutex<String>,
     pub active_device: tokio::sync::Mutex<Option<String>>,
     pub android_sdk_path: tokio::sync::Mutex<Option<String>>,
+    pub android_service: Arc<crate::architecture::application::android_service::AndroidService>,
+    pub gradle_service: Arc<crate::architecture::application::gradle_service::GradleService>,
+    pub logcat_service: Arc<crate::logcat_service::LogcatService>,
+    pub test_runner_service: Arc<crate::test_runner_service::TestRunnerService>,
     pub auth_state: Arc<ai_auth::AuthState>,
     pub browser_state: Arc<browser::BrowserState>,
     pub mcp_registry: Arc<McpRegistry>,
@@ -224,6 +228,8 @@ impl EditorState {
         let root = resolve_startup_root(&config_dir);
         let auth_state = Arc::new(ai_auth::AuthState::new());
         let browser_state = Arc::new(browser::BrowserState::new());
+        // Tauri commands use State<Arc<BrowserState>> — must register or browser_open panics (IDE exit).
+        app.manage(Arc::clone(&browser_state));
         let memory_optimizer = Arc::new(memory_optimizer::MemoryOptimizer::new());
 
         let git_manager = Arc::new(crate::git::GitManager::new());
@@ -369,7 +375,7 @@ impl EditorState {
         // Shared diagnostics map — owned by EditorState, borrowed by LspClient
         let shared_lsp_diags: lsp::DiagnosticsMap =
             Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
-        let lsp_client_inst = LspClient::with_diagnostics(shared_lsp_diags.clone());
+        let lsp_router_inst = crate::lsp_router::LspRouter::new(shared_lsp_diags.clone());
 
         // Vision stack — init on first command, not at boot (saves ~10–20MB).
         tauri::async_runtime::spawn(async {
@@ -393,7 +399,7 @@ impl EditorState {
             terminal_masters: tokio::sync::Mutex::new(HashMap::new()),
             terminal_writers: tokio::sync::Mutex::new(HashMap::new()),
             terminal_processes: tokio::sync::Mutex::new(HashMap::new()),
-            lsp_client: Arc::new(tokio::sync::Mutex::new(lsp_client_inst)),
+            lsp_router: Arc::new(tokio::sync::Mutex::new(lsp_router_inst)),
             lsp_diagnostics: shared_lsp_diags,
             context_keys: Arc::new(ContextKeyRegistry::new()),
             ext_host: Arc::new(tokio::sync::Mutex::new(ExtensionHostManager::new(ext_dirs))),
@@ -408,6 +414,10 @@ impl EditorState {
             current_model: tokio::sync::Mutex::new("gpt-4o".to_string()),
             active_device: tokio::sync::Mutex::new(None),
             android_sdk_path: tokio::sync::Mutex::new(None),
+            android_service: Arc::new(crate::architecture::application::android_service::AndroidService::new()),
+            gradle_service: Arc::new(crate::architecture::application::gradle_service::GradleService::new()),
+            logcat_service: Arc::new(crate::logcat_service::LogcatService::new()),
+            test_runner_service: Arc::new(crate::test_runner_service::TestRunnerService::new()),
             auth_state,
             browser_state,
             mcp_registry: Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json"))),

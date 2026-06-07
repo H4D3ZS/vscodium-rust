@@ -2,6 +2,7 @@ import React from 'react';
 import { useStore } from '../store';
 import { Globe, Shield, Lock, RefreshCw, ChevronLeft, ChevronRight, Search, Activity } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { closeCenterWorkbench } from '../application/layout/closeCenterWorkbench';
 
 // True when the URL points at THIS IDE's own origin. In `tauri dev` the IDE's
 // frontend is served by Vite (e.g. localhost:5173), so previewing that URL would
@@ -33,12 +34,17 @@ const BrowserSurface: React.FC = () => {
     // Live screenshot polling is OFF by default (memory/CPU heavy). Enable in
     // Settings → Permissions → Browser only if the machine can handle it.
     const visionEnabled = useStore(state => state.isAgentVisionEnabled);
+    const browserHidden = useStore(state => state.browserStealthHidden);
+
+    const openStealthBrowser = React.useCallback(() => {
+        invoke('browser_open', { headless: browserHidden }).catch(() => { /* Playwright optional for LIVE iframe */ });
+    }, [browserHidden]);
 
     // Panel opened — ensure stealth Firefox sidecar is up for VISION mode.
     React.useEffect(() => {
         if (mode !== 'vision') return;
-        invoke('browser_open').catch(() => { /* Playwright optional for LIVE iframe */ });
-    }, [mode]);
+        openStealthBrowser();
+    }, [mode, openStealthBrowser]);
 
     // Live mirror: while the agent is working in VISION mode, poll the real
     // browser for a fresh screenshot so the panel shows what the agent sees/does.
@@ -74,10 +80,10 @@ const BrowserSurface: React.FC = () => {
             setIframeKey(k => k + 1);
             return;
         }
-        // Vision mode — drive the headless browser + grab a screenshot.
+        // Vision mode — drive the stealth browser + grab a screenshot.
         setIsNavigating(true);
         try {
-            await invoke('browser_open'); // Ensure it's launched
+            await invoke('browser_open', { headless: browserHidden });
             await invoke('browser_navigate', { url: newUrl });
             const b64 = await invoke<string>('browser_screenshot');
             if (b64) setScreenshot(`data:image/jpeg;base64,${b64}`);
@@ -173,7 +179,7 @@ const BrowserSurface: React.FC = () => {
                                 background: mode === m ? 'var(--vscode-button-background, #0e639c)' : 'transparent',
                                 color: mode === m ? 'var(--vscode-button-foreground, #fff)' : 'var(--vscode-foreground)',
                             }}
-                            title={m === 'live' ? 'Live preview (interactive iframe)' : 'Agent vision (headless browser screenshot)'}
+                            title={m === 'live' ? 'Live preview (interactive iframe)' : 'Agent vision (stealth browser screenshot)'}
                         >
                             {m}
                         </button>
@@ -192,9 +198,7 @@ const BrowserSurface: React.FC = () => {
                     <i className="codicon codicon-symbol-ruler" style={{ fontSize: '14px' }} />
                 </button>
                 <button
-                    onClick={() => {
-                        import('../application/browser/openBrowserPanel').then(m => m.closeBrowserPanel());
-                    }}
+                    onClick={() => closeCenterWorkbench()}
                     style={navButtonStyle}
                     title="Close preview (back to editor)"
                 >
@@ -344,8 +348,8 @@ const BrowserStart: React.FC<{ onPick: (u: string) => void }> = ({ onPick }) => 
             <div style={{ fontSize: 44, marginBottom: 12 }}>🌐</div>
             <h2 style={{ color: '#0f172a', margin: '0 0 6px', fontSize: 20 }}>Browser Preview</h2>
             <p style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5, margin: '0 0 20px' }}>
-                Enter your project's dev-server URL above, or pick a common one below. The
-                agent edits your code → the dev server hot-reloads → this preview updates live.
+                Preview your project's dev server here while the agent edits code.
+                <b>LIVE</b> = interactive iframe · <b>VISION</b> = mirror of the stealth Firefox the agent drives.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
                 {QUICK_PORTS.map(p => (
@@ -364,7 +368,7 @@ const BrowserStart: React.FC<{ onPick: (u: string) => void }> = ({ onPick }) => 
             </div>
             <p style={{ color: '#94a3b8', fontSize: 11, marginTop: 18 }}>
                 Tip: port 5173 is this IDE's own dev server — use your project's port.
-                Switch to <b>VISION</b> to drive a real headless browser the agent automates.
+                Toggle <b>visible vs hidden</b> browser in Settings → Permissions.
             </p>
         </div>
     </div>

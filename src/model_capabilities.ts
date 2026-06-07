@@ -184,8 +184,9 @@ const openSourceModels: Record<string, Partial<ModelCapabilities>> = {
     'qwen3': {
         supportsFIM: false,
         supportsSystemMessage: 'system-role',
+        specialToolFormat: 'openai-style',
         reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
-        contextWindow: 32_768, reservedOutputTokenSpace: 8_192,
+        contextWindow: 65_536, reservedOutputTokenSpace: 8_192,
     },
     'kimi': {
         supportsSystemMessage: 'system-role',

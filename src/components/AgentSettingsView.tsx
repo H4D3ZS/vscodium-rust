@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import { CYBERIFRIT_CLOUD_OLLAMA_URL } from '../store/inferenceSlice';
 import { classifyModels, modelKey } from '../model_capabilities';
 import { WORKSTATION_PRESETS, applyWorkstationPreset } from '../lib/workstationPresets';
+import { COMPOSER2_BLOG_URL, COMPOSER2_STACKS, applyComposer2Stack } from '../lib/composer2Stack';
 import ElevenLabsVoicePicker from './ElevenLabsVoicePicker';
 import MemoryPanel from './MemoryPanel';
 
@@ -1332,6 +1333,53 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 />
                             </>
                         )}
+                        <div style={{ marginTop: '12px', padding: '10px', border: '1px solid rgba(96,165,250,0.25)', borderRadius: '6px' }}>
+                            <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px' }}>
+                                Composer 2 stacks (local parity)
+                            </div>
+                            <p style={{ margin: '0 0 8px', fontSize: '10px', opacity: 0.6, lineHeight: 1.4 }}>
+                                Cursor&apos;s Composer 2 is closed-source (Kimi K2.5/K2.6 base + RL).{' '}
+                                <strong>AMD 3900X ★</strong> = hybrid: local fast chat (7B) on this PC, MiniMax agent on GPU server only.{' '}
+                                <a href={COMPOSER2_BLOG_URL} target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>Composer 2 blog</a>
+                            </p>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {COMPOSER2_STACKS.map((stack) => (
+                                    <button
+                                        key={stack.id}
+                                        type="button"
+                                        title={stack.desc}
+                                        onClick={() => {
+                                            const host = stack.ollamaMode !== 'local'
+                                                ? customOllamaUrl || stack.remoteHost
+                                                : undefined;
+                                            void applyComposer2Stack(stack, host)
+                                                .then((notes) => {
+                                                    alert(
+                                                        `Composer 2 stack applied: ${stack.label}\n\n` +
+                                                        notes.join('\n'),
+                                                    );
+                                                })
+                                                .catch((e) => alert(String(e)));
+                                        }}
+                                        style={{
+                                            fontSize: '10px',
+                                            padding: '5px 10px',
+                                            borderRadius: '4px',
+                                            border: stack.id === 'composer2-amd3900'
+                                                ? '1px solid rgba(74,222,128,0.5)'
+                                                : '1px solid rgba(96,165,250,0.35)',
+                                            background: stack.id === 'composer2-amd3900'
+                                                ? 'rgba(74,222,128,0.12)'
+                                                : 'rgba(59,130,246,0.12)',
+                                            color: 'inherit',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        {stack.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                         <div style={{ marginTop: '12px', padding: '10px', border: '1px solid var(--vscode-panel-border)', borderRadius: '6px' }}>
                             <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px' }}>Workstation presets (Composer-style stack)</div>
                             <p style={{ margin: '0 0 8px', fontSize: '10px', opacity: 0.6, lineHeight: 1.4 }}>

@@ -46,6 +46,8 @@ export async function applyTheme(themePath: string) {
         // --- Comprehensive fallback generation ---
         // Derive missing colors from the editor/sidebar backgrounds to prevent unstyled surfaces.
         const fallbacks: Record<string, string> = {
+            'foreground': colors['foreground'] || fg,
+            'descriptionForeground': colors['descriptionForeground'] || (isDark ? '#b4b4b4' : '#616161'),
             'sideBar.background': sidebarBg,
             'sideBar.foreground': colors['sideBar.foreground'] || fg,
             'activityBar.background': colors['activityBar.background'] || adjustBrightness(bg, isDark ? 10 : -10),
@@ -58,7 +60,7 @@ export async function applyTheme(themePath: string) {
             'tab.activeBackground': colors['tab.activeBackground'] || bg,
             'tab.activeForeground': colors['tab.activeForeground'] || fg,
             'tab.inactiveBackground': colors['tab.inactiveBackground'] || adjustBrightness(bg, isDark ? 6 : -6),
-            'tab.inactiveForeground': colors['tab.inactiveForeground'] || (isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'),
+            'tab.inactiveForeground': colors['tab.inactiveForeground'] || (isDark ? 'rgba(255,255,255,0.62)' : 'rgba(0,0,0,0.55)'),
             'tab.border': colors['tab.border'] || sidebarBg,
             'list.hoverBackground': colors['list.hoverBackground'] || adjustBrightness(bg, isDark ? 8 : -6),
             'list.activeSelectionBackground': colors['list.activeSelectionBackground'] || (isDark ? '#094771' : '#0060c0'),
@@ -66,7 +68,7 @@ export async function applyTheme(themePath: string) {
             'list.inactiveSelectionBackground': colors['list.inactiveSelectionBackground'] || adjustBrightness(bg, isDark ? 14 : -10),
             'input.background': colors['input.background'] || adjustBrightness(bg, isDark ? 12 : -8),
             'input.foreground': colors['input.foreground'] || fg,
-            'input.placeholderForeground': colors['input.placeholderForeground'] || (isDark ? '#a6a6a6' : '#767676'),
+            'input.placeholderForeground': colors['input.placeholderForeground'] || (isDark ? '#b0b0b0' : '#767676'),
             'focusBorder': colors['focusBorder'] || '#007acc',
             'menu.background': colors['menu.background'] || sidebarBg,
             'menu.foreground': colors['menu.foreground'] || fg,
@@ -96,6 +98,14 @@ export async function applyTheme(themePath: string) {
             if (!colors[key]) {
                 root.style.setProperty(cssVar, value);
             }
+        }
+
+        // Boost secondary text on true-black themes (common with Doki / OLED skins)
+        if (isDark && isColorVeryDark(bg)) {
+            root.style.setProperty('--vscode-descriptionForeground', colors['descriptionForeground'] || '#bcbcbc');
+            root.style.setProperty('--readability-muted', 'rgba(255, 255, 255, 0.82)');
+            root.style.setProperty('--readability-subtle', 'rgba(255, 255, 255, 0.68)');
+            root.style.setProperty('--readability-panel-border', 'rgba(255, 255, 255, 0.14)');
         }
 
         root.style.setProperty('--vscode-is-dark', isDark ? 'true' : 'false');
@@ -261,6 +271,23 @@ function adjustBrightness(hex: string, amount: number): string {
     g = Math.max(0, Math.min(255, g + amount));
     b = Math.max(0, Math.min(255, b + amount));
     return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+function isColorVeryDark(hex: string): boolean {
+    if (!hex || hex[0] !== '#') {
+        if (hex.startsWith('rgb')) {
+            const match = hex.match(/\d+/g);
+            if (match && match.length >= 3) {
+                const [r, g, b] = match.map(Number);
+                return (r + g + b) / 3 < 28;
+            }
+        }
+        return false;
+    }
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return (r + g + b) / 3 < 28;
 }
 
 function isColorDark(hex: string): boolean {

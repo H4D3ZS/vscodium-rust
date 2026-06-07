@@ -1,6 +1,6 @@
 // LSP service — typed wrappers around Tauri LSP commands.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../tauri_bridge';
 
 export interface LspPosition { line: number; character: number; }
 export interface LspRange { start: LspPosition; end: LspPosition; }
@@ -31,33 +31,47 @@ export interface LspSymbol {
 }
 
 export async function completion(uri: string, line: number, char: number): Promise<LspCompletionItem[]> {
-    return invoke<LspCompletionItem[]>('lsp_completion', { uri, line, character: char }).catch(() => []);
+    const res = await invoke<{ items: LspCompletionItem[] }>('lsp_completion', { uri, line, character: char }).catch(() => ({ items: [] }));
+    return res.items ?? [];
 }
 
-export async function hover(uri: string, line: number, char: number): Promise<string | null> {
-    return invoke<string | null>('lsp_hover', { uri, line, character: char }).catch(() => null);
+export async function hover(uri: string, line: number, char: number): Promise<unknown> {
+    return invoke<unknown>('lsp_hover', { uri, line, character: char }).catch(() => null);
 }
 
 export async function definition(uri: string, line: number, char: number): Promise<LspLocation | null> {
-    return invoke<LspLocation | null>('lsp_definition', { uri, line, character: char }).catch(() => null);
+    return invoke<LspLocation | null>('lsp_goto_definition', { uri, line, character: char }).catch(() => null);
 }
 
 export async function references(uri: string, line: number, char: number): Promise<LspLocation[]> {
-    return invoke<LspLocation[]>('lsp_references', { uri, line, character: char }).catch(() => []);
+    const res = await invoke<LspLocation[] | null>('lsp_find_references', { uri, line, character: char }).catch(() => []);
+    return res ?? [];
 }
 
-export async function rename(uri: string, line: number, char: number, newName: string): Promise<Record<string, any> | null> {
-    return invoke<Record<string, any> | null>('lsp_rename', { uri, line, character: char, newName }).catch(() => null);
+export async function rename(uri: string, line: number, char: number, newName: string): Promise<Record<string, unknown> | null> {
+    return invoke<Record<string, unknown> | null>('lsp_rename_symbol', { uri, line, character: char, newName }).catch(() => null);
 }
 
 export async function documentSymbols(uri: string): Promise<LspSymbol[]> {
-    return invoke<LspSymbol[]>('lsp_document_symbols', { uri }).catch(() => []);
+    const res = await invoke<LspSymbol[] | null>('lsp_document_symbols', { uri }).catch(() => []);
+    return res ?? [];
 }
 
-export async function diagnostics(uri: string): Promise<LspDiagnostic[]> {
-    return invoke<LspDiagnostic[]>('lsp_diagnostics', { uri }).catch(() => []);
+export async function diagnostics(path?: string): Promise<LspDiagnostic[]> {
+    const res = await invoke<Array<{ uri: string; diagnostics: LspDiagnostic[] }>>('lsp_get_diagnostics', { path }).catch(() => []);
+    return res.flatMap((r) => r.diagnostics ?? []);
 }
 
-export async function format(uri: string): Promise<void> {
-    await invoke('lsp_format', { uri }).catch(() => { });
+export async function format(uri: string): Promise<unknown> {
+    return invoke<unknown>('lsp_format_document', { uri }).catch(() => null);
+}
+
+export async function ensureForFile(opts: {
+    root: string;
+    path: string;
+    languageId: string;
+    version: number;
+    text: string;
+}): Promise<{ serverId?: string; status?: string } | null> {
+    return invoke('lsp_ensure_for_file', opts).catch(() => null);
 }

@@ -13,7 +13,11 @@ import { airiConsciousness } from '../airi/consciousness';
 import { type FeatureName, type ProviderName, defaultModelSelectionOfFeature } from '../model_capabilities';
 import WorkspaceSettingsPanel from './settings/WorkspaceSettingsPanel';
 import InferenceBackendPanel from './settings/InferenceBackendPanel';
-import CursorParityPanel from './cursor/CursorParityPanel';
+import PlatformHubPanel from './platform/PlatformHubPanel';
+import { openPyTorchStudio } from '../application/pytorch/openPyTorchStudio';
+import PyTorchLogo from './pytorch/PyTorchLogo';
+import SkillStorePanel from './skills/SkillStorePanel';
+import LspLanguagesPanel from './settings/LspLanguagesPanel';
 import '../settings.css';
 
 // ── Provider list ──────────────────────────────────────────────────────────
@@ -169,7 +173,7 @@ function ChatPanel() {
                 />
             </div>
 
-            <ClaurstBackendCard />
+            <AgentBackendCard />
 
             <div className="settings-card">
                 <div className="settings-card-title">Custom Instructions</div>
@@ -188,19 +192,31 @@ function ChatPanel() {
     );
 }
 
-function ClaurstBackendCard() {
+function AgentBackendCard() {
     const agentBackend = useStore((s: any) => s.agentBackend || 'sentient');
     const setAgentBackend = useStore((s: any) => s.setAgentBackend);
-    const [status, setStatus] = React.useState<any>(null);
+    const [claurstSt, setClaurstSt] = React.useState<any>(null);
+    const [shellSt, setShellSt] = React.useState<any>(null);
+    const [hermesSt, setHermesSt] = React.useState<any>(null);
     const [checking, setChecking] = React.useState(false);
 
     const refresh = React.useCallback(async () => {
         setChecking(true);
         try {
-            const { claurstStatus } = await import('../claurst/bridge');
-            setStatus(await claurstStatus(true));
+            const [{ claurstStatus }, { ideShellStatus, hermesIntegrationStatus }] = await Promise.all([
+                import('../claurst/bridge'),
+                import('../hermes/bridge'),
+            ]);
+            const [c, shell, h] = await Promise.all([
+                claurstStatus(true),
+                ideShellStatus(),
+                hermesIntegrationStatus(),
+            ]);
+            setClaurstSt(c);
+            setShellSt(shell);
+            setHermesSt(h);
         } catch (e) {
-            setStatus({ available: false, reason: String(e) });
+            setClaurstSt({ available: false, reason: String(e) });
         } finally {
             setChecking(false);
         }
@@ -208,41 +224,50 @@ function ClaurstBackendCard() {
 
     React.useEffect(() => { refresh(); }, [refresh]);
 
+    const status = agentBackend === 'claurst' ? claurstSt : null;
+
     return (
         <div className="settings-card">
             <div className="settings-card-title">Agent Backend</div>
             <SettingsRow
                 label="Agent Engine"
-                description="Sentient is the built-in in-process agent. Claurst runs an external GPL-licensed agent CLI as a separate process (kept at arm's length; no license contamination)."
+                description="Sentient = built-in Rust loop with native Hermes skills + HADES Git Bash. Claurst = optional GPL external CLI only."
                 control={
                     <select className="settings-select" value={agentBackend} onChange={e => setAgentBackend?.(e.target.value)}>
-                        <option value="sentient">Sentient (built-in)</option>
-                        <option value="claurst">Claurst (external)</option>
+                        <option value="sentient">Sentient (built-in) ★</option>
+                        <option value="claurst">Claurst (GPL external)</option>
                     </select>
                 }
             />
-            <div className="settings-row-description" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span>
-                    {agentBackend === 'sentient'
-                        ? 'Using built-in Sentient (default). Claurst is an optional alternate engine — only needed if you select it above.'
-                        : checking ? '⏳ checking…'
-                        : status?.available ? `✅ claurst found${status.version ? ` — ${status.version}` : ''}`
-                        : `⚠ ${status?.reason || 'claurst not found'}`}
-                </span>
-                {agentBackend === 'claurst' && (
-                    <button
-                        style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4, cursor: 'pointer',
-                            background: 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.08))',
-                            color: 'var(--vscode-button-secondaryForeground, inherit)',
-                            border: '1px solid var(--vscode-widget-border, rgba(255,255,255,0.15))' }}
-                        onClick={refresh} disabled={checking}>Re-check</button>
+            <div className="settings-row-description" style={{ marginTop: 8 }}>
+                {agentBackend === 'sentient' ? (
+                    <span>
+                        Hermes skills: {hermesSt?.skillsCount ?? '…'} integrated natively.{' '}
+                        Git Bash: {shellSt?.ready ? `✅ ${shellSt.gitBash}` : `⚠ configure PortableGit (see below)`}
+                    </span>
+                ) : checking ? (
+                    <span>⏳ checking…</span>
+                ) : status?.available ? (
+                    <span>✅ claurst ready{status.version ? ` — ${status.version}` : ''}</span>
+                ) : (
+                    <span>⚠ {status?.reason || 'claurst not found'}</span>
                 )}
             </div>
-            {agentBackend === 'claurst' && !status?.available && (
+            <div style={{ marginTop: 8 }}>
+                <button type="button" style={{ fontSize: 11, padding: '3px 10px' }} onClick={refresh} disabled={checking}>
+                    Re-check
+                </button>
+            </div>
+            {agentBackend === 'sentient' && shellSt && !shellSt.ready && !shellSt.bundledInInstaller && (
                 <pre style={{ fontSize: 11, opacity: 0.7, marginTop: 8, whiteSpace: 'pre-wrap' }}>
-{`Release MSI includes claurst.exe when built with npm run build:tauri.
-Dev build:  cd claurst/src-rust && cargo build --release --bin claurst
-Or set env:  CLAURST_BIN=<path to claurst.exe>`}
+{`PortableGit ships with release builds and auto-installs to %LOCALAPPDATA%\\HADES\\git.
+Dev: run scripts/fetch-bundles.ps1 or set HADES_GIT_BASH_PATH.`}
+                </pre>
+            )}
+            {agentBackend === 'claurst' && !claurstSt?.available && (
+                <pre style={{ fontSize: 11, opacity: 0.7, marginTop: 8, whiteSpace: 'pre-wrap' }}>
+{`Dev: cd claurst/src-rust && cargo build --release --bin claurst
+Or:  CLAURST_BIN=<path>`}
                 </pre>
             )}
         </div>
@@ -949,7 +974,34 @@ const SettingsPage: React.FC = () => {
             </>
         ) },
         { id: 'workspace', label: 'Workspace', icon: 'folder', customRender: () => <WorkspaceSettingsPanel />, groupStart: 'Project' },
-        { id: 'cursor-parity', label: 'Cursor Parity', icon: 'checklist', customRender: () => <CursorParityPanel /> },
+        { id: 'lsp', label: 'Language Servers', icon: 'symbol-class', customRender: () => <LspLanguagesPanel /> },
+        { id: 'skill-store', label: 'Skill Store', icon: 'library', customRender: () => <SkillStorePanel /> },
+        { id: 'platform', label: 'Platform Status', icon: 'checklist', customRender: () => <PlatformHubPanel /> },
+        {
+            id: 'pytorch',
+            label: 'PyTorch ML Studio',
+            icon: 'beaker',
+            customRender: () => (
+                <div className="settings-card" style={{ maxWidth: 520 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                        <PyTorchLogo size={36} />
+                        <div>
+                            <div style={{ fontWeight: 700 }}>PyTorch ML Studio</div>
+                            <p className="afi-desc" style={{ margin: '4px 0 0' }}>
+                                Lives below the in-IDE browser panel (activity bar → PyTorch logo, under the globe).
+                            </p>
+                        </div>
+                    </div>
+                    <button type="button" className="settings-button success" onClick={() => openPyTorchStudio()}>
+                        Open Browser + ML Studio
+                    </button>
+                    <p className="afi-subtle" style={{ marginTop: 12, fontSize: 11 }}>
+                        NVIDIA CUDA and AMD ROCm installs ·{' '}
+                        <a href="https://docs.pytorch.org/docs/2.12/index.html" target="_blank" rel="noreferrer" style={{ color: '#ee4c2c' }}>PyTorch docs</a>
+                    </p>
+                </div>
+            ),
+        },
         { id: 'ollama', label: 'Ollama', icon: 'server-environment', agentCategory: 'ollama' },
         { id: 'steering', label: 'Steering', icon: 'symbol-keyword', customRender: () => <SteeringPanel />, groupStart: 'Workflow' },
         { id: 'hooks', label: 'Hooks', icon: 'zap', customRender: () => <HooksPanel /> },

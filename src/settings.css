@@ -125,9 +125,8 @@
     font-weight: 700;
     letter-spacing: 0.8px;
     text-transform: uppercase;
-    opacity: 0.35;
+    color: var(--vscode-descriptionForeground, rgba(255,255,255,0.58));
     padding: 14px 16px 4px;
-    color: var(--vscode-foreground);
 }
 
 .settings-sidebar-item {
@@ -139,7 +138,7 @@
     cursor: pointer;
     border-left: 2px solid transparent;
     transition: background 0.12s, color 0.12s, border-color 0.12s;
-    color: rgba(255,255,255,0.6);
+    color: var(--readability-muted, rgba(255,255,255,0.78));
     border-radius: 0;
     white-space: nowrap;
     overflow: hidden;
@@ -205,9 +204,9 @@
 
 .settings-section-subtitle {
     font-size: 12px;
-    opacity: 0.55;
+    color: var(--vscode-descriptionForeground, rgba(255,255,255,0.78));
     margin: 0 0 20px;
-    line-height: 1.5;
+    line-height: 1.55;
 }
 
 /* ── Settings row ── */
@@ -237,9 +236,9 @@
 }
 
 .settings-row-description {
-    font-size: 11px;
-    opacity: 0.5;
-    line-height: 1.5;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground, rgba(255,255,255,0.78));
+    line-height: 1.55;
     max-width: 480px;
 }
 

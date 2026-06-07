@@ -30,7 +30,7 @@ pub async fn debug_start(
 ) -> Result<(), String> {
     let adapter_path = resolve_debug_adapter(&config)?;
     let mut dm = state.debug_manager.lock().await;
-    dm.start_session(&adapter_path, app).map_err(|e| e.to_string())?;
+    let init_rx = dm.start_session(&adapter_path, app).map_err(|e| e.to_string())?;
     let adapter_id = config.get("type").and_then(|v| v.as_str()).unwrap_or("generic");
     let init = serde_json::json!({
         "type": "request",
@@ -47,22 +47,22 @@ pub async fn debug_start(
     });
     dm.send_message(init.to_string()).map_err(|e| e.to_string())?;
 
-    // DAP requires initialize response before launch; brief yield for adapter readiness.
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    dm.wait_for_initialize(init_rx, std::time::Duration::from_secs(15))
+        .map_err(|e| e.to_string())?;
 
     let initialized = serde_json::json!({
         "type": "event",
         "event": "initialized",
         "seq": 2
     });
-    let _ = dm.send_message(initialized.to_string());
+    dm.send_message(initialized.to_string()).map_err(|e| e.to_string())?;
 
     let config_done = serde_json::json!({
         "type": "request",
         "command": "configurationDone",
         "seq": 3
     });
-    let _ = dm.send_message(config_done.to_string());
+    dm.send_message(config_done.to_string()).map_err(|e| e.to_string())?;
 
     let launch = serde_json::json!({
         "type": "request",
@@ -70,7 +70,7 @@ pub async fn debug_start(
         "arguments": config,
         "seq": 4
     });
-    let _ = dm.send_message(launch.to_string());
+    dm.send_message(launch.to_string()).map_err(|e| e.to_string())?;
     Ok(())
 }
 

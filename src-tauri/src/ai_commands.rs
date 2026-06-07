@@ -220,6 +220,9 @@ pub async fn ai_chat_fast(
     state.kairos.report_activity().await;
 
     let engine = state.ai_engine.clone();
+    if let Ok(mut b) = engine.chat_stream_buf.lock() {
+        b.clear();
+    }
     // We deliberately do NOT inject the heavy Hades context here; the
     // whole point is sub-second latency. The conversation history the
     // frontend already passed is enough for trivial chat.
@@ -270,6 +273,11 @@ pub async fn ai_chat_oneshot(
         .autonomous_loop(request, None)
         .await
         .map_err(|e| e.to_string())?;
+
+    if let Some(root) = state.active_root.lock().await.as_ref() {
+        let root_str = root.to_string_lossy().to_string();
+        let _hooks = crate::stop_hooks::run_stop_hooks(&root_str, &result);
+    }
 
     Ok(result)
 }
@@ -322,6 +330,52 @@ pub async fn ai_inline_complete(
         comp_model.to_lowercase().contains("codellama") ||
         comp_model.to_lowercase().contains("deepseek")
     );
+
+    if uses_fim_tokens {
+        let base = comp_ollama_url
+            .clone()
+            .unwrap_or_else(|| "http://127.0.0.1:11434".to_string())
+            .trim_end_matches('/')
+            .to_string();
+        let fim_prompt = format!("<fim_prefix>{}<fim_suffix>{}<fim_middle>", prefix, suffix);
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| e.to_string())?;
+        let res = client
+            .post(format!("{base}/api/generate"))
+            .json(&serde_json::json!({
+                "model": comp_model,
+                "prompt": fim_prompt,
+                "stream": false,
+                "raw": true,
+                "options": {
+                    "temperature": 0.1,
+                    "num_predict": 128,
+                    "stop": ["<fim_suffix>", "<fim_middle>", "<|fim_suffix|>", "<|fim_middle|>"]
+                }
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Ollama FIM generate failed: {e}"))?;
+        if res.status().is_success() {
+            if let Ok(body) = res.json::<serde_json::Value>().await {
+                if let Some(text) = body.get("response").and_then(|v| v.as_str()) {
+                    let cleaned = text
+                        .trim()
+                        .trim_start_matches("```")
+                        .trim_start_matches(&language)
+                        .trim_start_matches('\n')
+                        .trim_end_matches("```")
+                        .trim()
+                        .to_string();
+                    if !cleaned.is_empty() {
+                        return Ok(cleaned);
+                    }
+                }
+            }
+        }
+    }
 
     let fim_prompt = if uses_fim_tokens {
         format!("<fim_prefix>{}<fim_suffix>{}<fim_middle>", prefix, suffix)

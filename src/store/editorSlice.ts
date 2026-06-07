@@ -165,10 +165,13 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
                 .then(() => {
                     get().refreshFileTree();
                     get().fetchActiveProjectSpec();
-                    get().startIndexingCodebase();
+                    get().ensureIndexingCodebase();
                     get().refreshChatSessions?.();
                     import('../application/lsp/bootstrapLanguageServer').then(m =>
                         m.bootstrapLanguageServer(cleaned),
+                    );
+                    import('../application/gradle/bootstrapGradleProject').then(m =>
+                        m.bootstrapGradleProject(cleaned),
                     );
                     import('../infrastructure/workspace/workspaceProject').then(m =>
                         m.syncWorkspaceCompat(cleaned),

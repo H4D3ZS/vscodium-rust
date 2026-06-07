@@ -62,4 +62,36 @@ if (existsSync(claurstOut) && !process.env.FORCE_CLAURST_REBUILD) {
     console.log('[prebuild] OK — claurst.exe ready.');
 }
 
+// ── PortableGit + Hermes skills bundles for installer ───────────────────────
+const gitBash = join(root, 'src-tauri', 'bundles', 'portable-git', 'bin', 'bash.exe');
+if (existsSync(gitBash) && !process.env.FORCE_BUNDLE_FETCH) {
+    console.log('[prebuild] portable-git bundle present — skip (FORCE_BUNDLE_FETCH=1 to re-fetch).');
+} else {
+    console.log('[prebuild] Fetching installer bundles (PortableGit + skills) …');
+    try {
+        runPs1('scripts/fetch-bundles.ps1');
+    } catch (e) {
+        console.warn('[prebuild] fetch-bundles.ps1 failed (non-fatal for dev):', e?.message ?? e);
+    }
+    if (!existsSync(gitBash)) {
+        console.warn('[prebuild] portable-git not ready — terminal will auto-install on first launch if bundled.');
+    } else {
+        console.log('[prebuild] OK — portable-git bundle ready.');
+    }
+}
+
+// ── Language servers (TS/JS, Flutter, Android, Kotlin, Java, …) ─────────────
+const tsLsp = join(binariesDir, 'lsp', 'typescript-language-server', 'typescript-language-server.cmd');
+if (existsSync(tsLsp) && !process.env.FORCE_LSP_FETCH) {
+    console.log('[prebuild] LSP bundle present — skip (FORCE_LSP_FETCH=1 to re-fetch).');
+} else {
+    console.log('[prebuild] Fetching language server bundles …');
+    runPs1('scripts/fetch-lsp-binaries.ps1');
+    if (!existsSync(tsLsp)) {
+        console.warn('[prebuild] typescript-language-server missing — run scripts/fetch-lsp-binaries.ps1 manually.');
+    } else {
+        console.log('[prebuild] OK — LSP bundles ready.');
+    }
+}
+
 console.log('[prebuild] Sidecar binaries ready for bundle.');

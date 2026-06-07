@@ -47,6 +47,13 @@ fn resolve_shell_exe(requested: &str) -> String {
     }
     #[cfg(windows)]
     {
+        let req = requested.to_lowercase();
+        if req.contains("bash") || req == "sh" || req == "sh.exe" {
+            if let Some(bash) = crate::ide_shell::resolve_git_bash_exe() {
+                println!("[Term] Using HADES Git Bash: {}", bash.display());
+                return bash.to_string_lossy().to_string();
+            }
+        }
         println!("[Term] '{requested}' not found on PATH — falling back to powershell.exe");
         if exe_is_resolvable("powershell.exe") {
             return "powershell.exe".to_string();
@@ -270,6 +277,11 @@ pub async fn spawn_terminal(
     let mut cmd = CommandBuilder::new(shell_exe.clone());
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    if let Some(path) = crate::ide_shell::augmented_path_for_git_bash() {
+        if is_bash_like(&shell_exe) {
+            cmd.env("PATH", path);
+        }
+    }
 
     // Warp-style command blocks: inject OSC 133 shell integration at STARTUP so it
     // loads before the first prompt and never echoes into the command line. (Typing
@@ -528,7 +540,13 @@ pub async fn terminal_take_pending(state: State<'_, EditorState>, id: String) ->
 pub fn get_available_shells() -> Result<Vec<String>, String> {
     #[cfg(windows)]
     {
-        Ok(vec!["powershell.exe".to_string(), "cmd.exe".to_string(), "bash.exe".to_string()])
+        let mut shells = vec!["powershell.exe".to_string(), "cmd.exe".to_string()];
+        if let Some(bash) = crate::ide_shell::resolve_git_bash_exe() {
+            shells.push(bash.to_string_lossy().to_string());
+        } else {
+            shells.push("bash.exe".to_string());
+        }
+        Ok(shells)
     }
     #[cfg(not(windows))]
     {

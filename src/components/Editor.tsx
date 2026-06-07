@@ -9,6 +9,7 @@ import MarkdownPreview from './MarkdownPreview';
 import BrandedWelcomeScreen from './BrandedWelcomeScreen';
 import PredictiveEditOverlay from './PredictiveEditOverlay';
 import { invoke, listen } from '../tauri_bridge';
+import { ensureLanguageServerForFile } from '../application/lsp/bootstrapLanguageServer';
 import { isMarkdownPath } from '../lib/markdown';
 
 // Map file extension → LSP language id
@@ -19,6 +20,10 @@ function getLspLanguageId(path: string): string {
         js: 'javascript', jsx: 'javascriptreact', py: 'python',
         go: 'go', java: 'java', c: 'c', cpp: 'cpp', cs: 'csharp',
         json: 'json', md: 'markdown', toml: 'toml', yaml: 'yaml', yml: 'yaml',
+        prisma: 'prisma', vue: 'vue', svelte: 'svelte', graphql: 'graphql', gql: 'graphql',
+        rb: 'ruby', php: 'php', lua: 'lua', zig: 'zig', ex: 'elixir', exs: 'elixir',
+        tf: 'terraform', hcl: 'terraform', dart: 'dart', kt: 'kotlin', kts: 'kotlin',
+        sh: 'shellscript', bash: 'shellscript', zsh: 'shellscript',
     };
     return map[ext] ?? 'plaintext';
 }
@@ -48,6 +53,7 @@ interface EditorProps {
 }
 
 const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
+    const activeRoot = useStore(state => state.activeRoot);
     const activeTabId = useStore(state => state.activeTabId);
     const tabs = useStore(state => state.tabs);
     const updateTabContent = useStore(state => state.updateTabContent);
@@ -753,21 +759,21 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
         }
     }, [effectiveTabId, activeFilePendingChange]);
 
-    // LSP: notify did_open when a file is opened / tab switches
+    // LSP: resolve correct server per file and notify did_open on tab switch
     const lspVersionRef = useRef<Record<string, number>>({});
     useEffect(() => {
-        if (!activeTab?.path) return;
-        const uri = pathToUri(activeTab.path);
+        if (!activeTab?.path || !activeRoot) return;
         const langId = getLspLanguageId(activeTab.path);
-        const ver = (lspVersionRef.current[uri] ?? 0) + 1;
-        lspVersionRef.current[uri] = ver;
-        invoke('lsp_did_open', {
-            uri,
+        const ver = (lspVersionRef.current[activeTab.path] ?? 0) + 1;
+        lspVersionRef.current[activeTab.path] = ver;
+        void ensureLanguageServerForFile({
+            root: activeRoot,
+            path: activeTab.path,
             languageId: langId,
             version: ver,
             text: activeTab.content ?? '',
-        }).catch(() => { /* LSP may not be running */ });
-    }, [effectiveTabId, activeTab?.path]);
+        });
+    }, [effectiveTabId, activeTab?.path, activeRoot]);
 
     // LSP: notify did_change when content changes (debounced 300 ms)
     const lspChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

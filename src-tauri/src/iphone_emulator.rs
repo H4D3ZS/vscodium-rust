@@ -105,6 +105,7 @@ impl IPhoneEmulatorManager {
                 "Failed to launch acheron at '{}': {}. Build the emulator first (cmake --build build --config Release)",
                 exe.display(), e
             ))?;
+        crate::process_ext::suppress_child_console_after_spawn(child.id());
 
         // Stream stdout → `emulator-console` Tauri event
         if let Some(stdout) = child.stdout.take() {
@@ -384,6 +385,7 @@ pub async fn prepare_ios_firmware(
             "Failed to launch acheron prepare at '{}': {}. Build the emulator first.",
             exe.display(), e
         ))?;
+    crate::process_ext::suppress_child_console_after_spawn(child.id());
 
     if let Some(stdout) = child.stdout.take() {
         let app_c = app.clone();
