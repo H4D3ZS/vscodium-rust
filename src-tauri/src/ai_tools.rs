@@ -2690,32 +2690,113 @@ impl ShellTranslator {
         if !cfg!(windows) {
             return command.to_string();
         }
+        if command.contains("python -c") || command.contains("python3 -c") {
+            return Self::normalize_python_command_paths(command);
+        }
+        let chars: Vec<char> = command.chars().collect();
+        let mut out = String::with_capacity(command.len());
+        let mut i = 0;
+        while i < chars.len() {
+            if Self::is_windows_drive_at(&chars, i) {
+                out.push('/');
+                out.push(chars[i].to_ascii_lowercase());
+                out.push('/');
+                i += 2;
+                if i < chars.len() && (chars[i] == '\\' || chars[i] == '/') {
+                    i += 1;
+                }
+                continue;
+            }
+            out.push(chars[i]);
+            i += 1;
+        }
         use regex::Regex;
-        let drive_back = Regex::new(r"(?i)([A-Za-z]):\\").expect("drive regex");
-        let mut out = drive_back
-            .replace_all(command, |caps: &regex::Captures| {
-                format!("/{}/", caps[1].to_ascii_lowercase())
-            })
-            .into_owned();
-        let drive_fwd = Regex::new(r"(?i)([A-Za-z]):/").expect("drive fwd regex");
-        out = drive_fwd
-            .replace_all(&out, |caps: &regex::Captures| {
-                format!("/{}/", caps[1].to_ascii_lowercase())
-            })
-            .into_owned();
-        // Only normalize backslashes inside Git-Bash path tokens (/c/Users\foo\bar).
         let path_token = Regex::new("/[a-z]/[^\\s\"']+").expect("path token");
-        out = path_token
+        path_token
             .replace_all(&out, |caps: &regex::Captures| caps[0].replace('\\', "/"))
-            .into_owned();
-        out
+            .into_owned()
+    }
+
+    fn is_windows_drive_at(chars: &[char], i: usize) -> bool {
+        if i + 1 >= chars.len() {
+            return false;
+        }
+        if !chars[i].is_ascii_alphabetic() || chars[i + 1] != ':' {
+            return false;
+        }
+        // Skip URL schemes (http://, https://, ftp://, …).
+        if i + 2 < chars.len() && chars[i + 2] == '/' {
+            if i + 3 < chars.len() && chars[i + 3] == '/' {
+                return false;
+            }
+            if i > 0 && chars[i - 1].is_ascii_alphabetic() {
+                return false;
+            }
+        }
+        if i > 0 {
+            let prev = chars[i - 1];
+            if !(prev.is_whitespace()
+                || prev == '"'
+                || prev == '\''
+                || prev == '('
+                || prev == '['
+                || prev == '=')
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `C:\Users\foo` → `C:/Users/foo` inside `python -c` strings (Windows-openable).
+    fn normalize_python_command_paths(command: &str) -> String {
+        use regex::Regex;
+        let re = Regex::new(r#"([A-Za-z]):\\([^\s"']+)""#).expect("python path");
+        re.replace_all(command, |caps: &regex::Captures| {
+            format!(
+                "{}:/{}",
+                &caps[1],
+                caps[2].replace('\\', "/")
+            )
+        })
+        .into_owned()
+    }
+
+    /// Strip malformed proxy env vars that make curl resolve host `http` (exit 6).
+    pub fn sanitize_proxy_env(cmd: &mut std::process::Command) {
+        const KEYS: &[&str] = &[
+            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
+        ];
+        for key in KEYS {
+            if let Ok(v) = std::env::var(key) {
+                let t = v.trim();
+                if t.is_empty() {
+                    continue;
+                }
+                let bad = t.eq_ignore_ascii_case("http")
+                    || t.eq_ignore_ascii_case("https")
+                    || (!t.contains("://")
+                        && !t.starts_with("socks")
+                        && !t.contains('.')
+                        && !t.contains(':'));
+                if bad {
+                    cmd.env(key, "");
+                }
+            }
+        }
+    }
+
+    fn extract_curl_url(command: &str) -> Option<String> {
+        use regex::Regex;
+        let re = Regex::new(r#"https?://[^\s"'<>]+"#).ok()?;
+        re.find(command).map(|m| m.as_str().trim_end_matches('\\').to_string())
     }
 
     /// Heuristic: route through Git Bash when the command uses POSIX tooling.
     pub fn prefers_git_bash(command: &str) -> bool {
         let c = command.to_lowercase();
         const MARKERS: &[&str] = &[
-            "curl ", "head ", "tail ", "sed ", "awk ", "sort ", "uniq ",
+            "curl ", "grep ", "rg ", "head ", "tail ", "sed ", "awk ", "sort ", "uniq ",
             "wc ", "find ", "chmod ", "export ", "source ", "&&", "||", "| ", "python -c",
             "pip install", "npm run", "cargo ", "./", "sh ", "bash ", "index_bundle",
         ];
@@ -2883,12 +2964,16 @@ impl AiTools {
     }
 
     async fn write_file(&self, args: Value) -> Result<Value> {
-        let path_str = args
+        let mut path_str = args
             .get("path")
             .or_else(|| args.get("file_path"))
             .or_else(|| args.get("target_file"))
+            .or_else(|| args.get("filename"))
+            .or_else(|| args.get("filepath"))
+            .or_else(|| args.get("file"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing path"))?;
+            .map(|s| s.to_string());
+
         // Models often hallucinate alternate parameter names — accept common aliases.
         let content = args
             .get("content")
@@ -2899,8 +2984,16 @@ impl AiTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing content (expected content, contents, body, text, or data)"))?;
 
+        if path_str.as_deref().unwrap_or("").trim().is_empty() {
+            if let Some(inferred) = Self::infer_write_path_from_content(content) {
+                path_str = Some(inferred);
+            }
+        }
+
+        let path_str = path_str.ok_or_else(|| anyhow!("Missing path"))?;
+
         let root = self.root_path.lock().await.clone();
-        let full_path = self.validate_path(&root, path_str)?;
+        let full_path = self.validate_path(&root, &path_str)?;
 
         if let Some(parent) = full_path.parent() {
             fs::create_dir_all(parent)?;
@@ -3145,11 +3238,81 @@ impl AiTools {
         Ok(result)
     }
 
+    fn extract_shell_command(args: &Value) -> Result<&str> {
+        if let Some(c) = args.get("command").and_then(|v| v.as_str()) {
+            return Ok(c);
+        }
+        if let Some(c) = args.get("cmd").and_then(|v| v.as_str()) {
+            return Ok(c);
+        }
+        if let Some(comp) = args.get("components") {
+            if let Some(c) = comp.get("command").and_then(|v| v.as_str()) {
+                return Ok(c);
+            }
+            if let Some(arr) = comp.as_array() {
+                for item in arr {
+                    if let Some(c) = item.get("command").and_then(|v| v.as_str()) {
+                        return Ok(c);
+                    }
+                    if let Some(c) = item.as_str() {
+                        return Ok(c);
+                    }
+                }
+            }
+        }
+        Err(anyhow!("Missing command"))
+    }
+
+    fn apply_shell_suffix_to_grep_result(mut result: Value, suffix: &str) -> Value {
+        let s = suffix.trim().to_lowercase();
+        if s.contains("sort") {
+            let raw = result
+                .get("results")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mut lines: Vec<String> = raw.lines().filter(|l| !l.is_empty()).map(str::to_string).collect();
+            lines.sort_unstable();
+            if s.contains("-u") || s.contains("uniq") {
+                lines.dedup();
+            }
+            let match_count = lines.len();
+            let joined = lines.join("\n");
+            if let Some(obj) = result.as_object_mut() {
+                obj.insert("results".to_string(), json!(joined));
+                obj.insert("matches".to_string(), json!(match_count));
+            }
+        }
+        result
+    }
+
+    fn infer_write_path_from_content(content: &str) -> Option<String> {
+        use regex::Regex;
+        if let Ok(re) = Regex::new(r"(?i)saved from (https?://[^\s\*]+)") {
+            if let Some(cap) = re.captures(content) {
+                if let Some(url) = cap.get(1) {
+                    let url = url.as_str();
+                    let after_scheme = url.split("://").nth(1)?;
+                    let host = after_scheme.split('/').next()?;
+                    let fname = after_scheme
+                        .rsplit('/')
+                        .next()
+                        .filter(|s| !s.is_empty() && s.contains('.'))
+                        .unwrap_or("bundle.js");
+                    return Some(format!("recon/{}/{}", host, fname));
+                }
+            }
+        }
+        if (content.contains("__vite__") || content.contains("webpackJsonp"))
+            && content.len() > 400
+        {
+            return Some("recon/bundle.js".to_string());
+        }
+        None
+    }
+
     async fn run_command(&self, args: Value) -> Result<Value> {
-        let command = args
-            .get("command")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing command"))?;
+        let command = Self::extract_shell_command(&args)?;
         let skip_grep_intercept = args
             .get("_grep_intercept_skip")
             .and_then(|v| v.as_bool())
@@ -3157,13 +3320,58 @@ impl AiTools {
 
         if !skip_grep_intercept {
             if let Some(intercept) = crate::ripgrep_search::try_intercept_shell_grep(command) {
-                if let Some(prefix) = intercept.prefix.filter(|p| !p.trim().is_empty()) {
+                let prefix = intercept.prefix.as_deref().filter(|p| !p.trim().is_empty());
+                let grep_has_path = intercept
+                    .args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|p| !p.is_empty());
+
+                // `curl url | grep PATTERN` — fetch via reqwest (bypasses broken shell curl/proxy).
+                if !grep_has_path {
+                    if let Some(pfx) = prefix {
+                        if pfx.to_lowercase().contains("curl ") {
+                            if let Some(url) = ShellTranslator::extract_curl_url(pfx) {
+                                println!(
+                                    "[Intercept] curl|grep → web_fetch + ripgrep: {}",
+                                    url
+                                );
+                                let fetch = self.web_fetch_tool(json!({ "url": url })).await?;
+                                let text = fetch
+                                    .get("content")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let root = self.root_path.lock().await.clone();
+                                let tmp_dir = root.join(".agent").join("tmp");
+                                std::fs::create_dir_all(&tmp_dir)?;
+                                let tmp = tmp_dir.join(format!(
+                                    "curl-grep-{}.txt",
+                                    uuid::Uuid::new_v4().simple()
+                                ));
+                                std::fs::write(&tmp, text)?;
+                                let mut grep_args = intercept.args.clone();
+                                grep_args["path"] =
+                                    json!(tmp.to_string_lossy().to_string());
+                                let mut grep_result = self.grep(grep_args).await?;
+                                if let Some(suffix) = intercept.suffix.filter(|s| !s.trim().is_empty())
+                                {
+                                    grep_result = Self::apply_shell_suffix_to_grep_result(
+                                        grep_result, &suffix,
+                                    );
+                                }
+                                return Ok(grep_result);
+                            }
+                        }
+                    }
+                }
+
+                if let Some(pfx) = prefix {
                     let shell_hint = args
                         .get("shell_hint")
                         .and_then(|v| v.as_str())
                         .unwrap_or("run_command");
                     let mut prefix_args = json!({
-                        "command": prefix,
+                        "command": pfx,
                         "shell_hint": shell_hint,
                         "_grep_intercept_skip": true,
                     });
@@ -3181,7 +3389,12 @@ impl AiTools {
                     "[Intercept] shell grep/rg → bundled ripgrep grep tool: {}",
                     command.lines().last().unwrap_or(command)
                 );
-                return self.grep(intercept.args).await;
+                let mut grep_result = self.grep(intercept.args).await?;
+                if let Some(suffix) = intercept.suffix.filter(|s| !s.trim().is_empty()) {
+                    grep_result =
+                        Self::apply_shell_suffix_to_grep_result(grep_result, &suffix);
+                }
+                return Ok(grep_result);
             }
             if crate::ripgrep_search::command_uses_shell_grep(command) {
                 return Ok(json!({
@@ -3279,6 +3492,9 @@ impl AiTools {
             .stderr(Stdio::piped());
         if let Some(path) = crate::ide_shell::augmented_path_for_git_bash() {
             cmd.env("PATH", path);
+        }
+        if command.to_lowercase().contains("curl ") {
+            ShellTranslator::sanitize_proxy_env(&mut cmd);
         }
         let mut child = cmd.spawn()?;
 
@@ -7959,6 +8175,29 @@ mod shell_translator_tests {
             let n = ShellTranslator::normalize_windows_paths_for_bash(cmd);
             assert!(n.contains("/c/Users/HADES/Desktop/pentesting/analyze_js.py"));
             assert!(!n.contains('\\'));
+        }
+    }
+
+    #[test]
+    fn bash_preserves_https_urls() {
+        let cmd = r#"curl -sL "https://app.example.com/assets/index.js" -o out.js"#;
+        if cfg!(windows) {
+            let n = ShellTranslator::normalize_windows_paths_for_bash(cmd);
+            assert!(n.contains("https://app.example.com"), "URL must survive: {n}");
+            assert!(!n.contains("/s//"), "must not mangle scheme: {n}");
+        }
+    }
+
+    #[test]
+    fn bash_python_c_paths_use_windows_form() {
+        let cmd = r#"python -c "f=open(r'C:\Users\HADES\Desktop\pentesting\recon\host\bundle.js')""#;
+        if cfg!(windows) {
+            let n = ShellTranslator::normalize_windows_paths_for_bash(cmd);
+            assert!(
+                n.contains("C:/Users/HADES/Desktop/pentesting/recon/host/bundle.js")
+                    || n.contains(r"C:\Users\HADES"),
+                "python paths must be Windows-openable: {n}"
+            );
         }
     }
 

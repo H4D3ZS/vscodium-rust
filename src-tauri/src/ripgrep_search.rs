@@ -238,6 +238,8 @@ pub fn format_grep_results(hits: &[SearchResult]) -> String {
 pub struct ShellGrepIntercept {
     pub prefix: Option<String>,
     pub args: serde_json::Value,
+    /// Optional shell tail after grep (e.g. `sort -u`) — applied to ripgrep stdout in Rust.
+    pub suffix: Option<String>,
 }
 
 /// Parse `grep`/`rg` in a bash command into `grep` tool args.
@@ -248,15 +250,44 @@ pub fn try_intercept_shell_grep(cmd: &str) -> Option<ShellGrepIntercept> {
         return None;
     }
 
+    // Pipe chains: `curl … | grep … | sort -u`
+    if normalized.contains('|') {
+        let segments: Vec<&str> = normalized
+            .split('|')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        for (idx, seg) in segments.iter().enumerate() {
+            if let Some(args) = try_parse_grep_line(seg) {
+                let prefix = if idx == 0 {
+                    None
+                } else {
+                    Some(segments[..idx].join(" | "))
+                };
+                let suffix = if idx + 1 < segments.len() {
+                    Some(segments[idx + 1..].join(" | "))
+                } else {
+                    None
+                };
+                return Some(ShellGrepIntercept {
+                    prefix,
+                    args,
+                    suffix,
+                });
+            }
+        }
+    }
+
     for sep in ["&&", "||", ";"] {
         if let Some(idx) = normalized.rfind(sep) {
             let prefix = normalized[..idx].trim().trim_end_matches('\\').trim();
             let tail = normalized[idx + sep.len()..].trim();
             if !prefix.is_empty() {
-                if let Some(args) = try_parse_grep_segment(tail) {
+                if let Some(args) = try_parse_grep_line(tail) {
                     return Some(ShellGrepIntercept {
                         prefix: Some(prefix.to_string()),
                         args,
+                        suffix: None,
                     });
                 }
             }
@@ -269,18 +300,20 @@ pub fn try_intercept_shell_grep(cmd: &str) -> Option<ShellGrepIntercept> {
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect();
     if lines.len() > 1 {
-        if let Some(args) = try_parse_grep_segment(lines.last()?) {
+        if let Some(args) = try_parse_grep_line(lines.last()?) {
             let prefix = lines[..lines.len() - 1].join("\n");
             return Some(ShellGrepIntercept {
                 prefix: Some(prefix),
                 args,
+                suffix: None,
             });
         }
     }
 
-    try_parse_grep_segment(&normalized).map(|args| ShellGrepIntercept {
+    try_parse_grep_line(&normalized).map(|args| ShellGrepIntercept {
         prefix: None,
         args,
+        suffix: None,
     })
 }
 
@@ -316,8 +349,8 @@ fn normalize_shell_command(cmd: &str) -> String {
         .join("\n")
 }
 
-fn try_parse_grep_segment(segment: &str) -> Option<serde_json::Value> {
-    let grep_stage = segment.split('|').next()?.trim();
+fn try_parse_grep_line(segment: &str) -> Option<serde_json::Value> {
+    let grep_stage = segment.trim();
     if grep_stage.contains("<<") {
         return None;
     }
@@ -474,7 +507,18 @@ mod tests {
     }
 
     #[test]
-    fn skips_piped_grep() {
-        assert!(try_parse_shell_grep("curl -s url | grep api").is_none());
+    fn parse_piped_curl_grep() {
+        let v = try_intercept_shell_grep(
+            "curl -s https://example.com/a.js | grep -oE \"/api/[a-z]+\" | sort -u",
+        )
+        .unwrap();
+        assert!(v.prefix.as_ref().unwrap().contains("curl"));
+        assert_eq!(v.args["query"], "/api/[a-z]+");
+        assert!(v.suffix.as_ref().unwrap().contains("sort"));
+    }
+
+    #[test]
+    fn skips_piped_grep_without_grep_verb() {
+        assert!(try_parse_shell_grep("curl -s url | wc -l").is_none());
     }
 }
