@@ -194,10 +194,15 @@ impl McpRegistry {
     }
 
     #[instrument(skip(self))]
-    pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
+    pub async fn call_tool(
+        &self,
+        name: &str,
+        arguments: Value,
+        config_dir: Option<&std::path::Path>,
+    ) -> Result<Value> {
         let servers = self.servers.read().await;
 
-        for server in servers.values() {
+        for (server_name, server) in servers.iter() {
             let tools_result = server
                 .call("list_tools", Value::Object(Default::default()))
                 .await;
@@ -207,6 +212,10 @@ impl McpRegistry {
                         .iter()
                         .any(|t| t.get("name").and_then(|n| n.as_str()) == Some(name))
                     {
+                        if let Some(dir) = config_dir {
+                            crate::enterprise_governance::mcp_server_allowed(dir, server_name)
+                                .map_err(|e| anyhow::anyhow!(e))?;
+                        }
                         let params = serde_json::json!({
                             "name": name,
                             "arguments": arguments

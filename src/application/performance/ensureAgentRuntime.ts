@@ -1,5 +1,5 @@
 import { useStore } from '../../store';
-import { scheduleDeferredInit } from '../../memory_budget';
+import { scheduleDeferredInit, AGENT_BOOT_DEFER_MS } from '../../memory_budget';
 
 let ready = false;
 let bootPromise: Promise<void> | null = null;
@@ -25,6 +25,6 @@ export function scheduleAgentRuntimeBootstrap(): () => void {
             void ensureAgentRuntime();
         }
     });
-    scheduleDeferredInit(() => { void ensureAgentRuntime(); }, 12_000);
+    scheduleDeferredInit(() => { void ensureAgentRuntime(); }, AGENT_BOOT_DEFER_MS);
     return unsub;
 }

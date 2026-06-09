@@ -39,7 +39,7 @@ mod mac {
     static FRAMES_EMITTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     const DEVICE_CACHE_TTL: Duration = Duration::from_secs(15);
-    const HELPERS_VERSION: &str = "8";
+    const HELPERS_VERSION: &str = "9";
 
     #[derive(Clone, Copy)]
     struct MirrorProfile {
@@ -243,13 +243,24 @@ mod mac {
     }
 
     fn spawn_input_helper(udid: Option<&str>) -> Result<(), String> {
+        kill_child(&INPUT_CHILD);
         let bin = ensure_sim_input()?;
         let mut cmd = Command::new(&bin);
         cmd.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped());
         if let Some(u) = udid {
             cmd.arg(u);
         }
-        let child = cmd.spawn().map_err(|e| format!("sim-input spawn: {e}"))?;
+        let mut child = cmd.spawn().map_err(|e| format!("sim-input spawn: {e}"))?;
+        if let Some(stderr) = child.stderr.take() {
+            std::thread::spawn(move || {
+                use std::io::{BufRead, BufReader};
+                for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                    if !line.trim().is_empty() {
+                        eprintln!("[sim-input] {line}");
+                    }
+                }
+            });
+        }
         *INPUT_CHILD.lock().unwrap() = Some(child);
         Ok(())
     }
@@ -481,6 +492,7 @@ mod mac {
     pub fn session_state() -> Value {
         let udid = ACTIVE_UDID.lock().unwrap().clone();
         let profile = active_profile();
+        let meta = STREAM_META.lock().unwrap().clone();
         json!({
             "running": MIRROR_RUNNING.load(Ordering::SeqCst),
             "paused": PAUSED.load(Ordering::SeqCst),
@@ -488,6 +500,8 @@ mod mac {
             "profile": profile.label,
             "frame_interval_ms": profile.frame_interval_ms,
             "mode": mirror_mode_label(),
+            "width": meta.as_ref().map(|m| m.pixel_width).unwrap_or(393),
+            "height": meta.as_ref().map(|m| m.pixel_height).unwrap_or(852),
         })
     }
 
@@ -925,12 +939,41 @@ mod mac {
     }
 
     pub fn send_touch(x_ratio: f64, y_ratio: f64, phase: &str) -> Result<(), String> {
-        write_input_event(json!({
+        let event = json!({
             "type": "touch",
             "phase": phase,
             "x": x_ratio.clamp(0.0, 1.0),
             "y": y_ratio.clamp(0.0, 1.0),
-        }))
+        });
+        match write_input_event(event.clone()) {
+            Err(e) if e.contains("not running") || e.contains("stdin unavailable") => {
+                let udid = ACTIVE_UDID.lock().unwrap().clone();
+                if udid.is_empty() {
+                    return Err(e);
+                }
+                spawn_input_helper(Some(&udid))?;
+                write_input_event(event)
+            }
+            other => other,
+        }
+    }
+
+    pub fn update_native_surface_size(w: u32, h: u32) {
+        if w == 0 || h == 0 {
+            return;
+        }
+        if let Some(meta) = STREAM_META.lock().unwrap().as_mut() {
+            meta.pixel_width = w;
+            meta.pixel_height = h;
+        } else {
+            let udid = ACTIVE_UDID.lock().unwrap().clone();
+            *STREAM_META.lock().unwrap() = Some(StreamMeta {
+                pixel_width: w,
+                pixel_height: h,
+                device_udid: udid,
+                device_name: "iPhone".into(),
+            });
+        }
     }
 
     pub fn send_home() -> Result<(), String> {
@@ -941,6 +984,24 @@ mod mac {
         MIRROR_RUNNING.load(Ordering::SeqCst)
     }
 }
+
+#[cfg(target_os = "macos")]
+pub fn touch_forward(x_ratio: f64, y_ratio: f64, phase: &str) -> Result<(), String> {
+    mac::send_touch(x_ratio, y_ratio, phase)
+}
+
+#[cfg(target_os = "macos")]
+pub fn native_surface_size(w: u32, h: u32) {
+    mac::update_native_surface_size(w, h);
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn touch_forward(_x_ratio: f64, _y_ratio: f64, _phase: &str) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn native_surface_size(_w: u32, _h: u32) {}
 
 #[cfg(not(target_os = "macos"))]
 fn mac_only_msg() -> String {

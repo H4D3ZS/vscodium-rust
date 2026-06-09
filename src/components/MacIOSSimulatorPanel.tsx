@@ -68,6 +68,7 @@ const COLD_BOOT_TIMEOUT_MS = 90_000;
 const MacIOSSimulatorPanel: React.FC = () => {
     const streamImgRef = useRef<HTMLImageElement>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
+    const layoutRafRef = useRef<number | null>(null);
     const mirroringRef = useRef(false);
     const hasFrameRef = useRef(false);
     const autoStartedRef = useRef(false);
@@ -119,16 +120,20 @@ const MacIOSSimulatorPanel: React.FC = () => {
     };
 
     const syncPanelLayout = useCallback(() => {
-        const el = viewportRef.current;
-        if (!el || !running || panelMode === 'stream') return;
-        const r = el.getBoundingClientRect();
-        if (r.width < 8 || r.height < 8) return;
-        void invoke('ios_sim_embed_layout', {
-            x: r.left,
-            y: r.top,
-            width: r.width,
-            height: r.height,
-        }).catch(() => {});
+        if (layoutRafRef.current != null) return;
+        layoutRafRef.current = requestAnimationFrame(() => {
+            layoutRafRef.current = null;
+            const el = viewportRef.current;
+            if (!el || !running || panelMode === 'stream') return;
+            const r = el.getBoundingClientRect();
+            if (r.width < 8 || r.height < 8) return;
+            void invoke('ios_sim_embed_layout', {
+                x: r.left,
+                y: r.top,
+                width: r.width,
+                height: r.height,
+            }).catch(() => {});
+        });
     }, [panelMode, running]);
 
     const applyDimensions = useCallback((w?: number, h?: number) => {
@@ -164,13 +169,16 @@ const MacIOSSimulatorPanel: React.FC = () => {
     }, [selectedUdid]);
 
     useEffect(() => {
-        invoke('ios_sim_warmup').catch(() => {});
+        const warmupId = window.setTimeout(() => {
+            void invoke('ios_sim_warmup').catch(() => {});
+        }, 3_000);
         invoke<Preflight>('ios_sim_preflight').then((p) => {
             setPreflight(p);
             if (p.profile) setProfile(p.profile);
             if (p.mode) setPanelMode(p.mode === 'stream' ? 'stream' : p.mode === 'embed' ? 'embed' : 'native');
         }).catch(() => {});
         void refreshDevices();
+        return () => clearTimeout(warmupId);
     }, [refreshDevices]);
 
     const startSession = useCallback(async (udidOverride?: string) => {
@@ -240,15 +248,17 @@ const MacIOSSimulatorPanel: React.FC = () => {
         const burstId = window.setInterval(() => {
             syncPanelLayout();
             burst += 1;
-            if (burst >= 15) window.clearInterval(burstId);
-        }, 100);
-        const steadyId = window.setInterval(() => syncPanelLayout(), 500);
+            if (burst >= 12) window.clearInterval(burstId);
+        }, 80);
         return () => {
             ro.disconnect();
             window.removeEventListener('resize', onWin);
             window.removeEventListener('scroll', onWin, true);
             window.clearInterval(burstId);
-            window.clearInterval(steadyId);
+            if (layoutRafRef.current != null) {
+                cancelAnimationFrame(layoutRafRef.current);
+                layoutRafRef.current = null;
+            }
         };
     }, [panelMode, running, syncPanelLayout, frameSize.w, frameSize.h]);
 
@@ -278,6 +288,19 @@ const MacIOSSimulatorPanel: React.FC = () => {
         }
         return undefined;
     }, [running, refreshDevices]);
+
+    // Native IOSurface reports real pixel size once capture starts — keep bezel aspect in sync.
+    useEffect(() => {
+        if (!running || panelMode === 'stream') return undefined;
+        const poll = () => {
+            void invoke<SessionState & { width?: number; height?: number }>('ios_sim_session_state')
+                .then((s) => applyDimensions(s.width, s.height))
+                .catch(() => {});
+        };
+        poll();
+        const id = window.setInterval(poll, 2000);
+        return () => clearInterval(id);
+    }, [running, panelMode, applyDimensions]);
 
     useEffect(() => {
         if (!selectedUdid || autoStartedRef.current) return;

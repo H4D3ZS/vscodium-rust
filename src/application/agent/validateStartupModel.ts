@@ -1,3 +1,4 @@
+import { invoke } from '../../tauri_bridge';
 import { useStore } from '../../store';
 
 const CLOUD_PROVIDERS = new Set([
@@ -54,6 +55,20 @@ export async function validateStartupModel(): Promise<void> {
                 st.setAgentModel?.(`Ollama|${resolved}`);
                 try { localStorage.setItem('agentModel', `Ollama|${resolved}`); } catch { /* */ }
             }
+        } else if (
+            !modelTag
+            && st.inferenceBackend === 'ollama'
+            && st.ollamaServerMode === 'local'
+        ) {
+            try {
+                const best = await invoke<string>('detect_best_model');
+                if (best) {
+                    const tag = `Ollama|${best}`;
+                    st.setAgentModel?.(tag);
+                    try { localStorage.setItem('agentModel', tag); } catch { /* */ }
+                    console.log(`[validateStartupModel] offline auto-pick: ${best}`);
+                }
+            } catch { /* Ollama offline */ }
         }
     } catch (e) {
         console.warn('[validateStartupModel] skipped:', e);
