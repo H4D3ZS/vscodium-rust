@@ -7,6 +7,9 @@ import IOSurface
 import ObjectiveC
 import QuartzCore
 
+public typealias sim_host_touch_fn = @convention(c) (Double, Double, UnsafePointer<CChar>?) -> Void
+public typealias sim_host_size_fn = @convention(c) (UInt32, UInt32) -> Void
+
 private let CS_PATH = "/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator"
 
 private func devDir() -> String {
