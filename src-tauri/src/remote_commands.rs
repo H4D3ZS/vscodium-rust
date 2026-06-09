@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Mutex;
-use base64::Engine;
 use crate::process_ext::hidden_command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

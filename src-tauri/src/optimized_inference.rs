@@ -1,7 +1,7 @@
 /// Unified Inference Optimizer: ANE + Memory Offload + MoE Routing
 /// For smooth 12b model inference on 8GB Mac with SSD cache
 
-use crate::memory_offload::{MemoryOffloadManager, MemoryBudget};
+use crate::memory_offload::MemoryOffloadManager;
 use crate::ane_inference::AneInferenceOptimizer;
 use std::sync::Arc;
 use tokio::sync::Mutex;
