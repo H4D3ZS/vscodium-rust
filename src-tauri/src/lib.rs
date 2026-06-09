@@ -19,6 +19,8 @@ pub mod tool_aliases;
 pub mod ane;
 pub mod ane_inference;
 mod ane_commands;
+pub mod model_manager;
+mod model_commands;
 pub mod auth_commands;
 pub mod browser_actuation;
 pub mod process_ext;
@@ -483,6 +485,12 @@ pub fn run() {
             ane_commands::ane_can_accelerate,
             ane_commands::ane_update_metrics,
             ane_commands::ane_diagnostics,
+            // ═══ Model Management (Dynamic Ollama selection) ═══
+            model_commands::list_ollama_models,
+            model_commands::get_current_model,
+            model_commands::set_current_model,
+            model_commands::get_model_info,
+            model_commands::detect_best_model,
             // ═══ Android Commands ═══
             android_commands::adb_list_devices,
             android_commands::adb_list_emulators,
