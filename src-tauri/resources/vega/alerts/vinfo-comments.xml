@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert>
+<title>Interesting HTML Comments Detected</title>
+	
+	<class>Information</class>
+	<severity>Info</severity>		
+	
+	<impact>Vega has detected comments in scanned content that may include sensitive information.</impact>
+	<impact>Comments left by developers can include source code, usernames, passwords, or configuration settings.</impact>
+	<impact>This information, while not visible on the rendered page, is still transmitted to the client.</impact>
+	<impact>Disclosure of sensitive information could be used by an attacker to perform more intelligent attacks.</impact>
+
+	<remediation>The developers should investigate the flagged link and manually confirm the presence of comments containing sensitive information. Any such comments should be removed.</remediation>
+	
+	<discussion>Programming and markup languages allow for arbitrary text or segments of code to be marked as comments, meaning that they are in the source code file but excluded from parsing and execution or rendering. HTML supports comments, and though they aren't rendered as part of a web page, they are transmitted with the rest of the document to remote clients. Developers sometimes comment out server-side application code that would never otherwise be seen by clients, as HTML comments. These cases, and others, where sensitive information is included in HTML comments, can result in security vulnerabilities.</discussion>
+
+	<references>
+		<url address="http://cwe.mitre.org/data/definitions/615.html">CWE-615: Information Exposure through Comments (Mitre)</url>
+                <url address="https://www.owasp.org/index.php/Information_Leakage">Information Leakage (OWASP)</url>
+                <url address="http://projects.webappsec.org/w/page/13246936/Information-Leakage">Information Leakage (WASC)</url>
+	</references>
+</alert>

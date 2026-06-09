@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert>
+<title>Cookie Secure Flag Not Set </title>
+
+<class>Information</class>
+<severity>Info</severity>
+<discussion>
+Vega has detected that this cookie was set without the Secure flag. When the Secure flag is set, the browser will only transmit the cookie back to the server over HTTPS. However, when this flag is not set, the cookie may be transmitted over unencrypted HTTP. This may allow the cookie to be observed in transit.
+</discussion>
+        <remediation>
+          When creating cookies, ensure the Secure flag is set.
+        </remediation>
+        <references>
+                <url address="https://www.owasp.org/index.php/SecureFlag">SecureFlag OWASP Reference</url>
+        </references>
+</alert>
+
+
