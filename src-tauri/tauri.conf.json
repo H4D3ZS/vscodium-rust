@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "VSCodium Rust IDE",
-  "version": "0.1.0",
-  "identifier": "com.hades.vscode-rust-app",
+  "version": "1.0.0",
+  "identifier": "com.marieus.vscode-rust-app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run prebuild:sidecar && npm run build",
@@ -64,7 +64,10 @@
       }
     },
     "macOS": {
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "Apple Development",
+      "certificateThumbprint": null,
+      "providerShortTeamId": null
     }
   },
   "plugins": {
