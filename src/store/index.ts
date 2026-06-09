@@ -17,6 +17,7 @@ import { createTerminalSlice, type TerminalSlice } from './terminalSlice';
 import { createSecurityReviewSlice, type SecurityReviewSlice } from './securityReviewSlice';
 import { createLspSlice, type LspSlice } from './lspSlice';
 import { createDebugSlice, type DebugSlice } from './debugSlice';
+import { createModuleSlice, type ModuleSlice } from './moduleSlice';
 import { scheduleDeferredInit } from '../memory_budget';
 
 // AppState is the full composed type — all slices merged.
@@ -32,7 +33,8 @@ export type AppState =
     TerminalSlice &
     SecurityReviewSlice &
     LspSlice &
-    DebugSlice & {
+    DebugSlice &
+    ModuleSlice & {
         // Fields that appear in cross-slice calls but aren't in a single slice
         activeProjectSpec: any | null;
     };
@@ -50,6 +52,7 @@ export const useStore = create<AppState>()((...a) => ({
     ...createSecurityReviewSlice(...a),
     ...createLspSlice(...a),
     ...createDebugSlice(...a),
+    ...createModuleSlice(...a),
 }));
 
 // Wire global Tauri event listeners once (deferred — not needed for first paint).

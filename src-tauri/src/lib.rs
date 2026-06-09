@@ -46,6 +46,8 @@ mod ide_shell;
 mod hermes_skills;
 mod skill_audit;
 mod skill_store;
+mod module_registry;
+mod module_commands;
 mod android_commands;
 mod android_sdk;
 mod gradle_commands;
@@ -863,6 +865,13 @@ pub fn run() {
             lsp_store::lsp_store_set_enabled,
             lsp_store::lsp_store_uninstall,
             lsp_store::lsp_store_install_npm,
+            module_commands::modules_fetch_catalog,
+            module_commands::modules_list_installed,
+            module_commands::modules_install,
+            module_commands::modules_uninstall,
+            module_commands::modules_set_enabled,
+            module_commands::modules_launch,
+            module_commands::modules_default_catalog_url,
             workspace_settings_commands::get_workspace_settings,
             workspace_settings_commands::update_workspace_settings,
             port_commands::list_listening_ports,
