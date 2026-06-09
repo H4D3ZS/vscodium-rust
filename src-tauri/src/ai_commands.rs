@@ -131,12 +131,17 @@ pub async fn ai_chat(
             e.to_string()
         })?;
 
-    // Push final response (always emit, even if stopped — user should see the partial response)
-    if !result.trim().is_empty() {
-        let _ = app_for_final.emit("ai-content", serde_json::json!({ "content": result.trim() }));
+    // ALWAYS emit response to frontend (CRITICAL: must happen even if empty)
+    let trimmed = result.trim();
+    let emit_result = app_for_final.emit("ai-content", serde_json::json!({ "content": trimmed }));
+
+    if let Err(e) = &emit_result {
+        eprintln!("[ai_chat] EMIT FAILED: {}", e);
+    } else {
+        eprintln!("[ai_chat] Response emitted to frontend");
     }
 
-    let done_log = format!("[ai_chat] DONE: response_len={}\n", result.len());
+    let done_log = format!("[ai_chat] DONE: response_len={}, emit_ok={}\n", result.len(), emit_result.is_ok());
     eprintln!("{}", done_log.trim());
     let _ = std::fs::OpenOptions::new()
         .create(true).append(true)
