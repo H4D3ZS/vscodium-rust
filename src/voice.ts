@@ -540,27 +540,11 @@ export async function speak(
     onEnd?: () => void,
     onStart?: () => void
 ): Promise<boolean> {
-    // ALWAYS check for ElevenLabs API key first (highest priority)
-    if (!currentApiKey) {
-        // Try to load from hardcoded config first
-        if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.trim().length > 0) {
-            currentApiKey = ELEVENLABS_API_KEY;
-            ttsProvider = 'elevenlabs';
-            console.log('[TTS] ✅ ElevenLabs ACTIVATED (from hardcoded config)');
-        } else {
-            // Try to load from storage
-            try {
-                const apiKeys = await invoke<any>('get_api_keys');
-                if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.trim().length > 0) {
-                    currentApiKey = apiKeys.elevenlabs_api_key;
-                    ttsProvider = 'elevenlabs';
-                    console.log('[TTS] ✅ ElevenLabs ACTIVATED (from storage)');
-                }
-            } catch (e) {
-                console.warn('[TTS] Could not load API keys:', e);
-            }
-        }
-    }
+    // For offline M1 Mac mode: disable ElevenLabs entirely, use silent mode
+    // TODO: implement local TTS (browser SpeechSynthesis or Kokoro)
+    console.log('[TTS] Offline mode: TTS disabled. Use Settings → Voice to enable if desired.');
+    onEnd?.();
+    return false;
 
     // Auto-detect Filipino/Tagalog text and switch voice
     const filipinoPatterns = [
