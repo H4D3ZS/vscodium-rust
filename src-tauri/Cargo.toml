@@ -19,6 +19,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+boa_engine = "0.20"
 memmap2 = "0.9.10"
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
