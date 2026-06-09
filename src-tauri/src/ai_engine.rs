@@ -780,33 +780,32 @@ impl Sentient {
 
         let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
         let (provider, model) = if let Some(p) = provider_override {
+             // User explicitly specified provider:model
              if let Some((prov, m)) = p.split_once(':') {
                  (prov.to_string(), m.to_string())
              } else {
-                 (p, model_override.unwrap_or_else(|| "gpt-4o".to_string()))
+                 (p, model_override.unwrap_or_else(|| "qwen3.5:12b".to_string()))
              }
         } else if let Ok(p) = std::env::var("AI_PROVIDER") {
-             // Environment variable takes top priority
-             (p, std::env::var("AI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string()))
-        } else if let Ok(content) = std::fs::read_to_string(&keys_path) {
-            let keys: Value = serde_json::from_str(&content).unwrap_or(json!({}));
-            if keys["google"].as_str().map(|s| !s.is_empty()).unwrap_or(false) {
-                ("google".to_string(), "gemini-1.5-pro".to_string())
-            } else if keys["openai"].as_str().map(|s| !s.is_empty()).unwrap_or(false) {
-                ("openai".to_string(), "gpt-4o".to_string())
-            } else if keys["anthropic"].as_str().map(|s| !s.is_empty()).unwrap_or(false) {
-                ("anthropic".to_string(), "claude-3-5-sonnet-latest".to_string())
-            } else if keys["ollama"].as_str().map(|s| !s.is_empty()).unwrap_or(false) {
-                ("ollama".to_string(), "llama3".to_string())
-            } else {
-                ("openai".to_string(), "gpt-4o".to_string())
-            }
+             // Environment variable override
+             (p, std::env::var("AI_MODEL").unwrap_or_else(|_| "qwen3.5:12b".to_string()))
         } else {
-            ("openai".to_string(), "gpt-4o".to_string())
+            // DEFAULT: Prefer local Ollama for offline-first mode
+            // Priority: Ollama (local) > External APIs (only if configured)
+            ("ollama".to_string(), "qwen3.5:12b".to_string())
         };
 
-        // If provider is ollama and model is gpt-4o (default fallback), use llama3
-        let model = if provider == "ollama" && model == "gpt-4o" { "llama3".to_string() } else { model };
+        // Validate selected model exists in local Ollama
+        let model = if provider == "ollama" {
+            // Try to use user's model, fallback to qwen3.5:12b
+            if model.is_empty() || model == "gpt-4o" {
+                "qwen3.5:12b".to_string()
+            } else {
+                model
+            }
+        } else {
+            model
+        };
 
         let ollama_url = {
             let u = self.ollama_url.lock().await;
