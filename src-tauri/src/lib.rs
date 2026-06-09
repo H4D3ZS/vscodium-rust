@@ -312,6 +312,7 @@ pub fn run() {
             account::account_accept_tos,
             account::account_tos_status,
             account::account_has_feature,
+            account::account_has_feature_offline,
             account::account_set_tier,
             account::account_acquire_addon,
             account::account_subscribe,
