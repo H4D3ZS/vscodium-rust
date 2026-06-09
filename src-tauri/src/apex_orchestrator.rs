@@ -16,14 +16,15 @@ use tokio::sync::Mutex;
 
 use crate::apex_red_team::{ApexRedTeam, RedTeamScanRequest, ScanDepth};
 
-/// Default Ollama model assignments per engine
-const MODEL_ARCHITECT: &str = "qwen2.5:32b";
-const MODEL_THREAT: &str = "huihui_ai/qwen3.5-abliterated:35b";
-const MODEL_PERF: &str = "qwen2.5-coder:7b";
-const MODEL_SELF_IMPROVE: &str = "qwen2.5:14b";
-const MODEL_EXPLAINER: &str = "qwen2.5:14b";
-const MODEL_MULTI_SYSTEM: &str = "qwen2.5:32b";
-const MODEL_PREDICTOR: &str = "qwen3.6:35b-a3b";
+/// Default Ollama model assignments per engine (for 12b and below)
+/// These are fallbacks — user's selected model overrides these
+const MODEL_ARCHITECT: &str = "qwen3.5:12b"; // For code architecture
+const MODEL_THREAT: &str = "qwen3.5:12b"; // For security analysis
+const MODEL_PERF: &str = "qwen3.5:7b"; // For performance optimization
+const MODEL_SELF_IMPROVE: &str = "qwen3.5:7b"; // For self-correction
+const MODEL_EXPLAINER: &str = "qwen3.5:7b"; // For code explanation
+const MODEL_MULTI_SYSTEM: &str = "qwen3.5:12b"; // For multi-file coordination
+const MODEL_PREDICTOR: &str = "qwen3.5:12b"; // For failure prediction
 
 /// Scan result from any engine
 #[derive(Debug, Clone, Serialize, Deserialize)]
