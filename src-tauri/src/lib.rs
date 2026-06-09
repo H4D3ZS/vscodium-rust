@@ -17,6 +17,8 @@ pub mod ai_engine;
 pub mod ai_tools;
 pub mod tool_aliases;
 pub mod ane;
+pub mod ane_inference;
+mod ane_commands;
 pub mod auth_commands;
 pub mod browser_actuation;
 pub mod process_ext;
@@ -474,6 +476,13 @@ pub fn run() {
             apex_commands::apex_simulate_attack,
             apex_commands::apex_threat_anticipate,
             apex_commands::apex_threat_simulate,
+            apex_commands::apex_set_local_mode,
+            // ═══ ANE Inference Acceleration (M1/M2/M3/M4) ═══
+            ane_commands::ane_get_status,
+            ane_commands::ane_init_inference,
+            ane_commands::ane_can_accelerate,
+            ane_commands::ane_update_metrics,
+            ane_commands::ane_diagnostics,
             // ═══ Android Commands ═══
             android_commands::adb_list_devices,
             android_commands::adb_list_emulators,
