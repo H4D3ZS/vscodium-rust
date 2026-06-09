@@ -1168,9 +1168,10 @@ async function runConversationalFastChat(opts: {
         const reply = await Promise.race([chatCall, chatTimeout]);
         await drainOnce();
         const text = typeof reply === 'string' ? reply.trim() : '';
+        const streamed = storeState.agentMessages.at(-1)?.content?.trim() ?? '';
         if (!streamedAny && text) {
             storeState.updateLastAgentMessage?.(text);
-        } else if (!streamedAny && !text) {
+        } else if (!streamedAny && !text && !streamed) {
             storeState.updateLastAgentMessage?.('(no response)');
         }
         try { onUpdate?.(text); } catch { /* non-fatal */ }
@@ -2598,6 +2599,7 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
         // Fallback / reconcile: if nothing streamed (non-streaming provider or a
         // dropped buffer), write the authoritative final text from the call.
         const ft = typeof finalText === 'string' ? finalText.trim() : '';
+        const streamed = store.getState().agentMessages.at(-1)?.content?.trim() ?? '';
         if (!streamedAny && ft && !isAgentRunAborted()) {
             const { cleanAgentContent, shouldReplaceAgentContent } = await import('./domain/agent/cleanAgentContent');
             const cleaned = cleanAgentContent(ft);
@@ -2606,6 +2608,8 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
             if (shouldReplaceAgentContent(existing, cleaned)) {
                 store.getState().updateLastAgentMessage?.(cleaned);
             }
+        } else if (!streamedAny && !ft && !streamed && !isAgentRunAborted()) {
+            store.getState().updateLastAgentMessage?.('(no response)');
         }
 
         console.log('[Agent] Full ai_chat loop completed successfully.');
