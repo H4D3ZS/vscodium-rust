@@ -57,16 +57,32 @@ extern "system" {
     ) -> i32;
 }
 
+/// Release malloc zones + encourage kernel to reclaim idle pages (macOS).
+#[cfg(target_os = "macos")]
+pub fn macos_pressure_relief() {
+    extern "C" {
+        fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, magnitude: u32) -> usize;
+    }
+    unsafe {
+        let _ = malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+    }
+}
+
 #[tauri::command]
 pub async fn optimize_memory(state: State<'_, EditorState>) -> Result<String, String> {
     state.memory_optimizer.optimize().await.map_err(|e| e.to_string())?;
-    
+    let engine = state.ai_engine.clone();
+    let _ = engine.optimize_memory().await;
+
     #[cfg(target_os = "windows")]
     unsafe {
         let handle = GetCurrentProcess();
         let _ = SetProcessWorkingSetSize(handle, usize::MAX, usize::MAX);
     }
-    
+
+    #[cfg(target_os = "macos")]
+    macos_pressure_relief();
+
     Ok("Memory optimization complete".to_string())
 }
 

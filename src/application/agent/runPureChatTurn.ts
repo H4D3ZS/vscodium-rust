@@ -3,12 +3,16 @@ import type { useStore } from '../../store';
 
 type StoreState = ReturnType<typeof useStore.getState>;
 
+const PENTEST_URL_OR_TOOL =
+    /\b(https?:\/\/\S+|nmap|burp|sqlmap|metasploit|nuclei|ffuf|hydra|john|hashcat|wireshark|masscan|nikto|gobuster|dirbuster|wpscan|subfinder|amass|httpx|cve-\d{4}-\d+|xss|sqli|ssrf|lfi|rfi|rce|pentest|pen[\s-]?test|exploit|payload|recon|enumerate|fingerprint|osint)\b/i;
+
 export function shouldForceToolLoop(prompt: string, mode: string): boolean {
     const secMode = mode === 'BugBounty' || mode === 'Bug Bounty'
         || mode === 'RedTeam' || mode === 'Red Team'
-        || mode === 'BlueTeam' || mode === 'Blue Team';
+        || mode === 'BlueTeam' || mode === 'Blue Team'
+        || mode === 'SecureDev' || mode === 'Secure Dev';
     if (secMode) return true;
-    if (/\bhttps?:\/\/\S+/i.test(prompt)) return true;
+    if (PENTEST_URL_OR_TOOL.test(prompt)) return true;
     if (/^\s*\[INTENT\s*:/i.test(prompt)) return true;
     return false;
 }

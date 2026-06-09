@@ -30,6 +30,40 @@ pub struct EnterprisePolicy {
     pub require_secure_mode: bool,
     #[serde(default = "default_retention")]
     pub audit_retention_days: u32,
+    /// Disallow cloud model providers when true.
+    #[serde(default)]
+    pub offline_only: bool,
+    #[serde(default)]
+    pub allowed_models: Vec<String>,
+    #[serde(default)]
+    pub blocked_models: Vec<String>,
+    /// Empty = all MCP servers allowed.
+    #[serde(default)]
+    pub allowed_mcp_servers: Vec<String>,
+    /// Hosts/URLs in scope for offensive tools (e.g. `*.customer.com`, `api.target.io`).
+    #[serde(default)]
+    pub engagement_targets: Vec<String>,
+    #[serde(default)]
+    pub engagement_id: String,
+    #[serde(default)]
+    pub require_engagement_scope: bool,
+    #[serde(default = "default_true")]
+    pub block_private_network_scan: bool,
+    /// Empty = no extra restriction beyond defaults.
+    #[serde(default)]
+    pub tool_allowlist: Vec<String>,
+    #[serde(default)]
+    pub tool_denylist: Vec<String>,
+    #[serde(default)]
+    pub siem_webhook_url: String,
+    #[serde(default = "default_true")]
+    pub dlp_redact_secrets: bool,
+    #[serde(default = "default_true")]
+    pub audit_tool_calls: bool,
+    #[serde(default = "default_true")]
+    pub audit_file_writes: bool,
+    #[serde(default = "default_true")]
+    pub audit_model_calls: bool,
 }
 
 fn default_true() -> bool {
@@ -188,4 +222,158 @@ pub async fn enterprise_audit_log(
         &action,
         detail.unwrap_or(json!({})),
     )
+}
+
+/// Seed cyber-enterprise defaults (audit, DLP, private-network block).
+#[tauri::command]
+pub async fn enterprise_seed_cyber_policy(
+    state: State<'_, EditorState>,
+    org_name: Option<String>,
+) -> Result<EnterprisePolicy, String> {
+    let mut policy = crate::enterprise_governance::default_cyber_enterprise_policy(
+        org_name.as_deref().unwrap_or("Security Team"),
+    );
+    if let Some(existing) = std::fs::read_to_string(policy_path(&state.config_dir))
+        .ok()
+        .and_then(|s| serde_json::from_str::<EnterprisePolicy>(&s).ok())
+    {
+        if !existing.org_name.is_empty() {
+            policy.org_name = existing.org_name;
+        }
+        if !existing.engagement_targets.is_empty() {
+            policy.engagement_targets = existing.engagement_targets;
+        }
+        if !existing.engagement_id.is_empty() {
+            policy.engagement_id = existing.engagement_id;
+        }
+    }
+    save_policy(&state.config_dir, &policy)?;
+    let _ = append_audit(
+        &state.config_dir,
+        "admin",
+        "enterprise.policy_seed",
+        json!({ "org": policy.org_name }),
+    );
+    Ok(policy)
+}
+
+/// Initialize engagement folder layout under workspace root.
+#[tauri::command]
+pub async fn enterprise_init_engagement(
+    state: State<'_, EditorState>,
+    engagement_id: String,
+    targets: Vec<String>,
+) -> Result<Value, String> {
+    let root = state.active_root.lock().await.clone();
+    let root = root.ok_or_else(|| "Open a workspace folder first".to_string())?;
+    let id = engagement_id
+        .trim()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect::<String>();
+    if id.is_empty() {
+        return Err("engagement_id required".into());
+    }
+    for sub in [
+        format!("reports/{id}"),
+        format!("recon/{id}"),
+        format!("exploits/{id}"),
+        format!("payloads/{id}"),
+    ] {
+        let p = root.join(&sub);
+        std::fs::create_dir_all(&p).map_err(|e| e.to_string())?;
+    }
+    let mut policy = load_policy(&state.config_dir);
+    policy.engagement_id = id.clone();
+    policy.engagement_targets = targets.clone();
+    policy.require_engagement_scope = true;
+    save_policy(&state.config_dir, &policy)?;
+    let _ = append_audit(
+        &state.config_dir,
+        "user",
+        "engagement.init",
+        json!({ "id": id, "targets": targets, "root": root }),
+    );
+    Ok(json!({
+        "engagement_id": id,
+        "targets": targets,
+        "paths": ["reports", "recon", "exploits", "payloads"]
+    }))
+}
+
+/// Export findings under `reports/` as SARIF 2.1.0 JSON.
+#[tauri::command]
+pub async fn enterprise_export_sarif(
+    state: State<'_, EditorState>,
+) -> Result<String, String> {
+    let root = state.active_root.lock().await.clone();
+    let root = root.unwrap_or_else(|| state.config_dir.clone());
+    let reports = root.join("reports");
+    let mut results = Vec::new();
+    if reports.is_dir() {
+        collect_report_findings(&reports, &mut results);
+    }
+    let sarif = json!({
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "HADES IDE",
+                    "informationUri": "https://github.com/H4D3ZS/vscodium-rust-ide-saas",
+                    "version": env!("CARGO_PKG_VERSION"),
+                }
+            },
+            "results": results,
+        }]
+    });
+    let dest = state.config_dir.join(format!(
+        "findings_export_{}.sarif.json",
+        chrono::Local::now().format("%Y%m%d_%H%M%S")
+    ));
+    std::fs::write(&dest, serde_json::to_string_pretty(&sarif).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    let _ = append_audit(
+        &state.config_dir,
+        "user",
+        "enterprise.sarif_export",
+        json!({ "path": dest, "count": results.len() }),
+    );
+    Ok(dest.to_string_lossy().to_string())
+}
+
+fn collect_report_findings(dir: &Path, out: &mut Vec<Value>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_report_findings(&path, out);
+            continue;
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext != "md" && ext != "json" {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let rule_id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("finding")
+            .to_string();
+        let message = content.lines().take(12).collect::<Vec<_>>().join("\n");
+        out.push(json!({
+            "ruleId": rule_id,
+            "level": "warning",
+            "message": { "text": message },
+            "locations": [{
+                "physicalLocation": {
+                    "artifactLocation": { "uri": path.to_string_lossy() }
+                }
+            }]
+        }));
+    }
 }

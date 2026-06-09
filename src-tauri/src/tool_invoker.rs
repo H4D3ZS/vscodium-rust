@@ -4,12 +4,14 @@ use anyhow::Result;
 use tracing::instrument;
 
 use serde_json::Value;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Emitter;
 
 pub struct ToolInvoker {
     ai_tools: Arc<AiTools>,
     mcp_registry: Arc<McpRegistry>,
+    config_dir: PathBuf,
 }
 
 /// Tool permission level:
@@ -95,8 +97,31 @@ fn is_mcp_write_tool(name: &str) -> bool {
 }
 
 impl ToolInvoker {
-    pub fn new(ai_tools: Arc<AiTools>, mcp_registry: Arc<McpRegistry>) -> Self {
-        Self { ai_tools, mcp_registry }
+    pub fn new(ai_tools: Arc<AiTools>, mcp_registry: Arc<McpRegistry>, config_dir: PathBuf) -> Self {
+        Self {
+            ai_tools,
+            mcp_registry,
+            config_dir,
+        }
+    }
+
+    fn check_governance(&self, name: &str, args: &Value, agent_mode: Option<&str>) -> Option<Value> {
+        let decision =
+            crate::enterprise_governance::evaluate_tool(&self.config_dir, name, args, agent_mode);
+        if decision.allowed {
+            return None;
+        }
+        crate::enterprise_governance::audit_tool_call(
+            &self.config_dir,
+            name,
+            args,
+            "denied",
+            Some(serde_json::json!({ "reason": decision.reason })),
+        );
+        Some(serde_json::json!({
+            "status": "denied",
+            "message": decision.reason,
+        }))
     }
 
     /// Execute a tool, optionally requesting user permission for dangerous operations.
@@ -104,14 +129,8 @@ impl ToolInvoker {
     /// to emit the `tool_permission_request` event.
     #[instrument(skip(self))]
     pub async fn execute_tool(&self, name: &str, args: &str) -> Result<Value> {
-        let arguments: Value = serde_json::from_str(args)?;
-        match self.ai_tools.call_tool(name, arguments.clone()).await {
-            Ok(result) => Ok(result),
-            Err(e) if Self::is_unknown_tool_error(&e) => {
-                self.mcp_registry.call_tool(name, arguments).await
-            }
-            Err(e) => Err(e),
-        }
+        self.execute_tool_inner(name, args, None, None, None, None)
+            .await
     }
 
     /// Extended execute with permission check. Dangerous tools emit a
@@ -123,16 +142,34 @@ impl ToolInvoker {
         args: &str,
         app_handle: Option<&tauri::AppHandle>,
         permission_senders: Option<&Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>>,
+        agent_mode: Option<&str>,
+    ) -> Result<Value> {
+        self.execute_tool_inner(name, args, app_handle, permission_senders, agent_mode, None)
+            .await
+    }
+
+    async fn execute_tool_inner(
+        &self,
+        name: &str,
+        args: &str,
+        app_handle: Option<&tauri::AppHandle>,
+        permission_senders: Option<&Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>>>,
+        agent_mode: Option<&str>,
+        skip_permission: Option<bool>,
     ) -> Result<Value> {
         let level = classify_tool(name);
         let arguments: Value = serde_json::from_str(args)?;
+
+        if let Some(denied) = self.check_governance(name, &arguments, agent_mode) {
+            return Ok(denied);
+        }
 
         // Yolo bypass: if YOLO_MODE env var is set, skip all permission gates.
         // This is how the autonomous loop opts out of dialogs during long missions.
         let yolo = std::env::var("AIRI_YOLO_MODE").map(|v| v == "1").unwrap_or(false);
 
         // For dangerous tools (and yolo is off): emit permission request and wait for response
-        if matches!(level, ToolLevel::Dangerous) && !yolo {
+        if matches!(level, ToolLevel::Dangerous) && !yolo && !skip_permission.unwrap_or(false) {
             if let (Some(handle), Some(senders)) = (app_handle, permission_senders) {
                 let tool_id = format!("{}-{}", name, uuid::Uuid::new_v4().to_string().chars().take(8).collect::<String>());
                 let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
@@ -166,13 +203,31 @@ impl ToolInvoker {
             }
         }
 
-        match self.ai_tools.call_tool(name, arguments.clone()).await {
+        let outcome = match self.ai_tools.call_tool(name, arguments.clone()).await {
             Ok(result) => Ok(result),
             Err(e) if Self::is_unknown_tool_error(&e) => {
-                self.mcp_registry.call_tool(name, arguments).await
+                self.mcp_registry
+                    .call_tool(name, arguments.clone(), Some(&self.config_dir))
+                    .await
             }
             Err(e) => Err(e),
-        }
+        };
+        let status = match &outcome {
+            Ok(v) => v
+                .get("status")
+                .and_then(|s| s.as_str())
+                .unwrap_or("ok")
+                .to_string(),
+            Err(e) => format!("error: {e}"),
+        };
+        crate::enterprise_governance::audit_tool_call(
+            &self.config_dir,
+            name,
+            &arguments,
+            &status,
+            None,
+        );
+        outcome
     }
 
     /// Only fall back to MCP when the name is absent from AiTools — not when a

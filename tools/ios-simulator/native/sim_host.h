@@ -23,6 +23,13 @@ void sim_host_stop(void *host);
 
 void sim_host_detach(void *host);
 
+/// phase: "down" | "move" | "up" — normalized 0..1 coords, top-left origin.
+typedef void (*sim_host_touch_fn)(double x, double y, const char *phase);
+void sim_host_set_touch_callback(sim_host_touch_fn cb);
+
+typedef void (*sim_host_size_fn)(uint32_t width, uint32_t height);
+void sim_host_set_size_callback(sim_host_size_fn cb);
+
 #ifdef __cplusplus
 }
 #endif

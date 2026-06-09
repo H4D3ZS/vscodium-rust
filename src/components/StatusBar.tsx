@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useStore } from '../store';
 import { invoke } from '@tauri-apps/api/core';
 import { formatMemoryTooltip, type ProcessStatsDto } from '../domain/performance/ProcessMemorySnapshot';
-import { STATS_POLL_MS, ACCOUNT_POLL_MS } from '../memory_budget';
+import { STATS_POLL_MS, ACCOUNT_POLL_MS, LEAN_IDLE_TARGET_MB } from '../memory_budget';
+import { currentStatsPollMs } from '../application/performance/memoryGovernor';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -58,20 +59,25 @@ const MemoryStatusItem: React.FC<{
 }> = ({ processStats, onOptimize }) => {
     const snap = processStats.snapshot;
     const totalMb = snap?.total_working_set_mb ?? processStats.memory_mb;
+    const lean = totalMb <= LEAN_IDLE_TARGET_MB;
     const title = useMemo(() => {
         const body = snap ? formatMemoryTooltip(snap) : `RAM ${processStats.memory_mb} MB`;
-        return `${body}\n\nClick to optimize memory`;
+        return `${body}\n\nTarget idle band: ≤${LEAN_IDLE_TARGET_MB} MB (lean) · click to trim`;
     }, [snap, processStats.memory_mb]);
 
     return (
         <StatusItem
             onClick={onOptimize}
             title={title}
+            accent={lean}
             danger={processStats.available_ram_gb > 0 && processStats.available_ram_gb < 1}
         >
             <i className="codicon codicon-pulse" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
             <span title="Total working set (host + WebView2 children)">
                 {totalMb.toFixed(0)} MB
+                {lean && (
+                    <span style={{ opacity: 0.7, fontSize: '9px', marginLeft: 4 }}>lean</span>
+                )}
                 {snap && snap.child_process_count > 0 && (
                     <span style={{ opacity: 0.45, fontSize: '10px', marginLeft: '4px' }}>
                         ({snap.child_process_count + 1} proc)
@@ -287,17 +293,26 @@ const StatusBar: React.FC = () => {
     };
 
     useEffect(() => {
-        refreshProcessStats();
-        refreshMemorySavings();
-        const t = setInterval(() => {
-            refreshProcessStats().then(() => {
-                const free = useStore.getState().processStats?.available_ram_gb;
-                if (free != null && free < 1) {
-                    handleOptimize();
-                }
-            });
-        }, STATS_POLL_MS);
-        return () => clearInterval(t);
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+
+        const tick = async () => {
+            if (cancelled) return;
+            await refreshProcessStats();
+            await refreshMemorySavings();
+            const free = useStore.getState().processStats?.available_ram_gb;
+            if (free != null && free < 1) {
+                void handleOptimize();
+            }
+            const ms = currentStatsPollMs();
+            if (ms > 0) timer = setTimeout(tick, ms);
+        };
+
+        void tick();
+        return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
+        };
     }, []);
 
     // ── Account / usage chip (SaaS) ───────────────────────────────────────────

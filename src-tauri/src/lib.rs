@@ -5,6 +5,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 pub mod aim_store;
 pub mod account;
 pub mod enterprise_audit;
+pub mod enterprise_governance;
 pub mod auth;
 mod ai_auth;
 mod ai_commands;
@@ -220,6 +221,8 @@ pub fn run() {
 
             // ChatGPT bridge: lazy-init on first use — a hidden webview costs ~40–80MB RSS.
 
+            // ANE warms on first inference / deferred offline stack — not at boot (saves RSS).
+
             // Start background OAuth listener
             let oauth_app_handle = _app_handle.clone();
             tauri::async_runtime::spawn(async move {
@@ -258,23 +261,32 @@ pub fn run() {
                 }
             }
 
-            // Memory watchdog — trim aggressively to stay in the 80–150MB idle band.
-            // Monaco + an open file will push higher; this catches runaway agent/indexer RAM.
+            // Memory watchdog — soft trim ~90MB, hard trim ~150MB (lean idle target 54MB when panels closed).
             let perf_monitor = state.perf_monitor.clone();
             let engine_for_trim = state.ai_engine.clone();
+            let mem_opt = state.memory_optimizer.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(45)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
                     if let Some(stats) = perf_monitor.get_stats().await {
                         let mb = stats.memory_mb;
-                        if mb > 100 {
-                            println!("[Memory Watchdog] RSS={}MB — trimming conversation + working set.", mb);
+                        if mb > 150 {
+                            println!("[Memory Watchdog] RSS={mb}MB — hard trim");
                             let _ = engine_for_trim.optimize_memory().await;
-                            #[cfg(target_os = "windows")]
+                            let _ = mem_opt.optimize().await;
+                        } else if mb > 90 {
+                            let _ = mem_opt.optimize().await;
+                        }
+                        #[cfg(target_os = "windows")]
+                        if mb > 90 {
                             unsafe {
                                 let handle = GetCurrentProcess();
                                 let _ = SetProcessWorkingSetSize(handle, usize::MAX, usize::MAX);
                             }
+                        }
+                        #[cfg(target_os = "macos")]
+                        if mb > 90 {
+                            crate::performance_commands::macos_pressure_relief();
                         }
                     }
                 }
@@ -328,6 +340,9 @@ pub fn run() {
             enterprise_audit::enterprise_audit_list,
             enterprise_audit::enterprise_audit_export,
             enterprise_audit::enterprise_audit_log,
+            enterprise_audit::enterprise_seed_cyber_policy,
+            enterprise_audit::enterprise_init_engagement,
+            enterprise_audit::enterprise_export_sarif,
             // ═══ Security Arsenal (Obsidian-style generators) ═══
             security_generator_commands::security_reverse_shell,
             security_generator_commands::security_listener,
