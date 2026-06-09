@@ -20,6 +20,7 @@ import { AI_ENGINEER_LEAD } from '../lib/aiEngineerManifesto';
 import PyTorchLogo from './pytorch/PyTorchLogo';
 import SkillStorePanel from './skills/SkillStorePanel';
 import LspLanguagesPanel from './settings/LspLanguagesPanel';
+import ModuleInstallerPanel from './settings/ModuleInstallerPanel';
 import AneAccelerationPanel from './AneAccelerationPanel';
 import ModelSelectorPanel from './ModelSelectorPanel';
 import '../settings.css';
@@ -1073,6 +1074,7 @@ const SettingsPage: React.FC = () => {
         { id: 'workspace', label: 'Workspace', icon: 'folder', customRender: () => <WorkspaceSettingsPanel />, groupStart: 'Project' },
         { id: 'lsp', label: 'Language Servers', icon: 'symbol-class', customRender: () => <LspLanguagesPanel /> },
         { id: 'skill-store', label: 'Skill Store', icon: 'library', customRender: () => <SkillStorePanel /> },
+        { id: 'modules', label: 'Extension Modules', icon: 'extensions', customRender: () => <ModuleInstallerPanel />, groupStart: 'Extensions' },
         { id: 'platform', label: 'Platform Status', icon: 'checklist', customRender: () => <PlatformHubPanel /> },
         {
             id: 'pytorch',
