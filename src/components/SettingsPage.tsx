@@ -303,11 +303,21 @@ function ModelsPanel() {
                                     className="settings-select"
                                     style={{ width: 260, fontSize: 11 }}
                                     value={combined}
-                                    onChange={e => {
+                                    onChange={async e => {
                                         const v = e.target.value;
                                         if (!v) { setModelSel(feat, null); return; }
                                         const [prov, ...rest] = v.split('|');
                                         setModelSel(feat, { providerName: prov as ProviderName, modelName: rest.join('|') });
+
+                                        // Auto-downgrade APEX models when Ollama (local) is selected
+                                        if (prov === 'ollama') {
+                                            try {
+                                                const { invoke } = await import('../tauri_bridge');
+                                                await invoke('apex_set_local_mode', { smallModel: 'qwen3.5:2b' });
+                                            } catch (err) {
+                                                console.warn('Failed to auto-downgrade APEX models:', err);
+                                            }
+                                        }
                                     }}
                                 >
                                     <option value="">(use global model)</option>
@@ -730,6 +740,88 @@ function HadesIntelligencePanel() {
     );
 }
 
+function ApexSettingsPanel() {
+    const [models, setModels] = useState<Record<string, string>>({});
+    const [isLoading, setIsLoading] = useState(false);
+
+    const engines = [
+        { key: 'architect', label: 'Architect', desc: 'System design & architecture recommendations' },
+        { key: 'threat', label: 'Threat Model', desc: 'Security threat analysis & red team' },
+        { key: 'perf', label: 'Performance', desc: 'Code optimization suggestions' },
+        { key: 'self_improve', label: 'Self-Improve', desc: 'Code self-correction & refactoring' },
+        { key: 'explainer', label: 'Explainer', desc: 'Code explanation & documentation' },
+        { key: 'multi_system', label: 'Multi-System', desc: 'Cross-system coordination' },
+        { key: 'predictor', label: 'Predictor', desc: 'Failure prediction & risk analysis' },
+    ];
+
+    const handleSetLocalMode = async () => {
+        setIsLoading(true);
+        try {
+            const { invoke } = await import('../tauri_bridge');
+            await invoke('apex_set_local_mode', { smallModel: 'qwen3.5:2b' });
+            setModels(Object.fromEntries(engines.map(e => [e.key, 'qwen3.5:2b'])));
+        } catch (err) {
+            console.error('Failed to set local mode:', err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleModelChange = async (engine: string, model: string) => {
+        setModels(prev => ({ ...prev, [engine]: model }));
+        try {
+            const { invoke } = await import('../tauri_bridge');
+            await invoke('apex_set_engine_model', { engine, model });
+        } catch (err) {
+            console.error('Failed to set engine model:', err);
+        }
+    };
+
+    return (
+        <div style={{ maxWidth: 680 }}>
+            <SectionTitle>APEX Intelligence Engines</SectionTitle>
+            <p className="settings-section-subtitle">Configure individual specialist models for different analysis tasks. Recommended: use qwen3.5:2b for M1 Macs with 8GB RAM.</p>
+
+            <div className="settings-card">
+                <div className="settings-card-title">Quick Setup</div>
+                <button
+                    type="button"
+                    className="settings-button success"
+                    disabled={isLoading}
+                    onClick={handleSetLocalMode}
+                    style={{ marginBottom: 12 }}
+                >
+                    {isLoading ? 'Configuring...' : 'Auto-Downgrade to qwen3.5:2b (Local)'}
+                </button>
+                <p style={{ fontSize: 11, opacity: 0.6, margin: '0' }}>
+                    Sets all APEX engines to qwen3.5:2b for offline M1 Mac development
+                </p>
+            </div>
+
+            <div className="settings-card">
+                <div className="settings-card-title">Per-Engine Models</div>
+                {engines.map(engine => (
+                    <SettingsRow
+                        key={engine.key}
+                        label={engine.label}
+                        description={engine.desc}
+                        control={
+                            <input
+                                type="text"
+                                className="settings-select"
+                                placeholder="e.g., qwen3.5:2b"
+                                value={models[engine.key] || ''}
+                                onChange={(e) => handleModelChange(engine.key, e.target.value)}
+                                style={{ width: 200, fontSize: 11 }}
+                            />
+                        }
+                    />
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function PrivacyPanel() {
     const [telemetry, setTelemetry] = useState(() => {
         try { return localStorage.getItem('hades.telemetry') !== 'false'; } catch { return true; }
@@ -1012,6 +1104,7 @@ const SettingsPage: React.FC = () => {
         { id: 'workflow', label: 'Specs & Workflow', icon: 'tasklist', customRender: () => <WorkflowPanel /> },
         { id: 'mcps', label: 'MCP & Tools', icon: 'plug', agentCategory: 'mcps' },
         { id: 'airi', label: 'Sentient Core', icon: 'beaker', customRender: () => <AIRICorePanel />, groupStart: 'Advanced' },
+        { id: 'apex', label: 'APEX Intelligence', icon: 'circuit-board', customRender: () => <ApexSettingsPanel /> },
         { id: 'hades', label: 'Kortex / AIM', icon: 'database', customRender: () => <HadesIntelligencePanel /> },
         { id: 'memory', label: 'Memory (.aim)', icon: 'archive', agentCategory: 'memory' },
         { id: 'voice', label: 'Voice & TTS', icon: 'unmute', agentCategory: 'voice' },
