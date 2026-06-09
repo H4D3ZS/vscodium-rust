@@ -1108,7 +1108,7 @@ const SettingsPage: React.FC = () => {
         { id: 'airi', label: 'Sentient Core', icon: 'beaker', customRender: () => <AIRICorePanel />, groupStart: 'Advanced' },
         { id: 'apex', label: 'APEX Intelligence', icon: 'circuit-board', customRender: () => <ApexSettingsPanel /> },
         { id: 'ane', label: 'ANE Acceleration', icon: 'rocket', customRender: () => <AneAccelerationPanel /> },
-        { id: 'models', label: 'Model Selection', icon: 'chip', customRender: () => <ModelSelectorPanel /> },
+        { id: 'model-selection', label: 'Model Selection', icon: 'chip', customRender: () => <ModelSelectorPanel /> },
         { id: 'hades', label: 'Kortex / AIM', icon: 'database', customRender: () => <HadesIntelligencePanel /> },
         { id: 'memory', label: 'Memory (.aim)', icon: 'archive', agentCategory: 'memory' },
         { id: 'voice', label: 'Voice & TTS', icon: 'unmute', agentCategory: 'voice' },
