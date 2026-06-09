@@ -20,6 +20,7 @@ import { AI_ENGINEER_LEAD } from '../lib/aiEngineerManifesto';
 import PyTorchLogo from './pytorch/PyTorchLogo';
 import SkillStorePanel from './skills/SkillStorePanel';
 import LspLanguagesPanel from './settings/LspLanguagesPanel';
+import AneAccelerationPanel from './AneAccelerationPanel';
 import '../settings.css';
 
 // ── Provider list ──────────────────────────────────────────────────────────
@@ -1105,6 +1106,7 @@ const SettingsPage: React.FC = () => {
         { id: 'mcps', label: 'MCP & Tools', icon: 'plug', agentCategory: 'mcps' },
         { id: 'airi', label: 'Sentient Core', icon: 'beaker', customRender: () => <AIRICorePanel />, groupStart: 'Advanced' },
         { id: 'apex', label: 'APEX Intelligence', icon: 'circuit-board', customRender: () => <ApexSettingsPanel /> },
+        { id: 'ane', label: 'ANE Acceleration', icon: 'rocket', customRender: () => <AneAccelerationPanel /> },
         { id: 'hades', label: 'Kortex / AIM', icon: 'database', customRender: () => <HadesIntelligencePanel /> },
         { id: 'memory', label: 'Memory (.aim)', icon: 'archive', agentCategory: 'memory' },
         { id: 'voice', label: 'Voice & TTS', icon: 'unmute', agentCategory: 'voice' },
