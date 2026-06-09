@@ -482,7 +482,11 @@ impl Sentient {
         let task_planner = Arc::new(TaskPlanner::new());
         let rules_engine = Arc::new(RulesEngine::new(root_path.clone()));
         let workflow_engine = Arc::new(WorkflowEngine::new(root_path.clone()));
-        let tool_invoker = Arc::new(ToolInvoker::new(ai_tools.clone(), mcp_registry.clone()));
+        let tool_invoker = Arc::new(ToolInvoker::new(
+            ai_tools.clone(),
+            mcp_registry.clone(),
+            config_dir.clone(),
+        ));
         let ane_engine = Arc::new(tokio::sync::Mutex::new(None));
 
         let client = Client::builder()
@@ -1763,6 +1767,27 @@ impl Sentient {
                 if let Err(e) = crate::account::require_feature_at(&cfg, "agentic") {
                     return Err(anyhow!(e));
                 }
+            }
+        }
+
+        // ── Enterprise org policy (models, offline-only) ─────────────────────
+        {
+            let cfg = crate::account::account_config_dir(&self.brain_dir);
+            if let Err(e) = crate::enterprise_governance::model_allowed(&cfg, &req.model) {
+                return Err(anyhow!(e));
+            }
+            let policy = crate::enterprise_audit::load_policy(&cfg);
+            if policy.audit_enabled && policy.audit_model_calls {
+                let _ = crate::enterprise_audit::append_audit(
+                    &cfg,
+                    "agent",
+                    "model.invoke",
+                    serde_json::json!({
+                        "model": req.model,
+                        "provider": req.provider,
+                        "mode": req.mode,
+                    }),
+                );
             }
         }
 
@@ -4526,6 +4551,7 @@ impl Sentient {
                                 &tool_args_json.to_string(),
                                 app_handle_ref.as_ref(),
                                 Some(&self.permission_senders),
+                                Some(mode_str),
                             )
                             .await
                             .map_err(|e| e.to_string())

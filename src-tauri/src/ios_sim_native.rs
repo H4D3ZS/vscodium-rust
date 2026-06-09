@@ -14,6 +14,28 @@ mod mac {
         fn sim_host_set_visible(host: *mut c_void, visible: i32);
         fn sim_host_stop(host: *mut c_void);
         fn sim_host_detach(host: *mut c_void);
+        fn sim_host_set_touch_callback(cb: Option<extern "C" fn(f64, f64, *const c_char)>);
+        fn sim_host_set_size_callback(cb: Option<extern "C" fn(u32, u32)>);
+    }
+
+    extern "C" fn touch_forward_cb(x: f64, y: f64, phase: *const c_char) {
+        if phase.is_null() {
+            return;
+        }
+        let phase = unsafe { std::ffi::CStr::from_ptr(phase) };
+        let phase = phase.to_string_lossy();
+        let _ = crate::ios_simulator::touch_forward(x, y, &phase);
+    }
+
+    extern "C" fn size_forward_cb(w: u32, h: u32) {
+        crate::ios_simulator::native_surface_size(w, h);
+    }
+
+    fn register_callbacks() {
+        unsafe {
+            sim_host_set_touch_callback(Some(touch_forward_cb));
+            sim_host_set_size_callback(Some(size_forward_cb));
+        }
     }
 
     static HOST: Mutex<Option<usize>> = Mutex::new(None);
@@ -63,6 +85,7 @@ mod mac {
     }
 
     pub fn attach(app: &AppHandle) -> Result<(), String> {
+        register_callbacks();
         if HOST.lock().unwrap().is_some() {
             return Ok(());
         }

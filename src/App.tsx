@@ -10,7 +10,7 @@ import { TrustDialog } from './components/TrustDialog';
 import { useStore } from './store.ts';
 import { initCommands } from './commands.ts';
 import { initTheme } from './theme_engine';
-import { scheduleDeferredInit } from './memory_budget';
+import { scheduleDeferredInit, DEFERRED_INIT_MS } from './memory_budget';
 
 // Lazy-load modal/overlay components — they only render on user trigger,
 // keeping the initial bundle ~200KB smaller and saving renderer RAM.
@@ -56,14 +56,21 @@ const App: React.FC = () => {
     useEffect(() => {
         (window as any).useStore = useStore;
         let unsubAgentRuntime: (() => void) | undefined;
+        let unsubMemoryGov: (() => void) | undefined;
         // Critical path only — defer heavy subsystems until idle.
         initCommands();
         initTheme();
         import('./application/performance/ensureAgentRuntime').then(m => {
             unsubAgentRuntime = m.scheduleAgentRuntimeBootstrap();
         });
-        import('./application/debug/bootstrapDebugRuntime').then(m => m.bootstrapDebugRuntime());
-        import('./application/workspace/multiRootWorkspace').then(m => m.initWorkspaceFoldersFromStorage());
+        import('./application/performance/memoryGovernor').then(m => {
+            unsubMemoryGov = m.scheduleMemoryGovernor();
+        });
+
+        scheduleDeferredInit(() => {
+            import('./application/debug/bootstrapDebugRuntime').then(m => m.bootstrapDebugRuntime());
+            import('./application/workspace/multiRootWorkspace').then(m => m.initWorkspaceFoldersFromStorage());
+        }, 2_000);
 
         scheduleDeferredInit(() => {
             import('./search').then(m => m.initSearch());
@@ -87,23 +94,28 @@ const App: React.FC = () => {
         else document.body.classList.add('is-web');
         // ----------------------------------------
 
-        const { refreshAvailableModels, setActiveRoot, activeRoot, refreshFileTree, syncOllamaEndpoint, agentMode } = useStore.getState();
-        import('./lib/agentAutonomy').then(({ ensureAgenticAutonomy }) => {
-            void ensureAgenticAutonomy(agentMode);
-        });
-        // Push resolved Ollama URL into Rust (cloud/local/self-hosted) before model refresh.
-        void syncOllamaEndpoint?.().then(() => refreshAvailableModels()).catch(() => refreshAvailableModels());
-        import('./lib/localOllamaAgentDefaults').then(({ migrateLocalOllamaPlannerSettings }) => {
-            migrateLocalOllamaPlannerSettings(useStore.getState());
-        });
+        const { setActiveRoot, activeRoot, refreshFileTree } = useStore.getState();
 
         let unsubBilling: (() => void) | undefined;
-        import('./lib/billingSync').then((m) => {
-            unsubBilling = m.wireBillingFocusSync();
-        });
+
+        scheduleDeferredInit(() => {
+            const st = useStore.getState();
+            import('./lib/agentAutonomy').then(({ ensureAgenticAutonomy }) => {
+                void ensureAgenticAutonomy(st.agentMode);
+            });
+            import('./lib/localOllamaAgentDefaults').then(({ migrateLocalOllamaPlannerSettings }) => {
+                migrateLocalOllamaPlannerSettings(useStore.getState());
+            });
+            void st.syncOllamaEndpoint?.()
+                .then(() => st.refreshAvailableModels())
+                .catch(() => st.refreshAvailableModels());
+            import('./lib/billingSync').then((m) => {
+                unsubBilling = m.wireBillingFocusSync();
+            });
+        }, DEFERRED_INIT_MS);
 
         // Default subscribed users to managed cloud model (Cyber-Ifrit Qwen 35B).
-        invoke<any>('account_get').then((acct) => {
+        scheduleDeferredInit(() => invoke<any>('account_get').then((acct) => {
             if (!acct?.signed_in) return;
             import('./application/enterprise/applyEnterprisePolicy').then((m) =>
                 m.applyEnterprisePolicyFromAccount(acct),
@@ -117,10 +129,11 @@ const App: React.FC = () => {
                 void st.syncOllamaEndpoint?.().then(() => st.refreshAvailableModels());
             }
             const current = (st.agentModel || '').trim();
-            if (!current && hasCloud) {
+            const prefersOffline = localStorage.getItem('ide.offline-cyber-boot-v1') === '1';
+            if (!current && hasCloud && !prefersOffline) {
                 st.setAgentModel?.('cyberifrit|cyberifrit/qwen3.6:35b');
             }
-        }).catch(() => { /* offline / first launch */ });
+        }).catch(() => { /* offline / first launch */ }), DEFERRED_INIT_MS + 1_000);
 
         import('./application/workspace/restoreWorkspaceOnBoot').then(({ restoreWorkspaceOnBoot }) =>
             restoreWorkspaceOnBoot(activeRoot, {
@@ -163,7 +176,11 @@ const App: React.FC = () => {
             subscribe: useStore.subscribe,
         };
 
-        return () => { unsubAgentRuntime?.(); unsubBilling?.(); };
+        return () => {
+            unsubAgentRuntime?.();
+            unsubMemoryGov?.();
+            unsubBilling?.();
+        };
     }, []);
 
     return (

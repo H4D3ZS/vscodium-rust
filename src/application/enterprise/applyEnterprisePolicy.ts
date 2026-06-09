@@ -38,6 +38,8 @@ export async function applyEnterprisePolicyFromAccount(acct: {
                 localStorage.setItem('agent.reviewPolicy', 'always_ask');
             } catch { /* */ }
         }
+        const { bootstrapEnterpriseGovernance } = await import('./bootstrapEnterpriseGovernance');
+        await bootstrapEnterpriseGovernance();
         await invoke('enterprise_audit_log', {
             action: 'enterprise.session_start',
             detail: { org: policy.org_name || null, tier },

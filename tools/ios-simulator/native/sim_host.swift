@@ -31,11 +31,39 @@ func sim_overlay_set_frame(_ webview: UnsafeMutableRawPointer?, _ child: UnsafeM
 
 // MARK: - Display view (IOSurface → layer, GPU-backed)
 
+private var gTouchCb: sim_host_touch_fn?
+private var gSizeCb: sim_host_size_fn?
+private var gLastReportedSize: (UInt32, UInt32) = (0, 0)
+
+@_cdecl("sim_host_set_touch_callback")
+public func sim_host_set_touch_callback(_ cb: sim_host_touch_fn?) {
+    gTouchCb = cb
+}
+
+@_cdecl("sim_host_set_size_callback")
+public func sim_host_set_size_callback(_ cb: sim_host_size_fn?) {
+    gSizeCb = cb
+}
+
+private func forwardTouch(x: Double, y: Double, phase: String) {
+    guard let cb = gTouchCb else { return }
+    phase.withCString { cb(x, y, $0) }
+}
+
+private func findWKWebView(in view: NSView) -> NSView {
+    let name = String(describing: type(of: view))
+    if name.contains("WKWebView") || name.contains("WKFullScreen") { return view }
+    for sub in view.subviews {
+        let hit = findWKWebView(in: sub)
+        if hit !== view { return hit }
+    }
+    return view
+}
+
 final class SimDisplayView: NSView {
     override var isFlipped: Bool { true }
 
-    // Let mouse events reach the WKWebView touch-capture layer underneath.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -46,6 +74,12 @@ final class SimDisplayView: NSView {
     }
 
     func present(_ surface: IOSurface) {
+        let w = UInt32(IOSurfaceGetWidth(surface))
+        let h = UInt32(IOSurfaceGetHeight(surface))
+        if w > 0, h > 0, (w, h) != gLastReportedSize, let cb = gSizeCb {
+            gLastReportedSize = (w, h)
+            cb(w, h)
+        }
         if Thread.isMainThread {
             layer?.contents = surface
         } else {
@@ -53,6 +87,26 @@ final class SimDisplayView: NSView {
                 self?.layer?.contents = surface
             }
         }
+    }
+
+    private func normPoint(_ event: NSEvent) -> (Double, Double)? {
+        guard bounds.width > 1, bounds.height > 1 else { return nil }
+        let loc = convert(event.locationInWindow, from: nil)
+        let x = min(1, max(0, Double(loc.x / bounds.width)))
+        let y = min(1, max(0, Double(loc.y / bounds.height)))
+        return (x, y)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if let (x, y) = normPoint(event) { forwardTouch(x: x, y: y, phase: "down") }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        if let (x, y) = normPoint(event) { forwardTouch(x: x, y: y, phase: "move") }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if let (x, y) = normPoint(event) { forwardTouch(x: x, y: y, phase: "up") }
     }
 }
 
@@ -229,9 +283,9 @@ final class SimHost {
     var capture: HeadlessCapture
 
     init(webview: NSView) {
-        self.webview = webview
+        self.webview = findWKWebView(in: webview)
         capture = HeadlessCapture(view: view)
-        let wvPtr = Unmanaged.passUnretained(webview).toOpaque()
+        let wvPtr = Unmanaged.passUnretained(self.webview).toOpaque()
         let viewPtr = Unmanaged.passUnretained(view).toOpaque()
         sim_overlay_mount(wvPtr, viewPtr)
         view.autoresizingMask = []
