@@ -181,6 +181,7 @@ pub struct EditorState {
     pub iphone_manager: Arc<IPhoneEmulatorManager>,
     pub hades_vision: Arc<hades_vision::HadesVision>,
     pub apex: Arc<ApexOrchestrator>,
+    pub ane_optimizer: Arc<crate::ane_inference::AneInferenceOptimizer>,
     /// Pending tool-permission approvals: tool_id → oneshot sender.
     /// Backend emits `tool_permission_request`, then awaits the sender.
     /// Frontend responds via `respond_tool_permission` command.
@@ -481,6 +482,7 @@ impl EditorState {
                 });
                 apex_inst
             },
+            ane_optimizer: Arc::new(crate::ane_inference::AneInferenceOptimizer::new()),
             // Share the same Arc as Sentient so respond_tool_permission resolves
             // the correct oneshot sender that the autonomous_loop is waiting on.
             tool_permission_senders: sentient.permission_senders.clone(),

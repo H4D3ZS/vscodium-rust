@@ -1,0 +1,55 @@
+use tauri::State;
+use crate::EditorState;
+use serde_json::Value;
+use crate::ane_inference::AneStatus;
+
+/// Get ANE (Apple Neural Engine) status and availability
+#[tauri::command]
+pub async fn ane_get_status(
+    state: State<'_, EditorState>,
+) -> Result<AneStatus, String> {
+    Ok(state.ane_optimizer.get_status().await)
+}
+
+/// Initialize ANE for qwen3.5:2b inference acceleration
+#[tauri::command]
+pub async fn ane_init_inference(
+    state: State<'_, EditorState>,
+) -> Result<(), String> {
+    state.ane_optimizer.init_for_qwen2b().await
+}
+
+/// Check if ANE can handle current inference workload
+#[tauri::command]
+pub async fn ane_can_accelerate(
+    state: State<'_, EditorState>,
+) -> Result<bool, String> {
+    Ok(state.ane_optimizer.can_accelerate().await)
+}
+
+/// Update ANE performance metrics after inference
+#[tauri::command]
+pub async fn ane_update_metrics(
+    state: State<'_, EditorState>,
+    tokens_processed: u32,
+    elapsed_secs: f32,
+) -> Result<(), String> {
+    state.ane_optimizer.update_status(tokens_processed, elapsed_secs).await;
+    Ok(())
+}
+
+/// Get real-time ANE diagnostics
+#[tauri::command]
+pub async fn ane_diagnostics(
+    state: State<'_, EditorState>,
+) -> Result<Value, String> {
+    let status = state.ane_optimizer.get_status().await;
+    Ok(serde_json::json!({
+        "available": status.available,
+        "chip": status.model,
+        "mode": status.inference_mode,
+        "estimated_speedup": status.estimated_speedup,
+        "tokens_per_sec": status.tokens_per_sec_estimate,
+        "can_accelerate": state.ane_optimizer.can_accelerate().await,
+    }))
+}
