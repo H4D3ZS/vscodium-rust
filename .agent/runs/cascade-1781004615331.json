@@ -1,0 +1,100 @@
+{
+  "id": "cascade-1781004615331",
+  "objective": "Agent mission",
+  "status": "running",
+  "started_at": 1781004631990,
+  "finished_at": null,
+  "steps": [
+    {
+      "id": "step-1781004631990-r5djr8",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "tell me more about your capabilities show me.",
+      "tool": null,
+      "timestamp": 1781004631990,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    },
+    {
+      "id": "step-1781004655892-ve1p4q",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "let’s try what does this do? @qwen-tts-server.py",
+      "tool": null,
+      "timestamp": 1781004655892,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    },
+    {
+      "id": "step-1781004868667-zkvah6",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "hey its amazing with just ollama 2b you can respond faster why is that?",
+      "tool": null,
+      "timestamp": 1781004868667,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    },
+    {
+      "id": "step-1781004901202-f2wqkk",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "tell me about how you handle context memory if i did proper engineer and whats skills you got htere",
+      "tool": null,
+      "timestamp": 1781004901202,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    },
+    {
+      "id": "step-1781004926485-hfpmgj",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "what about the kortex aim vfs though?",
+      "tool": null,
+      "timestamp": 1781004926485,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    },
+    {
+      "id": "step-1781004964664-dg4smy",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "does it help with complex see?",
+      "tool": null,
+      "timestamp": 1781004964664,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    },
+    {
+      "id": "step-1781005007650-nbm5p0",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "so even if you’re just 2b model og granite3.1 moe we can already do complex software engineering task with mvc pattern like boilerplate?",
+      "tool": null,
+      "timestamp": 1781005007650,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    },
+    {
+      "id": "step-1781005071482-l9kzts",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "let’s start with a complex calculator using python with a guy make a new folder and properly architecture it with clean code repository and ddd pattern",
+      "tool": null,
+      "timestamp": 1781005071482,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    }
+  ],
+  "subagents": [],
+  "artifact_paths": [],
+  "summary": null
+}
