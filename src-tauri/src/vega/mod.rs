@@ -10,9 +10,11 @@
 //! (Phase 3), crawler (Phase 4), proxy (Phase 5) land in later modules.
 
 pub mod alerts;
+pub mod js_runtime;
 pub mod model;
 
 pub use alerts::AlertRegistry;
+pub use js_runtime::{JsModuleHost, ModuleKind, ModuleMeta, ModuleRunResult};
 pub use model::{
     Alert, AlertDefinition, FuzzableParam, HttpRequest, HttpResponse, ParamLocation, PathState,
     Severity,
