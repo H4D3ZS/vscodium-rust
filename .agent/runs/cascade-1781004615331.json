@@ -103,6 +103,17 @@
       "success": null,
       "subagent_id": null,
       "media_path": null
+    },
+    {
+      "id": "step-1781005483930-cbaxyr",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "were you able to do a sucesful task that i asked then?",
+      "tool": null,
+      "timestamp": 1781005483930,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
     }
   ],
   "subagents": [],
