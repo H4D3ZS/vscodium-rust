@@ -109,7 +109,13 @@ pub async fn ai_chat(
     // by background AIRI autonomous tasks.
     let app_for_final = app.clone();
     let app_handle = std::sync::Arc::new(app);
+    let accumulated = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let accumulated_clone = accumulated.clone();
+
     let on_chunk = Some(std::sync::Arc::new(move |chunk: &str| {
+        if !chunk.is_empty() {
+            let _ = accumulated_clone.lock().map(|mut acc| acc.push_str(chunk));
+        }
         let _ = app_handle.emit("ai-content-delta", serde_json::json!({ "delta": chunk }));
     }) as std::sync::Arc<dyn Fn(&str) + Send + Sync>);
 
@@ -131,8 +137,19 @@ pub async fn ai_chat(
             e.to_string()
         })?;
 
-    // ALWAYS emit response to frontend (CRITICAL: must happen even if empty)
-    let trimmed = result.trim();
+    // If result is empty but we streamed content, use accumulated chunks
+    let final_response = if result.trim().is_empty() {
+        accumulated
+            .lock()
+            .ok()
+            .map(|acc| acc.trim().to_string())
+            .unwrap_or_default()
+    } else {
+        result.clone()
+    };
+
+    // ALWAYS emit response to frontend (CRITICAL: use accumulated if result empty)
+    let trimmed = final_response.trim();
     let emit_result = app_for_final.emit("ai-content", serde_json::json!({ "content": trimmed }));
 
     if let Err(e) = &emit_result {
@@ -141,7 +158,12 @@ pub async fn ai_chat(
         eprintln!("[ai_chat] Response emitted to frontend");
     }
 
-    let done_log = format!("[ai_chat] DONE: response_len={}, emit_ok={}\n", result.len(), emit_result.is_ok());
+    let done_log = format!(
+        "[ai_chat] DONE: result_len={}, final_len={}, emit_ok={}\n",
+        result.len(),
+        trimmed.len(),
+        emit_result.is_ok()
+    );
     eprintln!("{}", done_log.trim());
     let _ = std::fs::OpenOptions::new()
         .create(true).append(true)
@@ -158,9 +180,9 @@ pub async fn ai_chat(
     });
 
     // Satisfy AiResponse usage warning
-    let _response = AiResponse { content: result.clone() };
+    let _response = AiResponse { content: final_response.clone() };
 
-    Ok(result)
+    Ok(final_response)
 }
 
 /// Trivial-chat fast path. Skips the autonomous loop, the phase
@@ -190,13 +212,31 @@ pub async fn ai_chat_fast(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Frontend polls `chat_stream_drain` during fast chat — merge any tail
+    // still in the buffer with the HTTP return value.
+    let drained = {
+        let mut b = engine
+            .chat_stream_buf
+            .lock()
+            .map_err(|e| format!("chat_stream_buf lock poisoned: {e}"))?;
+        std::mem::take(&mut *b)
+    };
+    let final_response = if result.trim().is_empty() {
+        drained.trim().to_string()
+    } else {
+        result
+    };
+
     // Keep the existing UI plumbing happy: every other code path
     // delivers the response via the `ai-content` event, so emit it
     // here too. The frontend `ai-content` listener calls
     // `updateLastAgentMessage` and flips `isAgentThinking` off.
-    engine.emit_event("ai-content", serde_json::json!({ "content": result.clone() }));
+    engine.emit_event(
+        "ai-content",
+        serde_json::json!({ "content": final_response.clone() }),
+    );
 
-    Ok(result)
+    Ok(final_response)
 }
 
 /// Background-agent entry point. Same engine, same tool surface as
