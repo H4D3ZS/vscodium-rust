@@ -494,6 +494,7 @@ pub fn run() {
             model_commands::set_current_model,
             model_commands::get_model_info,
             model_commands::detect_best_model,
+            model_commands::apply_model_to_all_engines,
             // ═══ Optimized Inference (ANE + Memory + MoE) ═══
             inference_commands::inference_get_status,
             inference_commands::inference_prepare_model,
