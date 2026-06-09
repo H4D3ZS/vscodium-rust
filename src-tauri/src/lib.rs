@@ -25,6 +25,7 @@ mod model_commands;
 pub mod memory_offload;
 pub mod optimized_inference;
 mod inference_commands;
+pub mod vega;
 pub mod auth_commands;
 pub mod browser_actuation;
 pub mod process_ext;
