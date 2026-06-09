@@ -4215,10 +4215,15 @@ listen('ai-thinking', (event: { payload: { thought: string } | any }) => {
     }
 });
 
-listen('ai-content', (event: { payload: { content: string } | any }) => {
-    if (event.payload && event.payload.content) {
-        console.log("AI_CONTENT RECEIVED:", event.payload.content.substring(0, 50) + "...");
-        useStore.getState().updateLastAgentMessage(cleanAgentContent(event.payload.content));
+listen('ai-content', (event: any) => {
+    // Handle both event.payload.content and direct event.content structures
+    const content = event?.payload?.content ?? event?.content;
+
+    if (content && typeof content === 'string' && content.trim().length > 0) {
+        console.log("[AI-CONTENT] Received", content.length, "chars:", content.substring(0, 80) + "...");
+        useStore.getState().updateLastAgentMessage(cleanAgentContent(content));
+    } else {
+        console.warn("[AI-CONTENT] Ignored invalid payload:", { event, contentType: typeof content, contentLen: content?.length });
     }
 });
 
