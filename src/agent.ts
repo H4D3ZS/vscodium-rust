@@ -1425,23 +1425,33 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
     }
 
     // ── Pro agentic mode gate (Sentient / Harness / Planning) ─────────────
+    // Tries online check first, falls back to cached tier for offline use
     {
         const mode = store.getState().agentMode || '';
         const modeL = mode.toLowerCase();
         const needsProAgentic = modeL === 'sentient' || modeL === 'harness' || modeL === 'planning'
             || modeL === 'yolo' || modeL.includes('bug bounty') || modeL === 'bugbounty';
         if (needsProAgentic) {
+            let ok = false;
             try {
-                const ok = await invoke<boolean>('account_has_feature', { feature: 'agentic' });
-                if (!ok) {
-                    store.getState().addAgentMessage?.('assistant',
-                        '🔒 **Full agentic modes (Sentient, Harness, Bug Bounty) require Pro Developer or higher.**\n\n' +
-                        'Community tier includes basic chat + local Ollama. Start the **1-day free trial** or subscribe in **Settings → Account**.');
-                    try { store.getState().openSettings?.('agent'); } catch { /* */ }
-                    store.getState().setIsAgentThinking?.(false);
-                    return;
+                // Try online check first (most accurate)
+                ok = await invoke<boolean>('account_has_feature', { feature: 'agentic' });
+            } catch {
+                // Backend unavailable — check cached tier (offline support)
+                try {
+                    ok = await invoke<boolean>('account_has_feature_offline', { feature: 'agentic' });
+                } catch {
+                    // No cached tier either
                 }
-            } catch { /* backend hiccup */ }
+            }
+            if (!ok) {
+                store.getState().addAgentMessage?.('assistant',
+                    '🔒 **Full agentic modes (Sentient, Harness, Bug Bounty) require Pro Developer or higher.**\n\n' +
+                    'Community tier includes basic chat + local Ollama. Start the **1-day free trial** or subscribe in **Settings → Account**.');
+                try { store.getState().openSettings?.('agent'); } catch { /* */ }
+                store.getState().setIsAgentThinking?.(false);
+                return;
+            }
         }
     }
 
@@ -1485,7 +1495,17 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         const provider = (model.split('|')[0] || '').toLowerCase();
         const isManagedCloud = provider.includes('cyberifrit') || provider.includes('cyber-ifrit');
         if (isManagedCloud) {
-            const ok = await invoke<boolean>('account_has_feature', { feature: 'cloud_models' });
+            let ok = false;
+            try {
+                ok = await invoke<boolean>('account_has_feature', { feature: 'cloud_models' });
+            } catch {
+                // Offline fallback: check cached tier
+                try {
+                    ok = await invoke<boolean>('account_has_feature_offline', { feature: 'cloud_models' });
+                } catch {
+                    // No cached tier
+                }
+            }
             if (!ok) {
                 store.getState().addAgentMessage?.('assistant',
                     '🔒 **Cyber-Ifrit Cloud is a paid feature.** Our hosted models need an active plan or the free trial.\n\n' +

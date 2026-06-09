@@ -312,6 +312,25 @@ pub async fn account_has_feature(state: State<'_, EditorState>, feature: String)
     Ok(ok)
 }
 
+/// Check for offline feature access (uses cached tier, works without internet)
+#[tauri::command]
+pub async fn account_has_feature_offline(state: State<'_, EditorState>, feature: String) -> Result<bool, String> {
+    let acc = AccountManager::load(&state.config_dir);
+
+    // Enterprise and Security Researcher get everything
+    if matches!(acc.tier, Tier::Enterprise | Tier::SecurityResearcher) {
+        return Ok(true);
+    }
+
+    // Pro Developer gets agentic, cloud_models
+    if matches!(acc.tier, Tier::ProDeveloper) && (feature == "agentic" || feature == "cloud_models") {
+        return Ok(true);
+    }
+
+    // Community gets nothing premium
+    Ok(false)
+}
+
 /// Set the subscription tier. LOCAL/dev path for now — in production this is
 /// driven by the billing backend (Stripe webhook → account service), never the
 /// client. Exposed so the IDE can reflect a tier the backend reports.
