@@ -13,6 +13,7 @@ const ModelSelectorPanel: React.FC = () => {
     const [currentModel, setCurrentModel] = useState<string>('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [applyToAll, setApplyToAll] = useState(false);
 
     useEffect(() => {
         loadModels();
@@ -37,7 +38,11 @@ const ModelSelectorPanel: React.FC = () => {
 
     const handleSelectModel = async (modelName: string) => {
         try {
-            await invoke('set_current_model', { modelName });
+            if (applyToAll) {
+                await invoke('apply_model_to_all_engines', { modelName });
+            } else {
+                await invoke('set_current_model', { modelName });
+            }
             setCurrentModel(modelName);
         } catch (err) {
             setError(`Failed to select model: ${err}`);
@@ -104,6 +109,28 @@ const ModelSelectorPanel: React.FC = () => {
 
                 <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 12 }}>
                     Current Model: <strong>{currentModel || 'None selected'}</strong>
+                </div>
+
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginBottom: 16,
+                    padding: 10,
+                    background: '#ffffff05',
+                    borderRadius: 4,
+                    border: '1px solid #ffffff10'
+                }}>
+                    <input
+                        type="checkbox"
+                        id="apply-to-all"
+                        checked={applyToAll}
+                        onChange={(e) => setApplyToAll(e.target.checked)}
+                        style={{ cursor: 'pointer', width: 16, height: 16 }}
+                    />
+                    <label htmlFor="apply-to-all" style={{ cursor: 'pointer', fontSize: 12, margin: 0, flex: 1 }}>
+                        Apply to all specialist engines (architect, threat, perf, etc.)
+                    </label>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -1,7 +1,7 @@
 use tauri::State;
 use crate::EditorState;
 use serde_json::{json, Value};
-use crate::model_manager::{OllamaModel, ModelInfo, get_context_window, is_suitable_for_offline, parse_param_count};
+use crate::model_manager::{ModelInfo, get_context_window, is_suitable_for_offline, parse_param_count};
 
 /// List all available models from local Ollama
 #[tauri::command]
@@ -136,4 +136,36 @@ pub async fn detect_best_model(
     }
 
     Err("No suitable models found for offline 12b-and-below work".to_string())
+}
+
+/// Apply a model to all APEX specialist engines
+#[tauri::command]
+pub async fn apply_model_to_all_engines(
+    state: State<'_, EditorState>,
+    model_name: String,
+) -> Result<Value, String> {
+    // Verify model exists in Ollama
+    let models = list_ollama_models(state.clone()).await?;
+    let _found = models.iter()
+        .find(|m| m.name == model_name)
+        .ok_or_else(|| format!("Model '{}' not found in Ollama", model_name))?;
+
+    // Apply to all APEX engines
+    let engines = vec!["architect", "threat", "perf", "self_improve", "explainer", "multi_system", "predictor"];
+
+    for engine in &engines {
+        state.apex.set_engine_model(engine, &model_name).await;
+    }
+
+    // Also set as current model
+    set_current_model(state.clone(), model_name.clone()).await?;
+
+    println!("[Model] Applied '{}' to all {} APEX engines", model_name, engines.len());
+
+    Ok(json!({
+        "status": "success",
+        "model": model_name,
+        "engines_updated": engines.len(),
+        "message": format!("Model '{}' applied to all specialist engines", model_name)
+    }))
 }

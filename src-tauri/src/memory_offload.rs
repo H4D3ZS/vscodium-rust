@@ -1,7 +1,7 @@
 /// Memory Offload Manager — Keep 12b models in 8GB RAM by smart caching to SSD
 /// Uses Kortex AIM VFS + memmap2 for transparent SSD offloading
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
