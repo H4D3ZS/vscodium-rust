@@ -40,10 +40,6 @@ impl CommandExtHidden for Command {
             use std::os::windows::process::CommandExt;
             self.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
         }
-        #[cfg(not(target_os = "windows"))]
-        {
-            self
-        }
         self
     }
 }
@@ -78,10 +74,6 @@ impl TokioCommandExtHidden for tokio::process::Command {
         {
             use std::os::windows::process::CommandExt;
             self.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            self
         }
         self
     }
