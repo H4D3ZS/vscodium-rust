@@ -21,6 +21,9 @@ pub mod ane_inference;
 mod ane_commands;
 pub mod model_manager;
 mod model_commands;
+pub mod memory_offload;
+pub mod optimized_inference;
+mod inference_commands;
 pub mod auth_commands;
 pub mod browser_actuation;
 pub mod process_ext;
@@ -491,6 +494,10 @@ pub fn run() {
             model_commands::set_current_model,
             model_commands::get_model_info,
             model_commands::detect_best_model,
+            // ═══ Optimized Inference (ANE + Memory + MoE) ═══
+            inference_commands::inference_get_status,
+            inference_commands::inference_prepare_model,
+            inference_commands::inference_get_setup_recommendation,
             // ═══ Android Commands ═══
             android_commands::adb_list_devices,
             android_commands::adb_list_emulators,
