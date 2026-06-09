@@ -3979,6 +3979,9 @@ impl Sentient {
                             if let Some(content) = val["delta"]["text"].as_str() {
                                 full_content.push_str(content);
                                 delta_to_emit = Some(content.to_string());
+                                if let Ok(mut b) = self.chat_stream_buf.lock() {
+                                    b.push_str(content);
+                                }
                                 if let Some(ref cb) = on_chunk {
                                     cb(content);
                                 }
