@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert>
+<title>Integer Overflow</title>
+	
+	<class>Boundary Condition Error</class>
+	<severity>High</severity>
+
+	<discussion>
+    Integer overflows occur when integer data types exceed their maximum value. When this occurs in programs written in languages such as C, the resulting behavior can have security implications. In these cases, unsigned integers will be reduced, wrapping back to a lower numeric value. The potential impact on security depends on how the integer value is used. If it is used as the size of a data buffer, forcing it to wrap to a lower value may result in bypassing of size checks, introducing possible buffer overflow conditions.
+	</discussion>
+
+  <impact>
+    Integer overflow errors can have a variety of impacts, depending on the context and the purpose of the integer value.
+  </impact>
+  <impact>
+    Integers used to check the size of a data buffer, if reduced, can incorrectly represent the total amount of data, resulting in a possible buffer overflow.
+  </impact>
+
+  <remediation>
+    The developer should investigate the error and determine if a vulnerability is present.
+  </remediation>
+
+  <references>
+    <url address="https://www.owasp.org/index.php/Integer_overflow">Integer overflow (OWASP)</url>
+    <url address="http://en.wikipedia.org/wiki/Integer_overflow">Integer overflow (Wikipedia)</url>
+  </references>
+
+</alert>
+
