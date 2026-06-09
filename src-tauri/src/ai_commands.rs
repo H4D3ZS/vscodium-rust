@@ -131,8 +131,8 @@ pub async fn ai_chat(
             e.to_string()
         })?;
 
-    // Push final response unless the user stopped mid-run (stream buffer already cleared).
-    if !state.ai_engine.is_stopped() {
+    // Push final response (always emit, even if stopped — user should see the partial response)
+    if !result.trim().is_empty() {
         let _ = app_for_final.emit("ai-content", serde_json::json!({ "content": result.trim() }));
     }
 
