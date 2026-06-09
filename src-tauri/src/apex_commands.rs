@@ -234,3 +234,26 @@ pub async fn apex_get_findings_history(
     let history = state.apex.red_team().get_findings_history().await;
     serde_json::to_value(&history).map_err(|e| e.to_string())
 }
+
+/// Auto-downgrade all APEX engines to small models for local/offline use
+/// Recommended for M1 Macs with limited RAM (8GB+)
+#[tauri::command]
+pub async fn apex_set_local_mode(
+    state: State<'_, EditorState>,
+    small_model: Option<String>,
+) -> Result<(), String> {
+    let model = small_model.unwrap_or_else(|| "qwen3.5:2b".to_string());
+    let engines = vec![
+        "architect",
+        "threat",
+        "perf",
+        "self_improve",
+        "explainer",
+        "multi_system",
+        "predictor",
+    ];
+    for engine in engines {
+        state.apex.set_engine_model(engine, &model).await;
+    }
+    Ok(())
+}
