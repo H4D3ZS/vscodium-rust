@@ -884,6 +884,7 @@ pub fn run() {
             ios_simulator::ios_sim_stop_mirror,
             ios_simulator::ios_sim_send_touch,
             ios_simulator::ios_sim_send_home,
+            ios_simulator::ios_sim_capture_screenshot,
             ios_simulator::ios_sim_mirror_running,
             ios_simulator::ios_sim_warmup,
             ios_simulator::ios_sim_pause,
