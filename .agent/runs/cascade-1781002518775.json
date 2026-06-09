@@ -1,0 +1,23 @@
+{
+  "id": "cascade-1781002518775",
+  "objective": "Agent mission",
+  "status": "running",
+  "started_at": 1781002669936,
+  "finished_at": null,
+  "steps": [
+    {
+      "id": "step-1781002669936-0u6k7k",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "introduce yourself",
+      "tool": null,
+      "timestamp": 1781002669936,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    }
+  ],
+  "subagents": [],
+  "artifact_paths": [],
+  "summary": null
+}
