@@ -15,6 +15,17 @@
       "success": null,
       "subagent_id": null,
       "media_path": null
+    },
+    {
+      "id": "step-1780999129548-qws7xb",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "introduce yourself",
+      "tool": null,
+      "timestamp": 1780999129548,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
     }
   ],
   "subagents": [],
