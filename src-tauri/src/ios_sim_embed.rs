@@ -19,7 +19,7 @@ mod mac {
     static DOCK_THREAD: Mutex<Option<thread::JoinHandle<()>>> = Mutex::new(None);
     static WINDOW_BIN: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-    const HELPERS_VERSION: &str = "7";
+    const SIM_WINDOW_VERSION: &str = "2";
 
     fn cache_dir() -> PathBuf {
         dirs::cache_dir()
@@ -32,23 +32,23 @@ mod mac {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tools/ios-simulator/helpers/sim-window.swift")
     }
 
-    fn helpers_version_ok() -> bool {
-        let stamp = cache_dir().join(".helpers-version");
+    fn sim_window_version_ok() -> bool {
+        let stamp = cache_dir().join(".sim-window-version");
         stamp.exists()
             && std::fs::read_to_string(&stamp)
-                .map(|v| v.trim() == HELPERS_VERSION)
+                .map(|v| v.trim() == SIM_WINDOW_VERSION)
                 .unwrap_or(false)
     }
 
-    fn stamp_helpers_version() {
+    fn stamp_sim_window_version() {
         let _ = std::fs::create_dir_all(cache_dir());
-        let _ = std::fs::write(cache_dir().join(".helpers-version"), HELPERS_VERSION);
+        let _ = std::fs::write(cache_dir().join(".sim-window-version"), SIM_WINDOW_VERSION);
     }
 
     fn ensure_sim_window() -> Result<PathBuf, String> {
         let bin = cache_dir().join("sim-window");
         let src = helper_source();
-        if bin.exists() && helpers_version_ok() {
+        if bin.exists() && sim_window_version_ok() {
             if let Ok(src_m) = std::fs::metadata(&src).and_then(|m| m.modified()) {
                 if let Ok(bin_m) = std::fs::metadata(&bin).and_then(|m| m.modified()) {
                     if bin_m >= src_m {
@@ -71,7 +71,7 @@ mod mac {
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
-        stamp_helpers_version();
+        stamp_sim_window_version();
         *WINDOW_BIN.lock().unwrap() = Some(bin.clone());
         Ok(bin)
     }

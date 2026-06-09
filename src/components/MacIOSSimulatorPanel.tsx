@@ -281,6 +281,21 @@ const MacIOSSimulatorPanel: React.FC = () => {
         };
     }, []);
 
+    // Pause IOSurface capture when the IDE tab/window is hidden to save GPU/RAM.
+    useEffect(() => {
+        if (!running) return undefined;
+        const onVis = () => {
+            if (document.hidden) {
+                void invoke('ios_sim_pause').catch(() => {});
+            } else {
+                void invoke('ios_sim_resume').catch(() => {});
+                syncPanelLayout();
+            }
+        };
+        document.addEventListener('visibilitychange', onVis);
+        return () => document.removeEventListener('visibilitychange', onVis);
+    }, [running, syncPanelLayout]);
+
     useEffect(() => {
         if (!running) {
             const id = setInterval(() => void refreshDevices(), 25_000);
@@ -389,13 +404,25 @@ const MacIOSSimulatorPanel: React.FC = () => {
 
     const handleHome = () => { void invoke('ios_sim_send_home').catch(() => {}); };
 
-    const handleScreenshot = () => {
-        const img = streamImgRef.current;
-        if (!img?.src) return;
-        const a = document.createElement('a');
-        a.href = img.src;
-        a.download = `${deviceDisplayName.replace(/\s+/g, '_')}_${Date.now()}.jpg`;
-        a.click();
+    const handleScreenshot = async () => {
+        if (panelMode === 'stream') {
+            const img = streamImgRef.current;
+            if (!img?.src) return;
+            const a = document.createElement('a');
+            a.href = img.src;
+            a.download = `${deviceDisplayName.replace(/\s+/g, '_')}_${Date.now()}.jpg`;
+            a.click();
+            return;
+        }
+        try {
+            const b64 = await invoke<string>('ios_sim_capture_screenshot');
+            const a = document.createElement('a');
+            a.href = `data:image/png;base64,${b64}`;
+            a.download = `${deviceDisplayName.replace(/\s+/g, '_')}_${Date.now()}.png`;
+            a.click();
+        } catch (e) {
+            setError(String(e));
+        }
     };
 
     if (showLegacy) {
@@ -478,7 +505,7 @@ const MacIOSSimulatorPanel: React.FC = () => {
                                     display: hasDisplay ? 'block' : 'none',
                                 }}
                             />
-                        ) : running && hasDisplay ? (
+                        ) : running && hasDisplay && panelMode !== 'native' ? (
                             <div
                                 aria-hidden
                                 onMouseDown={onTouchDown}
@@ -495,6 +522,9 @@ const MacIOSSimulatorPanel: React.FC = () => {
                                     background: 'transparent',
                                 }}
                             />
+                        ) : running && hasDisplay && panelMode === 'native' ? (
+                            /* Native SimDisplayView sits above WKWebView in AppKit — receives HID touch directly */
+                            null
                         ) : (
                             <div style={{ width: '100%', height: '100%', pointerEvents: 'none' }} />
                         )}

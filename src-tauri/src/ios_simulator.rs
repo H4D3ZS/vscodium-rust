@@ -39,7 +39,7 @@ mod mac {
     static FRAMES_EMITTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     const DEVICE_CACHE_TTL: Duration = Duration::from_secs(15);
-    const HELPERS_VERSION: &str = "9";
+    const HELPERS_VERSION: &str = "10";
 
     #[derive(Clone, Copy)]
     struct MirrorProfile {
@@ -372,6 +372,7 @@ mod mac {
     /// Compile capture/input helpers off the hot path (panel mount / preflight).
     pub fn warmup_helpers() {
         crate::ios_sim_embed::warmup();
+        invalidate_helpers_if_stale();
         thread::spawn(|| {
             let _ = ensure_sim_capture();
             let _ = ensure_sim_input();
@@ -980,6 +981,58 @@ mod mac {
         write_input_event(json!({ "type": "button-tap", "name": "home" }))
     }
 
+    pub fn capture_screenshot() -> Result<String, String> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let udid = {
+            let active = ACTIVE_UDID.lock().unwrap().clone();
+            if !active.is_empty() {
+                active
+            } else {
+                list_devices_internal()?
+                    .into_iter()
+                    .find(|d| d.booted)
+                    .map(|d| d.udid)
+                    .ok_or_else(|| "No booted simulator — start mirror or boot a device".to_string())?
+            }
+        };
+
+        let path = ensure_cache_dir().join(format!(
+            "screenshot-{}.png",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        ));
+        let path_str = path.to_str().ok_or("invalid screenshot path")?;
+
+        let output = Command::new("xcrun")
+            .args(["simctl", "io", &udid, "screenshot", path_str])
+            .output()
+            .map_err(|e| format!("simctl screenshot: {e}"))?;
+        if !output.status.success() {
+            let detail = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stderr),
+                String::from_utf8_lossy(&output.stdout),
+            )
+            .trim()
+            .to_string();
+            return Err(if detail.is_empty() {
+                "simctl screenshot failed".into()
+            } else {
+                detail
+            });
+        }
+
+        let bytes = std::fs::read(&path).map_err(|e| format!("read screenshot: {e}"))?;
+        let _ = std::fs::remove_file(&path);
+        if bytes.is_empty() {
+            return Err("screenshot file empty".into());
+        }
+        Ok(STANDARD.encode(bytes))
+    }
+
     pub fn is_running() -> bool {
         MIRROR_RUNNING.load(Ordering::SeqCst)
     }
@@ -1059,6 +1112,12 @@ pub fn ios_sim_send_home() -> Result<(), String> {
 
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
+pub fn ios_sim_capture_screenshot() -> Result<String, String> {
+    Err(mac_only_msg())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
 pub fn ios_sim_mirror_running() -> bool {
     false
 }
@@ -1107,6 +1166,12 @@ pub fn ios_sim_send_touch(x_ratio: f64, y_ratio: f64, phase: String) -> Result<(
 #[tauri::command]
 pub fn ios_sim_send_home() -> Result<(), String> {
     mac::send_home()
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn ios_sim_capture_screenshot() -> Result<String, String> {
+    mac::capture_screenshot()
 }
 
 #[cfg(target_os = "macos")]
