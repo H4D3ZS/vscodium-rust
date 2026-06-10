@@ -383,7 +383,7 @@ pub async fn ml_studio_train(
     let image_dir = ml.join("data").join("images");
     let use_vision = image_dir.is_dir()
         && std::fs::read_dir(&image_dir)
-            .map(|mut d| d.filter_map(|e| e.ok()).any(|e| e.path().is_dir()))
+            .map(|d| d.filter_map(|e| e.ok()).any(|e| e.path().is_dir()))
             .unwrap_or(false);
     let script_name = if use_vision { "train_vision.py" } else { "train_classifier.py" };
     let train_script = ml.join("scripts").join(script_name);

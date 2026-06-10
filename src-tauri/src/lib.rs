@@ -151,7 +151,7 @@ pub(crate) use domain::extensions::extension_host;
 pub(crate) use domain::extensions::keybindings;
 pub(crate) use domain::extensions::marketplace;
 pub use domain::ai::ai_engine;
-pub use domain::ai::ai_tools;
+pub use domain::tools as ai_tools;
 pub use domain::ai::ane;
 pub use domain::ai::ane_inference;
 pub use domain::ai::model_manager;

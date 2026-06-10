@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: A1 — split the giants: ai_tools.rs (8.5K LOC → domain/tools/ as registry/shell/web/security_tools/fs_tools) then ai_engine.rs (7.2K → sentient/streaming/providers/prompt). Read the file's pub surface first; keep `pub use` re-exports in domain/ai/ai_tools.rs so call sites don't change. After giants: EditorState substructs, then final shim cleanup in lib.rs.
+**Next action**: A1 — split ai_engine.rs (7.2K LOC, domain/ai/) → sentient/streaming/providers/prompt using the same recipe as the tools split (see domain/tools/: contiguous line-range cuts, one `impl Sentient` block per file, promote cross-module methods+fields to pub(crate), shared imports per file, lib.rs shim `pub use domain::ai_engine as ai_engine`-style alias). After: EditorState substructs, final shim cleanup in lib.rs.
 
 ---
 
@@ -30,7 +30,7 @@
 | Batch 7: editor/lsp (lsp*, debug_adapter) → domain/editor | done | e57b9388 |
 | Batch 8: extensions (extension_host, marketplace, activation, keybindings, context_key) → domain/extensions | done | e57b9388 |
 | Batch 9: ai domain moved whole (engine, tools, ANE, harnesses, vision, workflow) — split still todo | done | 21b41649 |
-| Split ai_tools.rs (8,511 LOC) → domain/tools/{registry,shell,web,security_tools,fs_tools}.rs | todo | — |
+| Split ai_tools.rs (8,511 LOC) → domain/tools/{registry,schemas,dispatch,shell,fs_tools,security_tools,web_edit} | done | (tools-split commit) |
 | Split ai_engine.rs (7,207 LOC) → domain/ai/{sentient,streaming,providers,prompt}.rs | todo | — |
 | ai_commands.rs → thin wrappers in application/commands/ai.rs (testable inner fns) | todo | — |
 | All 44 *_commands.rs → application/commands/<domain>.rs (move done; thin-wrapper extraction per-file still todo) | done | (commands batch) |

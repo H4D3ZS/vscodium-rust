@@ -196,7 +196,7 @@ pub async fn lsp_send_request(
         .and_then(|u| u.as_str())
         .unwrap_or("")
         .to_string();
-    let mut router = state.lsp_router.lock().await;
+    let router = state.lsp_router.lock().await;
     let client = router
         .client_for_uri(&uri)
         .await
@@ -214,7 +214,7 @@ pub async fn lsp_stop(state: State<'_, EditorState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn lsp_initialized(state: State<'_, EditorState>) -> Result<(), String> {
+pub async fn lsp_initialized(_state: State<'_, EditorState>) -> Result<(), String> {
     Ok(())
 }
 
