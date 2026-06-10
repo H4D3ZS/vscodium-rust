@@ -1,8 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { runCodebaseSecurityReview } from '../../application/security/runCodebaseSecurityReview';
+import type { SecurityPanelTab } from '../../application/security/runCodebaseSecurityReview';
 import { severityColor, severityRank, type SecurityFinding, type SecuritySeverity } from '../../domain/security/SecurityFinding';
 import SecurityArsenalPanel from './SecurityArsenalPanel';
+import ChunkSecretScannerPanel from './ChunkSecretScannerPanel';
 
 const SEVERITIES: SecuritySeverity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
 
@@ -27,7 +29,16 @@ const SecurityReviewPanel: React.FC = () => {
 
     const [filter, setFilter] = useState<SecuritySeverity | 'ALL'>('ALL');
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [tab, setTab] = useState<'review' | 'arsenal'>('review');
+    const [tab, setTab] = useState<SecurityPanelTab>('review');
+
+    useEffect(() => {
+        const onTab = (e: Event) => {
+            const t = (e as CustomEvent<{ tab?: SecurityPanelTab }>).detail?.tab;
+            if (t === 'review' || t === 'arsenal' || t === 'chunks') setTab(t);
+        };
+        window.addEventListener('hades:security-tab', onTab);
+        return () => window.removeEventListener('hades:security-tab', onTab);
+    }, []);
 
     const filtered = useMemo(() => {
         if (!report) return [];
@@ -87,6 +98,15 @@ const SecurityReviewPanel: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <TabBar tab={tab} setTab={setTab} />
                 <SecurityArsenalPanel onOpenReview={() => setTab('review')} />
+            </div>
+        );
+    }
+
+    if (tab === 'chunks') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <ChunkSecretScannerPanel />
             </div>
         );
     }
@@ -321,9 +341,13 @@ const SecurityReviewPanel: React.FC = () => {
     );
 };
 
-const TabBar: React.FC<{ tab: 'review' | 'arsenal'; setTab: (t: 'review' | 'arsenal') => void }> = ({ tab, setTab }) => (
+const TabBar: React.FC<{ tab: SecurityPanelTab; setTab: (t: SecurityPanelTab) => void }> = ({ tab, setTab }) => (
     <div style={{ display: 'flex', gap: 4, padding: '8px 10px', borderBottom: '1px solid var(--vscode-panel-border)', flexShrink: 0 }}>
-        {(['review', 'arsenal'] as const).map((t) => (
+        {([
+            ['review', 'Code Review'],
+            ['chunks', 'Bundle Intel'],
+            ['arsenal', 'Arsenal'],
+        ] as const).map(([t, label]) => (
             <button
                 key={t}
                 type="button"
@@ -339,7 +363,7 @@ const TabBar: React.FC<{ tab: 'review' | 'arsenal'; setTab: (t: 'review' | 'arse
                     color: tab === t ? 'var(--vscode-button-foreground, #fff)' : 'inherit',
                 }}
             >
-                {t === 'review' ? 'Code Review' : 'Security Arsenal'}
+                {label}
             </button>
         ))}
     </div>

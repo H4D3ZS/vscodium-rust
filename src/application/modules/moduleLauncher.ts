@@ -1,5 +1,6 @@
 import { invoke } from '../../tauri_bridge';
 import { openPyTorchStudio } from '../pytorch/openPyTorchStudio';
+import { openSecurityReviewPanel } from '../security/runCodebaseSecurityReview';
 
 type LaunchResult = {
     ok?: boolean;
@@ -26,6 +27,13 @@ export async function launchInstalledModule(moduleId: string): Promise<void> {
                 return;
             case 'adr-manager':
                 window.dispatchEvent(new CustomEvent('hades:open-panel', { detail: { panel: 'adr-manager' } }));
+                return;
+            case 'chunk-secret-scanner':
+            case 'zero-day-hunter':
+                openSecurityReviewPanel('chunks');
+                return;
+            case 'vega-dast':
+                openSecurityReviewPanel('chunks');
                 return;
             default:
                 throw new Error(`Unknown component: ${result.component_id}`);
