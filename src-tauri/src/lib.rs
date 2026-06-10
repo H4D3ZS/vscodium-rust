@@ -53,6 +53,7 @@ mod chunk_secrets;
 mod chunk_secrets_commands;
 mod security_patterns;
 mod security_native;
+mod vega_commands;
 mod android_commands;
 mod android_sdk;
 mod gradle_commands;
@@ -882,6 +883,9 @@ pub fn run() {
             chunk_secrets_commands::security_xss_probe_url,
             chunk_secrets_commands::security_bounty_scan_url,
             chunk_secrets_commands::security_native_tools,
+            vega_commands::vega_list_modules,
+            vega_commands::vega_scan,
+            vega_commands::vega_disciplines,
             workspace_settings_commands::get_workspace_settings,
             workspace_settings_commands::update_workspace_settings,
             port_commands::list_listening_ports,
