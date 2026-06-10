@@ -60,7 +60,7 @@ impl ModuleMeta {
 /// The pure-JS API shim injected before every module. Defines `ctx`, and the
 /// `__mkRequest` / `__mkResponse` factories the runner uses. Findings accumulate
 /// in `__vega_alerts`; highlights in `__vega_highlights`.
-const VEGA_JS_PRELUDE: &str = r#"
+pub const VEGA_JS_PRELUDE: &str = r#"
 var __vega_alerts = [];
 var __vega_highlights = [];
 var __vega_seen_keys = {};
@@ -123,7 +123,7 @@ function __mkRequest(o) {
 
 /// A finding as emitted by the JS shim, before resolution against the registry.
 #[derive(Debug, Clone, Deserialize)]
-struct RawAlert {
+pub(crate) struct RawAlert {
     type_key: String,
     #[serde(default)]
     output: String,
@@ -219,6 +219,11 @@ impl JsModuleHost {
             alerts,
             highlights: out.highlights,
         })
+    }
+
+    /// Resolve a raw JS alert against the registry, filling in title/severity.
+    pub fn resolve_alert_public(&self, raw: RawAlert, ts_ms: u64) -> Alert {
+        self.resolve_alert(raw, ts_ms)
     }
 
     /// Resolve a raw JS alert against the registry, filling in title/severity.
