@@ -577,7 +577,7 @@ const Sidebar: React.FC = () => {
         'debug-view': 'RUN AND DEBUG',
         'test-view': 'TEST EXPLORER',
         'extensions-view': 'EXTENSIONS',
-        'security-view': 'SECURITY REVIEW',
+        'security-view': 'CYBER OPS',
         'specs-view': 'SPECS',
         'tasks-view': 'TASKS & SPECS',
         'steering-view': 'STEERING & HOOKS',

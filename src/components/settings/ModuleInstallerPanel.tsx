@@ -11,17 +11,18 @@ import type { CatalogModuleRow, ModuleCategory } from '../../store/moduleSlice';
 
 const CATEGORY_ORDER = [
     'dev-tools',
+    'web-pentest',
     'pentest',
-    'dast-proxy',
     'red-team',
+    'malware-re',
     'secret-intel',
+    'mobile-security',
     'osint-recon',
     'tech-industry',
     'documentation',
     'performance',
     'ai-ml',
     'compliance',
-    'mobile-security',
 ];
 
 const ModuleInstallerPanel: React.FC = () => {

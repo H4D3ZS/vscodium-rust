@@ -63,6 +63,7 @@ ignore = "0.4"
 uuid = { version = "1", features = ["v4", "serde"] }
 futures = "0.3.32"
 async-trait = "0.1.89"
+url = "2.5"
 urlencoding = "2.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

@@ -1,0 +1,196 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { invoke } from '../../tauri_bridge';
+
+type VegaAlert = {
+    type_key: string;
+    title: string;
+    severity: string;
+    resource: string;
+    output: string;
+    detection_type?: string;
+};
+
+type ScanResult = {
+    target: string;
+    paths_scanned: number;
+    modules_run: number;
+    alerts: VegaAlert[];
+    duration_ms: number;
+};
+
+const SEV_COLOR: Record<string, string> = {
+    critical: '#ef4444',
+    high: '#f97316',
+    medium: '#eab308',
+    low: '#94a3b8',
+    info: '#64748b',
+};
+
+const VegaScannerPanel: React.FC = () => {
+    const [target, setTarget] = useState('https://');
+    const [authorized, setAuthorized] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+    const [result, setResult] = useState<ScanResult | null>(null);
+    const [expanded, setExpanded] = useState<string | null>(null);
+    const [moduleCount, setModuleCount] = useState(0);
+
+    useEffect(() => {
+        invoke<{ id: string; kind: string }[]>('vega_list_modules')
+            .then((m) => setModuleCount(m.filter((x) => x.kind === 'injection').length))
+            .catch(() => {});
+    }, []);
+
+    const runScan = useCallback(async () => {
+        setError('');
+        setBusy(true);
+        setResult(null);
+        try {
+            const data = await invoke<ScanResult>('vega_scan', {
+                options: {
+                    targetUrl: target.trim(),
+                    authorized,
+                    maxPages: 24,
+                    maxDepth: 2,
+                    runPassive: true,
+                },
+            });
+            setResult(data);
+        } catch (e) {
+            setError(String(e));
+        } finally {
+            setBusy(false);
+        }
+    }, [authorized, target]);
+
+    const criticalCount = useMemo(
+        () => result?.alerts.filter((a) => a.severity === 'critical').length ?? 0,
+        [result],
+    );
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--vscode-panel-border)', flexShrink: 0 }}>
+                <div style={{ fontSize: 11, lineHeight: 1.5, opacity: 0.75, marginBottom: 10 }}>
+                    Rust-native Vega DAST — crawls in-scope paths, runs SQLi/XSS/CMDi/SSRF modules in parallel.
+                    {moduleCount > 0 && ` ${moduleCount} injection modules loaded.`}
+                </div>
+
+                <input
+                    value={target}
+                    onChange={(e) => setTarget(e.target.value)}
+                    placeholder="https://target.app/"
+                    style={{
+                        width: '100%',
+                        marginBottom: 8,
+                        padding: '6px 8px',
+                        fontSize: 11,
+                        borderRadius: 4,
+                        border: '1px solid var(--vscode-panel-border)',
+                        background: 'var(--vscode-input-background)',
+                        color: 'var(--vscode-input-foreground)',
+                    }}
+                />
+
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 10, marginBottom: 10, cursor: 'pointer' }}>
+                    <input
+                        type="checkbox"
+                        checked={authorized}
+                        onChange={(e) => setAuthorized(e.target.checked)}
+                        style={{ marginTop: 2 }}
+                    />
+                    <span>
+                        I have <b>written authorization</b> to test this target (bug bounty, pentest engagement, or owned system).
+                    </span>
+                </label>
+
+                <button
+                    type="button"
+                    disabled={busy || !authorized || target.trim().length < 10}
+                    onClick={() => void runScan()}
+                    style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        border: 'none',
+                        borderRadius: 4,
+                        cursor: busy ? 'wait' : 'pointer',
+                        background: 'var(--vscode-button-background, #0e639c)',
+                        color: 'var(--vscode-button-foreground, #fff)',
+                        fontSize: 12,
+                        fontWeight: 600,
+                    }}
+                >
+                    {busy ? 'Vega scan running…' : 'Run Vega DAST Scan'}
+                </button>
+                {error && <div style={{ marginTop: 8, fontSize: 10, color: '#f87171' }}>{error}</div>}
+            </div>
+
+            {result && (
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--vscode-panel-border)', fontSize: 10, flexShrink: 0 }}>
+                    {result.paths_scanned} paths · {result.modules_run} modules · {result.alerts.length} alerts
+                    · {(result.duration_ms / 1000).toFixed(1)}s
+                    {criticalCount > 0 && (
+                        <span style={{ color: SEV_COLOR.critical, marginLeft: 8, fontWeight: 700 }}>
+                            {criticalCount} critical
+                        </span>
+                    )}
+                </div>
+            )}
+
+            <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                {!result && !busy && (
+                    <div style={{ padding: 16, fontSize: 11, lineHeight: 1.55, opacity: 0.6 }}>
+                        Authorized web pentest only. Vega uses differential detection — ideal for bounty triage before Moxy/Hetty deep dives.
+                    </div>
+                )}
+                {result?.alerts.map((a, i) => {
+                    const id = `${a.type_key}:${i}`;
+                    const sev = a.severity?.toLowerCase() ?? 'info';
+                    return (
+                        <div
+                            key={id}
+                            style={{
+                                borderBottom: '1px solid var(--vscode-panel-border)',
+                                padding: '8px 12px',
+                                cursor: 'pointer',
+                                background: expanded === id ? 'var(--vscode-list-hoverBackground)' : 'transparent',
+                            }}
+                            onClick={() => setExpanded(expanded === id ? null : id)}
+                        >
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <span style={{
+                                    fontSize: 8,
+                                    fontWeight: 800,
+                                    padding: '2px 5px',
+                                    borderRadius: 3,
+                                    background: `${SEV_COLOR[sev] ?? '#888'}33`,
+                                    color: SEV_COLOR[sev] ?? '#888',
+                                }}>
+                                    {sev.toUpperCase()}
+                                </span>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600 }}>{a.title || a.type_key}</div>
+                                    <div style={{ fontSize: 10, opacity: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {a.resource}
+                                    </div>
+                                </div>
+                            </div>
+                            {expanded === id && (
+                                <div style={{ marginTop: 8, fontSize: 10, fontFamily: 'monospace', background: 'rgba(0,0,0,0.2)', padding: 6, borderRadius: 4, wordBreak: 'break-all' }}>
+                                    {a.output || a.detection_type || '—'}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+                {result && result.alerts.length === 0 && (
+                    <div style={{ padding: 20, textAlign: 'center', fontSize: 11, opacity: 0.5 }}>
+                        No alerts on crawled parametric paths.
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+export default VegaScannerPanel;
