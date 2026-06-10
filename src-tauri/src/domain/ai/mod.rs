@@ -5,7 +5,7 @@
 //! split into focused submodules — see docs/overhaul/MASTER_PLAN.md §A1.
 
 pub mod agent_harness;
-pub mod ai_engine;
+pub mod engine;
 pub mod ai_prompts;
 pub mod ane;
 pub mod ane_inference;
