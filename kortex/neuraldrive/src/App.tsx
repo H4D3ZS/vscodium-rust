@@ -39,7 +39,19 @@ const GROUP_COLORS = [
 function App() {
   const monaco = useMonaco();
   const [activeTab, setActiveTab] = useState<'explorer' | 'graph'>('graph');
-  const [mountedPath, setMountedPath] = useState("C:\\Users\\HADES\\Desktop\\kortex");
+  const [mountedPath, setMountedPath] = useState("");
+
+  // Default mount: <home>/Desktop/kortex on any OS (no hardcoded usernames).
+  useEffect(() => {
+    if (mountedPath) return;
+    import('@tauri-apps/api/path')
+      .then(async (p) => {
+        const home = await p.homeDir();
+        setMountedPath(await p.join(home, 'Desktop', 'kortex'));
+      })
+      .catch(() => { /* keep empty — user picks via dialog */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [graphData, setGraphData] = useState<{ nodes: any[], links: any[] }>({ nodes: [], links: [] });
 

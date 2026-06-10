@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '../../tauri_bridge';
+import { useStore } from '../../store';
+import { buildVegaFindingsCanvas } from '../../application/security/buildVegaFindingsCanvas';
 
 type VegaAlert = {
     type_key: string;
@@ -77,6 +79,10 @@ const VegaScannerPanel: React.FC = () => {
                 },
             });
             setResult(data);
+            // Auto-render the findings dashboard as a canvas tab.
+            try {
+                useStore.getState().upsertCanvas(buildVegaFindingsCanvas(data), { open: true });
+            } catch { /* canvas rendering is best-effort */ }
         } catch (e) {
             setError(String(e));
         } finally {

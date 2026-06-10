@@ -340,9 +340,13 @@ export class AIRICore {
 
     // Initialize external tool orchestrator (FlutterSentinel, DissectX_Pro)
 
-    // Auto-register your existing tools
-    airiOrchestrator.registerFlutterSentinel('C:/Users/HADES/Desktop/FlutterSentinel');
-    airiOrchestrator.registerDissectXPro('C:/Users/HADES/Desktop/DissectX_Pro');
+    // Auto-register external tools at <home>/Desktop/<tool> (any user/OS).
+    import('../lib/hostPaths').then(async ({ desktopProjectPath }) => {
+        const sentinel = await desktopProjectPath('FlutterSentinel');
+        const dissectx = await desktopProjectPath('DissectX_Pro');
+        if (sentinel) airiOrchestrator.registerFlutterSentinel(sentinel);
+        if (dissectx) airiOrchestrator.registerDissectXPro(dissectx);
+    }).catch(() => { /* tools stay unregistered without a resolvable home */ });
 
 
     // Initialize ambition system (proactive initiative)

@@ -16,15 +16,9 @@ use tokio::sync::Mutex;
 
 use crate::apex_red_team::{ApexRedTeam, RedTeamScanRequest, ScanDepth};
 
-/// Default Ollama model assignments per engine (for 12b and below)
-/// These are fallbacks — user's selected model overrides these
-const MODEL_ARCHITECT: &str = "qwen3.5:12b"; // For code architecture
-const MODEL_THREAT: &str = "qwen3.5:12b"; // For security analysis
-const MODEL_PERF: &str = "qwen3.5:7b"; // For performance optimization
-const MODEL_SELF_IMPROVE: &str = "qwen3.5:7b"; // For self-correction
-const MODEL_EXPLAINER: &str = "qwen3.5:7b"; // For code explanation
-const MODEL_MULTI_SYSTEM: &str = "qwen3.5:12b"; // For multi-file coordination
-const MODEL_PREDICTOR: &str = "qwen3.5:12b"; // For failure prediction
+// Default Ollama model assignments per engine live in `ollama_offload::apex_model`
+// — RAM-tiered (lite → 2b shared, mid → 7b shared, full → 12b/7b split).
+// Supabase per-engine overrides (below) still take precedence.
 
 /// Scan result from any engine
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,16 +165,9 @@ impl ApexOrchestrator {
             }
         }
 
-        match engine {
-            "architect" => MODEL_ARCHITECT,
-            "threat" => MODEL_THREAT,
-            "perf" => MODEL_PERF,
-            "self_improve" => MODEL_SELF_IMPROVE,
-            "explainer" => MODEL_EXPLAINER,
-            "multi_system" => MODEL_MULTI_SYSTEM,
-            "predictor" => MODEL_PREDICTOR,
-            _ => MODEL_PERF,
-        }.to_string()
+        // RAM-tiered default: lite/mid machines collapse all engines onto a
+        // single resident model (see ollama_offload); full tier keeps the split.
+        crate::ollama_offload::apex_model(engine).to_string()
     }
 
     /// Update the Ollama URL for all engines
@@ -507,6 +494,10 @@ impl ApexOrchestrator {
 
     /// Run a full APEX intelligence sweep — all engines in parallel
     pub async fn full_sweep(&self, code: &str, file_path: &str, language: &str) -> Result<Value, String> {
+        // Refuse to start a sweep on a memory-starved machine — a swapping
+        // host makes every engine time out and the whole IDE feel frozen.
+        crate::ollama_offload::check_batch_memory()?;
+
         let start = std::time::Instant::now();
 
         // Run engines concurrently
@@ -700,12 +691,20 @@ impl ApexOrchestrator {
 
     /// Query a specific engine via Ollama
     async fn query_engine(&self, engine: &str, prompt: &str, system: Option<&str>) -> Result<String, String> {
+        // RAM-tier gate: lite machines run batch generations strictly serially
+        // — eight concurrent generations is swap-death on 8GB even with 2b models.
+        let gate = crate::ollama_offload::engine_gate();
+        let _permit = gate
+            .acquire_owned()
+            .await
+            .map_err(|e| format!("[APEX-{}] Engine gate closed: {}", engine, e))?;
+
         let url = self.ollama_url.lock().await.clone();
         let model = self.get_model(engine).await;
 
         let default_system = format!(
             "You are the {} engine of the APEX Intelligence Framework. \
-             Provide precise, technical, actionable analysis.", 
+             Provide precise, technical, actionable analysis.",
             engine
         );
 
@@ -714,9 +713,10 @@ impl ApexOrchestrator {
             "prompt": prompt,
             "system": system.unwrap_or(&default_system),
             "stream": false,
+            "keep_alive": crate::ollama_offload::keep_alive(),
             "options": {
                 "temperature": 0.2,
-                "num_ctx": 8192,
+                "num_ctx": crate::ollama_offload::clamp_num_ctx(8192),
                 "num_predict": 4096,
             }
         });

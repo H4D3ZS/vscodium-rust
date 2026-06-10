@@ -6,7 +6,7 @@ import type {
     AgentMessage, AgentStep, Artifact, AttachedContext, AgentTask, TaskArtifact, SemanticSlot,
 } from './types';
 import type { AgentToolBlock } from '../domain/agent/agentToolBlocks';
-import { createToolBlock, enrichEditBlockFromResult } from '../domain/agent/agentToolBlocks';
+import { createToolBlock, enrichCanvasBlockFromResult, enrichEditBlockFromResult } from '../domain/agent/agentToolBlocks';
 import { toolsMatchForFinish } from '../domain/agent/toolAliases';
 import { cleanAgentContent, shouldReplaceAgentContent } from '../domain/agent/cleanAgentContent';
 import { onAgentModeChanged } from '../lib/agentAutonomy';
@@ -756,6 +756,12 @@ export const createAgentSlice: StateCreator<AppState, [], [], AgentSlice> = (set
                     : toolsMatchForFinish(b.tool, tool) && b.status === 'running';
             if (!match) return b;
             let next = { ...b, status: success ? 'done' as const : 'error' as const };
+            if (result && b.kind === 'canvas') {
+                next = {
+                    ...enrichCanvasBlockFromResult(next, result),
+                    status: success ? 'done' as const : 'error' as const,
+                };
+            }
             if (result && b.kind === 'edit') {
                 const enriched = enrichEditBlockFromResult(next, result);
                 next = {
