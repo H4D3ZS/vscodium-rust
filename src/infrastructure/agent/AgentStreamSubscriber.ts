@@ -168,6 +168,12 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         useStore.getState().addAgentArtifact(event.payload);
     });
 
+    listen<any>('canvas-updated', async (event) => {
+        const { normalizeCanvasSpec } = await import('../../domain/canvas/CanvasSpec');
+        const spec = normalizeCanvasSpec(event.payload);
+        if (spec) useStore.getState().upsertCanvas(spec, { open: true });
+    });
+
     listen<any>('webui-response', (event) => {
         const payload = event.payload || {};
         const text = String(payload.text || '').trim();

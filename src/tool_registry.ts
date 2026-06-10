@@ -1275,6 +1275,53 @@ export const TaskBoundaryTool: ToolDef = {
 };
 
 // ---------------------------------------------------------------------------
+// 24b. CreateCanvasTool — Render an interactive dashboard artifact in the IDE
+// ---------------------------------------------------------------------------
+export const CreateCanvasTool: ToolDef = {
+    name: 'create_canvas',
+    description: `Render an interactive visual canvas (dashboard) in the IDE instead of a wall of text. Use when presenting data-heavy results: scan findings, audits, comparisons, progress reports, metrics, task plans. The canvas opens as an editor tab and persists as a workspace artifact.
+Pass a flat JSON spec with "title" and "blocks". Block types:
+- {"type":"stats","items":[{"label":"Critical","value":3,"tone":"danger"}]}  — metric cards (tones: success|warning|danger|info|accent|neutral)
+- {"type":"table","title":"Findings","columns":["Severity","Issue"],"rows":[["High","XSS in /search"]]}  — sortable table
+- {"type":"chart","chart":"bar|line|pie","title":"...","labels":["Mon","Tue"],"series":[{"name":"Requests","values":[120,340]}]}
+- {"type":"callout","tone":"warning","title":"...","content":"markdown text"}
+- {"type":"progress","items":[{"label":"Coverage","value":72}]}
+- {"type":"todo","items":[{"text":"Fix auth bypass","done":false}]}
+- {"type":"kv","pairs":[{"key":"Target","value":"https://example.com"}]}
+- {"type":"timeline","items":[{"title":"Recon","status":"done"},{"title":"Exploit","status":"active"}]}
+- {"type":"markdown","content":"## Notes\\n..."}
+- {"type":"code","language":"rust","content":"..."}
+Reuse the same "id" to update an existing canvas in place (e.g. live progress).`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            id: { type: 'string', description: 'Stable canvas id (slug). Reuse to update an existing canvas in place. Omit to derive from title.' },
+            title: { type: 'string', description: 'Canvas title shown as the dashboard heading and tab name' },
+            subtitle: { type: 'string', description: 'Optional one-line context under the title' },
+            blocks: {
+                type: 'array',
+                description: 'Ordered list of block objects (see tool description for shapes)',
+                items: { type: 'object' },
+            },
+        },
+        required: ['title', 'blocks'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            const { normalizeCanvasSpec } = await import('./domain/canvas/CanvasSpec');
+            const spec = normalizeCanvasSpec(input);
+            if (!spec) return fail('Canvas spec invalid: provide "title" and at least one valid block in "blocks".');
+            const store = (window as any).useStore?.getState();
+            if (!store?.upsertCanvas) return fail('Canvas store unavailable.');
+            store.upsertCanvas(spec, { open: true });
+            return ok({ status: 'rendered', canvas_id: spec.id, blocks: spec.blocks.length, info: 'Canvas is now visible to the user in an editor tab.' });
+        } catch (e: any) {
+            return fail(`create_canvas failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
 // 25. ReplaceFileContentTool — Precise multi-line edits
 // ---------------------------------------------------------------------------
 export const ReplaceFileContentTool: ToolDef = {
@@ -2190,6 +2237,7 @@ const ALL_TOOLS: ToolDef[] = [
     GlobTool,
     GrepTool,
     ListDirectoryTool,
+    CreateCanvasTool,
 
     // Web operations
     WebFetchTool,
