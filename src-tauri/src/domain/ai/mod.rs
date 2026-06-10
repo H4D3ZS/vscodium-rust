@@ -7,7 +7,6 @@
 pub mod agent_harness;
 pub mod ai_engine;
 pub mod ai_prompts;
-pub mod ai_tools;
 pub mod ane;
 pub mod ane_inference;
 pub mod hades_harness;
