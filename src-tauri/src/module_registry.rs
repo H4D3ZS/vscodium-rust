@@ -443,5 +443,8 @@ mod tests {
         let cat = load_bundled_catalog().expect("catalog");
         assert!(!cat.modules.is_empty());
         assert!(cat.modules.iter().any(|m| m.id == "flutter-sentinel"));
+        assert!(cat.modules.iter().any(|m| m.id == "moxy-dast"));
+        assert!(cat.modules.iter().any(|m| m.id == "chunk-secret-scanner"));
+        assert!(cat.modules.iter().any(|m| m.id == "dissectx-pro"));
     }
 }

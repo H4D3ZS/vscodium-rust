@@ -49,6 +49,8 @@ mod skill_audit;
 mod skill_store;
 mod module_registry;
 mod module_commands;
+mod chunk_secrets;
+mod chunk_secrets_commands;
 mod android_commands;
 mod android_sdk;
 mod gradle_commands;
@@ -873,6 +875,8 @@ pub fn run() {
             module_commands::modules_set_enabled,
             module_commands::modules_launch,
             module_commands::modules_default_catalog_url,
+            chunk_secrets_commands::chunk_secrets_scan_path,
+            chunk_secrets_commands::chunk_secrets_scan_url,
             workspace_settings_commands::get_workspace_settings,
             workspace_settings_commands::update_workspace_settings,
             port_commands::list_listening_ports,

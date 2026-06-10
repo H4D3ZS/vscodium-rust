@@ -12,6 +12,10 @@ import type { CatalogModuleRow, ModuleCategory } from '../../store/moduleSlice';
 const CATEGORY_ORDER = [
     'dev-tools',
     'pentest',
+    'dast-proxy',
+    'red-team',
+    'secret-intel',
+    'osint-recon',
     'tech-industry',
     'documentation',
     'performance',
