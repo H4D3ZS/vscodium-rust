@@ -1261,6 +1261,44 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "vega_dast_scan".to_string(),
+                description: "DYNAMIC web vuln scan against a LIVE url (authorized pentest / bug-bounty only) using the native Vega DAST engine. Crawls the target (BFS), then runs passive + active injection modules (SQLi, XSS, command injection, SSRF, path traversal, etc.) over discovered parametric paths with differential detection. Returns {target, paths_scanned, modules_run, alerts:[{type_key,title,severity,resource,output}], duration_ms}. Fully offline (no cloud). Set ai_triage:true to add local-LLM false-positive verdicts. Use for live web pentest / bounty triage; complements ai_vuln_hunt (static source) and chunk_secret_scan (bundle leaks).".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "Target URL (http/https). Authorized targets only." },
+                        "max_pages": { "type": "integer", "description": "Crawl page cap (default 24)." },
+                        "max_depth": { "type": "integer", "description": "Crawl depth (default 2)." },
+                        "ai_triage": { "type": "boolean", "description": "Run local-LLM false-positive triage on findings (default false; degrades to heuristic offline)." }
+                    },
+                    "required": ["url"]
+                }),
+            },
+            ToolDefinition {
+                name: "chunk_secret_scan".to_string(),
+                description: "Scan JavaScript bundles / webpack-vite chunks / source maps for leaked secrets (API keys, tokens, OpenAI/Anthropic keys, DSNs, cloud creds). Works on a LIVE url (fetches HTML, extracts + fetches script chunks and .map files) OR a local path (parallel filesystem scan). Returns {files_scanned, bytes_scanned, source_maps_found, findings:[{kind,severity,bounty_hint,file,preview}]}. Rust-native, fully offline for path mode. Use for bounty recon on deployed front-ends and pre-deploy leak checks.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "Live origin URL to fetch + scan its JS chunks. Provide this OR path." },
+                        "path": { "type": "string", "description": "Local file/dir to scan (relative to workspace). Provide this OR url." },
+                        "max_files": { "type": "integer", "description": "Path-mode file cap (default 2000)." }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "bounty_scan".to_string(),
+                description: "Combined one-shot bounty recon on a LIVE url (authorized only): runs the chunk/source-map secret scanner AND a native XSS reflection probe on URL parameters, returning {chunk:{...}, xss:{hits:[...]}}. Fastest way to triage a deployed target for high-signal bounty findings before deeper Vega/Moxy runs. Rust-native, no cloud.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "Target origin URL (http/https). Authorized targets only." },
+                        "include_xss": { "type": "boolean", "description": "Also run the native XSS reflection probe (default true)." }
+                    },
+                    "required": ["url"]
+                }),
+            },
+            ToolDefinition {
                 name: "weaponize_env".to_string(),
                 description: "Red-team weaponization assessment of a .env / env-export file. Parses KEY=VALUE pairs, classifies each variable (secret / endpoint / telemetry / runtime), and produces a structured weaponization plan: which secrets are immediately actionable (DB URLs, admin passwords, API tokens, Sentry/OTLP DSNs), which endpoints are pivot targets, what the blast radius is, and what an attacker would do next. Pair with `secrets_scan` for full coverage. Output is JSON suitable for the agent to drive follow-up actions.".to_string(),
                 input_schema: json!({
@@ -1637,6 +1675,9 @@ impl AiTools {
             | "deep_security_audit"
             | "web_security_audit"
             | "ai_vuln_hunt"
+            | "vega_dast_scan"
+            | "chunk_secret_scan"
+            | "bounty_scan"
             | "web_fetch"
             | "dev_cargo_diagnostics"
             | "search_codebase"
@@ -2305,6 +2346,9 @@ impl AiTools {
             "deep_security_audit" => self.deep_security_audit(arguments).await,
             "web_security_audit" => self.web_security_audit(arguments).await,
             "ai_vuln_hunt" => self.ai_vuln_hunt(arguments).await,
+            "vega_dast_scan" => self.vega_dast_scan(arguments).await,
+            "chunk_secret_scan" => self.chunk_secret_scan(arguments).await,
+            "bounty_scan" => self.bounty_scan(arguments).await,
             "dev_cargo_diagnostics" => self.dev_cargo_diagnostics(arguments).await,
             "search_codebase" => self.search_codebase(arguments).await,
             "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
@@ -5540,6 +5584,70 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
                 json!({ "path": report_path, "preview": true })
             },
         }))
+    }
+
+    /// Shared HTTP client for the native security scanners. Pooled + bounded so
+    /// agent-driven scans don't spin up a fresh connection pool each call.
+    fn security_http_client() -> &'static reqwest::Client {
+        use std::sync::OnceLock;
+        static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+        CLIENT.get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::limited(8))
+                .pool_max_idle_per_host(8)
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new())
+        })
+    }
+
+    /// Agent tool: native Vega DAST scan of a live URL.
+    async fn vega_dast_scan(&self, args: Value) -> Result<Value> {
+        let url = args["url"].as_str().ok_or_else(|| anyhow!("Missing url"))?;
+        let opts = crate::vega::VegaScanOptions {
+            target_url: url.to_string(),
+            authorized: true,
+            max_pages: args.get("max_pages").and_then(|v| v.as_u64()).map(|n| n as usize),
+            max_depth: args.get("max_depth").and_then(|v| v.as_u64()).map(|n| n as u32),
+            injection_modules: None,
+            run_passive: Some(true),
+            ai_triage: args.get("ai_triage").and_then(|v| v.as_bool()),
+            ai_model: None,
+            ollama_url: None,
+        };
+        let result = crate::vega::run_campaign(opts).await.map_err(|e| anyhow!(e))?;
+        serde_json::to_value(result).map_err(|e| anyhow!(e))
+    }
+
+    /// Agent tool: scan JS bundles/chunks for leaked secrets (url or local path).
+    async fn chunk_secret_scan(&self, args: Value) -> Result<Value> {
+        if let Some(url) = args.get("url").and_then(|v| v.as_str()) {
+            let summary = crate::chunk_secrets::scan_url(url, Self::security_http_client())
+                .await
+                .map_err(|e| anyhow!(e))?;
+            return serde_json::to_value(summary).map_err(|e| anyhow!(e));
+        }
+        let path_str = args.get("path").and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Provide either 'url' or 'path'"))?;
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        let cap = args.get("max_files").and_then(|v| v.as_u64()).unwrap_or(2_000) as usize;
+        let summary = crate::chunk_secrets::scan_directory(&full_path, cap).map_err(|e| anyhow!(e))?;
+        serde_json::to_value(summary).map_err(|e| anyhow!(e))
+    }
+
+    /// Agent tool: combined bounty recon (chunk secrets + XSS probe) on a URL.
+    async fn bounty_scan(&self, args: Value) -> Result<Value> {
+        let url = args["url"].as_str().ok_or_else(|| anyhow!("Missing url"))?;
+        let include_xss = args.get("include_xss").and_then(|v| v.as_bool()).unwrap_or(true);
+        let summary = crate::security_native::bounty_scan_url(
+            url,
+            Self::security_http_client(),
+            include_xss,
+        )
+        .await
+        .map_err(|e| anyhow!(e))?;
+        serde_json::to_value(summary).map_err(|e| anyhow!(e))
     }
 
     async fn secrets_scan(&self, args: Value) -> Result<Value> {

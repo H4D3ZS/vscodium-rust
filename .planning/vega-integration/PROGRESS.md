@@ -40,6 +40,25 @@ See `02-MODERNIZATION.md` for modern module drops after crawler lands.
 
 ## Session Log (newest first)
 
+### 2026-06-10 — Phase 5 (proxy) + Phase 8 (AI triage/agent) + reporting
+- **Small-model hardening (2b–4b, fully offline):** `ai_assist.rs` now uses tiny
+  low-temp prompts, tolerant keyword verdict parsing, a deterministic heuristic
+  fallback, a 2s connect timeout + `/api/tags` reachability probe. Default model
+  dropped to `qwen2.5:3b`. Campaign probes Ollama once and skips per-alert HTTP
+  when offline.
+- **Vega AI triage wired:** `VegaScanOptions{ai_triage,ai_model,ollama_url}` →
+  per-alert CONFIRMED/LIKELY/FALSE_POSITIVE verdicts (top 25, best-effort). UI
+  toggle + verdict badges in `VegaScannerPanel`.
+- **Reporting:** `vega/report.rs` — SARIF 2.1.0 + Markdown bounty report, model-free.
+  `vega_export_report` command + Copy buttons in the UI.
+- **Agent tools:** `vega_dast_scan`, `chunk_secret_scan`, `bounty_scan` registered
+  in `ai_tools.rs` so the local agent can drive DAST/secret/bounty scans.
+- **Phase 5 — intercepting proxy:** `intercept_proxy.rs` (zero new deps, tokio TCP).
+  Full HTTP capture/forward, HTTPS CONNECT tunneling (metadata), in-memory flow
+  ring buffer, replay. Commands in `intercept_proxy_commands.rs`; `InterceptProxyPanel`
+  + "Proxy" tab in Cyber Ops hub. Pooled upstream client (perf).
+- **Tests:** 183 lib tests pass (ai_assist ×3, report ×3, intercept_proxy ×3 new).
+
 ### 2026-06-10 — Continued (Phase 3 + modernization)
 - Built `fingerprint.rs` — response fingerprint for differential detection.
 - Built `injection_host.rs` — collect plan → Rust fetch → JS process pipeline.

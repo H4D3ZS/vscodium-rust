@@ -54,6 +54,8 @@ mod chunk_secrets_commands;
 mod security_patterns;
 mod security_native;
 mod vega_commands;
+mod intercept_proxy;
+mod intercept_proxy_commands;
 mod android_commands;
 mod android_sdk;
 mod gradle_commands;
@@ -886,6 +888,13 @@ pub fn run() {
             vega_commands::vega_list_modules,
             vega_commands::vega_scan,
             vega_commands::vega_disciplines,
+            vega_commands::vega_export_report,
+            intercept_proxy_commands::proxy_start,
+            intercept_proxy_commands::proxy_stop,
+            intercept_proxy_commands::proxy_status,
+            intercept_proxy_commands::proxy_flows,
+            intercept_proxy_commands::proxy_clear,
+            intercept_proxy_commands::proxy_replay,
             workspace_settings_commands::get_workspace_settings,
             workspace_settings_commands::update_workspace_settings,
             port_commands::list_listening_ports,
