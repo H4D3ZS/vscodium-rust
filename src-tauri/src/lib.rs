@@ -2,15 +2,39 @@ use std::fs;
 use tauri::Manager;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-pub mod account;
-pub mod enterprise_audit;
-pub mod enterprise_governance;
-pub mod auth;
-mod ai_auth;
 mod state;
 pub use state::EditorState;
 pub mod vega;
 pub mod infrastructure;
+// ── Overhaul shims (services/workspace/compat batch) — deleted in A1 cleanup.
+pub use domain::services::account;
+pub(crate) use domain::services::ai_auth;
+pub(crate) use infrastructure::airi_bridge;
+pub(crate) use domain::compat::antigravity_compat;
+pub(crate) use domain::workspace::attachment_manager;
+pub use domain::services::auth;
+pub(crate) use infrastructure::binary_analyzer;
+pub(crate) use infrastructure::claurst_bridge;
+pub(crate) use domain::compat::cursor_compat;
+pub use domain::services::enterprise_audit;
+pub use domain::services::enterprise_governance;
+pub(crate) use infrastructure::ghost_runtime;
+pub(crate) use infrastructure::hermes_gateway;
+pub(crate) use domain::extensions::hermes_skills;
+pub(crate) use domain::workspace::ide_shell;
+pub use application::jobs;
+pub(crate) use domain::workspace::kairos;
+pub(crate) use domain::ai::ml_studio;
+pub(crate) use domain::extensions::module_registry;
+pub(crate) use domain::extensions::skill_audit;
+pub(crate) use domain::extensions::skill_store;
+pub use domain::workspace::specs_db;
+pub(crate) use domain::workspace::stop_hooks;
+pub use infrastructure::system_profile;
+pub(crate) use domain::workspace::test_runner_service;
+pub(crate) use domain::workspace::visual_lab;
+pub(crate) use domain::workspace::workers;
+pub(crate) use domain::compat::workspace_compat;
 pub mod application;
 // ── Overhaul shims (commands batch) — deleted in the A1 cleanup commit.
 pub(crate) use application::commands::ai as ai_commands;
@@ -68,20 +92,6 @@ pub(crate) use infrastructure::mcp_server;
 pub(crate) use infrastructure::performance;
 pub(crate) use infrastructure::vfs_bridge;
 
-mod antigravity_compat;
-mod airi_bridge;
-mod claurst_bridge;
-mod hermes_gateway;
-mod ide_shell;
-mod hermes_skills;
-mod skill_audit;
-mod skill_store;
-mod module_registry;
-mod test_runner_service;
-mod ml_studio;
-mod stop_hooks;
-mod attachment_manager;
-mod binary_analyzer;
 pub mod domain;
 // ── Overhaul shims: old flat-module paths re-exported from their new DDD homes.
 // Deleted in the A1 cleanup commit. See docs/overhaul/CONVENTIONS.md §3.
@@ -161,20 +171,11 @@ pub(crate) use domain::ai::vision;
 pub(crate) use domain::ai::vision_bridge;
 pub(crate) use domain::ai::vision_sidecar;
 pub(crate) use domain::ai::workflow_engine;
-mod ghost_runtime;
-mod kairos;
 pub mod kortex_gac;
 pub mod kortex_kvcache;
-mod visual_lab;
-pub mod jobs;
 
 // ═══ APEX Intelligence Framework ═══
 mod architecture;
-pub mod system_profile;
-mod cursor_compat;
-mod workspace_compat;
-pub mod specs_db;
-mod workers;
 
 #[cfg(target_os = "windows")]
 extern "system" {

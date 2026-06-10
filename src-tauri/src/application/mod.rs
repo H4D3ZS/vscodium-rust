@@ -2,3 +2,4 @@
 //! call domain logic, map errors to String. See docs/overhaul/CONVENTIONS.md §2.
 
 pub mod commands;
+pub mod jobs;
