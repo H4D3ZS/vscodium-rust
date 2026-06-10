@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: A1 — migrate all `*_commands.rs` (~35 files) → `src-tauri/src/application/commands/` (rename `foo_commands.rs` → `commands/foo.rs`, shim `pub(crate) use application::commands::foo as foo_commands;` in lib.rs so generate_handler paths keep working). Then: split giants (ai_tools, ai_engine), EditorState substructs, drop kortex/daemon dep, cleanup shims. Dead files flagged for cleanup: repository.rs, editor_service.rs, zed_test.rs, openwebui_client.rs (not declared in lib.rs, gpui remnants).
+**Next action**: A1 — remaining root modules need homes: services-ish (account, auth, ai_auth, enterprise_*, jobs, workers, specs_db, skill_store, module_registry, hermes_*, kairos, ml_studio, ide_shell, visual_lab, attachment_manager, claurst_bridge, airi_bridge, ghost_runtime, stop_hooks, system_profile, binary_analyzer, *_compat, cursor_compat). Then: split giants (ai_tools 8.5K, ai_engine 7.2K), EditorState substructs, drop kortex/daemon dep, cleanup shims + delete dead files (repository.rs, editor_service.rs, zed_test.rs, openwebui_client.rs, application/commands/provider.rs.dead).
 
 ---
 
@@ -33,7 +33,8 @@
 | Split ai_tools.rs (8,511 LOC) → domain/tools/{registry,shell,web,security_tools,fs_tools}.rs | todo | — |
 | Split ai_engine.rs (7,207 LOC) → domain/ai/{sentient,streaming,providers,prompt}.rs | todo | — |
 | ai_commands.rs → thin wrappers in application/commands/ai.rs (testable inner fns) | todo | — |
-| All *_commands.rs → application/commands/ with command-extraction pattern | todo | — |
+| All 44 *_commands.rs → application/commands/<domain>.rs (move done; thin-wrapper extraction per-file still todo) | done | (commands batch) |
+| Dead provider_commands.rs (never declared in lib.rs) parked as provider.rs.dead | done | (commands batch) |
 | EditorState: group 52 fields into substructs (ai, editor, terminal, memory, security, mobile, ext, services) | todo | — |
 | Drop unused kortex/daemon dep from src-tauri/Cargo.toml | todo | — |
 | Cleanup: delete pub-use shims; cargo check + cargo test green | todo | — |
