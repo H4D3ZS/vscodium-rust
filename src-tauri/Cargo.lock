@@ -8090,6 +8090,7 @@ dependencies = [
  "daemon",
  "diffy",
  "dirs 5.0.1",
+ "flate2",
  "futures",
  "futures-util",
  "glob",

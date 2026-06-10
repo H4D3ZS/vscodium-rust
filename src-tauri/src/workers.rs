@@ -18,11 +18,18 @@ impl WorkerManager {
     }
 
     pub async fn start_loop(self: Arc<Self>) {
+        // Potato mode: 10s idle poll instead of 1s — specs work is rare and the
+        // per-second SQLite poll is pure overhead on low-RAM machines.
+        let idle = if crate::system_profile::is_lite() {
+            Duration::from_secs(10)
+        } else {
+            Duration::from_secs(1)
+        };
         loop {
             if let Ok(Some(work)) = self.db.fetch_pending_work() {
                 let _ = self.handle_work_item(work).await;
             } else {
-                sleep(Duration::from_secs(1)).await;
+                sleep(idle).await;
             }
         }
     }

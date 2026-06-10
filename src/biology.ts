@@ -1,8 +1,9 @@
 /**
  * AIRI Biological Systems - Digital Life Functions
  * 
- * Sleep, hunger, energy, health - full digital biology
- * No placeholders - everything actually works
+ * Sleep, hunger, energy, health — a client-side state simulation driven by
+ * timers and interaction events. It models behavior for the AIRI avatar; it
+ * does not sense anything outside the app.
  */
 
 export interface BiologicalState {

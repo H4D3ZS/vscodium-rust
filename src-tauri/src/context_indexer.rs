@@ -121,6 +121,13 @@ impl ContextIndexer {
         let hashes_full = self.hashes.clone();
         let ig_full = self.ignore_set.clone();
         tauri::async_runtime::spawn(async move {
+            // Never run the full repo walk on the boot path. The incremental
+            // watcher above covers edits immediately; the full cycle is only a
+            // consistency sweep. Lite (potato) machines wait 5 minutes, others
+            // 90s. `trigger_index_cycle` remains available for on-demand runs.
+            let first_delay = if crate::system_profile::is_lite() { 300 } else { 90 };
+            println!("[CONTEXT] First full index cycle deferred {first_delay}s (lite={})", crate::system_profile::is_lite());
+            sleep(Duration::from_secs(first_delay)).await;
             loop {
                 // Re-read the ignore files at the start of each cycle so the
                 // hourly resync picks up edits without an IDE restart.

@@ -379,22 +379,34 @@ impl EditorState {
         ));
         // Wire up app_handle so Kairos can emit frontend events (kairos://suggestion)
         kairos.set_app_handle(app.clone());
-        let k_clone = kairos.clone();
-        tauri::async_runtime::spawn(async move {
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                k_clone.tick().await;
-            }
-        });
+        // Potato mode: Kairos idle ticks can shell out (e.g. `cargo` on Rust repos) —
+        // a luxury 4–8GB machines can't afford. Suggestions stay available on demand.
+        if !crate::system_profile::is_lite() {
+            let k_clone = kairos.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                    k_clone.tick().await;
+                }
+            });
+        } else {
+            println!("[profile] lite: Kairos background tick disabled");
+        }
 
         let vfs_bridge = Arc::new(vfs_bridge::VfsBridge::new(root.clone()));
         let mcp_server = Arc::new(mcp_server::McpServer::new(sentient.ai_tools.clone()));
-        let mcp_server_clone = mcp_server.clone();
-        tauri::async_runtime::spawn(async move {
-            // Defer MCP listener — not needed for idle shell boot.
-            tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
-            mcp_server_clone.start(1537).await;
-        });
+        // Potato mode: skip the MCP listener entirely; external MCP clients are
+        // rare on low-RAM machines and the Axum stack isn't free.
+        if !crate::system_profile::is_lite() {
+            let mcp_server_clone = mcp_server.clone();
+            tauri::async_runtime::spawn(async move {
+                // Defer MCP listener — not needed for idle shell boot.
+                tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+                mcp_server_clone.start(1537).await;
+            });
+        } else {
+            println!("[profile] lite: MCP listener (:1537) not auto-started");
+        }
 
         // Shared diagnostics map — owned by EditorState, borrowed by LspClient
         let shared_lsp_diags: lsp::DiagnosticsMap =
@@ -402,16 +414,19 @@ impl EditorState {
         let lsp_router_inst = crate::lsp_router::LspRouter::new(shared_lsp_diags.clone());
 
         // Vision stack — init on first command, not at boot (saves ~10–20MB).
-        tauri::async_runtime::spawn(async {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-            hades_vision::init_hades_vision(
-                1,
-                "http://localhost:11434",
-                "moondream",
-                "gpt-4o",
-                false,
-            );
-        });
+        // Potato mode: never auto-init; commands init lazily when invoked.
+        if !crate::system_profile::is_lite() {
+            tauri::async_runtime::spawn(async {
+                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                hades_vision::init_hades_vision(
+                    1,
+                    "http://localhost:11434",
+                    "moondream",
+                    "gpt-4o",
+                    false,
+                );
+            });
+        }
 
         Self {
             buffers: tokio::sync::Mutex::new(HashMap::new()),

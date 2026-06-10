@@ -1893,7 +1893,7 @@ export const ProjectRulesTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const PRAIReviewTool: ToolDef = {
     name: 'ai_pr_review',
-    description: `Perform an AI-powered review of a Pull Request or code changes. Analyzes the diff, identifies potential issues, suggests improvements, and provides a comprehensive review report. Similar to GitHub Copilot's PR review.`,
+    description: `AI review of a code diff. Pass diff_content (e.g. output of \`git diff\`); the configured model analyzes it for correctness, security, performance and style issues and returns a review with a verdict (approve / request_changes). Large diffs are truncated to keep small local models coherent.`,
     inputSchema: {
         type: 'object',
         properties: {
@@ -1932,7 +1932,7 @@ export const PRAIReviewTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const ContextAwarenessTool: ToolDef = {
     name: 'ai_get_context',
-    description: `Retrieve relevant context from the codebase for the current task. Uses semantic search to find related files, functions, and patterns that are relevant to what you are working on. This provides the "knowledge" that makes AI coding assistants effective.`,
+    description: `Retrieve relevant codebase context for the current task. Uses vector/semantic search when the workspace is indexed and embeddings are available (response reports method: "semantic"), otherwise falls back to fast text search (method: "grep_fallback").`,
     inputSchema: {
         type: 'object',
         properties: {

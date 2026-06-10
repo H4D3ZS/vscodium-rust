@@ -1727,9 +1727,18 @@ impl AiTools {
             "spawn_subagent" => self.spawn_subagent(arguments).await,
             "browser_subagent" => AiTools::browser_subagent(Arc::new(self.clone()), arguments).await,
             "perplexity_ask" => AiTools::perplexity_proxy(Arc::new(self.clone()), arguments).await,
-            "perplexity_reason" => Ok(
-                serde_json::json!({"status": "Reasoning engine initialized. Researching real-time sources...", "result": "The current codebase follows a modular Tauri structure. (Structured Stub)"}),
-            ),
+            "perplexity_reason" => {
+                // Real research + reasoning via the browser subagent — same live
+                // mechanism as perplexity_ask, with a reasoning-focused task.
+                let query = arguments["query"].as_str().unwrap_or_default().to_string();
+                if query.is_empty() {
+                    return Err(anyhow!("perplexity_reason requires a 'query'"));
+                }
+                let task = format!(
+                    "Research this question across multiple live sources, then reason step by step to a conclusion. Cite each source you used. Question: {query}"
+                );
+                AiTools::browser_subagent(Arc::new(self.clone()), serde_json::json!({ "task": task })).await
+            }
             "get_command_help" => self.get_command_help(arguments),
 
             // Git Operations
@@ -4412,25 +4421,39 @@ impl AiTools {
         let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
         let patch = args["patch"].as_str().ok_or_else(|| anyhow!("Missing patch"))?;
         let description = args["description"].as_str().unwrap_or("Applying surgical patch");
-        
+
         let root = self.root_path.lock().await.clone();
         let full_path = self.validate_path(&root, path_str)?;
-        
+
         let old_content = fs::read_to_string(&full_path)?;
-        
-        // In a real scenario, we'd apply the patch to get new_content.
-        // For now, if the AI provides a patch, it's usually meant to be reviewable.
-        // We'll emit a 'propose-edit' event so the user can see it in the DiffViewer.
+
+        // Actually apply the unified diff so the DiffViewer shows the real
+        // patched result. SEARCH/REPLACE blocks belong to the surgical edit
+        // tool; full rewrites belong to write_to_file.
+        let parsed = diffy::Patch::from_str(patch).map_err(|e| {
+            anyhow!(
+                "apply_patch expects a unified diff (---/+++/@@ hunks); parse failed: {e}. \
+                 Use the surgical SEARCH/REPLACE edit tool for block edits, or write_to_file for full content."
+            )
+        })?;
+        let new_content = diffy::apply(&old_content, &parsed)
+            .map_err(|e| anyhow!("patch does not apply cleanly to {path_str}: {e}"))?;
+
         if let Some(h) = self.app_handle.lock().await.as_ref() {
             let _ = h.emit("propose-edit", json!({
                 "path": path_str,
                 "old_content": old_content,
-                "new_content": patch, // Assuming patch here is the full new content for simplicity in this flow
+                "new_content": new_content,
                 "description": description
             }));
         }
 
-        Ok(json!({ "status": "proposed", "info": "Modification proposed for review." }))
+        Ok(json!({
+            "status": "proposed",
+            "info": "Unified diff applied; result proposed for review in the DiffViewer.",
+            "bytes_before": old_content.len(),
+            "bytes_after": new_content.len()
+        }))
     }
 
     async fn ai_propose_edit(&self, args: Value) -> Result<Value> {
