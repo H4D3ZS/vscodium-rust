@@ -1604,8 +1604,8 @@ pub struct OllamaLibraryEntry {
     desc: String,
 }
 
-static OLLAMA_LIBRARY: &str = include_str!("../resources/ollama_library.json");
-static OLLAMA_LOCAL_REGISTRY: &str = include_str!("../resources/ollama_local_registry.json");
+static OLLAMA_LIBRARY: &str = include_str!("../../../resources/ollama_library.json");
+static OLLAMA_LOCAL_REGISTRY: &str = include_str!("../../../resources/ollama_local_registry.json");
 
 fn load_ollama_catalog() -> Result<Vec<OllamaLibraryEntry>, String> {
     let mut all: Vec<OllamaLibraryEntry> =
