@@ -40,6 +40,20 @@ See `02-MODERNIZATION.md` for modern module drops after crawler lands.
 
 ## Session Log (newest first)
 
+### 2026-06-10 — Burp/Caido parity: OAST + Repeater + Intruder
+- **OAST / Collaborator** (`oast.rs` + `oast_commands.rs`): zero-dep tokio HTTP
+  callback listener for blind SSRF/RCE/XXE/blind-XSS. Token correlation (path or
+  host label), interaction ring buffer, public-host override (LAN/interactsh).
+  Agent tools `oast_payload` / `oast_interactions`. `OastPanel` UI + hub tab.
+- **Repeater** (`repeater.rs` + `offensive_commands.rs`): `repeater_send` sends
+  arbitrary requests (accepts bad TLS), returns full response. `RepeaterPanel`
+  with editable method/url/headers/body; "Send to Repeater" from proxy flows.
+- **Intruder / Automate** (`intruder.rs`): § marker substitution, payload sets,
+  bounded concurrency (Semaphore), grep-match, and (status,length) anomaly
+  detection. `IntruderPanel` with anomalies-only filter.
+- Parity canvas updated: Have 7→10, Missing 11→8. HTTPS MITM is the last P0.
+- **Tests:** 190 lib tests pass (oast ×5, intruder ×2 new). Typecheck clean.
+
 ### 2026-06-10 — Phase 5 (proxy) + Phase 8 (AI triage/agent) + reporting
 - **Small-model hardening (2b–4b, fully offline):** `ai_assist.rs` now uses tiny
   low-temp prompts, tolerant keyword verdict parsing, a deterministic heuristic

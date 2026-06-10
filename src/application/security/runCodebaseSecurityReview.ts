@@ -54,7 +54,17 @@ export async function runCodebaseSecurityReview(
     }
 }
 
-export type SecurityPanelTab = 'overview' | 'review' | 'vega' | 'chunks' | 'proxy' | 'arsenal' | 'modules';
+export type SecurityPanelTab =
+    | 'overview'
+    | 'review'
+    | 'vega'
+    | 'chunks'
+    | 'proxy'
+    | 'repeater'
+    | 'intruder'
+    | 'oast'
+    | 'arsenal'
+    | 'modules';
 
 export function openSecurityReviewPanel(tab: SecurityPanelTab = 'overview'): void {
     useStore.getState().setActiveSidebarView('security-view');
