@@ -111,35 +111,55 @@ fn build_sim_host(target: &Path) {
 }
 
 fn main() {
-    if cfg!(target_os = "macos") {
+    // Use CARGO_CFG_* (the *target* triple) instead of cfg!() (the *host*) so
+    // cross-builds — e.g. building x86_64-apple-darwin from an M-series Mac —
+    // resolve link flags correctly.
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+
+    if target_os == "macos" {
         // Scope dylib link flags to the IDE binary only — the lib crate also
         // builds a cdylib; global link-arg would duplicate LC_RPATH on the exe.
         println!("cargo:rustc-link-arg-bin=vscode-rust-app=-Wl,-ld_classic");
-        println!("cargo:rustc-link-search=native=.");
-        println!("cargo:rustc-link-lib=dylib=ane_bridge");
         println!("cargo:rustc-link-arg-bin=vscode-rust-app=-Wl,-rpath,@executable_path/");
         println!(
             "cargo:rustc-link-arg-bin=vscode-rust-app=-Wl,-rpath,@executable_path/../Resources"
         );
 
+        // libane_bridge.dylib is a prebuilt arm64-only binary. Linking it on
+        // x86_64 (Intel Mac / Hackintosh) breaks the build; ANE hardware does
+        // not exist there anyway, so ane.rs compiles its stub and
+        // ane_inference falls back to Ollama at runtime.
+        if target_arch == "aarch64" && Path::new("libane_bridge.dylib").exists() {
+            println!("cargo:rustc-link-search=native=.");
+            println!("cargo:rustc-link-lib=dylib=ane_bridge");
+        } else {
+            println!(
+                "cargo:warning=ane_bridge link skipped (target_arch={target_arch}) — ANE is Apple Silicon-only; Ollama fallback active"
+            );
+        }
+
         if let Some(target) = target_dir_from_out() {
             build_sim_host(&target);
-            let src_lib = Path::new("libane_bridge.dylib");
-            let dest_lib = target.join("libane_bridge.dylib");
-            if src_lib.exists() {
-                let _ = fs::copy(src_lib, &dest_lib);
+            if target_arch == "aarch64" {
+                let src_lib = Path::new("libane_bridge.dylib");
+                let dest_lib = target.join("libane_bridge.dylib");
+                if src_lib.exists() {
+                    let _ = fs::copy(src_lib, &dest_lib);
+                }
             }
         }
     }
     tauri_build::build();
 
-    #[cfg(windows)]
-    if let Some(target) = target_dir_from_out() {
-        let dest_dir = target.join("binaries");
-        let _ = fs::create_dir_all(&dest_dir);
-        let sidecar = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries").join("browser-agent.exe");
-        if sidecar.exists() {
-            let _ = fs::copy(&sidecar, dest_dir.join("browser-agent.exe"));
+    if target_os == "windows" {
+        if let Some(target) = target_dir_from_out() {
+            let dest_dir = target.join("binaries");
+            let _ = fs::create_dir_all(&dest_dir);
+            let sidecar = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries").join("browser-agent.exe");
+            if sidecar.exists() {
+                let _ = fs::copy(&sidecar, dest_dir.join("browser-agent.exe"));
+            }
         }
     }
 }
