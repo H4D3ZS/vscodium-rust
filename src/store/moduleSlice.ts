@@ -16,6 +16,8 @@ export type CatalogModuleRow = {
     repo?: string;
     size_mb?: number;
     tags?: string[];
+    native_rust?: boolean;
+    requires?: string[];
     installed: boolean;
     enabled: boolean;
     installed_at?: string;

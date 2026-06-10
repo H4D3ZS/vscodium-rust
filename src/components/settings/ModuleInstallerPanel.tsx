@@ -82,8 +82,12 @@ const ModuleInstallerPanel: React.FC = () => {
     }, [refresh, catalogUrl]);
 
     const kindLabel = (m: CatalogModuleRow) => {
+        if (m.native_rust) return 'Rust-native (built-in, zero download)';
         if (m.kind === 'component') return 'Built-in panel (no download)';
-        if (m.kind === 'git') return m.repo ?? 'GitHub';
+        if (m.kind === 'git') {
+            const req = (m.requires ?? []).length ? ` · needs ${m.requires!.join(', ')}` : '';
+            return `${m.repo ?? 'GitHub'}${req}`;
+        }
         return m.kind;
     };
 
@@ -207,6 +211,9 @@ function ModuleRow({
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 600, fontSize: 13 }}>{m.name}</span>
+                        {m.native_rust && (
+                            <span className="settings-badge" style={{ background: '#1d4ed8', fontSize: 9 }}>Rust-native</span>
+                        )}
                         {m.installed && (
                             <span className="settings-badge" style={{ background: '#238636', fontSize: 9 }}>Installed</span>
                         )}

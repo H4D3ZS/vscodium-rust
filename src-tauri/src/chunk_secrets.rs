@@ -1,12 +1,19 @@
-//! Scan minified JS bundles, webpack/vite chunks, and source maps for leaked secrets,
-//! `.env` values, and AI provider keys embedded at build time.
+//! Scan minified JS bundles, webpack/vite chunks, and source maps for leaked secrets.
 
-use regex::Regex;
+use crate::security_patterns::{bundle_patterns, resolve_url, script_src_re, source_map_re, severity_rank};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
-const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
+pub const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
 const DEFAULT_MAX_FILES: usize = 2_000;
+
+/// Bundle output dirs scanned first for faster bounty triage.
+const PRIORITY_DIR_NAMES: &[&str] = &[
+    "dist", "build", ".next", "out", "static", "public", "assets", "_next",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkSecretFinding {
@@ -29,142 +36,17 @@ pub struct ChunkScanSummary {
     pub script_urls: Vec<String>,
 }
 
-struct Pattern {
-    kind: &'static str,
-    severity: &'static str,
-    bounty_hint: &'static str,
-    re: Regex,
-}
-
-fn patterns() -> Vec<Pattern> {
-    let raw: Vec<(&str, &str, &str, &str)> = vec![
-        (
-            "openai_api_key",
-            "CRITICAL",
-            "OpenAI billing abuse / GPT-4 access — report as exposed API key in client bundle.",
-            r#"\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}\b"#,
-        ),
-        (
-            "anthropic_api_key",
-            "CRITICAL",
-            "Anthropic Claude API abuse — rotate key; check for prompt-injection pivot.",
-            r#"\bsk-ant-[A-Za-z0-9\-_]{20,}\b"#,
-        ),
-        (
-            "google_ai_key",
-            "HIGH",
-            "Google AI / Gemini key in frontend — quota theft and data exfil risk.",
-            r#"\bAIza[0-9A-Za-z\-_]{30,}\b"#,
-        ),
-        (
-            "aws_access_key_id",
-            "CRITICAL",
-            "AWS AKIA in JS — immediate credential report; check S3/public bucket chain.",
-            r#"\bAKIA[0-9A-Z]{16}\b"#,
-        ),
-        (
-            "stripe_secret_key",
-            "CRITICAL",
-            "Stripe sk_live in bundle — payment fraud; high-severity instant bounty.",
-            r#"\bsk_(?:live|test)_[A-Za-z0-9]{20,}\b"#,
-        ),
-        (
-            "github_token",
-            "CRITICAL",
-            "GitHub PAT in client JS — repo/org takeover.",
-            r#"\bgh[pousr]_[A-Za-z0-9]{20,}\b"#,
-        ),
-        (
-            "firebase_config",
-            "HIGH",
-            "Firebase web config — test Firestore/Storage rules for public read/write.",
-            r#"apiKey\s*:\s*['"][A-Za-z0-9_\-]{20,}['"]"#,
-        ),
-        (
-            "supabase_anon",
-            "HIGH",
-            "Supabase anon key in bundle — verify RLS policies; JWT role escalation.",
-            r#"supabase(?:Url|Key|AnonKey)\s*[:=]\s*['"][^'"]{10,}['"]"#,
-        ),
-        (
-            "vite_env_leak",
-            "HIGH",
-            "VITE_* secret inlined at build — env vars must not ship to browser.",
-            r#"VITE_(?:API|SECRET|KEY|TOKEN|OPENAI|ANTHROPIC)[A-Z0-9_]*['"]?\s*[:=]\s*['"][^'"]{8,}['"]"#,
-        ),
-        (
-            "next_public_secret",
-            "HIGH",
-            "NEXT_PUBLIC_* with sensitive value — Next.js exposes these to all users.",
-            r#"NEXT_PUBLIC_[A-Z0-9_]+['"]?\s*[:=]\s*['"][^'"]{12,}['"]"#,
-        ),
-        (
-            "react_app_secret",
-            "HIGH",
-            "REACT_APP_* credential in CRA bundle.",
-            r#"REACT_APP_[A-Z0-9_]+['"]?\s*[:=]\s*['"][^'"]{12,}['"]"#,
-        ),
-        (
-            "process_env_literal",
-            "MEDIUM",
-            "process.env.* resolved into bundle — build misconfiguration.",
-            r#"process\.env\.[A-Z0-9_]+\s*[,}\)]"#,
-        ),
-        (
-            "dotenv_in_bundle",
-            "CRITICAL",
-            "Literal .env key=value inside JS — classic mis-bundle bounty finding.",
-            r#"(?i)(?:DB_PASSWORD|DATABASE_URL|JWT_SECRET|ADMIN_PASSWORD|AWS_SECRET)[^=\n]{0,20}=\s*['"]?[^'"\s]{8,}"#,
-        ),
-        (
-            "private_key_block",
-            "CRITICAL",
-            "Private key material in JS chunk — full compromise.",
-            r#"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"#,
-        ),
-        (
-            "sentry_dsn",
-            "MEDIUM",
-            "Sentry DSN — event injection / PII harvest if misconfigured.",
-            r#"https?://[a-f0-9]{32}@[A-Za-z0-9\.\-]+/\d+"#,
-        ),
-        (
-            "jwt_in_bundle",
-            "HIGH",
-            "Hardcoded JWT in client — decode for role/privilege escalation.",
-            r#"\beyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b"#,
-        ),
-        (
-            "generic_api_key",
-            "MEDIUM",
-            "Generic apiKey/accessToken assignment in minified code.",
-            r#"(?i)(?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token)\s*[:=]\s*['"]([A-Za-z0-9_\-/+=]{20,})['"]"#,
-        ),
-        (
-            "source_map_url",
-            "INFO",
-            "sourceMappingURL present — fetch .map for original sources and more secrets.",
-            r#"//# sourceMappingURL=([^\s'"]+\.map)"#,
-        ),
-    ];
-    raw.into_iter()
-        .filter_map(|(kind, sev, hint, pat)| {
-            Regex::new(pat).ok().map(|re| Pattern {
-                kind,
-                severity: sev,
-                bounty_hint: hint,
-                re,
-            })
-        })
-        .collect()
-}
-
 fn redact(s: &str) -> String {
     let len = s.len();
     if len <= 10 {
         return "…(redacted)".into();
     }
-    format!("{}…{} ({} chars)", &s[..4.min(len)], &s[len.saturating_sub(4)..], len)
+    format!(
+        "{}…{} ({} chars)",
+        &s[..4.min(len)],
+        &s[len.saturating_sub(4)..],
+        len
+    )
 }
 
 fn line_col(content: &str, byte_idx: usize) -> (usize, usize) {
@@ -184,9 +66,8 @@ fn snippet_around(content: &str, start: usize, end: usize) -> String {
 }
 
 pub fn scan_content(file_label: &str, content: &str) -> Vec<ChunkSecretFinding> {
-    let pats = patterns();
     let mut out = Vec::new();
-    for p in &pats {
+    for p in bundle_patterns() {
         for m in p.re.find_iter(content) {
             let (line, column) = line_col(content, m.start());
             let matched = m.as_str();
@@ -222,57 +103,77 @@ fn is_js_like(path: &Path) -> bool {
 fn skip_dir(name: &str) -> bool {
     matches!(
         name,
-        "node_modules" | ".git" | "target" | "dist-electron" | ".next" | "coverage"
+        "node_modules" | ".git" | "target" | "dist-electron" | "coverage" | ".turbo"
     )
+}
+
+fn path_priority(path: &Path) -> u8 {
+    for (i, seg) in path.components().map(|c| c.as_os_str().to_string_lossy()).enumerate() {
+        if PRIORITY_DIR_NAMES.contains(&seg.as_ref()) {
+            return i as u8;
+        }
+    }
+    u8::MAX / 2
+}
+
+fn scan_file(path: &Path) -> Option<(u64, Vec<ChunkSecretFinding>, bool)> {
+    let meta = std::fs::metadata(path).ok()?;
+    if meta.len() > MAX_FILE_BYTES {
+        return None;
+    }
+    let content = std::fs::read_to_string(path).ok()?;
+    let bytes = content.len() as u64;
+    let label = path.to_string_lossy().to_string();
+    let findings = scan_content(&label, &content);
+    let is_map = path.extension().and_then(|e| e.to_str()) == Some("map")
+        || label.ends_with(".js.map");
+    Some((bytes, findings, is_map))
 }
 
 pub fn scan_directory(root: &Path, max_files: usize) -> Result<ChunkScanSummary, String> {
     if !root.is_dir() {
         return Err(format!("Not a directory: {}", root.display()));
     }
+
+    let mut paths: Vec<PathBuf> = WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file() && is_js_like(e.path()))
+        .filter(|e| {
+            !e.path().components().any(|c| {
+                c.as_os_str()
+                    .to_str()
+                    .map(|n| skip_dir(n))
+                    .unwrap_or(false)
+            })
+        })
+        .map(|e| e.into_path())
+        .collect();
+
+    paths.sort_by_key(|p| (path_priority(p), p.to_string_lossy().len()));
+    paths.truncate(max_files.max(1));
+
+    let results: Vec<_> = paths
+        .par_iter()
+        .filter_map(|p| scan_file(p).map(|r| (p.clone(), r)))
+        .collect();
+
     let mut files_scanned = 0usize;
     let mut bytes_scanned = 0u64;
     let mut findings = Vec::new();
     let mut source_maps_found = 0usize;
-    let mut stack = vec![root.to_path_buf()];
 
-    while let Some(dir) = stack.pop() {
-        let entries = std::fs::read_dir(&dir).map_err(|e| format!("read_dir: {e}"))?;
-        for ent in entries.flatten() {
-            let path = ent.path();
-            let ft = ent.file_type().map_err(|e| e.to_string())?;
-            if ft.is_dir() {
-                let n = ent.file_name().to_string_lossy().to_string();
-                if !skip_dir(&n) {
-                    stack.push(path);
-                }
-                continue;
-            }
-            if !is_js_like(&path) || files_scanned >= max_files {
-                continue;
-            }
-            let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
-            if meta.len() > MAX_FILE_BYTES {
-                continue;
-            }
-            let content = std::fs::read_to_string(&path).unwrap_or_default();
-            bytes_scanned += content.len() as u64;
-            files_scanned += 1;
-            if path.extension().and_then(|e| e.to_str()) == Some("map")
-                || path.to_string_lossy().ends_with(".js.map")
-            {
-                source_maps_found += 1;
-            }
-            let label = path.to_string_lossy().to_string();
-            findings.extend(scan_content(&label, &content));
+    for (_path, (bytes, mut file_findings, is_map)) in results {
+        files_scanned += 1;
+        bytes_scanned += bytes;
+        if is_map {
+            source_maps_found += 1;
         }
+        findings.append(&mut file_findings);
     }
 
-    findings.sort_by(|a, b| {
-        severity_rank(&a.severity)
-            .cmp(&severity_rank(&b.severity))
-            .then(a.file.cmp(&b.file))
-    });
+    dedupe_findings(&mut findings);
 
     Ok(ChunkScanSummary {
         files_scanned,
@@ -283,41 +184,14 @@ pub fn scan_directory(root: &Path, max_files: usize) -> Result<ChunkScanSummary,
     })
 }
 
-fn severity_rank(s: &str) -> u8 {
-    match s {
-        "CRITICAL" => 0,
-        "HIGH" => 1,
-        "MEDIUM" => 2,
-        "LOW" => 3,
-        _ => 4,
-    }
-}
-
-fn extract_script_srcs(html: &str) -> Vec<String> {
-    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(r#"(?i)<script[^>]+src=['"]([^'"]+\.js[^'"]*)['"]"#).expect("script src re")
+pub fn dedupe_findings(findings: &mut Vec<ChunkSecretFinding>) {
+    let mut seen = HashSet::new();
+    findings.retain(|f| seen.insert((f.kind.clone(), f.file.clone(), f.line, f.column)));
+    findings.sort_by(|a, b| {
+        severity_rank(&a.severity)
+            .cmp(&severity_rank(&b.severity))
+            .then(a.file.cmp(&b.file))
     });
-    re.captures_iter(html)
-        .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
-        .collect()
-}
-
-fn resolve_url(base: &str, rel: &str) -> String {
-    if rel.starts_with("http://") || rel.starts_with("https://") {
-        return rel.to_string();
-    }
-    if rel.starts_with("//") {
-        return format!("https:{rel}");
-    }
-    let base = base.trim_end_matches('/');
-    if rel.starts_with('/') {
-        let origin = base.split('/').take(3).collect::<Vec<_>>().join("/");
-        if !origin.is_empty() {
-            return format!("{origin}{rel}");
-        }
-    }
-    format!("{base}/{rel}")
 }
 
 pub async fn scan_url(origin_url: &str, client: &reqwest::Client) -> Result<ChunkScanSummary, String> {
@@ -328,58 +202,70 @@ pub async fn scan_url(origin_url: &str, client: &reqwest::Client) -> Result<Chun
         .await
         .map_err(|e| format!("fetch {origin_url}: {e}"))?;
     let html = resp.text().await.map_err(|e| e.to_string())?;
-    let script_urls: Vec<String> = extract_script_srcs(&html)
-        .into_iter()
-        .map(|s| resolve_url(origin_url, &s))
+
+    let script_urls: Vec<String> = script_src_re()
+        .captures_iter(&html)
+        .filter_map(|c| {
+            let rel = c.get(1)?.as_str().to_string();
+            Some(resolve_url(origin_url, &rel))
+        })
         .collect();
 
-    let mut files_scanned = 0usize;
-    let mut bytes_scanned = 0u64;
+    let mut files_scanned = 1usize;
+    let mut bytes_scanned = html.len() as u64;
     let mut findings = scan_content(origin_url, &html);
     let mut source_maps_found = 0usize;
+    let mut pending: Vec<String> = script_urls.iter().take(64).cloned().collect();
+    let mut fetched = HashSet::new();
 
-    for url in &script_urls {
-        if files_scanned >= 64 {
-            break;
-        }
-        let Ok(r) = client
-            .get(url.as_str())
-            .header("User-Agent", "HADES-ChunkSecretScanner/1.0")
-            .send()
-            .await
-        else {
-            continue;
-        };
-        let Ok(body) = r.text().await else { continue };
-        if body.len() as u64 > MAX_FILE_BYTES {
-            continue;
-        }
-        bytes_scanned += body.len() as u64;
-        files_scanned += 1;
-        findings.extend(scan_content(url, &body));
+    while !pending.is_empty() && files_scanned < 80 {
+        let batch: Vec<_> = pending
+            .drain(..pending.len().min(12))
+            .filter(|u| fetched.insert(u.clone()))
+            .collect();
 
-        if let Some(cap) = Regex::new(r#"//# sourceMappingURL=([^\s'"]+\.map)"#)
-            .ok()
-            .and_then(|re| re.captures(&body))
-            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
-        {
-            let map_url = resolve_url(url, &cap);
-            if let Ok(mr) = client.get(&map_url).send().await {
-                if let Ok(map_body) = mr.text().await {
-                    source_maps_found += 1;
-                    files_scanned += 1;
-                    bytes_scanned += map_body.len() as u64;
-                    findings.extend(scan_content(&map_url, &map_body));
+        let tasks: Vec<_> = batch
+            .into_iter()
+            .map(|url| {
+                let c = client.clone();
+                async move {
+                    let body = c
+                        .get(&url)
+                        .header("User-Agent", "HADES-ChunkSecretScanner/1.0")
+                        .send()
+                        .await
+                        .ok()?
+                        .text()
+                        .await
+                        .ok()?;
+                    Some((url, body))
+                }
+            })
+            .collect();
+
+        for item in futures::future::join_all(tasks).await.into_iter().flatten() {
+            let (url, body) = item;
+            if body.len() as u64 > MAX_FILE_BYTES {
+                continue;
+            }
+            bytes_scanned += body.len() as u64;
+            files_scanned += 1;
+            findings.extend(scan_content(&url, &body));
+
+            if let Some(cap) = source_map_re()
+                .captures(&body)
+                .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+            {
+                let map_url = resolve_url(&url, &cap);
+                if fetched.insert(map_url.clone()) {
+                    pending.push(map_url);
                 }
             }
         }
     }
 
-    findings.sort_by(|a, b| {
-        severity_rank(&a.severity)
-            .cmp(&severity_rank(&b.severity))
-            .then(a.file.cmp(&b.file))
-    });
+    source_maps_found = findings.iter().filter(|f| f.kind == "source_map_url").count();
+    dedupe_findings(&mut findings);
 
     Ok(ChunkScanSummary {
         files_scanned,
@@ -413,5 +299,12 @@ mod tests {
         let js = "//# sourceMappingURL=app.bundle.js.map\n";
         let f = scan_content("app.js", js);
         assert!(f.iter().any(|x| x.kind == "source_map_url"));
+    }
+
+    #[test]
+    fn priority_dirs_sort_first() {
+        let a = PathBuf::from("/proj/dist/main.js");
+        let b = PathBuf::from("/proj/src/foo.js");
+        assert!(path_priority(&a) < path_priority(&b));
     }
 }
