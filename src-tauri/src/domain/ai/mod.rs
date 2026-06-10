@@ -25,3 +25,4 @@ pub mod vision;
 pub mod vision_bridge;
 pub mod vision_sidecar;
 pub mod workflow_engine;
+pub mod ml_studio;
