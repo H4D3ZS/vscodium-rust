@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: A1 — remaining root modules need homes: services-ish (account, auth, ai_auth, enterprise_*, jobs, workers, specs_db, skill_store, module_registry, hermes_*, kairos, ml_studio, ide_shell, visual_lab, attachment_manager, claurst_bridge, airi_bridge, ghost_runtime, stop_hooks, system_profile, binary_analyzer, *_compat, cursor_compat). Then: split giants (ai_tools 8.5K, ai_engine 7.2K), EditorState substructs, drop kortex/daemon dep, cleanup shims + delete dead files (repository.rs, editor_service.rs, zed_test.rs, openwebui_client.rs, application/commands/provider.rs.dead).
+**Next action**: A1 cleanup commit — (1) delete dead files at src root: repository.rs, editor_service.rs, zed_test.rs, openwebui_client.rs, provider_manager.rs, application/commands/provider.rs.dead; (2) drop unused kortex/daemon dep from src-tauri/Cargo.toml (grep `daemon::` first to confirm zero callers); (3) leave shims in lib.rs until giants split. Then: split ai_tools.rs (8.5K) / ai_engine.rs (7.2K), EditorState substructs. Root now holds only lib.rs/main.rs/state.rs + architecture/ + vega/ + kortex_gac/kvcache.
 
 ---
 
@@ -36,6 +36,7 @@
 | All 44 *_commands.rs → application/commands/<domain>.rs (move done; thin-wrapper extraction per-file still todo) | done | (commands batch) |
 | Dead provider_commands.rs (never declared in lib.rs) parked as provider.rs.dead | done | (commands batch) |
 | EditorState: group 52 fields into substructs (ai, editor, terminal, memory, security, mobile, ext, services) | todo | — |
+| Batch 10: services/workspace/compat domains + remaining infra (bridges, gateways, profile) + application/jobs | done | (batch-10 commit) |
 | Drop unused kortex/daemon dep from src-tauri/Cargo.toml | todo | — |
 | Cleanup: delete pub-use shims; cargo check + cargo test green | todo | — |
 
