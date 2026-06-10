@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: A1 — split ai_engine.rs (7.2K LOC, domain/ai/) → sentient/streaming/providers/prompt using the same recipe as the tools split (see domain/tools/: contiguous line-range cuts, one `impl Sentient` block per file, promote cross-module methods+fields to pub(crate), shared imports per file, lib.rs shim `pub use domain::ai_engine as ai_engine`-style alias). After: EditorState substructs, final shim cleanup in lib.rs.
+**Next action**: A1 remaining: (1) ai_commands extraction to thin wrappers (application/commands/ai.rs is moved but fns still contain logic inline — extract per-command into domain calls, lower priority); (2) EditorState 52-field decomposition into substructs (state.rs — touchy, do in small field-groups with `pub` substruct fields so `state.ai_engine` → `state.ai.engine` migrates per batch); (3) final cleanup: delete lib.rs shim blocks once nothing references old paths (grep `crate::ai_tools::` etc. first). Note autonomous.rs is still 3.5K LOC because autonomous_loop is a single 3.5K method — needs a real refactor (Milestone D or later), not a file cut.
 
 ---
 
@@ -31,7 +31,7 @@
 | Batch 8: extensions (extension_host, marketplace, activation, keybindings, context_key) → domain/extensions | done | e57b9388 |
 | Batch 9: ai domain moved whole (engine, tools, ANE, harnesses, vision, workflow) — split still todo | done | 21b41649 |
 | Split ai_tools.rs (8,511 LOC) → domain/tools/{registry,schemas,dispatch,shell,fs_tools,security_tools,web_edit} | done | (tools-split commit) |
-| Split ai_engine.rs (7,207 LOC) → domain/ai/{sentient,streaming,providers,prompt}.rs | todo | — |
+| Split ai_engine.rs (7,207 LOC) → domain/ai/engine/{types,sentient,streaming,providers,autonomous,prompt} | done | (engine-split commit) |
 | ai_commands.rs → thin wrappers in application/commands/ai.rs (testable inner fns) | todo | — |
 | All 44 *_commands.rs → application/commands/<domain>.rs (move done; thin-wrapper extraction per-file still todo) | done | (commands batch) |
 | Dead provider_commands.rs (never declared in lib.rs) parked as provider.rs.dead | done | (commands batch) |
