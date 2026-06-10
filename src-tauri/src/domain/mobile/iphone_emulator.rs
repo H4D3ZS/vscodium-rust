@@ -6,7 +6,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::Mutex;
 use crate::process_ext::hidden_command;
 use tauri::{AppHandle, Emitter, State};

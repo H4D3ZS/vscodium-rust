@@ -782,7 +782,7 @@ impl Sentient {
             metadata: None,
         });
 
-        let keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
+        let _keys_path = self.brain_dir.parent().unwrap().join("api_keys.json");
         let (provider, model) = if let Some(p) = provider_override {
              // User explicitly specified provider:model
              if let Some((prov, m)) = p.split_once(':') {

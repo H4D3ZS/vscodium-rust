@@ -2,6 +2,7 @@
 //! See docs/overhaul/CONVENTIONS.md §1.
 
 pub mod ai;
+pub mod tools;
 pub mod compat;
 pub mod editor;
 pub mod extensions;

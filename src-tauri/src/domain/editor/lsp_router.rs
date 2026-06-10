@@ -437,7 +437,7 @@ pub fn user_workspace_candidates(root: &Path) -> Vec<(String, String, u8, String
     out
 }
 
-pub fn all_workspace_candidates(root: &Path, config_dir: &Path) -> Vec<WorkspaceCandidate> {
+pub fn all_workspace_candidates(root: &Path, _config_dir: &Path) -> Vec<WorkspaceCandidate> {
     let mut out: Vec<WorkspaceCandidate> = lsp_bundle::workspace_lsp_candidates(root)
         .into_iter()
         .map(|(id, score, reason)| WorkspaceCandidate {

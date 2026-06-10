@@ -16,7 +16,7 @@ pub struct OptimizedInferenceEngine {
 impl OptimizedInferenceEngine {
     pub fn new(
         system_ram_mb: usize,
-        cache_dir: std::path::PathBuf,
+        _cache_dir: std::path::PathBuf,
     ) -> Self {
         let budget = crate::memory_offload::recommend_budget(system_ram_mb);
 

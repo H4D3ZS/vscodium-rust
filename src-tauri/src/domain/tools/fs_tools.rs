@@ -1,0 +1,1599 @@
+//! Filesystem + process tools: path validation, read/write/replace, run_command,
+//! terminals, search, indexing, symbols, patching.
+use anyhow::{anyhow, Result};
+use serde_json::{json, Value};
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tauri::{Emitter, Manager};
+use super::registry::AiTools;
+use super::registry::push_activity;
+use super::shell::ShellTranslator;
+use crate::process_ext::CommandExtHidden;
+
+impl AiTools {
+    pub(crate) fn validate_path(&self, root: &std::path::Path, path_str: &str) -> Result<PathBuf> {
+        let path = PathBuf::from(path_str);
+        let full_path = if path.is_absolute() {
+            path
+        } else {
+            root.join(path)
+        };
+
+        // Canonicalize when the path already exists so shadow-buffer keys,
+        // apply_shadow_patch, and disk reads all agree (notably on Windows).
+        if full_path.exists() {
+            if let Ok(canon) = std::fs::canonicalize(&full_path) {
+                let ignore = crate::cursor_compat::CursorIgnoreSet::load(
+                    root,
+                    crate::cursor_compat::IgnoreScope::AiAccess,
+                );
+                if ignore.is_ignored(&canon) {
+                    return Err(anyhow::anyhow!(
+                        "Path blocked by .cursorignore: {}",
+                        canon.display()
+                    ));
+                }
+                return Ok(canon);
+            }
+        }
+        let ignore = crate::cursor_compat::CursorIgnoreSet::load(
+            root,
+            crate::cursor_compat::IgnoreScope::AiAccess,
+        );
+        if ignore.is_ignored(&full_path) {
+            return Err(anyhow::anyhow!(
+                "Path blocked by .cursorignore: {}",
+                full_path.display()
+            ));
+        }
+        Ok(full_path)
+    }
+
+    /// Splits a path that might contain wildcards into a base directory and a pattern.
+    /// Example: "C:\src\*.cpp" -> ("C:\src", "*.cpp")
+    pub(crate) fn extract_path_and_pattern(&self, path_str: &str, default_pattern: &str) -> (PathBuf, String) {
+        let path = PathBuf::from(path_str);
+        
+        // If it contains wildcards, we need to find the "base" directory
+        if path_str.contains('*') || path_str.contains('?') || path_str.contains('[') {
+             let mut current = path.clone();
+             let mut pattern_parts: Vec<String> = Vec::new();
+             
+             while let Some(parent) = current.parent().map(|p| p.to_path_buf()) {
+                 let component = current.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                 if component.contains('*') || component.contains('?') || component.contains('[') {
+                     pattern_parts.push(component.to_string());
+                     current = parent;
+                 } else {
+                     break;
+                 }
+             }
+             
+             if !pattern_parts.is_empty() {
+                 pattern_parts.reverse();
+                 return (current, pattern_parts.join("/"));
+             }
+        }
+        
+        if path.is_dir() {
+            (path, default_pattern.to_string())
+        } else if let Some(parent) = path.parent() {
+             if let Some(file_name) = path.file_name() {
+                 (parent.to_path_buf(), file_name.to_string_lossy().to_string())
+             } else {
+                 (path, default_pattern.to_string())
+             }
+        } else {
+            (path, default_pattern.to_string())
+        }
+    }
+
+    pub(crate) async fn read_file(&self, args: Value) -> Result<Value> {
+        let path_str = args
+            .get("TargetFile")
+            .or_else(|| args.get("path"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing TargetFile"))?;
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+
+        if !full_path.exists() {
+            let suggestions = self
+                .memory_store
+                .suggest_similar_paths(path_str, 8)
+                .await;
+            let tree_sample = self.memory_store.get_project_tree_summary().await;
+            let mut msg = format!(
+                "File not found: '{path_str}' (resolved: {}). \
+                 This path is NOT in the workspace — do NOT retry the same path.",
+                full_path.display()
+            );
+            if !suggestions.is_empty() {
+                msg.push_str("\n\nSimilar paths in AIM index:\n");
+                for s in &suggestions {
+                    msg.push_str(&format!("  - {s}\n"));
+                }
+            } else {
+                msg.push_str("\n\nNo similar path in AIM. Use ### BRAIN tree — not ARCHITECTURE.md/CLAUDE.md unless listed.\n");
+                msg.push_str(&format!("Indexed tree sample: {tree_sample}"));
+            }
+            return Err(anyhow!(msg));
+        }
+
+        // Always read from disk. Serving `get_vfs_cache` first caused the agent
+        // to "comprehend" stale buffers (e.g. empty or pre-edit snapshots) while
+        // the editor showed different on-disk truth — breaking writes and reviews.
+        let metadata = fs::metadata(&full_path)?;
+        if metadata.len() > 10 * 1024 * 1024 {
+            return Err(anyhow!("File is too large ({} bytes). Use read_file_lines for large files.", metadata.len()));
+        }
+
+        let content = fs::read_to_string(&full_path)?;
+
+        // Keep cache aligned with disk for other subsystems (memory / page-fault).
+        self.memory_store.update_vfs_cache(full_path, content.clone()).await;
+
+        Ok(Value::String(content))
+    }
+
+    pub(crate) async fn write_file(&self, args: Value) -> Result<Value> {
+        let mut path_str = args
+            .get("path")
+            .or_else(|| args.get("file_path"))
+            .or_else(|| args.get("target_file"))
+            .or_else(|| args.get("filename"))
+            .or_else(|| args.get("filepath"))
+            .or_else(|| args.get("file"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // Models often hallucinate alternate parameter names — accept common aliases.
+        let content = args
+            .get("content")
+            .or_else(|| args.get("contents"))
+            .or_else(|| args.get("body"))
+            .or_else(|| args.get("text"))
+            .or_else(|| args.get("data"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing content (expected content, contents, body, text, or data)"))?;
+
+        if path_str.as_deref().unwrap_or("").trim().is_empty() {
+            if let Some(inferred) = Self::infer_write_path_from_content(content) {
+                path_str = Some(inferred);
+            }
+        }
+
+        let path_str = path_str.ok_or_else(|| anyhow!("Missing path"))?;
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, &path_str)?;
+
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&full_path, content)?;
+
+        // Phase 25: Sync Cache
+        self.memory_store.update_vfs_cache(full_path.clone(), content.to_string()).await;
+
+        // Emit artifact for UI card + file-changed so Monaco tabs reload + open in editor
+        {
+            let path_abs = full_path.to_string_lossy().to_string();
+            let h_lock = self.app_handle.lock().await;
+            if let Some(h) = h_lock.as_ref() {
+                let _ = h.emit(
+                    "ai-artifact",
+                    json!({
+                        "type": "file",
+                        "path": path_str,
+                        "title": format!("Written: {}", path_str),
+                        "content": "File saved successfully"
+                    }),
+                );
+                // Reload if already open in editor, or open fresh
+                let _ = h.emit("file-changed", json!({ "path": &path_abs }));
+                let _ = h.emit("editor_open_file", json!({ "path": &path_abs }));
+            }
+        }
+
+        let bytes = content.len();
+        let preview: String = content.chars().take(400).collect();
+        Ok(serde_json::json!({
+            "status": "success",
+            "file": path_str,
+            "bytes_written": bytes,
+            "preview_start": preview
+        }))
+    }
+
+    /// Simple str_replace: finds old_str in file, replaces with new_str, writes back.
+    /// Much simpler than search_replace_edit — no block format needed.
+    pub(crate) async fn str_replace_file(&self, args: Value) -> Result<Value> {
+        let path_str = args.get("path").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing path"))?;
+        let old_str = args.get("old_str").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing old_str"))?;
+        let new_str = args.get("new_str").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("Missing new_str"))?;
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+
+        let content = fs::read_to_string(&full_path)
+            .map_err(|e| anyhow!("Cannot read {}: {}", path_str, e))?;
+
+        if !content.contains(old_str) {
+            return Err(anyhow!(
+                "str_replace failed: old_str not found in {}.\nFirst 200 chars of file:\n{}",
+                path_str,
+                &content[..content.len().min(200)]
+            ));
+        }
+
+        // Only replace the first occurrence to be surgical
+        let new_content = content.replacen(old_str, new_str, 1);
+        fs::write(&full_path, &new_content)?;
+
+        self.memory_store.update_vfs_cache(full_path.clone(), new_content).await;
+
+        {
+            let path_abs = full_path.to_string_lossy().to_string();
+            let h_lock = self.app_handle.lock().await;
+            if let Some(h) = h_lock.as_ref() {
+                let _ = h.emit("file-changed", json!({ "path": &path_abs }));
+            }
+        }
+
+        Ok(json!({
+            "status": "success",
+            "path": path_str,
+            "message": format!("Replaced in {}", path_str)
+        }))
+    }
+
+    pub(crate) async fn remove_item(&self, args: Value) -> Result<Value> {
+        let path_str = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let recursive = args
+            .get("recursive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+
+        if full_path.is_dir() {
+            if recursive {
+                fs::remove_dir_all(full_path)?;
+            } else {
+                fs::remove_dir(full_path)?;
+            }
+        } else {
+            fs::remove_file(full_path)?;
+        }
+        Ok(serde_json::json!({ "status": "success" }))
+    }
+
+    pub(crate) async fn create_directory(&self, args: Value) -> Result<Value> {
+        let path_str = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+
+        fs::create_dir_all(full_path)?;
+        Ok(serde_json::json!({ "status": "success" }))
+    }
+
+    pub(crate) async fn rename_path(&self, args: Value) -> Result<Value> {
+        let old_path_str = args
+            .get("old_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing old_path"))?;
+        let new_path_str = args
+            .get("new_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing new_path"))?;
+
+        let root = self.root_path.lock().await.clone();
+        let old_full = self.validate_path(&root, old_path_str)?;
+        let new_full = self.validate_path(&root, new_path_str)?;
+
+        fs::rename(old_full, new_full)?;
+        Ok(serde_json::json!({ "status": "success" }))
+    }
+
+    pub(crate) async fn list_files(&self, args: Value) -> Result<Value> {
+        let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+        let recursive = args
+            .get("recursive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let root = self.root_path.lock().await.clone();
+        let base_path = self.validate_path(&root, path_str)?;
+
+        // BUG FIX (Windows): the old code routed every call through
+        // `extract_path_and_pattern`, which for any non-existent path
+        // returned (parent_dir, leaf_name). The non-recursive branch then
+        // read `parent_dir` and *ignored* the pattern filter, so a call
+        // like `list_files({path: "claurst/kilocode"})` silently listed
+        // the workspace root and the model reported back "list_files is
+        // returning root-level results regardless of path — a sandbox
+        // quirk". It wasn't a sandbox; it was us.
+        //
+        // New rule: if the path is a glob pattern, take the parent +
+        // filter route. Otherwise demand the resolved path *exists* and
+        // is a directory, and surface a clean error if it isn't so the
+        // model can recover instead of looping on the same broken call.
+        let has_glob = path_str.contains('*') || path_str.contains('?') || path_str.contains('[');
+        let (full_path, pattern_filter) = if has_glob {
+            self.extract_path_and_pattern(&base_path.to_string_lossy(), "*")
+        } else {
+            (base_path, "*".to_string())
+        };
+
+        if !full_path.exists() {
+            return Err(anyhow!(
+                "list_files: path '{}' does not exist (resolved to {}). Use a path relative to the workspace root, or use list_files with `recursive: true` from a parent that does exist.",
+                path_str,
+                full_path.display()
+            ));
+        }
+        if !full_path.is_dir() {
+            return Err(anyhow!(
+                "list_files: path '{}' is a file, not a directory. Use view_file to read it.",
+                path_str
+            ));
+        }
+
+        let ignore = crate::cursor_compat::CursorIgnoreSet::load(
+            &*root,
+            crate::cursor_compat::IgnoreScope::AiAccess,
+        );
+
+        let mut files = Vec::new();
+        if recursive {
+            use walkdir::WalkDir;
+            for entry in WalkDir::new(&full_path)
+                .max_depth(3)
+                .into_iter()
+                .filter_entry(|e| {
+                    if ignore.is_ignored(e.path()) {
+                        return false;
+                    }
+                    let name = e.file_name().to_string_lossy();
+                    let is_hidden = name.starts_with('.') && name != "." && name != "..";
+                    let is_ignored = name == "node_modules" || name == "target" || name == "dist" || name == "build" || name == ".git";
+                    !is_hidden && !is_ignored
+                })
+                .filter_map(|e| e.ok())
+            {
+                let rel_path = entry
+                    .path()
+                    .strip_prefix(&*root)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| entry.path().to_string_lossy().to_string());
+                if pattern_filter == "*" || rel_path.contains(&pattern_filter) || pattern_filter == "**/*" {
+                    let is_dir = entry.file_type().is_dir();
+                    files.push(serde_json::json!({
+                        "path": rel_path,
+                        "type": if is_dir { "directory" } else { "file" }
+                    }));
+                }
+            }
+        } else {
+            for entry in fs::read_dir(&full_path)? {
+                let entry = entry?;
+                let name = entry.file_name().to_string_lossy().to_string();
+                let is_dir = entry.file_type()?.is_dir();
+                files.push(serde_json::json!({
+                    "name": name,
+                    "type": if is_dir { "directory" } else { "file" }
+                }));
+            }
+        }
+        let result = Value::Array(files);
+
+        // Emit artifact for file listing
+        {
+            let h_lock = self.app_handle.lock().await;
+            if let Some(h) = h_lock.as_ref() {
+                let _ = h.emit("ai-artifact", json!({
+                    "type": "file",
+                    "path": path_str,
+                    "title": format!("Listed: {}", path_str),
+                    "content": format!("Found {} items", result.as_array().map(|a| a.len()).unwrap_or(0))
+                }));
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub(crate) fn extract_shell_command(args: &Value) -> Result<&str> {
+        if let Some(c) = args.get("command").and_then(|v| v.as_str()) {
+            return Ok(c);
+        }
+        if let Some(c) = args.get("cmd").and_then(|v| v.as_str()) {
+            return Ok(c);
+        }
+        if let Some(comp) = args.get("components") {
+            if let Some(c) = comp.get("command").and_then(|v| v.as_str()) {
+                return Ok(c);
+            }
+            if let Some(arr) = comp.as_array() {
+                for item in arr {
+                    if let Some(c) = item.get("command").and_then(|v| v.as_str()) {
+                        return Ok(c);
+                    }
+                    if let Some(c) = item.as_str() {
+                        return Ok(c);
+                    }
+                }
+            }
+        }
+        Err(anyhow!("Missing command"))
+    }
+
+    pub(crate) fn apply_shell_suffix_to_grep_result(mut result: Value, suffix: &str) -> Value {
+        let s = suffix.trim().to_lowercase();
+        if s.contains("sort") {
+            let raw = result
+                .get("results")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mut lines: Vec<String> = raw.lines().filter(|l| !l.is_empty()).map(str::to_string).collect();
+            lines.sort_unstable();
+            if s.contains("-u") || s.contains("uniq") {
+                lines.dedup();
+            }
+            let match_count = lines.len();
+            let joined = lines.join("\n");
+            if let Some(obj) = result.as_object_mut() {
+                obj.insert("results".to_string(), json!(joined));
+                obj.insert("matches".to_string(), json!(match_count));
+            }
+        }
+        result
+    }
+
+    pub(crate) fn infer_write_path_from_content(content: &str) -> Option<String> {
+        use regex::Regex;
+        if let Ok(re) = Regex::new(r"(?i)saved from (https?://[^\s\*]+)") {
+            if let Some(cap) = re.captures(content) {
+                if let Some(url) = cap.get(1) {
+                    let url = url.as_str();
+                    let after_scheme = url.split("://").nth(1)?;
+                    let host = after_scheme.split('/').next()?;
+                    let fname = after_scheme
+                        .rsplit('/')
+                        .next()
+                        .filter(|s| !s.is_empty() && s.contains('.'))
+                        .unwrap_or("bundle.js");
+                    return Some(format!("recon/{}/{}", host, fname));
+                }
+            }
+        }
+        if (content.contains("__vite__") || content.contains("webpackJsonp"))
+            && content.len() > 400
+        {
+            return Some("recon/bundle.js".to_string());
+        }
+        None
+    }
+
+    pub(crate) async fn run_command(&self, args: Value) -> Result<Value> {
+        let command = Self::extract_shell_command(&args)?;
+        let skip_grep_intercept = args
+            .get("_grep_intercept_skip")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if !skip_grep_intercept {
+            if let Some(intercept) = crate::ripgrep_search::try_intercept_shell_grep(command) {
+                let prefix = intercept.prefix.as_deref().filter(|p| !p.trim().is_empty());
+                let grep_has_path = intercept
+                    .args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|p| !p.is_empty());
+
+                // `curl url | grep PATTERN` — fetch via reqwest (bypasses broken shell curl/proxy).
+                if !grep_has_path {
+                    if let Some(pfx) = prefix {
+                        if pfx.to_lowercase().contains("curl ") {
+                            if let Some(url) = ShellTranslator::extract_curl_url(pfx) {
+                                println!(
+                                    "[Intercept] curl|grep → web_fetch + ripgrep: {}",
+                                    url
+                                );
+                                let fetch = self.web_fetch_tool(json!({ "url": url })).await?;
+                                let text = fetch
+                                    .get("content")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let root = self.root_path.lock().await.clone();
+                                let tmp_dir = root.join(".agent").join("tmp");
+                                std::fs::create_dir_all(&tmp_dir)?;
+                                let tmp = tmp_dir.join(format!(
+                                    "curl-grep-{}.txt",
+                                    uuid::Uuid::new_v4().simple()
+                                ));
+                                std::fs::write(&tmp, text)?;
+                                let mut grep_args = intercept.args.clone();
+                                grep_args["path"] =
+                                    json!(tmp.to_string_lossy().to_string());
+                                let mut grep_result = self.grep(grep_args).await?;
+                                if let Some(suffix) = intercept.suffix.filter(|s| !s.trim().is_empty())
+                                {
+                                    grep_result = Self::apply_shell_suffix_to_grep_result(
+                                        grep_result, &suffix,
+                                    );
+                                }
+                                return Ok(grep_result);
+                            }
+                        }
+                    }
+                }
+
+                if let Some(pfx) = prefix {
+                    let shell_hint = args
+                        .get("shell_hint")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("run_command");
+                    let mut prefix_args = json!({
+                        "command": pfx,
+                        "shell_hint": shell_hint,
+                        "_grep_intercept_skip": true,
+                    });
+                    if args.get("background").and_then(|v| v.as_bool()) == Some(true) {
+                        prefix_args["background"] = json!(true);
+                    }
+                    let prefix_result = Box::pin(self.run_command(prefix_args)).await?;
+                    if prefix_result.get("status").and_then(|v| v.as_str()) == Some("failed")
+                        || prefix_result.get("status").and_then(|v| v.as_str()) == Some("error")
+                    {
+                        return Ok(prefix_result);
+                    }
+                }
+                println!(
+                    "[Intercept] shell grep/rg → bundled ripgrep grep tool: {}",
+                    command.lines().last().unwrap_or(command)
+                );
+                let mut grep_result = self.grep(intercept.args).await?;
+                if let Some(suffix) = intercept.suffix.filter(|s| !s.trim().is_empty()) {
+                    grep_result =
+                        Self::apply_shell_suffix_to_grep_result(grep_result, &suffix);
+                }
+                return Ok(grep_result);
+            }
+            if crate::ripgrep_search::command_uses_shell_grep(command) {
+                return Ok(json!({
+                    "status": "blocked",
+                    "error": "Shell grep/rg is disabled — use the grep tool (bundled ripgrep).",
+                    "hint": "grep({ pattern: \"…\", path: \"file.js\" }) — works on single files and directories.",
+                    "command": command,
+                }));
+            }
+        }
+
+        if let Some(reason) = crate::pentest_scope::block_localhost_pivot(command) {
+            return Ok(json!({
+                "status": "blocked",
+                "error": reason,
+                "command": command,
+                "hint": "Use the exact in-scope URL from the user. See .agent/skills/bugbounty-hunter/SKILL.md"
+            }));
+        }
+        let background = args
+            .get("background")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let root = self.root_path.lock().await.clone();
+
+        let shell_hint = args.get("shell_hint").and_then(|v| v.as_str()).unwrap_or("run_command");
+
+        if background {
+            let h_lock = self.app_handle.lock().await;
+            let h = h_lock
+                .as_ref()
+                .ok_or_else(|| anyhow!("App handle not set"))?;
+
+            let id = format!(
+                "bg-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+            );
+            h.emit(
+                "terminal-create",
+                json!({ "id": id.clone(), "command": command, "shell": shell_hint }),
+            )?;
+
+            return Ok(json!({
+                "status": "success",
+                "info": "Command started in background terminal. You MUST use terminal_get_status(term_id) to check if it finished, and terminal_read_output(term_id) to see what happened. DO NOT assume it finished immediately.",
+                "term_id": id,
+                "shell_hint": shell_hint,
+                "hint": "Status polling is required for background tasks."
+            }));
+        }
+
+        let (exec_path, exec_args) = ShellTranslator::translate_command(command, shell_hint);
+
+        // ── Live-streaming execution ───────────────────────────────────────
+        // The previous implementation called `.output()` which blocks until
+        // the process exits and only then surfaces stdout/stderr. The user
+        // wanted to see commands stream into the AIRI terminal panel in
+        // real-time (especially valuable for long-running scripts like
+        // `python security_audit.py` or `npm install`).
+        //
+        // We now spawn with piped stdio, read each pipe line-by-line on a
+        // worker thread, and emit `ai-tool-stdout` events per line. The
+        // terminal panel's listener (terminal.ts) writes those to the
+        // active xterm.js instance as they arrive. The aggregated output
+        // is still returned to the model as the tool result.
+        use std::io::{BufRead, BufReader};
+        use std::process::Stdio;
+
+        let stream_id = format!("cmd-{}", uuid::Uuid::new_v4().simple());
+
+        let app_handle = {
+            let h_lock = self.app_handle.lock().await;
+            h_lock.clone()
+        };
+
+        let start_payload = json!({
+            "stream_id": stream_id,
+            "command": command,
+            "shell_hint": shell_hint,
+        });
+        push_activity(&self.activity_log, "ai-tool-stdout-start", start_payload.clone());
+        if let Some(ref h) = app_handle {
+            let _ = h.emit("ai-tool-stdout-start", start_payload);
+        }
+
+        let mut cmd = std::process::Command::new(&exec_path);
+        cmd.hidden()
+            .args(&exec_args)
+            .current_dir(&*root)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(path) = crate::ide_shell::augmented_path_for_git_bash() {
+            cmd.env("PATH", path);
+        }
+        if command.to_lowercase().contains("curl ") {
+            ShellTranslator::sanitize_proxy_env(&mut cmd);
+        }
+        let mut child = cmd.spawn()?;
+
+        let child_stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("failed to capture stdout pipe"))?;
+        let child_stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow!("failed to capture stderr pipe"))?;
+
+        let stdout_buf = Arc::new(std::sync::Mutex::new(String::new()));
+        let stderr_buf = Arc::new(std::sync::Mutex::new(String::new()));
+
+        // Reader thread: stdout
+        let h_out = app_handle.clone();
+        let sid_out = stream_id.clone();
+        let buf_out = stdout_buf.clone();
+        let act_out = self.activity_log.clone();
+        let stdout_thread = std::thread::spawn(move || {
+            let reader = BufReader::new(child_stdout);
+            for line_res in reader.lines() {
+                let Ok(line) = line_res else { break; };
+                let payload = json!({
+                    "stream_id": sid_out,
+                    "line": line.clone(),
+                    "stream": "stdout",
+                });
+                push_activity(&act_out, "ai-tool-stdout", payload.clone());
+                if let Some(ref h) = h_out {
+                    let _ = h.emit("ai-tool-stdout", payload);
+                }
+                if let Ok(mut b) = buf_out.lock() {
+                    b.push_str(&line);
+                    b.push('\n');
+                }
+            }
+        });
+
+        // Reader thread: stderr
+        let h_err = app_handle.clone();
+        let sid_err = stream_id.clone();
+        let buf_err = stderr_buf.clone();
+        let act_err = self.activity_log.clone();
+        let stderr_thread = std::thread::spawn(move || {
+            let reader = BufReader::new(child_stderr);
+            for line_res in reader.lines() {
+                let Ok(line) = line_res else { break; };
+                let payload = json!({
+                    "stream_id": sid_err,
+                    "line": line.clone(),
+                    "stream": "stderr",
+                });
+                push_activity(&act_err, "ai-tool-stdout", payload.clone());
+                if let Some(ref h) = h_err {
+                    let _ = h.emit("ai-tool-stdout", payload);
+                }
+                if let Ok(mut b) = buf_err.lock() {
+                    b.push_str(&line);
+                    b.push('\n');
+                }
+            }
+        });
+
+        // Wait for the process on a blocking thread so we don't tie up the
+        // async runtime. Reader threads will join automatically when the
+        // pipes close (which happens when the child exits).
+        let status = tokio::task::spawn_blocking(move || child.wait())
+            .await
+            .map_err(|e| anyhow!("join error: {}", e))??;
+        let _ = stdout_thread.join();
+        let _ = stderr_thread.join();
+
+        let stdout = stdout_buf.lock().map(|s| s.clone()).unwrap_or_default();
+        let stderr = stderr_buf.lock().map(|s| s.clone()).unwrap_or_default();
+
+        let end_payload = json!({
+            "stream_id": stream_id,
+            "exit_code": status.code(),
+            "success": status.success(),
+        });
+        push_activity(&self.activity_log, "ai-tool-stdout-end", end_payload.clone());
+        if let Some(ref h) = app_handle {
+            let _ = h.emit("ai-tool-stdout-end", end_payload);
+            let _ = h.emit(
+                "ai-artifact",
+                json!({
+                    "type": "terminal",
+                    "title": format!("Run: {}", command),
+                    "content": if status.success() { stdout.clone() } else { stderr.clone() }
+                }),
+            );
+        }
+
+        Ok(serde_json::json!({
+            "stdout": stdout,
+            "stderr": stderr,
+            "success": status.success(),
+            "status": if status.success() { "success" } else { "failed" }
+        }))
+    }
+
+    pub(crate) async fn browser_search(&self, args: Value) -> Result<Value> {
+        let query = args["query"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing query"))?;
+        let url = format!(
+            "https://www.google.com/search?q={}",
+            urlencoding::encode(query)
+        );
+        self.browser_navigate(json!({ "url": url })).await
+    }
+
+    pub(crate) async fn browser_get_content_summary(&self, _args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().await;
+        if let Some(h) = h_lock.as_ref() {
+            let res = crate::browser::browser_get_content_summary(h.state()).await;
+            match res {
+                Ok(v) => Ok(v),
+                Err(e) => Err(anyhow!("{}", e)),
+            }
+        } else {
+            Err(anyhow!("App handle not set"))
+        }
+    }
+
+    pub(crate) async fn spawn_subagent(&self, args: Value) -> Result<Value> {
+        let sub_task = args["task"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing task"))?;
+        let h_lock = self.app_handle.lock().await;
+
+        if let Some(h) = h_lock.as_ref() {
+            let state: tauri::State<crate::EditorState> = h.state();
+            let engine = state.ai_engine.clone();
+            let handle = h.clone();
+            let task_id = uuid::Uuid::new_v4().to_string();
+            let task_id_clone = task_id.clone();
+            let sub_task_clone = sub_task.to_string();
+
+            // Prepare sub-agent request
+            let req = crate::ai_engine::AiRequest {
+                provider: "ollama".to_string(), // Native Local Subagent
+                model: "qwen2.5-coder-abliterate:7b".to_string(), // Or could be pulled from global state
+                messages: vec![crate::ai_engine::ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(crate::ai_engine::MessageContent::Text(
+                        sub_task_clone.clone(),
+                    )),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    metadata: None,
+                }],
+                temperature: Some(0.7),
+                autonomous: true,
+                mode: None,
+                cyber_mode: None,
+                root_access: Some(true),
+                ollama_url: None,
+                tools: None,
+                reasoning_budget: None,
+                reasoning_effort: None,
+                reasoning_enabled: None,
+                feature: None,
+            };
+
+            println!(
+                "[SUBAGENT] Spawning async sub-agent [{}] for task: {}",
+                task_id, sub_task
+            );
+
+            // Spawn background task (non-Send workaround: use thread-local tokio runtime)
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("tokio rt for subagent");
+
+                let _ = handle.emit(
+                    "subagent-progress",
+                    &json!({
+                        "task_id": task_id_clone,
+                        "status": "running",
+                        "progress": 5,
+                        "message": "Initializing sub-agent session..."
+                    }),
+                );
+
+                let res = rt.block_on(engine.autonomous_loop(req, None));
+
+                match res {
+                    Ok(answer) => {
+                        let _ = handle.emit(
+                            "subagent-progress",
+                            &json!({
+                                "task_id": task_id_clone,
+                                "status": "completed",
+                                "progress": 100,
+                                "result": answer
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        let _ = handle.emit(
+                            "subagent-progress",
+                            &json!({
+                                "task_id": task_id_clone,
+                                "status": "failed",
+                                "progress": 0,
+                                "error": e.to_string()
+                            }),
+                        );
+                    }
+                }
+            });
+
+            Ok(json!({
+                "status": "success",
+                "task_id": task_id,
+                "message": "Sub-agent spawned in background."
+            }))
+        } else {
+            Err(anyhow!("App handle not set"))
+        }
+    }
+
+    pub(crate) async fn generate_image(&self, args: Value) -> Result<Value> {
+        let prompt = args["prompt"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing prompt"))?;
+        let path = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
+
+        let root = self.root_path.lock().await.clone();
+        let full = if std::path::Path::new(path).is_absolute() {
+            std::path::PathBuf::from(path)
+        } else {
+            std::path::Path::new(&root).join(path)
+        };
+
+        let keys = self.load_keys_value().await;
+        let google_key = keys.get("google").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+        let provider = args["provider"].as_str().unwrap_or("auto");
+
+        let saved = if provider == "gemini" || (provider == "auto" && google_key.is_some()) {
+            let key = google_key.ok_or_else(|| anyhow!("Google API key required for Gemini image gen"))?;
+            crate::image_gen::generate_with_gemini(key, prompt, &full)
+                .await
+                .map_err(|e| anyhow!("{e}"))
+        } else {
+            crate::image_gen::generate_with_ollama(prompt, &full)
+                .await
+                .map_err(|e| anyhow!("{e}"))
+        };
+
+        match saved {
+            Ok(out) => Ok(json!({
+                "status": "success",
+                "path": out,
+                "message": format!("Image saved to {out}")
+            })),
+            Err(_) if provider == "auto" && google_key.is_some() => {
+                let key = google_key.unwrap();
+                let out = crate::image_gen::generate_with_gemini(key, prompt, &full)
+                    .await
+                    .map_err(|e| anyhow!("{e}"))?;
+                Ok(json!({
+                    "status": "success",
+                    "path": out,
+                    "message": format!("Image saved to {out} (Gemini fallback)")
+                }))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    pub(crate) async fn analyze_image(&self, args: Value) -> Result<Value> {
+        let path = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
+        let question = args
+            .get("question")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Describe this image in detail.");
+
+        let root = self.root_path.lock().await.clone();
+        let full = if std::path::Path::new(path).is_absolute() {
+            std::path::PathBuf::from(path)
+        } else {
+            std::path::Path::new(&root).join(path)
+        };
+        if !full.exists() {
+            return Err(anyhow!("Image not found: {}", full.display()));
+        }
+
+        let keys = self.load_keys_value().await;
+        let google_key = keys.get("google").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+        let provider = args["provider"].as_str().unwrap_or("auto");
+
+        let analysis = if provider == "gemini" || (provider == "auto" && google_key.is_some()) {
+            let key = google_key.ok_or_else(|| anyhow!("Google API key required"))?;
+            crate::image_gen::analyze_with_gemini(key, &full, question)
+                .await
+                .map_err(|e| anyhow!("{e}"))?
+        } else {
+            match crate::image_gen::analyze_with_ollama(&full, question).await {
+                Ok(t) => t,
+                Err(_) if google_key.is_some() => {
+                    crate::image_gen::analyze_with_gemini(google_key.unwrap(), &full, question)
+                        .await
+                        .map_err(|e| anyhow!("{e}"))?
+                }
+                Err(e) => return Err(anyhow!("{e}")),
+            }
+        };
+
+        Ok(json!({
+            "status": "success",
+            "analysis": analysis,
+            "path": full.to_string_lossy()
+        }))
+    }
+
+    pub(crate) async fn code_search(&self, args: Value) -> Result<Value> {
+        let query = args["query"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing query"))?;
+        let pattern = args
+            .get("file_pattern")
+            .and_then(|v| v.as_str())
+            .unwrap_or("*");
+
+        let root = self.root_path.lock().await.clone();
+        let mut results = Vec::new();
+        let glob_pattern = format!("**/{}", pattern);
+
+        // Use walkdir for recursive search
+        for entry in walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if entry.file_type().is_file() {
+                let path = entry.path();
+
+                // Match file pattern if provided
+                if pattern != "*" {
+                    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if !glob::Pattern::new(&glob_pattern)
+                        .unwrap()
+                        .matches_path(path)
+                        && !glob::Pattern::new(pattern).unwrap().matches(file_name)
+                    {
+                        continue;
+                    }
+                }
+
+                if let Ok(content) = fs::read_to_string(path) {
+                    if content.contains(query) {
+                        results.push(json!({
+                            "path": path.strip_prefix(&root).unwrap_or(path).to_string_lossy(),
+                            "matches": content.matches(query).count()
+                        }));
+                    }
+                }
+            }
+            if results.len() > 100 {
+                break;
+            }
+        }
+
+        Ok(json!({
+            "status": "success",
+            "results": results,
+            "count": results.len()
+        }))
+    }
+
+    pub(crate) async fn dependency_graph(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing path"))?;
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = if PathBuf::from(path_str).is_absolute() {
+            PathBuf::from(path_str)
+        } else {
+            root.join(path_str)
+        };
+
+        let mut imports = Vec::new();
+        if let Ok(content) = fs::read_to_string(&full_path) {
+            // Very simple regex-based discovery for demonstration
+            // In a real implementation, we'd use tree-sitter or a proper parser
+            let re_rust = regex::Regex::new(r"use\s+([^;]+);").unwrap();
+            let re_ts = regex::Regex::new(r#"import.*from\s+['"]([^'"]+)['"]"#).unwrap();
+
+            for cap in re_rust.captures_iter(&content) {
+                imports.push(cap[1].to_string());
+            }
+            for cap in re_ts.captures_iter(&content) {
+                imports.push(cap[1].to_string());
+            }
+        }
+
+        Ok(json!({
+            "status": "success",
+            "file": path_str,
+            "dependencies": imports
+        }))
+    }
+
+    pub(crate) async fn terminal_terminate(&self, args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().await;
+        let h = h_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("App handle not set"))?;
+        let term_id = args
+            .get("term_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing term_id"))?;
+
+        let state = h.state::<crate::EditorState>();
+        let mut processes = state.terminal_processes.lock().await;
+        if let Some(mut child) = processes.remove(term_id) {
+            let _ = child.kill();
+            state.terminal_masters.lock().await.remove(term_id);
+            state.terminal_writers.lock().await.remove(term_id);
+            Ok(json!({ "status": "success", "info": format!("Terminal {} terminated.", term_id) }))
+        } else {
+            Ok(json!({ "status": "error", "message": "Terminal not found or already closed." }))
+        }
+    }
+
+    pub(crate) async fn terminal_get_status(&self, args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().await;
+        let h = h_lock
+            .as_ref()
+            .ok_or_else(|| anyhow!("App handle not set"))?;
+        let term_id = args
+            .get("term_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing term_id"))?;
+
+        let state = h.state::<crate::EditorState>();
+        let mut processes = state.terminal_processes.lock().await;
+        if let Some(child) = processes.get_mut(term_id) {
+            match child.try_wait() {
+                Ok(Some(status)) => Ok(
+                    json!({ "active": false, "success": status.success(), "status": if status.success() { "success" } else { "failed" } }),
+                ),
+                Ok(None) => Ok(json!({ "active": true, "status": "running" })),
+                Err(e) => Err(anyhow!("Error checking process: {}", e)),
+            }
+        } else {
+            Ok(
+                json!({ "active": false, "info": "Process not found (likely already exited and cleaned up)." }),
+            )
+        }
+    }
+
+    pub(crate) async fn search_files(&self, args: Value) -> Result<Value> {
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing query"))?;
+
+        let root = self.root_path.lock().await.clone();
+        let hits = crate::ripgrep_search::ripgrep_search(crate::ripgrep_search::RipgrepQuery {
+            pattern: query,
+            root: &root,
+            include: None,
+            max_results: 100,
+            case_insensitive: true,
+            fixed_string: true,
+            file: None,
+        })
+        .map_err(|e| anyhow!(e))?;
+
+        let results: Vec<Value> = hits
+            .into_iter()
+            .map(|h| {
+                json!({
+                    "file": h.path,
+                    "line": h.line,
+                    "match": h.content
+                })
+            })
+            .collect();
+        Ok(Value::Array(results))
+    }
+
+    pub(crate) async fn semantic_search(&self, args: Value) -> Result<Value> {
+        let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing query"))?.to_string();
+        let q_lower = query.to_lowercase();
+        let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+        let slots: Vec<crate::memory_store::SemanticSlot> = self.memory_store.slots.read().await.clone();
+        
+        let mut results = Vec::new();
+        for slot in slots {
+            if slot.content.to_lowercase().contains(&q_lower) || 
+               slot.tags.iter().any(|t| t.to_lowercase().contains(&q_lower)) ||
+               slot.id.to_lowercase().contains(&q_lower) 
+            {
+                results.push(json!({
+                    "source": "aim",
+                    "id": slot.id,
+                    "category": slot.category,
+                    "relevance_tags": slot.tags,
+                    "path_hint": slot.content
+                }));
+            }
+            if results.len() >= limit { break; }
+        }
+
+        if results.len() < limit {
+            if let Some(indexer) = self.vector_indexer.lock().await.clone() {
+                let remaining = limit - results.len();
+                if let Ok(hits) = indexer.search_codebase(&query, remaining).await {
+                    for hit in hits {
+                        results.push(json!({
+                            "source": "vector_index",
+                            "file": hit.file_path,
+                            "start_line": hit.start_line,
+                            "end_line": hit.end_line,
+                            "relevance_score": hit.relevance_score,
+                            "preview": hit.context,
+                            "content": hit.content.chars().take(240).collect::<String>(),
+                        }));
+                    }
+                }
+            }
+        }
+
+        Ok(json!({
+            "query": query,
+            "results": results,
+            "count": results.len()
+        }))
+    }
+
+    /// Packs the entire indexed codebase into a compact semantic map.
+    /// The AI calls this once to get the "6 gist tokens" zero-grep overview.
+    pub(crate) async fn aim_pack_context(&self, args: Value) -> Result<Value> {
+        let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        let max_slots = args.get("max_slots").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+
+        let gist = self.memory_store.build_compact_gist().await;
+        let tree_summary = self.memory_store.get_project_tree_summary().await;
+        let tree = self.memory_store.get_project_tree().await;
+        // Complete codebase map (every file + symbol) — total recall, not RAG.
+        let codebase_map = self.memory_store.build_full_codebase_map(120_000).await;
+
+        // Pull code-category slots — these are the indexed file summaries
+        let all_slots = self.memory_store.slots.read().await.clone();
+        let code_slots: Vec<serde_json::Value> = all_slots.iter()
+            .filter(|s| s.category == "code" || s.category == "fix" || s.category == "decision")
+            .filter(|s| {
+                if query.is_empty() { return true; }
+                let q = query.to_lowercase();
+                s.content.to_lowercase().contains(&q)
+                    || s.tags.iter().any(|t| t.to_lowercase().contains(&q))
+            })
+            .take(max_slots)
+            .map(|s| {
+                let file = s.metadata.as_ref()
+                    .and_then(|m| m.get("path"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                json!({
+                    "file": file,
+                    "category": s.category,
+                    "preview": s.content.chars().take(120).collect::<String>(),
+                    "tags": s.tags.iter().take(4).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+
+        let indexed = tree.len();
+        Ok(json!({
+            "schema": "kortex.aim.packed/v1",
+            "gist": gist,
+            "codebase_map": codebase_map,
+            "project_summary": tree_summary,
+            "total_indexed_files": indexed,
+            "context_slots": code_slots,
+            "slot_count": code_slots.len(),
+            "instruction": if indexed > 0 {
+                "ZERO-GREP MODE ACTIVE. Trust this map. Do NOT call list_files or grep to understand the codebase — the structure above IS the complete index. Go directly to the relevant file."
+            } else {
+                "Workspace not yet indexed. Call trigger_workspace_index first, then aim_pack_context again."
+            }
+        }))
+    }
+
+    /// Query the AIM index for exact file + line location of a symbol or concept.
+    /// Faster and more precise than grep for indexed codebases.
+    pub(crate) async fn aim_query_spans_tool(&self, args: Value) -> Result<Value> {
+        let query = args.get("query").and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing query"))?;
+        let q = query.to_lowercase();
+
+        let all_slots = self.memory_store.slots.read().await.clone();
+        let mut results: Vec<serde_json::Value> = Vec::new();
+
+        for slot in &all_slots {
+            let score = {
+                let content_match = slot.content.to_lowercase().contains(&q);
+                let tag_match = slot.tags.iter().any(|t| t.to_lowercase().contains(&q));
+                let id_match = slot.id.to_lowercase().contains(&q);
+                if id_match { 3 } else if tag_match { 2 } else if content_match { 1 } else { 0 }
+            };
+            if score == 0 { continue; }
+
+            let file = slot.metadata.as_ref()
+                .and_then(|m| m.get("path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let line = slot.metadata.as_ref()
+                .and_then(|m| m.get("line"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let kind = slot.tags.iter()
+                .find(|t| t.starts_with("symbol:"))
+                .map(|t| t[7..].to_string())
+                .unwrap_or_else(|| slot.category.clone());
+
+            results.push(json!({
+                "file": file,
+                "line": line,
+                "kind": kind,
+                "preview": slot.content.chars().take(160).collect::<String>(),
+                "score": score,
+            }));
+
+            if results.len() >= 12 { break; }
+        }
+
+        // Sort by score descending
+        results.sort_by(|a, b| {
+            b["score"].as_u64().unwrap_or(0)
+                .cmp(&a["score"].as_u64().unwrap_or(0))
+        });
+
+        Ok(json!({
+            "schema": "kortex.aim.spans/v1",
+            "query": query,
+            "results": results,
+            "hit_count": results.len(),
+        }))
+    }
+
+    pub(crate) async fn find_symbols(&self, args: Value) -> Result<Value> {
+        let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+        let slots: Vec<crate::memory_store::SemanticSlot> = self.memory_store.slots.read().await.clone();
+        
+        let mut symbols = Vec::new();
+        for slot in slots {
+            for tag in slot.tags {
+                if tag.starts_with("symbol:") {
+                    let sym_name = &tag[7..];
+                    if pattern.is_empty() || sym_name.to_lowercase().contains(&pattern) {
+                        symbols.push(json!({
+                            "name": sym_name,
+                            "file": slot.content
+                        }));
+                    }
+                }
+            }
+            if symbols.len() > 200 { break; }
+        }
+        Ok(json!(symbols))
+    }
+
+    pub(crate) async fn read_file_lines(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let start = args["start_line"].as_u64().unwrap_or(1) as usize;
+        let end = args["end_line"].as_u64().unwrap_or(1) as usize;
+        
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let content = fs::read_to_string(full_path)?;
+        let lines: Vec<&str> = content.lines().collect();
+        
+        let safe_start = start.max(1).min(lines.len());
+        let safe_end = end.min(lines.len()).max(safe_start);
+        
+        let subset = &lines[safe_start-1..safe_end];
+        Ok(json!({
+            "path": path_str,
+            "total_lines": lines.len(),
+            "range": format!("{}-{}", safe_start, safe_end),
+            "content": subset.join("\n")
+        }))
+    }
+
+    pub(crate) async fn reindex_project(&self, _args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().await;
+        if let Some(h) = h_lock.as_ref() {
+            h.emit("reindex-project", json!({}))?;
+            Ok(json!({"status": "success", "info": "Background re-indexing triggered."}))
+        } else {
+            Err(anyhow!("App handle not available"))
+        }
+    }
+
+    pub(crate) async fn list_dir_tree(&self, args: Value) -> Result<Value> {
+        let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let mut tree = String::new();
+        use walkdir::WalkDir;
+        
+        for entry in WalkDir::new(full_path)
+            .max_depth(3)
+            .into_iter()
+            .filter_map(|e| e.ok()) {
+            
+            let depth = entry.depth();
+            let name = entry.file_name().to_string_lossy();
+            let indent = "  ".repeat(depth);
+            
+            if entry.file_type().is_dir() {
+                tree.push_str(&format!("{}📁 {}/\n", indent, name));
+            } else {
+                tree.push_str(&format!("{}📄 {}\n", indent, name));
+            }
+            
+            if tree.len() > 10000 {
+                tree.push_str("... (truncated)\n");
+                break;
+            }
+        }
+        
+        Ok(json!({ "tree": tree }))
+    }
+
+    pub(crate) async fn list_mcp_ops(&self, _args: Value) -> Result<Value> {
+        let mcp_status = self.mcp_registry.list_servers_status().await;
+        Ok(json!(mcp_status))
+    }
+
+    pub(crate) async fn hex_dump(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let length = args.get("length").and_then(|v| v.as_u64()).unwrap_or(256) as usize;
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = fs::File::open(full_path)?;
+        file.seek(SeekFrom::Start(offset as u64))?;
+        
+        let mut buffer = vec![0u8; length];
+        let bytes_read = file.read(&mut buffer)?;
+        buffer.truncate(bytes_read);
+
+        let mut dump = String::new();
+        for (i, chunk) in buffer.chunks(16).enumerate() {
+            let row_offset = offset + (i * 16);
+            dump.push_str(&format!("{:08x}: ", row_offset));
+            
+            for b in chunk {
+                dump.push_str(&format!("{:02x} ", b));
+            }
+            
+            // Padding
+            if chunk.len() < 16 {
+                for _ in 0..(16 - chunk.len()) {
+                    dump.push_str("   ");
+                }
+            }
+            
+            dump.push_str(" |");
+            for b in chunk {
+                if b.is_ascii_graphic() || *b == b' ' {
+                    dump.push(*b as char);
+                } else {
+                    dump.push('.');
+                }
+            }
+            dump.push_str("|\n");
+        }
+
+        Ok(json!({ "path": path_str, "dump": dump }))
+    }
+
+    pub(crate) async fn extract_strings(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let bytes = fs::read(full_path)?;
+        let mut strings = Vec::new();
+        let mut current = Vec::new();
+        
+        for b in bytes {
+            if b.is_ascii_graphic() || b == b' ' || b == b'\t' {
+                current.push(b);
+            } else {
+                if current.len() >= 4 {
+                    strings.push(String::from_utf8_lossy(&current).to_string());
+                }
+                current.clear();
+            }
+            if strings.len() > 500 { break; }
+        }
+        
+        Ok(json!({ "path": path_str, "strings": strings }))
+    }
+
+    pub(crate) async fn list_active_processes(&self, _args: Value) -> Result<Value> {
+        use sysinfo::System;
+        let mut s = System::new_all();
+        s.refresh_all();
+        
+        let mut processes = Vec::new();
+        for (pid, process) in s.processes() {
+            processes.push(json!({
+                "pid": pid.to_string(),
+                "name": process.name(),
+                "memory_kb": process.memory()
+            }));
+            if processes.len() > 100 { break; }
+        }
+        
+        Ok(json!(processes))
+    }
+
+    pub(crate) async fn get_file_metadata(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+        
+        let meta = fs::metadata(full_path)?;
+        Ok(json!({
+            "path": path_str,
+            "size_bytes": meta.len(),
+            "is_dir": meta.is_dir(),
+            "is_file": meta.is_file(),
+            "modified": format!("{:?}", meta.modified()?),
+            "created": format!("{:?}", meta.created()?)
+        }))
+    }
+
+    pub(crate) async fn apply_patch(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let patch = args["patch"].as_str().ok_or_else(|| anyhow!("Missing patch"))?;
+        let description = args["description"].as_str().unwrap_or("Applying surgical patch");
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+
+        let old_content = fs::read_to_string(&full_path)?;
+
+        // Actually apply the unified diff so the DiffViewer shows the real
+        // patched result. SEARCH/REPLACE blocks belong to the surgical edit
+        // tool; full rewrites belong to write_to_file.
+        let parsed = diffy::Patch::from_str(patch).map_err(|e| {
+            anyhow!(
+                "apply_patch expects a unified diff (---/+++/@@ hunks); parse failed: {e}. \
+                 Use the surgical SEARCH/REPLACE edit tool for block edits, or write_to_file for full content."
+            )
+        })?;
+        let new_content = diffy::apply(&old_content, &parsed)
+            .map_err(|e| anyhow!("patch does not apply cleanly to {path_str}: {e}"))?;
+
+        if let Some(h) = self.app_handle.lock().await.as_ref() {
+            let _ = h.emit("propose-edit", json!({
+                "path": path_str,
+                "old_content": old_content,
+                "new_content": new_content,
+                "description": description
+            }));
+        }
+
+        Ok(json!({
+            "status": "proposed",
+            "info": "Unified diff applied; result proposed for review in the DiffViewer.",
+            "bytes_before": old_content.len(),
+            "bytes_after": new_content.len()
+        }))
+    }
+
+    pub(crate) async fn ai_propose_edit(&self, args: Value) -> Result<Value> {
+        let path_str = args["path"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
+        let new_content = args["new_content"].as_str().ok_or_else(|| anyhow!("Missing new_content"))?;
+        let description = args["description"].as_str().unwrap_or("AI suggested modification");
+
+        let root = self.root_path.lock().await.clone();
+        let full_path = self.validate_path(&root, path_str)?;
+
+        let old_content = fs::read_to_string(&full_path).unwrap_or_default();
+
+        if let Some(h) = self.app_handle.lock().await.as_ref() {
+            let _ = h.emit("propose-edit", json!({
+                "path": path_str,
+                "old_content": old_content,
+                "new_content": new_content,
+                "description": description
+            }));
+        }
+
+        Ok(json!({ "status": "proposed", "path": path_str }))
+    }
+
+    pub(crate) async fn ide_get_state(&self, _args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().await;
+        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
+        
+        let state = h.state::<crate::EditorState>();
+        let active_path = state.active_path.lock().await.clone();
+        let terminals = state.terminal_processes.lock().await.keys().cloned().collect::<Vec<String>>();
+        
+        Ok(json!({
+            "active_path": active_path,
+            "terminals": terminals,
+            "project_root": self.root_path.lock().await.to_string_lossy()
+        }))
+    }
+
+}
