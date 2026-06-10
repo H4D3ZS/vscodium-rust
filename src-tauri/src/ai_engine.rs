@@ -1127,9 +1127,14 @@ impl Sentient {
     }
 
     /// Returns the recommended `num_ctx` for a given model name.
-    /// Tiered by model size to balance quality vs. VRAM/RAM on RX 580 + 40GB system RAM.
-    /// Large models (14B+) use CPU-offloaded layers → can afford bigger context from RAM.
+    /// Tiered by model size, then clamped to the host RAM tier (KV cache is
+    /// the hidden RAM hog — 16K ctx on a 7b costs ~1.5–2GB of KV alone).
     fn recommended_num_ctx(model: &str) -> usize {
+        crate::ollama_offload::clamp_num_ctx(Self::model_native_num_ctx(model))
+    }
+
+    /// Model-size-keyed context recommendation, before RAM-tier clamping.
+    fn model_native_num_ctx(model: &str) -> usize {
         let m = model.to_lowercase();
 
         if Self::is_gemma4_model(model) {
@@ -1177,6 +1182,12 @@ impl Sentient {
             "num_predict": num_predict,
             "temperature": temperature,
         });
+        // Explicit GPU-layer offload override (Metal/partial offload tuning).
+        if let Ok(n) = std::env::var("HADES_NUM_GPU") {
+            if let Ok(n) = n.parse::<i64>() {
+                opts["num_gpu"] = json!(n);
+            }
+        }
         if Self::is_gemma4_model(model) {
             opts["top_p"] = json!(top_p);
             opts["top_k"] = json!(top_k);
@@ -1194,6 +1205,10 @@ impl Sentient {
                 "options".to_string(),
                 Self::ollama_inference_options(model, temperature, num_predict),
             );
+            // RAM-tiered residency: lite keeps its single model warm so weights
+            // aren't reloaded between agent turns (Ollama default is only 5m).
+            obj.entry("keep_alive".to_string())
+                .or_insert_with(|| json!(crate::ollama_offload::keep_alive()));
             println!("[AI] Ollama payload num_ctx={} model={}", num_ctx, model);
         }
     }
@@ -3485,6 +3500,7 @@ impl Sentient {
                 if is_local_inference {
                     // num_ctx/num_predict must live under `options` for Ollama (/v1 and /api).
                     base["options"] = Self::ollama_inference_options(&active_model, ollama_temp, ollama_predict);
+                    base["keep_alive"] = json!(crate::ollama_offload::keep_alive());
                 }
                 base
             };
@@ -5455,6 +5471,7 @@ Reply with EXACTLY ONE word: ACTION or CHAT. No punctuation, no explanation.";
             });
             if !ollama_openai_compat {
                 body["options"] = Self::ollama_inference_options(&req.model, temp, 1024);
+                body["keep_alive"] = json!(crate::ollama_offload::keep_alive());
             }
             body
         } else {

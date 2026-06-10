@@ -148,15 +148,19 @@ impl AimPaths {
         if let Ok(p) = std::env::var("AIM_PATH") {
             if !p.is_empty() { paths.push(PathBuf::from(p)); }
         }
-        // Cross-platform defaults (Linux server + Windows dev).
-        if let Ok(home) = std::env::var("HOME") {
+        // Cross-platform defaults (macOS/Linux HOME, Windows USERPROFILE).
+        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok();
+        if let Some(home) = &home {
             paths.push(PathBuf::from(format!("{home}/.aim/memory.aim")));
         }
         paths.push(PathBuf::from("/opt/cyberifrit/.aim/memory.aim"));
         paths.push(PathBuf::from("./.aim/memory.aim"));
         paths.push(PathBuf::from("../.aim/memory.aim"));
-        paths.push(PathBuf::from("C:\\Users\\HADES\\Desktop\\kortex\\.aim\\memory.aim"));
-        paths.push(PathBuf::from("C:\\Users\\HADES\\Desktop\\vscodium-rust\\.aim\\memory.aim"));
+        // Legacy home-relative dev layouts (any user, any OS).
+        if let Some(home) = &home {
+            paths.push(PathBuf::from(format!("{home}/Desktop/kortex/.aim/memory.aim")));
+            paths.push(PathBuf::from(format!("{home}/Desktop/vscodium-rust/.aim/memory.aim")));
+        }
         Self(paths)
     }
 

@@ -7,6 +7,7 @@ import type { AgentToolBlock } from '../../domain/agent/agentToolBlocks';
 import { collapseToolBlocksForDisplay, type DisplayToolBlock } from '../../domain/agent/agentToolBlocks';
 import InlineDiffPreview from './InlineDiffPreview';
 import ComposerTodoList from './ComposerTodoList';
+import { useStore } from '../../store';
 
 const cardStyle: React.CSSProperties = {
     marginBottom: '8px',
@@ -70,6 +71,36 @@ const ToolBlockCard: React.FC<{ block: AgentToolBlock }> = ({ block }) => {
             animation: isRunning ? 'hubPulse 1s infinite' : undefined,
         }} />
     );
+
+    if (block.kind === 'canvas') {
+        const canOpen = block.status === 'done' && !!block.canvasId;
+        return (
+            <div
+                style={{
+                    ...headerStyle,
+                    ...cardStyle,
+                    borderBottom: 'none',
+                    cursor: canOpen ? 'pointer' : 'default',
+                    opacity: isError ? 0.6 : 1,
+                }}
+                onClick={() => {
+                    if (canOpen && block.canvasId) {
+                        useStore.getState().openCanvasTab(block.canvasId);
+                    }
+                }}
+                title={canOpen ? 'Open canvas tab' : undefined}
+            >
+                {statusDot}
+                <span style={{ fontSize: 12 }}>📊</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {isError ? `Canvas failed${block.canvasTitle ? ` · ${block.canvasTitle}` : ''}`
+                        : isRunning ? `Rendering canvas${block.canvasTitle ? ` · ${block.canvasTitle}` : ''}…`
+                            : `Open canvas${block.canvasTitle ? ` · ${block.canvasTitle}` : ''}`}
+                </span>
+                {canOpen && <i className="codicon codicon-link-external" style={{ fontSize: 10, opacity: 0.45 }} />}
+            </div>
+        );
+    }
 
     if (block.kind === 'todo' && block.todos?.length) {
         return (

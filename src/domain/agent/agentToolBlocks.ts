@@ -2,7 +2,7 @@
 
 import { canonicalToolName, toolsMatchForFinish } from './toolAliases';
 
-export type AgentToolBlockKind = 'terminal' | 'read' | 'edit' | 'search' | 'todo' | 'generic';
+export type AgentToolBlockKind = 'terminal' | 'read' | 'edit' | 'search' | 'todo' | 'canvas' | 'generic';
 export type AgentToolBlockStatus = 'running' | 'done' | 'error';
 
 export type AgentTodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
@@ -31,6 +31,9 @@ export interface AgentToolBlock {
     newText?: string;
     todos?: AgentTodoItem[];
     exitCode?: number | null;
+    /** For canvas blocks: id/title used by the "Open canvas" chip. */
+    canvasId?: string;
+    canvasTitle?: string;
 }
 
 export function parseToolArgs(raw: unknown): Record<string, unknown> {
@@ -49,6 +52,7 @@ export function parseToolArgs(raw: unknown): Record<string, unknown> {
 
 export function classifyToolKind(tool: string): AgentToolBlockKind {
     const t = canonicalToolName(tool);
+    if (t === 'create_canvas' || t.includes('canvas')) return 'canvas';
     if (t.includes('todo_write') || t === 'todo_write' || t.includes('task_create')) return 'todo';
     if (t === 'run_command' || t.includes('terminal')) return 'terminal';
     if (t === 'view_file' || t.includes('file_read') || t.includes('read_file')) return 'read';
@@ -178,6 +182,10 @@ export function buildToolBlockTitle(tool: string, args: Record<string, unknown>)
         const fp = String(args.file_path || args.path || '');
         return fp ? `Updated tasks · ${basename(fp)}` : 'Updated task list';
     }
+    if (kind === 'canvas') {
+        const t = String(args.title || '');
+        return t ? `Canvas · ${t}` : 'Canvas';
+    }
     if (kind === 'search') {
         const pat = String(args.pattern || args.query || '');
         if (pat && path) return `Grepped \`${pat}\` in ${basename(path)}`;
@@ -221,7 +229,21 @@ export function createToolBlock(tool: string, args: unknown, callId?: string): A
         oldText,
         newText,
         todos,
+        canvasId: kind === 'canvas' ? String(parsed.id || '') || undefined : undefined,
+        canvasTitle: kind === 'canvas' ? String(parsed.title || '') || undefined : undefined,
     };
+}
+
+/** Pull the rendered canvas id out of a create_canvas tool result. */
+export function enrichCanvasBlockFromResult(block: AgentToolBlock, result: string): AgentToolBlock {
+    if (block.kind !== 'canvas') return block;
+    try {
+        const j = JSON.parse(result);
+        const data = (j && typeof j === 'object' && typeof j.data === 'object' && j.data) || j;
+        const id = data && typeof data === 'object' ? String((data as any).canvas_id || '') : '';
+        if (id) return { ...block, canvasId: id };
+    } catch { /* not json */ }
+    return block;
 }
 
 /** Try to enrich edit blocks from a tool result payload. */

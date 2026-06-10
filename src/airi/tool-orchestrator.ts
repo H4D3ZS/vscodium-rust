@@ -52,7 +52,7 @@ export class AIRIToolOrchestrator {
         const tool: ExternalTool = {
             name: 'FlutterSentinel',
             type: 'mobile',
-            path: projectPath || 'C:/Users/HADES/Desktop/FlutterSentinel',
+            path: projectPath,
             command: 'flutter',
             args: ['pub', 'run', 'flutter_sentinel'],
             outputFormat: 'json',
@@ -69,7 +69,7 @@ export class AIRIToolOrchestrator {
         const tool: ExternalTool = {
             name: 'DissectX_Pro',
             type: 'phishing',
-            path: projectPath || 'C:/Users/HADES/Desktop/DissectX_Pro',
+            path: projectPath,
             command: 'python',
             args: ['dissectpro.py'],
             outputFormat: 'json',
