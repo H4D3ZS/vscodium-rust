@@ -2,6 +2,7 @@
 //! See docs/overhaul/CONVENTIONS.md §1.
 
 pub mod mobile;
+pub mod security;
 pub mod types;
 pub mod vcs;
 
