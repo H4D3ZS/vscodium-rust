@@ -52,6 +52,8 @@ export async function restoreWorkspaceOnBoot(
             const m = await import('../lsp/bootstrapLanguageServer');
             void m.bootstrapLanguageServer(pathStr);
         });
+        // Restore persisted agent canvases (cheap: small JSON files, no tabs opened).
+        void useStore.getState().loadPersistedCanvases?.(pathStr);
     } catch (err) {
         console.warn('[restoreWorkspaceOnBoot] failed — fallback:', err);
         callbacks.clearPersistedRoot();

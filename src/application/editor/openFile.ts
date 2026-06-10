@@ -35,6 +35,19 @@ async function openFileInternal(path: string, withPreview: boolean): Promise<voi
         return;
     }
 
+    // Agent canvas artifacts render as interactive dashboards, not raw JSON.
+    if (path.toLowerCase().endsWith('.canvas.json')) {
+        try {
+            const { normalizeCanvasSpec } = await import('../../domain/canvas/CanvasSpec');
+            const raw = await fileRepository.read(path);
+            const spec = normalizeCanvasSpec(raw);
+            if (spec) {
+                st.upsertCanvas(spec, { open: true, persist: false });
+                return;
+            }
+        } catch { /* fall through to raw JSON */ }
+    }
+
     if (path.toLowerCase().endsWith('.aim')) {
         const filename = path.replace(/\\/g, '/').split('/').pop() ?? path;
         const id = `tab-${Date.now()}-${Math.random()}`;

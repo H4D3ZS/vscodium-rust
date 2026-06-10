@@ -977,6 +977,24 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "create_canvas".to_string(),
+                description: "Render an interactive visual canvas (dashboard) in the IDE instead of a wall of text. Use for data-heavy results: scan findings, audits, comparisons, progress, metrics, plans. Block types: stats, table, chart (bar|line|pie), callout, progress, todo, kv, timeline, markdown, code. Reuse the same 'id' to update a canvas in place.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string", "description": "Stable canvas id (slug). Reuse to update in place. Omit to derive from title." },
+                        "title": { "type": "string", "description": "Dashboard heading / tab name" },
+                        "subtitle": { "type": "string", "description": "Optional one-line context" },
+                        "blocks": {
+                            "type": "array",
+                            "description": "Ordered block objects. e.g. {\"type\":\"stats\",\"items\":[{\"label\":\"Critical\",\"value\":3,\"tone\":\"danger\"}]}, {\"type\":\"table\",\"columns\":[...],\"rows\":[[...]]}, {\"type\":\"chart\",\"chart\":\"bar\",\"labels\":[...],\"series\":[{\"values\":[...]}]}",
+                            "items": { "type": "object" }
+                        }
+                    },
+                    "required": ["title", "blocks"]
+                }),
+            },
+            ToolDefinition {
                 name: "notify_user".to_string(),
                 description: "Communicate with the user. Can be used to ask questions or request reviews.".to_string(),
                 input_schema: json!({
@@ -1758,6 +1776,7 @@ impl AiTools {
             "dependency_graph" => self.dependency_graph(arguments).await,
             "get_system_info" | "get_system_health" => self.handle_system_tool(canonical, arguments).await,
             "task_boundary" => self.handle_task_boundary(arguments).await,
+            "create_canvas" => self.handle_create_canvas(arguments).await,
             "notify_user" => self.handle_notify_user(arguments).await,
             "use_skill" => self.handle_use_skill(arguments).await,
             "search_skills" => self.handle_search_skills(arguments).await,
@@ -7777,6 +7796,29 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
         }))?;
 
         Ok(json!({ "status": "success", "info": "Task boundary updated" }))
+    }
+
+    async fn handle_create_canvas(&self, args: Value) -> Result<Value> {
+        let h_lock = self.app_handle.lock().await;
+        let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
+
+        let title = args["title"].as_str().unwrap_or("Untitled Canvas");
+        let blocks = args["blocks"].as_array().cloned().unwrap_or_default();
+        if blocks.is_empty() {
+            return Err(anyhow!("create_canvas requires a non-empty 'blocks' array"));
+        }
+
+        // Forward the raw spec to the frontend; normalization/rendering happens
+        // in the React layer (CanvasSpec.normalizeCanvasSpec) so small models'
+        // sloppy specs are salvaged consistently with the TS tool path.
+        h.emit("canvas-updated", args.clone())?;
+
+        Ok(json!({
+            "status": "rendered",
+            "title": title,
+            "blocks": blocks.len(),
+            "info": "Canvas is now visible to the user in an editor tab."
+        }))
     }
 
     async fn handle_notify_user(&self, args: Value) -> Result<Value> {
