@@ -16,6 +16,7 @@ const Editor = lazy(() => import('./Editor'));
 const SettingsPage = lazy(() => import('./SettingsPage'));
 const McpStorePanel = lazy(() => import('./McpStorePanel'));
 const AimViewer = lazy(() => import('./AimViewer'));
+const CanvasView = lazy(() => import('./canvas/CanvasView'));
 const VisualLab = lazy(() => import('./visual/VisualLab'));
 const SpecsToCodeWizard = lazy(() => import('./SpecsToCodeWizard'));
 const BrowserPreviewWorkbench = lazy(() => import('./browser/BrowserPreviewWorkbench'));
@@ -180,6 +181,8 @@ const Workbench: React.FC = () => {
                                                 <Suspense fallback={<PanelFallback />}><McpStorePanel /></Suspense>
                                             ) : (tabs.find(t => t.id === activeTabId) as any)?.type === 'aim' ? (
                                                 <Suspense fallback={<PanelFallback />}><AimViewer path={(tabs.find(t => t.id === activeTabId) as any)?.path} /></Suspense>
+                                            ) : tabs.find(t => t.id === activeTabId)?.type === 'canvas' ? (
+                                                <Suspense fallback={<PanelFallback />}><CanvasView path={tabs.find(t => t.id === activeTabId)?.path || ''} /></Suspense>
                                             ) : (
                                                 <div style={{ display: 'flex', flex: 1, width: '100%', height: '100%', minWidth: 0 }}>
                                                     {showLeftEmulatorDock && (

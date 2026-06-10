@@ -15,6 +15,7 @@ const VectorSearchPanel = lazy(() => import('./vectorSearchPanel'));
 const AgTasksView = lazy(() => import('./AgTasksView'));
 const AgSteeringView = lazy(() => import('./AgSteeringView'));
 const SecurityReviewPanelLazy = lazy(() => import('./security/SecurityReviewPanel'));
+const CanvasListPanel = lazy(() => import('./canvas/CanvasListPanel'));
 
 const SidebarViewFallback = () => (
     <div style={{ padding: 12, fontSize: 11, opacity: 0.45 }}>Loading…</div>
@@ -578,6 +579,7 @@ const Sidebar: React.FC = () => {
         'test-view': 'TEST EXPLORER',
         'extensions-view': 'EXTENSIONS',
         'security-view': 'CYBER OPS',
+        'canvas-view': 'CANVASES',
         'specs-view': 'SPECS',
         'tasks-view': 'TASKS & SPECS',
         'steering-view': 'STEERING & HOOKS',
@@ -729,6 +731,9 @@ const Sidebar: React.FC = () => {
                 )}
                 {activeView === 'vector-search-view' && (
                     <Suspense fallback={<SidebarViewFallback />}><VectorSearchPanel /></Suspense>
+                )}
+                {activeView === 'canvas-view' && (
+                    <Suspense fallback={<SidebarViewFallback />}><CanvasListPanel /></Suspense>
                 )}
                 {activeView === 'tasks-view' && (
                     <Suspense fallback={<SidebarViewFallback />}><AgTasksView /></Suspense>

@@ -8,7 +8,7 @@ export interface EditorTab {
     content: string;
     isModified: boolean;
     language: string;
-    type?: 'file' | 'settings' | 'mcp-store';
+    type?: 'file' | 'settings' | 'mcp-store' | 'aim' | 'canvas';
     diagnostics?: any[];
 }
 
