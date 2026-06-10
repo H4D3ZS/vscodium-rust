@@ -37,6 +37,10 @@ pub struct VegaScanOptions {
     pub max_depth: Option<u32>,
     pub injection_modules: Option<Vec<String>>,
     pub run_passive: Option<bool>,
+    /// Opt-in: run a local-LLM second pass to flag likely false positives.
+    pub ai_triage: Option<bool>,
+    pub ai_model: Option<String>,
+    pub ollama_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +59,10 @@ pub struct VegaScanResult {
     pub modules_run: usize,
     pub alerts: Vec<Alert>,
     pub duration_ms: u64,
+    /// Per-alert LLM triage verdicts (CONFIRMED / LIKELY / FALSE_POSITIVE),
+    /// keyed by the same order as `alerts`. Empty when AI triage is off.
+    #[serde(default)]
+    pub ai_triage: Vec<String>,
 }
 
 pub fn modules_root() -> PathBuf {
@@ -246,13 +254,64 @@ pub async fn run_campaign(opts: VegaScanOptions) -> Result<VegaScanResult, Strin
 
     all_alerts.sort_by(|a, b| b.severity.cmp(&a.severity));
 
+    // Optional local-LLM second pass: triage each finding as CONFIRMED / LIKELY /
+    // FALSE_POSITIVE so the operator can prioritise real bugs first. Bounded and
+    // best-effort — a model timeout never fails the scan.
+    let ai_triage = if opts.ai_triage.unwrap_or(false) && !all_alerts.is_empty() {
+        run_ai_triage(&all_alerts, &opts).await
+    } else {
+        Vec::new()
+    };
+
     Ok(VegaScanResult {
         target: opts.target_url,
         paths_scanned,
         modules_run: sources.len(),
         alerts: all_alerts,
         duration_ms: started.elapsed().as_millis() as u64,
+        ai_triage,
     })
+}
+
+/// Best-effort LLM triage of findings. Caps work to the top 25 alerts so a big
+/// scan can't stall behind hundreds of model calls.
+async fn run_ai_triage(alerts: &[Alert], opts: &VegaScanOptions) -> Vec<String> {
+    use crate::vega::modern::{AiAssistConfig, VegaAiAssist};
+
+    let mut cfg = AiAssistConfig::default();
+    if let Some(m) = opts.ai_model.clone() {
+        if !m.trim().is_empty() {
+            cfg.model = m;
+        }
+    }
+    if let Some(u) = opts.ollama_url.clone() {
+        if !u.trim().is_empty() {
+            cfg.ollama_url = u;
+        }
+    }
+    let mut assist = VegaAiAssist::new(cfg);
+
+    // Probe once. If Ollama is unreachable (complete-offline), disable the model
+    // path so triage_finding uses the deterministic heuristic without paying a
+    // failed-request round trip per alert.
+    if !assist.reachable().await {
+        assist.set_enabled(false);
+    }
+
+    let mut verdicts = Vec::with_capacity(alerts.len());
+    for (i, a) in alerts.iter().enumerate() {
+        if i >= 25 {
+            verdicts.push("SKIPPED".into());
+            continue;
+        }
+        let snippet: String = a.output.chars().take(600).collect();
+        let verdict = assist
+            .triage_finding(&a.type_key, &a.output, &snippet)
+            .await
+            .unwrap_or_else(|_| "UNKNOWN".into());
+        verdicts.push(verdict);
+    }
+    verdicts
 }
 
 #[cfg(test)]

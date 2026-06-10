@@ -16,6 +16,7 @@ type ScanResult = {
     modules_run: number;
     alerts: VegaAlert[];
     duration_ms: number;
+    ai_triage?: string[];
 };
 
 const SEV_COLOR: Record<string, string> = {
@@ -26,9 +27,28 @@ const SEV_COLOR: Record<string, string> = {
     info: '#64748b',
 };
 
+const exportBtn: React.CSSProperties = {
+    fontSize: 9,
+    padding: '3px 8px',
+    borderRadius: 3,
+    border: '1px solid var(--vscode-panel-border)',
+    background: 'var(--vscode-button-secondaryBackground, #2d2d2d)',
+    color: 'var(--vscode-button-secondaryForeground, #ccc)',
+    cursor: 'pointer',
+};
+
+const TRIAGE_COLOR: Record<string, string> = {
+    CONFIRMED: '#ef4444',
+    LIKELY: '#f97316',
+    FALSE_POSITIVE: '#64748b',
+    UNKNOWN: '#94a3b8',
+    SKIPPED: '#475569',
+};
+
 const VegaScannerPanel: React.FC = () => {
     const [target, setTarget] = useState('https://');
     const [authorized, setAuthorized] = useState(false);
+    const [aiTriage, setAiTriage] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [result, setResult] = useState<ScanResult | null>(null);
@@ -53,6 +73,7 @@ const VegaScannerPanel: React.FC = () => {
                     maxPages: 24,
                     maxDepth: 2,
                     runPassive: true,
+                    aiTriage,
                 },
             });
             setResult(data);
@@ -61,7 +82,28 @@ const VegaScannerPanel: React.FC = () => {
         } finally {
             setBusy(false);
         }
-    }, [authorized, target]);
+    }, [authorized, target, aiTriage]);
+
+    const [exportMsg, setExportMsg] = useState('');
+    const exportReport = useCallback(
+        async (format: 'sarif' | 'markdown') => {
+            if (!result) return;
+            try {
+                const content = await invoke<string>('vega_export_report', {
+                    target: result.target,
+                    alerts: result.alerts,
+                    triage: result.ai_triage ?? [],
+                    format,
+                });
+                await navigator.clipboard.writeText(content);
+                setExportMsg(`${format === 'sarif' ? 'SARIF' : 'Markdown'} report copied to clipboard`);
+                window.setTimeout(() => setExportMsg(''), 2500);
+            } catch (e) {
+                setExportMsg(`Export failed: ${String(e)}`);
+            }
+        },
+        [result],
+    );
 
     const criticalCount = useMemo(
         () => result?.alerts.filter((a) => a.severity === 'critical').length ?? 0,
@@ -92,7 +134,7 @@ const VegaScannerPanel: React.FC = () => {
                     }}
                 />
 
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 10, marginBottom: 10, cursor: 'pointer' }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 10, marginBottom: 8, cursor: 'pointer' }}>
                     <input
                         type="checkbox"
                         checked={authorized}
@@ -101,6 +143,17 @@ const VegaScannerPanel: React.FC = () => {
                     />
                     <span>
                         I have <b>written authorization</b> to test this target (bug bounty, pentest engagement, or owned system).
+                    </span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, marginBottom: 10, cursor: 'pointer', opacity: 0.85 }}>
+                    <input
+                        type="checkbox"
+                        checked={aiTriage}
+                        onChange={(e) => setAiTriage(e.target.checked)}
+                    />
+                    <span>
+                        Local-LLM triage — flag likely false positives (needs Ollama)
                     </span>
                 </label>
 
@@ -127,12 +180,25 @@ const VegaScannerPanel: React.FC = () => {
 
             {result && (
                 <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--vscode-panel-border)', fontSize: 10, flexShrink: 0 }}>
-                    {result.paths_scanned} paths · {result.modules_run} modules · {result.alerts.length} alerts
-                    · {(result.duration_ms / 1000).toFixed(1)}s
-                    {criticalCount > 0 && (
-                        <span style={{ color: SEV_COLOR.critical, marginLeft: 8, fontWeight: 700 }}>
-                            {criticalCount} critical
-                        </span>
+                    <div>
+                        {result.paths_scanned} paths · {result.modules_run} modules · {result.alerts.length} alerts
+                        · {(result.duration_ms / 1000).toFixed(1)}s
+                        {criticalCount > 0 && (
+                            <span style={{ color: SEV_COLOR.critical, marginLeft: 8, fontWeight: 700 }}>
+                                {criticalCount} critical
+                            </span>
+                        )}
+                    </div>
+                    {result.alerts.length > 0 && (
+                        <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                            <button type="button" onClick={() => void exportReport('markdown')} style={exportBtn}>
+                                Copy Markdown
+                            </button>
+                            <button type="button" onClick={() => void exportReport('sarif')} style={exportBtn}>
+                                Copy SARIF
+                            </button>
+                            {exportMsg && <span style={{ opacity: 0.7 }}>{exportMsg}</span>}
+                        </div>
                     )}
                 </div>
             )}
@@ -146,6 +212,7 @@ const VegaScannerPanel: React.FC = () => {
                 {result?.alerts.map((a, i) => {
                     const id = `${a.type_key}:${i}`;
                     const sev = a.severity?.toLowerCase() ?? 'info';
+                    const triageVerdict = result.ai_triage?.[i];
                     return (
                         <div
                             key={id}
@@ -174,6 +241,20 @@ const VegaScannerPanel: React.FC = () => {
                                         {a.resource}
                                     </div>
                                 </div>
+                                {triageVerdict && (
+                                    <span style={{
+                                        fontSize: 8,
+                                        fontWeight: 700,
+                                        padding: '2px 5px',
+                                        borderRadius: 3,
+                                        alignSelf: 'flex-start',
+                                        whiteSpace: 'nowrap',
+                                        background: `${TRIAGE_COLOR[triageVerdict] ?? '#888'}22`,
+                                        color: TRIAGE_COLOR[triageVerdict] ?? '#888',
+                                    }}>
+                                        {triageVerdict.replace('_', ' ')}
+                                    </span>
+                                )}
                             </div>
                             {expanded === id && (
                                 <div style={{ marginTop: 8, fontSize: 10, fontFamily: 'monospace', background: 'rgba(0,0,0,0.2)', padding: 6, borderRadius: 4, wordBreak: 'break-all' }}>
