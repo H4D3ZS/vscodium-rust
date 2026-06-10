@@ -51,6 +51,8 @@ mod module_registry;
 mod module_commands;
 mod chunk_secrets;
 mod chunk_secrets_commands;
+mod security_patterns;
+mod security_native;
 mod android_commands;
 mod android_sdk;
 mod gradle_commands;
@@ -877,6 +879,9 @@ pub fn run() {
             module_commands::modules_default_catalog_url,
             chunk_secrets_commands::chunk_secrets_scan_path,
             chunk_secrets_commands::chunk_secrets_scan_url,
+            chunk_secrets_commands::security_xss_probe_url,
+            chunk_secrets_commands::security_bounty_scan_url,
+            chunk_secrets_commands::security_native_tools,
             workspace_settings_commands::get_workspace_settings,
             workspace_settings_commands::update_workspace_settings,
             port_commands::list_listening_ports,

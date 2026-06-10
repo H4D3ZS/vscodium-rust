@@ -21,6 +21,19 @@ type ScanResult = {
     script_urls: string[];
 };
 
+type XssHit = {
+    param: string;
+    payload: string;
+    severity: string;
+    url: string;
+    bounty_hint: string;
+};
+
+type BountyResult = {
+    chunk: ScanResult;
+    xss?: { hits: XssHit[]; params_tested: number; target: string } | null;
+};
+
 const SEV_COLOR: Record<string, string> = {
     CRITICAL: '#ef4444',
     HIGH: '#f97316',
@@ -31,26 +44,37 @@ const SEV_COLOR: Record<string, string> = {
 
 const ChunkSecretScannerPanel: React.FC = () => {
     const activeRoot = useStore((s) => s.activeRoot);
-    const [mode, setMode] = useState<'workspace' | 'url'>('workspace');
+    const [mode, setMode] = useState<'workspace' | 'url' | 'bounty'>('workspace');
     const [url, setUrl] = useState('https://');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [result, setResult] = useState<ScanResult | null>(null);
+    const [xssHits, setXssHits] = useState<XssHit[]>([]);
     const [expanded, setExpanded] = useState<string | null>(null);
 
     const runScan = useCallback(async () => {
         setError('');
         setBusy(true);
         setResult(null);
+        setXssHits([]);
         try {
-            const data =
-                mode === 'workspace'
-                    ? await invoke<ScanResult>('chunk_secrets_scan_path', {
-                          path: activeRoot,
-                          maxFiles: 1500,
-                      })
-                    : await invoke<ScanResult>('chunk_secrets_scan_url', { url: url.trim() });
-            setResult(data);
+            if (mode === 'workspace') {
+                const data = await invoke<ScanResult>('chunk_secrets_scan_path', {
+                    path: activeRoot,
+                    maxFiles: 1500,
+                });
+                setResult(data);
+            } else if (mode === 'bounty') {
+                const data = await invoke<BountyResult>('security_bounty_scan_url', {
+                    url: url.trim(),
+                    includeXss: true,
+                });
+                setResult(data.chunk);
+                setXssHits(data.xss?.hits ?? []);
+            } else {
+                const data = await invoke<ScanResult>('chunk_secrets_scan_url', { url: url.trim() });
+                setResult(data);
+            }
         } catch (e) {
             setError(String(e));
         } finally {
@@ -67,21 +91,23 @@ const ChunkSecretScannerPanel: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
             <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--vscode-panel-border)', flexShrink: 0 }}>
                 <div style={{ fontSize: 11, lineHeight: 1.5, opacity: 0.75, marginBottom: 10 }}>
-                    Hunt secrets in minified <code>.js</code> chunks, webpack/vite bundles, and{' '}
-                    <code>sourceMappingURL</code> maps — OpenAI keys, <code>VITE_*</code>,{' '}
-                    <code>NEXT_PUBLIC_*</code>, Firebase/Supabase configs, and literal{' '}
-                    <code>.env</code> leaks. Pair with Vega DAST and proxy tools (Moxy/Hetty) for
-                    bounty-ready reports.
+                    Hunt secrets in minified <code>.js</code> chunks (Rust-native, parallel scan).
+                    <b> Bounty URL</b> mode adds XSS reflection probing — no DalFox/Moxy required for triage.
                 </div>
 
-                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                    {(['workspace', 'url'] as const).map((m) => (
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                    {([
+                        ['workspace', 'Workspace'],
+                        ['url', 'URL chunks'],
+                        ['bounty', 'Bounty URL'],
+                    ] as const).map(([m, label]) => (
                         <button
                             key={m}
                             type="button"
                             onClick={() => setMode(m)}
                             style={{
                                 flex: 1,
+                                minWidth: 90,
                                 padding: '4px 8px',
                                 fontSize: 10,
                                 borderRadius: 4,
@@ -89,15 +115,14 @@ const ChunkSecretScannerPanel: React.FC = () => {
                                 background: mode === m ? 'rgba(59,130,246,0.15)' : 'transparent',
                                 color: 'inherit',
                                 cursor: 'pointer',
-                                textTransform: 'capitalize',
                             }}
                         >
-                            {m === 'workspace' ? 'Workspace dist/' : 'Live URL'}
+                            {label}
                         </button>
                     ))}
                 </div>
 
-                {mode === 'url' && (
+                {mode !== 'workspace' && (
                     <input
                         value={url}
                         onChange={(e) => setUrl(e.target.value)}
@@ -117,7 +142,7 @@ const ChunkSecretScannerPanel: React.FC = () => {
 
                 <button
                     type="button"
-                    disabled={busy || (mode === 'workspace' && !activeRoot)}
+                    disabled={busy || (mode === 'workspace' && !activeRoot) || ((mode === 'url' || mode === 'bounty') && url.trim().length < 10)}
                     onClick={() => void runScan()}
                     style={{
                         width: '100%',
@@ -131,7 +156,7 @@ const ChunkSecretScannerPanel: React.FC = () => {
                         fontWeight: 600,
                     }}
                 >
-                    {busy ? 'Scanning bundles…' : 'Scan JS Chunks for Secrets'}
+                    {busy ? 'Scanning…' : mode === 'bounty' ? 'Run Rust-native Bounty Scan' : 'Scan JS Chunks for Secrets'}
                 </button>
 
                 {mode === 'workspace' && !activeRoot && (
@@ -165,6 +190,19 @@ const ChunkSecretScannerPanel: React.FC = () => {
                             {result.script_urls.length > 4 ? '…' : ''}
                         </div>
                     )}
+                </div>
+            )}
+
+            {xssHits.length > 0 && (
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--vscode-panel-border)', fontSize: 10, flexShrink: 0 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 6, color: SEV_COLOR.HIGH }}>
+                        XSS reflection hits ({xssHits.length})
+                    </div>
+                    {xssHits.map((h, i) => (
+                        <div key={i} style={{ marginBottom: 6, opacity: 0.9 }}>
+                            <code>{h.param}</code> · {h.severity} · {h.bounty_hint}
+                        </div>
+                    ))}
                 </div>
             )}
 
