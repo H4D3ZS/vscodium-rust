@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: A1 cleanup commit — (1) delete dead files at src root: repository.rs, editor_service.rs, zed_test.rs, openwebui_client.rs, provider_manager.rs, application/commands/provider.rs.dead; (2) drop unused kortex/daemon dep from src-tauri/Cargo.toml (grep `daemon::` first to confirm zero callers); (3) leave shims in lib.rs until giants split. Then: split ai_tools.rs (8.5K) / ai_engine.rs (7.2K), EditorState substructs. Root now holds only lib.rs/main.rs/state.rs + architecture/ + vega/ + kortex_gac/kvcache.
+**Next action**: A1 — split the giants: ai_tools.rs (8.5K LOC → domain/tools/ as registry/shell/web/security_tools/fs_tools) then ai_engine.rs (7.2K → sentient/streaming/providers/prompt). Read the file's pub surface first; keep `pub use` re-exports in domain/ai/ai_tools.rs so call sites don't change. After giants: EditorState substructs, then final shim cleanup in lib.rs.
 
 ---
 
@@ -37,7 +37,8 @@
 | Dead provider_commands.rs (never declared in lib.rs) parked as provider.rs.dead | done | (commands batch) |
 | EditorState: group 52 fields into substructs (ai, editor, terminal, memory, security, mobile, ext, services) | todo | — |
 | Batch 10: services/workspace/compat domains + remaining infra (bridges, gateways, profile) + application/jobs | done | (batch-10 commit) |
-| Drop unused kortex/daemon dep from src-tauri/Cargo.toml | todo | — |
+| Drop kortex/daemon dep — WRONG premise: daemon IS used by attachment_manager (GistInjector, VECTOR_DIM). Dep stays. | done | n/a |
+| Delete dead never-declared files: repository, editor_service, zed_test, openwebui_client, provider_manager, provider.rs.dead | done | (dead-files commit) |
 | Cleanup: delete pub-use shims; cargo check + cargo test green | todo | — |
 
 ## Milestone A2 — Frontend DDD restructure (src/)
