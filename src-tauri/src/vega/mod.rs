@@ -6,15 +6,22 @@
 //! `resources/vega/`); only the engine that hosts them is rewritten here.
 //!
 //! Build progresses in phases — see `.planning/vega-integration/PROGRESS.md`.
-//! Current: Phase 1 (model + alert registry). JS host (Phase 2), HTTP engine
-//! (Phase 3), crawler (Phase 4), proxy (Phase 5) land in later modules.
+//! Phases 0–3 complete: model, alerts, JS host, HTTP scan engine + modern layer.
 
 pub mod alerts;
+pub mod engine;
+pub mod fingerprint;
+pub mod injection_host;
 pub mod js_runtime;
+pub mod modern;
 pub mod model;
 
 pub use alerts::AlertRegistry;
+pub use engine::ScanEngine;
+pub use fingerprint::ResponseFingerprint;
+pub use injection_host::{build_altered_request, InjectionModuleHost, PlanStep};
 pub use js_runtime::{JsModuleHost, ModuleKind, ModuleMeta, ModuleRunResult};
+pub use modern::{AiAssistConfig, ModernPayloadPack, VegaAiAssist};
 pub use model::{
     Alert, AlertDefinition, FuzzableParam, HttpRequest, HttpResponse, ParamLocation, PathState,
     Severity,
