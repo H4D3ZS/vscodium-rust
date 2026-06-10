@@ -82,6 +82,12 @@ mod debug_commands;
 mod image_gen;
 mod symbols;
 pub mod domain;
+// ── Overhaul shims: old flat-module paths re-exported from their new DDD homes.
+// Deleted in the A1 cleanup commit. See docs/overhaul/CONVENTIONS.md §3.
+pub(crate) use domain::vcs::git;
+pub(crate) use domain::vcs::git_checkpoints;
+pub(crate) use domain::vcs::patch_engine;
+pub(crate) use domain::vcs::shadow_workspace;
 mod extensions_commands;
 mod file_commands;
 mod ghost_runtime;
@@ -115,7 +121,6 @@ mod mcp_server;
 mod memory_layer;
 pub mod memory_optimizer;
 mod memory_store;
-mod patch_engine;
 mod performance_commands;
 mod security_distiller;
 mod security_generators;
@@ -148,8 +153,6 @@ mod context_key;
 mod debug_adapter;
 mod emulator_stream;
 mod extension_host;
-mod git;
-mod git_checkpoints;
 pub mod git_commands;
 mod keybindings;
 mod lsp;
@@ -157,13 +160,13 @@ mod marketplace;
 mod architecture;
 mod performance;
 pub mod system_profile;
+pub mod ollama_offload;
 mod rules_engine;
 mod cursor_compat;
 mod cursor_commands;
 mod workspace_compat;
 mod workspace_commands;
 mod scrcpy;
-mod shadow_workspace;
 mod specs_commands;
 pub mod specs_db;
 mod vector_indexer;
@@ -752,6 +755,7 @@ pub fn run() {
             system_commands::get_mitm_status,
             // ═══ Performance ═══
             system_profile::get_system_profile,
+            ollama_offload::ollama_doctor,
             performance_commands::get_system_health,
             performance_commands::get_process_stats,
             performance_commands::benchmark_ane,
