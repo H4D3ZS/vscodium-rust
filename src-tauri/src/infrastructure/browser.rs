@@ -22,7 +22,7 @@ unsafe impl Sync for SendBrowser {}
 
 /// The embedded sidecar script, written to a temp file and run on first use so
 /// it works in both `tauri dev` and a bundled build without path juggling.
-const SIDECAR_PY: &str = include_str!("../sidecars/browser_agent.py");
+const SIDECAR_PY: &str = include_str!("../../sidecars/browser_agent.py");
 
 pub struct BrowserProc {
     child: Child,
