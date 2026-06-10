@@ -214,7 +214,6 @@ pub async fn scan_url(origin_url: &str, client: &reqwest::Client) -> Result<Chun
     let mut files_scanned = 1usize;
     let mut bytes_scanned = html.len() as u64;
     let mut findings = scan_content(origin_url, &html);
-    let mut source_maps_found = 0usize;
     let mut pending: Vec<String> = script_urls.iter().take(64).cloned().collect();
     let mut fetched = HashSet::new();
 
@@ -264,7 +263,7 @@ pub async fn scan_url(origin_url: &str, client: &reqwest::Client) -> Result<Chun
         }
     }
 
-    source_maps_found = findings.iter().filter(|f| f.kind == "source_map_url").count();
+    let source_maps_found = findings.iter().filter(|f| f.kind == "source_map_url").count();
     dedupe_findings(&mut findings);
 
     Ok(ChunkScanSummary {

@@ -17,6 +17,7 @@ pub mod injection_host;
 pub mod js_runtime;
 pub mod modern;
 pub mod model;
+pub mod report;
 
 pub use alerts::AlertRegistry;
 pub use campaign::{list_modules, run_campaign, VegaModuleInfo, VegaScanOptions, VegaScanResult};

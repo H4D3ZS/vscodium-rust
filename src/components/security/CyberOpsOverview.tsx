@@ -25,6 +25,7 @@ const DISCIPLINE_TAB: Record<string, SecurityPanelTab> = {
 const QUICK_ACTIONS: { tab: SecurityPanelTab; label: string; desc: string }[] = [
     { tab: 'vega', label: 'Vega DAST', desc: 'SQLi · XSS · CMDi · SSRF' },
     { tab: 'chunks', label: 'Bundle Intel', desc: 'JS chunk secrets + XSS' },
+    { tab: 'proxy', label: 'Intercept Proxy', desc: 'Capture · inspect · replay' },
     { tab: 'review', label: 'Code Audit', desc: 'Secrets · CWE patterns' },
     { tab: 'arsenal', label: 'Arsenal', desc: 'Shells · payloads · cheatsheets' },
 ];

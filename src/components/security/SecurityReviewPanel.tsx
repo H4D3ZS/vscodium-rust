@@ -8,6 +8,7 @@ import CyberOpsOverview from './CyberOpsOverview';
 const SecurityArsenalPanel = React.lazy(() => import('./SecurityArsenalPanel'));
 const ChunkSecretScannerPanel = React.lazy(() => import('./ChunkSecretScannerPanel'));
 const VegaScannerPanel = React.lazy(() => import('./VegaScannerPanel'));
+const InterceptProxyPanel = React.lazy(() => import('./InterceptProxyPanel'));
 
 const PanelFallback = () => (
     <div style={{ padding: 20, fontSize: 11, opacity: 0.5, textAlign: 'center' }}>Loading…</div>
@@ -154,6 +155,17 @@ const SecurityReviewPanel: React.FC = () => {
                 <TabBar tab={tab} setTab={setTab} />
                 <Suspense fallback={<PanelFallback />}>
                     <VegaScannerPanel />
+                </Suspense>
+            </div>
+        );
+    }
+
+    if (tab === 'proxy') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <Suspense fallback={<PanelFallback />}>
+                    <InterceptProxyPanel />
                 </Suspense>
             </div>
         );
@@ -404,6 +416,7 @@ const TabBar: React.FC<{ tab: SecurityPanelTab; setTab: (t: SecurityPanelTab) =>
             ['overview', 'Hub'],
             ['vega', 'Vega DAST'],
             ['chunks', 'Bundles'],
+            ['proxy', 'Proxy'],
             ['review', 'Audit'],
             ['arsenal', 'Arsenal'],
         ] as const).map(([t, label]) => (
