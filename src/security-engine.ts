@@ -1,8 +1,9 @@
 /**
  * AIRI Cybersecurity Engine - Red Team / Blue Team / Blackhat
  * 
- * Full offensive and defensive security capabilities
- * No placeholders - everything actually works
+ * Frontend orchestration for the security toolkit. Real work happens in the
+ * Rust backend (Vega DAST, OAST, intruder, scanners) via Tauri IPC; this layer
+ * routes requests and shapes results for AIRI.
  */
 
 import { invoke } from './tauri_bridge';

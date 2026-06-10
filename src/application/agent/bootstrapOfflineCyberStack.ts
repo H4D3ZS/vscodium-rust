@@ -147,7 +147,12 @@ export async function bootstrapOfflineCyberStack(opts?: { heavy?: boolean }): Pr
         try { return localStorage.getItem('indexing.enabled') !== '0'; } catch { return true; }
     })();
     if (indexingOn && store.activeRoot) {
-        void invoke('trigger_workspace_index').catch(() => {});
+        // Potato mode: the explicit full-repo index walk stays user-initiated
+        // (Indexing panel / vector search) instead of running on every boot.
+        const { isLiteMode } = await import('../../lib/systemProfile');
+        if (!(await isLiteMode())) {
+            void invoke('trigger_workspace_index').catch(() => {});
+        }
         void invoke('aim_trust_manifest', { root: store.activeRoot, path: null }).catch(() => { });
     }
 

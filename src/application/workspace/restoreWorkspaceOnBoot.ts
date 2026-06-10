@@ -45,9 +45,13 @@ export async function restoreWorkspaceOnBoot(
         callbacks.setActiveRoot(pathStr);
         // setActiveRoot kicks off refresh asynchronously; await explicit reload with path sync.
         await callbacks.refreshFileTree();
-        import('../lsp/bootstrapLanguageServer').then(m =>
-            m.bootstrapLanguageServer(pathStr),
-        );
+        // Potato mode: skip workspace-level LSP auto-start (100–300MB per server).
+        // LSP still starts on first file open via ensureLanguageServerForFile.
+        void import('../../lib/systemProfile').then(async ({ isLiteMode }) => {
+            if (await isLiteMode()) return;
+            const m = await import('../lsp/bootstrapLanguageServer');
+            void m.bootstrapLanguageServer(pathStr);
+        });
     } catch (err) {
         console.warn('[restoreWorkspaceOnBoot] failed — fallback:', err);
         callbacks.clearPersistedRoot();

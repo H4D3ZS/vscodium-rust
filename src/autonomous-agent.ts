@@ -1,8 +1,9 @@
 /**
- * AIRI Autonomous Agent System - FULL IMPLEMENTATION
- * 
- * No placeholders - everything actually works
- * 24/7 autonomous development, debugging, research
+ * AIRI Autonomous Agent System
+ *
+ * Frontend loop for autonomous development/debugging/research tasks. Executes
+ * through backend agent tools via Tauri IPC; capability depends on the
+ * configured model and enabled tool set.
  */
 
 import { invoke } from './tauri_bridge';

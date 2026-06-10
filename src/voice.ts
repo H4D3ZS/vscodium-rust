@@ -540,11 +540,20 @@ export async function speak(
     onEnd?: () => void,
     onStart?: () => void
 ): Promise<boolean> {
-    // For offline M1 Mac mode: disable ElevenLabs entirely, use silent mode
-    // TODO: implement local TTS (browser SpeechSynthesis or Kokoro)
-    console.log('[TTS] Offline mode: TTS disabled. Use Settings → Voice to enable if desired.');
-    onEnd?.();
-    return false;
+    // User kill-switch (Settings → Voice). TTS is otherwise always functional:
+    // remote providers when configured, offline browser SpeechSynthesis otherwise.
+    try {
+        if (localStorage.getItem('tts.enabled') === '0') {
+            onEnd?.();
+            return false;
+        }
+    } catch { /* no localStorage in this context */ }
+
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        console.warn('[TTS] No speech synthesis available in this environment.');
+        onEnd?.();
+        return false;
+    }
 
     // Auto-detect Filipino/Tagalog text and switch voice
     const filipinoPatterns = [
@@ -586,10 +595,12 @@ export async function speak(
         }
     }
 
-    // Priority: ElevenLabs > OpenAI > Qwen3-TTS (local) > Browser
+    // Priority: ElevenLabs > OpenAI > Qwen3-TTS (local) > Browser.
+    // Default with nothing configured: browser SpeechSynthesis — zero downloads,
+    // fully offline, safe on low-RAM machines.
     if (ttsProvider !== 'elevenlabs' && ttsProvider !== 'openai' && ttsProvider !== 'qwen' && ttsProvider !== 'qwen-native') {
-        console.warn('[TTS] ⚠️ No valid TTS provider configured. Using Qwen3-TTS (local browser) fallback.');
-        ttsProvider = 'qwen';
+        console.log('[TTS] No remote TTS configured — using offline browser SpeechSynthesis.');
+        ttsProvider = 'browser';
     }
 
     isPlaying = true;

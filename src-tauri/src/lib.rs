@@ -156,6 +156,7 @@ mod lsp;
 mod marketplace;
 mod architecture;
 mod performance;
+pub mod system_profile;
 mod rules_engine;
 mod cursor_compat;
 mod cursor_commands;
@@ -218,8 +219,22 @@ pub fn run() {
                 fs::create_dir_all(&state.config_dir).ok();
             }
 
+            // Potato mode: <9GB RAM (or HADES_LITE=1) defers/disables non-essential boot work.
+            let profile = system_profile::get();
+            println!(
+                "[profile] RAM {:.1}GB → {} mode ({})",
+                profile.total_ram_gb,
+                if profile.lite_mode { "LITE/potato" } else { "full" },
+                profile.source
+            );
+            let lite = profile.lite_mode;
+
             // Bundle PortableGit + ripgrep into %LOCALAPPDATA%\\HADES\\ on first launch.
-            tauri::async_runtime::spawn(async {
+            // Lite: defer 90s so the disk/CPU spike never lands on boot.
+            tauri::async_runtime::spawn(async move {
+                if lite {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(90)).await;
+                }
                 match tauri::async_runtime::spawn_blocking(ide_shell::ensure_portable_git_installed).await {
                     Ok(Ok(true)) => println!("[ide_shell] PortableGit installed to HADES home."),
                     Ok(Ok(false)) => {}
@@ -238,9 +253,12 @@ pub fn run() {
 
             // ANE warms on first inference / deferred offline stack — not at boot (saves RSS).
 
-            // Start background OAuth listener
+            // Start background OAuth listener. Lite: defer 30s off the boot path.
             let oauth_app_handle = _app_handle.clone();
             tauri::async_runtime::spawn(async move {
+                if lite {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                }
                 if let Err(e) = auth_commands::start_oauth_listener(14285, oauth_app_handle).await {
                     eprintln!("Failed to start OAuth listener: {}", e);
                 }
@@ -733,6 +751,7 @@ pub fn run() {
             system_commands::stop_mitm_server,
             system_commands::get_mitm_status,
             // ═══ Performance ═══
+            system_profile::get_system_profile,
             performance_commands::get_system_health,
             performance_commands::get_process_stats,
             performance_commands::benchmark_ane,

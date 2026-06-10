@@ -939,20 +939,87 @@ pub async fn ai_multi_cursor_edit(
 
 #[tauri::command]
 pub async fn ai_pr_review(
-    _state: State<'_, EditorState>,
+    state: State<'_, EditorState>,
     _pr_url: Option<String>,
     diff_content: Option<String>,
     focus_areas: Option<Vec<String>>,
 ) -> Result<Value, String> {
-    let _diff = diff_content.ok_or("diff_content required for PR review")?;
-    let _focus = focus_areas.unwrap_or_else(|| vec!["security".to_string(), "performance".to_string(), "style".to_string()]);
-    
+    let diff = diff_content.ok_or("diff_content required for PR review")?;
+    let focus = focus_areas.unwrap_or_else(|| {
+        vec!["security".to_string(), "performance".to_string(), "style".to_string()]
+    });
+
+    // Cap diff size so 2b–4b local models stay coherent; report the truncation.
+    const MAX_DIFF_CHARS: usize = 24_000;
+    let truncated = diff.chars().count() > MAX_DIFF_CHARS;
+    let diff_slice: String = diff.chars().take(MAX_DIFF_CHARS).collect();
+
+    let prompt = format!(
+        "Review the following code diff. Focus areas: {}.\n\
+         For each issue report: file, severity (critical/major/minor), what is wrong, and a concrete fix.\n\
+         Be specific — quote the offending lines. If the diff is clean, say so.\n\
+         End with exactly one verdict line: VERDICT: APPROVE or VERDICT: REQUEST_CHANGES.\n\n\
+         ```diff\n{}\n```{}",
+        focus.join(", "),
+        diff_slice,
+        if truncated { "\n\n(NOTE: diff truncated for review)" } else { "" }
+    );
+
+    let request = AiRequest {
+        provider: "google".to_string(),
+        model: state.current_model.lock().await.clone(),
+        messages: vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: Some(MessageContent::Text(
+                    "You are a rigorous senior code reviewer. Review diffs for correctness, security, performance, and style. Never invent issues; only report what the diff shows.".to_string()
+                )),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: Some(MessageContent::Text(prompt)),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+        ],
+        temperature: Some(0.2),
+        autonomous: false,
+        cyber_mode: None,
+        root_access: Some(false),
+        mode: Some("Review".to_string()),
+        ollama_url: None,
+        tools: None,
+        reasoning_budget: None,
+        reasoning_effort: None,
+        reasoning_enabled: None,
+        feature: None,
+    };
+
+    let review = state
+        .ai_engine
+        .clone()
+        .autonomous_loop(request, None)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let verdict = if review.to_uppercase().contains("VERDICT: APPROVE") {
+        "approve"
+    } else if review.to_uppercase().contains("REQUEST_CHANGES") {
+        "request_changes"
+    } else {
+        "unspecified"
+    };
+
     Ok(json!({
-        "summary": "Review requires AI engine integration",
-        "issues": ["Awaiting full AI integration"],
-        "suggestions": ["Full PR review coming soon"],
-        "security": "Manual review recommended",
-        "performance": "Manual review recommended"
+        "review": review,
+        "verdict": verdict,
+        "focus": focus,
+        "diff_chars": diff.chars().count(),
+        "truncated": truncated,
     }))
 }
 
@@ -964,11 +1031,37 @@ pub async fn ai_get_context(
     _include_types: Option<Vec<String>>,
 ) -> Result<Value, String> {
     let max = max_files.unwrap_or(5);
+
+    // Semantic-first: use the vector index when embeddings are available
+    // (requires Ollama + an indexed workspace), then fall back to grep so the
+    // tool always returns something — and reports which method it used.
+    if let Ok(hits) = state.vector_indexer.search_codebase(&query, max).await {
+        if !hits.is_empty() {
+            let files: Vec<Value> = hits
+                .into_iter()
+                .map(|h| {
+                    json!({
+                        "path": h.file_path,
+                        "line": h.start_line,
+                        "snippet": h.content.chars().take(200).collect::<String>(),
+                        "score": h.relevance_score,
+                    })
+                })
+                .collect();
+            return Ok(json!({
+                "query": query,
+                "files": files,
+                "count": files.len(),
+                "method": "semantic"
+            }));
+        }
+    }
+
     let results = grep_files(state.clone(), query.clone(), None, None).await.unwrap_or_default();
-    
+
     let mut unique_files: Vec<Value> = Vec::new();
     let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
-    
+
     for r in results.into_iter().take(max * 3) {
         let path = r.path.clone();
         if !seen_paths.contains(&path) && unique_files.len() < max {
@@ -980,11 +1073,12 @@ pub async fn ai_get_context(
             }));
         }
     }
-    
+
     Ok(json!({
         "query": query,
         "files": unique_files,
-        "count": unique_files.len()
+        "count": unique_files.len(),
+        "method": "grep_fallback"
     }))
 }
 
