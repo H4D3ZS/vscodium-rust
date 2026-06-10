@@ -50,10 +50,8 @@ impl OptimizedInferenceEngine {
             self.memory.optimize_moe_routing(model_name).await?;
         }
 
-        // Step 4: Initialize ANE if available (for 2.5-3x speedup)
-        if self.ane.can_accelerate().await {
-            self.ane.init_for_qwen2b().await.ok(); // Fail gracefully
-        }
+        // Step 4: Initialize ANE aux-offload (similarity scoring) if available
+        self.ane.init_aux_offload(768).await.ok(); // Fail gracefully
 
         // Step 5: Update current model
         let mut current = self.current_model.lock().await;
@@ -109,22 +107,22 @@ impl OptimizedInferenceEngine {
                 "fallback_swap": "use entire 256GB SSD as virtual memory",
             },
             "accelerations": {
-                "ane": "2.5-3x faster token generation",
+                "ane": "vector-index similarity offloaded to the NPU (frees CPU/GPU during streams)",
                 "smart_cache": "cold models paged to SSD, hot in RAM",
                 "moe_routing": "active experts in RAM, inactive on SSD (if MoE)",
             },
             "expected_performance": {
-                "qwen3.5:12b_no_ane": "12-15 tokens/sec",
-                "qwen3.5:12b_with_ane": "30-40 tokens/sec",
+                "qwen3.5:2b_q4": "~45 tokens/sec (M1 bandwidth ceiling)",
+                "qwen3.5:12b_q4": "~8-12 tokens/sec (M1 8GB bandwidth ceiling)",
                 "first_token_latency": "~2-3 seconds (includes load from cache)",
-                "throughput_sustained": "35+ tokens/sec",
+                "note": "decode tok/s is memory-bandwidth bound; the ANE cannot raise it",
             },
             "workflow": [
                 "1. IDE starts → auto-detect RAM budget (8GB)",
                 "2. Load qwen3.5:12b into 5GB + enable ANE",
                 "3. Cold models auto-evict to .aim (SSD memmap2)",
-                "4. MoE routing: active experts → ANE, cold → disk",
-                "5. Inference flows: Ollama → optional ANE → output",
+                "4. MoE routing: active experts in RAM, cold → disk",
+                "5. Generation: Ollama/Metal; ANE scores vector-index queries in parallel",
             ],
         })
     }

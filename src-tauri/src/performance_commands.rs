@@ -22,17 +22,63 @@ pub async fn get_system_health(state: State<'_, EditorState>) -> Result<Value, S
 
 }
 
+/// Measured ANE vs CPU benchmark on the real similarity-search workload
+/// (batched dot products over synthetic unit vectors, 768-dim like nomic-embed).
 #[tauri::command]
 pub async fn benchmark_ane(
-    _state: State<'_, EditorState>,
+    state: State<'_, EditorState>,
     iterations: Option<u32>,
 ) -> Result<Value, String> {
-    let its = iterations.unwrap_or(100);
+    let its = iterations.unwrap_or(10).max(1);
+    let dim = 768usize;
+    let n = 256usize; // one full ANE batch
+
+    // Deterministic pseudo-random unit vectors (no rand dep needed).
+    let make_vec = |seed: usize| -> Vec<f32> {
+        let mut v: Vec<f32> = (0..dim)
+            .map(|i| (((seed * 31 + i * 17) % 1000) as f32 / 500.0) - 1.0)
+            .collect();
+        let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        v.iter_mut().for_each(|x| *x /= norm);
+        v
+    };
+    let query = make_vec(7);
+    let embs: Vec<Vec<f32>> = (0..n).map(make_vec).collect();
+    let emb_refs: Vec<&[f32]> = embs.iter().map(|e| e.as_slice()).collect();
+
+    // ANE timing on the prepared path (how ann_index actually uses it):
+    // embeddings pre-packed once, only the query column rewritten per search.
+    state.ane_optimizer.init_aux_offload(dim).await.ok();
+    let ane = tokio::task::block_in_place(|| {
+        let mut batches = state.ane_optimizer.prepare_sim_batches(&emb_refs)?;
+        let start = std::time::Instant::now();
+        for _ in 0..its {
+            state
+                .ane_optimizer
+                .similarity_prepared(&query, &mut batches)?;
+        }
+        Some(start.elapsed().as_secs_f64() / its as f64)
+    });
+
+    // CPU timing (same dot-product workload)
+    let cpu = tokio::task::block_in_place(|| {
+        let start = std::time::Instant::now();
+        for _ in 0..its {
+            let _scores: Vec<f32> = emb_refs
+                .iter()
+                .map(|e| query.iter().zip(e.iter()).map(|(a, b)| a * b).sum())
+                .collect();
+        }
+        start.elapsed().as_secs_f64() / its as f64
+    });
+
     Ok(json!({
-        "device": "Apple Neural Engine (ANE)",
+        "workload": format!("{n} x {dim}-dim cosine similarity (vector index search)"),
         "iterations": its,
-        "ops_per_sec": 12.5,
-        "latency_ms": 0.08
+        "ane_latency_ms": ane.map(|s| s * 1000.0),
+        "cpu_latency_ms": cpu * 1000.0,
+        "ane_available": ane.is_some(),
+        "note": "ANE wins on power and frees CPU/GPU during Ollama streams; decode tok/s is bandwidth-bound and unaffected",
     }))
 }
 

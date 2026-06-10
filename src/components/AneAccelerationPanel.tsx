@@ -58,7 +58,13 @@ const AneAccelerationPanel: React.FC = () => {
     }
 
     const statusColor = status.available ? '#9ece6a' : '#888888';
-    const modeColor = status.inference_mode === 'ane_accelerated' ? '#9ece6a' : '#f7768e';
+    const aneActive = status.inference_mode === 'ane_aux_offload';
+    const modeColor = aneActive ? '#9ece6a' : '#e0af68';
+    const modeLabel = aneActive
+        ? 'ANE Aux Offload (search on NPU)'
+        : status.available
+            ? 'Ollama / Metal GPU (ANE idle)'
+            : 'Ollama (no ANE on this hardware)';
 
     return (
         <div style={{ maxWidth: 680 }}>
@@ -98,19 +104,21 @@ const AneAccelerationPanel: React.FC = () => {
                     <div>
                         <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>Mode</div>
                         <div style={{ fontSize: 13, fontWeight: 500, color: modeColor }}>
-                            {status.inference_mode === 'ane_accelerated' ? 'ANE Accelerated' : 'Ollama Fallback'}
+                            {modeLabel}
                         </div>
                     </div>
                     <div>
-                        <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>Est. Speedup</div>
+                        <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>Token Generation</div>
                         <div style={{ fontSize: 13, fontWeight: 500 }}>
-                            {status.estimated_speedup.toFixed(1)}x
+                            Ollama / Metal GPU
                         </div>
                     </div>
                     <div>
-                        <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>Tokens/sec (qwen3.5:2b)</div>
+                        <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>Measured Tokens/sec</div>
                         <div style={{ fontSize: 13, fontWeight: 500 }}>
-                            ~{status.tokens_per_sec_estimate.toFixed(0)} tok/s
+                            {status.tokens_per_sec_estimate > 0
+                                ? `${status.tokens_per_sec_estimate.toFixed(0)} tok/s`
+                                : '— (no stream measured yet)'}
                         </div>
                     </div>
                 </div>
@@ -123,7 +131,7 @@ const AneAccelerationPanel: React.FC = () => {
                     </div>
                 )}
 
-                {status.available && status.inference_mode !== 'ane_accelerated' && (
+                {status.available && !aneActive && (
                     <button
                         type="button"
                         className="settings-button success"
@@ -131,19 +139,20 @@ const AneAccelerationPanel: React.FC = () => {
                         onClick={handleInitialize}
                         style={{ width: '100%' }}
                     >
-                        {initializing ? 'Initializing ANE...' : 'Enable ANE Acceleration'}
+                        {initializing ? 'Compiling ANE kernel...' : 'Enable ANE Aux Offload'}
                     </button>
                 )}
 
-                {status.available && status.inference_mode === 'ane_accelerated' && (
+                {status.available && aneActive && (
                     <div style={{ fontSize: 11, color: '#9ece6a', padding: 8, background: 'rgba(158, 206, 106, 0.1)', borderRadius: 4 }}>
-                        ✓ ANE is active and accelerating inference on qwen3.5:2b
+                        ✓ ANE is active: semantic search &amp; vector-index scoring run on the Neural Engine,
+                        keeping CPU/GPU free for Ollama token generation
                     </div>
                 )}
 
                 {!status.available && (
                     <div style={{ fontSize: 11, color: '#f7768e', padding: 8, background: 'rgba(247, 118, 142, 0.1)', borderRadius: 4 }}>
-                        ✗ ANE is not available on this system. Using Ollama CPU inference.
+                        ✗ ANE is not available on this system. Search scoring runs on CPU.
                     </div>
                 )}
             </div>
@@ -151,13 +160,15 @@ const AneAccelerationPanel: React.FC = () => {
             <div className="settings-card">
                 <div className="settings-card-title">Performance Notes</div>
                 <p style={{ fontSize: 11, opacity: 0.7, margin: '0 0 8px 0', lineHeight: 1.5 }}>
-                    • ANE acceleration is transparent — inference automatically uses ANE for matrix multiplications when available
+                    • Token generation runs in Ollama on the Metal GPU and is memory-bandwidth bound
+                    (~45 tok/s for a 2b Q4 model on M1) — no software can raise that ceiling
                 </p>
                 <p style={{ fontSize: 11, opacity: 0.7, margin: '0 0 8px 0', lineHeight: 1.5 }}>
-                    • For M1 Mac with 8GB RAM: ANE handles token generation at ~2-3x faster than CPU-only Ollama
+                    • The ANE offloads vector-index similarity scoring (semantic search), so search stays
+                    fast and CPU/GPU stay free while a generation stream is running
                 </p>
                 <p style={{ fontSize: 11, opacity: 0.7, margin: 0, lineHeight: 1.5 }}>
-                    • Power efficiency: ANE uses significantly less power than CPU or GPU for inference
+                    • Power efficiency: the ANE draws ~10x less power than CPU/GPU for the same matrix math
                 </p>
             </div>
         </div>
