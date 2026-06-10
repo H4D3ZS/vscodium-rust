@@ -30,10 +30,11 @@ export async function launchInstalledModule(moduleId: string): Promise<void> {
                 return;
             case 'chunk-secret-scanner':
             case 'zero-day-hunter':
+            case 'hawk-eye-secrets':
                 openSecurityReviewPanel('chunks');
                 return;
             case 'vega-dast':
-                openSecurityReviewPanel('chunks');
+                openSecurityReviewPanel('vega');
                 return;
             default:
                 throw new Error(`Unknown component: ${result.component_id}`);

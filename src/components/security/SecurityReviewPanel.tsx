@@ -1,10 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { useStore } from '../../store';
 import { runCodebaseSecurityReview } from '../../application/security/runCodebaseSecurityReview';
 import type { SecurityPanelTab } from '../../application/security/runCodebaseSecurityReview';
 import { severityColor, severityRank, type SecurityFinding, type SecuritySeverity } from '../../domain/security/SecurityFinding';
-import SecurityArsenalPanel from './SecurityArsenalPanel';
-import ChunkSecretScannerPanel from './ChunkSecretScannerPanel';
+import CyberOpsOverview from './CyberOpsOverview';
+
+const SecurityArsenalPanel = React.lazy(() => import('./SecurityArsenalPanel'));
+const ChunkSecretScannerPanel = React.lazy(() => import('./ChunkSecretScannerPanel'));
+const VegaScannerPanel = React.lazy(() => import('./VegaScannerPanel'));
+
+const PanelFallback = () => (
+    <div style={{ padding: 20, fontSize: 11, opacity: 0.5, textAlign: 'center' }}>Loading…</div>
+);
 
 const SEVERITIES: SecuritySeverity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
 
@@ -29,12 +36,27 @@ const SecurityReviewPanel: React.FC = () => {
 
     const [filter, setFilter] = useState<SecuritySeverity | 'ALL'>('ALL');
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [tab, setTab] = useState<SecurityPanelTab>('review');
+    const [tab, setTab] = useState<SecurityPanelTab>('overview');
+
+    const openModules = useCallback(() => {
+        try {
+            localStorage.setItem('settings.category.agent', 'modules');
+            sessionStorage.setItem('settings.initialTab', 'agent');
+        } catch { /* ignore */ }
+        useStore.getState().openSettings('agent');
+    }, []);
+
+    useEffect(() => {
+        if (tab === 'modules') {
+            openModules();
+            setTab('overview');
+        }
+    }, [tab, openModules]);
 
     useEffect(() => {
         const onTab = (e: Event) => {
             const t = (e as CustomEvent<{ tab?: SecurityPanelTab }>).detail?.tab;
-            if (t === 'review' || t === 'arsenal' || t === 'chunks') setTab(t);
+            if (t) setTab(t);
         };
         window.addEventListener('hades:security-tab', onTab);
         return () => window.removeEventListener('hades:security-tab', onTab);
@@ -82,7 +104,9 @@ const SecurityReviewPanel: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <TabBar tab={tab} setTab={setTab} />
                 {tab === 'arsenal' ? (
-                    <SecurityArsenalPanel onOpenReview={() => setTab('review')} />
+                    <Suspense fallback={<PanelFallback />}>
+                        <SecurityArsenalPanel onOpenReview={() => setTab('review')} />
+                    </Suspense>
                 ) : (
                     <div style={{ padding: 20, textAlign: 'center', fontSize: 12, opacity: 0.65 }}>
                         <i className="codicon codicon-shield" style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: 0.4 }} />
@@ -93,11 +117,22 @@ const SecurityReviewPanel: React.FC = () => {
         );
     }
 
+    if (tab === 'overview') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <CyberOpsOverview onNavigate={setTab} onOpenModules={openModules} />
+            </div>
+        );
+    }
+
     if (tab === 'arsenal') {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <TabBar tab={tab} setTab={setTab} />
-                <SecurityArsenalPanel onOpenReview={() => setTab('review')} />
+                <Suspense fallback={<PanelFallback />}>
+                    <SecurityArsenalPanel onOpenReview={() => setTab('review')} />
+                </Suspense>
             </div>
         );
     }
@@ -106,7 +141,29 @@ const SecurityReviewPanel: React.FC = () => {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <TabBar tab={tab} setTab={setTab} />
-                <ChunkSecretScannerPanel />
+                <Suspense fallback={<PanelFallback />}>
+                    <ChunkSecretScannerPanel />
+                </Suspense>
+            </div>
+        );
+    }
+
+    if (tab === 'vega') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <Suspense fallback={<PanelFallback />}>
+                    <VegaScannerPanel />
+                </Suspense>
+            </div>
+        );
+    }
+
+    if (tab === 'modules') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <PanelFallback />
             </div>
         );
     }
@@ -342,10 +399,12 @@ const SecurityReviewPanel: React.FC = () => {
 };
 
 const TabBar: React.FC<{ tab: SecurityPanelTab; setTab: (t: SecurityPanelTab) => void }> = ({ tab, setTab }) => (
-    <div style={{ display: 'flex', gap: 4, padding: '8px 10px', borderBottom: '1px solid var(--vscode-panel-border)', flexShrink: 0 }}>
+    <div style={{ display: 'flex', gap: 3, padding: '8px 8px', borderBottom: '1px solid var(--vscode-panel-border)', flexShrink: 0, overflowX: 'auto' }}>
         {([
-            ['review', 'Code Review'],
-            ['chunks', 'Bundle Intel'],
+            ['overview', 'Hub'],
+            ['vega', 'Vega DAST'],
+            ['chunks', 'Bundles'],
+            ['review', 'Audit'],
             ['arsenal', 'Arsenal'],
         ] as const).map(([t, label]) => (
             <button
