@@ -5,7 +5,7 @@
 //   - Windows: <server>/<server>.exe or <server>.cmd (%~dp0-relative wrappers)
 //   - Unix:    <server>/<server> native binary or executable sh wrapper
 //
-// Usage: node scripts/fetch-lsp-binaries.mjs
+// Usage: node scripts/fetch-lsp-binaries.ts   (Node >=23.6, native TS)
 // Mirror override: LSP_BUNDLE_MIRROR for rust-analyzer assets.
 
 import { execFileSync, execSync } from 'node:child_process';
@@ -29,24 +29,34 @@ const NODE_DIST = IS_WIN
     ? `node-${NODE_VER}-win-x64`
     : `node-${NODE_VER}-${IS_MAC ? 'darwin' : 'linux'}-${ARCH}`;
 
-const ok = (m) => console.log(`  OK: ${m}`);
-const warn = (m) => console.warn(`  WARN: ${m}`);
-const section = (m) => console.log(`\n── ${m}`);
+const ok = (m: string): void => console.log(`  OK: ${m}`);
+const warn = (m: string): void => console.warn(`  WARN: ${m}`);
+const section = (m: string): void => console.log(`\n── ${m}`);
 
-async function fetchBuffer(url) {
+interface GithubAsset {
+    name: string;
+    browser_download_url: string;
+}
+
+interface GithubRelease {
+    tag_name?: string;
+    assets?: GithubAsset[];
+}
+
+async function fetchBuffer(url: string): Promise<Buffer> {
     const res = await fetch(url, { headers: { 'user-agent': 'vscodium-rust-ide' }, redirect: 'follow' });
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
     return Buffer.from(await res.arrayBuffer());
 }
 
-async function downloadTo(url, dest) {
+async function downloadTo(url: string, dest: string): Promise<void> {
     const res = await fetch(url, { headers: { 'user-agent': 'vscodium-rust-ide' }, redirect: 'follow' });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status} for ${url}`);
     await pipeline(res.body, createWriteStream(dest));
 }
 
 /** Extract zip / tar.gz / tar.xz using the system tar (bsdtar everywhere except GNU/Linux zips → unzip). */
-function extract(archive, destDir) {
+function extract(archive: string, destDir: string): void {
     mkdirSync(destDir, { recursive: true });
     if (archive.endsWith('.zip')) {
         try {
@@ -60,7 +70,7 @@ function extract(archive, destDir) {
     execFileSync('tar', ['-xf', archive, '-C', destDir], { stdio: 'pipe' });
 }
 
-function findFile(dir, predicate) {
+function findFile(dir: string, predicate: (name: string, path: string) => boolean): string | null {
     if (!existsSync(dir)) return null;
     for (const entry of readdirSync(dir)) {
         const p = join(dir, entry);
@@ -75,12 +85,12 @@ function findFile(dir, predicate) {
     return null;
 }
 
-function makeExecutable(p) {
+function makeExecutable(p: string): void {
     if (!IS_WIN) chmodSync(p, 0o755);
 }
 
 /** Wrapper that survives relocation: %~dp0 on Windows, $(dirname $0) on Unix. */
-function writeWrapper(wrapperPath, nodeRelFromWrapper, scriptRelFromWrapper) {
+function writeWrapper(wrapperPath: string, nodeRelFromWrapper: string, scriptRelFromWrapper: string): void {
     if (IS_WIN) {
         const body = `@echo off\r\n"%~dp0${nodeRelFromWrapper.replaceAll('/', '\\')}" "%~dp0${scriptRelFromWrapper.replaceAll('/', '\\')}" %*\r\n`;
         writeFileSync(wrapperPath, body, 'ascii');
@@ -92,11 +102,11 @@ function writeWrapper(wrapperPath, nodeRelFromWrapper, scriptRelFromWrapper) {
 }
 
 const nodeLeaf = IS_WIN ? 'node.exe' : 'node';
-const exeLeaf = (name) => (IS_WIN ? `${name}.exe` : name);
-const wrapLeaf = (name) => (IS_WIN ? `${name}.cmd` : name);
+const exeLeaf = (name: string): string => (IS_WIN ? `${name}.exe` : name);
+const wrapLeaf = (name: string): string => (IS_WIN ? `${name}.cmd` : name);
 
 // ── rust-analyzer ────────────────────────────────────────────────────────────
-async function fetchRustAnalyzer() {
+async function fetchRustAnalyzer(): Promise<void> {
     section('rust-analyzer');
     const dir = join(ROOT, 'rust-analyzer');
     const dest = join(dir, exeLeaf('rust-analyzer'));
@@ -112,7 +122,7 @@ async function fetchRustAnalyzer() {
 
     const release = JSON.parse(
         (await fetchBuffer('https://api.github.com/repos/rust-lang/rust-analyzer/releases/latest')).toString(),
-    );
+    ) as GithubRelease;
     const mirror = process.env.LSP_BUNDLE_MIRROR || 'https://github.com/rust-lang/rust-analyzer/releases/download';
     const asset = (release.assets || []).find((a) => a.name.includes(triple) && a.name.endsWith(ext));
     const url = asset?.browser_download_url
@@ -127,7 +137,7 @@ async function fetchRustAnalyzer() {
         if (found && found !== dest) cpSync(found, dest);
     } else {
         const res = await fetch(url, { headers: { 'user-agent': 'vscodium-rust-ide' }, redirect: 'follow' });
-        if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status} for ${url}`);
         await pipeline(res.body, createGunzip(), createWriteStream(dest));
         makeExecutable(dest);
     }
@@ -135,7 +145,7 @@ async function fetchRustAnalyzer() {
 }
 
 // ── Portable Node runtime ────────────────────────────────────────────────────
-async function fetchNode() {
+async function fetchNode(): Promise<string> {
     section(`Node ${NODE_VER} (${NODE_DIST})`);
     const dir = join(ROOT, 'typescript-language-server');
     mkdirSync(dir, { recursive: true });
@@ -157,7 +167,7 @@ async function fetchNode() {
     return nodeBin;
 }
 
-function npmInstall(nodeBin, prefixDir, pkgs) {
+function npmInstall(nodeBin: string, prefixDir: string, pkgs: string[]): void {
     const nodeHome = dirname(nodeBin);
     // npm ships inside the node dist: bin/npm (unix) / npm.cmd (win)
     const npmCli = IS_WIN
@@ -171,7 +181,7 @@ function npmInstall(nodeBin, prefixDir, pkgs) {
 }
 
 // ── Node-based servers: TS, Pyright, HTML/CSS/JSON, Bash ────────────────────
-async function fetchNodeServers(nodeBin) {
+async function fetchNodeServers(nodeBin: string): Promise<void> {
     const tsDir = join(ROOT, 'typescript-language-server');
     const nodeRelTs = nodeBin.substring(tsDir.length + 1).replaceAll('\\', '/');
 
@@ -218,7 +228,7 @@ async function fetchNodeServers(nodeBin) {
 }
 
 // ── gopls (go install — no official prebuilt binaries) ──────────────────────
-function fetchGopls() {
+function fetchGopls(): void {
     section('gopls');
     const dir = join(ROOT, 'gopls');
     const dest = join(dir, exeLeaf('gopls'));
@@ -237,7 +247,7 @@ function fetchGopls() {
 }
 
 // ── clangd ───────────────────────────────────────────────────────────────────
-async function fetchClangd() {
+async function fetchClangd(): Promise<void> {
     section('clangd');
     const ver = '19.1.2';
     const dir = join(ROOT, 'clangd');
@@ -257,7 +267,7 @@ async function fetchClangd() {
 }
 
 // ── lua-language-server ──────────────────────────────────────────────────────
-async function fetchLua() {
+async function fetchLua(): Promise<void> {
     section('lua-language-server');
     const ver = '3.13.6';
     const dir = join(ROOT, 'lua-language-server');
@@ -281,7 +291,7 @@ async function fetchLua() {
 }
 
 // ── zls (Zig) ────────────────────────────────────────────────────────────────
-async function fetchZls() {
+async function fetchZls(): Promise<void> {
     section('zls');
     const ver = '0.14.0';
     const dir = join(ROOT, 'zls');
@@ -306,10 +316,10 @@ async function fetchZls() {
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
-const steps = [
+const steps: Array<[string, () => Promise<void> | void]> = [
     ['rust-analyzer', fetchRustAnalyzer],
     ['node servers', async () => fetchNodeServers(await fetchNode())],
-    ['gopls', async () => fetchGopls()],
+    ['gopls', fetchGopls],
     ['clangd', fetchClangd],
     ['lua-language-server', fetchLua],
     ['zls', fetchZls],
@@ -322,7 +332,7 @@ for (const [name, fn] of steps) {
         await fn();
     } catch (e) {
         failures += 1;
-        warn(`${name} failed: ${e.message}`);
+        warn(`${name} failed: ${(e as Error).message}`);
     }
 }
 
