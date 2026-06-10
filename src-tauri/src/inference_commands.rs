@@ -37,8 +37,9 @@ pub async fn inference_get_status(
             "moe_routing": false, // TODO: detect from model
         },
         "expected_performance": {
-            "without_ane": "12-15 tokens/sec",
-            "with_ane": "30-40 tokens/sec",
+            "note": "Decode is memory-bandwidth bound; tok/s set by Ollama/Metal, not the ANE",
+            "qwen_2b_q4_m1": "~45 tokens/sec (near the ~68GB/s bandwidth ceiling)",
+            "ane_role": "offloads vector-index similarity, freeing CPU/GPU during streams",
             "first_token_latency_ms": "2000-3000",
         },
         "cache_location": ".aim/model_cache (memmap2 SSD-backed)",
@@ -60,10 +61,8 @@ pub async fn inference_prepare_model(
         *current = model_name.clone();
     }
 
-    // Initialize ANE if available
-    if state.ane_optimizer.can_accelerate().await {
-        let _ = state.ane_optimizer.init_for_qwen2b().await;
-    }
+    // Initialize ANE aux-offload (similarity scoring) if hardware supports it
+    let _ = state.ane_optimizer.init_aux_offload(768).await;
 
     Ok(serde_json::json!({
         "model": model_name,
@@ -96,23 +95,23 @@ pub async fn inference_get_setup_recommendation() -> Result<Value, String> {
             },
         },
         "expected_performance": {
-            "qwen3.5:12b_cpu": "12-15 tokens/sec",
-            "qwen3.5:12b_ane": "30-40 tokens/sec",
-            "sustained_throughput": "35+ tokens/sec with ANE",
+            "qwen3.5:2b_q4": "~45 tokens/sec (bandwidth ceiling on M1)",
+            "qwen3.5:12b_q4": "~8-12 tokens/sec (bandwidth ceiling on M1 8GB)",
+            "note": "tok/s is set by Ollama/Metal memory bandwidth; ANE offloads indexing instead",
             "first_token_latency": "2-3 seconds (includes SSD load)",
         },
         "optimization_path": [
-            "1. Run: ollama pull qwen3.5:12b",
+            "1. Run: ollama pull qwen3.5:2b",
             "2. IDE Settings → Model Selection → Auto-Detect",
-            "3. Settings → ANE Acceleration → Enable",
-            "4. Ask IDE a question → watch 35+ tok/sec",
+            "3. Settings → ANE Acceleration → Enable (offloads semantic search to the NPU)",
+            "4. Semantic search stays fast while a generation stream is active",
         ],
         "twitter_style_workflow": {
             "description": "Like @andrewyng, @ylecun do local development",
             "benefits": [
                 "Zero internet dependency",
                 "Full privacy (data never leaves Mac)",
-                "2.5-3x speedup via ANE",
+                "ANE handles semantic search off the CPU/GPU (~10x lower power than GPU)",
                 "32GB SSD for model cache (256GB available)",
             ],
         },

@@ -497,7 +497,13 @@ impl EditorState {
                 });
                 apex_inst
             },
-            ane_optimizer: Arc::new(crate::ane_inference::AneInferenceOptimizer::new()),
+            ane_optimizer: {
+                let ane = Arc::new(crate::ane_inference::AneInferenceOptimizer::new());
+                // Register globally so sync indexing code (ann_index) can offload
+                // similarity scoring to the ANE without plumbing Tauri state.
+                crate::ane_inference::set_global(ane.clone());
+                ane
+            },
             // Share the same Arc as Sentient so respond_tool_permission resolves
             // the correct oneshot sender that the autonomous_loop is waiting on.
             tool_permission_senders: sentient.permission_senders.clone(),
