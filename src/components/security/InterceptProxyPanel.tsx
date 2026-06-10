@@ -189,6 +189,19 @@ const InterceptProxyPanel: React.FC = () => {
                                         >
                                             Replay
                                         </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(new CustomEvent('hades:repeater-load', {
+                                                    detail: { method: f.method, url: f.url, headers: f.req_headers, body: f.req_body_preview },
+                                                }));
+                                                window.dispatchEvent(new CustomEvent('hades:security-tab', { detail: { tab: 'repeater' } }));
+                                            }}
+                                            style={{ ...btn('transparent', true), marginTop: 6, marginLeft: 6, fontSize: 9 }}
+                                        >
+                                            Send to Repeater
+                                        </button>
                                         {replay && <span style={{ marginLeft: 8, opacity: 0.7 }}>{replay}</span>}
                                     </>
                                 ) : (

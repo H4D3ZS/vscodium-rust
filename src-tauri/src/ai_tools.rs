@@ -1299,6 +1299,21 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "oast_payload".to_string(),
+                description: "Mint an out-of-band (OAST/Collaborator) callback payload to catch BLIND vulnerabilities — blind SSRF, blind RCE, blind XXE, blind XSS, DNS/HTTP exfil. Returns {token, http_url, authority}. Inject the http_url (or authority for non-HTTP probes) into the target, then call oast_interactions with the token to see if the target called back. Requires the OAST server to be running (auto-starts on first use). Authorized testing only.".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
+            ToolDefinition {
+                name: "oast_interactions".to_string(),
+                description: "Poll the OAST/Collaborator server for callbacks (interactions). Pass the token from oast_payload to check one probe, or omit to list all. Returns interactions [{token, protocol, remote_addr, method, path, host_header, user_agent, timestamp_ms}]. A non-empty result for your token CONFIRMS a blind vulnerability (the target reached your callback host). Authorized testing only.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "token": { "type": "string", "description": "Correlation token from oast_payload. Omit to list all interactions." }
+                    }
+                }),
+            },
+            ToolDefinition {
                 name: "weaponize_env".to_string(),
                 description: "Red-team weaponization assessment of a .env / env-export file. Parses KEY=VALUE pairs, classifies each variable (secret / endpoint / telemetry / runtime), and produces a structured weaponization plan: which secrets are immediately actionable (DB URLs, admin passwords, API tokens, Sentry/OTLP DSNs), which endpoints are pivot targets, what the blast radius is, and what an attacker would do next. Pair with `secrets_scan` for full coverage. Output is JSON suitable for the agent to drive follow-up actions.".to_string(),
                 input_schema: json!({
@@ -1678,6 +1693,8 @@ impl AiTools {
             | "vega_dast_scan"
             | "chunk_secret_scan"
             | "bounty_scan"
+            | "oast_payload"
+            | "oast_interactions"
             | "web_fetch"
             | "dev_cargo_diagnostics"
             | "search_codebase"
@@ -2349,6 +2366,8 @@ impl AiTools {
             "vega_dast_scan" => self.vega_dast_scan(arguments).await,
             "chunk_secret_scan" => self.chunk_secret_scan(arguments).await,
             "bounty_scan" => self.bounty_scan(arguments).await,
+            "oast_payload" => self.oast_payload(arguments).await,
+            "oast_interactions" => self.oast_interactions(arguments).await,
             "dev_cargo_diagnostics" => self.dev_cargo_diagnostics(arguments).await,
             "search_codebase" => self.search_codebase(arguments).await,
             "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
@@ -5648,6 +5667,25 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
         .await
         .map_err(|e| anyhow!(e))?;
         serde_json::to_value(summary).map_err(|e| anyhow!(e))
+    }
+
+    /// Agent tool: mint an OAST callback payload (auto-starts the server).
+    async fn oast_payload(&self, _args: Value) -> Result<Value> {
+        if !crate::oast::status().running {
+            crate::oast::start(8889, None).await.map_err(|e| anyhow!(e))?;
+        }
+        serde_json::to_value(crate::oast::register()).map_err(|e| anyhow!(e))
+    }
+
+    /// Agent tool: poll the OAST server for blind-vuln callbacks.
+    async fn oast_interactions(&self, args: Value) -> Result<Value> {
+        let token = args.get("token").and_then(|v| v.as_str());
+        let interactions = crate::oast::poll(token);
+        Ok(json!({
+            "running": crate::oast::status().running,
+            "count": interactions.len(),
+            "interactions": interactions,
+        }))
     }
 
     async fn secrets_scan(&self, args: Value) -> Result<Value> {

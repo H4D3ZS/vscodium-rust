@@ -56,6 +56,11 @@ mod security_native;
 mod vega_commands;
 mod intercept_proxy;
 mod intercept_proxy_commands;
+mod oast;
+mod oast_commands;
+mod repeater;
+mod intruder;
+mod offensive_commands;
 mod android_commands;
 mod android_sdk;
 mod gradle_commands;
@@ -895,6 +900,15 @@ pub fn run() {
             intercept_proxy_commands::proxy_flows,
             intercept_proxy_commands::proxy_clear,
             intercept_proxy_commands::proxy_replay,
+            oast_commands::oast_start,
+            oast_commands::oast_stop,
+            oast_commands::oast_status,
+            oast_commands::oast_register,
+            oast_commands::oast_poll,
+            oast_commands::oast_clear,
+            oast_commands::oast_set_public_host,
+            offensive_commands::repeater_send,
+            offensive_commands::intruder_run,
             workspace_settings_commands::get_workspace_settings,
             workspace_settings_commands::update_workspace_settings,
             port_commands::list_listening_ports,
