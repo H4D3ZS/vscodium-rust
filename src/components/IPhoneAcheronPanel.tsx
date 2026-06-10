@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '../tauri_bridge';
 import { listen } from '@tauri-apps/api/event';
+import { resolveEmulatorProjectPath } from '../application/emulator/resolveEmulatorProject';
+import { isWindowsHost } from '../lib/hostPaths';
 
 interface ConsoleLine {
     text: string;
@@ -122,7 +124,9 @@ const IPhoneAcheronPanel: React.FC = () => {
     }, []);
 
     const handleCreateStubRamdisk = async () => {
-        const outPath = (achronPath.trim() || 'C:\\Users\\HADES\\Desktop\\vscodium-rust\\Virtual-iPhone-Emulator') + '\\out\\raw\\initrd.bin';
+        const sep = isWindowsHost() ? '\\' : '/';
+        const root = achronPath.trim() || await resolveEmulatorProjectPath();
+        const outPath = `${root}${sep}out${sep}raw${sep}initrd.bin`;
         try {
             const result = await invoke<string>('create_stub_ramdisk', { outputPath: outPath });
             setConsoleLines(prev => [...prev, { text: result, stream: 'system', ts: Date.now() }]);
@@ -133,7 +137,7 @@ const IPhoneAcheronPanel: React.FC = () => {
     };
 
     const handlePrepareFirmware = async () => {
-        const projectPath = achronPath.trim() || 'C:\\Users\\HADES\\Desktop\\vscodium-rust\\Virtual-iPhone-Emulator';
+        const projectPath = achronPath.trim() || await resolveEmulatorProjectPath();
         if (!ipswPath.trim()) {
             setConsoleLines(prev => [...prev, { text: 'Enter an IPSW path first.', stream: 'system', ts: Date.now() }]);
             return;
@@ -154,7 +158,7 @@ const IPhoneAcheronPanel: React.FC = () => {
         setConsoleLines([{ text: `Launching acheron for device ${device}…`, stream: 'system', ts: Date.now() }]);
         try {
             // Resolve project path: use the Virtual-iPhone-Emulator directory
-            const projectPath = achronPath.trim() || 'C:\\Users\\HADES\\Desktop\\vscodium-rust\\Virtual-iPhone-Emulator';
+            const projectPath = achronPath.trim() || await resolveEmulatorProjectPath();
             await invoke('launch_iphone_emulator', {
                 projectPath,
                 device: device || undefined,

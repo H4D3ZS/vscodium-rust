@@ -141,7 +141,14 @@ impl ApexRedTeam {
         Self {
             client,
             ollama_url: Arc::new(Mutex::new(ollama_url.to_string())),
-            model: Arc::new(Mutex::new(BUGTRACE_MODEL.to_string())),
+            // 26B BugTrace only fits the full tier (~15GB weights); lite/mid
+            // machines fall back to the shared RAM-tiered threat model.
+            model: Arc::new(Mutex::new(
+                match crate::ollama_offload::tier() {
+                    crate::ollama_offload::ModelTier::Full => BUGTRACE_MODEL.to_string(),
+                    _ => crate::ollama_offload::apex_model("threat").to_string(),
+                },
+            )),
             findings_history: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -314,6 +321,14 @@ impl ApexRedTeam {
 
     /// Query the Apex model via Ollama
     async fn query_apex(&self, prompt: &str) -> Result<String, String> {
+        // Share the global batch-engine gate so red-team scans never run
+        // concurrently with APEX engines on low-RAM tiers.
+        let gate = crate::ollama_offload::engine_gate();
+        let _permit = gate
+            .acquire_owned()
+            .await
+            .map_err(|e| format!("[APEX-RT] Engine gate closed: {}", e))?;
+
         let url = self.ollama_url.lock().await.clone();
         let model = self.model.lock().await.clone();
 
@@ -324,11 +339,12 @@ impl ApexRedTeam {
             "prompt": prompt,
             "system": APEX_SYSTEM_PROMPT,
             "stream": false,
+            "keep_alive": crate::ollama_offload::keep_alive(),
             "options": {
                 "temperature": 0.1,
                 "top_p": 0.9,
                 "repeat_penalty": 1.1,
-                "num_ctx": 8192,
+                "num_ctx": crate::ollama_offload::clamp_num_ctx(8192),
                 "num_predict": 4096,
             }
         });

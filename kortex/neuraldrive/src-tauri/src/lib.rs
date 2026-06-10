@@ -258,22 +258,37 @@ pub fn run() {
                 }
             }
 
+            // Resolve the kortex root relative to the current user's home
+            // (override with KORTEX_ROOT) — no hardcoded usernames.
+            let kortex_root = std::env::var("KORTEX_ROOT")
+                .map(std::path::PathBuf::from)
+                .ok()
+                .or_else(|| {
+                    std::env::var("USERPROFILE")
+                        .or_else(|_| std::env::var("HOME"))
+                        .ok()
+                        .map(|h| std::path::Path::new(&h).join("Desktop").join("kortex"))
+                })
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+
             #[cfg(windows)]
             {
                 // Instantiate structural WinFsp map binding Native OS API directly to Virtual Z: Drive
+                let aim_dir = kortex_root.join(".aim");
                 let _ = std::process::Command::new("subst")
-                    .args(["Z:", "C:\\Users\\HADES\\Desktop\\kortex\\.aim"])
+                    .args(["Z:", &aim_dir.to_string_lossy()])
                     .output();
             }
 
             // Real-Time Hardware Shadow Watcher
             let handle_clone = app_handle.clone();
+            let watch_root = kortex_root.clone();
             std::thread::spawn(move || {
                 let (tx, rx) = channel();
                 let mut watcher = notify::recommended_watcher(tx).unwrap();
-                
-                // Track standard desktop folder dynamically bridging IDE manipulations universally
-                let _ = watcher.watch(std::path::Path::new("C:\\Users\\HADES\\Desktop\\kortex"), RecursiveMode::Recursive);
+
+                // Track the resolved kortex root dynamically bridging IDE manipulations universally
+                let _ = watcher.watch(&watch_root, RecursiveMode::Recursive);
 
                 for res in rx {
                     match res {
