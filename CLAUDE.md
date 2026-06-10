@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 VSCodium-Rust: a custom IDE built with **Rust/Tauri v2** backend + **React 19/TypeScript/Vite** frontend. Designed for agentic development with local Ollama models, cybersecurity research, and data sovereignty.
 
+> **Active overhaul in progress** (Structure → UI → Settings → Perf → Extension API).
+> Before changing code, read `docs/overhaul/MASTER_PLAN.md`, follow the rules in
+> `docs/overhaul/CONVENTIONS.md`, and update `docs/overhaul/PROGRESS.md` before every commit.
+> This applies to any agent (Claude Code, Cursor) or human picking up the work.
+
 ---
 
 ## Build & Run Commands
@@ -124,7 +129,7 @@ The `aim-proxy` intercepts Ollama calls on `:1536` and injects compressed `.aim`
 
 - **Patch discipline:** Use surgical SEARCH/REPLACE via `patch_engine.rs` / `diffy`. No full-file rewrites.
 - **Memory budget:** Core footprint < 150MB. Heap-heavy operations belong in `kortex/daemon`, not main process.
-- **Windows-native:** All paths use Windows conventions. PowerShell for scripts.
+- **Cross-platform:** Active development happens on macOS (`mac_dev` branch, Apple Silicon); Windows remains a release target. Don't hardcode platform paths — platform-specific code is gated (`#[cfg(...)]` in Rust, runtime checks in TS).
 - **Tauri IPC:** All frontend↔backend calls go through `#[tauri::command]` handlers registered in `lib.rs`. Commands are grouped by domain (`file_commands`, `ai_commands`, `git_commands`, etc.).
 - **Model assignments:** APEX engines use hardcoded Ollama model strings in `apex_orchestrator.rs` (e.g. `qwen2.5:32b` for architect, `qwen2.5-coder:7b` for perf). Change there to swap models.
 
