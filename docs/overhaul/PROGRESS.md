@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: A1 batch 5 — move memory group (memory_store, memory_layer, aim_store, memory_optimizer, memory_offload, context_quantizer) → `src-tauri/src/domain/memory/`; then batch 6 indexing (context_indexer, vector_indexer, knowledge_distiller, embeddings, ann_index, ripgrep_search, symbols) → `domain/indexing/`. Same git-mv + shim pattern (lib.rs ~line 75). Mind: aim_store/memory_optimizer/memory_offload/context_quantizer are `pub mod` → shim with `pub use`, others `pub(crate) use`. `cargo check && cargo test --lib` per batch.
+**Next action**: A1 — migrate all `*_commands.rs` (~35 files) → `src-tauri/src/application/commands/` (rename `foo_commands.rs` → `commands/foo.rs`, shim `pub(crate) use application::commands::foo as foo_commands;` in lib.rs so generate_handler paths keep working). Then: split giants (ai_tools, ai_engine), EditorState substructs, drop kortex/daemon dep, cleanup shims. Dead files flagged for cleanup: repository.rs, editor_service.rs, zed_test.rs, openwebui_client.rs (not declared in lib.rs, gpui remnants).
 
 ---
 
@@ -21,14 +21,15 @@
 | Task | Status | Commit |
 |---|---|---|
 | Layer skeleton: domain/ + application/commands/ + infrastructure/platform/ dirs; domain.rs → domain/types.rs | done | (batch-1 commit) |
-| Batch 1: leaf utility modules → infrastructure/ + domain/ (~40 small files) | todo | — |
+| Batch 1: infrastructure leaf modules (vfs_bridge, browser, browser_actuation, mcp_*, performance, process_ext) → infrastructure/ | done | (infra batch commit) |
 | Batch 2: vcs (git, git_checkpoints, patch_engine, shadow_workspace) → domain/vcs | done | (batch-1 commit) |
 | Batch 3: mobile (ios_*, iphone_emulator, emulator_stream, scrcpy, android_sdk, logcat_service, mobile_toolchain) → domain/mobile | done | (batch-3 commit) |
 | Batch 4: security (apex_*, pentest_*, oast, intruder, repeater, intercept_proxy, chunk_secrets, security_*, sec_distro, hunter) → domain/security | done | (batch-4 commit) |
-| Batch 5: memory (memory_store, memory_layer, aim_store, memory_optimizer) → domain/memory | todo | — |
-| Batch 6: indexing (context_indexer, vector_indexer) → domain/indexing | todo | — |
-| Batch 7: editor/lsp (buffers, lsp router, lsp_bundle) → domain/editor | todo | — |
-| Batch 8: extensions (extension_host, marketplace) → domain/extensions | todo | — |
+| Batch 5: memory (aim_store, memory_store/layer/optimizer/offload, context_quantizer) → domain/memory | done | 1bb83c4f |
+| Batch 6: indexing (context/vector indexers, embeddings, ann_index, ripgrep_search, symbols, distiller) → domain/indexing | done | 8ea762da |
+| Batch 7: editor/lsp (lsp*, debug_adapter) → domain/editor | done | e57b9388 |
+| Batch 8: extensions (extension_host, marketplace, activation, keybindings, context_key) → domain/extensions | done | e57b9388 |
+| Batch 9: ai domain moved whole (engine, tools, ANE, harnesses, vision, workflow) — split still todo | done | 21b41649 |
 | Split ai_tools.rs (8,511 LOC) → domain/tools/{registry,shell,web,security_tools,fs_tools}.rs | todo | — |
 | Split ai_engine.rs (7,207 LOC) → domain/ai/{sentient,streaming,providers,prompt}.rs | todo | — |
 | ai_commands.rs → thin wrappers in application/commands/ai.rs (testable inner fns) | todo | — |
