@@ -447,16 +447,20 @@ pub async fn launch_vphone(
     // Prefer an explicit path; else the bundled Virtual-iPhone-Emulator dir
     // next to the IDE workspace.
     let resolved = project_path.filter(|p| !p.trim().is_empty()).unwrap_or_else(|| {
-        let candidate = std::path::Path::new(
-            "C:\\Users\\HADES\\Desktop\\vscodium-rust\\Virtual-iPhone-Emulator");
-        if candidate.exists() {
-            candidate.to_string_lossy().to_string()
-        } else {
-            // Fall back to <cwd>/Virtual-iPhone-Emulator.
-            std::env::current_dir()
-                .map(|d| d.join("Virtual-iPhone-Emulator").to_string_lossy().to_string())
-                .unwrap_or_else(|_| "Virtual-iPhone-Emulator".to_string())
+        // Probe home-relative legacy locations, then <cwd>/Virtual-iPhone-Emulator.
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(home) = dirs::home_dir() {
+            candidates.push(home.join("Desktop/vscodium-rust/Virtual-iPhone-Emulator"));
+            candidates.push(home.join("Desktop/Virtual-iPhone-Emulator"));
         }
+        if let Ok(cwd) = std::env::current_dir() {
+            candidates.push(cwd.join("Virtual-iPhone-Emulator"));
+        }
+        candidates
+            .into_iter()
+            .find(|c| c.exists())
+            .map(|c| c.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Virtual-iPhone-Emulator".to_string())
     });
     manager.launch(&app, resolved, Some("iPhone13,2".to_string()), None)
 }
