@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: A1 batch — move mobile group (ios_simulator, ios_sim_native, ios_sim_embed, ios_stream, iphone_emulator, emulator_stream, scrcpy, android_sdk, logcat_service, mobile_toolchain) → `src-tauri/src/domain/mobile/` using the same git-mv + `pub(crate) use` shim pattern from the vcs batch (see lib.rs lines ~85-90). Then security group. `cargo check && cargo test --lib` per batch.
+**Next action**: A1 batch 4 — move security group (apex_orchestrator, apex_red_team, pentest_scope, pentest_report, pentest_executor, oast, intruder, repeater, intercept_proxy, chunk_secrets, security_patterns, security_native, security_distiller, security_generators, sec_distro, hunter, skill_audit) → `src-tauri/src/domain/security/` using the git-mv + `pub(crate) use` shim pattern (lib.rs ~line 83). Note: `vega/` dir stays where it is for now (already a coherent module). `cargo check && cargo test --lib` per batch.
 
 ---
 
@@ -23,7 +23,7 @@
 | Layer skeleton: domain/ + application/commands/ + infrastructure/platform/ dirs; domain.rs → domain/types.rs | done | (batch-1 commit) |
 | Batch 1: leaf utility modules → infrastructure/ + domain/ (~40 small files) | todo | — |
 | Batch 2: vcs (git, git_checkpoints, patch_engine, shadow_workspace) → domain/vcs | done | (batch-1 commit) |
-| Batch 3: mobile (ios_simulator, iphone_emulator, android, logcat, gradle) → domain/mobile | todo | — |
+| Batch 3: mobile (ios_*, iphone_emulator, emulator_stream, scrcpy, android_sdk, logcat_service, mobile_toolchain) → domain/mobile | done | (batch-3 commit) |
 | Batch 4: security (apex_*, oast, intruder, pentest_*, intercept_proxy) → domain/security | todo | — |
 | Batch 5: memory (memory_store, memory_layer, aim_store, memory_optimizer) → domain/memory | todo | — |
 | Batch 6: indexing (context_indexer, vector_indexer) → domain/indexing | todo | — |
