@@ -43,6 +43,16 @@ pub struct CatalogModule {
     pub size_mb: u32,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// True when implemented in Rust inside the IDE (no external runtime).
+    #[serde(default)]
+    pub native_rust: bool,
+    /// Prerequisites checked before install: docker, go, python3, npm, uv, git
+    #[serde(default)]
+    pub requires: Vec<String>,
+    #[serde(default)]
+    pub install_script_darwin: Option<String>,
+    #[serde(default)]
+    pub install_script_windows: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +85,8 @@ pub struct InstalledModule {
     pub component_id: Option<String>,
     #[serde(default)]
     pub launch_url: Option<String>,
+    #[serde(default)]
+    pub launch_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -196,6 +208,75 @@ fn module_install_dir(id: &str) -> PathBuf {
     installed_root().join(id)
 }
 
+fn have_executable(name: &str) -> bool {
+    #[cfg(windows)]
+    {
+        return Command::new("cmd")
+            .args(["/C", "where", name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("sh")
+            .args(["-lc", &format!("command -v {name}")])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+}
+
+fn preflight(requires: &[String]) -> Result<(), String> {
+    if requires.is_empty() {
+        return Ok(());
+    }
+    let mut missing = Vec::new();
+    for r in requires {
+        let ok = match r.as_str() {
+            "docker" => have_executable("docker"),
+            "go" => have_executable("go"),
+            "python3" | "python" => have_executable("python3") || have_executable("python"),
+            "pip" => have_executable("pip3") || have_executable("pip"),
+            "npm" => have_executable("npm"),
+            "uv" => have_executable("uv"),
+            "git" => have_executable("git"),
+            other => have_executable(other),
+        };
+        if !ok {
+            missing.push(r.clone());
+        }
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Missing prerequisites: {} — install them and retry.",
+            missing.join(", ")
+        ))
+    }
+}
+
+fn install_script_for(entry: &CatalogModule) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(s) = entry.install_script_windows.as_ref().filter(|s| !s.trim().is_empty()) {
+            return Some(s.clone());
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(s) = entry.install_script_darwin.as_ref().filter(|s| !s.trim().is_empty()) {
+            return Some(s.clone());
+        }
+    }
+    entry.install_script.clone()
+}
+
 fn run_shell_in(dir: &Path, script: &str) -> Result<(), String> {
     if script.trim().is_empty() {
         return Ok(());
@@ -268,6 +349,8 @@ pub async fn install_module(id: String, catalog_url: Option<String>) -> Result<I
         return Err(format!("Module '{id}' is already installed"));
     }
 
+    preflight(&entry.requires)?;
+
     let install_dir = match entry.kind.as_str() {
         "component" => None,
         "git" => {
@@ -278,8 +361,10 @@ pub async fn install_module(id: String, catalog_url: Option<String>) -> Result<I
             let branch = entry.branch.as_deref().unwrap_or("main");
             let dir = module_install_dir(&id);
             git_shallow_clone(repo, branch, &dir)?;
-            if let Some(script) = entry.install_script.as_deref() {
-                run_shell_in(&dir, script)?;
+            if let Some(script) = install_script_for(entry) {
+                if !script.trim().is_empty() && !script.starts_with("echo ") {
+                    run_shell_in(&dir, &script)?;
+                }
             }
             Some(dir.to_string_lossy().to_string())
         }
@@ -297,6 +382,7 @@ pub async fn install_module(id: String, catalog_url: Option<String>) -> Result<I
         install_dir: install_dir.clone(),
         component_id: entry.component_id.clone(),
         launch_url: entry.launch_url.clone(),
+        launch_command: entry.launch_command.clone(),
     };
 
     let mut reg = load_registry();
@@ -364,12 +450,20 @@ pub fn launch_module(id: String) -> Result<Value, String> {
         return Err(format!("Install dir missing: {}", dir.display()));
     }
 
-    let catalog = load_bundled_catalog().ok();
-    let launch_cmd = catalog
-        .as_ref()
-        .and_then(|c| find_catalog_entry(c, &id))
-        .and_then(|e| e.launch_command.clone())
-        .unwrap_or_else(|| "npm start".to_string());
+    let launch_cmd = m.launch_command.clone().unwrap_or_else(|| {
+        load_bundled_catalog()
+            .ok()
+            .and_then(|c| find_catalog_entry(&c, &id).and_then(|e| e.launch_command.clone()))
+            .unwrap_or_else(|| "npm start".to_string())
+    });
+
+    let requires = load_bundled_catalog()
+        .ok()
+        .and_then(|c| {
+            find_catalog_entry(&c, &id).map(|e| e.requires.clone())
+        })
+        .unwrap_or_default();
+    preflight(&requires)?;
 
     #[cfg(windows)]
     let child = Command::new("cmd")
@@ -416,6 +510,8 @@ pub fn merge_catalog_with_installed(catalog: &ModuleCatalog) -> Value {
                 "repo": m.repo,
                 "size_mb": m.size_mb,
                 "tags": m.tags,
+                "native_rust": m.native_rust,
+                "requires": m.requires,
                 "installed": installed_ids.contains(m.id.as_str()),
                 "enabled": inst.map(|i| i.enabled).unwrap_or(false),
                 "installed_at": inst.map(|i| i.installed_at.clone()).unwrap_or_default(),
