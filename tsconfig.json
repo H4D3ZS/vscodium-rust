@@ -23,7 +23,7 @@
     "strict": true,
     "noImplicitAny": false,
     "strictNullChecks": false,
-    "allowJs": true,
+    "allowJs": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "erasableSyntaxOnly": true,
@@ -35,6 +35,7 @@
   ],
   "exclude": [
     "src/airi",
+    "src/public",
     "src/digital-life.ts",
     "src/emulator/stream-server.ts"
   ]

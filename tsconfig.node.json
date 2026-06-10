@@ -1,0 +1,31 @@
+{
+  // Type-checks the Node-side TypeScript (build scripts, dev tools, vite
+  // config). These files run directly under Node >=23.6 via native type
+  // stripping, so syntax must stay erasable (no enums / namespaces /
+  // parameter properties).
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowJs": false,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": [
+    "vite.config.ts",
+    "scripts/**/*.ts",
+    "tools/**/*.ts"
+  ],
+  "exclude": [
+    "tools/deepseek-ane",
+    "tools/ios-simulator",
+    "tools/vps-ollama-proxy"
+  ]
+}

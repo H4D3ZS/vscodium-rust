@@ -85,10 +85,10 @@ Write-Host "[fetch-bundles] Bundles ready for tauri build."
 
 # Ripgrep (rg) — agent grep tool + Git Bash PATH
 Write-Host "[fetch-bundles] Fetching ripgrep bundle …"
-$fetchRg = Join-Path $Root "scripts\fetch-ripgrep.mjs"
+$fetchRg = Join-Path $Root "scripts\fetch-ripgrep.ts"
 if (Test-Path $fetchRg) {
     node $fetchRg
-    if ($LASTEXITCODE -ne 0) { throw "fetch-ripgrep.mjs failed" }
+    if ($LASTEXITCODE -ne 0) { throw "fetch-ripgrep.ts failed" }
 } else {
-    Write-Warning "[fetch-bundles] fetch-ripgrep.mjs missing"
+    Write-Warning "[fetch-bundles] fetch-ripgrep.ts missing"
 }
