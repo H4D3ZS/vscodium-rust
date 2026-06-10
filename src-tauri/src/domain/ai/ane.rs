@@ -38,12 +38,13 @@ extern "C" {
     pub fn ane_bridge_free(kernel: *mut ANEKernelHandle);
 }
 
-// MIL Header for iOS 18 (latest ANE MIL format)
+// MIL Header for iOS 18 (latest ANE MIL format).
+// NOTE the double brace `({{` — dict literals wrap entries in an outer brace;
+// a single `({` is rejected by ANECCompile with InvalidMILProgram.
+// Verbatim from the proven-working ANE/training/test_dynamic_matmul.m.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const MIL_HDR: &str = r#"program(1.3)
-[buildInfo = dict<string, string>({"coremlc-component-MIL", "3510.2.1"},
-{"coremlc-version", "3505.4.1"}, {"coremltools-component-milinternal", ""},
-{"coremltools-version", "9.0"}})]
+[buildInfo = dict<string, string>({{"coremlc-component-MIL", "3510.2.1"}, {"coremlc-version", "3505.4.1"}, {"coremltools-component-milinternal", ""}, {"coremltools-version", "9.0"}})]
 {
 "#;
 
@@ -96,27 +97,30 @@ impl AneEngine {
     }
 
     /// Generates MIL for a dynamic matmul kernel: y = x @ W
-    /// input [1, ic, 1, seq + oc], output [1, oc, 1, seq]
+    /// Input  [1, ic, 1, seq + oc] fp16 — sp[0:seq] activations, sp[seq:] weight columns
+    /// Output [1, oc, 1, seq] fp16
+    /// I/O must be fp16: the ANE compiler on current macOS rejects fp32 I/O
+    /// (verified by probe — fp32 tensors fail with CompilationFailure).
     pub fn gen_dyn_matmul_mil(ic: usize, oc: usize, seq: usize) -> String {
         let sp = seq + oc;
         format!(
             r#"{MIL_HDR}    func main<ios18>(tensor<fp16, [1, {ic}, 1, {sp}]> x) {{
-        tensor<int32, [4]> mm_ba = const()[name=string("mm_ba"), val=tensor<int32, [4]>([0,0,0,0])];
-        tensor<int32, [4]> mm_sa = const()[name=string("mm_sa"), val=tensor<int32, [4]>([1,{ic},1,{seq}])];
+        tensor<int32, [4]> mm_ba = const()[name = string("mm_ba"), val = tensor<int32, [4]>([0,0,0,0])];
+        tensor<int32, [4]> mm_sa = const()[name = string("mm_sa"), val = tensor<int32, [4]>([1,{ic},1,{seq}])];
         tensor<fp16, [1,{ic},1,{seq}]> mm_act = slice_by_size(x=x,begin=mm_ba,size=mm_sa)[name=string("mm_act")];
-        tensor<int32, [4]> mm_bw = const()[name=string("mm_bw"), val=tensor<int32, [4]>([0,0,0,{seq}])];
-        tensor<int32, [4]> mm_sw = const()[name=string("mm_sw"), val=tensor<int32, [4]>([1,{ic},1,{oc}])];
+        tensor<int32, [4]> mm_bw = const()[name = string("mm_bw"), val = tensor<int32, [4]>([0,0,0,{seq}])];
+        tensor<int32, [4]> mm_sw = const()[name = string("mm_sw"), val = tensor<int32, [4]>([1,{ic},1,{oc}])];
         tensor<fp16, [1,{ic},1,{oc}]> mm_wt = slice_by_size(x=x,begin=mm_bw,size=mm_sw)[name=string("mm_wt")];
-        tensor<int32, [4]> mm_ra = const()[name=string("mm_ra"), val=tensor<int32, [4]>([1,1,{ic},{seq}])];
+        tensor<int32, [4]> mm_ra = const()[name = string("mm_ra"), val = tensor<int32, [4]>([1,1,{ic},{seq}])];
         tensor<fp16, [1,1,{ic},{seq}]> mm_a2 = reshape(shape=mm_ra,x=mm_act)[name=string("mm_a2")];
-        tensor<int32, [4]> mm_pm = const()[name=string("mm_pm"), val=tensor<int32, [4]>([0,1,3,2])];
+        tensor<int32, [4]> mm_pm = const()[name = string("mm_pm"), val = tensor<int32, [4]>([0,1,3,2])];
         tensor<fp16, [1,1,{seq},{ic}]> mm_a3 = transpose(perm=mm_pm,x=mm_a2)[name=string("mm_a3")];
-        tensor<int32, [4]> mm_rw = const()[name=string("mm_rw"), val=tensor<int32, [4]>([1,1,{ic},{oc}])];
+        tensor<int32, [4]> mm_rw = const()[name = string("mm_rw"), val = tensor<int32, [4]>([1,1,{ic},{oc}])];
         tensor<fp16, [1,1,{ic},{oc}]> mm_W = reshape(shape=mm_rw,x=mm_wt)[name=string("mm_W")];
-        bool bF = const()[name=string("bF"), val=bool(false)];
+        bool bF = const()[name = string("bF"), val = bool(false)];
         tensor<fp16, [1,1,{seq},{oc}]> mm_yh = matmul(transpose_x=bF,transpose_y=bF,x=mm_a3,y=mm_W)[name=string("mm_yh")];
         tensor<fp16, [1,1,{oc},{seq}]> mm_yt = transpose(perm=mm_pm,x=mm_yh)[name=string("mm_yt")];
-        tensor<int32, [4]> mm_ro = const()[name=string("mm_ro"), val=tensor<int32, [4]>([1,{oc},1,{seq}])];
+        tensor<int32, [4]> mm_ro = const()[name = string("mm_ro"), val = tensor<int32, [4]>([1,{oc},1,{seq}])];
         tensor<fp16, [1,{oc},1,{seq}]> mm_y = reshape(shape=mm_ro,x=mm_yt)[name=string("mm_y")];
     }} -> (mm_y);
 }}
@@ -126,7 +130,7 @@ impl AneEngine {
 
     pub fn execute(
         &self,
-        inputs: &[Vec<u8>],
+        inputs: &[&[u8]],
         output_sizes: &[usize],
     ) -> Result<Vec<Vec<u8>>, String> {
         unsafe {
@@ -173,7 +177,7 @@ impl AneEngine {
 
     pub fn execute(
         &self,
-        _inputs: &[Vec<u8>],
+        _inputs: &[&[u8]],
         _output_sizes: &[usize],
     ) -> Result<Vec<Vec<u8>>, String> {
         Err("ANE support requires Apple Silicon (M-series) macOS".to_string())
