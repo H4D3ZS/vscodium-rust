@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: A2 remaining — (1) RightSidebar main component decomposition (2,323 LOC, one function: chat view + view router — needs interactive data-flow work, extract per-view JSX blocks into rightSidebar/ sub-panels receiving props); (2) AgentSettingsView (2,003) + Editor.tsx (1,488) splits; (3) stray-folder consolidation (src/agent, src/architecture, src/services, src/utils, src/security, src/mcp → layers). Done this session: check-architecture.mjs + baseline (96 grandfathered), hooks layer, agentSlice 1,267→3 slices+barrel, RightSidebar standalone extracts. A1 leftovers (acceptable debt, do opportunistically): lib.rs shim deletion (requires rewriting ~hundreds of crate::X paths to crate::domain::Y::X — mechanical via error-driven loop, low value), thin-wrapper extraction in application/commands/ai.rs, autonomous_loop 3.5K-LOC method decomposition.
+**Next action**: Milestone C — settings redesign (43 → 8 sections): build src/domain/settings/registry.ts declarative registry first, then SettingsPage shell rebuild + search + SettingsRepository persistence (see MASTER_PLAN §C). B leftovers: tokens raw-hex sweep in styles.css (179 hex), Light/HC theme audit, codicon sweep. A2 leftovers: RightSidebar main fn (2.3K), AgentSettingsView, Editor.tsx decompositions (data-flow work, do interactively with app smoke tests).
 
 ---
 
@@ -57,11 +57,11 @@
 ## Milestone B — VSCode-native UI polish
 | Task | Status | Commit |
 |---|---|---|
-| Remove framer-motion (4 usages) + drop from package.json | todo | — |
-| Clamp all transitions ≤150ms, opacity/background/transform only | todo | — |
+| Remove framer-motion (4 usages) + drop from package.json — CSS shim src/lib/motionShim.tsx | done | a9b29382 |
+| Clamp transitions ≤150ms; killed 45 perpetual GitGraph petal animations + SMIL pulse | done | (gitgraph commit) |
 | Move Dark+ palette into tokens.css with VSCode theme-key naming; no raw hex in components | todo | — |
-| Density: 13px UI font, 22px rows, 35px tabs, 22px statusbar, 48px activitybar | todo | — |
-| Thin overlay scrollbars + :focus-visible rings + codicon sweep | todo | — |
+| Density: was already VSCode-spec except status bar 24→22px (fixed) | done | c17a78be |
+| Scrollbars already VSCode-style; :focus-visible accent rings added; codicon sweep todo | in-progress | c17a78be |
 | Light + High Contrast theme audit | todo | — |
 
 ## Milestone C — Settings redesign (43 → 8 sections)
