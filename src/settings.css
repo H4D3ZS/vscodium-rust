@@ -670,3 +670,31 @@
     background: rgba(158, 206, 106, 0.15) !important;
     box-shadow: none !important;
 }
+
+/* ── Milestone C: in-section item chips ─────────────────────────────────── */
+.settings-subnav {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+}
+.settings-chip {
+    background: transparent;
+    border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+    color: var(--color-text-secondary, #b8b8b8);
+    border-radius: var(--radius-md, 3px);
+    padding: 3px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background var(--duration-fast, 100ms) ease;
+}
+.settings-chip:hover {
+    background: var(--color-hover, rgba(255, 255, 255, 0.05));
+}
+.settings-chip.active {
+    background: var(--color-accent, #007acc);
+    border-color: var(--color-accent, #007acc);
+    color: #fff;
+}
