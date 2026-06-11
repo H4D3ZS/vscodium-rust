@@ -363,7 +363,7 @@ function ProgressBlock({ block }: { block: Extract<CanvasBlock, { type: 'progres
                                 <span style={{ opacity: 0.6 }}>{it.value}{it.max != null ? ` / ${it.max}` : '%'}</span>
                             </div>
                             <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                                <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3, transition: 'width 240ms ease' }} />
+                                <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3, transition: 'width var(--duration-base, 150ms) ease' }} />
                             </div>
                         </div>
                     );
