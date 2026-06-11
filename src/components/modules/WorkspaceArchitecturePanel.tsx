@@ -6,7 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../../store';
 import { fetchWorkspaceArchitecture } from '../../infrastructure/workspaceArchitecture';
-import { ArchitectureVisualizer } from '../ArchitectureVisualizer';
+import ArchitectureGraph from './ArchitectureGraph';
 
 const WorkspaceArchitecturePanel: React.FC = () => {
     const activeModulePanel = useStore((s) => s.activeModulePanel);
@@ -79,7 +79,7 @@ const WorkspaceArchitecturePanel: React.FC = () => {
                     </div>
                 )}
                 {!error && !loading && files.length > 0 && (
-                    <ArchitectureVisualizer files={files} tasks={[]} />
+                    <ArchitectureGraph files={files} />
                 )}
             </div>
         </div>

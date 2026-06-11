@@ -160,8 +160,10 @@ pub async fn workspace_architecture_layout(
     };
 
     let layout = tokio::task::spawn_blocking(move || {
-        let mut files = Vec::new();
-        for entry in walkdir::WalkDir::new(&root)
+        // Collect every candidate first, then keep the shallowest paths —
+        // walkdir is DFS, so capping during the walk would hand the whole
+        // budget to whichever deep vendored tree sorts first.
+        let mut candidates: Vec<std::path::PathBuf> = walkdir::WalkDir::new(&root)
             .max_depth(6)
             .into_iter()
             .filter_entry(|e| {
@@ -172,23 +174,26 @@ pub async fn workspace_architecture_layout(
                 )
             })
             .filter_map(|e| e.ok())
-        {
+            .filter(|e| e.path().is_file())
+            .filter(|e| {
+                let ext = e
+                    .path()
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                SOURCE_EXTS.contains(&ext.as_str())
+            })
+            .map(|e| e.into_path())
+            .collect();
+        candidates.sort_by_key(|p| (p.components().count(), p.clone()));
+
+        let mut files = Vec::new();
+        for path in candidates {
             if files.len() >= MAX_FILES {
                 break;
             }
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            let ext = path
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            if !SOURCE_EXTS.contains(&ext.as_str()) {
-                continue;
-            }
-            let Ok(symbols) = crate::symbols::analyze_path(path) else {
+            let Ok(symbols) = crate::symbols::analyze_path(&path) else {
                 continue;
             };
             if symbols.is_empty() {
@@ -196,7 +201,7 @@ pub async fn workspace_architecture_layout(
             }
             let rel = path
                 .strip_prefix(&root)
-                .unwrap_or(path)
+                .unwrap_or(&path)
                 .to_string_lossy()
                 .to_string();
             files.push(serde_json::json!({
