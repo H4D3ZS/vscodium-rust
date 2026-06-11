@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: Milestone C — settings redesign (43 → 8 sections): build src/domain/settings/registry.ts declarative registry first, then SettingsPage shell rebuild + search + SettingsRepository persistence (see MASTER_PLAN §C). B leftovers: tokens raw-hex sweep in styles.css (179 hex), Light/HC theme audit, codicon sweep. A2 leftovers: RightSidebar main fn (2.3K), AgentSettingsView, Editor.tsx decompositions (data-flow work, do interactively with app smoke tests).
+**Next action**: Milestone E core — sidecar JSON-RPC dispatcher implementing the typed surface (packages/hades-extension-api/index.d.ts) over existing ext_host_send/receive IPC; manifest validation in extension_host.rs; capability prompts via services.tool_permissions. Then: settings registry consumers migrate localStorage reads to SettingsRepository.get (baseline shrink); record D metrics during npx tauri dev smoke (EditorState::new elapsed_ms is in logs now). lto=thin release build was verifying at session end — check `cargo build --release` result before shipping a DMG.
 
 ---
 
@@ -90,10 +90,10 @@
 | Task | Status | Commit |
 |---|---|---|
 | Sidecar JS host + JSON-RPC over existing ext_host IPC | todo | — |
-| packages/hades-extension-api typed .d.ts + runtime shim (v1 surface) | todo | — |
+| packages/hades-extension-api typed .d.ts (v1 surface) — runtime shim todo | in-progress | 587bede4 |
 | Manifest-validated contribution points in Rust | todo | — |
 | Capability permission prompts via tool_permission_senders | todo | — |
-| docs/extensions/API.md + examples/hello-extension | todo | — |
+| docs/extensions/API.md + examples/hello-extension | done | d839e488 |
 | Open VSX gallery + ExtensionsView error states | todo | — |
 
 ---
