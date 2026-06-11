@@ -145,3 +145,41 @@ pub async fn update_keybinding(
     kb.upsert(key, command, when);
     Ok(())
 }
+
+/// Generic UI settings KV — single-file persistence for the settings
+/// registry (Milestone C). Lives in ui_settings.json, NOT settings.json:
+/// update_settings serializes the typed Settings struct and would wipe
+/// unknown keys if they shared a file.
+#[tauri::command]
+pub async fn ui_settings_get_all(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
+    let path = state.config_dir.join("ui_settings.json");
+    if path.exists() {
+        let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        return serde_json::from_str(&raw).map_err(|e| e.to_string());
+    }
+    Ok(serde_json::json!({}))
+}
+
+#[tauri::command]
+pub async fn ui_settings_set(
+    state: State<'_, EditorState>,
+    key: String,
+    value: serde_json::Value,
+) -> Result<(), String> {
+    let path = state.config_dir.join("ui_settings.json");
+    let mut all: serde_json::Map<String, serde_json::Value> = if path.exists() {
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default()
+    } else {
+        serde_json::Map::new()
+    };
+    if value.is_null() {
+        all.remove(&key);
+    } else {
+        all.insert(key, value);
+    }
+    fs::write(&path, serde_json::to_string_pretty(&all).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
+}

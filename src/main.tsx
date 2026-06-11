@@ -4,12 +4,17 @@ import App from './App';
 import { initMonaco } from './monaco_setup';
 import { installOllamaGuard } from './airi/ollama-guard';
 import { scheduleDeferredInit } from './memory_budget';
+import { hydrate as hydrateUiSettings } from './infrastructure/SettingsRepository';
 
 // Install Ollama model-fallback interceptor before any AIRI subsystem
 // has a chance to fire its first /api/generate request.
 installOllamaGuard();
 
 initMonaco();
+
+// Load ui_settings.json into the in-memory settings cache (and run the
+// one-time localStorage migration) before panels read preferences.
+void hydrateUiSettings();
 
 // Kokoro/VRM error filters — only needed when AIRI avatar loads.
 scheduleDeferredInit(() => { void import('./airi/kokoro-worker-wrapper'); }, 8_000);
