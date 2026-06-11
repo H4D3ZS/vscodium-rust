@@ -79,6 +79,7 @@
  "src/components/settings/InferenceBackendPanel.tsx",
  "src/components/settings/LspLanguagesPanel.tsx",
  "src/components/settings/ModuleInstallerPanel.tsx",
+ "src/components/settings/panels.tsx",
  "src/components/visual/AnePerformancePane.tsx",
  "src/components/visual/NeuralSidebarGraph.tsx",
  "src/components/visual/VisualLab.tsx",
