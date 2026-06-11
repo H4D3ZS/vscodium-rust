@@ -6,7 +6,7 @@
  * Manifest:       Claude-Red/claude-skills.json
  */
 
-import { invoke } from '../tauri_bridge';
+import { invoke } from '../../tauri_bridge';
 
 export interface ClaudeRedSkill {
     name: string;
