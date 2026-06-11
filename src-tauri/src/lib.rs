@@ -459,6 +459,7 @@ pub fn run() {
             cursor_commands::cursor_create_worktree,
             cursor_commands::cursor_reload_workspace,
             workspace_commands::workspace_scan,
+            workspace_commands::workspace_architecture_layout,
             workspace_commands::workspace_init,
             workspace_commands::workspace_reload,
             workspace_commands::workspace_get_steering,

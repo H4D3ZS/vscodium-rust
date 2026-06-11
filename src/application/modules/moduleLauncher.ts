@@ -26,8 +26,8 @@ export async function launchInstalledModule(moduleId: string): Promise<string> {
                 openPyTorchStudio();
                 return 'Opened PyTorch Studio';
             case 'architecture-visualizer':
-                useStore.getState().setSpecsWizardOpen?.(true);
-                return 'Opened the Specs wizard (architecture view lives in its review step)';
+                useStore.getState().setActiveModulePanel?.('architecture-visualizer');
+                return 'Opened Architecture Visualizer';
             case 'chunk-secret-scanner':
             case 'zero-day-hunter':
             case 'hawk-eye-secrets':
