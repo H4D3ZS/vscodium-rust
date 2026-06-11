@@ -86,21 +86,28 @@ fn parse_frontmatter_name_desc(content: &str) -> (String, String) {
     (name, desc)
 }
 
-fn find_skill_md_root(dir: &Path) -> Option<PathBuf> {
-    let direct = dir.join("SKILL.md");
-    if direct.is_file() {
-        return Some(dir.to_path_buf());
+/// Every directory in `dir` (inclusive) that holds a SKILL.md. A repo like
+/// anthropics/skills contains dozens — installs must stack, not pick the first.
+fn find_all_skill_md_roots(dir: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if dir.join("SKILL.md").is_file() {
+        roots.push(dir.to_path_buf());
     }
     for entry in walkdir::WalkDir::new(dir)
         .max_depth(4)
         .into_iter()
+        .filter_entry(|e| e.file_name().to_str() != Some(".git"))
         .filter_map(|e| e.ok())
     {
         if entry.file_name().to_str() == Some("SKILL.md") {
-            return entry.path().parent().map(|p| p.to_path_buf());
+            if let Some(parent) = entry.path().parent() {
+                if !roots.iter().any(|r| r == parent) {
+                    roots.push(parent.to_path_buf());
+                }
+            }
         }
     }
-    None
+    roots
 }
 
 fn slugify_id(raw: &str) -> String {
@@ -226,15 +233,62 @@ fn record_from_audit(
     }
 }
 
+/// Install every skill found under `src`. A single-skill source behaves as
+/// before (id_hint applies); a multi-skill repo stacks all of them, each id
+/// derived from its folder name. Per-skill failures don't abort the rest.
+pub fn install_skills_from_path(
+    src: &Path,
+    id_hint: Option<&str>,
+    force: bool,
+) -> Result<Vec<(SkillInstallRecord, SkillAuditReport)>, String> {
+    if !src.is_dir() {
+        return Err(format!("Not a directory: {}", src.display()));
+    }
+    let roots = find_all_skill_md_roots(src);
+    if roots.is_empty() {
+        return Err("No SKILL.md found in source".into());
+    }
+    if roots.len() == 1 {
+        return Ok(vec![install_one_skill(&roots[0], src, id_hint, force)?]);
+    }
+    let mut installed = Vec::new();
+    let mut errors = Vec::new();
+    for root in &roots {
+        match install_one_skill(root, src, None, force) {
+            Ok(pair) => installed.push(pair),
+            Err(e) => errors.push(format!(
+                "{}: {e}",
+                root.file_name().and_then(|n| n.to_str()).unwrap_or("?")
+            )),
+        }
+    }
+    if installed.is_empty() {
+        return Err(format!("All {} skills failed: {}", roots.len(), errors.join("; ")));
+    }
+    if !errors.is_empty() {
+        eprintln!("[skill_store] {} of {} skills skipped: {}", errors.len(), roots.len(), errors.join("; "));
+    }
+    Ok(installed)
+}
+
+/// Back-compat single-skill entry: installs the first skill found.
 pub fn install_skill_from_path(
     src: &Path,
     id_hint: Option<&str>,
     force: bool,
 ) -> Result<(SkillInstallRecord, SkillAuditReport), String> {
-    if !src.is_dir() {
-        return Err(format!("Not a directory: {}", src.display()));
-    }
-    let skill_root = find_skill_md_root(src).ok_or("No SKILL.md found in source")?;
+    install_skills_from_path(src, id_hint, force)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "No skill installed".into())
+}
+
+fn install_one_skill(
+    skill_root: &Path,
+    src: &Path,
+    id_hint: Option<&str>,
+    force: bool,
+) -> Result<(SkillInstallRecord, SkillAuditReport), String> {
     let content = fs::read_to_string(skill_root.join("SKILL.md")).map_err(|e| e.to_string())?;
     let (name, description) = parse_frontmatter_name_desc(&content);
     let default_id = skill_root
@@ -279,11 +333,11 @@ pub fn install_skill_from_path(
     Ok((record, final_report))
 }
 
-pub fn install_skill_from_git(
+pub fn install_skills_from_git(
     source: &str,
     id_hint: Option<&str>,
     force: bool,
-) -> Result<(SkillInstallRecord, SkillAuditReport), String> {
+) -> Result<Vec<(SkillInstallRecord, SkillAuditReport)>, String> {
     let git_url = git_url_from_source(source)?;
     let git_exe = resolve_git_exe().ok_or(
         "Git not available. Bundled PortableGit installs on first IDE launch — restart and retry.",
@@ -309,7 +363,7 @@ pub fn install_skill_from_git(
             .next()
             .map(slugify_id)
     });
-    let result = install_skill_from_path(&tmp, id.as_deref(), force);
+    let result = install_skills_from_path(&tmp, id.as_deref(), force);
     remove_dir_all(&tmp)?;
     result
 }
@@ -371,15 +425,20 @@ pub fn skill_store_audit(id: String) -> Result<Value, String> {
 pub fn skill_store_install(source: String, id: Option<String>, force: Option<bool>) -> Result<Value, String> {
     let force = force.unwrap_or(false);
     let path = PathBuf::from(source.trim());
-    let (record, report) = if path.is_dir() {
-        install_skill_from_path(&path, id.as_deref(), force)?
+    let installed = if path.is_dir() {
+        install_skills_from_path(&path, id.as_deref(), force)?
     } else {
-        install_skill_from_git(&source, id.as_deref(), force)?
+        install_skills_from_git(&source, id.as_deref(), force)?
     };
+    let (record, report) = installed.first().cloned().ok_or("No skill installed")?;
     Ok(json!({
         "ok": true,
+        // First skill kept for back-compat with existing UI consumers.
         "skill": record,
         "audit": audit_report_to_json(&report),
+        // Full stack: multi-skill repos install every SKILL.md found.
+        "installed_count": installed.len(),
+        "skills": installed.iter().map(|(r, _)| r).collect::<Vec<_>>(),
     }))
 }
 
@@ -411,4 +470,37 @@ pub fn skill_store_refresh() -> Result<Value, String> {
     reg.skills = updated;
     save_registry(&reg)?;
     Ok(json!({ "ok": true, "count": reg.skills.len() }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Multi-skill repos must surface every SKILL.md, not just the first —
+    /// regression for "installing a skills repo only installed one skill".
+    #[test]
+    fn finds_all_skill_roots_in_multi_skill_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        for name in ["alpha", "beta", "gamma"] {
+            let d = tmp.path().join(name);
+            fs::create_dir_all(&d).unwrap();
+            fs::write(d.join("SKILL.md"), format!("---\nname: {name}\n---\nbody")).unwrap();
+        }
+        // .git contents must be ignored
+        let git = tmp.path().join(".git").join("hooks");
+        fs::create_dir_all(&git).unwrap();
+        fs::write(git.join("SKILL.md"), "not a skill").unwrap();
+
+        let roots = find_all_skill_md_roots(tmp.path());
+        assert_eq!(roots.len(), 3, "expected 3 skill roots, got {roots:?}");
+    }
+
+    #[test]
+    fn single_skill_source_yields_one_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("SKILL.md"), "---\nname: solo\n---\n").unwrap();
+        let roots = find_all_skill_md_roots(tmp.path());
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0], tmp.path());
+    }
 }
