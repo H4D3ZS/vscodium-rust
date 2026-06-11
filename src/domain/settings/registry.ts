@@ -37,7 +37,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     { id: 'appearance', label: 'Appearance', icon: 'symbol-color' },
     { id: 'ai-models', label: 'AI Models', icon: 'circuit-board' },
     { id: 'agent', label: 'Agent', icon: 'comment-discussion' },
-    { id: 'extensions', label: 'Extensions', icon: 'extensions' },
+    { id: 'extensions', label: 'Additional Modules', icon: 'extensions' },
     { id: 'privacy-account', label: 'Privacy & Account', icon: 'account' },
     { id: 'keyboard', label: 'Keyboard', icon: 'keyboard' },
     { id: 'advanced', label: 'Advanced', icon: 'beaker' },
@@ -65,7 +65,7 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
     { id: 'workflow', label: 'Specs & Workflow', section: 'agent', icon: 'tasklist', panel: 'workflow', keywords: ['specs', 'tasks', 'work items'] },
 
     // ── Extensions ──────────────────────────────────────────────────────
-    { id: 'modules', label: 'Extension Modules', section: 'extensions', icon: 'extensions', panel: 'modules', keywords: ['install', 'catalog', 'marketplace', 'module'] },
+    { id: 'modules', label: 'Module Installer', section: 'extensions', icon: 'extensions', panel: 'modules', keywords: ['install', 'catalog', 'add-on', 'module', 'extension modules'] },
     { id: 'platform', label: 'Platform Status', section: 'extensions', icon: 'checklist', panel: 'platform', keywords: ['health', 'integrations', 'status'] },
 
     // ── Privacy & Account ───────────────────────────────────────────────

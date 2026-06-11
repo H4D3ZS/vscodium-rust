@@ -19,6 +19,7 @@ const AimViewer = lazy(() => import('./AimViewer'));
 const CanvasView = lazy(() => import('./canvas/CanvasView'));
 const VisualLab = lazy(() => import('./visual/VisualLab'));
 const SpecsToCodeWizard = lazy(() => import('./SpecsToCodeWizard'));
+const WorkspaceArchitecturePanel = lazy(() => import('./modules/WorkspaceArchitecturePanel'));
 const BrowserPreviewWorkbench = lazy(() => import('./browser/BrowserPreviewWorkbench'));
 const MlStudioWorkbench = lazy(() => import('./browser/MlStudioWorkbench'));
 const DiffViewer = lazy(() => import('./DiffViewer'));
@@ -350,6 +351,9 @@ const Workbench: React.FC = () => {
                 </>
             )}
             <Suspense fallback={<PanelFallback />}><SpecsToCodeWizard /></Suspense>
+            {useStore(state => state.activeModulePanel) != null && (
+                <Suspense fallback={<PanelFallback />}><WorkspaceArchitecturePanel /></Suspense>
+            )}
             {useStore(state => state.pendingChanges).length > 0 && (
                 <Suspense fallback={<PanelFallback />}><DiffViewer /></Suspense>
             )}

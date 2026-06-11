@@ -37,11 +37,16 @@ export interface ModuleSlice {
     moduleCatalog: ModuleCatalogView | null;
     modulesLoading: boolean;
     modulesError: string | null;
+    /** Which installed module's standalone panel is open (null = none). */
+    activeModulePanel: string | null;
+    setActiveModulePanel: (id: string | null) => void;
     refreshModuleCatalog: (catalogUrl?: string) => Promise<void>;
     isModuleEnabled: (id: string) => boolean;
 }
 
 export const createModuleSlice: StateCreator<ModuleSlice> = (set, get) => ({
+    activeModulePanel: null,
+    setActiveModulePanel: (id) => set({ activeModulePanel: id }),
     moduleCatalog: null,
     modulesLoading: false,
     modulesError: null,
