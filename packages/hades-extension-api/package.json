@@ -1,0 +1,7 @@
+{
+    "name": "hades-extension-api",
+    "version": "0.1.0",
+    "description": "Typed API surface for HADES IDE extensions (v1)",
+    "types": "index.d.ts",
+    "license": "MIT"
+}
