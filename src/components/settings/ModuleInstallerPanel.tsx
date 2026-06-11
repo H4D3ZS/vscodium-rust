@@ -69,11 +69,12 @@ const ModuleInstallerPanel: React.FC = () => {
         [catalog],
     );
 
-    const runAction = useCallback(async (id: string, action: () => Promise<void>) => {
+    const runAction = useCallback(async (id: string, action: () => Promise<string | void>) => {
         setBusyId(id);
         setMessage('');
         try {
-            await action();
+            const status = await action();
+            if (typeof status === 'string') setMessage(status);
             await refresh(catalogUrl || undefined);
         } catch (e) {
             setMessage(String(e));
