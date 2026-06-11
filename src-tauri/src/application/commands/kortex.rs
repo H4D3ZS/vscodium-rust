@@ -1066,7 +1066,7 @@ pub async fn aim_pack_context(
 ) -> Result<Value, String> {
     let limit = max_slots.unwrap_or(20);
     let q = query.as_deref().unwrap_or("");
-    let mem = &state.ai_engine.memory_store;
+    let mem = &state.ai.engine.memory_store;
 
     // Build the compact brain gist (priority-weighted slots)
     let gist = mem.build_compact_gist().await;
@@ -1116,7 +1116,7 @@ pub async fn trigger_workspace_index(
     app: tauri::AppHandle,
 ) -> Result<Value, String> {
     use tauri::Emitter;
-    let indexer = state.context_indexer.clone();
+    let indexer = state.memory.context_indexer.clone();
     let app_clone = app.clone();
 
     // Spawn non-blocking so the command returns immediately

@@ -8,7 +8,7 @@ use crate::model_manager::{ModelInfo, get_context_window, is_suitable_for_offlin
 pub async fn list_ollama_models(
     state: State<'_, EditorState>,
 ) -> Result<Vec<ModelInfo>, String> {
-    let ollama_url = state.ollama_url.lock().await.clone();
+    let ollama_url = state.ai.ollama_url.lock().await.clone();
 
     // Query Ollama /api/tags endpoint
     let client = reqwest::Client::new();
@@ -65,7 +65,7 @@ pub async fn list_ollama_models(
 pub async fn get_current_model(
     state: State<'_, EditorState>,
 ) -> Result<String, String> {
-    let model = state.current_model.lock().await.clone();
+    let model = state.ai.current_model.lock().await.clone();
     Ok(model)
 }
 
@@ -85,7 +85,7 @@ pub async fn set_current_model(
 
     // Update current model
     {
-        let mut current = state.current_model.lock().await;
+        let mut current = state.ai.current_model.lock().await;
         *current = model_name.clone();
     }
 
@@ -154,7 +154,7 @@ pub async fn apply_model_to_all_engines(
     let engines = vec!["architect", "threat", "perf", "self_improve", "explainer", "multi_system", "predictor"];
 
     for engine in &engines {
-        state.apex.set_engine_model(engine, &model_name).await;
+        state.ai.apex.set_engine_model(engine, &model_name).await;
     }
 
     // Also set as current model

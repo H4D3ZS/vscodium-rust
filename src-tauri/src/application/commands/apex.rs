@@ -17,7 +17,7 @@ pub async fn apex_red_team_scan(
         Some("deep") => apex_red_team::ScanDepth::Deep,
         _ => apex_red_team::ScanDepth::Standard,
     };
-    let report = state.apex.red_team().scan(apex_red_team::RedTeamScanRequest {
+    let report = state.ai.apex.red_team().scan(apex_red_team::RedTeamScanRequest {
         target_code: code,
         file_path,
         language,
@@ -34,7 +34,7 @@ pub async fn apex_quick_check(
     code: String,
     language: String,
 ) -> Result<Value, String> {
-    let findings = state.apex.red_team().quick_check(&code, &language).await?;
+    let findings = state.ai.apex.red_team().quick_check(&code, &language).await?;
     serde_json::to_value(&findings).map_err(|e| e.to_string())
 }
 
@@ -46,7 +46,7 @@ pub async fn apex_simulate_attack(
     attack_type: String,
 ) -> Result<Value, String> {
     state
-        .ai_tools
+        .ai.tools
         .call_tool(
             "apex_simulate_attack",
             serde_json::json!({ "target": target, "attack_type": attack_type }),
@@ -66,7 +66,7 @@ pub async fn apex_pentest_report(
             if pair.len() == 2 { Some((pair[0].clone(), pair[1].clone())) } else { None }
         })
         .collect();
-    state.apex.red_team().pentest_report(file_pairs).await
+    state.ai.apex.red_team().pentest_report(file_pairs).await
 }
 
 /// Engine 1: Autonomous System Architect — design complete system
@@ -75,7 +75,7 @@ pub async fn apex_architect_design(
     state: State<'_, EditorState>,
     description: String,
 ) -> Result<Value, String> {
-    let rec = state.apex.architect_design(&description).await?;
+    let rec = state.ai.apex.architect_design(&description).await?;
     serde_json::to_value(&rec).map_err(|e| e.to_string())
 }
 
@@ -85,7 +85,7 @@ pub async fn apex_architect_scaffold(
     state: State<'_, EditorState>,
     architecture: String,
 ) -> Result<Value, String> {
-    state.apex.architect_scaffold(&architecture).await
+    state.ai.apex.architect_scaffold(&architecture).await
 }
 
 /// Engine 2: Threat Anticipation — predict future vulnerabilities
@@ -95,7 +95,7 @@ pub async fn apex_threat_anticipate(
     code: String,
     context: String,
 ) -> Result<Value, String> {
-    state.apex.threat_anticipate(&code, &context).await
+    state.ai.apex.threat_anticipate(&code, &context).await
 }
 
 /// Engine 2: Simulate attack with concurrent users
@@ -106,7 +106,7 @@ pub async fn apex_threat_simulate(
     attack_type: String,
     concurrent_users: u32,
 ) -> Result<Value, String> {
-    state.apex.threat_simulate(&endpoint, &attack_type, concurrent_users).await
+    state.ai.apex.threat_simulate(&endpoint, &attack_type, concurrent_users).await
 }
 
 /// Engine 3: Performance Optimizer — find and fix bottlenecks
@@ -116,7 +116,7 @@ pub async fn apex_perf_optimize(
     code: String,
     language: String,
 ) -> Result<Value, String> {
-    let suggestions = state.apex.perf_optimize(&code, &language).await?;
+    let suggestions = state.ai.apex.perf_optimize(&code, &language).await?;
     serde_json::to_value(&suggestions).map_err(|e| e.to_string())
 }
 
@@ -127,7 +127,7 @@ pub async fn apex_perf_profile(
     function_code: String,
     language: String,
 ) -> Result<Value, String> {
-    state.apex.perf_profile_function(&function_code, &language).await
+    state.ai.apex.perf_profile_function(&function_code, &language).await
 }
 
 /// Engine 4: Self-Improving Code — iteratively improve generated code
@@ -138,7 +138,7 @@ pub async fn apex_self_improve(
     language: String,
     iterations: Option<u32>,
 ) -> Result<Value, String> {
-    state.apex.self_improve(&code, &language, iterations.unwrap_or(3)).await
+    state.ai.apex.self_improve(&code, &language, iterations.unwrap_or(3)).await
 }
 
 /// Engine 5: Explainable Security — explain fixes in plain English
@@ -148,7 +148,7 @@ pub async fn apex_security_explain(
     vulnerability: String,
     fix_diff: String,
 ) -> Result<Value, String> {
-    state.apex.security_explain(&vulnerability, &fix_diff).await
+    state.ai.apex.security_explain(&vulnerability, &fix_diff).await
 }
 
 /// Engine 5: Security audit with educational annotations
@@ -158,7 +158,7 @@ pub async fn apex_security_audit(
     code: String,
     language: String,
 ) -> Result<Value, String> {
-    state.apex.security_audit_explain(&code, &language).await
+    state.ai.apex.security_audit_explain(&code, &language).await
 }
 
 /// Engine 6: Multi-System Control — scan multiple systems
@@ -172,7 +172,7 @@ pub async fn apex_multi_system_scan(
             if pair.len() == 2 { Some((pair[0].clone(), pair[1].clone())) } else { None }
         })
         .collect();
-    state.apex.multi_system_scan(system_pairs).await
+    state.ai.apex.multi_system_scan(system_pairs).await
 }
 
 /// Engine 7: Failure Prediction — predict system crashes
@@ -182,7 +182,7 @@ pub async fn apex_predict_failures(
     code: String,
     logs: Option<String>,
 ) -> Result<Value, String> {
-    let predictions = state.apex.predict_failures(&code, logs.as_deref()).await?;
+    let predictions = state.ai.apex.predict_failures(&code, logs.as_deref()).await?;
     serde_json::to_value(&predictions).map_err(|e| e.to_string())
 }
 
@@ -192,7 +192,7 @@ pub async fn apex_predict_from_logs(
     state: State<'_, EditorState>,
     logs: String,
 ) -> Result<Value, String> {
-    state.apex.predict_from_logs(&logs).await
+    state.ai.apex.predict_from_logs(&logs).await
 }
 
 /// FULL SWEEP: Run all APEX engines in parallel on a target
@@ -203,7 +203,7 @@ pub async fn apex_full_sweep(
     file_path: String,
     language: String,
 ) -> Result<Value, String> {
-    state.apex.full_sweep(&code, &file_path, &language).await
+    state.ai.apex.full_sweep(&code, &file_path, &language).await
 }
 
 /// Get the APEX results feed (latest intelligence findings)
@@ -211,7 +211,7 @@ pub async fn apex_full_sweep(
 pub async fn apex_get_results_feed(
     state: State<'_, EditorState>,
 ) -> Result<Value, String> {
-    let feed = state.apex.get_results_feed().await;
+    let feed = state.ai.apex.get_results_feed().await;
     serde_json::to_value(&feed).map_err(|e| e.to_string())
 }
 
@@ -222,7 +222,7 @@ pub async fn apex_set_engine_model(
     engine: String,
     model: String,
 ) -> Result<(), String> {
-    state.apex.set_engine_model(&engine, &model).await;
+    state.ai.apex.set_engine_model(&engine, &model).await;
     Ok(())
 }
 
@@ -231,7 +231,7 @@ pub async fn apex_set_engine_model(
 pub async fn apex_get_findings_history(
     state: State<'_, EditorState>,
 ) -> Result<Value, String> {
-    let history = state.apex.red_team().get_findings_history().await;
+    let history = state.ai.apex.red_team().get_findings_history().await;
     serde_json::to_value(&history).map_err(|e| e.to_string())
 }
 
@@ -253,7 +253,7 @@ pub async fn apex_set_local_mode(
         "predictor",
     ];
     for engine in engines {
-        state.apex.set_engine_model(engine, &model).await;
+        state.ai.apex.set_engine_model(engine, &model).await;
     }
     Ok(())
 }

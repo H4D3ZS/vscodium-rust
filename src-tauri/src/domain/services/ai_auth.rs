@@ -520,7 +520,7 @@ pub async fn save_ai_session(
     state: State<'_, EditorState>,
     session: AiSession,
 ) -> Result<(), String> {
-    save_session(&state.auth_state, session).await;
+    save_session(&state.services.auth, session).await;
     Ok(())
 }
 

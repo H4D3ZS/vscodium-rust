@@ -123,74 +123,107 @@ fn resolve_startup_root(config_dir: &PathBuf) -> PathBuf {
     root
 }
 
-pub struct EditorState {
+/// PTY terminal state. `pending` is the PRIMARY terminal transport — the
+/// frontend polls it via `terminal_take_pending` (global `terminal-data`
+/// events don't reliably reach the webview). std::sync::Mutex so the blocking
+/// reader thread can append without dropping bytes.
+pub struct TerminalState {
+    pub masters: tokio::sync::Mutex<HashMap<String, Box<dyn MasterPty + Send>>>,
+    pub writers: tokio::sync::Mutex<HashMap<String, Box<dyn Write + Send>>>,
+    pub processes: tokio::sync::Mutex<HashMap<String, Box<dyn Child + Send>>>,
+    pub buffers: tokio::sync::Mutex<HashMap<String, Vec<String>>>,
+    pub pending: std::sync::Mutex<HashMap<String, String>>,
+}
+
+/// Core editor state: open buffers, active file/root, settings, LSP plumbing.
+pub struct EditorCore {
     pub buffers: tokio::sync::Mutex<HashMap<String, Rope>>,
     pub active_path: tokio::sync::Mutex<Option<String>>,
     pub settings: tokio::sync::Mutex<Settings>,
-    pub terminal_masters: tokio::sync::Mutex<HashMap<String, Box<dyn MasterPty + Send>>>,
-    pub terminal_writers: tokio::sync::Mutex<HashMap<String, Box<dyn Write + Send>>>,
-    pub terminal_processes: tokio::sync::Mutex<HashMap<String, Box<dyn Child + Send>>>,
     pub lsp_router: Arc<tokio::sync::Mutex<crate::lsp_router::LspRouter>>,
     pub lsp_diagnostics: lsp::DiagnosticsMap,
-    pub context_keys: Arc<ContextKeyRegistry>,
-    pub ext_host: Arc<tokio::sync::Mutex<ExtensionHostManager>>,
-    pub keybindings: Arc<tokio::sync::Mutex<KeybindingRegistry>>,
-    pub debug_manager: Arc<tokio::sync::Mutex<DebugManager>>,
-    pub activation_manager: Arc<tokio::sync::Mutex<ActivationManager>>,
-    pub perf_monitor: Arc<PerformanceMonitor>,
-    pub ai_engine: Arc<Sentient>,
-    pub ollama_url: tokio::sync::Mutex<String>,
-    pub config_dir: PathBuf,
     pub active_root: tokio::sync::Mutex<Option<PathBuf>>,
+}
+
+/// AI state: the Sentient engine, tools, model selection, APEX, ANE, harnesses.
+pub struct AiState {
+    pub engine: Arc<Sentient>,
+    pub tools: Arc<ai_tools::AiTools>,
     pub current_model: tokio::sync::Mutex<String>,
+    pub advisor_model: tokio::sync::Mutex<Option<String>>,
+    pub ollama_url: tokio::sync::Mutex<String>,
+    pub ane: Arc<crate::ane_inference::AneInferenceOptimizer>,
+    pub apex: Arc<ApexOrchestrator>,
+    pub vision: Arc<hades_vision::HadesVision>,
+    pub harness: Arc<hades_harness::HadesHarness>,
+}
+
+/// Mobile tooling: Android SDK/Gradle/logcat, iOS simulator manager.
+pub struct MobileState {
     pub active_device: tokio::sync::Mutex<Option<String>>,
     pub android_sdk_path: tokio::sync::Mutex<Option<String>>,
-    pub android_service: Arc<crate::architecture::application::android_service::AndroidService>,
-    pub gradle_service: Arc<crate::architecture::application::gradle_service::GradleService>,
-    pub logcat_service: Arc<crate::logcat_service::LogcatService>,
-    pub test_runner_service: Arc<crate::test_runner_service::TestRunnerService>,
-    pub auth_state: Arc<ai_auth::AuthState>,
-    pub browser_state: Arc<browser::BrowserState>,
-    pub mcp_registry: Arc<McpRegistry>,
-    pub terminal_buffers: tokio::sync::Mutex<HashMap<String, Vec<String>>>,
-    /// Unread PTY output, drained by the frontend via `terminal_take_pending`.
-    /// This is the PRIMARY terminal transport — the global `terminal-data`
-    /// event stream does not reliably reach the webview, so the UI polls this
-    /// instead. std::sync::Mutex so the blocking reader thread can append
-    /// without dropping bytes (best-effort try_lock would lose output).
-    pub terminal_pending: std::sync::Mutex<HashMap<String, String>>,
-    pub ai_tools: Arc<ai_tools::AiTools>,
-    pub memory_store: Arc<memory_store::MemoryStore>,
-    pub memory_optimizer: Arc<memory_optimizer::MemoryOptimizer>,
-    pub advisor_model: tokio::sync::Mutex<Option<String>>,
-    pub specs_db: Arc<specs_db::SpecDb>,
-    pub worker_manager: Arc<workers::WorkerManager>,
-    pub attachment_manager: Arc<AttachmentManager>,
-    pub knowledge_distiller: Arc<KnowledgeDistiller>,
-    pub patch_engine: Arc<tokio::sync::Mutex<patch_engine::PatchEngine>>,
-    pub ghost_runtime: Arc<ghost_runtime::GhostRuntime>,
-    pub kairos: Arc<kairos::KairosEngine>,
-    pub mcp_server: Arc<mcp_server::McpServer>,
-    pub vfs_bridge: Arc<vfs_bridge::VfsBridge>,
-    pub shadow_workspace: Arc<shadow_workspace::ShadowWorkspace>,
-    pub memory_layer: Arc<memory_layer::MemoryLayer>,
-    pub hades_harness: Arc<hades_harness::HadesHarness>,
+    pub android: Arc<crate::architecture::application::android_service::AndroidService>,
+    pub gradle: Arc<crate::architecture::application::gradle_service::GradleService>,
+    pub logcat: Arc<crate::logcat_service::LogcatService>,
+    pub iphone: Arc<IPhoneEmulatorManager>,
+}
+
+/// Extension-host state: sidecar host, keybindings, activation, context keys.
+pub struct ExtensionState {
+    pub host: Arc<tokio::sync::Mutex<ExtensionHostManager>>,
+    pub keybindings: Arc<tokio::sync::Mutex<KeybindingRegistry>>,
+    pub activation: Arc<tokio::sync::Mutex<ActivationManager>>,
+    pub context_keys: Arc<ContextKeyRegistry>,
+    pub debug: Arc<tokio::sync::Mutex<DebugManager>>,
+}
+
+/// Memory + indexing: .aim layers, stores, codebase indexers, distiller.
+pub struct MemoryState {
+    pub store: Arc<memory_store::MemoryStore>,
+    pub optimizer: Arc<memory_optimizer::MemoryOptimizer>,
+    pub layer: Arc<memory_layer::MemoryLayer>,
     pub context_indexer: Arc<ContextIndexer>,
     pub vector_indexer: Arc<VectorIndexer>,
+    pub distiller: Arc<KnowledgeDistiller>,
+    pub attachments: Arc<AttachmentManager>,
+}
+
+/// Cross-cutting services: auth, browser, MCP, VFS, specs, vcs helpers.
+pub struct ServiceState {
+    pub auth: Arc<ai_auth::AuthState>,
+    pub browser: Arc<browser::BrowserState>,
+    pub mcp_registry: Arc<McpRegistry>,
+    pub mcp_server: Arc<mcp_server::McpServer>,
+    pub perf_monitor: Arc<PerformanceMonitor>,
+    pub vfs: Arc<vfs_bridge::VfsBridge>,
+    pub specs_db: Arc<specs_db::SpecDb>,
+    pub workers: Arc<workers::WorkerManager>,
+    pub test_runner: Arc<crate::test_runner_service::TestRunnerService>,
     pub git_checkpoints: Arc<GitCheckpoint>,
-    pub iphone_manager: Arc<IPhoneEmulatorManager>,
-    pub hades_vision: Arc<hades_vision::HadesVision>,
-    pub apex: Arc<ApexOrchestrator>,
-    pub ane_optimizer: Arc<crate::ane_inference::AneInferenceOptimizer>,
+    pub patch_engine: Arc<tokio::sync::Mutex<patch_engine::PatchEngine>>,
+    pub shadow_workspace: Arc<shadow_workspace::ShadowWorkspace>,
+    pub ghost_runtime: Arc<ghost_runtime::GhostRuntime>,
+    pub kairos: Arc<kairos::KairosEngine>,
     /// Pending tool-permission approvals: tool_id → oneshot sender.
     /// Backend emits `tool_permission_request`, then awaits the sender.
     /// Frontend responds via `respond_tool_permission` command.
-    pub tool_permission_senders: Arc<std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    pub tool_permissions: Arc<std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+}
+
+pub struct EditorState {
+    pub editor: EditorCore,
+    pub terminal: TerminalState,
+    pub ai: AiState,
+    pub mobile: MobileState,
+    pub ext: ExtensionState,
+    pub memory: MemoryState,
+    pub services: ServiceState,
+    pub config_dir: PathBuf,
 }
 
 impl EditorState {
     pub async fn terminal_read_output(&self, id: String) -> Result<String, String> {
-        let buffers = self.terminal_buffers.lock().await;
+        let buffers = self.terminal.buffers.lock().await;
         let history = buffers
             .get(&id)
             .ok_or_else(|| "Terminal not found".to_string())?;
@@ -429,84 +462,98 @@ impl EditorState {
         }
 
         Self {
-            buffers: tokio::sync::Mutex::new(HashMap::new()),
-            active_path: tokio::sync::Mutex::new(None),
-            settings: tokio::sync::Mutex::new(Settings {
-                theme: "vs-dark".to_string(),
-                font_size: 14,
-            }),
-            terminal_masters: tokio::sync::Mutex::new(HashMap::new()),
-            terminal_writers: tokio::sync::Mutex::new(HashMap::new()),
-            terminal_processes: tokio::sync::Mutex::new(HashMap::new()),
-            lsp_router: Arc::new(tokio::sync::Mutex::new(lsp_router_inst)),
-            lsp_diagnostics: shared_lsp_diags,
-            context_keys: Arc::new(ContextKeyRegistry::new()),
-            ext_host: Arc::new(tokio::sync::Mutex::new(ExtensionHostManager::new(ext_dirs))),
-            keybindings: Arc::new(tokio::sync::Mutex::new(KeybindingRegistry::new())),
-            debug_manager: Arc::new(tokio::sync::Mutex::new(DebugManager::new())),
-            activation_manager: Arc::new(tokio::sync::Mutex::new(ActivationManager::new())),
-            perf_monitor: Arc::new(PerformanceMonitor::new()),
-            ai_engine: sentient.clone(),
-            ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
+            editor: EditorCore {
+                buffers: tokio::sync::Mutex::new(HashMap::new()),
+                active_path: tokio::sync::Mutex::new(None),
+                settings: tokio::sync::Mutex::new(Settings {
+                    theme: "vs-dark".to_string(),
+                    font_size: 14,
+                }),
+                lsp_router: Arc::new(tokio::sync::Mutex::new(lsp_router_inst)),
+                lsp_diagnostics: shared_lsp_diags,
+                active_root: tokio::sync::Mutex::new(Some(root.clone())),
+            },
+            terminal: TerminalState {
+                masters: tokio::sync::Mutex::new(HashMap::new()),
+                writers: tokio::sync::Mutex::new(HashMap::new()),
+                processes: tokio::sync::Mutex::new(HashMap::new()),
+                buffers: tokio::sync::Mutex::new(HashMap::new()),
+                pending: std::sync::Mutex::new(HashMap::new()),
+            },
+            ai: AiState {
+                engine: sentient.clone(),
+                tools: sentient.ai_tools.clone(),
+                current_model: tokio::sync::Mutex::new("gpt-4o".to_string()),
+                advisor_model: tokio::sync::Mutex::new(None),
+                ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
+                ane: {
+                    let ane = Arc::new(crate::ane_inference::AneInferenceOptimizer::new());
+                    // Register globally so sync indexing code (ann_index) can offload
+                    // similarity scoring to the ANE without plumbing Tauri state.
+                    crate::ane_inference::set_global(ane.clone());
+                    ane
+                },
+                apex: {
+                    let apex_inst = Arc::new(ApexOrchestrator::new("http://localhost:1536", Some(root), Some(config_dir.clone())));
+                    let apex_for_tools = apex_inst.clone();
+                    let tools = sentient.ai_tools.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tools.set_apex(apex_for_tools).await;
+                    });
+                    apex_inst
+                },
+                vision: Arc::new(hades_vision::HadesVision::new(
+                    "http://localhost:1536",
+                    "qwen2.5vl",
+                    "gpt-4o",
+                    false
+                )),
+                harness: hades_harness,
+            },
+            mobile: MobileState {
+                active_device: tokio::sync::Mutex::new(None),
+                android_sdk_path: tokio::sync::Mutex::new(None),
+                android: Arc::new(crate::architecture::application::android_service::AndroidService::new()),
+                gradle: Arc::new(crate::architecture::application::gradle_service::GradleService::new()),
+                logcat: Arc::new(crate::logcat_service::LogcatService::new()),
+                iphone: Arc::new(IPhoneEmulatorManager::new()),
+            },
+            ext: ExtensionState {
+                host: Arc::new(tokio::sync::Mutex::new(ExtensionHostManager::new(ext_dirs))),
+                keybindings: Arc::new(tokio::sync::Mutex::new(KeybindingRegistry::new())),
+                activation: Arc::new(tokio::sync::Mutex::new(ActivationManager::new())),
+                context_keys: Arc::new(ContextKeyRegistry::new()),
+                debug: Arc::new(tokio::sync::Mutex::new(DebugManager::new())),
+            },
+            memory: MemoryState {
+                store: sentient.memory_store.clone(),
+                optimizer: memory_optimizer,
+                layer: memory_layer,
+                context_indexer,
+                vector_indexer,
+                distiller: knowledge_distiller,
+                attachments: attachment_manager,
+            },
+            services: ServiceState {
+                auth: auth_state,
+                browser: browser_state,
+                mcp_registry: Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json"))),
+                mcp_server,
+                perf_monitor: Arc::new(PerformanceMonitor::new()),
+                vfs: vfs_bridge,
+                specs_db,
+                workers: worker_manager,
+                test_runner: Arc::new(crate::test_runner_service::TestRunnerService::new()),
+                git_checkpoints,
+                patch_engine,
+                shadow_workspace,
+                ghost_runtime,
+                kairos,
+                // Share the same Arc as Sentient so respond_tool_permission resolves
+                // the correct oneshot sender that the autonomous_loop is waiting on.
+                tool_permissions: sentient.permission_senders.clone(),
+            },
             config_dir: config_dir.clone(),
-            active_root: tokio::sync::Mutex::new(Some(root.clone())),
-            current_model: tokio::sync::Mutex::new("gpt-4o".to_string()),
-            active_device: tokio::sync::Mutex::new(None),
-            android_sdk_path: tokio::sync::Mutex::new(None),
-            android_service: Arc::new(crate::architecture::application::android_service::AndroidService::new()),
-            gradle_service: Arc::new(crate::architecture::application::gradle_service::GradleService::new()),
-            logcat_service: Arc::new(crate::logcat_service::LogcatService::new()),
-            test_runner_service: Arc::new(crate::test_runner_service::TestRunnerService::new()),
-            auth_state,
-            browser_state,
-            mcp_registry: Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json"))),
-            terminal_buffers: tokio::sync::Mutex::new(HashMap::new()),
-            terminal_pending: std::sync::Mutex::new(HashMap::new()),
-            memory_optimizer,
-            advisor_model: tokio::sync::Mutex::new(None),
-            specs_db,
-            worker_manager,
-            attachment_manager,
-            knowledge_distiller,
-            patch_engine,
-            ghost_runtime,
-            kairos,
-            mcp_server,
-            vfs_bridge,
-            shadow_workspace,
-            memory_store: sentient.memory_store.clone(),
-            ai_tools: sentient.ai_tools.clone(),
-            memory_layer,
-            hades_harness,
-            context_indexer,
-            vector_indexer,
-            git_checkpoints,
-            iphone_manager: Arc::new(IPhoneEmulatorManager::new()),
-            hades_vision: Arc::new(hades_vision::HadesVision::new(
-                "http://localhost:1536",
-                "qwen2.5vl",
-                "gpt-4o",
-                false
-            )),
-            apex: {
-                let apex_inst = Arc::new(ApexOrchestrator::new("http://localhost:1536", Some(root), Some(config_dir.clone())));
-                let apex_for_tools = apex_inst.clone();
-                let tools = sentient.ai_tools.clone();
-                tauri::async_runtime::spawn(async move {
-                    tools.set_apex(apex_for_tools).await;
-                });
-                apex_inst
-            },
-            ane_optimizer: {
-                let ane = Arc::new(crate::ane_inference::AneInferenceOptimizer::new());
-                // Register globally so sync indexing code (ann_index) can offload
-                // similarity scoring to the ANE without plumbing Tauri state.
-                crate::ane_inference::set_global(ane.clone());
-                ane
-            },
-            // Share the same Arc as Sentient so respond_tool_permission resolves
-            // the correct oneshot sender that the autonomous_loop is waiting on.
-            tool_permission_senders: sentient.permission_senders.clone(),
         }
     }
 }

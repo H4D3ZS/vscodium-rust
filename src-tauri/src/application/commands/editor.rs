@@ -50,12 +50,12 @@ pub async fn get_highlights(_state: State<'_, EditorState>, code: String) -> Res
 
 #[tauri::command]
 pub fn set_context_key(state: State<'_, EditorState>, key: String, value: ContextValue) {
-    state.context_keys.set(key, value);
+    state.ext.context_keys.set(key, value);
 }
 
 #[tauri::command]
 pub fn evaluate_when_clause(state: State<'_, EditorState>, clause: String) -> bool {
-    state.context_keys.evaluate(&clause)
+    state.ext.context_keys.evaluate(&clause)
 }
 
 #[tauri::command]
@@ -63,7 +63,7 @@ pub async fn set_active_root(
     state: State<'_, EditorState>,
     path: Option<String>,
 ) -> Result<Option<String>, String> {
-    let mut root = state.active_root.lock().await;
+    let mut root = state.editor.active_root.lock().await;
     match path {
         None => {
             *root = None;
@@ -87,12 +87,12 @@ pub async fn set_active_root(
                 return Err(format!("active root does not exist: {}", cleaned));
             }
             *root = Some(path_buf.clone());
-            state.ai_engine.set_root_path(path_buf.clone());
-            if let Err(e) = state.vector_indexer.set_workspace(path_buf.clone()).await {
+            state.ai.engine.set_root_path(path_buf.clone());
+            if let Err(e) = state.memory.vector_indexer.set_workspace(path_buf.clone()).await {
                 eprintln!("[set_active_root] vector indexer rebind failed: {e}");
             }
             let root_for_ctx = path_buf.clone();
-            let ctx = state.context_indexer.clone();
+            let ctx = state.memory.context_indexer.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = ctx.trigger_index_cycle().await;
                 let _ = ctx.reindex_if_needed(&root_for_ctx);
@@ -104,7 +104,7 @@ pub async fn set_active_root(
 
 #[tauri::command]
 pub async fn get_active_root(state: State<'_, EditorState>) -> Result<Option<String>, String> {
-    let root = state.active_root.lock().await;
+    let root = state.editor.active_root.lock().await;
     Ok(root.as_ref().map(|p| p.to_string_lossy().to_string()))
 }
 
@@ -119,15 +119,15 @@ pub fn path_exists(path: String) -> bool {
 
 #[tauri::command]
 pub async fn resolve_keybinding(state: State<'_, EditorState>, key: String) -> Result<Option<String>, String> {
-    let kb = state.keybindings.lock().await;
-    Ok(kb.resolve_key(&key, &state.context_keys))
+    let kb = state.ext.keybindings.lock().await;
+    Ok(kb.resolve_key(&key, &state.ext.context_keys))
 }
 
 /// Snapshot every registered keybinding. Powers the Keybindings panel in
 /// the settings UI; sorting / filtering happens client-side.
 #[tauri::command]
 pub async fn list_keybindings(state: State<'_, EditorState>) -> Result<Vec<crate::keybindings::Keybinding>, String> {
-    let kb = state.keybindings.lock().await;
+    let kb = state.ext.keybindings.lock().await;
     Ok(kb.list())
 }
 
@@ -141,7 +141,7 @@ pub async fn update_keybinding(
     command: String,
     when: Option<String>,
 ) -> Result<(), String> {
-    let mut kb = state.keybindings.lock().await;
+    let mut kb = state.ext.keybindings.lock().await;
     kb.upsert(key, command, when);
     Ok(())
 }

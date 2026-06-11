@@ -9,7 +9,7 @@ pub async fn gradle_detect_project(
     state: State<'_, EditorState>,
     root: String,
 ) -> Result<serde_json::Value, String> {
-    let project = state.gradle_service.detect(&root)?;
+    let project = state.mobile.gradle.detect(&root)?;
     Ok(json!(project))
 }
 
@@ -18,7 +18,7 @@ pub async fn gradle_sync_project(
     state: State<'_, EditorState>,
     root: String,
 ) -> Result<serde_json::Value, String> {
-    let project = state.gradle_service.sync(&root)?;
+    let project = state.mobile.gradle.sync(&root)?;
     Ok(json!(project))
 }
 
@@ -27,7 +27,7 @@ pub async fn gradle_list_tasks(
     state: State<'_, EditorState>,
     root: String,
 ) -> Result<serde_json::Value, String> {
-    let tasks = state.gradle_service.list_tasks(&root)?;
+    let tasks = state.mobile.gradle.list_tasks(&root)?;
     Ok(json!({ "tasks": tasks }))
 }
 
@@ -37,6 +37,6 @@ pub async fn gradle_run_task(
     root: String,
     task: String,
 ) -> Result<serde_json::Value, String> {
-    let output = state.gradle_service.run_task(&root, &task)?;
+    let output = state.mobile.gradle.run_task(&root, &task)?;
     Ok(json!({ "ok": true, "output": output }))
 }

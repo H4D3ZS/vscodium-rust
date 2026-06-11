@@ -63,10 +63,10 @@ pub async fn hermes_gateway_start(
         return Err("Hermes gateway already running".into());
     }
     let port = port.unwrap_or(8642);
-    let ollama_url = state.ollama_url.lock().await.clone();
-    let default_model = state.current_model.lock().await.clone();
+    let ollama_url = state.ai.ollama_url.lock().await.clone();
+    let default_model = state.ai.current_model.lock().await.clone();
     let gw = Arc::new(GatewayState {
-        sentient: state.ai_engine.clone(),
+        sentient: state.ai.engine.clone(),
         ollama_url,
         default_model,
         port,
