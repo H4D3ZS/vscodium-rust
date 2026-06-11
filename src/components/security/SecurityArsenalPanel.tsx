@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import { invoke } from '../../tauri_bridge';
-import { CHEATSHEETS, searchCheatsheets } from '../../security/cheatsheets';
+import { CHEATSHEETS, searchCheatsheets } from '../../domain/security/cheatsheets';
 
 type ToolId = 'reverse_shell' | 'listener' | 'csp' | 'shellcode' | 'payload' | 'cheatsheet' | 'voice' | 'review';
 

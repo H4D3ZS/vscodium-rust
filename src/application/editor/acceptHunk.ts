@@ -1,4 +1,4 @@
-import { computeDiffBlocks, patchContentAccepted } from '../../services/DiffService';
+import { computeDiffBlocks, patchContentAccepted } from '../../domain/editor/DiffService';
 import { fileRepository } from '../../infrastructure/editor/TauriFileRepository';
 import { patchRepository } from '../../infrastructure/editor/TauriPatchRepository';
 import { useStore } from '../../store';

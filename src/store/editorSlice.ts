@@ -1,6 +1,6 @@
 ﻿import type { StateCreator } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import { computeDiffBlocks, patchContentSelective } from '../services/DiffService';
+import { computeDiffBlocks, patchContentSelective } from '../domain/editor/DiffService';
 import type { AppState } from './index';
 import type { EditorTab, FileEntry, PendingChange, WorkspaceFolder } from './types';
 
