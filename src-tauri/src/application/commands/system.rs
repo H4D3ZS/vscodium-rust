@@ -15,7 +15,7 @@ pub async fn respond_tool_permission(
     approved: bool,
 ) -> Result<(), String> {
     let sender = {
-        let mut map = state.tool_permission_senders.lock()
+        let mut map = state.services.tool_permissions.lock()
             .map_err(|e| format!("Lock error: {}", e))?;
         map.remove(&tool_id)
     };
@@ -65,12 +65,12 @@ pub async fn open_ai_login(
 
 #[tauri::command]
 pub fn get_yolo_mode(state: State<'_, EditorState>) -> bool {
-    state.ai_engine.is_yolo_mode()
+    state.ai.engine.is_yolo_mode()
 }
 
 #[tauri::command]
 pub fn set_yolo_mode(state: State<'_, EditorState>, enabled: bool) {
-    state.ai_engine.set_yolo_mode(enabled);
+    state.ai.engine.set_yolo_mode(enabled);
 }
 
 #[tauri::command]

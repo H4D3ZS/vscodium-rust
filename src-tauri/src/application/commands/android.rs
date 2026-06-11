@@ -5,12 +5,12 @@ use serde_json::json;
 use tauri::State;
 
 async fn override_sdk(state: &State<'_, EditorState>) -> Option<String> {
-    state.android_sdk_path.lock().await.clone()
+    state.mobile.android_sdk_path.lock().await.clone()
 }
 
 #[tauri::command]
 pub async fn set_android_sdk_path(state: State<'_, EditorState>, path: String) -> Result<(), String> {
-    let mut sdk = state.android_sdk_path.lock().await;
+    let mut sdk = state.mobile.android_sdk_path.lock().await;
     *sdk = Some(path);
     Ok(())
 }
@@ -18,7 +18,7 @@ pub async fn set_android_sdk_path(state: State<'_, EditorState>, path: String) -
 #[tauri::command]
 pub async fn get_android_config(state: State<'_, EditorState>) -> Result<serde_json::Value, String> {
     let override_path = override_sdk(&state).await;
-    let cfg = state.android_service.sdk_config(override_path.as_deref());
+    let cfg = state.mobile.android.sdk_config(override_path.as_deref());
     Ok(json!({
         "sdk_path": cfg.sdk_path,
         "adb_found": cfg.adb_found,
@@ -30,7 +30,7 @@ pub async fn get_android_config(state: State<'_, EditorState>) -> Result<serde_j
 pub async fn adb_list_devices(state: State<'_, EditorState>) -> Result<Vec<serde_json::Value>, String> {
     let override_path = override_sdk(&state).await;
     let devices = state
-        .android_service
+        .mobile.android
         .list_devices(override_path.as_deref())?;
     Ok(devices
         .into_iter()
@@ -42,7 +42,7 @@ pub async fn adb_list_devices(state: State<'_, EditorState>) -> Result<Vec<serde
 pub async fn adb_list_emulators(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
     let override_path = override_sdk(&state).await;
     Ok(state
-        .android_service
+        .mobile.android
         .list_avds(override_path.as_deref())?
         .into_iter()
         .map(|a| a.name)
@@ -53,13 +53,13 @@ pub async fn adb_list_emulators(state: State<'_, EditorState>) -> Result<Vec<Str
 pub async fn spawn_emulator(state: State<'_, EditorState>, avd: String) -> Result<(), String> {
     let override_path = override_sdk(&state).await;
     state
-        .android_service
+        .mobile.android
         .spawn_emulator(override_path.as_deref(), &avd)
 }
 
 #[tauri::command]
 pub async fn set_active_device(state: State<'_, EditorState>, device: String) -> Result<(), String> {
-    let mut active = state.active_device.lock().await;
+    let mut active = state.mobile.active_device.lock().await;
     *active = Some(device);
     Ok(())
 }
@@ -72,8 +72,8 @@ pub async fn adb_install_and_run(
     activity: Option<String>,
 ) -> Result<(), String> {
     let override_path = override_sdk(&state).await;
-    let device = state.active_device.lock().await.clone();
-    state.android_service.install_and_launch(
+    let device = state.mobile.active_device.lock().await.clone();
+    state.mobile.android.install_and_launch(
         override_path.as_deref(),
         device.as_deref(),
         &apk_path,

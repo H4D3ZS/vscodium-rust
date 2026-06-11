@@ -805,7 +805,7 @@ impl AiTools {
 
         if let Some(h) = h_lock.as_ref() {
             let state: tauri::State<crate::EditorState> = h.state();
-            let engine = state.ai_engine.clone();
+            let engine = state.ai.engine.clone();
             let handle = h.clone();
             let task_id = uuid::Uuid::new_v4().to_string();
             let task_id_clone = task_id.clone();
@@ -1094,11 +1094,11 @@ impl AiTools {
             .ok_or_else(|| anyhow!("Missing term_id"))?;
 
         let state = h.state::<crate::EditorState>();
-        let mut processes = state.terminal_processes.lock().await;
+        let mut processes = state.terminal.processes.lock().await;
         if let Some(mut child) = processes.remove(term_id) {
             let _ = child.kill();
-            state.terminal_masters.lock().await.remove(term_id);
-            state.terminal_writers.lock().await.remove(term_id);
+            state.terminal.masters.lock().await.remove(term_id);
+            state.terminal.writers.lock().await.remove(term_id);
             Ok(json!({ "status": "success", "info": format!("Terminal {} terminated.", term_id) }))
         } else {
             Ok(json!({ "status": "error", "message": "Terminal not found or already closed." }))
@@ -1116,7 +1116,7 @@ impl AiTools {
             .ok_or_else(|| anyhow!("Missing term_id"))?;
 
         let state = h.state::<crate::EditorState>();
-        let mut processes = state.terminal_processes.lock().await;
+        let mut processes = state.terminal.processes.lock().await;
         if let Some(child) = processes.get_mut(term_id) {
             match child.try_wait() {
                 Ok(Some(status)) => Ok(
@@ -1586,8 +1586,8 @@ impl AiTools {
         let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
         
         let state = h.state::<crate::EditorState>();
-        let active_path = state.active_path.lock().await.clone();
-        let terminals = state.terminal_processes.lock().await.keys().cloned().collect::<Vec<String>>();
+        let active_path = state.editor.active_path.lock().await.clone();
+        let terminals = state.terminal.processes.lock().await.keys().cloned().collect::<Vec<String>>();
         
         Ok(json!({
             "active_path": active_path,

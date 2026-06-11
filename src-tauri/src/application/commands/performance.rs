@@ -5,13 +5,13 @@ use serde_json::{json, Value};
 
 #[tauri::command]
 pub async fn get_process_stats(state: State<'_, EditorState>) -> Result<performance::ProcessStats, String> {
-    Ok(state.perf_monitor.get_stats().await.ok_or("Failed to get process stats")?)
+    Ok(state.services.perf_monitor.get_stats().await.ok_or("Failed to get process stats")?)
 
 }
 
 #[tauri::command]
 pub async fn get_system_health(state: State<'_, EditorState>) -> Result<Value, String> {
-    let stats = state.perf_monitor.get_stats().await.ok_or("Failed to get health stats")?;
+    let stats = state.services.perf_monitor.get_stats().await.ok_or("Failed to get health stats")?;
     Ok(json!({
         "status": "healthy",
         "cpu_usage": stats.cpu_usage,
@@ -48,13 +48,13 @@ pub async fn benchmark_ane(
 
     // ANE timing on the prepared path (how ann_index actually uses it):
     // embeddings pre-packed once, only the query column rewritten per search.
-    state.ane_optimizer.init_aux_offload(dim).await.ok();
+    state.ai.ane.init_aux_offload(dim).await.ok();
     let ane = tokio::task::block_in_place(|| {
-        let mut batches = state.ane_optimizer.prepare_sim_batches(&emb_refs)?;
+        let mut batches = state.ai.ane.prepare_sim_batches(&emb_refs)?;
         let start = std::time::Instant::now();
         for _ in 0..its {
             state
-                .ane_optimizer
+                .ai.ane
                 .similarity_prepared(&query, &mut batches)?;
         }
         Some(start.elapsed().as_secs_f64() / its as f64)
@@ -84,12 +84,12 @@ pub async fn benchmark_ane(
 
 #[tauri::command]
 pub async fn get_inference_history(state: State<'_, EditorState>) -> Result<Value, String> {
-    Ok(json!(state.perf_monitor.get_inference_history().await))
+    Ok(json!(state.services.perf_monitor.get_inference_history().await))
 }
 
 #[tauri::command]
 pub async fn query_performance_history(state: State<'_, EditorState>) -> Result<Value, String> {
-    Ok(json!(state.perf_monitor.get_inference_history().await))
+    Ok(json!(state.services.perf_monitor.get_inference_history().await))
 
 }
 
@@ -116,8 +116,8 @@ pub fn macos_pressure_relief() {
 
 #[tauri::command]
 pub async fn optimize_memory(state: State<'_, EditorState>) -> Result<String, String> {
-    state.memory_optimizer.optimize().await.map_err(|e| e.to_string())?;
-    let engine = state.ai_engine.clone();
+    state.memory.optimizer.optimize().await.map_err(|e| e.to_string())?;
+    let engine = state.ai.engine.clone();
     let _ = engine.optimize_memory().await;
 
     #[cfg(target_os = "windows")]
@@ -134,5 +134,5 @@ pub async fn optimize_memory(state: State<'_, EditorState>) -> Result<String, St
 
 #[tauri::command]
 pub async fn get_memory_savings(state: State<'_, EditorState>) -> Result<(usize, usize), String> {
-    Ok(state.memory_optimizer.get_savings_report().await)
+    Ok(state.memory.optimizer.get_savings_report().await)
 }

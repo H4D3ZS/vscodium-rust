@@ -177,7 +177,7 @@ pub async fn webui_agent_run(
         provider_key.replace(" (webui)", "").replace("-webui", "").replace(' ', "_"),
         account_key
     );
-    let ai_tools = state.ai_tools.clone();
+    let ai_tools = state.ai.tools.clone();
 
     let mut next_prompt = format!("{}\n\n# Task\n{}", WEBUI_TOOL_PROTOCOL, prompt);
     let mut final_text = String::new();

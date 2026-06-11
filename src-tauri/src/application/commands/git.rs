@@ -148,28 +148,28 @@ pub async fn git_diff_file(path: String, file_path: String) -> Result<String, St
 
 #[tauri::command]
 pub async fn git_revert(state: State<'_, EditorState>, hash: String) -> Result<(), String> {
-    let root_lock = state.active_root.lock().await;
+    let root_lock = state.editor.active_root.lock().await;
     let root = root_lock.clone().ok_or("No active project")?;
     GitManager::new().revert_commit(root, &hash)
 }
 
 #[tauri::command]
 pub async fn git_stash(state: State<'_, EditorState>) -> Result<(), String> {
-    let root_lock = state.active_root.lock().await;
+    let root_lock = state.editor.active_root.lock().await;
     let root = root_lock.clone().ok_or("No active project")?;
     GitManager::new().stash_changes(root)
 }
 
 #[tauri::command]
 pub async fn git_stash_pop(state: State<'_, EditorState>) -> Result<(), String> {
-    let root_lock = state.active_root.lock().await;
+    let root_lock = state.editor.active_root.lock().await;
     let root = root_lock.clone().ok_or("No active project")?;
     GitManager::new().pop_stash(root)
 }
 
 #[tauri::command]
 pub async fn git_get_unmerged(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
-    let root_lock = state.active_root.lock().await;
+    let root_lock = state.editor.active_root.lock().await;
     let root = root_lock.clone().ok_or("No active project")?;
     GitManager::new().get_unmerged_files(root)
 }
@@ -200,7 +200,7 @@ pub async fn git_create_checkpoint(
     is_ai: Option<bool>,
 ) -> Result<Value, String> {
     let is_ai = is_ai.unwrap_or(false);
-    let checkpoint = state.git_checkpoints
+    let checkpoint = state.services.git_checkpoints
         .create_checkpoint(&description, is_ai)
         .map_err(|e| format!("Failed to create checkpoint: {}", e))?;
 
@@ -216,7 +216,7 @@ pub async fn git_list_checkpoints(
     state: State<'_, EditorState>,
     limit: Option<usize>,
 ) -> Result<Value, String> {
-    let checkpoints = state.git_checkpoints
+    let checkpoints = state.services.git_checkpoints
         .list_checkpoints(limit)
         .map_err(|e| format!("Failed to list checkpoints: {}", e))?;
 
@@ -228,7 +228,7 @@ pub async fn git_rollback_checkpoint(
     state: State<'_, EditorState>,
     checkpoint_id: String,
 ) -> Result<String, String> {
-    state.git_checkpoints
+    state.services.git_checkpoints
         .rollback_to_checkpoint(&checkpoint_id)
         .map_err(|e| format!("Failed to rollback: {}", e))
 }
@@ -238,7 +238,7 @@ pub async fn git_get_checkpoint_diff(
     state: State<'_, EditorState>,
     checkpoint_id: String,
 ) -> Result<Value, String> {
-    let diff = state.git_checkpoints
+    let diff = state.services.git_checkpoints
         .get_checkpoint_diff(&checkpoint_id)
         .map_err(|e| format!("Failed to get diff: {}", e))?;
 
@@ -250,7 +250,7 @@ pub async fn git_delete_checkpoint(
     state: State<'_, EditorState>,
     checkpoint_id: String,
 ) -> Result<(), String> {
-    state.git_checkpoints
+    state.services.git_checkpoints
         .delete_checkpoint(&checkpoint_id)
         .map_err(|e| format!("Failed to delete checkpoint: {}", e))
 }
@@ -260,7 +260,7 @@ pub async fn git_auto_checkpoint(
     state: State<'_, EditorState>,
     description: String,
 ) -> Result<Value, String> {
-    let result = state.git_checkpoints
+    let result = state.services.git_checkpoints
         .auto_checkpoint_before_ai_edit(&description)
         .map_err(|e| format!("Failed to auto-checkpoint: {}", e))?;
 

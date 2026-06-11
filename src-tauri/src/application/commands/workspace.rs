@@ -35,7 +35,7 @@ pub async fn workspace_reload(
 ) -> Result<Value, String> {
     let root_path = resolve_root(&state, root).await?;
     state
-        .ai_engine
+        .ai.engine
         .reload_workspace(&root_path)
         .await
         .map_err(|e| e.to_string())
@@ -128,7 +128,7 @@ async fn resolve_root(state: &State<'_, EditorState>, root: Option<String>) -> R
         return Ok(PathBuf::from(r));
     }
     state
-        .active_root
+        .editor.active_root
         .lock()
         .await
         .clone()

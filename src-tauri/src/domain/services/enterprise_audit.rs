@@ -264,7 +264,7 @@ pub async fn enterprise_init_engagement(
     engagement_id: String,
     targets: Vec<String>,
 ) -> Result<Value, String> {
-    let root = state.active_root.lock().await.clone();
+    let root = state.editor.active_root.lock().await.clone();
     let root = root.ok_or_else(|| "Open a workspace folder first".to_string())?;
     let id = engagement_id
         .trim()
@@ -306,7 +306,7 @@ pub async fn enterprise_init_engagement(
 pub async fn enterprise_export_sarif(
     state: State<'_, EditorState>,
 ) -> Result<String, String> {
-    let root = state.active_root.lock().await.clone();
+    let root = state.editor.active_root.lock().await.clone();
     let root = root.unwrap_or_else(|| state.config_dir.clone());
     let reports = root.join("reports");
     let mut results = Vec::new();

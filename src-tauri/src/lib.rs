@@ -302,9 +302,9 @@ pub fn run() {
             }
 
             // Memory watchdog — soft trim ~90MB, hard trim ~150MB (lean idle target 54MB when panels closed).
-            let perf_monitor = state.perf_monitor.clone();
-            let engine_for_trim = state.ai_engine.clone();
-            let mem_opt = state.memory_optimizer.clone();
+            let perf_monitor = state.services.perf_monitor.clone();
+            let engine_for_trim = state.ai.engine.clone();
+            let mem_opt = state.memory.optimizer.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;

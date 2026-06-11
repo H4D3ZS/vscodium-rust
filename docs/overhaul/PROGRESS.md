@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: A1 remaining: (1) ai_commands extraction to thin wrappers (application/commands/ai.rs is moved but fns still contain logic inline — extract per-command into domain calls, lower priority); (2) EditorState 52-field decomposition into substructs (state.rs — touchy, do in small field-groups with `pub` substruct fields so `state.ai_engine` → `state.ai.engine` migrates per batch); (3) final cleanup: delete lib.rs shim blocks once nothing references old paths (grep `crate::ai_tools::` etc. first). Note autonomous.rs is still 3.5K LOC because autonomous_loop is a single 3.5K method — needs a real refactor (Milestone D or later), not a file cut.
+**Next action**: A2 frontend restructure — scripts/check-architecture.mjs + stray-folder consolidation + god-component splits (RightSidebar 2,776 / AgentSettingsView 2,003 / Editor 1,488) + agentSlice split + hooks layer. A1 leftovers (acceptable debt, do opportunistically): lib.rs shim deletion (requires rewriting ~hundreds of crate::X paths to crate::domain::Y::X — mechanical via error-driven loop, low value), thin-wrapper extraction in application/commands/ai.rs, autonomous_loop 3.5K-LOC method decomposition.
 
 ---
 
@@ -35,7 +35,7 @@
 | ai_commands.rs → thin wrappers in application/commands/ai.rs (testable inner fns) | todo | — |
 | All 44 *_commands.rs → application/commands/<domain>.rs (move done; thin-wrapper extraction per-file still todo) | done | (commands batch) |
 | Dead provider_commands.rs (never declared in lib.rs) parked as provider.rs.dead | done | (commands batch) |
-| EditorState: group 52 fields into substructs (ai, editor, terminal, memory, security, mobile, ext, services) | todo | — |
+| EditorState: 52 fields → 8 substructs (editor, terminal, ai, mobile, ext, memory, services + flat config_dir) | done | (state-decomp commit) |
 | Batch 10: services/workspace/compat domains + remaining infra (bridges, gateways, profile) + application/jobs | done | (batch-10 commit) |
 | Drop kortex/daemon dep — WRONG premise: daemon IS used by attachment_manager (GistInjector, VECTOR_DIM). Dep stays. | done | n/a |
 | Delete dead never-declared files: repository, editor_service, zed_test, openwebui_client, provider_manager, provider.rs.dead | done | (dead-files commit) |

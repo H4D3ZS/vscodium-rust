@@ -8,7 +8,7 @@ use crate::ane_inference::AneStatus;
 pub async fn ane_get_status(
     state: State<'_, EditorState>,
 ) -> Result<AneStatus, String> {
-    Ok(state.ane_optimizer.get_status().await)
+    Ok(state.ai.ane.get_status().await)
 }
 
 /// Initialize ANE aux-offload (batched similarity scoring for the vector index).
@@ -18,7 +18,7 @@ pub async fn ane_init_inference(
     state: State<'_, EditorState>,
 ) -> Result<(), String> {
     // 768 = nomic-embed-text dimension; kernel recompiles lazily if dims differ.
-    state.ane_optimizer.init_aux_offload(768).await
+    state.ai.ane.init_aux_offload(768).await
 }
 
 /// Check if ANE can handle current inference workload
@@ -26,7 +26,7 @@ pub async fn ane_init_inference(
 pub async fn ane_can_accelerate(
     state: State<'_, EditorState>,
 ) -> Result<bool, String> {
-    Ok(state.ane_optimizer.can_accelerate().await)
+    Ok(state.ai.ane.can_accelerate().await)
 }
 
 /// Update ANE performance metrics after inference
@@ -36,7 +36,7 @@ pub async fn ane_update_metrics(
     tokens_processed: u32,
     elapsed_secs: f32,
 ) -> Result<(), String> {
-    state.ane_optimizer.update_status(tokens_processed, elapsed_secs).await;
+    state.ai.ane.update_status(tokens_processed, elapsed_secs).await;
     Ok(())
 }
 
@@ -45,14 +45,14 @@ pub async fn ane_update_metrics(
 pub async fn ane_diagnostics(
     state: State<'_, EditorState>,
 ) -> Result<Value, String> {
-    let status = state.ane_optimizer.get_status().await;
+    let status = state.ai.ane.get_status().await;
     Ok(serde_json::json!({
         "available": status.available,
         "chip": status.model,
         "mode": status.inference_mode,
         "estimated_speedup": status.estimated_speedup,
         "tokens_per_sec": status.tokens_per_sec_estimate,
-        "can_accelerate": state.ane_optimizer.can_accelerate().await,
+        "can_accelerate": state.ai.ane.can_accelerate().await,
         "token_generation": "ollama_metal", // decode is bandwidth-bound; ANE can't enter Ollama's process
         "ane_workload": "vector_index_similarity",
     }))

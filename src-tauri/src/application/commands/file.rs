@@ -112,14 +112,14 @@ pub async fn get_file_tree(
             return Err(format!("Not a directory: {}", cleaned));
         }
         {
-            let mut root_guard = state.active_root.lock().await;
+            let mut root_guard = state.editor.active_root.lock().await;
             *root_guard = Some(path_buf.clone());
         }
-        state.ai_engine.set_root_path(path_buf.clone());
+        state.ai.engine.set_root_path(path_buf.clone());
         path_buf
     } else {
         state
-            .active_root
+            .editor.active_root
             .lock()
             .await
             .clone()
@@ -147,10 +147,10 @@ pub async fn get_directory_contents(
 pub async fn open_file(state: State<'_, EditorState>, path: String) -> Result<String, String> {
     let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?;
 
-    let mut buffers = state.buffers.lock().await;
+    let mut buffers = state.editor.buffers.lock().await;
     buffers.insert(path.clone(), Rope::from_str(&content));
 
-    let mut active = state.active_path.lock().await;
+    let mut active = state.editor.active_path.lock().await;
     *active = Some(path);
 
     Ok(content)
@@ -159,10 +159,10 @@ pub async fn open_file(state: State<'_, EditorState>, path: String) -> Result<St
 #[tauri::command]
 pub async fn save_file(state: State<'_, EditorState>, path: String, content: String) -> Result<(), String> {
     fs::write(&path, &content).map_err(|e| format!("Failed to write file: {}", e))?;
-    let mut buffers = state.buffers.lock().await;
+    let mut buffers = state.editor.buffers.lock().await;
     buffers.insert(path, Rope::from_str(&content));
     // Signal Kairos that the user is active — prevents background tasks from running mid-edit
-    state.kairos.report_activity().await;
+    state.services.kairos.report_activity().await;
     Ok(())
 }
 
@@ -210,9 +210,9 @@ pub async fn open_folder(
                 u.to_file_path().unwrap_or(PathBuf::from(u.path()))
             }
         };
-        let mut root = state.active_root.lock().await;
+        let mut root = state.editor.active_root.lock().await;
         *root = Some(path.clone());
-        state.ai_engine.set_root_path(path.clone());
+        state.ai.engine.set_root_path(path.clone());
         return Ok(Some(path.to_string_lossy().to_string()));
     }
     Ok(None)
@@ -220,7 +220,7 @@ pub async fn open_folder(
 
 #[tauri::command]
 pub async fn list_project_files(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
-    let root = state.active_root.lock().await.clone()
+    let root = state.editor.active_root.lock().await.clone()
         .ok_or_else(|| "No folder open".to_string())?;
     let skip_dirs = ["node_modules", ".git", "target", "dist", ".next", "build", "__pycache__", ".cache"];
     let skip_exts = ["png","jpg","jpeg","gif","bmp","ico","woff","woff2","ttf","eot","bin","exe","dll","so","a","lib","pdf","zip","tar","gz","lock"];
@@ -308,7 +308,7 @@ pub async fn glob_files(
     let root = if let Some(p) = path {
         PathBuf::from(p)
     } else {
-        state.active_root.lock().await.clone().unwrap_or_else(|| PathBuf::from("."))
+        state.editor.active_root.lock().await.clone().unwrap_or_else(|| PathBuf::from("."))
     };
 
     // Correctly normalize the pattern for Windows
@@ -335,7 +335,7 @@ pub async fn glob_files(
 pub async fn editor_get_active_file(
     state: tauri::State<'_, EditorState>,
 ) -> Result<serde_json::Value, String> {
-    let sentient = state.ai_engine.clone();
+    let sentient = state.ai.engine.clone();
     let tools = sentient.get_tools();
     tools
         .editor_get_active_file(serde_json::json!({}))
@@ -350,7 +350,7 @@ pub async fn replace_in_files(
     replacement: String,
     case_sensitive: bool,
 ) -> Result<usize, String> {
-    let root = state.active_root.lock().await.clone()
+    let root = state.editor.active_root.lock().await.clone()
         .unwrap_or_else(|| PathBuf::from("."));
     let mut count = 0usize;
     let walker = walkdir::WalkDir::new(&root).into_iter().filter_map(|e| e.ok());
