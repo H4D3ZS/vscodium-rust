@@ -5,7 +5,7 @@ import { useStore } from '../../store';
 import { invoke } from '../../tauri_bridge';
 
 
-const TaskRoadmap: React.FC = () => {
+const TaskRoadmap: React.FC = memo(() => {
     const currentPhase = useStore(state => state.currentPhase);
     const status = useStore(state => state.currentPhaseStatus);
     const isThinking = useStore(state => state.isAgentThinking);
@@ -64,12 +64,12 @@ const TaskRoadmap: React.FC = () => {
             </div>
         </div>
     );
-};
+});
 
 
 // ── Background agents tray ───────────────────────────────────────────────
 // ── Void: Reasoning toggle + budget slider ────────────────────────────────
-const ReasoningToggle: React.FC = () => {
+const ReasoningToggle: React.FC = memo(() => {
     const isEnabled = useStore((s: any) => s.isReasoningEnabled ?? false);
     const setEnabled = useStore((s: any) => s.setIsReasoningEnabled);
     const budget = useStore((s: any) => s.currentReasoningBudget ?? 1024);
@@ -144,7 +144,7 @@ const ReasoningToggle: React.FC = () => {
             )}
         </div>
     );
-};
+});
 
 export { TaskRoadmap };
 export { ReasoningToggle };

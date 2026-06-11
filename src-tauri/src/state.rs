@@ -231,6 +231,7 @@ impl EditorState {
     }
 
     pub fn new(app: &tauri::AppHandle) -> Self {
+        let boot_t0 = std::time::Instant::now(); // Milestone D metric: EditorState::new duration
         // DIAGNOSTIC: Capture panics before `panic = "abort"` kills the process.
         let crash_log_dir = app
             .path()
@@ -361,6 +362,9 @@ impl EditorState {
         ));
         let ci_for_spawn = context_indexer.clone();
         tauri::async_runtime::spawn(async move {
+            // Milestone D: let the UI paint and first interactions settle
+            // before competing for CPU/RAM on 8GB machines.
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             ci_for_spawn.start_background_indexing().await;
         });
 
@@ -461,6 +465,7 @@ impl EditorState {
             });
         }
 
+        tracing::info!(elapsed_ms = boot_t0.elapsed().as_millis() as u64, "EditorState::new complete");
         Self {
             editor: EditorCore {
                 buffers: tokio::sync::Mutex::new(HashMap::new()),
