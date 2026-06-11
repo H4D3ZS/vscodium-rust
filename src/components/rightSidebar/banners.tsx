@@ -12,7 +12,7 @@ import { invoke } from '../../tauri_bridge';
 // ── Plan approval banner ──────────────────────────────────────────────────
 // Appears when the agent outputs AWAITING_APPROVAL in plan mode.
 // User reviews the plan and clicks Approve to resume execution.
-const PlanApprovalBanner: React.FC = () => {
+const PlanApprovalBanner: React.FC = memo(() => {
     const [planData, setPlanData] = React.useState<{ plan: string; iteration: number } | null>(null);
     const [approving, setApproving] = React.useState(false);
 
@@ -85,10 +85,10 @@ const PlanApprovalBanner: React.FC = () => {
             </div>
         </div>
     );
-};
+});
 
 
-const RestoreCheckpointBanner: React.FC = () => {
+const RestoreCheckpointBanner: React.FC = memo(() => {
     const checkpoint = useStore(state => state.lastAgentCheckpoint);
     const rollback = useStore(state => state.rollbackLastAgentCheckpoint);
     const dismiss = useStore(state => state.setLastAgentCheckpoint);
@@ -129,14 +129,14 @@ const RestoreCheckpointBanner: React.FC = () => {
             />
         </div>
     );
-};
+});
 
 
 // ── Multi-file review banner ──────────────────────────────────────────────
 // Appears after the agent's turn whenever it touched 2+ files. Clicking
 // opens the MultiFileReview carousel where the user can step through each
 // diff and keep/revert per file.
-const MultiFileReviewBanner: React.FC = () => {
+const MultiFileReviewBanner: React.FC = memo(() => {
     const edits = useStore(s => s.pendingAgentEdits);
     const isThinking = useStore(s => s.isAgentThinking);
     const openReview = useStore(s => s.openMultiFileReview);
@@ -166,7 +166,7 @@ const MultiFileReviewBanner: React.FC = () => {
             }}>Review</span>
         </div>
     );
-};
+});
 
 export { PlanApprovalBanner };
 export { RestoreCheckpointBanner };

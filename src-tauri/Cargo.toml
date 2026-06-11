@@ -116,10 +116,12 @@ debug = true
 
 [profile.release]
 panic = "abort"
-lto = false
+# lto=false / codegen-units=16 were Windows-linker workarounds
+# (STATUS_ACCESS_VIOLATION with codegen-units=1). thin-LTO builds green on
+# macOS (verified Milestone D) — revisit per-target profiles if Windows
+# release builds regress.
+lto = "thin"
 opt-level = 2
-# codegen-units=1 compiles this large crate as one unit and crashes rustc
-# (STATUS_ACCESS_VIOLATION) during the tauri release build. 16 splits the work.
 codegen-units = 16
 strip = true # smaller installer
 

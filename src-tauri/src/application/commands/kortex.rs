@@ -142,9 +142,14 @@ pub async fn aim_invalidate_stale(root: String) -> Result<usize, String> {
 /// Atomic VFS write — copy-on-write semantics, crash-safe.
 #[tauri::command]
 pub async fn vfs_write_atomic(root: String, relative_path: String, content: String) -> Result<(), String> {
-    let bridge = crate::vfs_bridge::VfsBridge::new(PathBuf::from(&root));
-    bridge.write_atomic(std::path::Path::new(&relative_path), &content)
-        .map_err(|e| e.to_string())
+    // Blocking fs work belongs off the async runtime (Milestone D).
+    tokio::task::spawn_blocking(move || {
+        let bridge = crate::vfs_bridge::VfsBridge::new(PathBuf::from(&root));
+        bridge.write_atomic(std::path::Path::new(&relative_path), &content)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Surgical patch: search/replace with copy-on-write. Returns new content.
@@ -155,9 +160,13 @@ pub async fn vfs_apply_patch(
     search: String,
     replace: String,
 ) -> Result<String, String> {
-    let bridge = crate::vfs_bridge::VfsBridge::new(PathBuf::from(&root));
-    bridge.apply_patch(std::path::Path::new(&relative_path), &search, &replace)
-        .map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || {
+        let bridge = crate::vfs_bridge::VfsBridge::new(PathBuf::from(&root));
+        bridge.apply_patch(std::path::Path::new(&relative_path), &search, &replace)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn default_workspace_aim_path(root: Option<String>) -> PathBuf {
