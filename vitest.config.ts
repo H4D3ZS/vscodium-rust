@@ -11,6 +11,7 @@ export default defineConfig({
             'src/kortex/__tests__/**/*.test.ts',
             'src/application/**/__tests__/**/*.test.ts',
             'src/domain/**/__tests__/**/*.test.ts',
+            'src/infrastructure/__tests__/**/*.test.ts',
         ],
         environment: 'node',
         pool: 'forks',

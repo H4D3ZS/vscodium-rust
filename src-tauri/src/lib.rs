@@ -639,6 +639,8 @@ pub fn run() {
             // ═══ Editor Commands ═══
             editor_commands::get_settings,
             editor_commands::update_settings,
+            editor_commands::ui_settings_get_all,
+            editor_commands::ui_settings_set,
             editor_commands::resolve_keybinding,
             editor_commands::list_keybindings,
             editor_commands::update_keybinding,
