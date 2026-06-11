@@ -1,0 +1,11 @@
+{
+    "name": "hello-extension",
+    "version": "0.1.0",
+    "main": "extension.js",
+    "hades": {
+        "capabilities": ["commands", "window"],
+        "contributes": {
+            "commands": [{ "id": "hello.sayHi", "title": "Hello: Say Hi" }]
+        }
+    }
+}
