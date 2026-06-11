@@ -1,6 +1,7 @@
 import { invoke, listen } from '../../tauri_bridge';
 import { showToast } from '../../components/ToastManager';
 import { useStore } from '../../store';
+import { get as getUiSetting } from '../../infrastructure/SettingsRepository';
 
 type Resolver = (value: unknown) => void;
 
@@ -198,6 +199,31 @@ async function handleExtHostMessage(raw: string): Promise<void> {
             if (reqId) await extHostSend({ _reqId: reqId, result: choice ?? undefined });
             break;
         }
+        // ── HADES API (Milestone E) ──────────────────────────────────────
+        case 'permissionDenied':
+            showToast(
+                `Extension "${msg.extension}" tried capability "${msg.capability}" without declaring it — denied`,
+                'warning',
+                8000,
+            );
+            break;
+        case 'settingsGet': {
+            // hades.settings.get round-trip: answer from the settings registry cache.
+            if (msg._reqId) {
+                await extHostSend({ _reqId: msg._reqId, result: getUiSetting(String(msg.key)) ?? null });
+            }
+            break;
+        }
+        case 'executeUiCommand': {
+            // hades.commands.execute for a command the sidecar doesn't own.
+            const registry: Array<{ id: string; run: () => unknown }> =
+                (window as any).commandRegistry ?? [];
+            const cmd = registry.find((c) => c.id === msg.id);
+            let result: unknown = null;
+            try { result = cmd ? await cmd.run() : null; } catch { result = null; }
+            if (msg._reqId) await extHostSend({ _reqId: msg._reqId, result });
+            break;
+        }
         case 'error':
             console.error('[ext-host]', msg.message);
             break;
@@ -230,6 +256,12 @@ export async function wireExtHostBridge(): Promise<() => void> {
 
     await refreshExtensionCommandRegistry();
     await invoke('check_activation_event', { event: 'onStartupFinished' }).catch(() => {});
+
+    // Forward settings changes to extensions (hades.settings.onChange).
+    window.addEventListener('hades:settings-changed', (e: Event) => {
+        const detail = (e as CustomEvent).detail as { key: string; value: unknown };
+        void extHostSend({ type: 'settingsChanged', key: detail.key, value: detail.value });
+    });
 
     return () => {
         bridgeWired = false;

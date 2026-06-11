@@ -35,8 +35,33 @@ pub async fn get_popular_extensions() -> Result<Vec<MarketplaceExtension>> {
 }
 
 async fn fetch_extensions_from_url(client: Client, url: String) -> Result<Vec<MarketplaceExtension>> {
-    let response = client.get(url).send().await?;
-    let data: serde_json::Value = response.json().await?;
+    // Hardened error states (Milestone E): timeouts and HTTP errors return
+    // actionable messages instead of bubbling raw reqwest debug output.
+    let response = client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| {
+            if e.is_timeout() {
+                anyhow::anyhow!("Open VSX timed out — check your connection and retry")
+            } else if e.is_connect() {
+                anyhow::anyhow!("Cannot reach open-vsx.org — offline? Extensions still work; only the gallery is unavailable")
+            } else {
+                anyhow::anyhow!("Open VSX request failed: {e}")
+            }
+        })?;
+    if !response.status().is_success() {
+        let status = response.status();
+        return Err(anyhow::anyhow!(
+            "Open VSX returned {status}{}",
+            if status.as_u16() == 429 { " — rate limited, wait a minute" } else { "" }
+        ));
+    }
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| anyhow::anyhow!("Open VSX sent malformed JSON: {e}"))?;
     
     let mut results = Vec::new();
     if let Some(extensions) = data.get("extensions").and_then(|e| e.as_array()) {
