@@ -76,6 +76,16 @@ export async function set(key: string, value: unknown): Promise<void> {
     } catch {
         /* persist best-effort; cache stays correct for this session */
     }
+    notifyChange(key, value);
+}
+
+/** Settings changes fan out to listeners (extension host forwards to hades.settings.onChange). */
+function notifyChange(key: string, value: unknown): void {
+    try {
+        window.dispatchEvent(new CustomEvent('hades:settings-changed', { detail: { key, value } }));
+    } catch {
+        /* non-browser context (tests) */
+    }
 }
 
 export async function remove(key: string): Promise<void> {
@@ -89,6 +99,7 @@ export async function remove(key: string): Promise<void> {
     } catch {
         /* best-effort */
     }
+    notifyChange(key, undefined);
 }
 
 /** Test seam. */

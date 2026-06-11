@@ -673,6 +673,8 @@ const Module = require('module');
 const originalLoad = Module._load;
 Module._load = function vscodeModuleShim(request, parent, isMain) {
     if (request === 'vscode') return vscode;
+    // HADES native API (Milestone E) — capability-gated per manifest.
+    if (request === 'hades') return buildHadesApi(hadesMetaForModule(parent && parent.filename));
     return originalLoad.call(this, request, parent, isMain);
 };
 
@@ -744,6 +746,13 @@ async function handleRequest(req) {
             await activateExtension(req.id);
             break;
 
+        case 'settingsChanged': {
+            for (const fn of hadesSettingsListeners) {
+                try { fn({ key: req.key, value: req.value }); } catch { /* listener error */ }
+            }
+            break;
+        }
+
         case 'documentOpened': {
             const normUri = normalizeDocUri(req.uri);
             const existingIdx = vscodeImpl.workspace.textDocuments.findIndex(d =>
@@ -769,6 +778,9 @@ async function handleRequest(req) {
         }
 
         case 'documentChanged': {
+            for (const fn of hadesDocListeners) {
+                try { fn({ path: normalizeDocUri(req.uri), content: req.content }); } catch { /* listener error is the extension's problem */ }
+            }
             const normUri = normalizeDocUri(req.uri);
             const existingDoc = vscodeImpl.workspace.textDocuments.find(d =>
                 normalizeDocUri(d.uri?.toString?.() ?? d.uri) === normUri
@@ -986,6 +998,131 @@ async function bootstrap(extensionMetadataList) {
 function normalizeDocUri(uri) {
     if (!uri) return '';
     return String(uri).replace(/^file:\/\/\/?/, '').replace(/\\/g, '/');
+}
+
+// ════ HADES extension API (v1) — Milestone E ═══════════════════════════════
+// Contract: packages/hades-extension-api/index.d.ts. Extensions opt in via
+// the manifest's "hades": { "capabilities": [...] }; any namespace outside
+// the declared set rejects and surfaces a permission notice in the IDE.
+const fsp = fs.promises;
+const hadesDocListeners = new Set();
+const hadesSettingsListeners = new Set();
+
+function hadesMetaForModule(parentFilename) {
+    if (!parentFilename) return null;
+    const norm = path.resolve(parentFilename);
+    for (const meta of loadedExtensions.values()) {
+        const extPath = meta.extensionPath || meta.extension_path;
+        if (extPath && norm.startsWith(path.resolve(extPath) + path.sep)) return meta;
+    }
+    return null;
+}
+
+function buildHadesApi(meta) {
+    const caps = new Set(meta?.hades?.capabilities ?? []);
+    const extId = meta?.id ?? meta?.name ?? 'unknown';
+    const gate = (cap) => {
+        if (!caps.has(cap)) {
+            sendResponse({ type: 'permissionDenied', extension: extId, capability: cap });
+            throw new Error(`hades: capability '${cap}' not declared in the manifest of ${extId}`);
+        }
+    };
+    // Workspace-scoped path resolution: absolute paths and ../ escapes reject.
+    const scoped = (rel) => {
+        const root = path.resolve(vscodeImpl.workspace.rootPath || process.cwd());
+        const abs = path.resolve(root, String(rel));
+        if (abs !== root && !abs.startsWith(root + path.sep)) {
+            throw new Error('hades: path escapes the workspace');
+        }
+        return abs;
+    };
+
+    return {
+        commands: {
+            register(id, handler) {
+                gate('commands');
+                commands.set(id, handler);
+                sendResponse({ type: 'commandRegistered', id });
+                return { dispose: () => commands.delete(id) };
+            },
+            async execute(id, ...args) {
+                gate('commands');
+                if (commands.has(id)) return commands.get(id)(...args);
+                return sendRequest({ type: 'executeUiCommand', id, args });
+            },
+        },
+        window: {
+            showMessage(message, kind = 'info') {
+                gate('window');
+                const level = kind === 'warn' ? 'warning' : kind;
+                sendResponse({ type: 'notification', level, message: String(message) });
+                return Promise.resolve();
+            },
+            createStatusBarItem(alignment, priority) {
+                gate('window');
+                return vscodeImpl.window.createStatusBarItem(alignment, priority);
+            },
+        },
+        workspace: {
+            fs: {
+                async readFile(rel) { gate('fs'); return fsp.readFile(scoped(rel), 'utf8'); },
+                async writeFile(rel, content) {
+                    gate('fs');
+                    const abs = scoped(rel);
+                    await fsp.mkdir(path.dirname(abs), { recursive: true });
+                    return fsp.writeFile(abs, String(content), 'utf8');
+                },
+                async readDir(rel) { gate('fs'); return fsp.readdir(scoped(rel)); },
+            },
+            onDidChangeTextDocument(listener) {
+                gate('fs');
+                hadesDocListeners.add(listener);
+                return { dispose: () => hadesDocListeners.delete(listener) };
+            },
+            get rootPath() { return vscodeImpl.workspace.rootPath; },
+        },
+        languages: {
+            registerCompletionProvider(languageId, provider, triggerCharacters = []) {
+                gate('languages');
+                // Adapt the small hades provider shape onto the vscode-shim registry
+                // so the existing provideCompletions plumbing serves it.
+                return vscodeImpl.languages.registerCompletionItemProvider(
+                    { language: languageId },
+                    {
+                        async provideCompletionItems(document, position) {
+                            const lines = String(document.getText() ?? '').split('\n');
+                            const ctx = {
+                                path: document.fileName,
+                                line: position.line,
+                                character: position.character,
+                                linePrefix: (lines[position.line] ?? '').slice(0, position.character),
+                            };
+                            const items = await provider.provideCompletionItems(ctx);
+                            return (items ?? []).map((it) => ({
+                                label: it.label,
+                                insertText: it.insertText ?? it.label,
+                                detail: it.detail,
+                                kind: it.kind,
+                            }));
+                        },
+                    },
+                    ...triggerCharacters,
+                );
+            },
+        },
+        settings: {
+            async get(key, fallback) {
+                gate('settings');
+                const v = await sendRequest({ type: 'settingsGet', key: String(key) });
+                return v === null || v === undefined ? fallback : v;
+            },
+            onChange(listener) {
+                gate('settings');
+                hadesSettingsListeners.add(listener);
+                return { dispose: () => hadesSettingsListeners.delete(listener) };
+            },
+        },
+    };
 }
 
 async function activateExtension(extId) {

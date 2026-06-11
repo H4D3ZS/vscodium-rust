@@ -61,6 +61,52 @@ pub struct ExtensionMetadata {
     pub description: Option<String>,
     #[serde(default)]
     pub contributes: Option<serde_json::Value>,
+    /// HADES native-API manifest ("hades" field): { capabilities: [...], contributes?: {...} }.
+    /// Validated at scan/install time; the sidecar enforces capability gating.
+    #[serde(default)]
+    pub hades: Option<serde_json::Value>,
+}
+
+/// Known v1 capabilities — anything else in the manifest is rejected so a
+/// typo'd capability fails loudly at install, not silently at runtime.
+const HADES_CAPABILITIES_V1: &[&str] = &["commands", "window", "fs", "languages", "settings"];
+
+/// Validate the optional `hades` manifest block. Returns Err with a
+/// human-readable reason; extensions with an invalid block still load as
+/// plain VSIX extensions, but the hades field is stripped.
+pub fn validate_hades_manifest(manifest: &serde_json::Value) -> Result<(), String> {
+    let obj = manifest
+        .as_object()
+        .ok_or("\"hades\" must be an object")?;
+    let caps = obj
+        .get("capabilities")
+        .and_then(|c| c.as_array())
+        .ok_or("\"hades.capabilities\" must be an array")?;
+    for cap in caps {
+        let name = cap.as_str().ok_or("capability entries must be strings")?;
+        if !HADES_CAPABILITIES_V1.contains(&name) {
+            return Err(format!(
+                "unknown capability \"{name}\" (v1 allows: {})",
+                HADES_CAPABILITIES_V1.join(", ")
+            ));
+        }
+    }
+    if let Some(contributes) = obj.get("contributes") {
+        if !contributes.is_object() {
+            return Err("\"hades.contributes\" must be an object".into());
+        }
+        for (key, val) in contributes.as_object().unwrap() {
+            match key.as_str() {
+                "commands" | "keybindings" | "themes" | "views" | "settings" => {
+                    if !val.is_array() {
+                        return Err(format!("\"hades.contributes.{key}\" must be an array"));
+                    }
+                }
+                other => return Err(format!("unknown contribution point \"{other}\"")),
+            }
+        }
+    }
+    Ok(())
 }
 
 pub struct ExtensionHostManager {
@@ -107,6 +153,15 @@ impl ExtensionHostManager {
                             if let Ok(mut meta) = serde_json::from_str::<ExtensionMetadata>(&content) {
                                 meta.extension_path =
                                     package_json_path.parent().unwrap().to_path_buf();
+                                if let Some(h) = &meta.hades {
+                                    if let Err(reason) = validate_hades_manifest(h) {
+                                        eprintln!(
+                                            "[ext-host] {}: invalid hades manifest ({reason}) — native API disabled",
+                                            meta.name
+                                        );
+                                        meta.hades = None;
+                                    }
+                                }
                                 // Construct ID if not present
                                 if meta.id.is_empty() {
                                     let publisher = meta
@@ -200,12 +255,55 @@ impl ExtensionHostManager {
         Ok(())
     }
 
-    pub fn add_extension(&mut self, meta: ExtensionMetadata) -> std::io::Result<()> {
+    pub fn add_extension(&mut self, mut meta: ExtensionMetadata) -> std::io::Result<()> {
+        if let Some(h) = &meta.hades {
+            if let Err(reason) = validate_hades_manifest(h) {
+                eprintln!(
+                    "[ext-host] {}: invalid hades manifest ({reason}) — native API disabled",
+                    meta.name
+                );
+                meta.hades = None;
+            }
+        }
         self.extensions.push(meta.clone());
         let msg = serde_json::json!({
             "type": "load_extension",
             "metadata": meta
         });
         self.send_message(serde_json::to_string(&msg).unwrap())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn valid_manifest_passes() {
+        let m = json!({
+            "capabilities": ["commands", "window"],
+            "contributes": { "commands": [{ "id": "x.y", "title": "X" }] }
+        });
+        assert!(validate_hades_manifest(&m).is_ok());
+    }
+
+    #[test]
+    fn unknown_capability_rejects() {
+        let m = json!({ "capabilities": ["commands", "network"] });
+        let err = validate_hades_manifest(&m).unwrap_err();
+        assert!(err.contains("network"), "{err}");
+    }
+
+    #[test]
+    fn unknown_contribution_point_rejects() {
+        let m = json!({ "capabilities": [], "contributes": { "telemetry": [] } });
+        assert!(validate_hades_manifest(&m).is_err());
+    }
+
+    #[test]
+    fn non_array_capabilities_rejects() {
+        let m = json!({ "capabilities": "commands" });
+        assert!(validate_hades_manifest(&m).is_err());
     }
 }
