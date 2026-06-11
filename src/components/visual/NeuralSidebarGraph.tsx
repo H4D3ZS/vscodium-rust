@@ -11,7 +11,7 @@ import ReactFlow, {
 } from 'reactflow';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from '../../lib/motionShim';
 import { Maximize2, Minimize2, Cpu, Zap } from 'lucide-react';
 import 'reactflow/dist/style.css';
 

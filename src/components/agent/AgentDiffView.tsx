@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import { listen } from '@tauri-apps/api/event';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from '../../lib/motionShim';
 
 interface ShadowUpdate {
     path: string;
