@@ -29,7 +29,7 @@ pub async fn debug_start(
     config: Value,
 ) -> Result<(), String> {
     let adapter_path = resolve_debug_adapter(&config)?;
-    let mut dm = state.debug_manager.lock().await;
+    let mut dm = state.ext.debug.lock().await;
     let init_rx = dm.start_session(&adapter_path, app).map_err(|e| e.to_string())?;
     let adapter_id = config.get("type").and_then(|v| v.as_str()).unwrap_or("generic");
     let init = serde_json::json!({
@@ -76,13 +76,13 @@ pub async fn debug_start(
 
 #[tauri::command]
 pub async fn debug_send(state: State<'_, EditorState>, msg: String) -> Result<(), String> {
-    let mut dm = state.debug_manager.lock().await;
+    let mut dm = state.ext.debug.lock().await;
     dm.send_message(msg).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn debug_stop(state: State<'_, EditorState>) -> Result<(), String> {
-    let mut dm = state.debug_manager.lock().await;
+    let mut dm = state.ext.debug.lock().await;
     dm.stop_session().map_err(|e| e.to_string())
 }
 
@@ -91,7 +91,7 @@ pub async fn analyze_file_symbols(
     state: State<'_, EditorState>,
     path: String,
 ) -> Result<Value, String> {
-    let root = state.active_root.lock().await.clone();
+    let root = state.editor.active_root.lock().await.clone();
     let full = if std::path::Path::new(&path).is_absolute() {
         std::path::PathBuf::from(&path)
     } else if let Some(r) = root {

@@ -24,7 +24,7 @@ pub async fn get_visual_graph(data: Value, format: String) -> Result<visual_lab:
 pub async fn get_neural_omni_graph(
     state: State<'_, EditorState>,
 ) -> Result<visual_lab::VisualGraph, String> {
-    state.ai_engine.memory_store.generate_knowledge_graph().await
+    state.ai.engine.memory_store.generate_knowledge_graph().await
         .map_err(|e: anyhow::Error| e.to_string())
 }
 
@@ -33,7 +33,7 @@ pub async fn get_neural_omni_graph(
 pub async fn get_all_memory_slots(
     state: State<'_, EditorState>,
 ) -> Result<Vec<SemanticSlot>, String> {
-    Ok(state.ai_engine.memory_store.get_all_slots().await)
+    Ok(state.ai.engine.memory_store.get_all_slots().await)
 
 }
 

@@ -18,7 +18,7 @@ pub async fn grep_files(
         PathBuf::from(p)
     } else {
         state
-            .active_root
+            .editor.active_root
             .lock()
             .await
             .clone()
@@ -72,18 +72,18 @@ pub async fn ai_chat(
         .and_then(|mut f| { use std::io::Write; f.write_all(log_entry.as_bytes()) });
 
     // Signal Kairos: user is actively using AI â€” reset idle timer
-    state.kairos.report_activity().await;
+    state.services.kairos.report_activity().await;
 
     // Ensure Ollama cloud/local URL is on the request (agent loop bearer auth uses it).
     if request.ollama_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
-        let url = state.ollama_url.lock().await.clone();
+        let url = state.ai.ollama_url.lock().await.clone();
         if !url.trim().is_empty() {
             request.ollama_url = Some(url);
         }
     }
 
     // Update MemoryLayer state â€” agent is now active
-    let _ = state.memory_layer.update_state("Active", &format!("Processing: {}", 
+    let _ = state.memory.layer.update_state("Active", &format!("Processing: {}", 
         request.messages.last()
             .and_then(|m| m.content.as_ref().map(|c| c.to_text()))
             .unwrap_or_default()
@@ -91,7 +91,7 @@ pub async fn ai_chat(
     ));
 
     // Inject the Hades persistent memory context as a system message
-    if let Ok(hades_ctx) = state.memory_layer.get_aggregate_context() {
+    if let Ok(hades_ctx) = state.memory.layer.get_aggregate_context() {
         if !hades_ctx.trim().is_empty() {
             request.messages.insert(0, ChatMessage {
                 role: "system".to_string(),
@@ -120,10 +120,10 @@ pub async fn ai_chat(
     }) as std::sync::Arc<dyn Fn(&str) + Send + Sync>);
 
     // Clear any stale streamed tokens from a prior turn before this one starts.
-    if let Ok(mut b) = state.ai_engine.chat_stream_buf.lock() { b.clear(); }
+    if let Ok(mut b) = state.ai.engine.chat_stream_buf.lock() { b.clear(); }
 
     let result = state
-        .ai_engine
+        .ai.engine
         .clone()
         .autonomous_loop(request, on_chunk)
         .await
@@ -171,10 +171,10 @@ pub async fn ai_chat(
         .and_then(|mut f| { use std::io::Write; f.write_all(done_log.as_bytes()) });
         
     // Update MemoryLayer: agent completed the task
-    let _ = state.memory_layer.update_state("Idle", "Task completed");
+    let _ = state.memory.layer.update_state("Idle", "Task completed");
 
     // Trim conversation state after each agent turn to keep RSS bounded.
-    let engine_clone = state.ai_engine.clone();
+    let engine_clone = state.ai.engine.clone();
     tauri::async_runtime::spawn(async move {
         let _ = engine_clone.optimize_memory().await;
     });
@@ -198,9 +198,9 @@ pub async fn ai_chat_fast(
     state: State<'_, EditorState>,
     request: AiRequest,
 ) -> Result<String, String> {
-    state.kairos.report_activity().await;
+    state.services.kairos.report_activity().await;
 
-    let engine = state.ai_engine.clone();
+    let engine = state.ai.engine.clone();
     if let Ok(mut b) = engine.chat_stream_buf.lock() {
         b.clear();
     }
@@ -250,11 +250,11 @@ pub async fn ai_chat_oneshot(
     state: State<'_, EditorState>,
     mut request: AiRequest,
 ) -> Result<String, String> {
-    state.kairos.report_activity().await;
+    state.services.kairos.report_activity().await;
 
     // Same context injection as `ai_chat` â€” background work still needs
     // the Hades memory header so the model has consistent grounding.
-    if let Ok(hades_ctx) = state.memory_layer.get_aggregate_context() {
+    if let Ok(hades_ctx) = state.memory.layer.get_aggregate_context() {
         if !hades_ctx.trim().is_empty() {
             request.messages.insert(0, ChatMessage {
                 role: "system".to_string(),
@@ -266,10 +266,10 @@ pub async fn ai_chat_oneshot(
         }
     }
 
-    let engine = state.ai_engine.clone();
+    let engine = state.ai.engine.clone();
     let _silent = engine.enter_silent();
     if request.ollama_url.as_ref().map(|u| u.trim().is_empty()).unwrap_or(true) {
-        let url = state.ollama_url.lock().await.clone();
+        let url = state.ai.ollama_url.lock().await.clone();
         if !url.trim().is_empty() {
             request.ollama_url = Some(url);
         }
@@ -279,7 +279,7 @@ pub async fn ai_chat_oneshot(
         .await
         .map_err(|e| e.to_string())?;
 
-    if let Some(root) = state.active_root.lock().await.as_ref() {
+    if let Some(root) = state.editor.active_root.lock().await.as_ref() {
         let root_str = root.to_string_lossy().to_string();
         let _hooks = crate::stop_hooks::run_stop_hooks(&root_str, &result);
     }
@@ -298,8 +298,8 @@ pub async fn ai_inline_complete(
     provider: Option<String>,
 ) -> Result<String, String> {
     // Use active provider/model from state for completions
-    let current_model = state.current_model.lock().await.clone();
-    let ollama_url_val = state.ollama_url.lock().await.clone();
+    let current_model = state.ai.current_model.lock().await.clone();
+    let ollama_url_val = state.ai.ollama_url.lock().await.clone();
 
     // Honor an explicit Autocomplete-feature model when the frontend supplies one
     // (Settings → per-feature model selection). This is usually a small fast coder
@@ -431,7 +431,7 @@ pub async fn ai_inline_complete(
     // ran the full autonomous_loop (tool parsing, memory, brain injection) for a
     // one-line FIM call — huge latency. single_shot_completion hits the provider
     // directly with stream:false.
-    let result = state.ai_engine
+    let result = state.ai.engine
         .single_shot_completion(request)
         .await
         .map_err(|e| e.to_string())?;
@@ -470,11 +470,11 @@ pub async fn predict_next_edit(
         return Ok(json!({ "has_edit": false }));
     }
 
-    let current_model = state.current_model.lock().await.clone();
+    let current_model = state.ai.current_model.lock().await.clone();
     let model_name = model_override
         .filter(|s| !s.trim().is_empty())
         .unwrap_or(current_model);
-    let ollama_url_val = state.ollama_url.lock().await.clone();
+    let ollama_url_val = state.ai.ollama_url.lock().await.clone();
     let (provider, model, ollama_url) = {
         let m = model_name.as_str();
         let ml = m.to_lowercase();
@@ -542,7 +542,7 @@ exists, return {{\"has_edit\":false}}. Never invent edits at the cursor itself."
         feature: Some("Autocomplete".to_string()),
     };
 
-    let raw = state.ai_engine.clone()
+    let raw = state.ai.engine.clone()
         .autonomous_loop(request, None)
         .await
         .map_err(|e| e.to_string())?;
@@ -602,7 +602,7 @@ pub async fn ai_explain_code(
     
     let request = AiRequest {
         provider: "google".to_string(),
-        model: state.current_model.lock().await.clone(),
+        model: state.ai.current_model.lock().await.clone(),
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -634,7 +634,7 @@ pub async fn ai_explain_code(
         feature: None,
     };
 
-    state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
+    state.ai.engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -652,7 +652,7 @@ pub async fn ai_document_code(
     
     let request = AiRequest {
         provider: "google".to_string(),
-        model: state.current_model.lock().await.clone(),
+        model: state.ai.current_model.lock().await.clone(),
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -684,7 +684,7 @@ pub async fn ai_document_code(
         feature: None,
     };
 
-    state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
+    state.ai.engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -703,7 +703,7 @@ pub async fn ai_generate_code(
     
     let request = AiRequest {
         provider: "google".to_string(),
-        model: state.current_model.lock().await.clone(),
+        model: state.ai.current_model.lock().await.clone(),
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -735,7 +735,7 @@ pub async fn ai_generate_code(
         feature: None,
     };
 
-    state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
+    state.ai.engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -764,7 +764,7 @@ pub async fn ai_refactor_code(
     
     let request = AiRequest {
         provider: "google".to_string(),
-        model: state.current_model.lock().await.clone(),
+        model: state.ai.current_model.lock().await.clone(),
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -796,7 +796,7 @@ pub async fn ai_refactor_code(
         feature: None,
     };
 
-    state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
+    state.ai.engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -832,7 +832,7 @@ pub async fn ai_debug_code(
     
     let request = AiRequest {
         provider: "google".to_string(),
-        model: state.current_model.lock().await.clone(),
+        model: state.ai.current_model.lock().await.clone(),
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -864,7 +864,7 @@ pub async fn ai_debug_code(
         feature: None,
     };
 
-    let response = state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())?;
+    let response = state.ai.engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())?;
     
     Ok(json!({
         "diagnosis": "Analysis complete",
@@ -896,7 +896,7 @@ pub async fn ai_multi_cursor_edit(
     
     let request = AiRequest {
         provider: "google".to_string(),
-        model: state.current_model.lock().await.clone(),
+        model: state.ai.current_model.lock().await.clone(),
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -928,7 +928,7 @@ pub async fn ai_multi_cursor_edit(
         feature: None,
     };
 
-    let modified = state.ai_engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())?;
+    let modified = state.ai.engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())?;
     
     Ok(json!({
         "matches": [format!("Found occurrences of: {}", pattern)],
@@ -967,7 +967,7 @@ pub async fn ai_pr_review(
 
     let request = AiRequest {
         provider: "google".to_string(),
-        model: state.current_model.lock().await.clone(),
+        model: state.ai.current_model.lock().await.clone(),
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -1000,7 +1000,7 @@ pub async fn ai_pr_review(
     };
 
     let review = state
-        .ai_engine
+        .ai.engine
         .clone()
         .autonomous_loop(request, None)
         .await
@@ -1035,7 +1035,7 @@ pub async fn ai_get_context(
     // Semantic-first: use the vector index when embeddings are available
     // (requires Ollama + an indexed workspace), then fall back to grep so the
     // tool always returns something — and reports which method it used.
-    if let Ok(hits) = state.vector_indexer.search_codebase(&query, max).await {
+    if let Ok(hits) = state.memory.vector_indexer.search_codebase(&query, max).await {
         if !hits.is_empty() {
             let files: Vec<Value> = hits
                 .into_iter()
@@ -1100,7 +1100,7 @@ pub async fn call_tool(
     name: String,
     arguments: Value,
 ) -> Result<Value, String> {
-    state.ai_tools
+    state.ai.tools
         .call_tool(&name, arguments.clone())
         .await
         .map_err(|e| e.to_string())
@@ -1128,7 +1128,7 @@ pub async fn ai_execute_command(
     }
 
     let result = state
-        .ai_tools
+        .ai.tools
         .call_tool("run_command", args)
         .await
         .map_err(|e| e.to_string())?;
@@ -1237,7 +1237,7 @@ pub async fn preview_search_replace(
         search: search_text,
         replace: replace_text,
     };
-    let mut pe = state.patch_engine.lock().await;
+    let mut pe = state.services.patch_engine.lock().await;
     let new_content = pe
         .apply_patches(&path_buf, &old_content, &[patch])
         .await
@@ -1263,7 +1263,7 @@ pub async fn compress_session_data(
     data: String,
 ) -> Result<(), String> {
     state
-        .memory_optimizer
+        .memory.optimizer
         .compress_and_store(&key, &data)
 
         .await
@@ -1273,7 +1273,7 @@ pub async fn compress_session_data(
 #[tauri::command]
 pub async fn check_ollama_status(state: State<'_, EditorState>) -> Result<bool, String> {
     state
-        .ai_engine
+        .ai.engine
         .check_ollama_status()
         .await
         .map_err(|e| e.to_string())
@@ -1283,7 +1283,7 @@ pub async fn check_ollama_status(state: State<'_, EditorState>) -> Result<bool, 
 #[tauri::command]
 pub async fn pull_ollama_model(state: State<'_, EditorState>, name: String) -> Result<(), String> {
     state
-        .ai_engine
+        .ai.engine
         .pull_model(&name)
         .await
         .map_err(|e| e.to_string())
@@ -1293,11 +1293,11 @@ pub async fn pull_ollama_model(state: State<'_, EditorState>, name: String) -> R
 pub async fn set_ollama_url(state: State<'_, EditorState>, url: String) -> Result<(), String> {
     let normalized = normalize_ollama_base_url(&url);
     {
-        let mut current = state.ollama_url.lock().await;
+        let mut current = state.ai.ollama_url.lock().await;
         *current = normalized.clone();
     }
 
-    state.ai_engine.set_ollama_url(normalized).await;
+    state.ai.engine.set_ollama_url(normalized).await;
     Ok(())
 }
 
@@ -1311,11 +1311,11 @@ pub async fn reindex_workspace(
     state: State<'_, EditorState>,
 ) -> Result<Value, String> {
     let root = {
-        let guard = state.active_root.lock().await;
+        let guard = state.editor.active_root.lock().await;
         guard.clone().unwrap_or_else(|| std::path::PathBuf::from("."))
     };
     state
-        .context_indexer
+        .memory.context_indexer
         .reindex_if_needed(&root)
         .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
@@ -1333,7 +1333,7 @@ pub async fn reindex_workspace(
 pub async fn list_workspace_rules(
     state: State<'_, EditorState>,
 ) -> Result<Value, String> {
-    let rules = state.ai_engine.rules_engine.get_workspace_rules();
+    let rules = state.ai.engine.rules_engine.get_workspace_rules();
     let items: Vec<Value> = rules
         .into_iter()
         .map(|r| serde_json::json!({
@@ -1351,7 +1351,7 @@ pub async fn list_workspace_rules(
 #[tauri::command]
 pub async fn unload_ollama_model(state: State<'_, EditorState>, name: String) -> Result<(), String> {
     state
-        .ai_engine
+        .ai.engine
         .attachment_manager.unload_model(&name)
 
         .await
@@ -1361,7 +1361,7 @@ pub async fn unload_ollama_model(state: State<'_, EditorState>, name: String) ->
 #[tauri::command]
 pub async fn get_ollama_ps(state: State<'_, EditorState>) -> Result<Value, String> {
     state
-        .ai_engine
+        .ai.engine
         .check_ollama_status()
         .await
         .map(|status| json!({ "initialized": status }))
@@ -1373,21 +1373,21 @@ pub async fn get_ollama_ps(state: State<'_, EditorState>) -> Result<Value, Strin
 /// model dropdown comes back empty so the user knows *why*.
 #[tauri::command]
 pub async fn diagnose_ollama(state: State<'_, EditorState>) -> Result<Value, String> {
-    Ok(state.ai_engine.diagnose_ollama().await)
+    Ok(state.ai.engine.diagnose_ollama().await)
 }
 
 #[tauri::command]
 pub async fn set_ai_model(state: State<'_, EditorState>, model: String) -> Result<(), String> {
-    let mut current = state.current_model.lock().await;
+    let mut current = state.ai.current_model.lock().await;
     *current = model.clone();
-    state.ai_engine.set_advisor_model(Some(model)).await;
+    state.ai.engine.set_advisor_model(Some(model)).await;
 
     Ok(())
 }
 
 #[tauri::command]
 pub async fn set_advisor_model(state: State<'_, EditorState>, model: Option<String>) -> Result<(), String> {
-    let mut advisor = state.advisor_model.lock().await;
+    let mut advisor = state.ai.advisor_model.lock().await;
     *advisor = model;
     Ok(())
 }
@@ -1398,7 +1398,7 @@ pub async fn list_provider_models(
     provider: String,
 ) -> Result<Vec<String>, String> {
     state
-        .ai_engine
+        .ai.engine
         .list_models(&provider)
         .await
         .map_err(|e| e.to_string())
@@ -1408,7 +1408,7 @@ pub async fn list_provider_models(
 #[tauri::command]
 pub async fn ollama_native_get(state: State<'_, EditorState>, path: String) -> Result<Value, String> {
     state
-        .ai_engine
+        .ai.engine
         .ollama_native_get(path)
         .await
         .map_err(|e| e.to_string())
@@ -1422,7 +1422,7 @@ pub async fn ollama_native_post(
     body: Value,
 ) -> Result<Value, String> {
     state
-        .ai_engine
+        .ai.engine
         .ollama_native_post(path, body)
         .await
         .map_err(|e| e.to_string())
@@ -1430,12 +1430,12 @@ pub async fn ollama_native_post(
 
 #[tauri::command]
 pub async fn get_agent_messages(state: State<'_, EditorState>) -> Result<Value, String> {
-    Ok(json!(state.ai_engine.memory_store.get_messages().await))
+    Ok(json!(state.ai.engine.memory_store.get_messages().await))
 }
 
 #[tauri::command]
 pub async fn get_brain_telemetry(state: State<'_, EditorState>) -> Result<Value, String> {
-    Ok(state.ai_engine.memory_store.get_brain_telemetry().await)
+    Ok(state.ai.engine.memory_store.get_brain_telemetry().await)
 }
 
 #[tauri::command]
@@ -1445,7 +1445,7 @@ pub async fn store_message(
     content: String,
     timestamp: i64,
 ) -> Result<(), String> {
-    state.ai_engine.memory_store.store_message_params(role, content, timestamp).await;
+    state.ai.engine.memory_store.store_message_params(role, content, timestamp).await;
     Ok(())
 }
 
@@ -1454,19 +1454,19 @@ pub async fn sync_agent_messages(
     state: State<'_, EditorState>,
     messages: Vec<ChatMessage>,
 ) -> Result<(), String> {
-    state.ai_engine.memory_store.store_conversation(&messages).await;
-    state.ai_engine.memory_store.flush_to_disk().await;
+    state.ai.engine.memory_store.store_conversation(&messages).await;
+    state.ai.engine.memory_store.flush_to_disk().await;
     Ok(())
 }
 #[tauri::command]
 pub async fn list_chat_sessions(state: State<'_, EditorState>) -> Result<Value, String> {
-    Ok(json!(state.ai_engine.memory_store.list_sessions().await))
+    Ok(json!(state.ai.engine.memory_store.list_sessions().await))
 }
 
 #[tauri::command]
 pub async fn load_chat_session(state: State<'_, EditorState>, path: String) -> Result<Value, String> {
     let messages = state
-        .ai_engine
+        .ai.engine
         .memory_store
         .restore_session_from_path(PathBuf::from(path))
         .await;
@@ -1475,13 +1475,13 @@ pub async fn load_chat_session(state: State<'_, EditorState>, path: String) -> R
 
 #[tauri::command]
 pub async fn archive_chat_session(state: State<'_, EditorState>) -> Result<(), String> {
-    state.ai_engine.memory_store.archive_current_session().await;
+    state.ai.engine.memory_store.archive_current_session().await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn create_new_session(state: State<'_, EditorState>) -> Result<(), String> {
-    state.ai_engine.memory_store.create_new_session().await;
+    state.ai.engine.memory_store.create_new_session().await;
     Ok(())
 }
 
@@ -1491,7 +1491,7 @@ pub async fn create_new_session(state: State<'_, EditorState>) -> Result<(), Str
 #[tauri::command]
 pub async fn agent_activity_drain(state: State<'_, EditorState>) -> Result<Vec<String>, String> {
     let mut log = state
-        .ai_engine
+        .ai.engine
         .activity_log
         .lock()
         .map_err(|e| format!("activity_log lock poisoned: {e}"))?;
@@ -1503,7 +1503,7 @@ pub async fn agent_activity_drain(state: State<'_, EditorState>) -> Result<Vec<S
 #[tauri::command]
 pub async fn chat_stream_drain(state: State<'_, EditorState>) -> Result<String, String> {
     let mut b = state
-        .ai_engine
+        .ai.engine
         .chat_stream_buf
         .lock()
         .map_err(|e| format!("chat_stream_buf lock poisoned: {e}"))?;
@@ -1517,7 +1517,7 @@ pub async fn chat_stream_drain(state: State<'_, EditorState>) -> Result<String, 
 #[tauri::command]
 pub async fn agent_proposals_drain(state: State<'_, EditorState>) -> Result<Vec<Value>, String> {
     let mut q = state
-        .ai_engine
+        .ai.engine
         .pending_proposals
         .lock()
         .map_err(|e| format!("pending_proposals lock poisoned: {e}"))?;
@@ -1533,7 +1533,7 @@ pub async fn revert_file_content(
     path: String,
     content: String,
 ) -> Result<(), String> {
-    let root = state.ai_engine.ai_tools.get_root_path();
+    let root = state.ai.engine.ai_tools.get_root_path();
     let full = if std::path::Path::new(&path).is_absolute() {
         PathBuf::from(&path)
     } else {
@@ -1549,7 +1549,7 @@ pub async fn revert_file_content(
 /// workspace-relative.
 #[tauri::command]
 pub async fn aim_inspect(state: State<'_, EditorState>, path: String) -> Result<serde_json::Value, String> {
-    let root = state.ai_engine.ai_tools.get_root_path();
+    let root = state.ai.engine.ai_tools.get_root_path();
     let full = if std::path::Path::new(&path).is_absolute() {
         PathBuf::from(&path)
     } else {

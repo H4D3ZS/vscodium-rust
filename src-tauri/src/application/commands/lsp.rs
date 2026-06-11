@@ -27,7 +27,7 @@ pub async fn lsp_start(
         .unwrap_or_else(|_| state.config_dir.clone())
         .to_string_lossy()
         .to_string();
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     router
         .ensure_server("manual", &launch, &root, app)
         .await?;
@@ -62,7 +62,7 @@ pub async fn lsp_auto_start(
         source: "bundled".into(),
     };
 
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     router.ensure_server(&launch.id, &launch, &root, app).await?;
 
     Ok(json!({
@@ -85,7 +85,7 @@ pub async fn lsp_ensure_for_file(
 ) -> Result<Value, String> {
     let root_path = std::path::PathBuf::from(&root);
     let file_path = std::path::PathBuf::from(&path);
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     router
         .ensure_for_file(
             &file_path,
@@ -137,7 +137,7 @@ pub async fn lsp_start_server(
         }
     })?;
 
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     router
         .ensure_server(&spec.id, &spec, &root, app)
         .await?;
@@ -153,7 +153,7 @@ pub async fn lsp_start_server(
 #[tauri::command]
 pub async fn lsp_bundle_status(state: State<'_, EditorState>) -> Result<Value, String> {
     let mut status = crate::lsp_bundle::bundle_status(&state.config_dir);
-    let router = state.lsp_router.lock().await;
+    let router = state.editor.lsp_router.lock().await;
     if let Some(obj) = status.as_object_mut() {
         obj.insert(
             "userServers".into(),
@@ -196,7 +196,7 @@ pub async fn lsp_send_request(
         .and_then(|u| u.as_str())
         .unwrap_or("")
         .to_string();
-    let router = state.lsp_router.lock().await;
+    let router = state.editor.lsp_router.lock().await;
     let client = router
         .client_for_uri(&uri)
         .await
@@ -209,7 +209,7 @@ pub async fn lsp_send_request(
 
 #[tauri::command]
 pub async fn lsp_stop(state: State<'_, EditorState>) -> Result<(), String> {
-    state.lsp_router.lock().await.stop_all().await;
+    state.editor.lsp_router.lock().await.stop_all().await;
     Ok(())
 }
 
@@ -227,7 +227,7 @@ pub async fn lsp_did_open(
     text: String,
 ) -> Result<(), String> {
     state
-        .lsp_router
+        .editor.lsp_router
         .lock()
         .await
         .did_open(&uri, &language_id, version, &text)
@@ -242,7 +242,7 @@ pub async fn lsp_did_change(
     text: String,
 ) -> Result<(), String> {
     state
-        .lsp_router
+        .editor.lsp_router
         .lock()
         .await
         .did_change(&uri, version, &text)
@@ -251,7 +251,7 @@ pub async fn lsp_did_change(
 
 #[tauri::command]
 pub async fn lsp_did_save(state: State<'_, EditorState>, uri: String) -> Result<(), String> {
-    state.lsp_router.lock().await.did_save(&uri).await
+    state.editor.lsp_router.lock().await.did_save(&uri).await
 }
 
 #[tauri::command]
@@ -260,7 +260,7 @@ pub async fn lsp_set_workspace(
     root_uri: String,
 ) -> Result<(), String> {
     state
-        .lsp_router
+        .editor.lsp_router
         .lock()
         .await
         .set_workspace(&root_uri)
@@ -285,7 +285,7 @@ pub async fn lsp_change_workspace_folders(
         })
         .collect();
     state
-        .lsp_router
+        .editor.lsp_router
         .lock()
         .await
         .change_workspace_folders(pairs, &[])
@@ -297,7 +297,7 @@ pub async fn lsp_get_diagnostics(
     state: State<'_, EditorState>,
     path: Option<String>,
 ) -> Result<Value, String> {
-    let diags = state.lsp_diagnostics.read().await;
+    let diags = state.editor.lsp_diagnostics.read().await;
     let result: Vec<Value> = diags
         .iter()
         .filter(|(uri, _)| path.as_deref().map(|p| uri.contains(p)).unwrap_or(true))
@@ -308,7 +308,7 @@ pub async fn lsp_get_diagnostics(
 
 #[tauri::command]
 pub async fn lsp_is_running(state: State<'_, EditorState>) -> Result<bool, String> {
-    Ok(state.lsp_router.lock().await.is_any_running().await)
+    Ok(state.editor.lsp_router.lock().await.is_any_running().await)
 }
 
 #[tauri::command]
@@ -318,7 +318,7 @@ pub async fn lsp_completion(
     line: u32,
     character: u32,
 ) -> Result<Value, String> {
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     let result = router
         .request_with_response(
             &uri,
@@ -347,7 +347,7 @@ pub async fn lsp_hover(
     line: u32,
     character: u32,
 ) -> Result<Value, String> {
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     let result = router
         .request_with_response(
             &uri,
@@ -369,7 +369,7 @@ pub async fn lsp_goto_definition(
     line: u32,
     character: u32,
 ) -> Result<Value, String> {
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     let result = router
         .request_with_response(
             &uri,
@@ -391,7 +391,7 @@ pub async fn lsp_find_references(
     line: u32,
     character: u32,
 ) -> Result<Value, String> {
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     let result = router
         .request_with_response(
             &uri,
@@ -415,7 +415,7 @@ pub async fn lsp_rename_symbol(
     character: u32,
     new_name: String,
 ) -> Result<Value, String> {
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     let result = router
         .request_with_response(
             &uri,
@@ -436,7 +436,7 @@ pub async fn lsp_format_document(
     state: State<'_, EditorState>,
     uri: String,
 ) -> Result<Value, String> {
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     let result = router
         .request_with_response(
             &uri,
@@ -457,7 +457,7 @@ pub async fn lsp_workspace_symbols(
     query: String,
 ) -> Result<Value, String> {
     let uri = "file:///workspace";
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     let result = router
         .request_with_response(
             uri,
@@ -474,7 +474,7 @@ pub async fn lsp_code_lens(
     state: State<'_, EditorState>,
     uri: String,
 ) -> Result<Value, String> {
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     let result = router
         .request_with_response(
             &uri,
@@ -491,7 +491,7 @@ pub async fn lsp_document_symbols(
     state: State<'_, EditorState>,
     uri: String,
 ) -> Result<Value, String> {
-    let mut router = state.lsp_router.lock().await;
+    let mut router = state.editor.lsp_router.lock().await;
     let result = router
         .request_with_response(
             &uri,

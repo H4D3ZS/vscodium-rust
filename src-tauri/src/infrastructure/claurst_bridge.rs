@@ -140,7 +140,7 @@ pub async fn claurst_run(
     // Resolve working directory: explicit arg → active project root → cwd.
     let workdir: PathBuf = if let Some(c) = cwd.filter(|s| !s.trim().is_empty()) {
         PathBuf::from(c)
-    } else if let Some(root) = state.active_root.lock().await.clone() {
+    } else if let Some(root) = state.editor.active_root.lock().await.clone() {
         root
     } else {
         std::env::current_dir().map_err(|e| e.to_string())?

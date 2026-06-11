@@ -26,7 +26,7 @@ pub async fn detect_ida_install_dir(path: String) -> Result<Value, String> {
 
 #[tauri::command]
 pub async fn list_mcp_servers(state: State<'_, EditorState>) -> Result<Value, String> {
-    Ok(json!(state.mcp_registry.list_servers().await))
+    Ok(json!(state.services.mcp_registry.list_servers().await))
 }
 
 #[tauri::command]
@@ -36,7 +36,7 @@ pub async fn add_mcp_server(
     config: mcp_registry::McpServerConfig,
 ) -> Result<(), String> {
     state
-        .mcp_registry
+        .services.mcp_registry
         .add_server(name, config)
         .await
         .map_err(|e| e.to_string())
@@ -45,7 +45,7 @@ pub async fn add_mcp_server(
 #[tauri::command]
 pub async fn remove_mcp_server(state: State<'_, EditorState>, name: String) -> Result<(), String> {
     state
-        .mcp_registry
+        .services.mcp_registry
         .remove_server(&name)
         .await
         .map_err(|e| e.to_string())
@@ -58,7 +58,7 @@ pub async fn set_mcp_server_enabled(
     enabled: bool,
 ) -> Result<(), String> {
     state
-        .mcp_registry
+        .services.mcp_registry
         .set_server_enabled(&name, enabled)
         .await
         .map_err(|e| e.to_string())
@@ -67,7 +67,7 @@ pub async fn set_mcp_server_enabled(
 #[tauri::command]
 pub fn get_mcp_config_path(state: State<'_, EditorState>) -> Result<String, String> {
     Ok(state
-        .mcp_registry
+        .services.mcp_registry
         .config_path()
         .to_string_lossy()
         .into_owned())
@@ -76,7 +76,7 @@ pub fn get_mcp_config_path(state: State<'_, EditorState>) -> Result<String, Stri
 #[tauri::command]
 pub async fn list_mcp_tools(state: State<'_, EditorState>) -> Result<Value, String> {
     state
-        .mcp_registry
+        .services.mcp_registry
         .list_tools()
         .await
         .map(|tools| json!({ "tools": tools, "count": tools.len() }))
@@ -85,9 +85,9 @@ pub async fn list_mcp_tools(state: State<'_, EditorState>) -> Result<Value, Stri
 
 #[tauri::command]
 pub async fn read_mcp_config(state: State<'_, EditorState>) -> Result<Value, String> {
-    let path = state.mcp_registry.config_path().to_string_lossy().into_owned();
+    let path = state.services.mcp_registry.config_path().to_string_lossy().into_owned();
     let text = state
-        .mcp_registry
+        .services.mcp_registry
         .read_config_text()
         .map_err(|e| e.to_string())?;
     Ok(json!({ "path": path, "text": text }))
@@ -99,7 +99,7 @@ pub async fn write_mcp_config(
     text: String,
 ) -> Result<(), String> {
     state
-        .mcp_registry
+        .services.mcp_registry
         .write_config_text(&text)
         .await
         .map_err(|e| e.to_string())

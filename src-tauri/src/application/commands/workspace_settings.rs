@@ -15,7 +15,7 @@ pub async fn get_workspace_settings(
 ) -> Result<Value, String> {
     let root = match root {
         Some(r) => r,
-        None => state.active_root.lock().await.clone()
+        None => state.editor.active_root.lock().await.clone()
             .map(|p| p.to_string_lossy().to_string())
             .ok_or("No workspace open")?,
     };
@@ -42,7 +42,7 @@ pub async fn update_workspace_settings(
 ) -> Result<(), String> {
     let root = match root {
         Some(r) => r,
-        None => state.active_root.lock().await.clone()
+        None => state.editor.active_root.lock().await.clone()
             .map(|p| p.to_string_lossy().to_string())
             .ok_or("No workspace open")?,
     };

@@ -242,7 +242,7 @@ pub struct VisionSidecarResult {
 pub async fn discover_vision_models_cmd(
     state: State<'_, EditorState>,
 ) -> Result<Vec<String>, String> {
-    let ollama_url = state.ollama_url.lock().await.clone();
+    let ollama_url = state.ai.ollama_url.lock().await.clone();
     let bearer = ollama_bearer_for(&state, &ollama_url);
     Ok(discover_vision_models(&ollama_url, &bearer).await)
 }
@@ -307,7 +307,7 @@ pub async fn vision_sidecar_process_attachments(
             String::new()
         });
     let primary_url = if primary_url.is_empty() {
-        state.ollama_url.lock().await.clone()
+        state.ai.ollama_url.lock().await.clone()
     } else {
         primary_url
     };

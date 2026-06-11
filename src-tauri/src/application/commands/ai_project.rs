@@ -9,8 +9,8 @@ pub async fn mount_project(
     path: String,
 ) -> Result<(), String> {
     let path_buf = PathBuf::from(path);
-    state.memory_layer.mount_workspace(path_buf.clone()).await.map_err(|e| e.to_string())?;
-    let mut root = state.active_root.lock().await;
+    state.memory.layer.mount_workspace(path_buf.clone()).await.map_err(|e| e.to_string())?;
+    let mut root = state.editor.active_root.lock().await;
     *root = Some(path_buf);
     Ok(())
 }
@@ -19,8 +19,8 @@ pub async fn mount_project(
 pub async fn unmount_project(
     state: State<'_, EditorState>,
 ) -> Result<(), String> {
-    state.memory_layer.unmount().await;
-    let mut root = state.active_root.lock().await;
+    state.memory.layer.unmount().await;
+    let mut root = state.editor.active_root.lock().await;
     *root = None;
     Ok(())
 }
@@ -29,7 +29,7 @@ pub async fn unmount_project(
 pub async fn get_project_memory(
     state: State<'_, EditorState>,
 ) -> Result<Value, String> {
-    let mem = state.memory_layer.get_all_memory().await.map_err(|e| e.to_string())?;
+    let mem = state.memory.layer.get_all_memory().await.map_err(|e| e.to_string())?;
     Ok(json!(mem))
 }
 
@@ -37,7 +37,7 @@ pub async fn get_project_memory(
 pub async fn clear_project_memory(
     state: State<'_, EditorState>,
 ) -> Result<(), String> {
-    state.memory_layer.clear_memory().await.map_err(|e| e.to_string())
+    state.memory.layer.clear_memory().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -46,7 +46,7 @@ pub async fn update_project_memory(
     key: String,
     value: String,
 ) -> Result<(), String> {
-    state.memory_layer.set_memory(&key, &value).await.map_err(|e| e.to_string())
+    state.memory.layer.set_memory(&key, &value).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -54,7 +54,7 @@ pub async fn search_project(
     state: State<'_, EditorState>,
     query: String,
 ) -> Result<Value, String> {
-    let results = state.memory_layer.search(&query).await.map_err(|e| e.to_string())?;
+    let results = state.memory.layer.search(&query).await.map_err(|e| e.to_string())?;
     Ok(json!(results))
 }
 
@@ -63,7 +63,7 @@ pub async fn query_workspace_memory(
     state: State<'_, EditorState>,
     query: String,
 ) -> Result<Value, String> {
-    let results = state.memory_layer.query_context(&query).await.map_err(|e| e.to_string())?;
+    let results = state.memory.layer.query_context(&query).await.map_err(|e| e.to_string())?;
     Ok(json!(results))
 }
 
@@ -72,7 +72,7 @@ pub async fn get_file_context(
     state: State<'_, EditorState>,
     path: String,
 ) -> Result<Value, String> {
-    let ctx = state.memory_layer.get_file_context(&path).await.map_err(|e| e.to_string())?;
+    let ctx = state.memory.layer.get_file_context(&path).await.map_err(|e| e.to_string())?;
     Ok(json!(ctx))
 }
 
@@ -83,8 +83,8 @@ pub async fn get_file_context(
 pub async fn clear_ai_memory(
     state: State<'_, EditorState>,
 ) -> Result<(), String> {
-    state.ai_engine.clear_conversation().await;
-    state.memory_store.clear().await;
+    state.ai.engine.clear_conversation().await;
+    state.memory.store.clear().await;
     Ok(())
 }
 
@@ -100,7 +100,7 @@ pub async fn search_codebase_files(
 ) -> Result<Value, String> {
     let root_path = match root {
         Some(r) if !r.trim().is_empty() => PathBuf::from(r),
-        _ => state.active_root.lock().await.clone()
+        _ => state.editor.active_root.lock().await.clone()
             .ok_or_else(|| "No active workspace root".to_string())?,
     };
     let needle = query.to_lowercase();

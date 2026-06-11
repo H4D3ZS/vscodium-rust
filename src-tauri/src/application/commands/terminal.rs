@@ -314,7 +314,7 @@ pub async fn spawn_terminal(
     // exists (stale activeRoot in localStorage was the cause of "spawn pwsh.exe
     // failed: cannot find file" after deleting a project folder).
     let effective_cwd: Option<PathBuf> = {
-        let root = state.active_root.lock().await;
+        let root = state.editor.active_root.lock().await;
         let from_state = root.as_ref().and_then(|r| {
             let cleaned = sanitize_no_nul(&r.display().to_string());
             let pb = PathBuf::from(cleaned);
@@ -389,7 +389,7 @@ pub async fn spawn_terminal(
                     // drains via `terminal_take_pending`. Blocking lock so we
                     // never drop bytes. The legacy `terminal-data` event is kept
                     // as a best-effort secondary for any external listeners.
-                    if let Ok(mut pend) = state.terminal_pending.lock() {
+                    if let Ok(mut pend) = state.terminal.pending.lock() {
                         pend.entry(term_id.clone()).or_default().push_str(&data);
                     }
                     let _ = app_handle.emit(
@@ -400,7 +400,7 @@ pub async fn spawn_terminal(
                         },
                     );
 
-                    if let Some(mut buffers) = state.terminal_buffers.try_lock().ok() {
+                    if let Some(mut buffers) = state.terminal.buffers.try_lock().ok() {
                         let history = buffers.entry(term_id.clone()).or_insert_with(Vec::new);
                         history.push(data);
                         if history.len() > 2000 {
@@ -413,22 +413,22 @@ pub async fn spawn_terminal(
         }
     });
 
-    state.terminal_masters.lock().await.insert(id.clone(), master);
-    state.terminal_writers.lock().await.insert(id.clone(), writer);
-    state.terminal_processes.lock().await.insert(id, child);
+    state.terminal.masters.lock().await.insert(id.clone(), master);
+    state.terminal.writers.lock().await.insert(id.clone(), writer);
+    state.terminal.processes.lock().await.insert(id, child);
 
     Ok(())
 }
 
 #[tauri::command]
 pub async fn close_terminal(state: State<'_, EditorState>, id: String) -> Result<(), String> {
-    state.terminal_writers.lock().await.remove(&id);
-    state.terminal_masters.lock().await.remove(&id);
-    if let Some(mut child) = state.terminal_processes.lock().await.remove(&id) {
+    state.terminal.writers.lock().await.remove(&id);
+    state.terminal.masters.lock().await.remove(&id);
+    if let Some(mut child) = state.terminal.processes.lock().await.remove(&id) {
         let _ = child.kill();
     }
-    state.terminal_buffers.lock().await.remove(&id);
-    if let Ok(mut pend) = state.terminal_pending.lock() {
+    state.terminal.buffers.lock().await.remove(&id);
+    if let Ok(mut pend) = state.terminal.pending.lock() {
         pend.remove(&id);
     }
     Ok(())
@@ -441,7 +441,7 @@ pub async fn terminal_send_data(
     id: String,
     data: String,
 ) -> Result<(), String> {
-    let mut writers = state.terminal_writers.lock().await;
+    let mut writers = state.terminal.writers.lock().await;
     if let Some(writer) = writers.get_mut(&id) {
         writer
             .write_all(data.as_bytes())
@@ -460,7 +460,7 @@ pub async fn resize_terminal(
     rows: u16,
     cols: u16,
 ) -> Result<(), String> {
-    let masters = state.terminal_masters.lock().await;
+    let masters = state.terminal.masters.lock().await;
     if let Some(master) = masters.get(&id) {
         master
             .resize(PtySize {
@@ -485,13 +485,13 @@ pub fn terminal_toggle(app: AppHandle, visible: bool) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn terminal_terminate(state: State<'_, EditorState>, id: String) -> Result<(), String> {
-    let mut processes = state.terminal_processes.lock().await;
+    let mut processes = state.terminal.processes.lock().await;
     if let Some(mut child) = processes.remove(&id) {
         let _ = child.kill();
     }
-    state.terminal_masters.lock().await.remove(&id);
-    state.terminal_writers.lock().await.remove(&id);
-    state.terminal_buffers.lock().await.remove(&id);
+    state.terminal.masters.lock().await.remove(&id);
+    state.terminal.writers.lock().await.remove(&id);
+    state.terminal.buffers.lock().await.remove(&id);
     Ok(())
 }
 
@@ -500,7 +500,7 @@ pub async fn terminal_get_status(
     state: State<'_, EditorState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let mut processes = state.terminal_processes.lock().await;
+    let mut processes = state.terminal.processes.lock().await;
     if let Some(child) = processes.get_mut(&id) {
         match child.try_wait() {
             Ok(Some(status)) => {
@@ -526,7 +526,7 @@ pub async fn terminal_read_output(state: State<'_, EditorState>, id: String) -> 
 pub async fn terminal_take_pending(state: State<'_, EditorState>, id: String) -> Result<String, String> {
     let out = {
         let mut pend = state
-            .terminal_pending
+            .terminal.pending
             .lock()
             .map_err(|e| format!("pending lock poisoned: {e}"))?;
         pend.get_mut(&id)

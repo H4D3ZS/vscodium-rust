@@ -7,14 +7,14 @@ use std::fs;
 
 #[tauri::command]
 pub async fn ext_host_init(state: State<'_, EditorState>, app: tauri::AppHandle) -> Result<(), String> {
-    let mut eh = state.ext_host.lock().await;
+    let mut eh = state.ext.host.lock().await;
     eh.scan_extensions().map_err(|e| e.to_string())?;
     eh.start(app).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn ext_host_send(state: State<'_, EditorState>, msg: String) -> Result<(), String> {
-    let mut eh = state.ext_host.lock().await;
+    let mut eh = state.ext.host.lock().await;
     eh.send_message(msg).map_err(|e| e.to_string())
 }
 
@@ -23,7 +23,7 @@ pub async fn ext_host_sync_workspace(
     state: State<'_, EditorState>,
     folders: Vec<Value>,
 ) -> Result<(), String> {
-    let mut eh = state.ext_host.lock().await;
+    let mut eh = state.ext.host.lock().await;
     let msg = json!({
         "type": "syncWorkspaceFolders",
         "folders": folders,
@@ -48,7 +48,7 @@ pub async fn install_extension(
     version: String,
 ) -> Result<extension_host::ExtensionMetadata, String> {
     let extensions_dir = {
-        let eh = state.ext_host.lock().await;
+        let eh = state.ext.host.lock().await;
         eh.primary_extensions_dir()
     };
 
@@ -78,7 +78,7 @@ pub async fn install_extension(
             if meta.id.is_empty() {
                 meta.id = format!("{}.{}", publisher, name);
             }
-            let mut eh = state.ext_host.lock().await;
+            let mut eh = state.ext.host.lock().await;
             let _ = eh.add_extension(meta.clone());
             return Ok(meta);
         }
@@ -114,7 +114,7 @@ pub async fn uninstall_extension(
     name: String,
     version: Option<String>,
 ) -> Result<(), String> {
-    let mut eh = state.ext_host.lock().await;
+    let mut eh = state.ext.host.lock().await;
     let extensions_dir = eh.primary_extensions_dir();
 
     let target_prefix = format!("{}.{}", publisher, name);
@@ -164,7 +164,7 @@ pub async fn uninstall_extension(
 pub async fn get_installed_extensions(
     state: State<'_, EditorState>,
 ) -> Result<Vec<extension_host::ExtensionMetadata>, String> {
-    let eh = state.ext_host.lock().await;
+    let eh = state.ext.host.lock().await;
     Ok(eh.extensions.clone())
 }
 
@@ -179,7 +179,7 @@ pub async fn install_vsix(
     }
 
     let extensions_dir = {
-        let eh = state.ext_host.lock().await;
+        let eh = state.ext.host.lock().await;
         eh.primary_extensions_dir()
     };
 
@@ -199,7 +199,7 @@ pub async fn install_vsix(
                 let publisher = meta.publisher.clone().unwrap_or_else(|| "undefined".to_string());
                 meta.id = format!("{}.{}", publisher, meta.name);
             }
-            let mut eh = state.ext_host.lock().await;
+            let mut eh = state.ext.host.lock().await;
             eh.scan_extensions().map_err(|e| e.to_string())?;
             let _ = eh.add_extension(meta.clone());
             return Ok(meta);
@@ -211,13 +211,13 @@ pub async fn install_vsix(
 
 #[tauri::command]
 pub async fn get_running_extensions(state: State<'_, EditorState>) -> Result<Vec<extension_host::ExtensionMetadata>, String> {
-    let eh = state.ext_host.lock().await;
+    let eh = state.ext.host.lock().await;
     Ok(eh.extensions.clone())
 }
 #[tauri::command]
 pub async fn get_installed_themes(state: State<'_, EditorState>) -> Result<Vec<Value>, String> {
     let mut themes = Vec::new();
-    let eh = state.ext_host.lock().await;
+    let eh = state.ext.host.lock().await;
 
     for ext in &eh.extensions {
         if let Some(contributes) = &ext.contributes {
@@ -244,7 +244,7 @@ pub async fn get_installed_themes(state: State<'_, EditorState>) -> Result<Vec<V
 #[tauri::command]
 pub async fn get_icon_theme_mapping(state: State<'_, EditorState>) -> Result<Value, String> {
     let mut icon_themes = Vec::new();
-    let eh = state.ext_host.lock().await;
+    let eh = state.ext.host.lock().await;
 
     for ext in &eh.extensions {
         if let Some(contributes) = &ext.contributes {
@@ -271,7 +271,7 @@ pub async fn get_icon_theme_mapping(state: State<'_, EditorState>) -> Result<Val
 #[tauri::command]
 pub async fn get_extension_contributions(state: State<'_, EditorState>) -> Result<Value, String> {
     let mut all_contributes = serde_json::Map::new();
-    let eh = state.ext_host.lock().await;
+    let eh = state.ext.host.lock().await;
 
     for ext in &eh.extensions {
         if let Some(contributes) = &ext.contributes {
@@ -319,8 +319,8 @@ pub async fn check_activation_event(
     state: State<'_, EditorState>,
     event: String,
 ) -> Result<(), String> {
-    let mut am = state.activation_manager.lock().await;
-    am.check_activation_requests(&event, state.ext_host.clone()).await;
+    let mut am = state.ext.activation.lock().await;
+    am.check_activation_requests(&event, state.ext.host.clone()).await;
     Ok(())
 }
 

@@ -9,10 +9,10 @@ pub async fn inference_get_status(
     state: State<'_, EditorState>,
 ) -> Result<Value, String> {
     // Get current model
-    let model = state.current_model.lock().await.clone();
+    let model = state.ai.current_model.lock().await.clone();
 
     // Get ANE status
-    let ane_status = state.ane_optimizer.get_status().await;
+    let ane_status = state.ai.ane.get_status().await;
 
     // Compose unified status
     Ok(serde_json::json!({
@@ -55,22 +55,22 @@ pub async fn inference_prepare_model(
     println!("[Inference] Preparing {} for optimized inference...", model_name);
 
     // Set the model
-    let _ = state.current_model.lock().await.clone();
+    let _ = state.ai.current_model.lock().await.clone();
     {
-        let mut current = state.current_model.lock().await;
+        let mut current = state.ai.current_model.lock().await;
         *current = model_name.clone();
     }
 
     // Initialize ANE aux-offload (similarity scoring) if hardware supports it
-    let _ = state.ane_optimizer.init_aux_offload(768).await;
+    let _ = state.ai.ane.init_aux_offload(768).await;
 
     Ok(serde_json::json!({
         "model": model_name,
         "status": "ready",
-        "ane_enabled": state.ane_optimizer.can_accelerate().await,
+        "ane_enabled": state.ai.ane.can_accelerate().await,
         "message": format!("Model {} optimized for inference (ANE: {}, SSD cache: .aim/)",
             model_name,
-            if state.ane_optimizer.can_accelerate().await { "ON" } else { "OFF" }
+            if state.ai.ane.can_accelerate().await { "ON" } else { "OFF" }
         ),
     }))
 }

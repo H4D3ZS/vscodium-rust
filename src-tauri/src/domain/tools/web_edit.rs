@@ -130,7 +130,7 @@ impl AiTools {
         let h_lock = self.app_handle.lock().await;
         if let Some(handle) = h_lock.as_ref() {
             let state: tauri::State<crate::EditorState> = handle.state();
-            let diags = state.lsp_diagnostics.read().await.clone();
+            let diags = state.editor.lsp_diagnostics.read().await.clone();
             drop(h_lock);
 
             let filtered: Vec<Value> = diags.iter()
@@ -547,14 +547,14 @@ impl AiTools {
             .ok_or_else(|| anyhow!("Missing data"))?;
 
         let state = h.state::<crate::EditorState>();
-        let mut writers = state.terminal_writers.lock().await;
+        let mut writers = state.terminal.writers.lock().await;
 
         // 1. Create terminal if none exist
         if writers.is_empty() {
             drop(writers);
             h.emit("terminal-create", json!({}))?;
             tokio::time::sleep(std::time::Duration::from_millis(500)).await; // Wait for PTY initialization
-            writers = state.terminal_writers.lock().await;
+            writers = state.terminal.writers.lock().await;
         }
 
         // 2. Select target terminal (provided ID or first available)
@@ -595,7 +595,7 @@ impl AiTools {
             .ok_or_else(|| anyhow!("App handle not set"))?;
 
         let state = h.state::<crate::EditorState>();
-        let writers = state.terminal_writers.lock().await;
+        let writers = state.terminal.writers.lock().await;
         let ids: Vec<String> = writers.keys().cloned().collect();
 
         Ok(json!({
@@ -641,7 +641,7 @@ impl AiTools {
             .ok_or_else(|| anyhow!("App handle not set"))?;
 
         let state = h.state::<crate::EditorState>();
-        let term_buffers = state.terminal_buffers.lock().await;
+        let term_buffers = state.terminal.buffers.lock().await;
 
         let term_id_opt = args.get("term_id").and_then(|v| v.as_str());
 
@@ -715,7 +715,7 @@ impl AiTools {
         if let Some(handle) = handle_lock.as_ref() {
             let state: tauri::State<crate::EditorState> = handle.state();
             let active_path = state
-                .active_path
+                .editor.active_path
                 .lock()
                 .await;
 
@@ -1069,7 +1069,7 @@ impl AiTools {
             let h_lock = self.app_handle.lock().await;
             if let Some(h) = h_lock.as_ref() {
                 let state: tauri::State<crate::EditorState> = h.state();
-                let _ = state.memory_layer.record_decision(
+                let _ = state.memory.layer.record_decision(
                     &format!("Applied surgical patch to {}", path_str),
                     "Shadow buffer verification passed (Ghost Mode).",
                     "Persistent VFS sync complete."
@@ -1982,7 +1982,7 @@ impl AiTools {
                 let h_lock = self.app_handle.lock().await;
                 let h = h_lock.as_ref().ok_or_else(|| anyhow!("App handle not set"))?;
                 let state: tauri::State<crate::EditorState> = h.state();
-                state.ai_engine.harness.clone()
+                state.ai.engine.harness.clone()
             };
             match harness.verify_candidate(std::path::Path::new(rel), content) {
                 Ok(diags) => {

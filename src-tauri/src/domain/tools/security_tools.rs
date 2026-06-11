@@ -410,7 +410,7 @@ impl AiTools {
                 .as_ref()
                 .ok_or_else(|| anyhow!("App handle not set (inference engine unavailable)"))?;
             let state: tauri::State<crate::EditorState> = h.state();
-            (state.ai_engine.clone(), state.config_dir.clone())
+            (state.ai.engine.clone(), state.config_dir.clone())
         };
 
         let (cheap, mid, strong) = self.resolve_vuln_tiers(&args, &config_dir).await;

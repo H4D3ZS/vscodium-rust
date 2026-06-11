@@ -1689,7 +1689,7 @@ impl Sentient {
                         let h_lock = self.app_handle.read().unwrap();
                         h_lock.as_ref().map(|h| {
                             let state: tauri::State<crate::EditorState> = h.state();
-                            state.hades_harness.clone()
+                            state.ai.harness.clone()
                         })
                     };
 
