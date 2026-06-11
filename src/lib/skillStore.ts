@@ -61,7 +61,14 @@ export async function skillStoreList(): Promise<{ skills: SkillInstallRecord[] }
 export async function skillStoreInstall(
     source: string,
     opts?: { id?: string; force?: boolean },
-): Promise<{ ok: boolean; skill: SkillInstallRecord; audit: SkillAuditReport }> {
+): Promise<{
+    ok: boolean;
+    skill: SkillInstallRecord;
+    audit: SkillAuditReport;
+    /** Multi-skill repos stack: every SKILL.md found is installed. */
+    installed_count: number;
+    skills: SkillInstallRecord[];
+}> {
     return invoke('skill_store_install', {
         source,
         id: opts?.id,

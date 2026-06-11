@@ -24,6 +24,7 @@ const SkillStorePanel: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [selectedAudit, setSelectedAudit] = useState<SkillAuditReport | null>(null);
     const [forceInstall, setForceInstall] = useState(false);
+    const [notice, setNotice] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
         setError(null);
@@ -54,6 +55,11 @@ const SkillStorePanel: React.FC = () => {
         try {
             const res = await skillStoreInstall(s, { force: forceInstall });
             setSelectedAudit(res.audit);
+            if (res.installed_count > 1) {
+                setNotice(`Installed ${res.installed_count} skills from this source`);
+            } else {
+                setNotice(null);
+            }
             setSource('');
             await refresh();
         } catch (e) {
@@ -144,6 +150,9 @@ const SkillStorePanel: React.FC = () => {
                 </p>
                 {error && (
                     <pre style={{ color: '#f85149', marginTop: 10, whiteSpace: 'pre-wrap', fontSize: 11 }}>{error}</pre>
+                )}
+                {notice && (
+                    <div style={{ color: '#9ece6a', marginTop: 10, fontSize: 11 }}>{notice}</div>
                 )}
             </div>
 
