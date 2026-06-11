@@ -26,7 +26,7 @@
     "tauri": "tauri",
     "tauri:dev": "npx tauri dev",
     "start-mitm": "node tools/mitmserver/server.ts",
-    "test": "vitest run",
+    "test": "node scripts/check-architecture.mjs && vitest run",
     "test:watch": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib --quiet",
     "test:all": "npm test && npm run test:rust"
