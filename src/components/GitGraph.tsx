@@ -407,19 +407,6 @@ const GitGraph: React.FC = () => {
                 </defs>
 
                 <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-                    {/* Phase 31: Ambient Falling Petals */}
-                    {Array.from({ length: 45 }).map((_, i) => (
-                        <path key={`petal-${i}`}
-                            d="M0,-8 C4,-12 10,-8 10,0 C10,8 4,12 0,8 C-4,12 -10,8 -10,0 C-10,-8 -4,-12 0,-8 Z"
-                            transform={`translate(${layoutState.centerX + (Math.sin(i * 123) * layoutState.radius * 2.2)}, ${layoutState.centerY + (Math.cos(i * 321) * layoutState.radius * 1.5)}) rotate(${i * 45}) scale(${0.3 + (i % 5) * 0.1})`}
-                            fill="#fbcfe8"
-                            opacity={0.15 + (i % 3) * 0.1}
-                            style={{ transition: 'all 2s ease-in-out' }}
-                        >
-                            <animateTransform attributeName="transform" type="translate" from="0,0" to="5,15" dur={`${3 + (i % 4)}s`} repeatCount="indefinite" additive="sum" />
-                        </path>
-                    ))}
-
                     <image
                         href={graphNodes.length > 50 ? yggdrasilImg : cherryBlossomImg}
                         x={layoutState.centerX - layoutState.radius * 2}
@@ -495,10 +482,7 @@ const GitGraph: React.FC = () => {
                                 {/* Outer glow */}
                                 {isSelected && (
                                     <circle cx={node.x} cy={node.y} r={r + 10}
-                                        fill="none" stroke={node.color} strokeWidth="1" opacity="0.3">
-                                        <animate attributeName="r" from={r} to={r + 20} dur="1.5s" repeatCount="indefinite" />
-                                        <animate attributeName="opacity" from="0.5" to="0" dur="1.5s" repeatCount="indefinite" />
-                                    </circle>
+                                        fill="none" stroke={node.color} strokeWidth="1" opacity="0.3" />
                                 )}
 
                                 {/* Phase 31: High-Density Blossom Cluster (5 Petals) */}
