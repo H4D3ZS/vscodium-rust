@@ -134,3 +134,85 @@ async fn resolve_root(state: &State<'_, EditorState>, root: Option<String>) -> R
         .clone()
         .ok_or_else(|| "No active workspace root".to_string())
 }
+
+/// Workspace architecture layout for the standalone Architecture Visualizer
+/// module panel — files + their symbols, shaped for the reactflow graph.
+/// Capped so an 8GB machine never chokes on a giant repo.
+#[tauri::command]
+pub async fn workspace_architecture_layout(
+    state: tauri::State<'_, crate::EditorState>,
+    root: Option<String>,
+) -> Result<serde_json::Value, String> {
+    const MAX_FILES: usize = 60;
+    const SOURCE_EXTS: &[&str] = &[
+        "rs", "ts", "tsx", "js", "jsx", "py", "go", "c", "cpp", "cs", "java", "swift", "kt",
+    ];
+
+    let root = match root {
+        Some(r) if !r.trim().is_empty() => std::path::PathBuf::from(r),
+        _ => state
+            .editor
+            .active_root
+            .lock()
+            .await
+            .clone()
+            .ok_or("No workspace open")?,
+    };
+
+    let layout = tokio::task::spawn_blocking(move || {
+        let mut files = Vec::new();
+        for entry in walkdir::WalkDir::new(&root)
+            .max_depth(6)
+            .into_iter()
+            .filter_entry(|e| {
+                let n = e.file_name().to_string_lossy();
+                !matches!(
+                    n.as_ref(),
+                    "node_modules" | "target" | ".git" | "dist" | "build" | ".next" | "vendor"
+                )
+            })
+            .filter_map(|e| e.ok())
+        {
+            if files.len() >= MAX_FILES {
+                break;
+            }
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if !SOURCE_EXTS.contains(&ext.as_str()) {
+                continue;
+            }
+            let Ok(symbols) = crate::symbols::analyze_path(path) else {
+                continue;
+            };
+            if symbols.is_empty() {
+                continue;
+            }
+            let rel = path
+                .strip_prefix(&root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .to_string();
+            files.push(serde_json::json!({
+                "id": files.len(),
+                "path": rel,
+                "functions": symbols.iter().map(|s| serde_json::json!({
+                    "name": s.name,
+                    "line": s.line,
+                    "type": s.symbol_type,
+                })).collect::<Vec<_>>(),
+            }));
+        }
+        files
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!(layout))
+}
