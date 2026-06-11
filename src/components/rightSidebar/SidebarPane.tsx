@@ -2,7 +2,6 @@
 // Extracted from RightSidebar.tsx (A2 god-component split).
 import React, { useEffect, useState, useRef, useMemo, useCallback, memo } from 'react';
 import { useStore } from '../../store';
-import { invoke } from '../../tauri_bridge';
 
 
 const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultCollapsed?: boolean; actions?: React.ReactNode }> = ({ title, children, defaultCollapsed = false, actions }) => {
