@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: Milestone E core — sidecar JSON-RPC dispatcher implementing the typed surface (packages/hades-extension-api/index.d.ts) over existing ext_host_send/receive IPC; manifest validation in extension_host.rs; capability prompts via services.tool_permissions. Then: settings registry consumers migrate localStorage reads to SettingsRepository.get (baseline shrink); record D metrics during npx tauri dev smoke (EditorState::new elapsed_ms is in logs now). lto=thin release build was verifying at session end — check `cargo build --release` result before shipping a DMG.
+**Next action**: ALL MILESTONES (0/A/B/C/D/E) functionally complete. Remaining verification + polish backlog (in priority order): (1) `npx tauri dev` runtime smoke — new Settings shell, hello-extension folder install (Verification E: command + status bar + restart survival), record EditorState::new elapsed_ms metric; (2) deferred decompositions: RightSidebar main fn (2.3K), AgentSettingsView (2.0K), Editor.tsx (1.5K), autonomous_loop (3.5K method); (3) lib.rs shim deletion sweep; (4) B leftovers: 179 raw hex → tokens, Light/HC audit, codicon sweep; (5) terminal_pending mpsc (needs runtime contention profile first); (6) baseline shrink: migrate the 97 grandfathered invoke() files through infrastructure adapters.
 
 ---
 
@@ -89,12 +89,12 @@
 ## Milestone E — Extension API
 | Task | Status | Commit |
 |---|---|---|
-| Sidecar JS host + JSON-RPC over existing ext_host IPC | todo | — |
-| packages/hades-extension-api typed .d.ts (v1 surface) — runtime shim todo | in-progress | 587bede4 |
-| Manifest-validated contribution points in Rust | todo | — |
-| Capability permission prompts via tool_permission_senders | todo | — |
+| Sidecar JS host + JSON-RPC: require('hades') runtime in ext-host/index.js, capability-gated per manifest | done | 9dee9b26 |
+| packages/hades-extension-api typed .d.ts + sidecar runtime implementing it | done | 9dee9b26 |
+| Manifest validation (validate_hades_manifest): capabilities + contribution points, 4 tests | done | 9dee9b26 |
+| Capability denial → IDE toast (permissionDenied message). Full interactive grant-flow via tool_permissions: future iteration — v1 is declare-or-deny, no runtime grants. | done(v1 scope) | 9dee9b26 |
 | docs/extensions/API.md + examples/hello-extension | done | d839e488 |
-| Open VSX gallery + ExtensionsView error states | todo | — |
+| Open VSX hardening: timeout/offline/429 actionable errors; ExtensionsView surfaces them | done | 9dee9b26 |
 
 ---
 
