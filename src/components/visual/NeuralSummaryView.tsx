@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from '../../lib/motionShim';
 import { Brain, MessageSquare, Database, List, Clock, Activity } from 'lucide-react';
 
 const NeuralSummaryView: React.FC = () => {
