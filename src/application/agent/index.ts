@@ -5,11 +5,11 @@
  * - Application use-cases are the stable contract.
  * - `agent.ts` remains legacy implementation detail (lazy-loaded on send).
  */
-export { sendAgentTurn } from '../application/agent/sendAgentTurn';
-export { stopAgent } from '../application/agent/stopAgent';
-export { pauseAgent } from '../application/agent/pauseAgent';
-export { resumeAgent } from '../application/agent/resumeAgent';
-export { bootstrapAgentRuntime } from '../application/agent/bootstrapAgentRuntime';
+export { sendAgentTurn } from './sendAgentTurn';
+export { stopAgent } from './stopAgent';
+export { pauseAgent } from './pauseAgent';
+export { resumeAgent } from './resumeAgent';
+export { bootstrapAgentRuntime } from './bootstrapAgentRuntime';
 
 /** @deprecated Use sendAgentTurn — kept for gradual migration */
 export async function sendAgentMessage(
@@ -17,6 +17,6 @@ export async function sendAgentMessage(
     onUpdate?: (msg: string) => void,
     context?: any[],
 ): Promise<void> {
-    const { sendAgentTurn } = await import('../application/agent/sendAgentTurn');
+    const { sendAgentTurn } = await import('./sendAgentTurn');
     return sendAgentTurn({ prompt, onStreamChunk: onUpdate, context });
 }

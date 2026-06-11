@@ -1039,7 +1039,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     run: async (ed) => {
                         const line = ed.getPosition()?.lineNumber ?? 1;
                         if (!activeFilePendingChange) return;
-                        const { computeDiffBlocks } = await import('../services/DiffService');
+                        const { computeDiffBlocks } = await import('../domain/editor/DiffService');
                         const oldText = activeFilePendingChange.originalContent ?? activeFilePendingChange.oldContent ?? '';
                         const newText = activeFilePendingChange.newContent ?? activeFilePendingChange.proposedContent ?? '';
                         const block = computeDiffBlocks(oldText, newText).find(
@@ -1061,7 +1061,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     run: async (ed) => {
                         const line = ed.getPosition()?.lineNumber ?? 1;
                         if (!activeFilePendingChange) return;
-                        const { computeDiffBlocks } = await import('../services/DiffService');
+                        const { computeDiffBlocks } = await import('../domain/editor/DiffService');
                         const oldText = activeFilePendingChange.originalContent ?? activeFilePendingChange.oldContent ?? '';
                         const newText = activeFilePendingChange.newContent ?? activeFilePendingChange.proposedContent ?? '';
                         const block = computeDiffBlocks(oldText, newText).find(

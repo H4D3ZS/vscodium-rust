@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { invoke } from '../tauri_bridge';
-import { MCP_CATALOG, type McpCatalogEntry } from '../mcp/mcpCatalog';
+import { MCP_CATALOG, type McpCatalogEntry } from '../domain/mcp/mcpCatalog';
 import { useStore } from '../store';
 
 /**

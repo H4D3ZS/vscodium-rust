@@ -15,7 +15,7 @@ import {
     resolveClaudeRedSkills,
     isOffensiveAgentMode,
     isOffensiveUserPrompt,
-} from './skills/claude_red';
+} from './domain/skills/claude_red';
 
 // ---------------------------------------------------------------------------
 // OS & Environment Detection
