@@ -4,19 +4,71 @@
   "catalog_url": "https://raw.githubusercontent.com/H4D3ZS/vscodium-rust-ide-saas/mac_dev/catalog/hades-modules.json",
   "publisher": "H4D3ZS",
   "categories": [
-    { "id": "dev-tools", "label": "Dev Tools", "icon": "graph" },
-    { "id": "pentest", "label": "Penetration Testing", "icon": "shield" },
-    { "id": "web-pentest", "label": "Web Pentest", "icon": "globe" },
-    { "id": "malware-re", "label": "Malware RE", "icon": "circuit-board" },
-    { "id": "red-team", "label": "Red Team & Phishing", "icon": "flame" },
-    { "id": "secret-intel", "label": "Secret & Bundle Intel", "icon": "key" },
-    { "id": "osint-recon", "label": "OSINT & Recon", "icon": "search" },
-    { "id": "tech-industry", "label": "Tech Industry", "icon": "briefcase" },
-    { "id": "documentation", "label": "Documentation", "icon": "book" },
-    { "id": "performance", "label": "Performance Optimization", "icon": "pulse" },
-    { "id": "ai-ml", "label": "AI / ML", "icon": "beaker" },
-    { "id": "compliance", "label": "Compliance & Reporting", "icon": "law" },
-    { "id": "mobile-security", "label": "Mobile Security", "icon": "device-mobile" }
+    {
+      "id": "dev-tools",
+      "label": "Dev Tools",
+      "icon": "graph"
+    },
+    {
+      "id": "pentest",
+      "label": "Penetration Testing",
+      "icon": "shield"
+    },
+    {
+      "id": "web-pentest",
+      "label": "Web Pentest",
+      "icon": "globe"
+    },
+    {
+      "id": "malware-re",
+      "label": "Malware RE",
+      "icon": "circuit-board"
+    },
+    {
+      "id": "red-team",
+      "label": "Red Team & Phishing",
+      "icon": "flame"
+    },
+    {
+      "id": "secret-intel",
+      "label": "Secret & Bundle Intel",
+      "icon": "key"
+    },
+    {
+      "id": "osint-recon",
+      "label": "OSINT & Recon",
+      "icon": "search"
+    },
+    {
+      "id": "tech-industry",
+      "label": "Tech Industry",
+      "icon": "briefcase"
+    },
+    {
+      "id": "documentation",
+      "label": "Documentation",
+      "icon": "book"
+    },
+    {
+      "id": "performance",
+      "label": "Performance Optimization",
+      "icon": "pulse"
+    },
+    {
+      "id": "ai-ml",
+      "label": "AI / ML",
+      "icon": "beaker"
+    },
+    {
+      "id": "compliance",
+      "label": "Compliance & Reporting",
+      "icon": "law"
+    },
+    {
+      "id": "mobile-security",
+      "label": "Mobile Security",
+      "icon": "device-mobile"
+    }
   ],
   "modules": [
     {
@@ -27,17 +79,10 @@
       "kind": "component",
       "component_id": "architecture-visualizer",
       "size_mb": 2,
-      "tags": ["graph", "deps"]
-    },
-    {
-      "id": "code-coverage",
-      "name": "Code Coverage Analyzer",
-      "description": "Line and branch coverage reports with drill-down.",
-      "category": "dev-tools",
-      "kind": "component",
-      "component_id": "code-coverage",
-      "size_mb": 3,
-      "tags": ["coverage", "testing"]
+      "tags": [
+        "graph",
+        "deps"
+      ]
     },
     {
       "id": "network-scanner-gui",
@@ -50,7 +95,11 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 45,
-      "tags": ["nmap", "nuclei", "recon"]
+      "tags": [
+        "nmap",
+        "nuclei",
+        "recon"
+      ]
     },
     {
       "id": "web-vuln-scanner",
@@ -63,7 +112,11 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 80,
-      "tags": ["zap", "sqlmap", "owasp"]
+      "tags": [
+        "zap",
+        "sqlmap",
+        "owasp"
+      ]
     },
     {
       "id": "exploit-db-search",
@@ -76,7 +129,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 15,
-      "tags": ["searchsploit", "exploit"]
+      "tags": [
+        "searchsploit",
+        "exploit"
+      ]
     },
     {
       "id": "pentest-report-generator",
@@ -89,17 +145,23 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 25,
-      "tags": ["pdf", "report"]
+      "tags": [
+        "pdf",
+        "report"
+      ]
     },
     {
       "id": "pytorch-studio",
       "name": "AI Model Training UI",
-      "description": "PyTorch integration — train, experiment, and verify locally.",
+      "description": "PyTorch integration \u2014 train, experiment, and verify locally.",
       "category": "tech-industry",
       "kind": "component",
       "component_id": "pytorch-studio",
       "size_mb": 8,
-      "tags": ["pytorch", "ml"]
+      "tags": [
+        "pytorch",
+        "ml"
+      ]
     },
     {
       "id": "accessibility-checker",
@@ -112,7 +174,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 20,
-      "tags": ["wcag", "a11y"]
+      "tags": [
+        "wcag",
+        "a11y"
+      ]
     },
     {
       "id": "performance-profiler",
@@ -125,7 +190,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 35,
-      "tags": ["lighthouse", "bundle"]
+      "tags": [
+        "lighthouse",
+        "bundle"
+      ]
     },
     {
       "id": "sast-dast",
@@ -138,7 +206,11 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 50,
-      "tags": ["sast", "dast", "security"]
+      "tags": [
+        "sast",
+        "dast",
+        "security"
+      ]
     },
     {
       "id": "doc-generator",
@@ -151,7 +223,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 30,
-      "tags": ["docs", "api"]
+      "tags": [
+        "docs",
+        "api"
+      ]
     },
     {
       "id": "api-docs-swagger",
@@ -164,7 +239,11 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 18,
-      "tags": ["swagger", "redoc", "openapi"]
+      "tags": [
+        "swagger",
+        "redoc",
+        "openapi"
+      ]
     },
     {
       "id": "code-docs-generator",
@@ -177,17 +256,11 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 22,
-      "tags": ["jsdoc", "sphinx", "rustdoc"]
-    },
-    {
-      "id": "adr-manager",
-      "name": "ADR Template Manager",
-      "description": "Architecture Decision Records — create, index, and link ADRs.",
-      "category": "documentation",
-      "kind": "component",
-      "component_id": "adr-manager",
-      "size_mb": 1,
-      "tags": ["adr", "architecture"]
+      "tags": [
+        "jsdoc",
+        "sphinx",
+        "rustdoc"
+      ]
     },
     {
       "id": "runbook-generator",
@@ -200,7 +273,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 12,
-      "tags": ["runbook", "sre"]
+      "tags": [
+        "runbook",
+        "sre"
+      ]
     },
     {
       "id": "onboarding-docs",
@@ -213,7 +289,9 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 10,
-      "tags": ["onboarding"]
+      "tags": [
+        "onboarding"
+      ]
     },
     {
       "id": "knowledge-base",
@@ -226,7 +304,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 28,
-      "tags": ["wiki", "kb"]
+      "tags": [
+        "wiki",
+        "kb"
+      ]
     },
     {
       "id": "bundle-analyzer",
@@ -239,7 +320,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 15,
-      "tags": ["webpack", "vite"]
+      "tags": [
+        "webpack",
+        "vite"
+      ]
     },
     {
       "id": "image-optimizer",
@@ -252,7 +336,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 12,
-      "tags": ["webp", "avif"]
+      "tags": [
+        "webp",
+        "avif"
+      ]
     },
     {
       "id": "cdn-configurator",
@@ -265,7 +352,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 8,
-      "tags": ["cdn", "cloudflare"]
+      "tags": [
+        "cdn",
+        "cloudflare"
+      ]
     },
     {
       "id": "caching-tester",
@@ -278,7 +368,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 14,
-      "tags": ["redis", "memcached"]
+      "tags": [
+        "redis",
+        "memcached"
+      ]
     },
     {
       "id": "db-query-optimizer",
@@ -291,7 +384,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 16,
-      "tags": ["sql", "postgres"]
+      "tags": [
+        "sql",
+        "postgres"
+      ]
     },
     {
       "id": "lighthouse-ci",
@@ -304,7 +400,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 20,
-      "tags": ["lighthouse", "ci"]
+      "tags": [
+        "lighthouse",
+        "ci"
+      ]
     },
     {
       "id": "ml-training-ui",
@@ -317,7 +416,10 @@
       "install_script": "npm install && pip install -r requirements.txt",
       "launch_command": "npm start",
       "size_mb": 60,
-      "tags": ["automl", "pytorch"]
+      "tags": [
+        "automl",
+        "pytorch"
+      ]
     },
     {
       "id": "dvc-integration",
@@ -330,7 +432,10 @@
       "install_script": "pip install -r requirements.txt",
       "launch_command": "npm start",
       "size_mb": 25,
-      "tags": ["dvc", "datasets"]
+      "tags": [
+        "dvc",
+        "datasets"
+      ]
     },
     {
       "id": "mlflow-tracker",
@@ -343,7 +448,10 @@
       "install_script": "pip install -r requirements.txt",
       "launch_command": "npm start",
       "size_mb": 40,
-      "tags": ["mlflow", "wandb"]
+      "tags": [
+        "mlflow",
+        "wandb"
+      ]
     },
     {
       "id": "model-serving",
@@ -356,7 +464,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 35,
-      "tags": ["torchserve", "tfserving"]
+      "tags": [
+        "torchserve",
+        "tfserving"
+      ]
     },
     {
       "id": "feature-store",
@@ -369,7 +480,10 @@
       "install_script": "pip install -r requirements.txt",
       "launch_command": "npm start",
       "size_mb": 30,
-      "tags": ["feast", "features"]
+      "tags": [
+        "feast",
+        "features"
+      ]
     },
     {
       "id": "model-monitoring",
@@ -382,7 +496,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 28,
-      "tags": ["drift", "monitoring"]
+      "tags": [
+        "drift",
+        "monitoring"
+      ]
     },
     {
       "id": "automl",
@@ -395,7 +512,10 @@
       "install_script": "pip install -r requirements.txt",
       "launch_command": "npm start",
       "size_mb": 55,
-      "tags": ["automl", "h2o"]
+      "tags": [
+        "automl",
+        "h2o"
+      ]
     },
     {
       "id": "mlops-pipelines",
@@ -408,7 +528,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 45,
-      "tags": ["kubeflow", "tfx"]
+      "tags": [
+        "kubeflow",
+        "tfx"
+      ]
     },
     {
       "id": "ptes-framework",
@@ -421,7 +544,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 10,
-      "tags": ["ptes", "pentest"]
+      "tags": [
+        "ptes",
+        "pentest"
+      ]
     },
     {
       "id": "owasp-top10",
@@ -434,7 +560,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 22,
-      "tags": ["owasp", "compliance"]
+      "tags": [
+        "owasp",
+        "compliance"
+      ]
     },
     {
       "id": "nist-compliance",
@@ -447,7 +576,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 18,
-      "tags": ["nist", "csf"]
+      "tags": [
+        "nist",
+        "csf"
+      ]
     },
     {
       "id": "pci-dss-auditor",
@@ -460,7 +592,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 15,
-      "tags": ["pci", "compliance"]
+      "tags": [
+        "pci",
+        "compliance"
+      ]
     },
     {
       "id": "gdpr-checker",
@@ -473,7 +608,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 14,
-      "tags": ["gdpr", "privacy"]
+      "tags": [
+        "gdpr",
+        "privacy"
+      ]
     },
     {
       "id": "compliance-reports",
@@ -486,7 +624,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 20,
-      "tags": ["pdf", "compliance"]
+      "tags": [
+        "pdf",
+        "compliance"
+      ]
     },
     {
       "id": "executive-summary",
@@ -499,7 +640,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 8,
-      "tags": ["executive", "report"]
+      "tags": [
+        "executive",
+        "report"
+      ]
     },
     {
       "id": "remediation-tracker",
@@ -512,22 +656,35 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 12,
-      "tags": ["remediation", "vuln"]
+      "tags": [
+        "remediation",
+        "vuln"
+      ]
     },
     {
       "id": "flutter-sentinel",
       "name": "FlutterSentinel",
-      "description": "Flutter & React Native mobile RE — static/dynamic analysis, MobSF, Frida hooks, APK/IPA workflows. https://github.com/H4D3ZS/FlutterSentinel",
+      "description": "Flutter & React Native mobile RE \u2014 static/dynamic analysis, MobSF, Frida hooks, APK/IPA workflows. https://github.com/H4D3ZS/FlutterSentinel",
       "category": "mobile-security",
       "kind": "git",
       "repo": "H4D3ZS/FlutterSentinel",
       "branch": "main",
-      "requires": ["npm", "git"],
+      "requires": [
+        "npm",
+        "git"
+      ],
       "install_script": "npm run install:all",
       "launch_command": "npm run dev:all",
       "launch_url": "http://localhost:5173",
       "size_mb": 180,
-      "tags": ["mobile", "flutter", "react-native", "reverse-engineering", "mobsf", "frida"]
+      "tags": [
+        "mobile",
+        "flutter",
+        "react-native",
+        "reverse-engineering",
+        "mobsf",
+        "frida"
+      ]
     },
     {
       "id": "apk-analyzer",
@@ -540,7 +697,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 40,
-      "tags": ["apk", "jadx"]
+      "tags": [
+        "apk",
+        "jadx"
+      ]
     },
     {
       "id": "ipa-analyzer",
@@ -553,7 +713,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 35,
-      "tags": ["ipa", "ios"]
+      "tags": [
+        "ipa",
+        "ios"
+      ]
     },
     {
       "id": "mobsf-integration",
@@ -566,7 +729,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 50,
-      "tags": ["mobsf", "mobile"]
+      "tags": [
+        "mobsf",
+        "mobile"
+      ]
     },
     {
       "id": "frida-runner",
@@ -579,7 +745,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 20,
-      "tags": ["frida", "hook"]
+      "tags": [
+        "frida",
+        "hook"
+      ]
     },
     {
       "id": "adb-toolkit",
@@ -592,7 +761,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 18,
-      "tags": ["adb", "android"]
+      "tags": [
+        "adb",
+        "android"
+      ]
     },
     {
       "id": "root-jailbreak-detector",
@@ -605,7 +777,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 12,
-      "tags": ["root", "jailbreak"]
+      "tags": [
+        "root",
+        "jailbreak"
+      ]
     },
     {
       "id": "insecure-storage-scanner",
@@ -618,7 +793,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 15,
-      "tags": ["storage", "keychain"]
+      "tags": [
+        "storage",
+        "keychain"
+      ]
     },
     {
       "id": "ssl-pinning-bypass",
@@ -631,7 +809,10 @@
       "install_script": "npm install",
       "launch_command": "npm start",
       "size_mb": 14,
-      "tags": ["ssl", "pinning"]
+      "tags": [
+        "ssl",
+        "pinning"
+      ]
     },
     {
       "id": "chunk-secret-scanner",
@@ -642,7 +823,13 @@
       "component_id": "chunk-secret-scanner",
       "native_rust": true,
       "size_mb": 0,
-      "tags": ["secrets", "javascript", "bounty", "bundles", "rust-native"]
+      "tags": [
+        "secrets",
+        "javascript",
+        "bounty",
+        "bundles",
+        "rust-native"
+      ]
     },
     {
       "id": "zero-day-hunter",
@@ -653,18 +840,30 @@
       "component_id": "zero-day-hunter",
       "native_rust": true,
       "size_mb": 0,
-      "tags": ["0day", "dast", "anomaly", "bounty", "rust-native"]
+      "tags": [
+        "0day",
+        "dast",
+        "anomaly",
+        "bounty",
+        "rust-native"
+      ]
     },
     {
       "id": "vega-dast",
       "name": "Vega DAST Engine",
-      "description": "Rust-native Subgraph Vega rebuild — passive + active injection, SSRF/SSTI/JWT packs, Ollama payload assist. Built into IDE.",
+      "description": "Rust-native Subgraph Vega rebuild \u2014 passive + active injection, SSRF/SSTI/JWT packs, Ollama payload assist. Built into IDE.",
       "category": "web-pentest",
       "kind": "component",
       "component_id": "vega-dast",
       "native_rust": true,
       "size_mb": 0,
-      "tags": ["vega", "dast", "xss", "sqli", "rust-native"]
+      "tags": [
+        "vega",
+        "dast",
+        "xss",
+        "sqli",
+        "rust-native"
+      ]
     },
     {
       "id": "moxy-dast",
@@ -674,14 +873,24 @@
       "kind": "git",
       "repo": "matank001/Moxy",
       "branch": "main",
-      "requires": ["docker", "git"],
+      "requires": [
+        "docker",
+        "git"
+      ],
       "install_script": "cd backend && uv sync && cd ../frontend && npm install",
       "install_script_darwin": "command -v uv >/dev/null || brew install uv; cd backend && uv sync && cd ../frontend && npm install",
       "install_script_windows": "cd backend && uv sync && cd ../frontend && npm install",
       "launch_command": "docker-compose up -d",
       "launch_url": "http://localhost:5000",
       "size_mb": 220,
-      "tags": ["moxy", "dast", "mitm", "ollama", "proxy", "external"]
+      "tags": [
+        "moxy",
+        "dast",
+        "mitm",
+        "ollama",
+        "proxy",
+        "external"
+      ]
     },
     {
       "id": "hetty-proxy",
@@ -691,43 +900,71 @@
       "kind": "git",
       "repo": "dstotijn/hetty",
       "branch": "main",
-      "requires": ["go", "git"],
+      "requires": [
+        "go",
+        "git"
+      ],
       "install_script": "go build -o hetty ./cmd/hetty",
       "install_script_darwin": "command -v hetty >/dev/null || brew install hettysoft/tap/hetty; go build -o hetty ./cmd/hetty 2>/dev/null || true",
       "launch_command": "./hetty --addr :8080",
       "launch_url": "http://localhost:8080",
       "size_mb": 35,
-      "tags": ["hetty", "burp", "mitm", "proxy", "external"]
+      "tags": [
+        "hetty",
+        "burp",
+        "mitm",
+        "proxy",
+        "external"
+      ]
     },
     {
       "id": "dissectx-pro",
       "name": "DissectX Pro",
-      "description": "Spear phishing & red team ops — Evilginx phishlets, vishing, binary RE. Authorized engagements only.",
+      "description": "Spear phishing & red team ops \u2014 Evilginx phishlets, vishing, binary RE. Authorized engagements only.",
       "category": "red-team",
       "kind": "git",
       "repo": "H4D3ZS/DissectX_Pro",
       "branch": "main",
-      "requires": ["python3", "pip", "npm", "git"],
+      "requires": [
+        "python3",
+        "pip",
+        "npm",
+        "git"
+      ],
       "install_script": "pip install -r requirements.txt && cd src/web/client && npm install && npm run build",
       "install_script_darwin": "python3 -m pip install -r requirements.txt && cd src/web/client && npm install && npm run build",
       "launch_command": "python3 main.py --web --port 5000",
       "launch_url": "http://localhost:5000",
       "size_mb": 250,
-      "tags": ["phishing", "red-team", "evilginx", "social-engineering", "external"]
+      "tags": [
+        "phishing",
+        "red-team",
+        "evilginx",
+        "social-engineering",
+        "external"
+      ]
     },
     {
       "id": "dalfox-xss",
       "name": "DalFox XSS Scanner",
-      "description": "Optional external XSS scanner. Rust-native reflection probe is built-in — install DalFox for deep param mining.",
+      "description": "Optional external XSS scanner. Rust-native reflection probe is built-in \u2014 install DalFox for deep param mining.",
       "category": "pentest",
       "kind": "git",
       "repo": "hahwul/dalfox",
       "branch": "main",
-      "requires": ["go", "git"],
+      "requires": [
+        "go",
+        "git"
+      ],
       "install_script": "go install github.com/hahwul/dalfox/v2@latest",
       "launch_command": "dalfox --help",
       "size_mb": 25,
-      "tags": ["xss", "dalfox", "dast", "external"]
+      "tags": [
+        "xss",
+        "dalfox",
+        "dast",
+        "external"
+      ]
     },
     {
       "id": "commix-cmdi",
@@ -737,11 +974,20 @@
       "kind": "git",
       "repo": "commixproject/commix",
       "branch": "master",
-      "requires": ["python3", "pip", "git"],
+      "requires": [
+        "python3",
+        "pip",
+        "git"
+      ],
       "install_script": "pip install -r requirements.txt",
       "launch_command": "python3 commix.py --help",
       "size_mb": 30,
-      "tags": ["cmdi", "injection", "commix", "external"]
+      "tags": [
+        "cmdi",
+        "injection",
+        "commix",
+        "external"
+      ]
     },
     {
       "id": "owasp-nettacker",
@@ -751,11 +997,20 @@
       "kind": "git",
       "repo": "OWASP/Nettacker",
       "branch": "master",
-      "requires": ["python3", "pip", "git"],
+      "requires": [
+        "python3",
+        "pip",
+        "git"
+      ],
       "install_script": "pip install -r requirements.txt",
       "launch_command": "python3 nettacker.py --help",
       "size_mb": 40,
-      "tags": ["nettacker", "recon", "owasp", "external"]
+      "tags": [
+        "nettacker",
+        "recon",
+        "owasp",
+        "external"
+      ]
     },
     {
       "id": "woodpecker-ai-redteam",
@@ -765,11 +1020,20 @@
       "kind": "git",
       "repo": "FuzzingLabs/woodpecker",
       "branch": "main",
-      "requires": ["python3", "pip", "git"],
+      "requires": [
+        "python3",
+        "pip",
+        "git"
+      ],
       "install_script": "pip install -e . 2>/dev/null || pip install -r requirements.txt",
       "launch_command": "woodpecker --help",
       "size_mb": 45,
-      "tags": ["woodpecker", "ai-redteam", "kubernetes", "external"]
+      "tags": [
+        "woodpecker",
+        "ai-redteam",
+        "kubernetes",
+        "external"
+      ]
     },
     {
       "id": "nuclei-templates",
@@ -779,36 +1043,55 @@
       "kind": "git",
       "repo": "projectdiscovery/nuclei",
       "branch": "dev",
-      "requires": ["go", "git"],
+      "requires": [
+        "go",
+        "git"
+      ],
       "install_script": "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
       "launch_command": "nuclei -help",
       "size_mb": 55,
-      "tags": ["nuclei", "cve", "templates", "external"]
+      "tags": [
+        "nuclei",
+        "cve",
+        "templates",
+        "external"
+      ]
     },
     {
       "id": "hawk-eye-secrets",
       "name": "Secrets Hunter (Rust-native)",
-      "description": "Replaced by built-in chunk scanner + workspace secrets_scan — no external install. Opens Bundle Intel panel.",
+      "description": "Replaced by built-in chunk scanner + workspace secrets_scan \u2014 no external install. Opens Bundle Intel panel.",
       "category": "secret-intel",
       "kind": "component",
       "component_id": "chunk-secret-scanner",
       "native_rust": true,
       "size_mb": 0,
-      "tags": ["secrets", "pii", "rust-native"]
+      "tags": [
+        "secrets",
+        "pii",
+        "rust-native"
+      ]
     },
     {
       "id": "dependency-check-sca",
       "name": "OWASP Dependency-Check",
-      "description": "Optional external SCA — download release JAR from GitHub releases if Java available.",
+      "description": "Optional external SCA \u2014 download release JAR from GitHub releases if Java available.",
       "category": "compliance",
       "kind": "git",
       "repo": "jeremylong/DependencyCheck",
       "branch": "main",
-      "requires": ["git"],
-      "install_script": "echo 'Clone complete — download release binary from GitHub releases'",
+      "requires": [
+        "git"
+      ],
+      "install_script": "echo 'Clone complete \u2014 download release binary from GitHub releases'",
       "launch_command": "echo 'Run dependency-check.sh after downloading release'",
       "size_mb": 120,
-      "tags": ["sca", "dependencies", "owasp", "external"]
+      "tags": [
+        "sca",
+        "dependencies",
+        "owasp",
+        "external"
+      ]
     },
     {
       "id": "baddns-takeover",
@@ -818,11 +1101,20 @@
       "kind": "git",
       "repo": "ProjectAnte/baddns",
       "branch": "main",
-      "requires": ["python3", "pip", "git"],
+      "requires": [
+        "python3",
+        "pip",
+        "git"
+      ],
       "install_script": "pip install -e .",
       "launch_command": "baddns --help",
       "size_mb": 15,
-      "tags": ["dns", "subdomain", "takeover", "external"]
+      "tags": [
+        "dns",
+        "subdomain",
+        "takeover",
+        "external"
+      ]
     }
   ]
 }
