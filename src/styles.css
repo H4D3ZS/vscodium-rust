@@ -197,7 +197,7 @@
   --activity-bar-width: 48px;
   --sidebar-width: 240px;
   --title-bar-height: 30px;
-  --status-bar-height: 24px;
+  --status-bar-height: 22px; /* VSCode spec */
   --tab-height: 35px;
   --header-height: 35px;
   --sidebar-header-height: 35px;
@@ -636,6 +636,16 @@ body {
   height: 100vh;
   width: 100vw;
   overflow: hidden;
+}
+
+/* Keyboard focus: 1px accent outline, no glow (VSCode native). */
+:focus-visible {
+  outline: 1px solid var(--color-accent, #007acc);
+  outline-offset: -1px;
+}
+button:focus:not(:focus-visible),
+[tabindex]:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* Native-style Overlay Scrollbars */
