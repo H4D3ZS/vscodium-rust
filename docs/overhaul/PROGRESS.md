@@ -7,7 +7,7 @@
 
 **Statuses**: `todo` | `in-progress` | `done` | `blocked(<reason>)`
 
-**Next action**: A2 frontend restructure — scripts/check-architecture.mjs + stray-folder consolidation + god-component splits (RightSidebar 2,776 / AgentSettingsView 2,003 / Editor 1,488) + agentSlice split + hooks layer. A1 leftovers (acceptable debt, do opportunistically): lib.rs shim deletion (requires rewriting ~hundreds of crate::X paths to crate::domain::Y::X — mechanical via error-driven loop, low value), thin-wrapper extraction in application/commands/ai.rs, autonomous_loop 3.5K-LOC method decomposition.
+**Next action**: A2 remaining — (1) RightSidebar main component decomposition (2,323 LOC, one function: chat view + view router — needs interactive data-flow work, extract per-view JSX blocks into rightSidebar/ sub-panels receiving props); (2) AgentSettingsView (2,003) + Editor.tsx (1,488) splits; (3) stray-folder consolidation (src/agent, src/architecture, src/services, src/utils, src/security, src/mcp → layers). Done this session: check-architecture.mjs + baseline (96 grandfathered), hooks layer, agentSlice 1,267→3 slices+barrel, RightSidebar standalone extracts. A1 leftovers (acceptable debt, do opportunistically): lib.rs shim deletion (requires rewriting ~hundreds of crate::X paths to crate::domain::Y::X — mechanical via error-driven loop, low value), thin-wrapper extraction in application/commands/ai.rs, autonomous_loop 3.5K-LOC method decomposition.
 
 ---
 
@@ -46,7 +46,7 @@
 |---|---|---|
 | Consolidate stray folders: agent, architecture, services, utils, security, mcp → layers | todo | — |
 | README headers for kept subsystems: kortex, airi, hermes, claurst | todo | — |
-| Split RightSidebar.tsx (2,776) → components/rightSidebar/* lazy sub-panels | todo | — |
+| Split RightSidebar.tsx: standalone components extracted (2,776 → 2,323); main 2.3K component fn still needs data-flow decomposition | in-progress | (rightsidebar commit) |
 | Split AgentSettingsView.tsx (2,003) → components/settings/agent/* | todo | — |
 | Editor.tsx: extract monacoSetup/decorations/keybindings → application/editor/ | todo | — |
 | Split agentSlice.ts (1,267) → agentMessagesSlice + agentToolsSlice + agentModesSlice | todo | — |
