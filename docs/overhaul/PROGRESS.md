@@ -77,14 +77,14 @@
 ## Milestone D — Performance
 | Task | Status | Commit |
 |---|---|---|
-| terminal_pending Mutex hot loop → tokio mpsc | todo | — |
-| vfs_bridge.rs std::fs → tokio::fs / spawn_blocking (~20 calls) | todo | — |
-| Lazy-init VectorIndexer / ContextIndexer / KnowledgeDistiller (OnceCell) | todo | — |
+| terminal_pending Mutex → mpsc: DEFERRED — current std Mutex is a deliberate design (PRIMARY transport, blocking PTY reader must never drop bytes; see state.rs doc). Changing it without runtime soak-testing risks the most-used feature. Revisit with a measured contention profile. | blocked(needs runtime profiling) | — |
+| vfs commands → spawn_blocking (vfs_write_atomic, vfs_apply_patch). Premise overstated: only ~6 std::fs calls existed, 2 in async paths. | done | 5ba3f3c2 |
+| Background indexing deferred 10s post-boot (UI paints first). Full OnceCell lazy-init deferred: Arc fields have many call sites, low residual win since vector indexing already skips startup indexing. | done | 5ba3f3c2 |
 | RwLock / immutable Arc for read-mostly AI data; mpsc activity log | todo | — |
 | Try lto="thin" in release profile on macOS; keep only if green | todo | — |
-| useShallow sweep (364 subscriptions) + React.memo sub-panels | todo | — |
-| Verify vite chunking post-restructure | todo | — |
-| Record before/after metrics (boot, EditorState::new, terminal latency, re-renders) | todo | — |
+| useShallow sweep: NOT NEEDED — audit showed all 364 are single-field selectors (already referentially stable). React.memo added to rightSidebar sub-panels. Premise was wrong. | done | 5ba3f3c2 |
+| vite manualChunks already isolates three/vrm/monaco/xterm/reactflow/markdown/tauri | done | n/a |
+| EditorState::new tracing metric added; record numbers during next `npx tauri dev` smoke | in-progress | 5ba3f3c2 |
 
 ## Milestone E — Extension API
 | Task | Status | Commit |
