@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback, memo } from 'react';
 import { useStore } from '../../store';
 import { invoke } from '../../tauri_bridge';
+import MissionControl from '../../presentation/supervisor/MissionControl';
 
 
 // Compact strip listing any agent runs the user fired with `/bg <prompt>`
@@ -16,6 +17,7 @@ const BackgroundAgentsTray: React.FC = memo(() => {
     const [spawnPrompt, setSpawnPrompt] = useState('');
     const [spawning, setSpawning] = useState(false);
     const [showSpawn, setShowSpawn] = useState(false);
+    const [showMission, setShowMission] = useState(false);
 
     const handleSpawn = async () => {
         if (!spawnPrompt.trim()) return;
@@ -51,6 +53,11 @@ const BackgroundAgentsTray: React.FC = memo(() => {
                 {done > 0 && (
                     <span onClick={clearAll} style={{ cursor: 'pointer', fontSize: 9, opacity: 0.5 }} title="Clear finished">clear</span>
                 )}
+                <span
+                    onClick={() => setShowMission(true)}
+                    style={{ cursor: 'pointer', fontSize: 12, lineHeight: 1, marginRight: 2 }}
+                    title="Open Mission Control (24/7 autonomous supervisor)"
+                >🛰</span>
                 <span
                     onClick={() => setShowSpawn(v => !v)}
                     style={{ cursor: 'pointer', fontSize: 16, lineHeight: 1, color: '#60a5fa', fontWeight: 300 }}
@@ -119,6 +126,30 @@ const BackgroundAgentsTray: React.FC = memo(() => {
                     );
                 })}
             </div>
+
+            {/* Mission Control overlay — 24/7 autonomous supervisor cockpit. */}
+            {showMission && (
+                <div
+                    onClick={e => { if (e.target === e.currentTarget) setShowMission(false); }}
+                    style={{
+                        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9998,
+                    }}
+                >
+                    <div style={{
+                        width: 'min(880px, 92vw)', height: 'min(680px, 88vh)',
+                        borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)',
+                        boxShadow: '0 12px 48px rgba(0,0,0,0.5)', position: 'relative',
+                    }}>
+                        <span
+                            onClick={() => setShowMission(false)}
+                            style={{ position: 'absolute', top: 8, right: 12, zIndex: 10000, cursor: 'pointer', color: '#8b949e', fontSize: 16 }}
+                            title="Close"
+                        >✕</span>
+                        <MissionControl />
+                    </div>
+                </div>
+            )}
         </div>
     );
 });

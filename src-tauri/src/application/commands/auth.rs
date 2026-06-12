@@ -70,29 +70,9 @@ async fn webui_await_stable(
 /// drive the IDE. The model emits fenced JSON tool calls; the loop executes them
 /// locally and feeds results back. This is how a sandboxed claude.ai page "acts"
 /// in the IDE — the model is the brain, the loop is the hands.
-const WEBUI_TOOL_PROTOCOL: &str = r#"You are an autonomous coding agent operating a REAL IDE on the user's machine through a tool bridge. You cannot touch files directly — instead you EMIT TOOL CALLS and I execute them and return the results, then you continue.
-
-## How to call a tool
-Emit one or more fenced JSON blocks, each exactly like:
-```json
-{"tool": "view_file", "args": {"path": "src/main.rs"}}
-```
-I run them, then reply with the results. You then emit the next call(s). Act — don't over-explain.
-
-## Tools (name → args)
-- view_file {path}                              — read a file
-- list_files {path}                             — list a directory
-- grep {pattern, path?}                         — search code
-- write_to_file {path, content}                 — create/overwrite a file
-- search_replace_edit {path, search, replace}   — surgical edit
-- run_command {command}                         — run a shell command
-- dev_cargo_diagnostics {}                       — cargo check (Rust)
-- deep_security_audit {path}                    — structured CWE security audit
-
-## Rules
-- One reply = the next tool call(s). Keep going until the whole task is done.
-- After any code edit, verify (dev_cargo_diagnostics for Rust, or run_command for typecheck/tests).
-- When the task is fully complete AND verified, write the single token TASK_COMPLETE on its own line."#;
+// Shared protocol + parser live in domain::ai::webui_protocol so the MCP bridge and
+// the autonomous supervisor use the same source of truth as this legacy webview path.
+use crate::domain::ai::webui_protocol::{parse_webui_tool_calls, WEBUI_TOOL_PROTOCOL};
 
 /// Open (or reuse) the provider's WebUI window and inject the response observer +
 /// the prompt. Shared by send_webui_prompt and the agentic loop.
@@ -132,30 +112,6 @@ fn webui_open_and_inject(
 }
 
 /// Parse fenced JSON tool calls (`{"tool":..,"args":..}`) out of the model's prose.
-fn parse_webui_tool_calls(text: &str) -> Vec<(String, serde_json::Value)> {
-    let mut calls = Vec::new();
-    let mut search = text;
-    while let Some(start) = search.find("```") {
-        let after = &search[start + 3..];
-        let nl = after.find('\n').unwrap_or(after.len());
-        let rest = if nl < after.len() { &after[nl + 1..] } else { "" };
-        if let Some(end) = rest.find("```") {
-            let block = &rest[..end];
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(block.trim()) {
-                if let (Some(name), Some(args)) =
-                    (v.get("tool").and_then(|x| x.as_str()), v.get("args"))
-                {
-                    calls.push((name.to_string(), args.clone()));
-                }
-            }
-            search = &rest[end + 3..];
-        } else {
-            break;
-        }
-    }
-    calls
-}
-
 /// Agentic loop over a subscription WebUI session: inject prompt → await the stable
 /// response → parse tool calls → execute locally → feed results back → repeat until
 /// TASK_COMPLETE, no tool calls, or max_steps. Emits ai-content/ai-tool-call/

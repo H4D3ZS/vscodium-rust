@@ -18,3 +18,5 @@ pub mod claurst_bridge;
 pub mod ghost_runtime;
 pub mod hermes_gateway;
 pub mod system_profile;
+pub mod telemetry_pipeline;
+pub mod webui_mcp_bridge;

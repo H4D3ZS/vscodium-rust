@@ -554,6 +554,187 @@ pub fn get_available_shells() -> Result<Vec<String>, String> {
     }
 }
 
+/// Resolve the opencode binary and working directory.
+/// Returns `(executable, args, cwd)`.
+/// Priority:
+///   1. `opencode` / `kilo` on PATH (globally installed)
+///   2. `bun run --cwd <workspace>/opencode packages/cli/src/index.ts`
+///   3. `bunx opencode` (no-install path)
+fn resolve_opencode_launch(workspace_root: &PathBuf) -> (String, Vec<String>, Option<PathBuf>) {
+    // 1. Global binary
+    for name in &["opencode", "opencode.cmd", "kilo", "kilo.cmd"] {
+        if exe_is_resolvable(name) {
+            return (name.to_string(), vec![], Some(workspace_root.clone()));
+        }
+    }
+
+    // 2. Local source in the repo (opencode/ or claurst/kilocode/)
+    let candidates = [
+        workspace_root.join("opencode").join("packages").join("cli").join("src").join("index.ts"),
+        workspace_root.join("claurst").join("kilocode").join("packages").join("opencode").join("src").join("index.ts"),
+    ];
+    for entry in &candidates {
+        if entry.exists() {
+            if exe_is_resolvable("bun") {
+                return (
+                    "bun".to_string(),
+                    vec!["run".to_string(), entry.to_string_lossy().to_string()],
+                    Some(entry.parent().and_then(|p| p.parent()).and_then(|p| p.parent()).and_then(|p| p.parent()).unwrap_or(workspace_root).to_path_buf()),
+                );
+            }
+        }
+    }
+
+    // 3. bunx fallback
+    if exe_is_resolvable("bun") {
+        return ("bun".to_string(), vec!["x".to_string(), "opencode".to_string()], Some(workspace_root.clone()));
+    }
+    if exe_is_resolvable("npx") {
+        return ("npx".to_string(), vec!["--yes".to_string(), "opencode".to_string()], Some(workspace_root.clone()));
+    }
+
+    // Nothing found — return opencode directly; spawn will fail with a clear error
+    ("opencode".to_string(), vec![], Some(workspace_root.clone()))
+}
+
+/// Spawn a new PTY session running the opencode TUI, pre-configured with the
+/// IDE's current AI provider settings. The spawned terminal is identical to a
+/// regular shell terminal — the frontend drives it through the same
+/// `terminal_take_pending` / `terminal_send_data` / `resize_terminal` commands.
+#[tauri::command]
+pub async fn spawn_opencode_terminal(
+    state: State<'_, EditorState>,
+    app: AppHandle,
+    id: String,
+) -> Result<(), String> {
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize { rows: 24, cols: 220, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e: anyhow::Error| e.to_string())?;
+
+    // Read IDE AI settings
+    let ollama_url = state.ai.ollama_url.lock().await.clone();
+    let current_model = state.ai.current_model.lock().await.clone();
+
+    // Load API keys from disk
+    let api_keys_path = state.config_dir.join("api_keys.json");
+    let api_keys: crate::ai_auth::ApiKeys = if api_keys_path.exists() {
+        let content = std::fs::read_to_string(&api_keys_path).unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        crate::ai_auth::ApiKeys::default()
+    };
+
+    // Resolve workspace root
+    let workspace_root = {
+        let root = state.editor.active_root.lock().await;
+        root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    };
+
+    let (exe, args, cwd) = resolve_opencode_launch(&workspace_root);
+
+    let mut cmd = CommandBuilder::new(&exe);
+    for arg in &args {
+        cmd.arg(arg);
+    }
+
+    // Always inject terminal basics
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+
+    // Provider env vars — Ollama always set as openai-compatible fallback
+    let ollama_base = format!("{}/v1", ollama_url.trim_end_matches('/'));
+    cmd.env("OPENAI_BASE_URL", &ollama_base);
+    cmd.env("OPENAI_API_KEY", "ollama");
+
+    // Layer on real cloud keys so opencode can detect + use them
+    if let Some(key) = &api_keys.anthropic {
+        if !key.is_empty() { cmd.env("ANTHROPIC_API_KEY", key); }
+    }
+    if let Some(url) = &api_keys.anthropic_base_url {
+        if !url.is_empty() { cmd.env("ANTHROPIC_BASE_URL", url); }
+    }
+    if let Some(key) = &api_keys.openai {
+        if !key.is_empty() {
+            // Real OpenAI key overrides the ollama stub
+            cmd.env("OPENAI_API_KEY", key);
+            cmd.env("OPENAI_BASE_URL", api_keys.openai_base_url.as_deref().unwrap_or("https://api.openai.com/v1"));
+        }
+    }
+    if let Some(key) = &api_keys.google {
+        if !key.is_empty() { cmd.env("GOOGLE_API_KEY", key); }
+    }
+    if let Some(key) = &api_keys.groq {
+        if !key.is_empty() { cmd.env("GROQ_API_KEY", key); }
+    }
+    if let Some(key) = &api_keys.openrouter {
+        if !key.is_empty() { cmd.env("OPENROUTER_API_KEY", key); }
+    }
+    if let Some(key) = &api_keys.mistral {
+        if !key.is_empty() { cmd.env("MISTRAL_API_KEY", key); }
+    }
+
+    // Hint opencode at the workspace root + current model
+    cmd.env("OPENCODE_CWD", workspace_root.to_string_lossy().as_ref());
+    if !current_model.is_empty() {
+        cmd.env("OPENCODE_MODEL", &current_model);
+    }
+
+    if let Some(ref cwd_path) = cwd {
+        if cwd_path.is_dir() {
+            cmd.cwd(cwd_path.as_os_str().to_owned());
+        }
+    }
+
+    let child_result = pair.slave.spawn_command(cmd);
+    let child = child_result.map_err(|e| {
+        format!(
+            "opencode not found. Install with: bun i -g opencode\nError: {}",
+            e
+        )
+    })?;
+
+    let writer = pair.master.take_writer().map_err(|e: anyhow::Error| e.to_string())?;
+    let mut reader = pair.master.try_clone_reader().map_err(|e: anyhow::Error| e.to_string())?;
+    let master = pair.master;
+
+    let app_handle = app.clone();
+    let term_id = id.clone();
+    std::thread::spawn(move || {
+        let state = app_handle.state::<EditorState>();
+        let mut buf = [0u8; 8192];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(n) if n > 0 => {
+                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    if let Ok(mut pend) = state.terminal.pending.lock() {
+                        pend.entry(term_id.clone()).or_default().push_str(&data);
+                    }
+                    let _ = app_handle.emit(
+                        "terminal-data",
+                        crate::domain::TerminalDataPayload {
+                            term_id: term_id.clone(),
+                            data: data.clone(),
+                        },
+                    );
+                    if let Some(mut buffers) = state.terminal.buffers.try_lock().ok() {
+                        let history = buffers.entry(term_id.clone()).or_insert_with(Vec::new);
+                        history.push(data);
+                        if history.len() > 2000 { history.drain(0..500); }
+                    }
+                }
+                _ => break,
+            }
+        }
+    });
+
+    state.terminal.masters.lock().await.insert(id.clone(), master);
+    state.terminal.writers.lock().await.insert(id.clone(), writer);
+    state.terminal.processes.lock().await.insert(id, child);
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod pty_smoke {
     use super::*;

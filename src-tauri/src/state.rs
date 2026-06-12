@@ -219,6 +219,9 @@ pub struct EditorState {
     pub memory: MemoryState,
     pub services: ServiceState,
     pub config_dir: PathBuf,
+    /// ZeroScript-style WebUI→MCP bridge (WebSocket server on :1538). The browser
+    /// extension connects here so free web-chat models can drive the IDE's tools.
+    pub webui_bridge: crate::infrastructure::webui_mcp_bridge::WebUiBridgeHandle,
 }
 
 impl EditorState {
@@ -422,7 +425,9 @@ impl EditorState {
             let k_clone = kairos.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                    // 60s: was 10s, which spawned `cargo` every 10s and held
+                    // the process at "High" GPU/CPU power even when idle.
+                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
                     k_clone.tick().await;
                 }
             });
@@ -443,6 +448,23 @@ impl EditorState {
             });
         } else {
             println!("[profile] lite: MCP listener (:1537) not auto-started");
+        }
+
+        // WebUI→MCP bridge (:1538). Shares the same AiTools registry as the MCP server.
+        // The browser extension connects here so free web-chat models drive real tools.
+        let webui_bridge = crate::infrastructure::webui_mcp_bridge::WebUiBridge::new(
+            sentient.ai_tools.clone(),
+        );
+        if !crate::system_profile::is_lite() {
+            let bridge_clone = webui_bridge.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+                bridge_clone
+                    .start(crate::infrastructure::webui_mcp_bridge::BRIDGE_PORT)
+                    .await;
+            });
+        } else {
+            println!("[profile] lite: WebUI bridge (:1538) not auto-started");
         }
 
         // Shared diagnostics map — owned by EditorState, borrowed by LspClient
@@ -539,6 +561,7 @@ impl EditorState {
                 distiller: knowledge_distiller,
                 attachments: attachment_manager,
             },
+            webui_bridge,
             services: ServiceState {
                 auth: auth_state,
                 browser: browser_state,
