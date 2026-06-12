@@ -1,31 +1,48 @@
-//! Injection-module host — two-phase execute (collect plan → fetch → process).
+//! Injection-module host — Vega's event-driven submit/process loop.
 //!
-//! Vega injection modules call `initialize(ctx)` which submits altered requests,
-//! then `process(req, res, ctx)` per response. Network I/O stays in Rust; JS stays
-//! synchronous. See `.planning/vega-integration/PROGRESS.md` Phase 3.
+//! Faithful to how Subgraph Vega drives an injection module:
+//!
+//! 1. `initialize(ctx)` submits one or more altered requests.
+//! 2. As each response arrives, `process(req, res, ctx)` is called — and it may
+//!    **submit further requests** (e.g. timing modules escalate, differential
+//!    modules submit confirmation probes). The loop continues until no module
+//!    submits anything new.
+//!
+//! boa's `Context` is not `Send` and JS is synchronous, so we can't hold a JS
+//! context across an `await`. Instead each "round" runs in a fresh context with
+//! the full accumulated state (saved requests/responses, fingerprints, and a
+//! JSON scratch blob of the module's JS globals) re-injected. Rust owns the
+//! network I/O and the saved-response store; JS owns detection logic. This gives
+//! us the event-driven semantics modules expect without async-in-boa.
+//!
+//! See `.planning/vega-integration/01-VEGA-INVENTORY.md` for the full `ctx`/`ps`
+//! API contract this implements.
 
 use crate::vega::alerts::AlertRegistry;
 use crate::vega::js_runtime::RawAlert;
-use crate::vega::fingerprint::ResponseFingerprint;
 use crate::vega::js_runtime::{JsModuleHost, ModuleRunResult};
-use crate::vega::model::{HttpRequest, HttpResponse, ParamLocation, PathState};
+use crate::vega::model::{HttpRequest, HttpResponse, PathState};
 use boa_engine::{Context, Source};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
-/// One step collected from `initialize()`.
+/// One request a module asked the engine to send.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind")]
 pub enum PlanStep {
+    /// Fuzz the active parameter: mutate it by `payload`, send the full param set.
     #[serde(rename = "altered")]
     Altered {
         payload: String,
         append: bool,
         index: u32,
     },
+    /// A fully-formed request the module built itself (e.g. XSS probes).
     #[serde(rename = "request")]
     Request {
         index: u32,
+        #[serde(default)]
         method: String,
         uri: String,
         #[serde(default)]
@@ -33,6 +50,14 @@ pub enum PlanStep {
         #[serde(default)]
         body: String,
     },
+}
+
+impl PlanStep {
+    pub fn index(&self) -> u32 {
+        match self {
+            PlanStep::Altered { index, .. } | PlanStep::Request { index, .. } => *index,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,9 +69,30 @@ struct PsBase {
     param_value: String,
 }
 
-const INJECTION_COLLECT_PRELUDE: &str = r#"
+/// The output of one JS round: any newly-submitted requests, plus the opaque
+/// scratch blob (module JS globals) to thread into the next round.
+pub struct RoundOutput {
+    pub plan: Vec<PlanStep>,
+    pub scratch: String,
+}
+
+/// Whether this round runs `initialize()` or `process()` for given indices.
+pub enum RoundKind {
+    Init,
+    Process(Vec<u32>),
+}
+
+/// The full pure-JS API surface (`ctx.*` / `ps.*`) for injection modules. This
+/// is the contract from `01-VEGA-INVENTORY.md`. Every method the 18 injection
+/// modules call is implemented or safely stubbed so none throw at runtime.
+const INJECTION_PRELUDE: &str = r#"
 var __vega_plan = [];
-var __xss_id = 0;
+
+function __fpVal(x) {
+  x = x | 0;
+  return (x < 0) ? __vega_baseline_fp : __vega_fps[x];
+}
+function __fpMatch(i, j) { return __fpVal(i) === __fpVal(j); }
 
 function __mutateUri(uri, param, value) {
   var q = uri.indexOf('?');
@@ -62,10 +108,20 @@ function __mutateUri(uri, param, value) {
       break;
     }
   }
-  if (!found) {
-    parts.push(encodeURIComponent(param) + '=' + encodeURIComponent(value));
-  }
+  if (!found) parts.push(encodeURIComponent(param) + '=' + encodeURIComponent(value));
   return base + '?' + parts.join('&');
+}
+
+// Serialize the full parameter set with the fuzzed value substituted — matches
+// the Rust build_altered_request so module-built requests carry sibling fields.
+function __encodeParams(fuzzVal) {
+  var out = [];
+  for (var i = 0; i < __vega_params.length; i++) {
+    var p = __vega_params[i];
+    var v = (i === __vega_fuzz_index) ? fuzzVal : p.value;
+    out.push(encodeURIComponent(p.name) + '=' + encodeURIComponent(v));
+  }
+  return out.join('&');
 }
 
 function __serializeReq(req) {
@@ -78,45 +134,124 @@ function __serializeReq(req) {
   };
 }
 
+function __origin(u) { var m = /^(https?:\/\/[^\/]+)/i.exec(u); return m ? m[1] : ''; }
+function __hostOf(u) { var m = /^https?:\/\/([^\/]+)/i.exec(u); return m ? m[1] : ''; }
+function __pathOf(u) { var m = /^https?:\/\/[^\/]+(\/[^#]*)?/i.exec(u); return (m && m[1]) ? m[1] : '/'; }
+
+function __rawRequest(host, method, path) {
+  var uri;
+  if (host && path) { uri = 'http://' + host + path; }
+  else if (path) { uri = __origin(__vega_ps_base.uri) + path; }
+  else { uri = __vega_ps_base.uri; }
+  return {
+    requestLine: { uri: uri, method: method || 'GET' },
+    _headers: [], _body: '',
+    addHeader: function(n, v) { this._headers.push([String(n), String(v)]); }
+  };
+}
+
 var __vega_ps = {
-  isParametric: function() { return true; },
-  getFuzzableParameter: function() { return { name: __vega_ps_base.param_name, value: __vega_ps_base.param_value }; },
+  isParametric: function() { return __vega_params.length > 0; },
+  getFuzzableParameter: function() {
+    return { name: __vega_ps_base.param_name, value: __vega_ps_base.param_value };
+  },
   getPath: function() {
     return {
       getUri: function() { return __vega_ps_base.uri; },
-      isPostTarget: function() { return !!__vega_ps_base.is_post; }
+      isPostTarget: function() { return !!__vega_ps_base.is_post; },
+      getHttpHost: function() { return __hostOf(__vega_ps_base.uri); },
+      getFullPath: function() { return __pathOf(__vega_ps_base.uri); }
     };
   },
-  getPathFingerprint: function() { return __vega_baseline_fp; },
+  getPathFingerprint: function() { return -1; },
   allocateXssId: function() { __xss_id++; return __xss_id; },
-  createXssTag: function(payload, xid) {
-    payload = payload || '';
-    return 'vega-xss-' + xid + '-' + payload;
+  createXssTag: function(a, b) {
+    return (b === undefined) ? ('vega-xss-' + a) : ('vega-xss-' + b + '-' + a);
   },
   createAlteredRequest: function(payload, append) {
-    var val = __vega_ps_base.param_value;
-    if (append) { val = val + payload; } else { val = payload; }
-    var uri = __mutateUri(__vega_ps_base.uri, __vega_ps_base.param_name, val);
-    return __mkRequest({ method: __vega_ps_base.method, uri: uri, headers: [] });
+    var base = __vega_ps_base;
+    var fuzzVal = append ? (base.param_value + payload) : String(payload);
+    var enc = __encodeParams(fuzzVal);
+    var stripped = base.uri.split('?')[0];
+    if (base.is_post) {
+      return {
+        requestLine: { uri: stripped, method: 'POST' },
+        _headers: [['Content-Type', 'application/x-www-form-urlencoded']],
+        _body: enc,
+        addHeader: function(n, v) { this._headers.push([String(n), String(v)]); }
+      };
+    }
+    return {
+      requestLine: { uri: stripped + '?' + enc, method: 'GET' },
+      _headers: [],
+      _body: '',
+      addHeader: function(n, v) { this._headers.push([String(n), String(v)]); }
+    };
   },
   registerXssRequest: function(req, xid) {},
   incrementFuzzCounter: function() {},
-  decrementFuzzCounter: function() {}
+  decrementFuzzCounter: function() {},
+  isRootPath: function() { return __pathOf(__vega_ps_base.uri) === '/'; },
+  getResponse: function() { return __mkResponse(__vega_orig_res); },
+  createRequest: function() { return __rawRequest(null, 'GET', __pathOf(__vega_ps_base.uri)); },
+  createRawRequest: function(host, method, path) { return __rawRequest(host, method, path); },
+  length: 0
 };
+__vega_ps.path = __vega_ps.getPath();
 
 var ctx = {
   getPathState: function() { return __vega_ps; },
   submitAlteredRequest: function(cb, payload, append, index) {
-    __vega_plan.push({ kind: 'altered', payload: String(payload), append: !!append, index: index|0 });
+    __vega_plan.push({ kind: 'altered', payload: String(payload), append: !!append, index: index | 0 });
+  },
+  submitMultipleAlteredRequests: function(cb, payloads, append) {
+    for (var i = 0; i < payloads.length; i++) {
+      __vega_plan.push({ kind: 'altered', payload: String(payloads[i]), append: !!append, index: i });
+    }
   },
   submitRequest: function(req, cb, index) {
     var s = __serializeReq(req);
-    __vega_plan.push({ kind: 'request', index: index|0, method: s.method, uri: s.uri, headers: s.headers, body: s.body });
+    __vega_plan.push({ kind: 'request', index: index | 0, method: s.method, uri: s.uri, headers: s.headers, body: s.body });
   },
-  alertExists: function(k) { return !!__vega_seen_keys[k]; },
+  getSavedRequest: function(i) { return __mkRequest(__vega_saved_req[i | 0] || {}); },
+  getSavedResponse: function(i) {
+    var r = __mkResponse(__vega_saved_res[i | 0] || {});
+    r.fingerprint = i | 0;
+    return r;
+  },
+  getOrigResponse: function() {
+    // `.fingerprint` is the baseline handle (-1) so modules that compare against
+    // ctx.getOrigResponse().fingerprint diff against the true baseline.
+    var r = __mkResponse(__vega_orig_res);
+    r.fingerprint = -1;
+    return r;
+  },
+  isFingerprintMatch: function(i, j) { return __fpMatch(i, j); },
+  incrementResponseCount: function() { __vega_response_count++; return __vega_response_count; },
+  addRequestResponse: function(req, res) {},
+  allResponsesReceived: function() { return __vega_plan.length === 0; },
+  getCurrentIndex: function() { return __vega_current_index; },
   setModuleFailed: function() { __vega_module_failed = true; },
   hasModuleFailed: function() { return !!__vega_module_failed; },
+  alertExists: function(k) { return !!__vega_seen_keys[k]; },
   error: function() {},
+  responseChecks: function(i) { __vega_response_checks.push(i | 0); },
+  contentChecks: function(req, res) {
+    var body = (res && res.bodyAsString) ? res.bodyAsString : '';
+    var uri = (req && req.requestLine && req.requestLine.uri) ? req.requestLine.uri : '';
+    if (body.indexOf('vega-xss-') >= 0) {
+      ctx.alert('vinfo-xss', req, res, {
+        output: body.substring(0, 200), resource: uri, key: 'xss:' + uri,
+        detectiontype: 'Reflected Cross-Site Scripting'
+      });
+    }
+  },
+  addStringHighlight: function(s) { __vega_highlights.push(String(s)); },
+  addRegexCaseInsensitiveHighlight: function(s) { __vega_highlights.push(String(s)); },
+  setIntegerProperty: function(k, v) { __vega_props[k] = v | 0; },
+  getIntegerProperty: function(k) { return __vega_props[k] || 0; },
+  isValidInternetDomainName: function(s) { return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(String(s)); },
+  internetDomainName: function(s) { return String(s); },
   alert: function(type, req, res, opts) {
     opts = opts || {};
     __vega_alerts.push({
@@ -126,72 +261,12 @@ var ctx = {
       key: (opts.key != null) ? String(opts.key) : '',
       detection_type: (opts.detectiontype != null) ? String(opts.detectiontype) : null
     });
-    if (opts.key) { __vega_seen_keys[opts.key] = true; }
+    if (opts.key) __vega_seen_keys[opts.key] = true;
   }
 };
 "#;
 
-const INJECTION_PROCESS_PRELUDE: &str = r#"
-function __fpMatch(i, j) {
-  return __vega_fps[i|0] === __vega_fps[j|0];
-}
-
-var __vega_ps = {
-  isParametric: function() { return true; },
-  getFuzzableParameter: function() { return { name: __vega_ps_base.param_name }; },
-  getPath: function() {
-    return {
-      getUri: function() { return __vega_ps_base.uri; },
-      isPostTarget: function() { return !!__vega_ps_base.is_post; }
-    };
-  },
-  getPathFingerprint: function() { return __vega_baseline_fp; }
-};
-
-var __response_count = 0;
-var __vega_module_failed = false;
-
-var ctx = {
-  getPathState: function() { return __vega_ps; },
-  getSavedRequest: function(i) { return __mkRequest(__vega_saved_req[i|0]); },
-  getSavedResponse: function(i) { return __mkResponse(__vega_saved_res[i|0]); },
-  isFingerprintMatch: function(i, j) { return __fpMatch(i, j); },
-  incrementResponseCount: function() { __response_count++; return __response_count; },
-  addRequestResponse: function(req, res) {},
-  allResponsesReceived: function() { return true; },
-  getCurrentIndex: function() { return __vega_current_index; },
-  getOrigResponse: function() { return __mkResponse(__vega_saved_res[0]); },
-  setModuleFailed: function() { __vega_module_failed = true; },
-  hasModuleFailed: function() { return __vega_module_failed; },
-  alertExists: function(k) { return !!__vega_seen_keys[k]; },
-  error: function() {},
-  alert: function(type, req, res, opts) {
-    opts = opts || {};
-    __vega_alerts.push({
-      type_key: type,
-      output: (opts.output != null) ? String(opts.output) : '',
-      resource: (opts.resource != null) ? String(opts.resource) : '',
-      key: (opts.key != null) ? String(opts.key) : '',
-      detection_type: (opts.detectiontype != null) ? String(opts.detectiontype) : null
-    });
-    if (opts.key) { __vega_seen_keys[opts.key] = true; }
-  },
-  addStringHighlight: function(s) { __vega_highlights.push(String(s)); },
-  addRegexCaseInsensitiveHighlight: function(s) { __vega_highlights.push(String(s)); },
-  responseChecks: function(i) {},
-  contentChecks: function(req, res) {
-    var body = res.bodyAsString || '';
-    var uri = (req.requestLine && req.requestLine.uri) ? req.requestLine.uri : '';
-    if (body.indexOf('vega-xss-') >= 0) {
-      ctx.alert('vinfo-xss', req, res, { output: body.substring(0, 200), resource: uri, key: 'xss:' + uri });
-    }
-  },
-  setIntegerProperty: function(k, v) { __vega_props[k] = v|0; },
-  getIntegerProperty: function(k) { return __vega_props[k] || 0; }
-};
-"#;
-
-/// Host for injection modules (Phase 3).
+/// Drives injection modules round-by-round.
 pub struct InjectionModuleHost {
     inner: JsModuleHost,
 }
@@ -203,152 +278,179 @@ impl InjectionModuleHost {
         }
     }
 
-    /// Phase A: run `initialize()` and collect the request plan.
-    pub fn collect_plan(
+    /// Run one round (init or process). Rust owns the saved-state stores; this
+    /// injects them into a fresh JS context, runs the requested entry point, and
+    /// returns the new submissions plus the updated scratch blob.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_round(
         &self,
         source: &str,
         ps: &PathState,
-        baseline_fp: ResponseFingerprint,
-    ) -> Result<Vec<PlanStep>, String> {
-        let param = ps
-            .fuzzable_parameter()
-            .ok_or_else(|| "path state has no fuzzable parameter".to_string())?;
+        baseline_fp: u64,
+        orig_res: &HttpResponse,
+        saved_req: &BTreeMap<u32, HttpRequest>,
+        saved_res: &BTreeMap<u32, HttpResponse>,
+        fps: &BTreeMap<u32, u64>,
+        scratch_in: &str,
+        kind: RoundKind,
+    ) -> Result<RoundOutput, String> {
+        // A fuzzable parameter is optional: differential modules self-gate on
+        // `ps.isParametric()`, while root-path probes (http-trace) run on
+        // parameterless paths. Default to empty so neither path errors.
+        let (param_name, param_value) = match ps.fuzzable_parameter() {
+            Some(p) => (p.name.clone(), p.value.clone()),
+            None => (String::new(), String::new()),
+        };
 
         let ps_base = PsBase {
             uri: ps.uri.clone(),
             method: if ps.is_post_target { "POST".into() } else { "GET".into() },
             is_post: ps.is_post_target,
-            param_name: param.name.clone(),
-            param_value: param.value.clone(),
+            param_name,
+            param_value,
         };
+        let params: Vec<Value> = ps
+            .params
+            .iter()
+            .map(|p| json!({ "name": p.name, "value": p.value }))
+            .collect();
 
         let mut ctx = Context::default();
         eval(&mut ctx, crate::vega::js_runtime::VEGA_JS_PRELUDE)?;
-        eval(&mut ctx, INJECTION_COLLECT_PRELUDE)?;
+        eval(&mut ctx, INJECTION_PRELUDE)?;
 
-        let ps_json = serde_json::to_string(&ps_base).map_err(|e| e.to_string())?;
+        // Inject the immutable per-path facts.
+        let setup = format!(
+            "var __vega_ps_base = {}; var __vega_params = {}; var __vega_fuzz_index = {}; \
+             var __vega_baseline_fp = {}; var __vega_orig_res = {}; \
+             var __vega_saved_req = {}; var __vega_saved_res = {}; var __vega_fps = {}; \
+             var __vega_current_index = -1;",
+            serde_json::to_string(&ps_base).map_err(|e| e.to_string())?,
+            serde_json::to_string(&params).map_err(|e| e.to_string())?,
+            ps.fuzz_index.unwrap_or(0),
+            baseline_fp,
+            serde_json::to_string(&res_json(orig_res)).map_err(|e| e.to_string())?,
+            serde_json::to_string(&map_json(saved_req, req_json)).map_err(|e| e.to_string())?,
+            serde_json::to_string(&map_json(saved_res, res_json)).map_err(|e| e.to_string())?,
+            serde_json::to_string(&fps_json(fps)).map_err(|e| e.to_string())?,
+        );
+        eval(&mut ctx, &setup)?;
+
+        // Re-hydrate the module's JS scratch globals from the prior round.
+        let scratch = if scratch_in.trim().is_empty() { "{}" } else { scratch_in };
         eval(
             &mut ctx,
             &format!(
-                "var __vega_ps_base = {ps_json}; var __vega_baseline_fp = {}; __vega_module_failed = false;",
-                baseline_fp.raw()
+                "var __s = {scratch}; \
+                 var __vega_props = __s.props || {{}}; \
+                 var __vega_seen_keys = __s.seen || {{}}; \
+                 var __vega_response_count = __s.count || 0; \
+                 var __xss_id = __s.xss || 0; \
+                 var __vega_alerts = __s.alerts || []; \
+                 var __vega_highlights = __s.highlights || []; \
+                 var __vega_response_checks = __s.checks || []; \
+                 var __vega_module_failed = __s.failed || false; \
+                 __vega_plan = [];"
             ),
         )?;
 
-        eval(&mut ctx, source)?;
-        eval(&mut ctx, "if (typeof initialize === 'function') initialize(ctx);")?;
-
-        let plan_json = eval(&mut ctx, "JSON.stringify(__vega_plan)")?;
-        serde_json::from_str(&plan_json).map_err(|e| format!("parse plan: {e}"))
-    }
-
-    /// Phase C: run `process()` once per saved response index; return alerts.
-    pub fn run_process_phase(
-        &self,
-        source: &str,
-        ps: &PathState,
-        baseline_fp: ResponseFingerprint,
-        saved_req: &[HttpRequest],
-        saved_res: &[HttpResponse],
-    ) -> Result<ModuleRunResult, String> {
-        let param = ps
-            .fuzzable_parameter()
-            .ok_or_else(|| "path state has no fuzzable parameter".to_string())?;
-
-        let ps_base = PsBase {
-            uri: ps.uri.clone(),
-            method: if ps.is_post_target { "POST".into() } else { "GET".into() },
-            is_post: ps.is_post_target,
-            param_name: param.name.clone(),
-            param_value: param.value.clone(),
-        };
-
-        let fps: Vec<u64> = saved_res
-            .iter()
-            .map(|r| ResponseFingerprint::compute(r).raw())
-            .collect();
-
-        let req_json: Vec<serde_json::Value> = saved_req
-            .iter()
-            .map(|r| {
-                serde_json::json!({
-                    "method": r.method,
-                    "uri": r.uri,
-                    "headers": r.headers,
-                    "body": r.body,
-                })
-            })
-            .collect();
-        let res_json: Vec<serde_json::Value> = saved_res
-            .iter()
-            .map(|r| {
-                serde_json::json!({
-                    "status": r.status,
-                    "body": r.body,
-                    "headers": r.headers,
-                    "fetch_fail": r.fetch_fail,
-                })
-            })
-            .collect();
-
-        let mut ctx = Context::default();
-        eval(&mut ctx, crate::vega::js_runtime::VEGA_JS_PRELUDE)?;
-        eval(&mut ctx, INJECTION_PROCESS_PRELUDE)?;
-
-        let inject = format!(
-            "var __vega_ps_base = {}; var __vega_baseline_fp = {}; var __vega_fps = {}; \
-             var __vega_saved_req = {}; var __vega_saved_res = {}; var __vega_props = {{}}; \
-             __vega_alerts = []; __vega_highlights = []; __vega_seen_keys = {{}};",
-            serde_json::to_string(&ps_base).map_err(|e| e.to_string())?,
-            baseline_fp.raw(),
-            serde_json::to_string(&fps).map_err(|e| e.to_string())?,
-            serde_json::to_string(&req_json).map_err(|e| e.to_string())?,
-            serde_json::to_string(&res_json).map_err(|e| e.to_string())?,
-        );
-        eval(&mut ctx, &inject)?;
+        // Define the module (re-runs its top-level setup; redefines initialize/process).
         eval(&mut ctx, source)?;
 
-        let max_idx = saved_res.len().saturating_sub(1);
-        for i in 0..=max_idx {
-            let runner = format!(
-                r#"(function() {{
-                  __vega_current_index = {i};
-                  if (typeof process !== 'function') return;
-                  var request = __mkRequest(__vega_saved_req[{i}]);
-                  var response = __mkResponse(__vega_saved_res[{i}]);
-                  process(request, response, ctx);
-                }})()"#
-            );
-            eval(&mut ctx, &runner)?;
+        match kind {
+            RoundKind::Init => {
+                eval(&mut ctx, "if (typeof initialize === 'function') initialize(ctx);")?;
+            }
+            RoundKind::Process(indices) => {
+                for i in indices {
+                    eval(
+                        &mut ctx,
+                        &format!(
+                            "(function() {{ __vega_current_index = {i}; \
+                              if (typeof process === 'function') {{ \
+                                process(__mkRequest(__vega_saved_req[{i}] || {{}}), \
+                                        __mkResponse(__vega_saved_res[{i}] || {{}}), ctx); }} }})()"
+                        ),
+                    )?;
+                }
+            }
         }
 
-        let out_json = eval(
-            &mut ctx,
-            "JSON.stringify({ alerts: __vega_alerts, highlights: __vega_highlights })",
-        )?;
-        let out: ProcessOutput =
-            serde_json::from_str(&out_json).map_err(|e| format!("parse process output: {e}"))?;
+        let plan_json = eval(&mut ctx, "JSON.stringify(__vega_plan)")?;
+        let plan: Vec<PlanStep> =
+            serde_json::from_str(&plan_json).map_err(|e| format!("parse plan: {e}"))?;
 
+        let scratch_out = eval(
+            &mut ctx,
+            "JSON.stringify({ props: __vega_props, seen: __vega_seen_keys, \
+             count: __vega_response_count, xss: __xss_id, alerts: __vega_alerts, \
+             highlights: __vega_highlights, checks: __vega_response_checks, \
+             failed: __vega_module_failed })",
+        )?;
+
+        Ok(RoundOutput {
+            plan,
+            scratch: scratch_out,
+        })
+    }
+
+    /// Parse the final scratch blob into resolved alerts + the response-check
+    /// queue (saved-response indices the module asked passive modules to run on).
+    pub fn finalize(&self, scratch: &str) -> (ModuleRunResult, Vec<u32>) {
+        #[derive(Deserialize, Default)]
+        struct Final {
+            #[serde(default)]
+            alerts: Vec<RawAlert>,
+            #[serde(default)]
+            highlights: Vec<String>,
+            #[serde(default)]
+            checks: Vec<u32>,
+        }
+        let parsed: Final = serde_json::from_str(scratch).unwrap_or_default();
         let ts = now_ms();
-        let alerts = out
+        let alerts = parsed
             .alerts
             .into_iter()
             .map(|raw| self.inner.resolve_alert_public(raw, ts))
             .collect();
-
-        Ok(ModuleRunResult {
-            alerts,
-            highlights: out.highlights,
-        })
+        (
+            ModuleRunResult {
+                alerts,
+                highlights: parsed.highlights,
+            },
+            parsed.checks,
+        )
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct ProcessOutput {
-    #[serde(default)]
-    alerts: Vec<RawAlert>,
-    #[serde(default)]
-    highlights: Vec<String>,
+fn map_json<T>(map: &BTreeMap<u32, T>, f: fn(&T) -> Value) -> Value {
+    let mut obj = serde_json::Map::new();
+    for (k, v) in map {
+        obj.insert(k.to_string(), f(v));
+    }
+    Value::Object(obj)
+}
+
+fn fps_json(map: &BTreeMap<u32, u64>) -> Value {
+    let mut obj = serde_json::Map::new();
+    for (k, v) in map {
+        obj.insert(k.to_string(), json!(v));
+    }
+    Value::Object(obj)
+}
+
+fn req_json(r: &HttpRequest) -> Value {
+    json!({ "method": r.method, "uri": r.uri, "headers": r.headers, "body": r.body })
+}
+
+fn res_json(r: &HttpResponse) -> Value {
+    json!({
+        "status": r.status,
+        "body": r.body,
+        "headers": r.headers,
+        "fetch_fail": r.fetch_fail,
+        "elapsed_ms": r.elapsed_ms,
+    })
 }
 
 fn eval(context: &mut Context, code: &str) -> Result<String, String> {
@@ -369,15 +471,22 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Build an altered HTTP request by mutating the active fuzzable parameter.
+/// Build an altered HTTP request by mutating the active fuzzable parameter while
+/// preserving every sibling field. Login and search forms reject a request that
+/// drops their other inputs (password, CSRF token, submit button) — so we always
+/// serialize the full parameter set and only swap the value at `fuzz_index`.
 pub fn build_altered_request(
     ps: &PathState,
     payload: &str,
     append: bool,
 ) -> Result<HttpRequest, String> {
+    let idx = ps
+        .fuzz_index
+        .ok_or_else(|| "path state has no fuzz index".to_string())?;
     let param = ps
-        .fuzzable_parameter()
-        .ok_or_else(|| "no fuzzable parameter".to_string())?;
+        .params
+        .get(idx)
+        .ok_or_else(|| "fuzz index out of range".to_string())?;
 
     let new_value = if append {
         format!("{}{}", param.value, payload)
@@ -385,83 +494,51 @@ pub fn build_altered_request(
         payload.to_string()
     };
 
-    match param.location {
-        ParamLocation::Query => {
-            let uri = mutate_query_param(&ps.uri, &param.name, &new_value)?;
-            Ok(HttpRequest {
-                method: if ps.is_post_target {
-                    "POST".to_string()
-                } else {
-                    "GET".to_string()
-                },
-                uri,
-                ..Default::default()
-            })
-        }
-        ParamLocation::Post => {
-            let body = mutate_form_body(&param.name, &new_value, &ps.uri)?;
-            let mut req = HttpRequest {
-                method: "POST".into(),
-                uri: ps.uri.clone(),
-                body,
-                ..Default::default()
-            };
-            req.add_header("Content-Type", "application/x-www-form-urlencoded");
-            Ok(req)
-        }
-        _ => Err(format!("unsupported param location: {:?}", param.location)),
+    let encoded = encode_params(ps, idx, &new_value);
+
+    if ps.is_post_target {
+        let mut req = HttpRequest {
+            method: "POST".into(),
+            uri: strip_query(&ps.uri).to_string(),
+            body: encoded,
+            ..Default::default()
+        };
+        req.add_header("Content-Type", "application/x-www-form-urlencoded");
+        Ok(req)
+    } else {
+        Ok(HttpRequest {
+            method: "GET".into(),
+            uri: format!("{}?{}", strip_query(&ps.uri), encoded),
+            ..Default::default()
+        })
     }
 }
 
-fn mutate_query_param(uri: &str, param: &str, value: &str) -> Result<String, String> {
-    let (base, qs) = match uri.split_once('?') {
-        Some((b, q)) => (b, q),
-        None => (uri, ""),
-    };
-    let mut pairs: HashMap<String, String> = HashMap::new();
-    if !qs.is_empty() {
-        for part in qs.split('&') {
-            if part.is_empty() {
-                continue;
-            }
-            let (k, v) = part
-                .split_once('=')
-                .map(|(a, b)| (a.to_string(), b.to_string()))
-                .unwrap_or((part.to_string(), String::new()));
-            pairs.insert(urlencoding_decode(&k), urlencoding_decode(&v));
-        }
-    }
-    pairs.insert(param.to_string(), value.to_string());
-    let mut out = pairs
+/// URL-encode the full parameter set, substituting `value` at position `idx`.
+fn encode_params(ps: &PathState, idx: usize, value: &str) -> String {
+    ps.params
         .iter()
-        .map(|(k, v)| format!("{}={}", urlencoding_encode(k), urlencoding_encode(v)))
-        .collect::<Vec<_>>();
-    out.sort();
-    Ok(format!("{base}?{}", out.join("&")))
+        .enumerate()
+        .map(|(i, p)| {
+            let v = if i == idx { value } else { p.value.as_str() };
+            format!("{}={}", urlencoding_encode(&p.name), urlencoding_encode(v))
+        })
+        .collect::<Vec<_>>()
+        .join("&")
 }
 
-fn mutate_form_body(param: &str, value: &str, _uri: &str) -> Result<String, String> {
-    Ok(format!(
-        "{}={}",
-        urlencoding_encode(param),
-        urlencoding_encode(value)
-    ))
+fn strip_query(uri: &str) -> &str {
+    uri.split('?').next().unwrap_or(uri)
 }
 
 fn urlencoding_encode(s: &str) -> String {
     urlencoding::encode(s).into_owned()
 }
 
-fn urlencoding_decode(s: &str) -> String {
-    urlencoding::decode(s)
-        .map(|c| c.into_owned())
-        .unwrap_or_else(|_| s.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vega::model::FuzzableParam;
+    use crate::vega::model::{FuzzableParam, ParamLocation};
 
     #[test]
     fn mutates_query_param() {
@@ -480,5 +557,23 @@ mod tests {
         let decoded = urlencoding::decode(&req.uri).unwrap_or_else(|_| req.uri.clone().into());
         let decoded = decoded.to_string();
         assert!(decoded.contains("1' AND 1=1") || decoded.contains("1%27 AND 1=1"));
+    }
+
+    #[test]
+    fn post_sends_all_sibling_params() {
+        let ps = PathState {
+            uri: "http://t.test/login".into(),
+            is_post_target: true,
+            params: vec![
+                FuzzableParam { name: "username".into(), value: "admin".into(), location: ParamLocation::Post },
+                FuzzableParam { name: "password".into(), value: "pw".into(), location: ParamLocation::Post },
+            ],
+            fuzz_index: Some(0),
+            ..Default::default()
+        };
+        let req = build_altered_request(&ps, "'", true).unwrap();
+        assert_eq!(req.method, "POST");
+        assert!(req.body.contains("username=admin%27"));
+        assert!(req.body.contains("password=pw"), "sibling field must be sent");
     }
 }

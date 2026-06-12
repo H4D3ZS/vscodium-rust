@@ -40,6 +40,38 @@ See `02-MODERNIZATION.md` for modern module drops after crawler lands.
 
 ## Session Log (newest first)
 
+### 2026-06-12 — Faithful engine: event-driven submit/process loop + full API
+Detection pipeline was finding nothing on real targets (DVWA). Root-caused and fixed
+the gap between "collect-once" and Vega's true event loop:
+- **Event-driven engine** (`engine.rs::run_injection_module`): `initialize()` → fetch
+  → `process()` (which may submit MORE requests) → loop until quiescent. Bounded by
+  MAX_FETCHES=96 / MAX_ROUNDS=64. Replaces the old collect_plan/run_process_phase.
+- **`injection_host.rs` rewritten** to `run_round(Init|Process)` + `finalize`; state
+  threaded between rounds as a JSON scratch blob (boa `Context` isn't `Send`, so a
+  fresh context per round with re-injected state).
+- **Full `ctx`/`ps` API** (`INJECTION_PRELUDE`): added `submitMultipleAlteredRequests`
+  (9 modules needed it), `getCurrentIndex`, `allResponsesReceived`, `getOrigResponse`,
+  `responseChecks` (queues indices → engine runs passive modules on them), domain
+  helpers, `createAlteredRequest` that builds proper POST bodies, and all `ps.*` stubs.
+  No module throws now.
+- **Response timing**: `HttpResponse.elapsed_ms` populated in `fetch`, exposed as
+  `res.milliseconds` → unblocks `sql-timing-injection` / `command-injection`.
+- **Baseline fingerprint** fixed: `getPathFingerprint()` returns `-1` sentinel resolved
+  to baseline in `__fpVal` (was a raw u64 used as an array index → half the diff
+  checks silently no-op'd).
+- **All modules by default**: `default_injection_modules()` runs every injection+modern
+  module except `defaultDisabled` (the slow 31s timing probes); `passive_module_sources()`
+  runs ALL response modules (was capped at 12), skipping only Rhino `importPackage`.
+- **Error-based SQLi** detector (`error_based.rs`) + **session cookie** support
+  (`VegaScanOptions.session_cookie` → Cookie header; UI field) for authed scans.
+- **Form extraction** (`crawler.rs`): parses real `<input>` fields (was a fake `body=1`);
+  POST/GET send the full field set, fuzzing one at a time.
+- New tests: `all_default_injection_modules_run_without_error`,
+  `iterative_submission_during_process_is_supported`, `post_sends_all_sibling_params`.
+- Phase 5 (proxy) ✅ already done earlier. **Phase 8 agentic** largely done (agent tool
+  + triage). Remaining: `.aim` persistence of scan history.
+
+
 ### 2026-06-10 — Burp/Caido parity: OAST + Repeater + Intruder
 - **OAST / Collaborator** (`oast.rs` + `oast_commands.rs`): zero-dep tokio HTTP
   callback listener for blind SSRF/RCE/XXE/blind-XSS. Token correlation (path or

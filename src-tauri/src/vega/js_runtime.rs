@@ -43,6 +43,10 @@ pub struct ModuleMeta {
     pub type_field: Option<String>,
     #[serde(default)]
     pub differential: Option<bool>,
+    /// Vega marks slow/aggressive modules (timing sleeps, format-string) as
+    /// `defaultDisabled` — they run only when explicitly selected.
+    #[serde(default, rename = "defaultDisabled")]
+    pub default_disabled: Option<bool>,
 }
 
 impl ModuleMeta {
@@ -93,6 +97,7 @@ function __mkResponse(o) {
     _headers: o.headers || [],
     fetchFail: !!o.fetch_fail,
     statusCode: o.status || 0,
+    milliseconds: o.elapsed_ms || 0,
     hasHeader: function(n) {
       n = String(n).toLowerCase();
       for (var i = 0; i < this._headers.length; i++) {
@@ -289,6 +294,7 @@ struct JsRes<'a> {
     body: &'a str,
     headers: &'a [(String, String)],
     fetch_fail: bool,
+    elapsed_ms: u64,
 }
 impl<'a> From<&'a HttpResponse> for JsRes<'a> {
     fn from(r: &'a HttpResponse) -> Self {
@@ -297,6 +303,7 @@ impl<'a> From<&'a HttpResponse> for JsRes<'a> {
             body: &r.body,
             headers: &r.headers,
             fetch_fail: r.fetch_fail,
+            elapsed_ms: r.elapsed_ms,
         }
     }
 }
@@ -348,6 +355,7 @@ mod tests {
             headers: vec![("X-XSS-Protection".into(), "0".into())],
             body: "<html></html>".into(),
             fetch_fail: false,
+            ..Default::default()
         };
 
         let result = host

@@ -1,0 +1,86 @@
+{
+  "id": "vega-scan-https-server-vulnapp-id-dvwa-login-php",
+  "title": "Vega Scan · https://server.vulnapp.id/dvwa/login.php",
+  "subtitle": "1 alerts · 19 paths · 13 modules",
+  "updatedAt": 1781238806222,
+  "blocks": [
+    {
+      "type": "stats",
+      "items": [
+        {
+          "label": "Alerts",
+          "value": 1,
+          "tone": "accent"
+        },
+        {
+          "label": "Critical",
+          "value": 0,
+          "tone": "neutral"
+        },
+        {
+          "label": "High",
+          "value": 0,
+          "tone": "neutral"
+        },
+        {
+          "label": "Paths",
+          "value": 19,
+          "tone": "info"
+        },
+        {
+          "label": "Duration",
+          "value": "37.4s",
+          "tone": "neutral"
+        }
+      ]
+    },
+    {
+      "type": "kv",
+      "title": "Scan",
+      "pairs": [
+        {
+          "key": "Target",
+          "value": "https://server.vulnapp.id/dvwa/login.php"
+        },
+        {
+          "key": "Modules run",
+          "value": "13"
+        }
+      ]
+    },
+    {
+      "type": "chart",
+      "chart": "pie",
+      "title": "Alerts by severity",
+      "labels": [
+        "INFO"
+      ],
+      "series": [
+        {
+          "name": "Alerts",
+          "values": [
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Findings",
+      "columns": [
+        "Severity",
+        "Finding",
+        "Resource",
+        "Triage"
+      ],
+      "rows": [
+        [
+          "INFO",
+          "Character Set Not Specified",
+          "https://server.vulnapp.id/dvwa/login.php",
+          "LIKELY"
+        ]
+      ]
+    }
+  ]
+}

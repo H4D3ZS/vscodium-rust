@@ -1171,6 +1171,7 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             ai_triage: args.get("ai_triage").and_then(|v| v.as_bool()),
             ai_model: None,
             ollama_url: None,
+            session_cookie: args.get("session_cookie").and_then(|v| v.as_str()).map(String::from),
         };
         let result = crate::vega::run_campaign(opts).await.map_err(|e| anyhow!(e))?;
         serde_json::to_value(result).map_err(|e| anyhow!(e))

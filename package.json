@@ -13,7 +13,7 @@
     "dev:tauri": "npx tauri dev",
     "dev:airi": "cd airi && pnpm dev --host",
     "typecheck": "node --stack-size=10000 node_modules/typescript/bin/tsc && tsc -p tsconfig.node.json",
-    "build": "vite build --configLoader native",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vite build --configLoader native",
     "prebuild:sidecar": "node scripts/prebuild-release.ts",
     "fetch:ripgrep": "node scripts/fetch-ripgrep.ts",
     "fetch:lsp": "node scripts/fetch-lsp-binaries.ts",
@@ -34,6 +34,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "~2.10.0",
     "@types/node": "^25.7.0",
+    "cross-env": "^7.0.3",
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
     "vite-plugin-node-polyfills": "^0.26.0",

@@ -51,6 +51,7 @@ const VegaScannerPanel: React.FC = () => {
     const [target, setTarget] = useState('https://');
     const [authorized, setAuthorized] = useState(false);
     const [aiTriage, setAiTriage] = useState(false);
+    const [sessionCookie, setSessionCookie] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [result, setResult] = useState<ScanResult | null>(null);
@@ -76,6 +77,7 @@ const VegaScannerPanel: React.FC = () => {
                     maxDepth: 2,
                     runPassive: true,
                     aiTriage,
+                    sessionCookie: sessionCookie.trim() || undefined,
                 },
             });
             setResult(data);
@@ -88,7 +90,7 @@ const VegaScannerPanel: React.FC = () => {
         } finally {
             setBusy(false);
         }
-    }, [authorized, target, aiTriage]);
+    }, [authorized, target, aiTriage, sessionCookie]);
 
     const [exportMsg, setExportMsg] = useState('');
     const exportReport = useCallback(
@@ -128,6 +130,23 @@ const VegaScannerPanel: React.FC = () => {
                     value={target}
                     onChange={(e) => setTarget(e.target.value)}
                     placeholder="https://target.app/"
+                    style={{
+                        width: '100%',
+                        marginBottom: 8,
+                        padding: '6px 8px',
+                        fontSize: 11,
+                        borderRadius: 4,
+                        border: '1px solid var(--vscode-panel-border)',
+                        background: 'var(--vscode-input-background)',
+                        color: 'var(--vscode-input-foreground)',
+                    }}
+                />
+
+                <input
+                    value={sessionCookie}
+                    onChange={(e) => setSessionCookie(e.target.value)}
+                    placeholder="Session cookie (optional) — e.g. PHPSESSID=…; security=low"
+                    spellCheck={false}
                     style={{
                         width: '100%',
                         marginBottom: 8,

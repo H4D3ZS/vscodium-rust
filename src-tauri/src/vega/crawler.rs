@@ -33,11 +33,92 @@ fn href_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r#"(?i)href\s*=\s*['"]([^#'"]+)['"]"#).expect("href re"))
 }
 
-fn form_action_re() -> &'static Regex {
+/// Capture each `<form ...>...</form>` block: group 1 = form tag attributes,
+/// group 2 = inner HTML (the inputs).
+fn form_block_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r#"(?is)<form\b([^>]*)>(.*?)</form>"#).expect("form block re"))
+}
+
+/// Capture each opening `<input|textarea|select ...>` tag: group 1 = tag name,
+/// group 2 = its attributes.
+fn input_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)<form[^>]*action\s*=\s*['"]([^'"]*)['"][^>]*>"#).expect("form re")
+        Regex::new(r#"(?is)<(input|textarea|select)\b([^>]*)>"#).expect("input re")
     })
+}
+
+/// Capture every `name="value"` (single/double/bare) attribute pair in a tag.
+fn attr_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?is)([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s'">]+))"#)
+            .expect("attr re")
+    })
+}
+
+/// Parse a tag's attribute string into a lowercase-keyed map (first wins).
+fn parse_attrs(s: &str) -> std::collections::HashMap<String, String> {
+    let mut m = std::collections::HashMap::new();
+    for c in attr_re().captures_iter(s) {
+        let key = c.get(1).map(|x| x.as_str().to_lowercase()).unwrap_or_default();
+        if key.is_empty() {
+            continue;
+        }
+        let val = c
+            .get(2)
+            .or_else(|| c.get(3))
+            .or_else(|| c.get(4))
+            .map(|x| x.as_str().to_string())
+            .unwrap_or_default();
+        m.entry(key).or_insert(val);
+    }
+    m
+}
+
+/// A single `<input>`-like field harvested from a form.
+struct FormField {
+    name: String,
+    value: String,
+    /// True for text-like inputs we should mutate; false for submit/hidden/etc.
+    fuzzable: bool,
+}
+
+/// Extract the fillable fields from a form's inner HTML, in document order,
+/// deduped by name. Submit/button/image/reset/file inputs are kept (so the
+/// server's branch logic still fires) but are not marked fuzzable. Hidden
+/// fields (CSRF tokens, etc.) are sent verbatim but not fuzzed.
+fn extract_form_fields(inner: &str) -> Vec<FormField> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for cap in input_re().captures_iter(inner) {
+        let attrs = parse_attrs(cap.get(2).map(|m| m.as_str()).unwrap_or(""));
+        let Some(name) = attrs.get("name").map(|s| s.trim().to_string()) else {
+            continue;
+        };
+        if name.is_empty() || !seen.insert(name.clone()) {
+            continue;
+        }
+        let itype = attrs.get("type").map(|s| s.to_lowercase()).unwrap_or_default();
+        let non_fuzzable = matches!(
+            itype.as_str(),
+            "submit" | "button" | "image" | "reset" | "file" | "hidden"
+        );
+        let value = attrs.get("value").cloned().unwrap_or_default();
+        out.push(FormField {
+            name,
+            // Seed empty fuzzable fields with "1" so there's a baseline value to
+            // diff against; keep submit/hidden values exactly as authored.
+            value: if value.is_empty() && !non_fuzzable {
+                "1".into()
+            } else {
+                value
+            },
+            fuzzable: !non_fuzzable,
+        });
+    }
+    out
 }
 
 fn normalize_url(base: &Url, href: &str) -> Option<String> {
@@ -161,30 +242,63 @@ pub async fn crawl(
                     }
                 }
             }
-            for cap in form_action_re().captures_iter(&body) {
-                if let Some(action) = cap.get(1).map(|m| m.as_str()) {
-                    let action = if action.is_empty() { url.as_str() } else { action };
-                    if let Some(abs) = normalize_url(base, action) {
-                        if let Ok(u) = Url::parse(&abs) {
-                            if host_allowed(&seed_host, &u, config.same_host_only) {
-                                let ps = PathState {
-                                    uri: abs.clone(),
-                                    is_post_target: true,
-                                    params: vec![FuzzableParam {
-                                        name: "body".into(),
-                                        value: "1".into(),
-                                        location: ParamLocation::Post,
-                                    }],
-                                    fuzz_index: Some(0),
-                                    ..Default::default()
-                                };
-                                let key = format!("{}:post", ps.uri);
-                                if seen_paths.insert(key) {
-                                    path_states.push(ps);
-                                }
-                            }
-                        }
+            for cap in form_block_re().captures_iter(&body) {
+                let form_attrs = parse_attrs(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
+                let inner = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+
+                let is_post = form_attrs
+                    .get("method")
+                    .map(|m| m.eq_ignore_ascii_case("post"))
+                    .unwrap_or(false);
+                let action = form_attrs
+                    .get("action")
+                    .filter(|a| !a.trim().is_empty())
+                    .map(|a| a.as_str())
+                    .unwrap_or(url.as_str());
+
+                let Some(abs) = normalize_url(base, action) else { continue };
+                let Ok(u) = Url::parse(&abs) else { continue };
+                if !host_allowed(&seed_host, &u, config.same_host_only) {
+                    continue;
+                }
+
+                let fields = extract_form_fields(inner);
+                if fields.is_empty() {
+                    continue;
+                }
+                let location = if is_post {
+                    ParamLocation::Post
+                } else {
+                    ParamLocation::Query
+                };
+                // The full field set is sent with every request; we only swap the
+                // one being fuzzed. Build it once, then emit a PathState per
+                // fuzzable field so each gets its own injection pass.
+                let params: Vec<FuzzableParam> = fields
+                    .iter()
+                    .map(|f| FuzzableParam {
+                        name: f.name.clone(),
+                        value: f.value.clone(),
+                        location,
+                    })
+                    .collect();
+
+                for (i, f) in fields.iter().enumerate() {
+                    if !f.fuzzable {
+                        continue;
                     }
+                    let tag = if is_post { "post" } else { "get" };
+                    let key = format!("{}:{}:{}", abs, tag, f.name);
+                    if !seen_paths.insert(key) {
+                        continue;
+                    }
+                    path_states.push(PathState {
+                        uri: abs.clone(),
+                        is_post_target: is_post,
+                        params: params.clone(),
+                        fuzz_index: Some(i),
+                        ..Default::default()
+                    });
                 }
             }
         }
