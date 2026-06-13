@@ -148,3 +148,19 @@ kortex\target\release\aim-proxy.exe
 # 3. AIRI avatar (optional)
 cd airi && pnpm dev --host
 ```
+
+---
+
+## Working Agreement (read every session)
+
+- **Quality over token efficiency.** Do the judgment-heavy work yourself. Never silently
+  downgrade to a cheaper model or cut corners to save tokens. If a task is genuinely
+  better suited to a smaller/cheaper model, *say so and ask* — don't reroute on your own.
+- **Don't pad.** Terse is fine; dropping verification, edge cases, or correctness to save
+  tokens is not. Efficiency means no filler, not less rigor.
+- **Stale sessions are the real token sink.** Resuming a long conversation after >1h is a
+  full prompt-cache miss (re-bills the whole transcript). To cut this:
+  - Launch with a 400k context window instead of 1M:
+    `CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 claude`
+  - `/clear` before starting unrelated work instead of continuing a stale thread.
+  - `/compact` at natural breakpoints rather than letting context balloon.

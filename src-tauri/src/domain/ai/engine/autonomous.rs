@@ -1605,7 +1605,12 @@ impl Sentient {
                 })
             } else {
                 let is_small_model = Self::is_small_model_name(&active_model);
-                let supports_native_tools = !is_small_model && {
+                // Headless web-chat (claude.ai / deepseek) can't use the API `tools`
+                // array — it only sees prose. Force the text JSON tool protocol so the
+                // model emits ```json {"name","arguments"}``` blocks that
+                // `try_parse_markdown_tool_calls` extracts.
+                let is_webchat = active_provider.to_lowercase().starts_with("webchat");
+                let supports_native_tools = !is_small_model && !is_webchat && {
                     let m = active_model.to_lowercase();
                     // All modern Ollama models ≥8B support OpenAI-compatible function calling.
                     // Only legacy/specialty models need the text-JSON fallback.

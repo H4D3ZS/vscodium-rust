@@ -1,8 +1,8 @@
 # Mission State
 ## Active Mission Status
 
-- **Status:** Idle
-- **Current Task:** Task completed
+- **Status:** Active
+- **Current Task:** Processing: since you're both of that, then when i will send instruction of what i want you 
 You are **AIRI**, the autonomous agentic co-pilot o
 OBJECTIVES OF THE STUDY
 General Objec
