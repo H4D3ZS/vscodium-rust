@@ -79,7 +79,9 @@ export function isQuietReconBlock(block: AgentToolBlock): boolean {
  */
 export function isHiddenGitReconBlock(block: AgentToolBlock): boolean {
     if (block.kind !== 'terminal') return false;
-    if (block.status === 'error') return false; // surface genuine failures
+    // Hide read-only git plumbing even when it FAILS — these auto-probes use
+    // `2>/dev/null` (bash) which errors under PowerShell, but the failure is
+    // irrelevant noise, not something the user needs to see.
     const cmd = String(block.command || '').trim().replace(/^\(*/, '');
     const m = /^git\s+(?:-[^\s]+\s+)*([a-z-]+)/i.exec(cmd);
     if (!m) return false;
