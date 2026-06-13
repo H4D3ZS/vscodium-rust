@@ -140,10 +140,34 @@ const MultiFileReviewBanner: React.FC = memo(() => {
     const edits = useStore(s => s.pendingAgentEdits);
     const isThinking = useStore(s => s.isAgentThinking);
     const openReview = useStore(s => s.openMultiFileReview);
+    const clearEdits = useStore(s => s.clearPendingAgentEdits);
+    const rollbackAll = useStore(s => s.rollbackLastAgentCheckpoint);
+    const lastCheckpoint = useStore(s => s.lastAgentCheckpoint);
     // Only show after the turn finishes, with 2+ files. Single-file edits
     // are usually obvious and don't warrant a modal.
     if (isThinking) return null;
     if (edits.length < 2) return null;
+
+    const acceptAll = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        clearEdits(); // keep all changes on disk; just dismiss the review
+    };
+    const rejectAll = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!lastCheckpoint) return;
+        if (!window.confirm(`Revert all ${edits.length} files to the checkpoint? This cannot be undone.`)) return;
+        const res = await rollbackAll();
+        if (res?.ok) {
+            edits.forEach(ed => window.dispatchEvent(new CustomEvent('editor:reload-file', { detail: { path: ed.path } })));
+        } else {
+            window.alert('Rollback failed: ' + (res?.message || 'unknown error'));
+        }
+    };
+
+    const pill: React.CSSProperties = {
+        padding: '2px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
+        border: '1px solid rgba(255,255,255,0.12)', cursor: 'pointer',
+    };
     return (
         <div
             onClick={openReview}
@@ -161,11 +185,15 @@ const MultiFileReviewBanner: React.FC = memo(() => {
             <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontWeight: 500 }}>
                 {edits.length} {edits.length === 1 ? 'File' : 'Files'}
             </span>
-            <span style={{
-                background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.92)',
-                padding: '2px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
-                border: '1px solid rgba(255,255,255,0.12)',
-            }}>Review</span>
+            {lastCheckpoint && (
+                <span onClick={rejectAll} style={{ ...pill, background: 'rgba(239,68,68,0.14)', color: '#f87171', borderColor: 'rgba(239,68,68,0.35)' }} title="Revert all files to the checkpoint">
+                    Reject all
+                </span>
+            )}
+            <span onClick={acceptAll} style={{ ...pill, background: 'rgba(16,185,129,0.16)', color: '#34d399', borderColor: 'rgba(16,185,129,0.4)' }} title="Keep all changes">
+                Accept all
+            </span>
+            <span style={{ ...pill, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.92)' }}>Review</span>
         </div>
     );
 });

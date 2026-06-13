@@ -205,7 +205,11 @@ impl Sentient {
 
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(600)) // 10 minute total timeout for heavy local inference
+            // 24/7 coding: a long local generation (or a cold model load) must NOT be
+            // killed by a total-request cap. The real hang guard is the per-chunk
+            // inter-token timeout in the streaming loop (no bytes for N s → error).
+            // Per-request `.timeout()` still tightens this for cloud/advisor calls.
+            .timeout(std::time::Duration::from_secs(3600))
             .no_proxy()
             .build()
             .unwrap_or_else(|_| Client::new());

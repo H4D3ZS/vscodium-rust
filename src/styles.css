@@ -3335,6 +3335,54 @@ body.resizing .resizer-h {
   font-family: var(--font-mono);
 }
 
+/* Inline per-file Accept/Reject on edit cards (Cursor-style). */
+.agent-edit-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.agent-edit-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+.agent-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+.agent-edit-btn .codicon { font-family: codicon; font-style: normal; font-size: 10px; }
+.agent-edit-btn:disabled { opacity: 0.5; cursor: default; }
+.agent-edit-btn--reject {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+.agent-edit-btn--reject:hover:not(:disabled) { background: rgba(239, 68, 68, 0.2); }
+.agent-edit-btn--accept {
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+.agent-edit-btn--accept:hover:not(:disabled) { background: rgba(16, 185, 129, 0.26); }
+.agent-edit-decided {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.agent-edit-decided .codicon { font-family: codicon; font-style: normal; font-size: 10px; }
+.agent-edit-decided--ok { color: #34d399; }
+.agent-edit-decided--no { color: #f87171; }
+
 .composer-todo {
   padding: 6px 10px 8px;
 }

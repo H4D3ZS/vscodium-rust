@@ -57,6 +57,7 @@ export interface AgentMessagesSlice {
     resetThread: () => void;
     truncateAgentMessages: (index: number) => void;
     addPendingAgentEdit: (edit: { path: string; tool: string; preview?: string }) => void;
+    removePendingAgentEdit: (path: string) => void;
     clearPendingAgentEdits: () => void;
     openMultiFileReview: () => void;
     closeMultiFileReview: () => void;
@@ -307,6 +308,7 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
         }
         return { pendingAgentEdits: [...s.pendingAgentEdits, { ...edit, timestamp: Date.now() }] };
     }),
+    removePendingAgentEdit: (path) => set((s) => ({ pendingAgentEdits: s.pendingAgentEdits.filter(e => e.path !== path) })),
     clearPendingAgentEdits: () => set({ pendingAgentEdits: [] }),
     openMultiFileReview: () => set({ isMultiFileReviewOpen: true }),
     closeMultiFileReview: () => set({ isMultiFileReviewOpen: false, pendingAgentEdits: [] }),

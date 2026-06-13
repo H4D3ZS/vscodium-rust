@@ -9,6 +9,53 @@ import InlineDiffPreview from './InlineDiffPreview';
 import ComposerTodoList from './ComposerTodoList';
 import { computeInlineDiff } from '../../domain/agent/inlineDiff';
 import { useStore } from '../../store';
+import { invoke } from '../../tauri_bridge';
+
+/** Inline per-file Accept/Reject — mirrors MultiFileReview's keep/revert. */
+const EditDecision: React.FC<{ path?: string }> = ({ path }) => {
+    const [decision, setDecision] = useState<'pending' | 'accepted' | 'rejected'>('pending');
+    const [busy, setBusy] = useState(false);
+    if (!path) return null;
+
+    const reject = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (busy || decision !== 'pending') return;
+        setBusy(true);
+        try {
+            // Revert this file to the pre-turn checkpoint (commit at HEAD~1),
+            // the same mechanism the multi-file review modal uses.
+            await invoke('ai_execute_command', { command: `git checkout HEAD~1 -- "${path}"` }).catch(() => {});
+            window.dispatchEvent(new CustomEvent('editor:reload-file', { detail: { path } }));
+            setDecision('rejected');
+            try { useStore.getState().removePendingAgentEdit?.(path); } catch { /* non-fatal */ }
+        } finally {
+            setBusy(false);
+        }
+    };
+    const accept = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (decision !== 'pending') return;
+        setDecision('accepted');
+        try { useStore.getState().removePendingAgentEdit?.(path); } catch { /* non-fatal */ }
+    };
+
+    if (decision === 'accepted') {
+        return <span className="agent-edit-decided agent-edit-decided--ok"><i className="codicon codicon-check" /> Accepted</span>;
+    }
+    if (decision === 'rejected') {
+        return <span className="agent-edit-decided agent-edit-decided--no"><i className="codicon codicon-discard" /> Reverted</span>;
+    }
+    return (
+        <div className="agent-edit-actions" onClick={(e) => e.stopPropagation()}>
+            <button className="agent-edit-btn agent-edit-btn--reject" onClick={reject} disabled={busy} title="Revert this file">
+                <i className="codicon codicon-discard" /> Reject
+            </button>
+            <button className="agent-edit-btn agent-edit-btn--accept" onClick={accept} disabled={busy} title="Keep this change">
+                <i className="codicon codicon-check" /> Accept
+            </button>
+        </div>
+    );
+};
 
 /** Count added/removed lines for the header badge (Cursor shows these collapsed). */
 function diffCounts(oldText?: string, newText?: string): { adds: number; dels: number } {
@@ -169,6 +216,11 @@ const ToolBlockCard: React.FC<{ block: AgentToolBlock }> = ({ block }) => {
                     }}>
                         {block.preview.slice(0, 600)}{block.preview.length > 600 ? '\n…' : ''}
                     </pre>
+                )}
+                {block.status === 'done' && block.path && (
+                    <div className="agent-edit-footer">
+                        <EditDecision path={block.path} />
+                    </div>
                 )}
             </div>
         );

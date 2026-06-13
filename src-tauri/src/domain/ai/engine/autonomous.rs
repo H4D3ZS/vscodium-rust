@@ -1928,10 +1928,17 @@ impl Sentient {
             // Send prompt to AI provider
             let request_url = endpoint.clone();
 
+            let active_provider_lc = active_provider.to_lowercase();
             let timeout_secs = if was_advisor_iteration {
                 45 // Planner must not block the agent loop for minutes (Composer-style responsiveness)
-            } else if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
-                600 // Local / proxy — large models need warm-up time
+            } else if active_provider_lc == "ollama" || active_provider_lc == "antigravity" {
+                // Local / proxy — 24/7 long generations + cold model loads. The per-chunk
+                // inter-token timeout below is the real hang guard, not this cap.
+                3600
+            } else if active_provider_lc.starts_with("webchat") {
+                // Headless web-chat: a browser round-trip (navigate → type → poll reply)
+                // can legitimately take a few minutes for a long answer.
+                600
             } else {
                 120
             };
