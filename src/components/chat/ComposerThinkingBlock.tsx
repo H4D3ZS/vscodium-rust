@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface ComposerThinkingBlockProps {
     thoughts: string;
@@ -15,6 +15,12 @@ function formatDuration(ms?: number): string {
 
 const ComposerThinkingBlock: React.FC<ComposerThinkingBlockProps> = ({ thoughts, durationMs, isStreaming }) => {
     const [open, setOpen] = useState(isStreaming ?? false);
+    const [userToggled, setUserToggled] = useState(false);
+    // Auto-expand while the model is reasoning so you see it stream; auto-collapse
+    // when it finishes — unless the user manually toggled it (then respect that).
+    useEffect(() => {
+        if (!userToggled) setOpen(!!isStreaming);
+    }, [isStreaming, userToggled]);
     const label = isStreaming
         ? 'Thinking…'
         : durationMs
@@ -27,7 +33,7 @@ const ComposerThinkingBlock: React.FC<ComposerThinkingBlockProps> = ({ thoughts,
         <details
             className="composer-thinking"
             open={open}
-            onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+            onToggle={(e) => { setUserToggled(true); setOpen((e.target as HTMLDetailsElement).open); }}
         >
             <summary className="composer-thinking__summary">
                 <span className={`composer-thinking__dot${isStreaming ? ' composer-thinking__dot--live' : ''}`} />

@@ -149,10 +149,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                     </div>
                 ) : (
                     <>
-                        {msg.thoughts && !(isAgentThinking && isLastMessage) && (
+                        {msg.thoughts && (
                             <ComposerThinkingBlock
                                 thoughts={msg.thoughts}
                                 durationMs={msg.thoughtDurationMs}
+                                isStreaming={isAgentThinking && isLastMessage}
                             />
                         )}
                         {hasContent && (

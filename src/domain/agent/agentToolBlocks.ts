@@ -71,6 +71,26 @@ export function isQuietReconBlock(block: AgentToolBlock): boolean {
     return block.kind === 'search' || block.kind === 'read' || block.kind === 'generic';
 }
 
+/**
+ * Internal read-only git probes (branch/status/log/config/diff…) the agent runs to
+ * orient itself. Cursor never shows these in chat — they're plumbing, not work. We
+ * hide them from the chat stream (they still ran; the terminal panel has the real
+ * git). Mutating git (commit/checkout/add/push/merge/reset) is NOT hidden.
+ */
+export function isHiddenGitReconBlock(block: AgentToolBlock): boolean {
+    if (block.kind !== 'terminal') return false;
+    if (block.status === 'error') return false; // surface genuine failures
+    const cmd = String(block.command || '').trim().replace(/^\(*/, '');
+    const m = /^git\s+(?:-[^\s]+\s+)*([a-z-]+)/i.exec(cmd);
+    if (!m) return false;
+    const READ_ONLY = new Set([
+        'status', 'branch', 'log', 'config', 'rev-parse', 'diff', 'show',
+        'remote', 'describe', 'symbolic-ref', 'ls-files', 'for-each-ref',
+        'rev-list', 'name-rev', 'cat-file', 'blame', 'shortlog', 'count-objects',
+    ]);
+    return READ_ONLY.has(m[1].toLowerCase());
+}
+
 export interface ReconSummary {
     type: 'recon-summary';
     id: string;
@@ -100,6 +120,9 @@ export function collapseToolBlocksForDisplay(blocks: AgentToolBlock[]): DisplayT
     };
 
     for (const b of blocks) {
+        if (isHiddenGitReconBlock(b)) {
+            continue; // internal git plumbing — never shown in chat
+        }
         if (isQuietReconBlock(b)) {
             quiet.push(b);
         } else {

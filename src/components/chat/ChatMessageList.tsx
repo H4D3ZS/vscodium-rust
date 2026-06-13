@@ -72,6 +72,7 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
         if (last?.role !== 'assistant') return `0:0:${blocks}`;
         return `${last.content?.length ?? 0}:${last.thoughts?.length ?? 0}:${blocks}`;
     });
+    const lastMessageRole = messages[messages.length - 1]?.role;
 
     const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
         const container = scrollContainerRef?.current ?? findScrollParent(endRef.current);
@@ -143,9 +144,12 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
                     onEditCancel={onEditCancel}
                 />
             ))}
+            {/* Live reasoning now streams inline on the in-progress message (ChatMessage),
+                so we only render live tool cards here — no duplicate thinking block. The
+                fallback below covers the rare case where no assistant message exists yet. */}
             {(isAgentThinking || liveBlocks.length > 0) && (
                 <>
-                    {isAgentThinking && lastAssistantThoughts && (
+                    {isAgentThinking && lastAssistantThoughts && lastMessageRole !== 'assistant' && (
                         <ComposerThinkingBlock thoughts={lastAssistantThoughts} isStreaming />
                     )}
                     <AgentToolBlocks blocks={liveBlocks} />
