@@ -3257,6 +3257,46 @@ body.resizing .resizer-h {
   font-size: 10px;
 }
 
+/* Cursor-style diff line accent: a coloured left gutter + richer fill. */
+.composer-inline-diff__line--add {
+  background: rgba(78, 201, 148, 0.13);
+  box-shadow: inset 2px 0 0 rgba(78, 201, 148, 0.55);
+}
+.composer-inline-diff__line--del {
+  background: rgba(248, 113, 113, 0.13);
+  box-shadow: inset 2px 0 0 rgba(248, 113, 113, 0.55);
+}
+
+/* Cursor-style edit card: filename chip + +N/−N badges in the header. */
+.agent-edit-card__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 60%;
+  overflow: hidden;
+}
+.agent-edit-card__name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.82);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-edit-card__stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin-right: 8px;
+}
+.agent-edit-card__add { color: #4ec994; }
+.agent-edit-card__del { color: #f87171; }
+.agent-edit-card:hover {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
 .composer-todo {
   padding: 6px 10px 8px;
 }

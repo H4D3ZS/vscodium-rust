@@ -7,7 +7,20 @@ import type { AgentToolBlock } from '../../domain/agent/agentToolBlocks';
 import { collapseToolBlocksForDisplay, type DisplayToolBlock } from '../../domain/agent/agentToolBlocks';
 import InlineDiffPreview from './InlineDiffPreview';
 import ComposerTodoList from './ComposerTodoList';
+import { computeInlineDiff } from '../../domain/agent/inlineDiff';
 import { useStore } from '../../store';
+
+/** Count added/removed lines for the header badge (Cursor shows these collapsed). */
+function diffCounts(oldText?: string, newText?: string): { adds: number; dels: number } {
+    if (!oldText && !newText) return { adds: 0, dels: 0 };
+    const lines = computeInlineDiff(oldText || '', newText || '', 4000);
+    let adds = 0, dels = 0;
+    for (const l of lines) {
+        if (l.type === 'add') adds++;
+        else if (l.type === 'del') dels++;
+    }
+    return { adds, dels };
+}
 
 const cardStyle: React.CSSProperties = {
     marginBottom: '8px',
@@ -123,19 +136,30 @@ const ToolBlockCard: React.FC<{ block: AgentToolBlock }> = ({ block }) => {
 
     if (block.kind === 'edit') {
         const hasDiff = !!(block.oldText || block.newText);
+        const fileName = (block.path || block.title || '').split(/[\\/]/).pop() || block.title;
+        const { adds, dels } = hasDiff ? diffCounts(block.oldText, block.newText) : { adds: 0, dels: 0 };
         return (
-            <div style={cardStyle}>
+            <div style={cardStyle} className="agent-edit-card">
                 <div
                     style={{ ...headerStyle, cursor: 'pointer', borderBottom: open ? headerStyle.borderBottom : 'none' }}
                     onClick={() => setOpen((v) => !v)}
                 >
                     {statusDot}
-                    <i className="codicon codicon-diff" style={{ fontSize: 12, opacity: 0.6 }} />
-                    <span style={{ flex: 1 }}>{block.title}</span>
+                    <span className="agent-edit-card__chip">
+                        <i className="codicon codicon-file-code" style={{ fontSize: 11, opacity: 0.7 }} />
+                        <span className="agent-edit-card__name">{fileName}</span>
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    {(adds > 0 || dels > 0) && (
+                        <span className="agent-edit-card__stats">
+                            {adds > 0 && <span className="agent-edit-card__add">+{adds}</span>}
+                            {dels > 0 && <span className="agent-edit-card__del">−{dels}</span>}
+                        </span>
+                    )}
                     <i className={`codicon codicon-chevron-${open ? 'up' : 'down'}`} style={{ fontSize: 10, opacity: 0.4 }} />
                 </div>
                 {open && hasDiff && (
-                    <InlineDiffPreview oldText={block.oldText} newText={block.newText} path={block.path} />
+                    <InlineDiffPreview oldText={block.oldText} newText={block.newText} path={block.path} hideMeta />
                 )}
                 {open && !hasDiff && block.preview && (
                     <pre style={{
