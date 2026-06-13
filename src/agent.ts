@@ -1675,6 +1675,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
     ]);
     const selectedIsCloudModel = CLOUD_PROVIDER_PREFIXES.has(selectedProviderPrefix)
+        || selectedProviderPrefix.startsWith('webchat') // headless web-chat shim, not Ollama
         || isHighwayApiModel(selectedModelLower)
         || selectedModelLower.includes('gemini') || selectedModelLower.includes('claude')
         || selectedModelLower.includes('gpt-') || selectedModelLower.includes('o1-')
@@ -2049,7 +2050,12 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
             'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
         ]);
-        if (!CLOUD_PROVIDERS.has(normalizedProvider) && !isHighwayApiModel(routingModel)) {
+        // webchat-* are headless web-chat "models" fronted by the local OpenAI shim
+        // (:1539) — they are NOT Ollama and must keep their own provider even when
+        // the local inference backend is Ollama.
+        if (!CLOUD_PROVIDERS.has(normalizedProvider)
+            && !normalizedProvider.startsWith('webchat')
+            && !isHighwayApiModel(routingModel)) {
             routingProvider = 'ollama';
         }
         routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl || '';
@@ -2527,7 +2533,10 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
     // action turn so stale state from a prior turn never leaks into this one.
     try {
         const ps = store.getState() as any;
-        const wantPlanner = hybridPlannerAllowed(ps) && looksLikeActionRequest(userPrompt);
+        // Web-chat models are strong enough to plan themselves; don't delegate iter-0
+        // to a separate (possibly cloud) planner — it mixes sessions and adds latency.
+        const isWebchatExecutor = String(routingProvider).toLowerCase().startsWith('webchat');
+        const wantPlanner = !isWebchatExecutor && hybridPlannerAllowed(ps) && looksLikeActionRequest(userPrompt);
         let plannerSpec = '';
         if (wantPlanner) {
             if (!ps.hybridAuto && ps.plannerModel) {
