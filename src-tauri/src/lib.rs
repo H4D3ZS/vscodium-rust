@@ -446,6 +446,8 @@ pub fn run() {
             webui_bridge_commands::webui_bridge_providers,
             webui_bridge_commands::webui_bridge_start_task,
             webui_bridge_commands::webui_bridge_inject,
+            webui_bridge_commands::webchat_login,
+            webui_bridge_commands::webchat_sessions,
             // ═══ 24/7 Autonomous Supervisor ═══
             supervisor::supervisor_enqueue,
             supervisor::supervisor_status,

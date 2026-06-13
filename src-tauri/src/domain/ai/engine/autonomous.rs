@@ -1629,7 +1629,7 @@ impl Sentient {
 
                 let mut ollama_system = system_msg.clone();
 
-                if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
+                if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" || is_webchat {
                     // Gemma 4 thinking mode — Ollama handles chat template; we only prefix system.
                     if Self::is_gemma4_model(&active_model) && !is_chat_mode && !ollama_system.starts_with("<|think|>") {
                         ollama_system = format!("<|think|>\n{ollama_system}");
@@ -1919,7 +1919,7 @@ impl Sentient {
                 }
             }
 
-            let keyless_providers = ["ollama", "antigravity", "vllm", "lmstudio", "lm-studio", "lm_studio", "litellm", "lite-llm", "lite_llm", "openwebui"];
+            let keyless_providers = ["ollama", "antigravity", "vllm", "lmstudio", "lm-studio", "lm_studio", "litellm", "lite-llm", "lite_llm", "openwebui", "webchat"];
             let is_keyless = keyless_providers.iter().any(|p| active_provider.to_lowercase().starts_with(p));
             if provider_key.is_empty() && !is_keyless {
                 return Err(anyhow!("No API key found for provider: {}. Please run 'Hunt for Working AI Keys' from the model menu, or set it in Settings.", active_provider));

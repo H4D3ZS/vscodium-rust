@@ -176,6 +176,11 @@ impl Sentient {
             provider.split(':').next().unwrap_or(provider).to_lowercase()
         };
         match provider_base.as_str() {
+            // Headless web-chat models are fronted by the local OpenAI shim (:1539),
+            // which drives the logged-in claude.ai / deepseek session. Keyless.
+            "webchat" | "webchat-claude" | "webchat-deepseek" => {
+                "http://127.0.0.1:1539/v1/chat/completions".to_string()
+            }
             "google" | "gemini" => {
                 if let Ok(url) = std::env::var("GOOGLE_BASE_URL") {
                     if !url.is_empty() {

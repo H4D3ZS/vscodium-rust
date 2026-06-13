@@ -52,3 +52,30 @@ pub async fn webui_bridge_inject(
 ) -> Result<bool, String> {
     Ok(state.webui_bridge.inject(&tab_id, &text).await)
 }
+
+// ── Headless web-chat-as-model (webchat_openai_shim) ─────────────────────────
+
+/// One-time visible login for a headless web-chat provider (`claude` | `deepseek`).
+/// Opens a real Firefox window; resolves once the composer appears and the session
+/// (cookies + localStorage) has been persisted for headless 24/7 reuse.
+#[tauri::command]
+pub async fn webchat_login(
+    driver: tauri::State<'_, std::sync::Arc<crate::infrastructure::web_chat_driver::WebChatDriver>>,
+    provider: String,
+) -> Result<String, String> {
+    driver.login(&provider).await
+}
+
+/// Which web-chat providers already have a saved (logged-in) session on disk.
+#[tauri::command]
+pub async fn webchat_sessions(
+    driver: tauri::State<'_, std::sync::Arc<crate::infrastructure::web_chat_driver::WebChatDriver>>,
+) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for p in ["claude", "deepseek"] {
+        if driver.has_session(p) {
+            out.push(p.to_string());
+        }
+    }
+    Ok(out)
+}

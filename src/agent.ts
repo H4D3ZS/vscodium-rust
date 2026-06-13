@@ -360,6 +360,29 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
     }
 
 
+    // Headless web-chat models — drive your logged-in free web chat as a model
+    // (no API key, no usage caps). Backed by the local OpenAI shim on :1539.
+    items.push({
+        label: "🤖 Claude (Web · headless)",
+        value: "webchat-claude|webchat-claude",
+        desc: "Your free claude.ai session as an agentic model — 24/7, no API key"
+    });
+    items.push({
+        label: "🐬 DeepSeek (Web · headless)",
+        value: "webchat-deepseek|webchat-deepseek",
+        desc: "Your free deepseek.com session as an agentic model — 24/7"
+    });
+    items.push({
+        label: "🔑 Web login: Claude (one-time)",
+        value: "action|webchat_login|claude",
+        desc: "Opens Firefox once to log in; the session is saved for headless use"
+    });
+    items.push({
+        label: "🔑 Web login: DeepSeek (one-time)",
+        value: "action|webchat_login|deepseek",
+        desc: "Opens Firefox once to log in; the session is saved for headless use"
+    });
+
     // Add Browser login options
     items.push({
         label: "☁️ Login to Claude (Browser)",
@@ -393,6 +416,18 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
         if (val === "action|check_ollama") {
             const store = (window as any).useStore;
             if (store) store.getState().refreshAvailableModels("ollama");
+            return;
+        }
+        if (val.startsWith("action|webchat_login|")) {
+            const provider = val.split("|")[2];
+            const store = (window as any).useStore;
+            store?.getState?.().addToast?.(`Opening ${provider} login — finish signing in, then it runs headless.`, 'info');
+            invoke("webchat_login", { provider })
+                .then((msg) => store?.getState?.().addToast?.(String(msg), 'success'))
+                .catch(err => {
+                    console.error("webchat login failed:", err);
+                    store?.getState?.().addToast?.(`Web login failed: ${err}`, 'error');
+                });
             return;
         }
         if (val.startsWith("action|login|")) {

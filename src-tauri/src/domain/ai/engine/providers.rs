@@ -970,6 +970,11 @@ impl Sentient {
         if matches!(provider.to_lowercase().as_str(), "highwayapi" | "interfaceai" | "jiekou") {
             return Ok(vec!["claude-opus-4-8".to_string()]);
         }
+        // Headless web-chat providers are keyless and have a single fixed "model"
+        // (the provider id itself); no remote /models endpoint to query.
+        if provider.to_lowercase().starts_with("webchat") {
+            return Ok(vec![provider.to_lowercase()]);
+        }
         let provider_key = self.get_key_for_provider(provider);
 
         let mut has_google_base_url = false;

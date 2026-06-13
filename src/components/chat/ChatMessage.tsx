@@ -123,14 +123,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             </div>
 
             <div style={{
+                // Cursor-style: user turns are a subtle chip; the agent's own prose
+                // is flat/borderless so edits + tool cards read as the content.
                 background: msg.role === 'user'
                     ? 'rgba(59,130,246,0.06)'
-                    : msg.isSubAgentResponse ? 'rgba(59,130,246,0.03)' : 'rgba(255,255,255,0.01)',
-                padding: '9px 12px',
-                borderRadius: '8px',
+                    : msg.isSubAgentResponse ? 'rgba(59,130,246,0.03)' : 'transparent',
+                padding: msg.role === 'user' ? '9px 12px' : '2px 0',
+                borderRadius: msg.role === 'user' ? '8px' : 0,
                 border: msg.role === 'user'
                     ? '1px solid rgba(59,130,246,0.15)'
-                    : '1px solid rgba(255,255,255,0.04)',
+                    : msg.isSubAgentResponse ? '1px solid rgba(59,130,246,0.10)' : 'none',
             }}>
                 {editingMsgIdx === idx ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

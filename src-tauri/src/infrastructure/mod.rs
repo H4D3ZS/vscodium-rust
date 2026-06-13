@@ -19,4 +19,6 @@ pub mod ghost_runtime;
 pub mod hermes_gateway;
 pub mod system_profile;
 pub mod telemetry_pipeline;
+pub mod web_chat_driver;
+pub mod webchat_openai_shim;
 pub mod webui_mcp_bridge;

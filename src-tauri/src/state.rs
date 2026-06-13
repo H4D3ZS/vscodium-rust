@@ -222,6 +222,9 @@ pub struct EditorState {
     /// ZeroScript-style WebUI→MCP bridge (WebSocket server on :1538). The browser
     /// extension connects here so free web-chat models can drive the IDE's tools.
     pub webui_bridge: crate::infrastructure::webui_mcp_bridge::WebUiBridgeHandle,
+    /// Headless web-chat driver — turns logged-in free web chats (claude.ai,
+    /// deepseek) into selectable `webchat-*` "models" via the local OpenAI shim.
+    pub web_chat: std::sync::Arc<crate::infrastructure::web_chat_driver::WebChatDriver>,
 }
 
 impl EditorState {
@@ -467,6 +470,21 @@ impl EditorState {
             println!("[profile] lite: WebUI bridge (:1538) not auto-started");
         }
 
+        // Headless web-chat driver + OpenAI shim (:1539). Own dedicated browser
+        // sidecar so the agent's browser tools never hijack the chat session.
+        let web_chat = crate::infrastructure::web_chat_driver::WebChatDriver::new(&config_dir);
+        app.manage(std::sync::Arc::clone(&web_chat)); // State<Arc<WebChatDriver>> for webchat_login
+        if !crate::system_profile::is_lite() {
+            let shim = crate::infrastructure::webchat_openai_shim::WebChatShim::new(web_chat.clone());
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+                shim.start(crate::infrastructure::webchat_openai_shim::WEBCHAT_SHIM_PORT)
+                    .await;
+            });
+        } else {
+            println!("[profile] lite: web-chat shim (:1539) not auto-started");
+        }
+
         // Shared diagnostics map — owned by EditorState, borrowed by LspClient
         let shared_lsp_diags: lsp::DiagnosticsMap =
             Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
@@ -562,6 +580,7 @@ impl EditorState {
                 attachments: attachment_manager,
             },
             webui_bridge,
+            web_chat,
             services: ServiceState {
                 auth: auth_state,
                 browser: browser_state,
