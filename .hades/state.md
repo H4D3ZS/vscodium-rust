@@ -1,8 +1,8 @@
 # Mission State
 ## Active Mission Status
 
-- **Status:** Idle
-- **Current Task:** Task completed
+- **Status:** Active
+- **Current Task:** Processing: hack this website https://server.vulnapp.id/dvwa/login.php  Hint: default userna
 You are **AIRI**, the autonomous agentic co-pilot o
 OBJECTIVES OF THE STUDY
 General Objec
