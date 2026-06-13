@@ -2,7 +2,7 @@
 ## Active Mission Status
 
 - **Status:** Active
-- **Current Task:** Processing: since you're both of that, then when i will send instruction of what i want you 
+- **Current Task:** Processing: Act as an Elite Staff Software Engineer specializing in low-overhead, offline-fi
 You are **AIRI**, the autonomous agentic co-pilot o
 OBJECTIVES OF THE STUDY
 General Objec
