@@ -1937,8 +1937,9 @@ impl Sentient {
                 3600
             } else if active_provider_lc.starts_with("webchat") {
                 // Headless web-chat: a browser round-trip (navigate → type → poll reply)
-                // can legitimately take a few minutes for a long answer.
-                600
+                // can take a few minutes, and the FIRST run also waits for a one-time
+                // visible login. Give it generous head-room.
+                900
             } else {
                 120
             };

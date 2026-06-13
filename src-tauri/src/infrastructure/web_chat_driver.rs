@@ -113,7 +113,12 @@ impl WebChatDriver {
         let cfg = provider_config(provider)
             .ok_or_else(|| format!("unknown web provider: {}", provider))?;
         let _guard = self.busy.lock().await;
+        self.login_inner(&cfg).await
+    }
 
+    /// The actual login flow. Assumes the `busy` lock is already held (so it can be
+    /// called both from `login` and from `complete` on first use without deadlock).
+    async fn login_inner(&self, cfg: &WebProvider) -> Result<String, String> {
         self.browser
             .ensure_started_with(false) // headful — the user must see + complete login
             .await?;
@@ -140,7 +145,7 @@ impl WebChatDriver {
             }
         }
 
-        self.save_session(&cfg).await?;
+        self.save_session(cfg).await?;
         self.restored.lock().await.insert(cfg.key.to_string());
         Ok(format!("{} session captured and saved", cfg.key))
     }
@@ -229,8 +234,15 @@ impl WebChatDriver {
             .ok_or_else(|| format!("unknown web provider: {}", provider))?;
         let _guard = self.busy.lock().await;
 
-        self.browser.ensure_started_with(true).await?; // headless for unattended use
-        self.ensure_restored(&cfg).await?;
+        if self.state_path(cfg.key).exists() {
+            // Returning user: restore the saved session and run headless.
+            self.browser.ensure_started_with(true).await?;
+            self.ensure_restored(&cfg).await?;
+        } else {
+            // First use: pop a VISIBLE browser so the user can sign in once. After
+            // login the session is saved and every later run is headless.
+            self.login_inner(&cfg).await?;
+        }
 
         // Fresh chat each request — keeps provider rotation trivial and avoids
         // relying on the web UI's own conversation memory.
