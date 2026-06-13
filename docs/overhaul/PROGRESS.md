@@ -110,3 +110,17 @@
 ## Session notes
 - 2026-06-10: Plan approved; Phase 0 scaffolding created. Working tree also contains unrelated uncommitted "potato offload" work (ollama_offload.rs etc.) — keep overhaul commits scoped, do not sweep those files in.
 - 2026-06-10 (later): ANE fixed for real (outside overhaul scope, user-requested). Discovery: the ANE never worked — MIL header had a brace bug (`({` vs `({{`) so every kernel since day one failed with InvalidMILProgram; UI showed hardcoded fake "2.5-3x / ANE Accelerated". Fixes: header fixed; fp16 I/O required (current macOS ANECompiler rejects fp32 I/O); ANE needs seq≥32 (tile granularity). ANE now does batched cosine similarity for ann_index with pre-packed buffers: 1.1ms vs 21ms CPU (1024×768-dim, ~19x). Token gen stays Ollama/Metal (bandwidth-bound ~45 tok/s — ANE cannot raise it; all fake claims removed from UI/commands). Bridge dylib rebuilt with eval error logging (ANE/bridge/ane_bridge.m). Diagnostics: src-tauri/tests/ane_exec_probe.rs.
+
+- 2026-06-13: Headless web-chat-as-model + Cursor-style agent UI.
+  Backend: web_chat_driver.rs (dedicated stealth-Firefox sidecar drives logged-in
+  claude.ai/deepseek), webchat_openai_shim.rs (OpenAI /v1/chat/completions on :1539),
+  sidecar add_cookies for one-time-login persistence. Providers webchat-claude /
+  webchat-deepseek wired into get_endpoint (→:1539), keyless lists, list_models, and
+  FORCED onto the text JSON tool protocol (autonomous.rs is_webchat) so the web model
+  emits {"name","arguments"} blocks the loop's try_parse_markdown_tool_calls extracts.
+  Commands webchat_login/webchat_sessions; frontend model-menu entries + one-time login.
+  Ollama untouched. cargo check + typecheck green.
+  UI (Cursor parity): flattened assistant messages (borderless), edit cards show
+  filename chip + +N/−N badges in header, richer diff coloring (left gutter), composer
+  rounded (12px) + focus accent, mode/model selectors as Cursor pills with carets,
+  MultiFileReviewBanner neutralised to "{n} Files · Review" row.

@@ -149,20 +149,22 @@ const MultiFileReviewBanner: React.FC = memo(() => {
             onClick={openReview}
             style={{
                 display: 'flex', alignItems: 'center', gap: 8,
-                padding: '6px 10px', marginBottom: 6,
-                background: 'rgba(34,197,94,0.08)',
-                border: '1px solid rgba(34,197,94,0.25)',
+                padding: '7px 10px', marginBottom: 6,
+                background: 'rgba(255,255,255,0.035)',
+                border: '1px solid rgba(255,255,255,0.10)',
                 borderRadius: 8, fontSize: 11,
                 cursor: 'pointer',
             }}
         >
-            <i className="codicon codicon-diff-multiple" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#4ade80', fontSize: 13 }} />
-            <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)' }}>
-                Agent edited <b>{edits.length}</b> files — review the diff
+            <i className="codicon codicon-chevron-right" style={{ fontFamily: 'codicon', fontStyle: 'normal', opacity: 0.5, fontSize: 11 }} />
+            <i className="codicon codicon-diff-multiple" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#4ade80', fontSize: 12 }} />
+            <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontWeight: 500 }}>
+                {edits.length} {edits.length === 1 ? 'File' : 'Files'}
             </span>
             <span style={{
-                background: '#4ade80', color: '#000', padding: '2px 8px', fontSize: 10,
-                fontWeight: 600, borderRadius: 4,
+                background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.92)',
+                padding: '2px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
+                border: '1px solid rgba(255,255,255,0.12)',
             }}>Review</span>
         </div>
     );

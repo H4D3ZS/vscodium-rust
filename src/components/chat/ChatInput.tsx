@@ -22,11 +22,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
     toolbar,
 }) => {
     return (
-        <div style={{
+        <div className="vscr-composer" style={{
             background: 'var(--vscode-input-background)',
-            border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'var(--vscode-input-border, transparent)'}`,
-            boxShadow: isSpecModeActive ? '0 0 10px rgba(0,198,255,0.25)' : 'none',
-            borderRadius: '4px', padding: '7px 10px',
+            border: `1px solid ${isSpecModeActive ? 'var(--terminator-accent, #00c6ff)' : 'rgba(255,255,255,0.08)'}`,
+            boxShadow: isSpecModeActive ? '0 0 10px rgba(0,198,255,0.25)' : '0 1px 3px rgba(0,0,0,0.25)',
+            borderRadius: '12px', padding: '10px 12px',
             display: 'flex', flexDirection: 'column',
             transition: 'all 0.2s',
         }}>

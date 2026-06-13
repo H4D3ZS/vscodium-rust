@@ -51,13 +51,22 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
                 <span
                     onClick={onModeClick}
-                    style={{ fontSize: '10px', cursor: 'pointer', padding: '1px 6px', borderRadius: '4px', fontWeight: 600, color: modeStyle.color, background: modeStyle.background, border: modeStyle.border }}
+                    className="vscr-pill"
+                    style={{ color: modeStyle.color, background: modeStyle.background, border: modeStyle.border, fontWeight: 600 }}
                     title={modeStyle.title}
                 >
                     {modeStyle.label}
+                    <i className="codicon codicon-chevron-down vscr-pill__caret" />
                 </span>
 
-                <span onClick={onModelClick} title={modelLabel} style={{ fontSize: '10px', opacity: 0.5, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '130px', display: 'inline-block', verticalAlign: 'middle' }}>{modelLabel}</span>
+                <span
+                    onClick={onModelClick}
+                    title={modelLabel}
+                    className="vscr-pill vscr-pill--model"
+                >
+                    <span className="vscr-pill__label">{modelLabel}</span>
+                    <i className="codicon codicon-chevron-down vscr-pill__caret" />
+                </span>
 
                 {reasoningToggle}
 

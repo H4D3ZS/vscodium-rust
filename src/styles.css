@@ -3297,6 +3297,44 @@ body.resizing .resizer-h {
   border-color: rgba(255, 255, 255, 0.14) !important;
 }
 
+/* Cursor-style composer + pills (mode / model selectors). */
+.vscr-composer:focus-within {
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18), 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+}
+
+.vscr-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.72);
+  transition: background 0.15s, border-color 0.15s;
+}
+.vscr-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.vscr-pill__caret {
+  font-family: codicon;
+  font-style: normal;
+  font-size: 9px;
+  opacity: 0.5;
+}
+.vscr-pill--model .vscr-pill__label {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
 .composer-todo {
   padding: 6px 10px 8px;
 }
