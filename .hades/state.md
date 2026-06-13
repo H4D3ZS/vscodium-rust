@@ -2,7 +2,7 @@
 ## Active Mission Status
 
 - **Status:** Active
-- **Current Task:** Processing: hack this website https://server.vulnapp.id/dvwa/login.php  Hint: default userna
+- **Current Task:** Processing: continue
 You are **AIRI**, the autonomous agentic co-pilot o
 OBJECTIVES OF THE STUDY
 General Objec
