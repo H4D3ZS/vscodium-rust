@@ -1,0 +1,75 @@
+RDPID — Read Processor ID
+
+* Index
+
+* December 2023
+
+RDPID — Read Processor ID
+
+| Opcode/Instruction |Op/En|64/32-bit Mode|CPUID Feature Flag|     Description     |
+
+|---------------------|-----|--------------|------------------|-----------------------------|
+
+|F3 0F C7 /7 RDPID r32| R |  N.E./V  |   RDPID    |Read IA32\_TSC\_AUX into r32. |
+
+|F3 0F C7 /7 RDPID r64| R |  V/N.E.  |   RDPID    |Read IA32\_TSC\_AUX into r64. |
+
+Instruction Operand Encoding 1 ¶
+
+>
+
+>
+
+> 1. ModRM.MOD = 011B required
+
+>
+
+>
+
+|Op/En| Operand 1 |Operand 2|Operand 3|Operand 4|
+
+|-----|-------------|---------|---------|---------|
+
+| R |ModRM:r/m (w)|  N/A  |  N/A  |  N/A  |
+
+Description ¶
+
+Reads the value of the IA32\_TSC\_AUX MSR (address C0000103H) into the destination register. The value of CS.D and operand-size prefixes (66H and REX.W) do not affect the behavior of the RDPID instruction.
+
+Operation ¶
+
+```
+
+DEST := IA32_TSC_AUX
+
+```
+
+Flags Affected ¶
+
+None.
+
+Protected Mode Exceptions ¶
+
+|        \#UD        |If the LOCK prefix is used. |
+
+|------------------------------------|---------------------------|
+
+|If CPUID.7H.0:ECX.RDPID[bit 22] = 0. |              |
+
+Real-Address Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+Virtual-8086 Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+Compatibility Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+64-Bit Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

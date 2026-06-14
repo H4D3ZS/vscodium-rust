@@ -1,0 +1,111 @@
+UMWAIT — User Level Monitor Wait
+
+* Index
+
+* December 2023
+
+UMWAIT — User Level Monitor Wait
+
+|     Opcode / Instruction     |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                                    Description                                    |
+
+|----------------------------------------|-----|----------------------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+
+|F2 0F AE /6 UMWAIT r32, \ , \ | A |     V/V     |   WAITPKG   |A hint that allows the processor to stop instruction execution and enter an implementation-dependent optimized state until occurrence of a class of events. |
+
+Instruction Operand Encoding 1 ¶
+
+>
+
+>
+
+> 1. The Mod field of the ModR/M byte must have value 11B.
+
+>
+
+>
+
+|Op/En|Tuple| Operand 1 |Operand 2|Operand 3|Operand 4|
+
+|-----|-----|-------------|---------|---------|---------|
+
+| A | N/A |ModRM:r/m (r)|  N/A  |  N/A  |  N/A  |
+
+Description ¶
+
+UMWAIT instructs the processor to enter an implementation-dependent optimized state while monitoring a range of addresses. The optimized state may be either a light-weight power/performance optimized state or an improved power/performance optimized state. The selection between the two states is governed by the explicit input register bitsource operand.
+
+UMWAIT is available when CPUID.7.0:ECX.WAITPKG[bit 5] is enumerated as 1. UMWAIT may be executed at any privilege level. This instruction’s operation is the same in non-64-bit modes and in 64-bit mode.
+
+The input register contains information such as the preferred optimized state the processor should enter as described in the following table. Bits other than bit 0 are reserved and will result in #GP if nonzero.
+
+|Bit Value |State Name|Wakeup Time|Power Savings|             Other Benefits             |
+
+|----------|----------|-----------|-------------|-----------------------------------------------------------------|
+
+|bit= 0|  C0.2  | Slower  |  Larger  |Improves performance of the other SMT thread(s) on the same core. |
+
+|bit= 1|  C0.1  | Faster  |  Smaller  |                N/A                |
+
+|bits[31:1]|  N/A  |  N/A  |   N/A   |              Reserved               |
+
+Table 4-21. UMWAIT Input Register Bit Definitions
+
+The instruction wakes up when the time-stamp counter reaches or exceeds the implicit EDX:EAX 64-bit input value (if the monitoring hardware did not trigger beforehand).
+
+Prior to executing the UMWAIT instruction, an operating system may specify the maximum delay it allows the processor to suspend its operation. It can do so by writing TSC-quanta value to the following 32bit MSR (IA32\_UM-WAIT\_CONTROL at MSR index E1H):
+
+* IA32\_UMWAIT\_CONTROL[31:2] — Determines the maximum time in TSC-quanta that the processor can reside in either C0.1 or C0.2. A zero value indicates no maximum time. The maximum time value is a 32-bit value where the upper 30 bits come from this field and the lower two bits are zero.
+
+* IA32\_UMWAIT\_CONTROL— Reserved.
+
+* IA32\_UMWAIT\_CONTROL— C0.2 is not allowed by the OS. Value of “1” means all C0.2 requests revert to C0.1.
+
+If the processor that executed a UMWAIT instruction wakes due to the expiration of the operating system timelimit, the instructions sets RFLAGS.CF; otherwise, that flag is cleared.
+
+The UMWAIT instruction causes a transactional abort when used inside a transactional region.
+
+The UMWAIT instruction operates with the UMONITOR instruction. The two instructions allow the definition of an address at which to wait (UMONITOR) and an implementation-dependent optimized operation to perform while waiting (UMWAIT). The execution of UMWAIT is a hint to the processor that it can enter an implementation-dependent-optimized state while waiting for an event or a store operation to the address range armed by UMONITOR. The UMWAIT instruction will not wait (will not enter an implementation-dependent optimized state) if any of the
+
+following instructions were executed before UMWAIT and after the most recent execution of UMONITOR: IRET, MONITOR, SYSEXIT, SYSRET, and far RET (the last if it is changing CPL).
+
+The following additional events cause the processor to exit the implementation-dependent optimized state: a store to the address range armed by the UMONITOR instruction, an NMI or SMI, a debug exception, a machine check exception, the BINIT# signal, the INIT# signal, and the RESET# signal. Other implementation-dependent events may also cause the processor to exit the implementation-dependent optimized state.
+
+In addition, an external interrupt causes the processor to exit the implementation-dependent optimized state regardless of whether maskable-interrupts are inhibited (EFLAGS.IF =0).
+
+Following exit from the implementation-dependent-optimized state, control passes to the instruction after the UMWAIT instruction. A pending interrupt that is not masked (including an NMI or an SMI) may be delivered before execution of that instruction.
+
+Unlike the HLT instruction, the UMWAIT instruction does not restart at the UMWAIT instruction following the handling of an SMI.
+
+If the preceding UMONITOR instruction did not successfully arm an address range or if UMONITOR was not executed prior to executing UMWAIT and following the most recent execution of the legacy MONITOR instruction (UMWAIT does not interoperate with MONITOR), then the processor will not enter an optimized state. Execution will continue to the instruction following UMWAIT.
+
+A store to the address range armed by the UMONITOR instruction will cause the processor to exit UMWAIT if either the store was originated by other processor agents or the store was originated by a non-processor agent.
+
+Operation ¶
+
+```
+
+os_deadline := TSC+(IA32_UMWAIT_CONTROL[31:2]<<2) instr_deadline := UINT64(EDX:EAX) IF os_deadline < instr_deadline: deadline := os_deadline using_os_deadline := 1 ELSE: deadline := instr_deadline using_os_deadline := 0 WHILE monitor hardware armed AND TSC < deadline: implementation_dependent_optimized_state(Source register, deadline, IA32_UMWAIT_CONTROL) IF using_os_deadline AND TSC ≥ deadline: RFLAGS.CF := 1 ELSE: RFLAGS.CF := 0 RFLAGS.AF,PF,SF,ZF,OF := 0
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+UMWAIT uint8_t _umwait(uint32_t control, uint64_t counter);
+
+```
+
+Numeric Exceptions ¶
+
+None.
+
+Exceptions (All Operating Modes) ¶
+
+\#GP(0) If src[31:1] ! = 0.
+
+If CR4. TSD = 1 and CPL ! = 0.
+
+\#UD If CPUID.7.0:ECX.WAITPKG[bit 5]=0.
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

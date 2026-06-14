@@ -1,0 +1,137 @@
+FXRSTOR — Restore x87 FPU, MMX, XMM, and MXCSR State
+
+* Index
+
+* December 2023
+
+FXRSTOR — Restore x87 FPU, MMX, XMM, and MXCSR State
+
+|     Opcode/Instruction     |Op/En|64-Bit Mode|Compat/Leg Mode|               Description               |
+
+|--------------------------------------|-----|-----------|---------------|----------------------------------------------------------------------|
+
+|   NP 0F AE /1 FXRSTOR m512byte   | M |  Valid  |   Valid   |Restore the x87 FPU, MMX, XMM, and MXCSR register state from m512byte. |
+
+|NP REX.W + 0F AE /1 FXRSTOR64 m512byte| M |  Valid  |   N.E.   |Restore the x87 FPU, MMX, XMM, and MXCSR register state from m512byte. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Operand 1 |Operand 2|Operand 3|Operand 4|
+
+|-----|-------------|---------|---------|---------|
+
+| M |ModRM:r/m (r)|  N/A  |  N/A  |  N/A  |
+
+Description ¶
+
+Reloads the x87 FPU, MMX technology, XMM, and MXCSR registers from the 512-byte memory image specified in the source operand. This data should have been written to memory previously using the FXSAVE instruction, and in the same format as required by the operating modes. The first byte of the data should be located on a 16-byte boundary. There are three distinct layouts of the FXSAVE state map: one for legacy and compatibility mode, a second format for 64-bit mode FXSAVE/FXRSTOR with REX.W=0, and the third format is for 64-bit mode with FXSAVE64/FXRSTOR64. Table 3-43 shows the layout of the legacy/compatibility mode state information in memory and describes the fields in the memory image for the FXRSTOR and FXSAVE instructions. Table 3-46 shows the layout of the 64-bit mode state information when REX.W is set (FXSAVE64/FXRSTOR64). Table 3-47 shows the layout of the 64-bit mode state information when REX.W is clear (FXSAVE/FXRSTOR).
+
+The state image referenced with an FXRSTOR instruction must have been saved using an FXSAVE instruction or be in the same format as required by Table 3-43, Table 3-46, or Table 3-47. Referencing a state image saved with an FSAVE, FNSAVE instruction or incompatible field layout will result in an incorrect state restoration.
+
+The FXRSTOR instruction does not flush pending x87 FPU exceptions. To check and raise exceptions when loading x87 FPU state information with the FXRSTOR instruction, use an FWAIT instruction after the FXRSTOR instruction.
+
+If the OSFXSR bit in control register CR4 is not set, the FXRSTOR instruction may not restore the states of the XMM and MXCSR registers. This behavior is implementation dependent.
+
+If the MXCSR state contains an unmasked exception with a corresponding status flag also set, loading the register with the FXRSTOR instruction will not result in a SIMD floating-point error condition being generated. Only the next occurrence of this unmasked exception will result in the exception being generated.
+
+Bits 16 through 32 of the MXCSR register are defined as reserved and should be set to 0. Attempting to write a 1 in any of these bits from the saved state image will result in a general protection exception (#GP) being generated.
+
+Bytes 464:511 of an FXSAVE image are available for software use. FXRSTOR ignores the content of bytes 464:511 in an FXSAVE state image.
+
+Operation ¶
+
+```
+
+IF 64-Bit Mode THEN (x87 FPU, MMX, XMM15-XMM0, MXCSR) Load(SRC); ELSE (x87 FPU, MMX, XMM7-XMM0, MXCSR) := Load(SRC); FI;
+
+```
+
+x87 FPU and SIMD Floating-Point Exceptions ¶
+
+None.
+
+Protected Mode Exceptions ¶
+
+|                              \#GP(0)                              |                                                                                                                                                                  For an illegal memory operand effective address in the CS, DS, ES, FS or GS segments. |
+
+|-----------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+
+|If a memory operand is not aligned on a 16-byte boundary, regardless of segment. (See alignment check exception [#AC] below.) |                                                                                                                                                                                                                                                                                                                                                                               |
+
+|                    For an attempt to set reserved bits in MXCSR.                    |                                                                                                                                                                                                                                                                                                                                                                               |
+
+|                              \#SS(0)                              |                                                                                                                                                                             For an illegal address in the SS segment. |
+
+|                           \#PF(fault-code)                            |                                                                                                                                                                                   For a page fault. |
+
+|                              \#NM                               |                                                                                                                                                                                  If CR0. TS[bit 3] = 1. |
+
+|                          If CR0. EM[bit 2] = 1. |                                                                                                                                                                                                                                                                                                                                                                               |
+
+|                              \#UD                               |                                                                                                                                                                               If CPUID.01H:EDX.FXSR[bit 24] = 0. |
+
+|                    If instruction is preceded by a LOCK prefix. |                                                                                                                                                                                                                                                                                                                                                                               |
+
+|                              \#AC                               |If this exception is disabled a general protection exception (#GP) is signaled if the memory operand is not aligned on a 16-byte boundary, as described above. If the alignment check exception (#AC) is enabled (and the CPL is 3), signaling of #AC is not guaranteed and may vary with implementation, as follows. In all implementations where #AC is not signaled, a general protection exception is signaled in its place. In addition, the width of the alignment check may also vary with implementation. For instance, for a given implementation, an alignment check exception might be signaled for a 2-byte misalignment, whereas a general protection exception might be signaled for all other misalignments (4-, 8-, or 16-byte misalignments). |
+
+|                              \#UD                               |                                                                                                                                                                                 If the LOCK prefix is used. |
+
+Real-Address Mode Exceptions ¶
+
+|                    \#GP                    |If a memory operand is not aligned on a 16-byte boundary, regardless of segment. |
+
+|------------------------------------------------------------------------------------|--------------------------------------------------------------------------------|
+
+|If any part of the operand lies outside the effective address space from 0 to FFFFH.|                                        |
+
+|          For an attempt to set reserved bits in MXCSR.          |                                        |
+
+|                    \#NM                    |               If CR0. TS[bit 3] = 1. |
+
+|                If CR0. EM[bit 2] = 1. |                                        |
+
+|                    \#UD                    |            If CPUID.01H:EDX.FXSR[bit 24] = 0. |
+
+|              If the LOCK prefix is used. |                                        |
+
+Virtual-8086 Mode Exceptions ¶
+
+Same exceptions as in real address mode.
+
+|\#PF(fault-code)|    For a page fault. |
+
+|----------------|-------------------------------|
+
+|   \#AC   |For unaligned memory reference. |
+
+|   \#UD   | If the LOCK prefix is used. |
+
+Compatibility Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+64-Bit Mode Exceptions ¶
+
+|                  \#SS(0)                  |                                                                                                                                                                     If a memory address referencing the SS segment is in a non-canonical form. |
+
+|------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+
+|                  \#GP(0)                  |                                                                                                                                                                           If the memory address is in a non-canonical form. |
+
+|If memory operand is not aligned on a 16-byte boundary, regardless of segment. |                                                                                                                                                                                                                                                                                                                                                                               |
+
+|        For an attempt to set reserved bits in MXCSR.         |                                                                                                                                                                                                                                                                                                                                                                               |
+
+|                \#PF(fault-code)                |                                                                                                                                                                                   For a page fault. |
+
+|                   \#NM                   |                                                                                                                                                                                  If CR0. TS[bit 3] = 1. |
+
+|              If CR0. EM[bit 2] = 1. |                                                                                                                                                                                                                                                                                                                                                                               |
+
+|                   \#UD                   |                                                                                                                                                                               If CPUID.01H:EDX.FXSR[bit 24] = 0. |
+
+|         If instruction is preceded by a LOCK prefix. |                                                                                                                                                                                                                                                                                                                                                                               |
+
+|                   \#AC                   |If this exception is disabled a general protection exception (#GP) is signaled if the memory operand is not aligned on a 16-byte boundary, as described above. If the alignment check exception (#AC) is enabled (and the CPL is 3), signaling of #AC is not guaranteed and may vary with implementation, as follows. In all implementations where #AC is not signaled, a general protection exception is signaled in its place. In addition, the width of the alignment check may also vary with implementation. For instance, for a given implementation, an alignment check exception might be signaled for a 2-byte misalignment, whereas a general protection exception might be signaled for all other misalignments (4-, 8-, or 16-byte misalignments). |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

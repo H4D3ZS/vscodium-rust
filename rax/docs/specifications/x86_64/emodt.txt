@@ -1,0 +1,233 @@
+EMODT — Change the Type of an EPC Page
+
+* Index
+
+* December 2023
+
+EMODT — Change the Type of an EPC Page
+
+| Opcode/Instruction |Op/En|64/32 bit Mode Support|CPUID Feature Flag|            Description             |
+
+|----------------------|-----|----------------------|------------------|------------------------------------------------------------|
+
+|EAX = 0FH ENCLS[EMODT]| IR |     V/V     |    SGX2    |This leaf function changes the type of an existing EPC page. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX  |     RBX     |      RCX      |                    |
+
+|-----|----------|-----------------------|-------------------------|----------------------------------------|
+
+| IR |EMODT (In)|Return Error Code (Out)|Address of a SECINFO (In)|Address of the destination EPC page (In)|
+
+Description ¶
+
+This leaf function modifies the type of an EPC page. The security attributes are configured to prevent access to the EPC page at its new type until a corresponding invocation of the EACCEPT leaf confirms the modification. This instruction can only be executed when current privilege level is 0.
+
+RBX contains the effective address of a SECINFO structure while RCX contains the effective address of an EPC page. The table below provides additional information on the memory parameter of the EMODT leaf function.
+
+EMODT Memory Parameter Semantics ¶
+
+|       SECINFO        |        EPCPAGE        |
+
+|------------------------------------|--------------------------------------|
+
+|Read access permitted by Non Enclave|Read/Write access permitted by Enclave|
+
+The instruction faults if any of the following:
+
+EMODT Faulting Conditions ¶
+
+| The operands are not properly aligned. |         If unsupported security attributes are set. |
+
+|-----------------------------------------|--------------------------------------------------------------------------------|
+
+|   The Enclave is not initialized. |            SECS is locked by another thread. |
+
+|The EPC page is locked by another thread. |RCX does not contain an effective address of an EPC page in the running enclave. |
+
+|    The EPC page is not valid. |                                        |
+
+The error codes are:
+
+|Error Code (see Table 38-4)|                 Description                 |
+
+|---------------------------|-------------------------------------------------------------------------------|
+
+|     No Error     |                EMODT successful. |
+
+|SGX\_PAGE\_NOT\_MODIFIABLE |The EPC page cannot be modified because it is in the PENDING or MODIFIED state. |
+
+| SGX\_EPC\_PAGE\_CONFLICT |   Page is being written by EADD, EAUG, ECREATE, ELDU/B, EMODPR, or EWB.   |
+
+Table 38-34. EMODT Return Value in RAX
+
+Concurrency Restrictions ¶
+
+| Leaf |  Parameter  |  Base Concurrency Restrictions  |             |             |
+
+|------|---------------|-----------------------------------|-------------------------|--------------------------|
+
+|Access| On Conflict |SGX\_CONFLICT VM Exit Qualification|             |             |
+
+|EMODT |Target [DS:RCX]|       Exclusive       |SGX\_EPC\_PAGE\_ CONFLICT|EPC\_PAGE\_CONFLICT\_ERROR|
+
+Table 38-35. Base Concurrency Restrictions of EMODT
+
+|                    Leaf                    |    Parameter    |Additional Concurrency Restrictions|             |     |      |     |  |
+
+|------------------------------------------------------------------------------------|------------------------|-----------------------------------|-------------------------|----------|-----------|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, EMODPE, EM vs EACCEPT, EACCEPTCOPY, EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT|    vs ETRACK, ETRACKC    |             |     |      |     |  |
+
+|                    Access                    |   On Conflict    |       Access        |    On Conflict    | Access |On Conflict|     |  |
+
+|                    EMODT                    |  Target [DS:RCX]   |       Exclusive       |SGX\_EPC\_PAGE \_CONFLICT|Concurrent|      |Concurrent|  |
+
+Table 38-36. Additional Concurrency Restrictions of EMODT
+
+Operation ¶
+
+Temp Variables in EMODT Operational Flow ¶
+
+|   Name   |   Type    |Size (bits)|           Description           |
+
+|----------------|-----------------|-----------|------------------------------------------------------|
+
+|  TMP\_SECS  |Effective Address|  32/64  |Physical address of SECS to which EPC operand belongs. |
+
+|SCRATCH\_SECINFO|   SECINFO   |  512  | Scratch storage for holding the contents of DS:RBX. |
+
+IF (DS:RBX is not 64Byte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RCX is not 4KByte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+SCRATCH\_SECINFO := DS:RBX;
+
+(\* Check for misconfigured SECINFO flags\*)
+
+IF ( (SCRATCH\_SECINFO reserved fields are not zero ) or
+
+! (SCRATCH\_SECINFO.FLAGS.PT is PT\_TCS or SCRATCH\_SECINFO.FLAGS.PT is PT\_TRIM) )
+
+THEN #GP(0); FI;
+
+(\* Check concurrency with SGX1 instructions on the EPC page \*)
+
+IF (other SGX1 instructions accessing EPC page)
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_EPC\_PAGE\_CONFLICT;
+
+GOTO DONE;
+
+FI;
+
+IF (EPCM(DS:RCX). VALID is 0)
+
+THEN #PF(DS:RCX); FI;
+
+(\* Check the EPC page for concurrency \*)
+
+IF (EPC page in use by another SGX2 instruction)
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_EPC\_PAGE\_CONFLICT;
+
+GOTO DONE;
+
+FI;
+
+IF (! (EPCM(DS:RCX). PT is PT\_REG or
+
+((EPCM(DS:RCX). PT is PT\_TCS or PT\_SS\_FIRST or PT\_SS\_REST) and SCRATCH\_SECINFO.FLAGS.PT is PT\_TRIM)))
+
+THEN #PF(DS:RCX); FI;
+
+IF (EPCM(DS:RCX). PENDING is not 0 or (EPCM(DS:RCX). MODIFIED is not 0) )
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_PAGE\_NOT\_MODIFIABLE;
+
+GOTO DONE;
+
+FI;
+
+TMP\_SECS := GET\_SECS\_ADDRESS
+
+IF (TMP\_SECS.ATTRIBUTES.INIT = 0)
+
+THEN #GP(0); FI;
+
+(\* Update EPCM fields \*)
+
+EPCM(DS:RCX). PR := 0;
+
+EPCM(DS:RCX). MODIFIED := 1;
+
+EPCM(DS:RCX). R := 0;
+
+EPCM(DS:RCX). W := 0;
+
+EPCM(DS:RCX). X := 0;
+
+EPCM(DS:RCX). PT := SCRATCH\_SECINFO.FLAGS.PT;
+
+RFLAGS.ZF := 0;
+
+RAX := 0;
+
+DONE:
+
+RFLAGS.CF,PF,AF,OF,SF := 0;
+
+Flags Affected ¶
+
+Sets ZF if page is not modifiable or if other SGX2 instructions are executing concurrently, otherwise cleared. Clears CF, PF, AF, OF, SF.
+
+Protected Mode Exceptions ¶
+
+|         \#GP(0)          |If a memory operand effective address is outside the DS segment limit. |
+
+|--------------------------------------------|----------------------------------------------------------------------|
+
+|If a memory operand is not properly aligned. |                                   |
+
+|    If a memory operand is locked. |                                   |
+
+|         \#PF(error         |   code) If a page fault occurs in accessing memory operands. |
+
+| If a memory operand is not an EPC page. |                                   |
+
+64-Bit Mode Exceptions ¶
+
+|         \#GP(0)          |    If a memory operand is non-canonical form. |
+
+|--------------------------------------------|----------------------------------------------------------|
+
+|If a memory operand is not properly aligned. |                             |
+
+|    If a memory operand is locked. |                             |
+
+|         \#PF(error         |code) If a page fault occurs in accessing memory operands. |
+
+| If a memory operand is not an EPC page. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

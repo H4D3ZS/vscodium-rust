@@ -1,0 +1,8 @@
+pub const HEXAGON_UART_MMIO_BASE: u64 = 0xf000_0000;
+pub const HEXAGON_UART_MMIO_LEN: u64 = 8;
+
+pub const HEXAGON_DEBUG_MMIO_BASE: u64 = 0xf000_1000;
+pub const HEXAGON_DEBUG_MMIO_LEN: u64 = 1;
+
+pub const X86_DEBUG_PORT_BASE: u16 = 0x00e9;
+pub const X86_DEBUG_PORT_LEN: u16 = 1;

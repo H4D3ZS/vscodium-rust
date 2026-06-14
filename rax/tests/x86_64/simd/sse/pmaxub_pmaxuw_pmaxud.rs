@@ -1,0 +1,976 @@
+use crate::common::*;
+use vm_memory::{Bytes, GuestAddress};
+
+// PMAXUB/PMAXUW/PMAXUD - Maximum of Packed Unsigned Integers
+//
+// Performs SIMD compare of packed unsigned integers and returns maximum values.
+//
+// PMAXUB: Maximum of 16 packed unsigned byte integers (SSE2)
+// PMAXUW: Maximum of 8 packed unsigned word integers (SSE4.1)
+// PMAXUD: Maximum of 4 packed unsigned dword integers (SSE4.1)
+//
+// Opcodes:
+// 66 0F DE /r         PMAXUB xmm1, xmm2/m128   - Max of packed unsigned bytes
+// 66 0F 38 3E /r      PMAXUW xmm1, xmm2/m128   - Max of packed unsigned words
+// 66 0F 38 3F /r      PMAXUD xmm1, xmm2/m128   - Max of packed unsigned dwords
+
+const ALIGNED_ADDR: u64 = 0x3000;
+const ALIGNED_ADDR2: u64 = 0x3100;
+
+// ============================================================================
+// PMAXUB Tests - 16x Unsigned Byte Maximum
+// ============================================================================
+
+#[test]
+fn test_pmaxub_all_zeros() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, // MOVDQA XMM0, [RAX]
+        0x66, 0x0f, 0x6f, 0x0b, // MOVDQA XMM1, [RBX]
+        0x66, 0x0f, 0xde, 0xc1, // PMAXUB XMM0, XMM1
+        0xf4, // HLT
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxub_all_ones() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0xde, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x01, 0x01,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxub_mixed_values() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0xde, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    let data1 = [
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x10,
+    ];
+    let data2 = [
+        0x10, 0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02,
+        0x01,
+    ];
+    mem.write_slice(&data1, GuestAddress(ALIGNED_ADDR)).unwrap();
+    mem.write_slice(&data2, GuestAddress(ALIGNED_ADDR2))
+        .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxub_max_values() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0xde, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F,
+            0x7F, 0x7F,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxub_xmm2_xmm3() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x10, // MOVDQA XMM2, [RAX]
+        0x66, 0x0f, 0x6f, 0x1b, // MOVDQA XMM3, [RBX]
+        0x66, 0x0f, 0xde, 0xd3, // PMAXUB XMM2, XMM3
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+            0x55, 0x55,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
+            0xAA, 0xAA,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxub_from_memory() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0xde, 0x03, // PMAXUB XMM0, [RBX]
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            0x11, 0x11,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
+            0x22, 0x22,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxub_alternating() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0xde, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    let data1 = [
+        0x01, 0xFF, 0x01, 0xFF, 0x01, 0xFF, 0x01, 0xFF, 0x01, 0xFF, 0x01, 0xFF, 0x01, 0xFF, 0x01,
+        0xFF,
+    ];
+    let data2 = [
+        0xFF, 0x01, 0xFF, 0x01, 0xFF, 0x01, 0xFF, 0x01, 0xFF, 0x01, 0xFF, 0x01, 0xFF, 0x01, 0xFF,
+        0x01,
+    ];
+    mem.write_slice(&data1, GuestAddress(ALIGNED_ADDR)).unwrap();
+    mem.write_slice(&data2, GuestAddress(ALIGNED_ADDR2))
+        .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxub_identical() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0xde, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+            0x42, 0x42,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+            0x42, 0x42,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+// ============================================================================
+// PMAXUW Tests - 8x Unsigned Word Maximum
+// ============================================================================
+
+#[test]
+fn test_pmaxuw_all_zeros() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0x38, 0x3e,
+        0xc1, // PMAXUW XMM0, XMM1
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxuw_max_values() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0x38, 0x3e, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x00, 0x80, 0x00, 0x80, 0x00, 0x80, 0x00, 0x80, 0x00, 0x80, 0x00, 0x80, 0x00, 0x80,
+            0x00, 0x80,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxuw_mixed_values() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0x38, 0x3e, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    let data1 = [
+        0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00,
+        0x08,
+    ];
+    let data2 = [
+        0x00, 0x08, 0x00, 0x07, 0x00, 0x06, 0x00, 0x05, 0x00, 0x04, 0x00, 0x03, 0x00, 0x02, 0x00,
+        0x01,
+    ];
+    mem.write_slice(&data1, GuestAddress(ALIGNED_ADDR)).unwrap();
+    mem.write_slice(&data2, GuestAddress(ALIGNED_ADDR2))
+        .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxuw_large_small() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0x38, 0x3e, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
+            0x01, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxuw_xmm4_xmm5() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x20, // MOVDQA XMM4, [RAX]
+        0x66, 0x0f, 0x6f, 0x2b, // MOVDQA XMM5, [RBX]
+        0x66, 0x0f, 0x38, 0x3e, 0xe5, // PMAXUW XMM4, XMM5
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x11, 0x11, 0x22, 0x22, 0x33, 0x33, 0x44, 0x44, 0x55, 0x55, 0x66, 0x66, 0x77, 0x77,
+            0x88, 0x88,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0xEE, 0xEE, 0xDD, 0xDD, 0xCC, 0xCC, 0xBB, 0xBB, 0xAA, 0xAA, 0x99, 0x99, 0x88, 0x88,
+            0x77, 0x77,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxuw_from_memory() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x38, 0x3e, 0x03, // PMAXUW XMM0, [RBX]
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x00, 0x10, 0x00, 0x20, 0x00, 0x30, 0x00, 0x40, 0x00, 0x50, 0x00, 0x60, 0x00, 0x70,
+            0x00, 0x80,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0xFF, 0x0F, 0xFF, 0x1F, 0xFF, 0x2F, 0xFF, 0x3F, 0xFF, 0x4F, 0xFF, 0x5F, 0xFF, 0x6F,
+            0xFF, 0x7F,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxuw_identical() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0x38, 0x3e, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x42, 0x00, 0x42, 0x00, 0x42, 0x00, 0x42, 0x00, 0x42, 0x00, 0x42, 0x00, 0x42, 0x00,
+            0x42, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x42, 0x00, 0x42, 0x00, 0x42, 0x00, 0x42, 0x00, 0x42, 0x00, 0x42, 0x00, 0x42, 0x00,
+            0x42, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+// ============================================================================
+// PMAXUD Tests - 4x Unsigned Dword Maximum
+// ============================================================================
+
+#[test]
+fn test_pmaxud_all_zeros() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0x38, 0x3f,
+        0xc1, // PMAXUD XMM0, XMM1
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxud_max_values() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0x38, 0x3f, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00,
+            0x00, 0x80,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxud_mixed_values() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0x38, 0x3f, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    let data1 = [
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+        0x04,
+    ];
+    let data2 = [
+        0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+        0x01,
+    ];
+    mem.write_slice(&data1, GuestAddress(ALIGNED_ADDR)).unwrap();
+    mem.write_slice(&data2, GuestAddress(ALIGNED_ADDR2))
+        .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxud_large_small() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0x38, 0x3f, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x00, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxud_xmm1_xmm2() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x08, // MOVDQA XMM1, [RAX]
+        0x66, 0x0f, 0x6f, 0x13, // MOVDQA XMM2, [RBX]
+        0x66, 0x0f, 0x38, 0x3f, 0xca, // PMAXUD XMM1, XMM2
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x11, 0x11, 0x11, 0x11, 0x22, 0x22, 0x22, 0x22, 0x33, 0x33, 0x33, 0x33, 0x44, 0x44,
+            0x44, 0x44,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0xEE, 0xEE, 0xEE, 0xEE, 0xDD, 0xDD, 0xDD, 0xDD, 0xCC, 0xCC, 0xCC, 0xCC, 0xBB, 0xBB,
+            0xBB, 0xBB,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxud_from_memory() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x38, 0x3f, 0x03, // PMAXUD XMM0, [RBX]
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+            0x04, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x01, 0x00, 0xFF, 0xFF, 0x02, 0x00, 0xFF, 0xFF,
+            0x03, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxud_identical() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, 0x66, 0x0f, 0x6f, 0x0b, 0x66, 0x0f, 0x38, 0x3f, 0xc1, 0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x42, 0x00, 0x00, 0x00, 0x42, 0x00, 0x00, 0x00, 0x42, 0x00, 0x00, 0x00, 0x42, 0x00,
+            0x00, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x42, 0x00, 0x00, 0x00, 0x42, 0x00, 0x00, 0x00, 0x42, 0x00, 0x00, 0x00, 0x42, 0x00,
+            0x00, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+// ============================================================================
+// Extended Register Tests (XMM8-XMM15)
+// ============================================================================
+
+#[test]
+fn test_pmaxub_xmm8_xmm9() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x44, 0x0f, 0x6f, 0x00, // MOVDQA XMM8, [RAX]
+        0x66, 0x44, 0x0f, 0x6f, 0x0b, // MOVDQA XMM9, [RBX]
+        0x66, 0x45, 0x0f, 0xde, 0xc1, // PMAXUB XMM8, XMM9
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x01, 0x01,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            0x02, 0x02,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxuw_xmm10_xmm11() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x44, 0x0f, 0x6f, 0x10, // MOVDQA XMM10, [RAX]
+        0x66, 0x44, 0x0f, 0x6f, 0x1b, // MOVDQA XMM11, [RBX]
+        0x66, 0x45, 0x0f, 0x38, 0x3e, 0xd3, // PMAXUW XMM10, XMM11
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00,
+            0x08, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0xFF, 0xFF, 0xFE, 0xFF, 0xFD, 0xFF, 0xFC, 0xFF, 0xFB, 0xFF, 0xFA, 0xFF, 0xF9, 0xFF,
+            0xF8, 0xFF,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxud_xmm12_xmm13() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[0x48, 0xbb]);
+    full_code.extend_from_slice(&ALIGNED_ADDR2.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x44, 0x0f, 0x6f, 0x20, // MOVDQA XMM12, [RAX]
+        0x66, 0x44, 0x0f, 0x6f, 0x2b, // MOVDQA XMM13, [RBX]
+        0x66, 0x45, 0x0f, 0x38, 0x3f, 0xe5, // PMAXUD XMM12, XMM13
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00,
+            0x00, 0x00,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    mem.write_slice(
+        &[
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0xFD, 0xFF, 0xFF, 0xFF, 0xFC, 0xFF,
+            0xFF, 0xFF,
+        ],
+        GuestAddress(ALIGNED_ADDR2),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+// ============================================================================
+// Combined/Sequence Tests
+// ============================================================================
+
+#[test]
+fn test_pmaxub_pmaxuw_sequence() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, // MOVDQA XMM0, [RAX]
+        0x66, 0x0f, 0x6f, 0x08, // MOVDQA XMM1, [RAX]
+        0x66, 0x0f, 0xde, 0xc1, // PMAXUB XMM0, XMM1
+        0x66, 0x0f, 0x38, 0x3e, 0xc1, // PMAXUW XMM0, XMM1
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x01, 0x01,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_all_pmaxu_sequence() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, // MOVDQA XMM0, [RAX]
+        0x66, 0x0f, 0x6f, 0x08, // MOVDQA XMM1, [RAX]
+        0x66, 0x0f, 0xde, 0xc1, // PMAXUB XMM0, XMM1
+        0x66, 0x0f, 0x38, 0x3e, 0xc1, // PMAXUW XMM0, XMM1
+        0x66, 0x0f, 0x38, 0x3f, 0xc1, // PMAXUD XMM0, XMM1
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x01, 0x01,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxub_same_register() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, // MOVDQA XMM0, [RAX]
+        0x66, 0x0f, 0xde, 0xc0, // PMAXUB XMM0, XMM0
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+            0x42, 0x42,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxuw_same_register() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, // MOVDQA XMM0, [RAX]
+        0x66, 0x0f, 0x38, 0x3e, 0xc0, // PMAXUW XMM0, XMM0
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+            0x42, 0x42,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+#[test]
+fn test_pmaxud_same_register() {
+    let code = [0x48, 0xb8];
+    let mut full_code = code.to_vec();
+    full_code.extend_from_slice(&ALIGNED_ADDR.to_le_bytes());
+    full_code.extend_from_slice(&[
+        0x66, 0x0f, 0x6f, 0x00, // MOVDQA XMM0, [RAX]
+        0x66, 0x0f, 0x38, 0x3f, 0xc0, // PMAXUD XMM0, XMM0
+        0xf4,
+    ]);
+
+    let (mut vcpu, mem) = setup_vm(&full_code, None);
+    mem.write_slice(
+        &[
+            0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+            0x42, 0x42,
+        ],
+        GuestAddress(ALIGNED_ADDR),
+    )
+    .unwrap();
+    run_until_hlt(&mut vcpu).unwrap();
+}
+
+// ============================================================================
+// Known-answer value tests (register-to-register via set_xmm/get_xmm)
+//
+// PMAXUB selects the per-byte UNSIGNED maximum of DST and SRC. Computed by hand.
+//   DST = XMM0 = 0x01030507090B0D0F11FF00FF80017FFE
+//   SRC = XMM1 = 0x0204060801030507FF01FF0080FE0001
+// ============================================================================
+
+#[test]
+fn kat_pmaxub_value() {
+    // PMAXUB XMM0, XMM1 (66 0F DE C1)
+    let code = [0x66, 0x0f, 0xde, 0xc1, 0xf4];
+    let (mut vcpu, mem) = setup_vm(&code, None);
+    set_xmm(&mem, &mut vcpu, 0, 0x01030507090B0D0F11FF00FF80017FFE);
+    set_xmm(&mem, &mut vcpu, 1, 0x0204060801030507FF01FF0080FE0001);
+    let regs = run_until_hlt(&mut vcpu).unwrap();
+    assert_eq!(
+        get_xmm(&regs, 0),
+        0x02040608090b0d0fffffffff80fe7ffe,
+        "PMAXUB got {:032x}",
+        get_xmm(&regs, 0)
+    );
+}
+
+#[test]
+fn kat_pmaxub_unsigned_semantics() {
+    // 0xFF is the MAX unsigned byte, so max(0xFF, 0x00) = 0xFF (not signed -1).
+    let code = [0x66, 0x0f, 0xde, 0xc1, 0xf4];
+    let (mut vcpu, mem) = setup_vm(&code, None);
+    set_xmm(&mem, &mut vcpu, 0, 0xffffffffffffffffffffffffffffffff);
+    set_xmm(&mem, &mut vcpu, 1, 0x00000000000000000000000000000000);
+    let regs = run_until_hlt(&mut vcpu).unwrap();
+    assert_eq!(get_xmm(&regs, 0), 0xffffffffffffffffffffffffffffffff);
+}

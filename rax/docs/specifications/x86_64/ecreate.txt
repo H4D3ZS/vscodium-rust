@@ -1,0 +1,393 @@
+ECREATE — Create an SECS page in the Enclave Page Cache
+
+* Index
+
+* December 2023
+
+ECREATE — Create an SECS page in the Enclave Page Cache
+
+|  Opcode/Instruction  |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                Description                |
+
+|------------------------|-----|----------------------|------------------|---------------------------------------------------------------------------|
+
+|EAX = 00H ENCLS[ECREATE]| IR |     V/V     |    SGX1    |This leaf function begins an enclave build by creating an SECS page in EPC.|
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX   |      RBX      |          RCX          |
+
+|-----|------------|--------------------------|-----------------------------------------|
+
+| IR |ECREATE (In)|Address of a PAGEINFO (In)|Address of the destination SECS page (In)|
+
+Description ¶
+
+ENCLS[ECREATE] is the first instruction executed in the enclave build process. ECREATE copies an SECS structure outside the EPC into an SECS page inside the EPC. The internal structure of SECS is not accessible to software.
+
+ECREATE will set up fields in the protected SECS and mark the page as valid inside the EPC. ECREATE initializes or checks unused fields.
+
+Software sets the following fields in the source structure: SECS:BASEADDR, SECS:SIZE in bytes, ATTRIBUTES, CONFIGID, and CONFIGSVN. SECS:BASEADDR must be naturally aligned on an SECS.SIZE boundary. SECS.SIZE must be at least 2 pages (8192).
+
+The source operand RBX contains an effective address of a PAGEINFO structure. PAGEINFO contains an effective address of a source SECS and an effective address of an SECINFO. The SECS field in PAGEINFO is not used.
+
+The RCX register is the effective address of the destination SECS. It is an address of an empty slot in the EPC. The SECS structure must be page aligned. SECINFO flags must specify the page as an SECS page.
+
+ECREATE Memory Parameter Semantics ¶
+
+|       PAGEINFO       |     PAGEINFO.SRCPGE      |     PAGEINFO.SECINFO     |       EPCPAGE       |
+
+|------------------------------------|------------------------------------|------------------------------------|---------------------------------|
+
+|Read access permitted by Non Enclave|Read access permitted by Non Enclave|Read access permitted by Non Enclave|Write access permitted by Enclave|
+
+ECREATE will fault if the SECS target page is in use; already valid; outside the EPC. It will also fault if addresses are not aligned; unused PAGEINFO fields are not zero.
+
+If the amount of space needed to store the SSA frame is greater than the amount specified in SECS.SSAFRAMESIZE, a #GP(0) results. The amount of space needed for an SSA frame is computed based on DS:TMP\_SECS.ATTRIBUTES.XFRM size. Details of computing the size can be found Section 39.7.
+
+Concurrency Restrictions ¶
+
+|               Leaf                | Parameter |Base Concurrency Restrictions|  |  |
+
+|-----------------------------------------------------------------|-------------|-----------------------------|---|---|
+
+|                                 | On Conflict |               |  |  |
+
+|ECREATE ECREATE SECS [DS:RCX] Exclusive #GP ECREATE SECS [DS:RCX]|SECS [DS:RCX]|               |  |  |
+
+Table 38-15. Base Concurrency Restrictions of ECREATE
+
+|                                             Leaf                                             |               Parameter               |Additional Concurrency Restrictions|  |     |  |     |  |
+
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|-----------------------------------|---|----------|---|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC Access vs ETRACK, ETRACKC Access On Conflict Access vs ETRACK, ETRACKC Access On Conflict EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC|    vs ETRACK, ETRACKC    |  |     |  |     |  |
+
+|                          Access On Conflict Access On Conflict Access Access On Conflict Access On Conflict                          |                                   |                  |  |     |  |     |  |
+
+|                                            ECREATE                                             |              SECS [DS:RCX]              |      Concurrent       |  |Concurrent|  |Concurrent|  |
+
+Table 38-16. Additional Concurrency Restrictions of ECREATE
+
+Operation ¶
+
+Temp Variables in ECREATE Operational Flow ¶
+
+|   Name   |   Type    |Size (Bits)|                        Description                        |
+
+|---------------|-----------------|-----------|----------------------------------------------------------------------------------------------------------|
+
+| TMP\_SRCPGE |Effective Address|  32/64  |                Effective address of the SECS source page. |
+
+|  TMP\_SECS  |Effective Address|  32/64  |               Effective address of the SECS destination page. |
+
+| TMP\_SECINFO |Effective Address|  32/64  |Effective address of an SECINFO structure which contains security attributes of the SECS page to be added. |
+
+| TMP\_XSIZE  |  SSA Size   |  64   |                  The size calculation of SSA frame. |
+
+|TMP\_MISC\_SIZE| MISC Field Size |  64   |                Size of the selected MISC field components. |
+
+|TMPUPDATEFIELD | SHA256 Buffer |  512  |            Buffer used to hold data being added to TMP\_SECS.MRENCLAVE.            |
+
+IF (DS:RBX is not 32Byte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RCX is not 4KByte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+TMP\_SRCPGE := DS:RBX.SRCPGE;
+
+TMP\_SECINFO := DS:RBX.SECINFO;
+
+IF (DS:TMP\_SRCPGE is not 4KByte aligned or DS:TMP\_SECINFO is not 64Byte aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RBX.LINADDR ! = 0 or DS:RBX.SECS ≠ 0)
+
+THEN #GP(0); FI;
+
+(\* Check for misconfigured SECINFO flags\*)
+
+IF (DS:TMP\_SECINFO reserved fields are not zero or DS:TMP\_SECINFO.FLAGS.PT ≠ PT\_SECS)
+
+THEN #GP(0); FI;
+
+TMP\_SECS := RCX;
+
+IF (EPC entry in use)
+
+THEN
+
+IF (\ \> AND \ \>)
+
+THEN
+
+VMCS.Exit\_reason := SGX\_CONFLICT;
+
+VMCS.Exit\_qualification. code := EPC\_PAGE\_CONFLICT\_EXCEPTION;
+
+VMCS.Exit\_qualification. error := 0;
+
+VMCS.Guest-physical\_address :=
+
+\ \>;
+
+VMCS.Guest-linear\_address := DS:TMP\_SECS;
+
+Deliver VMEXIT;
+
+ELSE
+
+\#GP(0);
+
+FI;
+
+FI;
+
+IF (EPC entry in use)
+
+THEN #GP(0); FI;
+
+IF (EPCM(DS:RCX). VALID = 1)
+
+THEN #PF(DS:RCX); FI;
+
+(\* Copy 4KBytes from source page to EPC page\*)
+
+DS:RCX[32767:0] := DS:TMP\_SRCPGE[32767:0];
+
+(\* Check lower 2 bits of XFRM are set \*)
+
+IF ( ( DS:TMP\_SECS.ATTRIBUTES.XFRM BitwiseAND 03H) ≠ 03H)
+
+THEN #GP(0); FI;
+
+IF (XFRM is illegal)
+
+THEN #GP(0); FI;
+
+(\* Check legality of CET\_ATTRIBUTES \*)
+
+IF ((DS:TMP\_SECS.ATTRIBUTES.CET = 0 and DS:TMP\_SECS.CET\_ATTRIBUTES ≠ 0) ||
+
+(DS:TMP\_SECS.ATTRIBUTES.CET = 0 and DS:TMP\_SECS.CET\_LEG\_BITMAP\_OFFSET ≠ 0) ||
+
+(CPUID.(EAX=7, ECX=0):EDX[CET\_IBT] = 0 and DS:TMP\_SECS.CET\_LEG\_BITMAP\_OFFSET ≠ 0) ||
+
+(CPUID.(EAX=7, ECX=0):EDX[CET\_IBT] = 0 and DS:TMP\_SECS.CET\_ATTRIBUTES[5:2] ≠ 0) ||
+
+(CPUID.(EAX=7, ECX=0):ECX[CET\_SS] = 0 and DS:TMP\_SECS.CET\_ATTRIBUTES[1:0] ≠ 0) ||
+
+(DS:TMP\_SECS.ATTRIBUTES.MODE64BIT = 1 and
+
+(DS:TMP\_SECS.BASEADDR + DS:TMP\_SECS.CET\_LEG\_BITMAP\_OFFSET) not canonical) ||
+
+(DS:TMP\_SECS.ATTRIBUTES.MODE64BIT = 0 and
+
+(DS:TMP\_SECS.BASEADDR + DS:TMP\_SECS.CET\_LEG\_BITMAP\_OFFSET) & 0xFFFFFFFF00000000) ||
+
+(DS:TMP\_SECS.CET\_ATTRIBUTES.reserved fields not 0) or
+
+(DS:TMP\_SECS.CET\_LEG\_BITMAP\_OFFSET) is not page aligned))
+
+THEN
+
+\#GP(0);
+
+FI;
+
+(\* Make sure that the SECS does not have any unsupported MISCSELECT options\*)
+
+IF ( ! (CPUID.(EAX=12H, ECX=0):EBX[31:0] & DS:TMP\_SECS.MISCSELECT[31:0]) )
+
+THEN
+
+EPCM(DS:TMP\_SECS). EntryLock.Release();
+
+\#GP(0);
+
+FI;
+
+( \* Compute size of MISC area \*)
+
+TMP\_MISC\_SIZE := compute\_misc\_region\_size();
+
+(\* Compute the size required to save state of the enclave on async exit, see Section 39.7. 2.2\*)
+
+TMP\_XSIZE := compute\_xsave\_size(DS:TMP\_SECS.ATTRIBUTES.XFRM) + GPR\_SIZE + TMP\_MISC\_SIZE;
+
+(\* Ensure that the declared area is large enough to hold XSAVE and GPR stat \*)
+
+IF ( DS:TMP\_SECS.SSAFRAMESIZE\*4096 \< TMP\_XSIZE)
+
+THEN #GP(0); FI;
+
+IF ( (DS:TMP\_SECS.ATTRIBUTES.MODE64BIT = 1) and (DS:TMP\_SECS.BASEADDR is not canonical) )
+
+THEN #GP(0); FI;
+
+IF ( (DS:TMP\_SECS.ATTRIBUTES.MODE64BIT = 0) and (DS:TMP\_SECS.BASEADDR and 0FFFFFFFF00000000H) )
+
+THEN #GP(0); FI;
+
+IF ( (DS:TMP\_SECS.ATTRIBUTES.MODE64BIT = 0) and (DS:TMP\_SECS.SIZE ≥ 2 ^ (CPUID.(EAX=12H, ECX=0):. EDX[7:0]) ) ) THEN #GP(0); FI;
+
+IF ( (DS:TMP\_SECS.ATTRIBUTES.MODE64BIT = 1) and (DS:TMP\_SECS.SIZE ≥ 2 ^ (CPUID.(EAX=12H, ECX=0):. EDX[15:8]) ) ) THEN #GP(0); FI;
+
+(\* Enclave size must be at least 8192 bytes and must be power of 2 in bytes\*)
+
+IF (DS:TMP\_SECS.SIZE \ 1)
+
+THEN #GP(0); FI;
+
+(\* Ensure base address of an enclave is aligned on size\*)
+
+IF ( ( DS:TMP\_SECS.BASEADDR and (DS:TMP\_SECS.SIZE-1) ) )
+
+THEN #GP(0); FI;
+
+(\* Ensure the SECS does not have any unsupported attributes\*)
+
+IF ( DS:TMP\_SECS.ATTRIBUTES and (\~CR\_SGX\_ATTRIBUTES\_MASK) )
+
+THEN #GP(0); FI;
+
+IF ( DS:TMP\_SECS reserved fields are not zero)
+
+THEN #GP(0); FI;
+
+(\* Verify that CONFIGID/CONFIGSVN are not set with attribute \*)
+
+IF ( ((DS:TMP\_SECS.CONFIGID ≠ 0) or (DS:TMP\_SECS.CONFIGSVN ≠0)) AND (DS:TMP\_SECS.ATTRIBUTES.KSS == 0 ))
+
+THEN #GP(0); FI;
+
+Clear DS:TMP\_SECS to Uninitialized;
+
+DS:TMP\_SECS.MRENCLAVE := SHA256INITIALIZE(DS:TMP\_SECS.MRENCLAVE);
+
+DS:TMP\_SECS.ISVSVN := 0;
+
+DS:TMP\_SECS.ISVPRODID := 0;
+
+(\* Initialize hash updates etc\*)
+
+Initialize enclave’s MRENCLAVE update counter;
+
+(\* Add “ECREATE” string and SECS fields to MRENCLAVE \*)
+
+TMPUPDATEFIELD[63:0] := 0045544145524345H; // “ECREATE”
+
+TMPUPDATEFIELD[95:64] := DS:TMP\_SECS.SSAFRAMESIZE;
+
+TMPUPDATEFIELD[159:96] := DS:TMP\_SECS.SIZE;
+
+IF (CPUID.(EAX=7, ECX=0):EDX[CET\_IBT] = 1)
+
+THEN
+
+TMPUPDATEFIELD[223:160] := DS:TMP\_SECS.CET\_LEG\_BITMAP\_OFFSET;
+
+ELSE
+
+TMPUPDATEFIELD[223:160] := 0;
+
+FI;
+
+TMPUPDATEFIELD[511:160] := 0;
+
+DS:TMP\_SECS.MRENCLAVE := SHA256UPDATE(DS:TMP\_SECS.MRENCLAVE, TMPUPDATEFIELD)
+
+INC enclave’s MRENCLAVE update counter;
+
+(\* Set EID \*)
+
+DS:TMP\_SECS.EID := LockedXAdd(CR\_NEXT\_EID, 1);
+
+(\* Initialize the virtual child count to zero \*)
+
+DS:TMP\_SECS.VIRTCHILDCNT := 0;
+
+(\* Load ENCLAVECONTEXT with Address out of paging of SECS \*)
+
+\ \>
+
+(\* Set the EPCM entry, first create SECS identifier and store the identifier in EPCM \*)
+
+EPCM(DS:TMP\_SECS). PT := PT\_SECS;
+
+EPCM(DS:TMP\_SECS). ENCLAVEADDRESS := 0;
+
+EPCM(DS:TMP\_SECS). R := 0;
+
+EPCM(DS:TMP\_SECS). W := 0;
+
+EPCM(DS:TMP\_SECS). X := 0;
+
+(\* Set EPCM entry fields \*)
+
+EPCM(DS:RCX). BLOCKED := 0;
+
+EPCM(DS:RCX). PENDING := 0;
+
+EPCM(DS:RCX). MODIFIED := 0;
+
+EPCM(DS:RCX). PR := 0;
+
+EPCM(DS:RCX). VALID := 1;
+
+Flags Affected ¶
+
+None
+
+Protected Mode Exceptions ¶
+
+|         \#GP(0)          |If a memory operand effective address is outside the DS segment limit. |
+
+|--------------------------------------------|----------------------------------------------------------------------|
+
+|If a memory operand is not properly aligned. |                                   |
+
+|  If the reserved fields are not zero. |                                   |
+
+|    If PAGEINFO.SECS is not zero. |                                   |
+
+|   If PAGEINFO.LINADDR is not zero. |                                   |
+
+|   If the SECS destination is locked. |                                   |
+
+|  If SECS.SSAFRAMESIZE is insufficient. |                                   |
+
+|         \#PF(error         |   code) If a page fault occurs in accessing memory operands. |
+
+|If the SECS destination is outside the EPC. |                                   |
+
+64-Bit Mode Exceptions ¶
+
+|         \#GP(0)          |    If a memory address is non-canonical form. |
+
+|--------------------------------------------|----------------------------------------------------------|
+
+|If a memory operand is not properly aligned. |                             |
+
+|  If the reserved fields are not zero. |                             |
+
+|    If PAGEINFO.SECS is not zero. |                             |
+
+|   If PAGEINFO.LINADDR is not zero. |                             |
+
+|   If the SECS destination is locked. |                             |
+
+|  If SECS.SSAFRAMESIZE is insufficient. |                             |
+
+|         \#PF(error         |code) If a page fault occurs in accessing memory operands. |
+
+|If the SECS destination is outside the EPC. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

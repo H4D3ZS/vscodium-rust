@@ -1,0 +1,119 @@
+KMOVW/KMOVB/KMOVQ/KMOVD — Move From and to Mask Registers
+
+* Index
+
+* December 2023
+
+KMOVW/KMOVB/KMOVQ/KMOVD — Move From and to Mask Registers
+
+|     Opcode/Instruction     |Op/En|64/32 bit Mode Support|CPUID Feature Flag|            Description            |
+
+|--------------------------------------|-----|----------------------|------------------|---------------------------------------------------------|
+
+| VEX.L0.0F.W0 90 /r KMOVW k1, k2/m16 | RM |     V/V     |   AVX512F   |Move 16 bits mask from k2/m16 and store the result in k1. |
+
+|VEX.L0.66. 0F.W0 90 /r KMOVB k1, k2/m8 | RM |     V/V     |   AVX512DQ   | Move 8 bits mask from k2/m8 and store the result in k1. |
+
+| VEX.L0.0F.W1 90 /r KMOVQ k1, k2/m64 | RM |     V/V     |   AVX512BW   |Move 64 bits mask from k2/m64 and store the result in k1. |
+
+|VEX.L0.66. 0F.W1 90 /r KMOVD k1, k2/m32| RM |     V/V     |   AVX512BW   |Move 32 bits mask from k2/m32 and store the result in k1. |
+
+|  VEX.L0.0F.W0 91 /r KMOVW m16, k1  | MR |     V/V     |   AVX512F   | Move 16 bits mask from k1 and store the result in m16. |
+
+| VEX.L0.66. 0F.W0 91 /r KMOVB m8, k1 | MR |     V/V     |   AVX512DQ   | Move 8 bits mask from k1 and store the result in m8. |
+
+|  VEX.L0.0F.W1 91 /r KMOVQ m64, k1  | MR |     V/V     |   AVX512BW   | Move 64 bits mask from k1 and store the result in m64. |
+
+| VEX.L0.66. 0F.W1 91 /r KMOVD m32, k1 | MR |     V/V     |   AVX512BW   | Move 32 bits mask from k1 and store the result in m32. |
+
+|  VEX.L0.0F.W0 92 /r KMOVW k1, r32  | RR |     V/V     |   AVX512F   |      Move 16 bits mask from r32 to k1. |
+
+| VEX.L0.66. 0F.W0 92 /r KMOVB k1, r32 | RR |     V/V     |   AVX512DQ   |      Move 8 bits mask from r32 to k1. |
+
+| VEX.L0. F2.0F.W1 92 /r KMOVQ k1, r64 | RR |     V/I     |   AVX512BW   |      Move 64 bits mask from r64 to k1. |
+
+| VEX.L0. F2.0F.W0 92 /r KMOVD k1, r32 | RR |     V/V     |   AVX512BW   |      Move 32 bits mask from r32 to k1. |
+
+|  VEX.L0.0F.W0 93 /r KMOVW r32, k1  | RR |     V/V     |   AVX512F   |      Move 16 bits mask from k1 to r32. |
+
+| VEX.L0.66. 0F.W0 93 /r KMOVB r32, k1 | RR |     V/V     |   AVX512DQ   |      Move 8 bits mask from k1 to r32. |
+
+| VEX.L0. F2.0F.W1 93 /r KMOVQ r64, k1 | RR |     V/I     |   AVX512BW   |      Move 64 bits mask from k1 to r64. |
+
+| VEX.L0. F2.0F.W0 93 /r KMOVD r32, k1 | RR |     V/V     |   AVX512BW   |      Move 32 bits mask from k1 to r32. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|        Operand 1         |       Operand 2        |
+
+|-----|------------------------------------------|--------------------------------------|
+
+| RM |       ModRM:reg (w)        |      ModRM:r/m (r)       |
+
+| MR |ModRM:r/m (w, ModRM:[7:6] must not be 11b)|      ModRM:reg (r)       |
+
+| RR |       ModRM:reg (w)        |ModRM:r/m (r, ModRM:[7:6] must be 11b)|
+
+Description ¶
+
+Copies values from the source operand (second operand) to the destination operand (first operand). The source and destination operands can be mask registers, memory location or general purpose. The instruction cannot be used to transfer data between general purpose registers and or memory locations.
+
+When moving to a mask register, the result is zero extended to MAX\_KL size (ie, 64 bits currently). When moving to a general-purpose register (GPR), the result is zero-extended to the size of the destination. In 32-bit mode, the default GPR destination’s size is 32 bits. In 64-bit mode, the default GPR destination’s size is 64 bits. Note that VEX.W can only be used to modify the size of the GPR operand in 64b mode.
+
+Operation ¶
+
+KMOVW ¶
+
+```
+
+IF *destination is a memory location* DEST[15:0] := SRC[15:0] IF *destination is a mask register or a GPR * DEST := ZeroExtension(SRC[15:0])
+
+```
+
+KMOVB ¶
+
+```
+
+IF *destination is a memory location* DEST[7:0] := SRC[7:0] IF *destination is a mask register or a GPR * DEST := ZeroExtension(SRC[7:0])
+
+```
+
+KMOVQ ¶
+
+```
+
+IF *destination is a memory location or a GPR* DEST[63:0] := SRC[63:0] IF *destination is a mask register* DEST := ZeroExtension(SRC[63:0])
+
+```
+
+KMOVD ¶
+
+```
+
+IF *destination is a memory location* DEST[31:0] := SRC[31:0] IF *destination is a mask register or a GPR * DEST := ZeroExtension(SRC[31:0])
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+KMOVW __mmask16 _mm512_kmov(__mmask16 a);
+
+```
+
+Flags Affected ¶
+
+None.
+
+SIMD Floating-Point Exceptions ¶
+
+None.
+
+Other Exceptions ¶
+
+Instructions with RR operand encoding, see Table 2-63, “TYPE K20 Exception Definition (VEX-Encoded OpMask Instructions w/o Memory Arg).”
+
+Instructions with RM or MR operand encoding, see Table 2-64, “TYPE K21 Exception Definition (VEX-Encoded OpMask Instructions Addressing Memory).”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

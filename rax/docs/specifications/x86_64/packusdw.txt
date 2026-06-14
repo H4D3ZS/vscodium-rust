@@ -1,0 +1,149 @@
+PACKUSDW — Pack With Unsigned Saturation
+
+* Index
+
+* December 2023
+
+PACKUSDW — Pack With Unsigned Saturation
+
+|              Opcode/Instruction              |Op / En|64/32 bit Mode Support|CPUID Feature Flag|                                                Description                                                |
+
+|------------------------------------------------------------------------|-------|----------------------|------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+
+|        66 0F 38 2B /r PACKUSDW xmm1, xmm2/m128         |  A  |     V/V     |   SSE4\_1   |     Convert 4 packed signed doubleword integers from xmm1 and 4 packed signed doubleword integers from xmm2/m128 into 8 packed unsigned word integers in xmm1 using unsigned saturation. |
+
+|     VEX.128.66. 0F38 2B /r VPACKUSDW xmm1,xmm2, xmm3/m128     |  B  |     V/V     |    AVX    |     Convert 4 packed signed doubleword integers from xmm2 and 4 packed signed doubleword integers from xmm3/m128 into 8 packed unsigned word integers in xmm1 using unsigned saturation. |
+
+|     VEX.256.66. 0F38 2B /r VPACKUSDW ymm1, ymm2, ymm3/m256     |  B  |     V/V     |    AVX2    |     Convert 8 packed signed doubleword integers from ymm2 and 8 packed signed doubleword integers from ymm3/m256 into 16 packed unsigned word integers in ymm1 using unsigned saturation. |
+
+|EVEX.128.66. 0F38. W0 2B /r VPACKUSDW xmm1{k1}{z}, xmm2, xmm3/m128/m32bcst|  C  |     V/V     |AVX512VL AVX512BW |Convert packed signed doubleword integers from xmm2 and packed signed doubleword integers from xmm3/m128/m32bcst into packed unsigned word integers in xmm1 using unsigned saturation under writemask k1. |
+
+|EVEX.256.66. 0F38. W0 2B /r VPACKUSDW ymm1{k1}{z}, ymm2, ymm3/m256/m32bcst|  C  |     V/V     |AVX512VL AVX512BW |Convert packed signed doubleword integers from ymm2 and packed signed doubleword integers from ymm3/m256/m32bcst into packed unsigned word integers in ymm1 using unsigned saturation under writemask k1. |
+
+|EVEX.512.66. 0F38. W0 2B /r VPACKUSDW zmm1{k1}{z}, zmm2, zmm3/m512/m32bcst|  C  |     V/V     |   AVX512BW   |Convert packed signed doubleword integers from zmm2 and packed signed doubleword integers from zmm3/m512/m32bcst into packed unsigned word integers in zmm1 using unsigned saturation under writemask k1. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|Tuple Type|  Operand 1  | Operand 2 | Operand 3 |Operand 4|
+
+|-----|----------|----------------|-------------|-------------|---------|
+
+| A |  N/A  |ModRM:reg (r, w)|ModRM:r/m (r)|   N/A   |  N/A  |
+
+| B |  N/A  | ModRM:reg (w) |VEX.vvvv (r) |ModRM:r/m (r)|  N/A  |
+
+| C |  Full  | ModRM:reg (w) |EVEX.vvvv (r)|ModRM:r/m (r)|  N/A  |
+
+Description ¶
+
+Converts packed signed doubleword integers in the first and second source operands into packed unsigned word integers using unsigned saturation to handle overflow conditions. If the signed doubleword value is beyond the range of an unsigned word (that is, greater than FFFFH or less than 0000H), the saturated unsigned word integer value of FFFFH or 0000H, respectively, is stored in the destination.
+
+EVEX encoded versions: The first source operand is a ZMM/YMM/XMM register. The second source operand is a ZMM/YMM/XMM register, a 512/256/128-bit memory location, or a 512/256/128-bit vector broadcasted from a 32-bit memory location. The destination operand is a ZMM register, updated conditionally under the writemask k1.
+
+VEX.256 encoded version: The first source operand is a YMM register. The second source operand is a YMM register or a 256-bit memory location. The destination operand is a YMM register. The upper bits (MAXVL-1:256) of the corresponding ZMM register destination are zeroed.
+
+VEX.128 encoded version: The first source operand is an XMM register. The second source operand is an XMM register or 128-bit memory location. The destination operand is an XMM register. The upper bits (MAXVL-1:128) of the corresponding ZMM register destination are zeroed.
+
+128-bit Legacy SSE version: The first source operand is an XMM register. The second operand can be an XMM register or an 128-bit memory location. The destination is not distinct from the first source XMM register and the upper bits (MAXVL-1:128) of the corresponding destination register destination are unmodified.
+
+Operation ¶
+
+PACKUSDW (Legacy SSE Instruction) ¶
+
+```
+
+TMP[15:0] := (DEST[31:0]  FFFFH) ? FFFFH : TMP[15:0] ; TMP[31:16] := (DEST[63:32]  FFFFH) ? FFFFH : TMP[31:16] ; TMP[47:32] := (DEST[95:64]  FFFFH) ? FFFFH : TMP[47:32] ; TMP[63:48] := (DEST[127:96]  FFFFH) ? FFFFH : TMP[63:48] ; TMP[79:64] := (SRC[31:0]  FFFFH) ? FFFFH : TMP[79:64] ; TMP[95:80] := (SRC[63:32]  FFFFH) ? FFFFH : TMP[95:80] ; TMP[111:96] := (SRC[95:64]  FFFFH) ? FFFFH : TMP[111:96] ; TMP[127:112] := (SRC[127:96]  FFFFH) ? FFFFH : TMP[127:112] ; DEST[MAXVL-1:128] (Unmodified)
+
+```
+
+PACKUSDW (VEX.128 Encoded Version) ¶
+
+```
+
+TMP[15:0] := (SRC1[31:0]  FFFFH) ? FFFFH : TMP[15:0] ; TMP[31:16] := (SRC1[63:32]  FFFFH) ? FFFFH : TMP[31:16] ; TMP[47:32] := (SRC1[95:64]  FFFFH) ? FFFFH : TMP[47:32] ; TMP[63:48] := (SRC1[127:96]  FFFFH) ? FFFFH : TMP[63:48] ; TMP[79:64] := (SRC2[31:0]  FFFFH) ? FFFFH : TMP[79:64] ; TMP[95:80] := (SRC2[63:32]  FFFFH) ? FFFFH : TMP[95:80] ; TMP[111:96] := (SRC2[95:64]  FFFFH) ? FFFFH : TMP[111:96] ; TMP[127:112] := (SRC2[127:96]  FFFFH) ? FFFFH : TMP[127:112]; DEST[MAXVL-1:128] := 0;
+
+```
+
+VPACKUSDW (VEX.256 Encoded Version) ¶
+
+```
+
+TMP[15:0] := (SRC1[31:0]  FFFFH) ? FFFFH : TMP[15:0] ; TMP[31:16] := (SRC1[63:32]  FFFFH) ? FFFFH : TMP[31:16] ; TMP[47:32] := (SRC1[95:64]  FFFFH) ? FFFFH : TMP[47:32] ; TMP[63:48] := (SRC1[127:96]  FFFFH) ? FFFFH : TMP[63:48] ; TMP[79:64] := (SRC2[31:0]  FFFFH) ? FFFFH : TMP[79:64] ; TMP[95:80] := (SRC2[63:32]  FFFFH) ? FFFFH : TMP[95:80] ; TMP[111:96] := (SRC2[95:64]  FFFFH) ? FFFFH : TMP[111:96] ; TMP[127:112] := (SRC2[127:96]  FFFFH) ? FFFFH : TMP[127:112] ; TMP[143:128] := (SRC1[159:128]  FFFFH) ? FFFFH : TMP[143:128] ; TMP[159:144] := (SRC1[191:160]  FFFFH) ? FFFFH : TMP[159:144] ; TMP[175:160] := (SRC1[223:192]  FFFFH) ? FFFFH : TMP[175:160] ; TMP[191:176] := (SRC1[255:224]  FFFFH) ? FFFFH : TMP[191:176] ; TMP[207:192] := (SRC2[159:128]  FFFFH) ? FFFFH : TMP[207:192] ; TMP[223:208] := (SRC2[191:160]  FFFFH) ? FFFFH : TMP[223:208] ; TMP[239:224] := (SRC2[223:192]  FFFFH) ? FFFFH : TMP[239:224] ; TMP[255:240] := (SRC2[255:224]  FFFFH) ? FFFFH : TMP[255:240] ; DEST[MAXVL-1:256] := 0;
+
+```
+
+VPACKUSDW (EVEX Encoded Versions) ¶
+
+```
+
+(KL, VL) = (8, 128), (16, 256), (32, 512) FOR j := 0 TO ((KL/2) - 1) i := j * 32 IF (EVEX.b == 1) AND (SRC2 *is memory*) THEN TMP_SRC2[i+31:i] := SRC2[31:0] ELSE TMP_SRC2[i+31:i] := SRC2[i+31:i] FI; ENDFOR; TMP[15:0] := (SRC1[31:0]  FFFFH) ? FFFFH : TMP[15:0] ; TMP[31:16] := (SRC1[63:32]  FFFFH) ? FFFFH : TMP[31:16] ; TMP[47:32] := (SRC1[95:64]  FFFFH) ? FFFFH : TMP[47:32] ; TMP[63:48] := (SRC1[127:96]  FFFFH) ? FFFFH : TMP[63:48] ; TMP[79:64] := (TMP_SRC2[31:0]  FFFFH) ? FFFFH : TMP[79:64] ; TMP[95:80] := (TMP_SRC2[63:32]  FFFFH) ? FFFFH : TMP[95:80] ; TMP[111:96] := (TMP_SRC2[95:64]  FFFFH) ? FFFFH : TMP[111:96] ; TMP[127:112] := (TMP_SRC2[127:96]  FFFFH) ? FFFFH : TMP[127:112] ; IF VL >= 256 TMP[143:128] := (SRC1[159:128]  FFFFH) ? FFFFH : TMP[143:128] ; TMP[159:144] := (SRC1[191:160]  FFFFH) ? FFFFH : TMP[159:144] ; TMP[175:160] := (SRC1[223:192]  FFFFH) ? FFFFH : TMP[175:160] ; TMP[191:176] := (SRC1[255:224]  FFFFH) ? FFFFH : TMP[191:176] ; TMP[207:192] := (TMP_SRC2[159:128]  FFFFH) ? FFFFH : TMP[207:192] ; TMP[223:208] := (TMP_SRC2[191:160]  FFFFH) ? FFFFH : TMP[223:208] ; TMP[239:224] := (TMP_SRC2[223:192]  FFFFH) ? FFFFH : TMP[239:224] ; TMP[255:240] := (TMP_SRC2[255:224]  FFFFH) ? FFFFH : TMP[255:240] ; FI; IF VL >= 512 TMP[271:256] := (SRC1[287:256]  FFFFH) ? FFFFH : TMP[271:256] ; TMP[287:272] := (SRC1[319:288]  FFFFH) ? FFFFH : TMP[287:272] ; TMP[303:288] := (SRC1[351:320]  FFFFH) ? FFFFH : TMP[303:288] ; TMP[319:304] := (SRC1[383:352]  FFFFH) ? FFFFH : TMP[319:304] ; TMP[335:320] := (TMP_SRC2[287:256]  FFFFH) ? FFFFH : TMP[79:64] ; TMP[351:336] := (TMP_SRC2[319:288]  FFFFH) ? FFFFH : TMP[351:336] ; TMP[367:352] := (TMP_SRC2[351:320]  FFFFH) ? FFFFH : TMP[367:352] ; TMP[383:368] := (TMP_SRC2[383:352]  FFFFH) ? FFFFH : TMP[383:368] ; TMP[399:384] := (SRC1[415:384]  FFFFH) ? FFFFH : TMP[399:384] ; TMP[415:400] := (SRC1[447:416]  FFFFH) ? FFFFH : TMP[415:400] ; TMP[431:416] := (SRC1[479:448]  FFFFH) ? FFFFH : TMP[431:416] ; TMP[447:432] := (SRC1[511:480]  FFFFH) ? FFFFH : TMP[447:432] ; TMP[463:448] := (TMP_SRC2[415:384]  FFFFH) ? FFFFH : TMP[463:448] ; TMP[475:464] := (TMP_SRC2[447:416]  FFFFH) ? FFFFH : TMP[475:464] ; TMP[491:476] := (TMP_SRC2[479:448]  FFFFH) ? FFFFH : TMP[491:476] ; TMP[511:492] := (TMP_SRC2[511:480]  FFFFH) ? FFFFH : TMP[511:492] ; FI; FOR j := 0 TO KL-1 i := j * 16 IF k1[j] OR *no writemask* THEN DEST[i+15:i] := TMP_DEST[i+15:i] ELSE IF *merging-masking* ; merging-masking THEN *DEST[i+15:i] remains unchanged* ELSE *zeroing-masking* ; zeroing-masking DEST[i+15:i] := 0 FI FI; ENDFOR; DEST[MAXVL-1:VL] := 0
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalents ¶
+
+```
+
+VPACKUSDW__m512i _mm512_packus_epi32(__m512i m1, __m512i m2);
+
+```
+
+```
+
+VPACKUSDW__m512i _mm512_mask_packus_epi32(__m512i s, __mmask32 k, __m512i m1, __m512i m2);
+
+```
+
+```
+
+VPACKUSDW__m512i _mm512_maskz_packus_epi32( __mmask32 k, __m512i m1, __m512i m2);
+
+```
+
+```
+
+VPACKUSDW__m256i _mm256_mask_packus_epi32( __m256i s, __mmask16 k, __m256i m1, __m256i m2);
+
+```
+
+```
+
+VPACKUSDW__m256i _mm256_maskz_packus_epi32( __mmask16 k, __m256i m1, __m256i m2);
+
+```
+
+```
+
+VPACKUSDW__m128i _mm_mask_packus_epi32( __m128i s, __mmask8 k, __m128i m1, __m128i m2);
+
+```
+
+```
+
+VPACKUSDW__m128i _mm_maskz_packus_epi32( __mmask8 k, __m128i m1, __m128i m2);
+
+```
+
+```
+
+PACKUSDW__m128i _mm_packus_epi32(__m128i m1, __m128i m2);
+
+```
+
+```
+
+VPACKUSDW__m256i _mm256_packus_epi32(__m256i m1, __m256i m2);
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+None.
+
+Other Exceptions ¶
+
+Non-EVEX-encoded instruction, see Table 2-21, “Type 4 Class Exception Conditions.”
+
+EVEX-encoded instruction, see Table 2-50, “Type E4NF Class Exception Conditions.”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

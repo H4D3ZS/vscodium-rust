@@ -1,0 +1,99 @@
+MOVMSKPS — Extract Packed Single Precision Floating-Point Sign Mask
+
+* Index
+
+* December 2023
+
+MOVMSKPS — Extract Packed Single Precision Floating-Point Sign Mask
+
+|      Opcode/Instruction      |Op/En|64/32-bit Mode|CPUID Feature Flag|                       Description                       |
+
+|----------------------------------------|-----|--------------|------------------|------------------------------------------------------------------------------------------------------|
+
+|   NP 0F 50 /r MOVMSKPS reg, xmm   | RM |   V/V   |    SSE    |Extract 4-bit sign mask from xmm and store in reg. The upper bits of r32 or r64 are filled with zeros. |
+
+|VEX.128.0F.WIG 50 /r VMOVMSKPS reg, xmm2| RM |   V/V   |    AVX    |   Extract 4-bit sign mask from xmm2 and store in reg. The upper bits of r32 or r64 are zeroed. |
+
+|VEX.256.0F.WIG 50 /r VMOVMSKPS reg, ymm2| RM |   V/V   |    AVX    |   Extract 8-bit sign mask from ymm2 and store in reg. The upper bits of r32 or r64 are zeroed. |
+
+Instruction Operand Encoding 1 ¶
+
+>
+
+>
+
+> 1. ModRM.MOD = 011B required
+
+>
+
+>
+
+|Op/En| Operand 1 | Operand 2 |Operand 3|Operand 4|
+
+|-----|-------------|-------------|---------|---------|
+
+| RM |ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+Description ¶
+
+Extracts the sign bits from the packed single precision floating-point values in the source operand (second operand), formats them into a 4- or 8-bit mask, and stores the mask in the destination operand (first operand). The source operand is an XMM or YMM register, and the destination operand is a general-purpose register. The mask is stored in the 4 or 8 low-order bits of the destination operand. The upper bits of the destination operand beyond the mask are filled with zeros.
+
+In 64-bit mode, the instruction can access additional registers (XMM8-XMM15, R8-R15) when used with a REX.R prefix. The default operand size is 64-bit in 64-bit mode.
+
+128-bit versions: The source operand is a YMM register. The destination operand is a general purpose register.
+
+VEX.256 encoded version: The source operand is a YMM register. The destination operand is a general purpose register.
+
+Note: In VEX-encoded versions, VEX.vvvv is reserved and must be 1111b, otherwise instructions will #UD.
+
+Operation ¶
+
+```
+
+DEST:= SRC; DEST:= SRC; DEST:= SRC; DEST:= SRC; IF DEST = r32 THEN DEST[31:4] := ZeroExtend; ELSE DEST[63:4] := ZeroExtend; FI;
+
+```
+
+(V)MOVMSKPS (128-bit version) ¶
+
+```
+
+DEST:= SRCDEST:= SRCDEST:= SRCDEST:= SRCIF DEST = r32 THEN DEST[31:4] := 0; ELSE DEST[63:4] := 0; FI
+
+```
+
+VMOVMSKPS (VEX.256 encoded version) ¶
+
+```
+
+DEST:= SRCDEST:= SRCDEST:= SRCDEST:= SRCDEST:= SRCDEST:= SRCDEST:= SRCDEST:= SRCIF DEST = r32 THEN DEST[31:8] := 0; ELSE DEST[63:8] := 0; FI
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+int _mm_movemask_ps(__m128 a)
+
+```
+
+```
+
+int _mm256_movemask_ps(__m256 a)
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+None.
+
+Other Exceptions ¶
+
+See Table 2-24, “Type 7 Class Exception Conditions,” additionally:
+
+|\#UD|If VEX.vvvv ≠ 1111B.|
+
+|----|---------------------|
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

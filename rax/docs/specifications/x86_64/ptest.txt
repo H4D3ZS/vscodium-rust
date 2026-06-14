@@ -1,0 +1,129 @@
+PTEST — Logical Compare
+
+* Index
+
+* December 2023
+
+PTEST — Logical Compare
+
+|        Opcode/Instruction        |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                      Description                      |
+
+|------------------------------------------------|-----|----------------------|------------------|-------------------------------------------------------------------------------------------------|
+
+|   66 0F 38 17 /r PTEST xmm1, xmm2/m128   | RM |     V/V     |   SSE4\_1   |Set ZF if xmm2/m128 AND xmm1 result is all 0s. Set CF if xmm2/m128 AND NOT xmm1 result is all 0s. |
+
+|VEX.128.66. 0F38. WIG 17 /r VPTEST xmm1, xmm2/m128| RM |     V/V     |    AVX    |          Set ZF and CF depending on bitwise AND and ANDN of sources. |
+
+|VEX.256.66. 0F38. WIG 17 /r VPTEST ymm1, ymm2/m256| RM |     V/V     |    AVX    |          Set ZF and CF depending on bitwise AND and ANDN of sources. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Operand 1 | Operand 2 |Operand 3|Operand 4|
+
+|-----|-------------|-------------|---------|---------|
+
+| RM |ModRM:reg (r)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+Description ¶
+
+PTEST and VPTEST set the ZF flag if all bits in the result are 0 of the bitwise AND of the first source operand (first operand) and the second source operand (second operand). VPTEST sets the CF flag if all bits in the result are 0 of the bitwise AND of the second source operand (second operand) and the logical NOT of the destination operand.
+
+The first source register is specified by the ModR/M reg field.
+
+128-bit versions: The first source register is an XMM register. The second source register can be an XMM register or a 128-bit memory location. The destination register is not modified.
+
+VEX.256 encoded version: The first source register is a YMM register. The second source register can be a YMM register or a 256-bit memory location. The destination register is not modified.
+
+Note: In VEX-encoded versions, VEX.vvvv is reserved and must be 1111b, otherwise instructions will #UD.
+
+Operation ¶
+
+(V)PTEST (128-bit Version) ¶
+
+```
+
+IF (SRC[127:0] BITWISE AND DEST[127:0] = 0) THEN ZF := 1; ELSE ZF := 0; IF (SRC[127:0] BITWISE AND NOT DEST[127:0] = 0) THEN CF := 1; ELSE CF := 0; DEST (unmodified) AF := OF := PF := SF := 0;
+
+```
+
+VPTEST (VEX.256 Encoded Version) ¶
+
+```
+
+IF (SRC[255:0] BITWISE AND DEST[255:0] = 0) THEN ZF := 1; ELSE ZF := 0; IF (SRC[255:0] BITWISE AND NOT DEST[255:0] = 0) THEN CF := 1; ELSE CF := 0; DEST (unmodified) AF := OF := PF := SF := 0;
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+PTEST int _mm_testz_si128 (__m128i s1, __m128i s2);
+
+```
+
+```
+
+PTEST int _mm_testc_si128 (__m128i s1, __m128i s2);
+
+```
+
+```
+
+PTEST int _mm_testnzc_si128 (__m128i s1, __m128i s2);
+
+```
+
+```
+
+VPTEST int _mm256_testz_si256 (__m256i s1, __m256i s2);
+
+```
+
+```
+
+VPTEST int _mm256_testc_si256 (__m256i s1, __m256i s2);
+
+```
+
+```
+
+VPTEST int _mm256_testnzc_si256 (__m256i s1, __m256i s2);
+
+```
+
+```
+
+VPTEST int _mm_testz_si128 (__m128i s1, __m128i s2);
+
+```
+
+```
+
+VPTEST int _mm_testc_si128 (__m128i s1, __m128i s2);
+
+```
+
+```
+
+VPTEST int _mm_testnzc_si128 (__m128i s1, __m128i s2);
+
+```
+
+Flags Affected ¶
+
+The OF, AF, PF, SF flags are cleared and the ZF, CF flags are set according to the operation.
+
+SIMD Floating-Point Exceptions ¶
+
+None.
+
+Other Exceptions ¶
+
+See Table 2-21, “Type 4 Class Exception Conditions,” additionally:
+
+|\#UD|If VEX.vvvv ≠ 1111B.|
+
+|----|---------------------|
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

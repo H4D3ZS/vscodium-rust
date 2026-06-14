@@ -1,0 +1,223 @@
+GETSEC[SEXIT] — Exit Measured Environment
+
+* Index
+
+* December 2023
+
+GETSEC[SEXIT] — Exit Measured Environment
+
+|   Opcode   | Instruction |    Description    |
+
+|----------------|-------------|--------------------------|
+
+|NP 0F 37 (EAX=5)|GETSEC[SEXIT]|Exit measured environment. |
+
+Description ¶
+
+The GETSEC[SEXIT] instruction initiates an exit of a measured environment established by GETSEC[SENTER]. The SEXIT leaf of GETSEC is selected with EAX set to 5 at execution. This instruction leaf sends a message to all logical processors in the platform to signal the measured environment exit.
+
+There are restrictions enforced by the processor for the execution of the GETSEC[SEXIT] instruction:
+
+* Execution is not allowed unless the processor is in protected mode (CR0. PE = 1) with CPL = 0 and EFLAGS.VM = 0.
+
+* The processor must be in a measured environment as launched by a previous GETSEC[SENTER] instruction, but not still in authenticated code execution mode.
+
+* To avoid potential interoperability conflicts between modes, the processor is not allowed to execute this instruction if it currently is in SMM or in VMX operation.
+
+* To ensure consistent handling of SIPI messages, the processor executing the GETSEC[SEXIT] instruction must also be designated the BSP (bootstrap processor) as defined by the register bit IA32\_APIC\_BASE.BSP (bit 8).
+
+Failure to abide by the above conditions results in the processor signaling a general protection violation.
+
+This instruction initiates a sequence to rendezvous the RLPs with the ILP. It then clears the internal processor flag indicating the processor is operating in a measured environment.
+
+In response to a message signaling the completion of rendezvous, all RLPs restart execution with the instruction that was to be executed at the time GETSEC[SEXIT] was recognized. This applies to all processor conditions, with the following exceptions:
+
+* If an RLP executed HLT and was in this halt state at the time of the message initiated by GETSEC[SEXIT], then execution resumes in the halt state.
+
+* If an RLP was executing MWAIT, then a message initiated by GETSEC[SEXIT] causes an exit of the MWAIT state, falling through to the next instruction.
+
+* If an RLP was executing an intermediate iteration of a string instruction, then the processor resumes execution of the string instruction at the point which the message initiated by GETSEC[SEXIT] was recognized.
+
+* If an RLP is still in the SENTER sleep state (never awakened with GETSEC[WAKEUP]), it will be sent to the wait-for-SIPI state after first clearing the bootstrap processor indicator flag (IA32\_APIC\_BASE.BSP) and any pending SIPI state. In this case, such RLPs are initialized to an architectural state consistent with having taken a soft reset using the INIT# pin.
+
+Prior to completion of the GETSEC[SEXIT] operation, both the ILP and any active RLPs unmask the response of the external event signals INIT#, A20M, NMI#, and SMI#. This unmasking is performed unconditionally to recognize pin events which are masked after a GETSEC[SENTER]. The state of A20M is unmasked, as the A20M pin is not recognized while the measured environment is active.
+
+On a successful exit of the measured environment, the ILP re-locks the Intel® TXT-capable chipset private configuration space. GETSEC[SEXIT] does not affect the content of any PCR.
+
+At completion of GETSEC[SEXIT] by the ILP, execution proceeds to the next instruction. Since EFLAGS and the debug register state are not modified by this instruction, a pending trap condition is free to be signaled if previously enabled.
+
+Operation in a Uni-Processor Platform ¶
+
+(\* The state of the internal flag ACMODEFLAG and SENTERFLAG persist across instruction boundary \*)
+
+GETSEC[SEXIT] (ILP Only):
+
+IF (CR4. SMXE=0)
+
+THEN #UD;
+
+ELSE IF (in VMX non-root operation)
+
+THEN VM Exit (reason=”GETSEC instruction”);
+
+ELSE IF (GETSEC leaf unsupported)
+
+THEN #UD;
+
+ELSE IF ((in VMX root operation) or
+
+(CR0. PE=0) or (CPL\>0) or (EFLAGS.VM=1) or
+
+(IA32\_APIC\_BASE.BSP=0) or
+
+(TXT chipset not present) or
+
+(SENTERFLAG=0) or (ACMODEFLAG=1) or (IN\_SMM=1))
+
+THEN #GP(0);
+
+SignalTXTMsg(SEXIT);
+
+DO
+
+WHILE (no SignalSEXIT message);
+
+TXT\_SEXIT\_MSG\_EVENT (ILP & RLP):
+
+Mask and clear SignalSEXIT event;
+
+Clear MONITOR FSM;
+
+Unmask SignalSENTER event;
+
+IF (in VMX operation)
+
+THEN TXT-SHUTDOWN(#IllegalEvent);
+
+SignalTXTMsg(SEXITAck);
+
+IF (logical processor is not ILP)
+
+THEN GOTO RLP\_SEXIT\_ROUTINE;
+
+(\* ILP waits for all logical processors to ACK \*)
+
+DO
+
+DONE := READ(LT.STS);
+
+WHILE (NOT DONE);
+
+SignalTXTMsg(SEXITContinue);
+
+SignalTXTMsg(ClosePrivate);
+
+SENTERFLAG := 0;
+
+Unmask SMI, INIT, A20M, and NMI external pin events;
+
+END;
+
+RLP\_SEXIT\_ROUTINE (RLPs Only):
+
+Wait for SignalSEXITContinue message;
+
+Unmask SMI, INIT, A20M, and NMI external pin events;
+
+IF (prior execution state = HLT)
+
+THEN reenter HLT state;
+
+IF (prior execution state = SENTER sleep)
+
+THEN
+
+IA32\_APIC\_BASE.BSP := 0;
+
+Clear pending SIPI state;
+
+Call INIT\_PROCESSOR\_STATE;
+
+Unmask SIPI event;
+
+GOTO WAIT-FOR-SIPI;
+
+FI;
+
+END;
+
+Flags Affected ¶
+
+ILP: None.
+
+RLPs: All flags are modified for an RLP. returning to wait-for-SIPI state, none otherwise.
+
+Use of Prefixes ¶
+
+LOCK Causes #UD.
+
+REP\* Cause #UD (includes REPNE/REPNZ and REP/REPE/REPZ).
+
+Operand size Causes #UD.
+
+NP 66/F2/F3 prefixes are not allowed.
+
+Segmentoverrides Ignored.
+
+Address size Ignored.
+
+REX Ignored.
+
+Protected Mode Exceptions ¶
+
+|                         \#UD                         |       If CR4. SMXE = 0. |
+
+|------------------------------------------------------------------------------------------------------|-------------------------------------------|
+
+|        If GETSEC[SEXIT] is not reported as supported by GETSEC[CAPABILITIES]. |                      |
+
+|                        \#GP(0)                        |If CR0. PE = 0 or CPL \> 0 or EFLAGS.VM = 1. |
+
+|                   If in VMX root operation. |                      |
+
+|     If the initiating processor is not designated via the MSR bit IA32\_APIC\_BASE.BSP.     |                      |
+
+|              If an Intel® TXT-capable chipset is not present. |                      |
+
+|If a protected partition is not already active or the processor is already in authenticated code mode. |                      |
+
+|                   If the processor is in SMM.                   |                      |
+
+Real-Address Mode Exceptions ¶
+
+|                 \#UD                 |         If CR4. SMXE = 0. |
+
+|----------------------------------------------------------------------|-----------------------------------------------------|
+
+|If GETSEC[SEXIT] is not reported as supported by GETSEC[CAPABILITIES]. |                           |
+
+|                \#GP(0)                |GETSEC[SEXIT] is not recognized in real-address mode. |
+
+Virtual-8086 Mode Exceptions ¶
+
+|                 \#UD                 |         If CR4. SMXE = 0. |
+
+|----------------------------------------------------------------------|-----------------------------------------------------|
+
+|If GETSEC[SEXIT] is not reported as supported by GETSEC[CAPABILITIES]. |                           |
+
+|                \#GP(0)                |GETSEC[SEXIT] is not recognized in virtual-8086 mode. |
+
+Compatibility Mode Exceptions ¶
+
+All protected mode exceptions apply.
+
+64-Bit Mode Exceptions ¶
+
+All protected mode exceptions apply.
+
+VM-Exit Condition ¶
+
+Reason (GETSEC) If in VMX non-root operation.
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

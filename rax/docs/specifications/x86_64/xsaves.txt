@@ -1,0 +1,159 @@
+XSAVES — Save Processor Extended States Supervisor
+
+* Index
+
+* December 2023
+
+XSAVES — Save Processor Extended States Supervisor
+
+|   Opcode / Instruction   |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                    Description                    |
+
+|--------------------------------|-----|----------------------|------------------|------------------------------------------------------------------------------------------|
+
+|   NP 0F C7 /5 XSAVES mem   | M |     V/V     |    XSS    |Save state components specified by EDX:EAX to mem with compaction, optimizing if possible. |
+
+|NP REX.W + 0F C7 /5 XSAVES64 mem| M |    V/N.E.    |    XSS    |Save state components specified by EDX:EAX to mem with compaction, optimizing if possible. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Operand 1 |Operand 2|Operand 3|Operand 4|
+
+|-----|-------------|---------|---------|---------|
+
+| M |ModRM:r/m (w)|  N/A  |  N/A  |  N/A  |
+
+Description ¶
+
+Performs a full or partial save of processor state components to the XSAVE area located at the memory address specified by the destination operand. The implicit EDX:EAX register pair specifies a 64-bit instruction mask. The specific state components saved correspond to the bits set in the requested-feature bitmap (RFBM), the logicalAND of EDX:EAX and the logical-OR of XCR0 with the IA32\_XSS MSR. XSAVES may be executed only if CPL = 0.
+
+The format of the XSAVE area is detailed in Section 13.4, “XSAVE Area,” of the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 1. Like FXRSTOR and FXSAVE, the memory format used for x87 state depends on a REX.W prefix; see Section 13.5. 1, “x87 State,” of the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 1.
+
+Section 13.11, “Operation of XSAVES,” of the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 1 provides a detailed description of the operation of the XSAVES instruction. The following items provide a high-level outline:
+
+* Execution of XSAVES is similar to that of XSAVEC. XSAVES differs from XSAVEC in that it can save state components corresponding to bits set in the IA32\_XSS MSR and that it may use the modified optimization.
+
+* XSAVES saves state component i only if RFBM[i] = 1 and XINUSE[i] = 1. 1 (XINUSE is a bitmap by which the processor tracks the status of various state components. See Section 13.6, “Processor Tracking of XSAVEManaged State,” of the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 1.) Even if both bits are 1, XSAVES may optimize and not save state component i if (1) state component i has not been modified since the last execution of XRSTOR or XRSTORS; and (2) this execution of XSAVES correspond to that last execution of XRSTOR or XRSTORS as determined by XRSTOR\_INFO (see the Operation section below).
+
+* XSAVES does not modify bytes 511:464 of the legacy region of the XSAVE area (see Section 13.4. 1, “Legacy Region of an XSAVE Area,” of the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 1).
+
+* XSAVES writes the logical AND of RFBM and XINUSE to the XSTATE\_BV field of the XSAVE header. 2 (See Section 13.4. 2, “XSAVE Header,” of the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 1.) XSAVES sets bit 63 of the XCOMP\_BV field and sets bits 62:0 of that field to RFBM[62:0]. XSAVES does not write to any parts of the XSAVE header other than the XSTATE\_BV and XCOMP\_BV fields.
+
+* XSAVES always uses the compacted format of the extended region of the XSAVE area (see Section 13.4. 3, “Extended Region of an XSAVE Area,” of the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 1).
+
+>
+
+>
+
+> 1. There is an exception for state component 1 (SSE). MXCSR is part of SSE state, but XINUSEmay be 0 even if MXCSR does not have its initial value of 1F80H. In this case, the init optimization does not apply and XSAVEC will save SSE state as long as RFBM= 1 and the modified optimization is not being applied.
+
+>
+
+>
+
+>
+
+> 2. There is an exception for state component 1 (SSE). MXCSR is part of SSE state, but XINUSEmay be 0 even if MXCSR does not have its initial value of 1F80H. In this case, XSAVES sets XSTATE\_BVto 1 as long as RFBM= 1.
+
+>
+
+>
+
+Use of a destination operand not aligned to 64-byte boundary (in either 64-bit or 32-bit modes) results in a general-protection (#GP) exception. In 64-bit mode, the upper 32 bits of RDX and RAX are ignored.
+
+See Section 13.6, “Processor Tracking of XSAVE-Managed State,” of Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 1 for discussion of the bitmap XMODIFIED and of the quantity XRSTOR\_INFO.
+
+Operation ¶
+
+```
+
+RFBM := (XCR0 OR IA32_XSS) AND EDX:EAX; /* bitwise logical OR and AND */ IF in VMX non-root operation THEN VMXNR := 1; ELSE VMXNR := 0; FI; LAXA := linear address of XSAVE area; COMPMASK := RFBM OR 80000000_00000000H; TO_BE_SAVED := RFBM AND XINUSE; IF XRSTOR_INFO = CPL,VMXNR,LAXA,COMPMASK THEN TO_BE_SAVED := TO_BE_SAVED AND XMODIFIED; FI; IF MXCSR ≠ 1F80H AND RFBMTHEN TO_BE_SAVED= 1; FI; IF TO_BE_SAVED= 1 THEN store x87 state into legacy region of XSAVE area; FI; IF TO_BE_SAVED= 1 THEN store SSE state into legacy region of XSAVE area; // this step saves the XMM registers, MXCSR, and MXCSR_MASK FI; NEXT_FEATURE_OFFSET = 576; // Legacy area and XSAVE header consume 576 bytes FOR i := 2 TO 62 IF RFBM[i] = 1 THEN IF TO_BE_SAVED[i] THEN save XSAVE state component i at offset NEXT_FEATURE_OFFSET from base of XSAVE area; IF i = 8 // state component 8 is for PT state THEN IA32_RTIT_CTL.TraceEn[bit 0] := 0; FI; FI; NEXT_FEATURE_OFFSET = NEXT_FEATURE_OFFSET + n (n enumerated by CPUID(EAX=0DH,ECX=i):EAX); FI; ENDFOR; NEW_HEADER := RFBM AND XINUSE; IF MXCSR ≠ 1F80H AND RFBMTHEN NEW_HEADER= 1; FI; XSTATE_BV field in XSAVE header := NEW_HEADER; XCOMP_BV field in XSAVE header := COMPMASK;
+
+```
+
+Flags Affected ¶
+
+None.
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+XSAVES void _xsaves( void * , unsigned __int64);
+
+```
+
+```
+
+XSAVES64 void _xsaves64( void * , unsigned __int64);
+
+```
+
+Protected Mode Exceptions ¶
+
+|                     \#GP(0)                     |                  IfCPL\>0. |
+
+|-----------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
+
+|If a memory operand effective address is outside the CS, DS, ES, FS, or GS segment limit. |                                        |
+
+|  If a memory operand is not aligned on a 64-byte boundary, regardless of segment. |                                        |
+
+|                     \#SS(0)                     |  If a memory operand effective address is outside the SS segment limit. |
+
+|                  \#PF(fault-code)                   |              If a page fault occurs. |
+
+|                     \#NM                      |               If CR0. TS[bit 3] = 1. |
+
+|                     \#UD                      |If CPUID.01H:ECX.XSAVE[bit 26] = 0 or CPUID.(EAX=0DH,ECX=1):EAX.XSS[bit 3] = 0. |
+
+|                If CR4. OSXSAVE[bit 18] = 0. |                                        |
+
+|                If the LOCK prefix is used. |                                        |
+
+Real-Address Mode Exceptions ¶
+
+|                    \#GP                    |If a memory operand is not aligned on a 64-byte boundary, regardless of segment. |
+
+|------------------------------------------------------------------------------------|--------------------------------------------------------------------------------|
+
+|If any part of the operand lies outside the effective address space from 0 to FFFFH.|                                        |
+
+|                    \#NM                    |               If CR0. TS[bit 3] = 1. |
+
+|                    \#UD                    |If CPUID.01H:ECX.XSAVE[bit 26] = 0 or CPUID.(EAX=0DH,ECX=1):EAX.XSS[bit 3] = 0. |
+
+|              If CR4. OSXSAVE[bit 18] = 0. |                                        |
+
+|              If the LOCK prefix is used. |                                        |
+
+Virtual-8086 Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+Compatibility Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+64-Bit Mode Exceptions ¶
+
+|                  \#GP(0)                   |                  IfCPL\>0. |
+
+|--------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
+
+|        If the memory address is in a non-canonical form. |                                        |
+
+|If a memory operand is not aligned on a 64-byte boundary, regardless of segment. |                                        |
+
+|                  \#SS(0)                   | If a memory address referencing the SS segment is in a non-canonical form. |
+
+|                \#PF(fault-code)                |              If a page fault occurs. |
+
+|                   \#NM                   |               If CR0. TS[bit 3] = 1. |
+
+|                   \#UD                   |If CPUID.01H:ECX.XSAVE[bit 26] = 0 or CPUID.(EAX=0DH,ECX=1):EAX.XSS[bit 3] = 0. |
+
+|             If CR4. OSXSAVE[bit 18] = 0. |                                        |
+
+|             If the LOCK prefix is used. |                                        |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

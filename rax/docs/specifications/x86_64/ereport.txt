@@ -1,0 +1,335 @@
+EREPORT — Create a Cryptographic Report of the Enclave
+
+* Index
+
+* December 2023
+
+EREPORT — Create a Cryptographic Report of the Enclave
+
+|  Opcode/Instruction  |Op/En|64/32 bit Mode Support|CPUID Feature Flag|              Description              |
+
+|------------------------|-----|----------------------|------------------|-----------------------------------------------------------------|
+
+|EAX = 00H ENCLU[EREPORT]| IR |     V/V     |    SGX1    |This leaf function creates a cryptographic report of the enclave. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX   |      RBX      |      RCX      |              RDX               |
+
+|-----|------------|--------------------------|--------------------------|------------------------------------------------------------|
+
+| IR |EREPORT (In)|Address of TARGETINFO (In)|Address of REPORTDATA (In)|Address where the REPORT is written to in an OUTPUTDATA (In)|
+
+Description ¶
+
+This leaf function creates a cryptographic REPORT that describes the contents of the enclave. This instruction leaf can only be executed when inside the enclave. The cryptographic report can be used by other enclaves to determine that the enclave is running on the same platform.
+
+RBX contains the effective address of the MRENCLAVE value of the enclave that will authenticate the REPORT output, using the REPORT key delivered by EGETKEY command for that enclave. RCX contains the effective address of a 64-byte REPORTDATA structure, which allows the caller of the instruction to associate data with the enclave from which the instruction is called. RDX contains the address where the REPORT will be output by the instruction.
+
+EREPORT Memory Parameter Semantics ¶
+
+|   TARGETINFO   |   REPORTDATA   |     OUTPUTDATA     |
+
+|----------------------|----------------------|----------------------------|
+
+|Read access by Enclave|Read access by Enclave|Read/Write access by Enclave|
+
+This instruction leaf perform the following:
+
+1. Validate the 3 operands (RBX, RCX, RDX) are inside the enclave.
+
+2. Compute a report key for the target enclave, as indicated by the value located in RBX(TARGETINFO).
+
+3. Assemble the enclave SECS data to complete the REPORT structure (including the data provided using the RCX (REPORTDATA) operand).
+
+4. Computes a cryptographic hash over REPORT structure.
+
+5. Add the computed hash to the REPORT structure.
+
+6. Output the completed REPORT structure to the address in RDX (OUTPUTDATA).
+
+The instruction fails if the operands are not properly aligned.
+
+CR\_REPORT\_KEYID, used to provide key wearout protection, is populated with a statistically unique value on boot of the platform by a trusted entity within the SGX TCB.
+
+The instruction faults if any of the following:
+
+EREPORT Faulting Conditions ¶
+
+|An effective address not properly aligned. |An memory address does not resolve in an EPC page. |
+
+|------------------------------------------|--------------------------------------------------|
+
+|  If accessing an invalid EPC page. |      If the EPC page is blocked. |
+
+|       May page fault. |                         |
+
+Concurrency Restrictions ¶
+
+|    Leaf    |   Parameter   |  Base Concurrency Restrictions  |  |  |
+
+|-------------------|-------------------|-----------------------------------|---|---|
+
+|   Access    |  On Conflict  |SGX\_CONFLICT VM Exit Qualification|  |  |
+
+|   EREPORT   |TARGETINFO [DS:RBX]|      Concurrent       |  |  |
+
+|REPORTDATA [DS:RCX]|  Concurrent   |                  |  |  |
+
+|OUTPUTDATA [DS:RDX]|  Concurrent   |                  |  |  |
+
+Table 38-72. Base Concurrency Restrictions of EREPORT
+
+|           Leaf           |    Parameter    |Additional Concurrency Restrictions|      |     |      |     |  |
+
+|-----------------------------------------------|------------------------|-----------------------------------|-----------|----------|-----------|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT|    vs ETRACK, ETRACKC    |      |     |      |     |  |
+
+|          Access           |   On Conflict    |       Access        |On Conflict| Access |On Conflict|     |  |
+
+|          EREPORT          | TARGETINFO [DS:RBX]  |      Concurrent       |      |Concurrent|      |Concurrent|  |
+
+|       REPORTDATA [DS:RCX]       |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+|       OUTPUTDATA [DS:RDX]       |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+Table 38-73. Additional Concurrency Restrictions of EREPORT
+
+Operation ¶
+
+Temp Variables in EREPORT Operational Flow ¶
+
+|    Name    |Type|Size (bits)|               Description                |
+
+|--------------------|----|-----------|------------------------------------------------------------------------|
+
+| TMP\_ATTRIBUTES  |  |  32   |Physical address of SECS of the enclave to which source operand belongs. |
+
+| TMP\_CURRENTSECS |  |      |    Address of the SECS for the currently executing enclave. |
+
+|TMP\_KEYDEPENDENCIES|  |      |           Temp space for key derivation. |
+
+|  TMP\_REPORTKEY  |  |  128  |        REPORTKEY generated by the instruction. |
+
+|  TMP\_REPORT   |  |  3712  |                                    |
+
+TMP\_MODE64 := ((IA32\_EFER.LMA = 1) && (CS.L = 1));
+
+(\* Address verification for TARGETINFO (RBX) \*)
+
+IF ( (DS:RBX is not 512Byte Aligned) or (DS:RBX is not within CR\_ELRANGE) )
+
+THEN #GP(0); FI;
+
+IF (DS:RBX does not resolve within an EPC)
+
+THEN #PF(DS:RBX); FI;
+
+IF (EPCM(DS:RBX). VALID = 0)
+
+THEN #PF(DS:RBX); FI;
+
+IF (EPCM(DS:RBX). BLOCKED = 1)
+
+THEN #PF(DS:RBX); FI;
+
+(\* Check page parameters for correctness \*)
+
+IF ( (EPCM(DS:RBX). PT ≠ PT\_REG) or (EPCM(DS:RBX). ENCLAVESECS ≠ CR\_ACTIVE\_SECS) or (EPCM(DS:RBX). PENDING = 1) or
+
+(EPCM(DS:RBX). MODIFIED = 1) or (EPCM(DS:RBX). ENCLAVEADDRESS ≠ (DS:RBX & \~0FFFH) ) or (EPCM(DS:RBX). R = 0) )
+
+THEN #PF(DS:RBX);
+
+FI;
+
+(\* Verify RESERVED spaces in TARGETINFO are valid \*)
+
+IF (DS:RBX.RESERVED ! = 0)
+
+THEN #GP(0); FI;
+
+(\* Address verification for REPORTDATA (RCX) \*)
+
+IF ( (DS:RCX is not 128Byte Aligned) or (DS:RCX is not within CR\_ELRANGE) )
+
+THEN #GP(0); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+IF (EPCM(DS:RCX). VALID = 0)
+
+THEN #PF(DS:RCX); FI;
+
+IF (EPCM(DS:RCX). BLOCKED = 1)
+
+THEN #PF(DS:RCX); FI;
+
+(\* Check page parameters for correctness \*)
+
+IF ( (EPCM(DS:RCX). PT ≠ PT\_REG) or (EPCM(DS:RCX). ENCLAVESECS ≠ CR\_ACTIVE\_SECS) or (EPCM(DS:RCX). PENDING = 1) or
+
+(EPCM(DS:RCX). MODIFIED = 1) or (EPCM(DS:RCX). ENCLAVEADDRESS ≠ (DS:RCX & \~0FFFH) ) or (EPCM(DS:RCX). R = 0) )
+
+THEN #PF(DS:RCX);
+
+FI;
+
+(\* Address verification for OUTPUTDATA (RDX) \*)
+
+IF ( (DS:RDX is not 512Byte Aligned) or (DS:RDX is not within CR\_ELRANGE) )
+
+THEN #GP(0); FI;
+
+IF (DS:RDX does not resolve within an EPC)
+
+THEN #PF(DS:RDX); FI;
+
+IF (EPCM(DS:RDX). VALID = 0)
+
+THEN #PF(DS:RDX); FI;
+
+IF (EPCM(DS:RDX). BLOCKED = 1)
+
+THEN #PF(DS:RDX); FI;
+
+(\* Check page parameters for correctness \*)
+
+IF ( (EPCM(DS:RDX). PT ≠ PT\_REG) or (EPCM(DS:RDX). ENCLAVESECS ≠ CR\_ACTIVE\_SECS) or (EPCM(DS:RCX). PENDING = 1) or
+
+(EPCM(DS:RCX). MODIFIED = 1) or (EPCM(DS:RDX). ENCLAVEADDRESS ≠ (DS:RDX & \~0FFFH) ) or (EPCM(DS:RDX). W = 0) )
+
+THEN #PF(DS:RDX);
+
+FI;
+
+(\* REPORT MAC needs to be computed over data which cannot be modified \*)
+
+TMP\_REPORT.CPUSVN := CR\_CPUSVN;
+
+TMP\_REPORT.ISVFAMILYID := TMP\_CURRENTSECS.ISVFAMILYID;
+
+TMP\_REPORT.ISVEXTPRODID := TMP\_CURRENTSECS.ISVEXTPRODID;
+
+TMP\_REPORT.ISVPRODID := TMP\_CURRENTSECS.ISVPRODID;
+
+TMP\_REPORT.ISVSVN := TMP\_CURRENTSECS.ISVSVN;
+
+TMP\_REPORT.ATTRIBUTES := TMP\_CURRENTSECS.ATTRIBUTES;
+
+TMP\_REPORT.REPORTDATA := DS:RCX[511:0];
+
+TMP\_REPORT.MRENCLAVE := TMP\_CURRENTSECS.MRENCLAVE;
+
+TMP\_REPORT.MRSIGNER := TMP\_CURRENTSECS.MRSIGNER;
+
+TMP\_REPORT.MRRESERVED := 0;
+
+TMP\_REPORT.KEYID[255:0] := CR\_REPORT\_KEYID;
+
+TMP\_REPORT.MISCSELECT := TMP\_CURRENTSECS.MISCSELECT;
+
+TMP\_REPORT.CONFIGID := TMP\_CURRENTSECS.CONFIGID;
+
+TMP\_REPORT.CONFIGSVN := TMP\_CURRENTSECS.CONFIGSVN;
+
+IF (CPUID.(EAX=12H, ECX=1):EAX= 1)
+
+THEN TMP\_REPORT.CET\_ATTRIBUTES := TMP\_CURRENTSECS.CET\_ATTRIBUTES; FI;
+
+(\* Derive the report key \*)
+
+TMP\_KEYDEPENDENCIES.KEYNAME := REPORT\_KEY;
+
+TMP\_KEYDEPENDENCIES.ISVFAMILYID := 0;
+
+TMP\_KEYDEPENDENCIES.ISVEXTPRODID := 0;
+
+TMP\_KEYDEPENDENCIES.ISVPRODID := 0;
+
+TMP\_KEYDEPENDENCIES.ISVSVN := 0;
+
+TMP\_KEYDEPENDENCIES.SGXOWNEREPOCH := CR\_SGXOWNEREPOCH;
+
+TMP\_KEYDEPENDENCIES.ATTRIBUTES := DS:RBX.ATTRIBUTES;
+
+TMP\_KEYDEPENDENCIES.ATTRIBUTESMASK := 0;
+
+TMP\_KEYDEPENDENCIES.MRENCLAVE := DS:RBX.MEASUREMENT;
+
+TMP\_KEYDEPENDENCIES.MRSIGNER := 0;
+
+TMP\_KEYDEPENDENCIES.KEYID := TMP\_REPORT.KEYID;
+
+TMP\_KEYDEPENDENCIES.SEAL\_KEY\_FUSES := CR\_SEAL\_FUSES;
+
+TMP\_KEYDEPENDENCIES.CPUSVN := CR\_CPUSVN;
+
+TMP\_KEYDEPENDENCIES.PADDING := TMP\_CURRENTSECS.PADDING;
+
+TMP\_KEYDEPENDENCIES.MISCSELECT := DS:RBX.MISCSELECT;
+
+TMP\_KEYDEPENDENCIES.MISCMASK := 0;
+
+TMP\_KEYDEPENDENCIES.KEYPOLICY := 0;
+
+TMP\_KEYDEPENDENCIES.CONFIGID := DS:RBX.CONFIGID;
+
+TMP\_KEYDEPENDENCIES.CONFIGSVN := DS:RBX.CONFIGSVN;
+
+IF (CPUID.(EAX=12H, ECX=1):EAX= 1)
+
+THEN
+
+TMP\_KEYDEPENDENCIES.CET\_ATTRIBUTES := DS:RBX.CET\_ATTRIBUTES;
+
+TMP\_KEYDEPENDENCIES.CET\_ATTRIBUTES \_MASK := 0;
+
+FI;
+
+(\* Calculate the derived key\*)
+
+TMP\_REPORTKEY := derivekey(TMP\_KEYDEPENDENCIES);
+
+(\* call cryptographic CMAC function, CMAC data are not including MAC&KEYID \*)
+
+TMP\_REPORT.MAC := cmac(TMP\_REPORTKEY, TMP\_REPORT[3071:0] );
+
+DS:RDX[3455: 0] := TMP\_REPORT;
+
+Flags Affected ¶
+
+None
+
+Protected Mode Exceptions ¶
+
+|            \#GP(0)            |       If executed outside an enclave. |
+
+|------------------------------------------------------|----------------------------------------------------------|
+
+|If the address in RCS is outside the DS segment limit. |                             |
+
+|   If a memory operand is not properly aligned. |                             |
+
+| If a memory operand is not in the current enclave. |                             |
+
+|           \#PF(error           |code) If a page fault occurs in accessing memory operands. |
+
+64-Bit Mode Exceptions ¶
+
+|           \#GP(0)           |       If executed outside an enclave. |
+
+|--------------------------------------------------|----------------------------------------------------------|
+
+|     If RCX is non-canonical form. |                             |
+
+|  If a memory operand is not properly aligned. |                             |
+
+|If a memory operand is not in the current enclave. |                             |
+
+|          \#PF(error          |code) If a page fault occurs in accessing memory operands. |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

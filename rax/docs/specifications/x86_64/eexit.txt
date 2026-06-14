@@ -1,0 +1,231 @@
+EEXIT — Exits an Enclave
+
+* Index
+
+* December 2023
+
+EEXIT — Exits an Enclave
+
+|Opcode/Op/En 64/32 CPUID Description Instruction bit Mode Feature Support Flag EAX = 04H IR V/V SGX1 This leaf function is used to exit an enclave. ENCLU[EEXIT]|
+
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX  |         RBX         |       RCX        |
+
+|-----|----------|---------------------------------------|--------------------------------|
+
+| IR |EEXIT (In)|Target address outside the enclave (In)|Address of the current AEP (Out)|
+
+Description ¶
+
+The ENCLU[EEXIT] instruction exits the currently executing enclave and branches to the location specified in RBX. RCX receives the current AEP. If RBX is not within the CS (32-bit mode) or is not canonical (64-bit mode) a #GP(0) results.
+
+EEXIT Memory Parameter Semantics ¶
+
+|     Target Address      |
+
+|-----------------------------------|
+
+|Non-Enclave read and execute access|
+
+If RBX specifies an address that is inside the enclave, the instruction will complete normally. The fetch of the next instruction will occur in non-enclave mode, but will attempt to fetch from inside the enclave. This fetch returns a fixed data pattern.
+
+If secrets are contained in any registers, it is responsibility of enclave software to clear those registers.
+
+If XCR0 was modified on enclave entry, it is restored to the value it had at the time of the most recent EENTER or ERESUME.
+
+If the enclave is opt-out, RFLAGS.TF is loaded from the value previously saved on EENTER.
+
+Code and data breakpoints are unsuppressed.
+
+Performance monitoring counters are unsuppressed.
+
+Concurrency Restrictions ¶
+
+|Leaf | Parameter |Base Concurrency Restrictions|  |  |
+
+|-----|-----------|-----------------------------|---|---|
+
+|   |On Conflict|               |  |  |
+
+|EEXIT|      |     Concurrent     |  |  |
+
+Table 38-64. Base Concurrency Restrictions of EEXIT
+
+|                                             Leaf                                             |               Parameter               |Additional Concurrency Restrictions|  |     |  |     |  |
+
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|-----------------------------------|---|----------|---|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC Access vs ETRACK, ETRACKC Access On Conflict Access vs ETRACK, ETRACKC Access On Conflict EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC|    vs ETRACK, ETRACKC    |  |     |  |     |  |
+
+|                          Access On Conflict Access On Conflict Access Access On Conflict Access On Conflict                          |                                   |                  |  |     |  |     |  |
+
+|                                             EEXIT                                             |                                   |      Concurrent       |  |Concurrent|  |Concurrent|  |
+
+Table 38-65. Additional Concurrency Restrictions of EEXIT
+
+Operation ¶
+
+Temp Variables in EEXIT Operational Flow ¶
+
+| Name |   Type    |Size (Bits)|         Description         |
+
+|--------|-----------------|-----------|---------------------------------------------|
+
+|TMP\_RIP|Effective Address|  32/64  |Saved copy of CRIP for use when creating LBR.|
+
+TMP\_MODE64 := ((IA32\_EFER.LMA = 1) && (CS.L = 1));
+
+IF (TMP\_MODE64 = 1)
+
+THEN
+
+IF (RBX is not canonical) THEN #GP(0); FI;
+
+ELSE
+
+IF (RBX \> CS limit) THEN #GP(0); FI;
+
+FI;
+
+TMP\_RIP := CRIP;
+
+RIP := RBX;
+
+(\* Return current AEP in RCX \*)
+
+RCX := CR\_TCS\_PA.AEP;
+
+(\* Do the FS/GS swap \*)
+
+FS.selector := CR\_SAVE\_FS.selector;
+
+FS.base := CR\_SAVE\_FS.base;
+
+FS.limit := CR\_SAVE\_FS.limit;
+
+FS.access\_rights := CR\_SAVE\_FS.access\_rights;
+
+GS.selector := CR\_SAVE\_GS.selector;
+
+GS.base := CR\_SAVE\_GS.base;
+
+GS.limit := CR\_SAVE\_GS.limit;
+
+GS.access\_rights := CR\_SAVE\_GS.access\_rights;
+
+(\* Restore XCR0 if needed \*)
+
+IF (CR4. OSXSAVE = 1)
+
+XCR0 := CR\_SAVE\_\_XCR0;
+
+FI;
+
+Unsuppress\_all\_code\_breakpoints\_that\_are\_outside\_ELRANGE;
+
+IF (CR\_DBGOPTIN = 0)
+
+THEN
+
+UnSuppress\_all\_code\_breakpoints\_that\_overlap\_with\_ELRANGE;
+
+Restore suppressed breakpoint matches;
+
+RFLAGS.TF := CR\_SAVE\_TF;
+
+UnSuppress\_montior\_trap\_flag;
+
+UnSuppress\_LBR\_Generation;
+
+UnSuppress\_performance monitoring\_activity;
+
+Restore performance monitoring counter AnyThread demotion to MyThread in enclave back to AnyThread
+
+FI;
+
+IF RFLAGS.TF = 1
+
+THEN Pend Single-Step #DB at the end of EEXIT;
+
+FI;
+
+IF the “monitor trap flag” VM-execution control is set
+
+THEN pend a MTF VM exit at the end of EEXIT;
+
+FI;
+
+IF (CPUID.(EAX=12H, ECX=1):EAX= 1)
+
+THEN
+
+(\* Record PREVSSP \*)
+
+IF (IA32\_U\_CET.SH\_STK\_EN == 1)
+
+THEN CR\_TCS\_PA.PREVSSP = SSP; FI;
+
+FI;
+
+IF ((CPUID.(EAX=7H, ECX=0):EDX[CET\_IBT] = 1) OR (CPUID.(EAX=7, ECX=0):ECX[CET\_SS] = 1)
+
+THEN
+
+(\* Restore enclosing app’s CET state from the save registers \*)
+
+IA32\_U\_CET := CR\_SAVE\_IA32\_U\_CET;
+
+IF CPUID.(EAX=07H, ECX=00h):ECX[CET\_SS] = 1
+
+THEN SSP := CR\_SAVE\_SSP; FI;
+
+(\* Update enclosing app’s TRACKER if enclosing app has indirect branch tracking enabled \*)
+
+IF (CR4. CET = 1 AND IA32\_U\_CET.ENDBR\_EN = 1)
+
+THEN
+
+IA32\_U\_CET.TRACKER := WAIT\_FOR\_ENDBRANCH;
+
+IA32\_U\_CET.SUPPRESS := 0
+
+FI;
+
+FI;
+
+CR\_ENCLAVE\_MODE := 0;
+
+CR\_TCS\_PA.STATE := INACTIVE;
+
+(\* Assure consistent translations \*)
+
+Flush\_linear\_context;
+
+Flags Affected ¶
+
+RFLAGS.TF is restored from the value previously saved in EENTER or ERESUME.
+
+Protected Mode Exceptions ¶
+
+|       \#GP(0)       |     If executed outside an enclave. |
+
+|---------------------------------|-------------------------------------------------|
+
+|If RBX is outside the CS segment. |                         |
+
+|      \#PF(error      |code) If a page fault occurs in accessing memory. |
+
+64-Bit Mode Exceptions ¶
+
+|    \#GP(0)     |       If executed outside an enclave. |
+
+|------------------------|----------------------------------------------------------|
+
+|If RBX is not canonical. |                             |
+
+|    \#PF(error    |code) If a page fault occurs in accessing memory operands. |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

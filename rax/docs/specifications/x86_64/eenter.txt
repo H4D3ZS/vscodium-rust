@@ -1,0 +1,743 @@
+EENTER — Enters an Enclave
+
+* Index
+
+* December 2023
+
+EENTER — Enters an Enclave
+
+| Opcode/Instruction  |Op/En|64/32 bit Mode Support|CPUID Feature Flag|         Description         |
+
+|-----------------------|-----|----------------------|------------------|-----------------------------------------------|
+
+|EAX = 02H ENCLU[EENTER]| IR |     V/V     |    SGX1    |This leaf function is used to enter an enclave. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX  |      RBX      |     RCX     |          |                  |
+
+|-----|-----------|-------------------------|---------------------|-------------------|------------------------------------|
+
+| IR |EENTER (In)|Content of RBX.CSSA (Out)|Address of a TCS (In)|Address of AEP (In)|Address of IP following EENTER (Out)|
+
+Description ¶
+
+The ENCLU[EENTER] instruction transfers execution to an enclave. At the end of the instruction, the logical processor is executing in enclave mode at the RIP computed as EnclaveBase + TCS.OENTRY. If the target address is not within the CS segment (32-bit) or is not canonical (64-bit), a #GP(0) results.
+
+EENTER Memory Parameter Semantics ¶
+
+|   TCS   |
+
+|--------------|
+
+|Enclave access|
+
+EENTER is a serializing instruction. The instruction faults if any of the following occurs:
+
+|          Address in RBX is not properly aligned. |          Any TCS.FLAGS’s must-be-zero bit is not zero. |
+
+|-------------------------------------------------------------------------------|-------------------------------------------------------------------------------------|
+
+|     TCS pointed to by RBX is not valid or available or locked. |  Current 32/64 mode does not match the enclave mode in SECS.ATTRIBUTES.MODE64. |
+
+|               The SECS is in use. |Either of TCS-specified FS and GS segment is not a subsets of the current DS segment. |
+
+|          Any one of DS, ES, CS, SS is not zero. |     If XSAVE available, CR4. OSXSAVE = 0, but SECS.ATTRIBUTES.XFRM ≠ 3. |
+
+|                CR4. OSFXSR ≠ 1. |     If CR4. OSXSAVE = 1, SECS.ATTRIBUTES.XFRM is not a subset of XCR0. |
+
+|If SECS.ATTRIBUTES.AEXNOTIFY ≠ TCS.FLAGS.AEXNOTIFY and TCS.FLAGS.DBGOPTIN = 0. |                                           |
+
+The following operations are performed by EENTER:
+
+* RSP and RBP are saved in the current SSA frame on EENTER and are automatically restored on EEXIT or interrupt.
+
+* The AEP contained in RCX is stored into the TCS for use by AEXs.FS and GS (including hidden portions) are saved and new values are constructed using TCS.OFSBASE/GSBASE (32 and 64-bit mode) and TCS.OFSLIMIT/GSLIMIT (32-bit mode only). The resulting segments must be a subset of the DS segment.
+
+* If CR4. OSXSAVE == 1, XCR0 is saved and replaced by SECS.ATTRIBUTES.XFRM. The effect of RFLAGS.TF depends on whether the enclave entry is opt-in or opt-out (see Section 40.1. 2):
+
+* On opt-out entry, TF is saved and cleared (it is restored on EEXIT or AEX). Any attempt to set TF via a POPF instruction while inside the enclave clears TF (see Section 40.2. 5).
+
+* On opt-out entry, TF is saved and cleared (it is restored on EEXIT or AEX). Any attempt to set TF via a POPF instruction while inside the enclave clears TF (see Section 40.2. 5).
+
+* On opt-in entry, a single-step debug exception is pended on the instruction boundary immediately after EENTER (see Section 40.2. 2).
+
+* On opt-in entry, a single-step debug exception is pended on the instruction boundary immediately after EENTER (see Section 40.2. 2).
+
+* All code breakpoints that do not overlap with ELRANGE are also suppressed. If the entry is an opt-out entry, all code and data breakpoints that overlap with the ELRANGE are suppressed.
+
+* On opt-out entry, a number of performance monitoring counters and behaviors are modified or suppressed (see Section 40.2. 3):
+
+* All performance monitoring activity on the current thread is suppressed except for incrementing and firing of FIXED\_CTR1 and FIXED\_CTR2.
+
+* All performance monitoring activity on the current thread is suppressed except for incrementing and firing of FIXED\_CTR1 and FIXED\_CTR2.
+
+* PEBS is suppressed.
+
+* PEBS is suppressed.
+
+* AnyThread counting on other threads is demoted to MyThread mode and IA32\_PERF\_GLOBAL\_STATUSon that thread is set
+
+* AnyThread counting on other threads is demoted to MyThread mode and IA32\_PERF\_GLOBAL\_STATUSon that thread is set
+
+* If the opt-out entry on a hardware thread results in suppression of any performance monitoring, then the processor sets IA32\_PERF\_GLOBAL\_STATUSand IA32\_PERF\_GLOBAL\_STATUS.
+
+* If the opt-out entry on a hardware thread results in suppression of any performance monitoring, then the processor sets IA32\_PERF\_GLOBAL\_STATUSand IA32\_PERF\_GLOBAL\_STATUS.
+
+Concurrency Restrictions ¶
+
+|            Leaf             | Parameter |Base Concurrency Restrictions|  |  |
+
+|-----------------------------------------------------|------------|-----------------------------|---|---|
+
+|                           |On Conflict |               |  |  |
+
+|EENTER EENTER TCS [DS:RBX] Shared EENTER TCS [DS:RBX]|TCS [DS:RBX]|               |  |  |
+
+Table 38-62. Base Concurrency Restrictions of EENTER
+
+|                                             Leaf                                             |               Parameter               |Additional Concurrency Restrictions|  |     |  |     |  |
+
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|-----------------------------------|---|----------|---|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC Access vs ETRACK, ETRACKC Access On Conflict Access vs ETRACK, ETRACKC Access On Conflict EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC|    vs ETRACK, ETRACKC    |  |     |  |     |  |
+
+|                          Access On Conflict Access On Conflict Access Access On Conflict Access On Conflict                          |                                   |                  |  |     |  |     |  |
+
+|                                             EENTER                                             |              TCS [DS:RBX]               |      Concurrent       |  |Concurrent|  |Concurrent|  |
+
+Table 38-63. Additional Concurrency Restrictions of EENTER
+
+Operation ¶
+
+Temp Variables in EENTER Operational Flow ¶
+
+|   Name   |   Type    |Size (Bits)|             Description              |
+
+|--------------|-----------------|-----------|----------------------------------------------------------------|
+
+| TMP\_FSBASE |Effective Address|  32/64  |       Proposed base address for FS segment. |
+
+| TMP\_GSBASE |Effective Address|  32/64  |       Proposed base address for FS segment. |
+
+| TMP\_FSLIMIT |Effective Address|  32/64  |     Highest legal address in proposed FS segment. |
+
+| TMP\_GSLIMIT |Effective Address|  32/64  |     Highest legal address in proposed GS segment. |
+
+| TMP\_XSIZE |   integer   |  64   |    Size of XSAVE area based on SECS.ATTRIBUTES.XFRM.    |
+
+|TMP\_SSA\_PAGE|Effective Address|  32/64  |Pointer used to iterate over the SSA pages in the current frame. |
+
+|  TMP\_GPR  |Effective Address|  32/64  |   Address of the GPR area within the current SSA frame. |
+
+TMP\_MODE64 := ((IA32\_EFER.LMA = 1) && (CS.L = 1));
+
+(\* Make sure DS is usable, expand up \*)
+
+IF (TMP\_MODE64 = 0 and (DS not usable or ( ( DS[S] = 1) and (DS[bit 11] = 0) and DS[bit 10] = 1) ) )
+
+THEN #GP(0); FI;
+
+(\* Check that CS, SS, DS, ES.base is 0 \*)
+
+IF (TMP\_MODE64 = 0)
+
+THEN
+
+IF(CS.base ≠ 0 or DS.base ≠ 0) #GP(0); FI;
+
+IF(ES usable and ES.base ≠ 0) #GP(0); FI;
+
+IF(SS usable and SS.base ≠ 0) #GP(0); FI;
+
+IF(SS usable and SS.B = 0) #GP(0); FI;
+
+FI;
+
+IF (DS:RBX is not 4KByte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RBX does not resolve within an EPC)
+
+THEN #PF(DS:RBX); FI;
+
+(\* Check AEP is canonical\*)
+
+IF (TMP\_MODE64 = 1 and (CS:RCX is not canonical) )
+
+THEN #GP(0); FI;
+
+(\* Check concurrency of TCS operation\*)
+
+IF (Other Intel SGX instructions are operating on TCS)
+
+THEN #GP(0); FI;
+
+(\* TCS verification \*)
+
+IF (EPCM(DS:RBX). VALID = 0)
+
+THEN #PF(DS:RBX); FI;
+
+IF (EPCM(DS:RBX). BLOCKED = 1)
+
+THEN #PF(DS:RBX); FI;
+
+IF ( (EPCM(DS:RBX). ENCLAVEADDRESS ≠ DS:RBX) or (EPCM(DS:RBX). PT ≠ PT\_TCS) )
+
+THEN #PF(DS:RBX); FI;
+
+IF ((EPCM(DS:RBX). PENDING = 1) or (EPCM(DS:RBX). MODIFIED = 1))
+
+THEN #PF(DS:RBX); FI;
+
+IF ( (DS:RBX). OSSA is not 4KByte Aligned)
+
+THEN #GP(0); FI;
+
+(\* Check proposed FS and GS \*)
+
+IF ( ( (DS:RBX). OFSBASE is not 4KByte Aligned) or ( (DS:RBX). OGSBASE is not 4KByte Aligned) )
+
+THEN #GP(0); FI;
+
+(\* Get the SECS for the enclave in which the TCS resides \*)
+
+TMP\_SECS := Address of SECS for TCS;
+
+(\* Ensure that the FLAGS field in the TCS does not have any reserved bits set \*)
+
+IF ( ( (DS:RBX). FLAGS & FFFFFFFFFFFFFFFCH) ≠ 0)
+
+THEN #GP(0); FI;
+
+(\* SECS must exist and enclave must have previously been EINITted \*)
+
+IF (the enclave is not already initialized)
+
+THEN #GP(0); FI;
+
+(\* make sure the logical processor’s operating mode matches the enclave \*)
+
+IF ( (TMP\_MODE64 ≠ TMP\_SECS.ATTRIBUTES.MODE64BIT) )
+
+THEN #GP(0); FI;
+
+IF (CR4. OSFXSR = 0)
+
+THEN #GP(0); FI;
+
+(\* Check for legal values of SECS.ATTRIBUTES.XFRM \*)
+
+IF (CR4. OSXSAVE = 0)
+
+THEN
+
+IF (TMP\_SECS.ATTRIBUTES.XFRM ≠ 03H) THEN #GP(0); FI;
+
+ELSE
+
+IF ( (TMP\_SECS.ATTRIBUTES.XFRM & XCR0) ≠ TMP\_SECS.ATTRIBUES.XFRM) THEN #GP(0); FI;
+
+FI;
+
+IF ((DS:RBX). CSSA.FLAGS.DBGOPTIN = 0) and (DS:RBX). CSSA.FLAGS.AEXNOTIFY ≠ TMP\_SECS.ATTRIBUTES.AEXNOTIFY))
+
+THEN #GP(0); FI;
+
+(\* Make sure the SSA contains at least one more frame \*) IF ( (DS:RBX). CSSA ≥ (DS:RBX). NSSA) THEN #GP(0); FI;
+
+(\* Compute linear address of SSA frame \*)
+
+TMP\_SSA := (DS:RBX). OSSA + TMP\_SECS.BASEADDR + 4096 \* TMP\_SECS.SSAFRAMESIZE \* (DS:RBX). CSSA;
+
+TMP\_XSIZE := compute\_XSAVE\_frame\_size(TMP\_SECS.ATTRIBUTES.XFRM);
+
+FOR EACH TMP\_SSA\_PAGE = TMP\_SSA to TMP\_SSA + TMP\_XSIZE
+
+(\* Check page is read/write accessible \*)
+
+Check that DS:TMP\_SSA\_PAGE is read/write accessible;
+
+If a fault occurs, release locks, abort, and deliver that fault;
+
+IF (DS:TMP\_SSA\_PAGE does not resolve to EPC page)
+
+THEN #PF(DS:TMP\_SSA\_PAGE); FI;
+
+IF (EPCM(DS:TMP\_SSA\_PAGE). VALID = 0)
+
+THEN #PF(DS:TMP\_SSA\_PAGE); FI;
+
+IF (EPCM(DS:TMP\_SSA\_PAGE). BLOCKED = 1)
+
+THEN #PF(DS:TMP\_SSA\_PAGE); FI;
+
+IF ((EPCM(DS:TMP\_SSA\_PAGE). PENDING = 1) or (EPCM(DS:TMP\_SSA\_PAGE). MODIFIED = 1))
+
+THEN #PF(DS:TMP\_SSA\_PAGE); FI;
+
+IF ( ( EPCM(DS:TMP\_SSA\_PAGE). ENCLAVEADDRESS ≠ DS:TMP\_SSA\_PAGE) or (EPCM(DS:TMP\_SSA\_PAGE). PT ≠ PT\_REG) or
+
+(EPCM(DS:TMP\_SSA\_PAGE). ENCLAVESECS ≠ EPCM(DS:RBX). ENCLAVESECS) or
+
+(EPCM(DS:TMP\_SSA\_PAGE). R = 0) or (EPCM(DS:TMP\_SSA\_PAGE). W = 0) )
+
+THEN #PF(DS:TMP\_SSA\_PAGE); FI;
+
+CR\_XSAVE\_PAGE\_n := Physical\_Address(DS:TMP\_SSA\_PAGE);
+
+ENDFOR
+
+(\* Compute address of GPR area\*)
+
+TMP\_GPR := TMP\_SSA + 4096 \* DS:TMP\_SECS.SSAFRAMESIZE - sizeof(GPRSGX\_AREA);
+
+If a fault occurs; release locks, abort, and deliver that fault;
+
+IF (DS:TMP\_GPR does not resolve to EPC page)
+
+THEN #PF(DS:TMP\_GPR); FI;
+
+IF (EPCM(DS:TMP\_GPR). VALID = 0)
+
+THEN #PF(DS:TMP\_GPR); FI;
+
+IF (EPCM(DS:TMP\_GPR). BLOCKED = 1)
+
+THEN #PF(DS:TMP\_GPR); FI;
+
+IF ((EPCM(DS:TMP\_GPR). PENDING = 1) or (EPCM(DS:TMP\_GPR). MODIFIED = 1))
+
+THEN #PF(DS:TMP\_GPR); FI;
+
+IF ( ( EPCM(DS:TMP\_GPR). ENCLAVEADDRESS ≠ DS:TMP\_GPR) or (EPCM(DS:TMP\_GPR). PT ≠ PT\_REG) or
+
+(EPCM(DS:TMP\_GPR). ENCLAVESECS EPCM(DS:RBX). ENCLAVESECS) or
+
+(EPCM(DS:TMP\_GPR). R = 0) or (EPCM(DS:TMP\_GPR). W = 0) )
+
+THEN #PF(DS:TMP\_GPR); FI;
+
+IF (TMP\_MODE64 = 0)
+
+THEN
+
+IF (TMP\_GPR + (GPR\_SIZE -1) is not in DS segment) THEN #GP(0); FI;
+
+FI;
+
+CR\_GPR\_PA := Physical\_Address (DS: TMP\_GPR);
+
+(\* Validate TCS.OENTRY \*)
+
+TMP\_TARGET := (DS:RBX). OENTRY + TMP\_SECS.BASEADDR;
+
+IF (TMP\_MODE64 = 1)
+
+THEN
+
+IF (TMP\_TARGET is not canonical) THEN #GP(0); FI;
+
+ELSE
+
+IF (TMP\_TARGET \> CS limit) THEN #GP(0); FI;
+
+FI;
+
+(\* Check proposed FS/GS segments fall within DS \*)
+
+IF (TMP\_MODE64 = 0)
+
+THEN
+
+TMP\_FSBASE := (DS:RBX). OFSBASE + TMP\_SECS.BASEADDR;
+
+TMP\_FSLIMIT := (DS:RBX). OFSBASE + TMP\_SECS.BASEADDR + (DS:RBX). FSLIMIT;
+
+TMP\_GSBASE := (DS:RBX). OGSBASE + TMP\_SECS.BASEADDR;
+
+TMP\_GSLIMIT := (DS:RBX). OGSBASE + TMP\_SECS.BASEADDR + (DS:RBX). GSLIMIT;
+
+(\* if FS wrap-around, make sure DS has no holes\*)
+
+IF (TMP\_FSLIMIT \< TMP\_FSBASE)
+
+THEN
+
+IF (DS.limit \< 4GB) THEN #GP(0); FI;
+
+ELSE
+
+IF (TMP\_FSLIMIT \> DS.limit) THEN #GP(0); FI;
+
+FI;
+
+(\* if GS wrap-around, make sure DS has no holes\*)
+
+IF (TMP\_GSLIMIT \< TMP\_GSBASE)
+
+THEN
+
+IF (DS.limit \< 4GB) THEN #GP(0); FI;
+
+ELSE
+
+IF (TMP\_GSLIMIT \> DS.limit) THEN #GP(0); FI;
+
+FI;
+
+ELSE
+
+TMP\_FSBASE := (DS:RBX). OFSBASE + TMP\_SECS.BASEADDR;
+
+TMP\_GSBASE := (DS:RBX). OGSBASE + TMP\_SECS.BASEADDR;
+
+IF ( (TMP\_FSBASE is not canonical) or (TMP\_GSBASE is not canonical))
+
+THEN #GP(0); FI;
+
+FI;
+
+(\* Ensure the enclave is not already active and this thread is the only one using the TCS\*)
+
+IF (DS:RBX.STATE = ACTIVE)
+
+THEN #GP(0); FI;
+
+TMP\_IA32\_U\_CET := 0
+
+TMP\_SSP : = 0
+
+IF CPUID.(EAX=12H, ECX=1):EAX= 1
+
+THEN
+
+IF ( CR4. CET = 0 )
+
+THEN
+
+(\* If part does not support CET or CET has not been enabled and enclave requires CET then fail \*)
+
+IF ( TMP\_SECS.CET\_ATTRIBUTES ≠ 0 OR TMP\_SECS.CET\_LEG\_BITMAP\_OFFSET ≠ 0 ) #GP(0); FI;
+
+FI;
+
+(\* If indirect branch tracking or shadow stacks enabled but CET state save area is not 16B aligned then fail EENTER \*)
+
+IF ( TMP\_SECS.CET\_ATTRIBUTES.SH\_STK\_EN = 1 OR TMP\_SECS.CET\_ATTRIBUTES.ENDBR\_EN = 1 )
+
+THEN
+
+IF (DS:RBX.OCETSSA is not 16B aligned) #GP(0); FI;
+
+FI;
+
+IF (TMP\_SECS.CET\_ATTRIBUTES.SH\_STK\_EN OR TMP\_SECS.CET\_ATTRIBUTES.ENDBR\_EN)
+
+THEN
+
+(\* Setup CET state from SECS, note tracker goes to IDLE \*)
+
+TMP\_IA32\_U\_CET = TMP\_SECS.CET\_ATTRIBUTES;
+
+IF (TMP\_IA32\_U\_CET.LEG\_IW\_EN = 1 AND TMP\_IA32\_U\_CET.ENDBR\_EN = 1 )
+
+THEN
+
+TMP\_IA32\_U\_CET := TMP\_IA32\_U\_CET + TMP\_SECS.BASEADDR;
+
+TMP\_IA32\_U\_CET := TMP\_IA32\_U\_CET + TMP\_SECS.CET\_LEG\_BITMAP\_BASE;
+
+FI;
+
+(\* Compute linear address of what will become new CET state save area and cache its PA \*)
+
+TMP\_CET\_SAVE\_AREA = DS:RBX.OCETSSA + TMP\_SECS.BASEADDR + (DS:RBX.CSSA) \* 16
+
+TMP\_CET\_SAVE\_PAGE = TMP\_CET\_SAVE\_AREA & \~0xFFF;
+
+Check the TMP\_CET\_SAVE\_PAGE page is read/write accessible
+
+If fault occurs release locks, abort, and deliver fault
+
+(\* Read the EPCM VALID, PENDING, MODIFIED, BLOCKED, and PT fields atomically \*)
+
+IF ((DS:TMP\_CET\_SAVE\_PAGE Does NOT RESOLVE TO EPC PAGE) OR
+
+(EPCM(DS:TMP\_CET\_SAVE\_PAGE). VALID = 0) OR
+
+(EPCM(DS:TMP\_CET\_SAVE\_PAGE). PENDING = 1) OR
+
+(EPCM(DS:TMP\_CET\_SAVE\_PAGE). MODIFIED = 1) OR
+
+(EPCM(DS:TMP\_CET\_SAVE\_PAGE). BLOCKED = 1) OR
+
+(EPCM(DS:TMP\_CET\_SAVE\_PAGE). R = 0) OR
+
+(EPCM(DS:TMP\_CET\_SAVE\_PAGE). W = 0) OR
+
+(EPCM(DS:TMP\_CET\_SAVE\_PAGE). ENCLAVEADDRESS ≠ DS:TMP\_CET\_SAVE\_PAGE) OR
+
+(EPCM(DS:TMP\_CET\_SAVE\_PAGE). PT ≠ PT\_SS\_REST) OR
+
+(EPCM(DS:TMP\_CET\_SAVE\_PAGE). ENCLAVESECS ≠ EPCM(DS:RBX). ENCLAVESECS))
+
+THEN
+
+\#PF(DS:TMP\_CET\_SAVE\_PAGE);
+
+FI;
+
+CR\_CET\_SAVE\_AREA\_PA := Physical address(DS:TMP\_CET\_SAVE\_AREA)
+
+IF TMP\_IA32\_U\_CET.SH\_STK\_EN = 1
+
+THEN
+
+TMP\_SSP = TCS.PREVSSP;
+
+FI;
+
+FI;
+
+CR\_ENCLAVE\_MODE := 1;
+
+CR\_ACTIVE\_SECS := TMP\_SECS;
+
+CR\_ELRANGE := (TMPSECS.BASEADDR, TMP\_SECS.SIZE);
+
+(\* Save state for possible AEXs \*)
+
+CR\_TCS\_PA := Physical\_Address (DS:RBX);
+
+CR\_TCS\_LA := RBX;
+
+CR\_TCS\_LA.AEP := RCX;
+
+(\* Save the hidden portions of FS and GS \*)
+
+CR\_SAVE\_FS\_selector := FS.selector;
+
+CR\_SAVE\_FS\_base := FS.base;
+
+CR\_SAVE\_FS\_limit := FS.limit;
+
+CR\_SAVE\_FS\_access\_rights := FS.access\_rights;
+
+CR\_SAVE\_GS\_selector := GS.selector;
+
+CR\_SAVE\_GS\_base := GS.base;
+
+CR\_SAVE\_GS\_limit := GS.limit;
+
+CR\_SAVE\_GS\_access\_rights := GS.access\_rights;
+
+(\* If XSAVE is enabled, save XCR0 and replace it with SECS.ATTRIBUTES.XFRM\*)
+
+IF (CR4. OSXSAVE = 1)
+
+CR\_SAVE\_XCR0 := XCR0;
+
+XCR0 := TMP\_SECS.ATTRIBUTES.XFRM;
+
+FI;
+
+RCX := RIP;
+
+RIP := TMP\_TARGET;
+
+RAX := (DS:RBX). CSSA;
+
+(\* Save the outside RSP and RBP so they can be restored on interrupt or EEXIT \*)
+
+DS:TMP\_SSA.U\_RSP := RSP;
+
+DS:TMP\_SSA.U\_RBP := RBP;
+
+(\* Do the FS/GS swap \*)
+
+FS.base := TMP\_FSBASE;
+
+FS.limit := DS:RBX.FSLIMIT;
+
+FS.type := 0001b;
+
+FS.W := DS.W;
+
+FS.S := 1;
+
+FS.DPL := DS.DPL;
+
+FS.G := 1;
+
+FS.B := 1;
+
+FS.P := 1;
+
+FS.AVL := DS.AVL;
+
+FS.L := DS.L;
+
+FS.unusable := 0;
+
+FS.selector := 0BH;
+
+GS.base := TMP\_GSBASE;
+
+GS.limit := DS:RBX.GSLIMIT;
+
+GS.type := 0001b;
+
+GS.W := DS.W;
+
+GS.S := 1;
+
+GS.DPL := DS.DPL;
+
+GS.G := 1;
+
+GS.B := 1;
+
+GS.P := 1;
+
+GS.AVL := DS.AVL;
+
+GS.L := DS.L;
+
+GS.unusable := 0;
+
+GS.selector := 0BH;
+
+CR\_DBGOPTIN := TCS.FLAGS.DBGOPTIN;
+
+Suppress\_all\_code\_breakpoints\_that\_are\_outside\_ELRANGE;
+
+IF (CR\_DBGOPTIN = 0)
+
+THEN
+
+Suppress\_all\_code\_breakpoints\_that\_overlap\_with\_ELRANGE;
+
+CR\_SAVE\_TF := RFLAGS.TF;
+
+RFLAGS.TF := 0;
+
+Suppress\_monitor\_trap\_flag for the source of the execution of the enclave;
+
+Suppress any pending debug exceptions;
+
+Suppress any pending MTF VM exit;
+
+ELSE
+
+IF RFLAGS.TF = 1
+
+THEN pend a single-step #DB at the end of EENTER; FI;
+
+IF the “monitor trap flag” VM-execution control is set
+
+THEN pend an MTF VM exit at the end of EENTER; FI;
+
+FI;
+
+IF ((CPUID.(EAX=7H, ECX=0):EDX[CET\_IBT] = 1) OR (CPUID.(EAX=7H, ECX=0):ECX[CET\_SS] = 1)
+
+THEN
+
+(\* Save enclosing application CET state into save registers \*)
+
+CR\_SAVE\_IA32\_U\_CET := IA32\_U\_CET
+
+(\* Setup enclave CET state \*)
+
+IF CPUID.(EAX=07H, ECX=00h):ECX[CET\_SS] = 1
+
+THEN
+
+CR\_SAVE\_SSP := SSP
+
+SSP := TMP\_SSP
+
+FI;
+
+IA32\_U\_CET := TMP\_IA32\_U\_CET;
+
+FI;
+
+Flush\_linear\_context;
+
+Allow\_front\_end\_to\_begin\_fetch\_at\_new\_RIP;
+
+Flags Affected ¶
+
+RFLAGS.TF is cleared on opt-out entry.
+
+Protected Mode Exceptions ¶
+
+|                            \#GP(0)                            |     If DS:RBX is not page aligned. |
+
+|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------------------|
+
+|                     If the enclave is not initialized. |                         |
+
+|   If part or all of the FS or GS segment specified by TCS is outside the DS segment or not properly aligned. |                         |
+
+|                   If the thread is not in the INACTIVE state. |                         |
+
+|                   If CS, DS, ES or SS bases are not all zero. |                         |
+
+|                       If executed in enclave mode. |                         |
+
+|                   If any reserved field in the TCS FLAG is set. |                         |
+
+|                 If the target address is not within the CS segment. |                         |
+
+|                         If CR4. OSFXSR = 0. |                         |
+
+|                  If CR4. OSXSAVE = 0 and SECS.ATTRIBUTES.XFRM ≠ 3. |                         |
+
+|             If CR4. OSXSAVE = 1and SECS.ATTRIBUTES.XFRM is not a subset of XCR0. |                         |
+
+|          If SECS.ATTRIBUTES.AEXNOTIFY ≠ TCS.FLAGS.AEXNOTIFY and TCS.FLAGS.DBGOPTIN = 0. |                         |
+
+|                           \#PF(error                            |code) If a page fault occurs in accessing memory. |
+
+|                    If DS:RBX does not point to a valid TCS.                    |                         |
+
+|If one or more pages of the current SSA frame are not readable/writable, or do not resolve to a valid PT\_REG EPC page. |                         |
+
+64-Bit Mode Exceptions ¶
+
+|                            \#GP(0)                            |       If DS:RBX is not page aligned. |
+
+|-----------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------|
+
+|                     If the enclave is not initialized. |                             |
+
+|                   If the thread is not in the INACTIVE state. |                             |
+
+|                   If CS, DS, ES or SS bases are not all zero. |                             |
+
+|                       If executed in enclave mode. |                             |
+
+|   If part or all of the FS or GS segment specified by TCS is outside the DS segment or not properly aligned. |                             |
+
+|                    If the target address is not canonical. |                             |
+
+|                         If CR4. OSFXSR = 0. |                             |
+
+|                  If CR4. OSXSAVE = 0 and SECS.ATTRIBUTES.XFRM ≠ 3. |                             |
+
+|             If CR4. OSXSAVE = 1and SECS.ATTRIBUTES.XFRM is not a subset of XCR0. |                             |
+
+|          If SECS.ATTRIBUTES.AEXNOTIFY ≠ TCS.FLAGS.AEXNOTIFY and TCS.FLAGS.DBGOPTIN = 0. |                             |
+
+|                           \#PF(error                            |code) If a page fault occurs in accessing memory operands. |
+
+|                    If DS:RBX does not point to a valid TCS.                    |                             |
+
+|If one or more pages of the current SSA frame are not readable/writable, or do not resolve to a valid PT\_REG EPC page. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

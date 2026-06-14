@@ -1,0 +1,105 @@
+ENCLS — Execute an Enclave System Function of Specified Leaf Number
+
+* Index
+
+* December 2023
+
+ENCLS — Execute an Enclave System Function of Specified Leaf Number
+
+|Opcode/Instruction|Op/En|64/32 bit Mode Support|CPUID Feature Flag|                             Description                             |
+
+|------------------|-----|----------------------|------------------|------------------------------------------------------------------------------------------------------------------------------|
+
+|NP 0F 01 CF ENCLS | ZO |     V/V     |    NA    |This instruction is used to execute privileged Intel SGX leaf functions that are used for managing and debugging the enclaves. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|Operand 1|Operand 2|Operand 3|Implicit Register Operands|
+
+|-----|---------|---------|---------|--------------------------|
+
+| ZO |  NA  |  NA  |  NA  |   See Section 38.3   |
+
+Description ¶
+
+The ENCLS instruction invokes the specified privileged Intel SGX leaf function for managing and debugging enclaves. Software specifies the leaf function by setting the appropriate value in the register EAX as input. The registers RBX, RCX, and RDX have leaf-specific purpose, and may act as input, as output, or may be unused. In 64-bit mode, the instruction ignores upper 32 bits of the RAX register.
+
+The ENCLS instruction produces an invalid-opcode exception (#UD) if CR0. PE = 0 or RFLAGS.VM = 1, or if it is executed in system-management mode (SMM). Additionally, any attempt to execute the instruction when CPL \> 0 results in #UD. The instruction produces a general-protection exception (#GP) if CR0. PG = 0 or if an attempt is made to invoke an undefined leaf function.
+
+In VMX non-root operation, execution of ENCLS may cause a VM exit if the “enable ENCLS exiting” VM-execution control is 1. In this case, execution of individual leaf functions of ENCLS is governed by the ENCLS-exiting bitmap field in the VMCS. Each bit in that field corresponds to the index of an ENCLS leaf function (as provided in EAX).
+
+Software in VMX root operation can thus intercept the invocation of various ENCLS leaf functions in VMX non-root operation by setting the “enable ENCLS exiting” VM-execution control and setting the corresponding bits in the ENCLS-exiting bitmap.
+
+Addresses and operands are 32 bits outside 64-bit mode (IA32\_EFER.LMA = 0 || CS.L = 0) and are 64 bits in 64-bit mode (IA32\_EFER.LMA = 1 || CS.L = 1). CS.D value has no impact on address calculation. The DS segment is used to create linear addresses.
+
+Segment override prefixes and address-size override prefixes are ignored, and is the REX prefix in 64-bit mode.
+
+Operation ¶
+
+```
+
+IF TSX_ACTIVE THEN GOTO TSX_ABORT_PROCESSING; FI; IF CR0. PE = 0 or RFLAGS.VM = 1 or in SMM or CPUID.SGX_LEAF.0:EAX.SE1 = 0 THEN #UD; FI; IF (CPL > 0) THEN #UD; FI; IF in VMX non-root operation and the “enable ENCLS exiting“ VM-execution control is 1 THEN IF EAX  62 and ENCLS_exiting_bitmap= 1 THEN VM exit; FI; FI; IF IA32_FEATURE_CONTROL.LOCK = 0 or IA32_FEATURE_CONTROL.SGX_ENABLE = 0 THEN #GP(0); FI; IF (EAX is an invalid leaf number) THEN #GP(0); FI; IF CR0. PG = 0 THEN #GP(0); FI; (* DS must not be an expanded down segment *) IF not in 64-bit mode and DS.Type is expand-down data THEN #GP(0); FI; Jump to leaf specific flow
+
+```
+
+Flags Affected ¶
+
+See individual leaf functions
+
+Protected Mode Exceptions ¶
+
+|            \#UD            |If any of the LOCK/66H/REP/VEX prefixes are used. |
+
+|--------------------------------------------------|-------------------------------------------------|
+
+|    If current privilege level is not 0. |                         |
+
+| If CPUID.(EAX=12H,ECX=0):EAX.SGX1 [bit 0] = 0. |                         |
+
+|     If logical processor is in SMM.     |                         |
+
+|           \#GP(0)           |    If IA32\_FEATURE\_CONTROL.LOCK = 0. |
+
+|  If IA32\_FEATURE\_CONTROL.SGX\_ENABLE = 0. |                         |
+
+|If input value in EAX encodes an unsupported leaf. |                         |
+
+|      If data segment expand down. |                         |
+
+|          If CR0. PG=0. |                         |
+
+Real-Address Mode Exceptions ¶
+
+|\#UD|ENCLS is not recognized in real mode. |
+
+|----|-------------------------------------|
+
+Virtual-8086 Mode Exceptions ¶
+
+|\#UD|ENCLS is not recognized in virtual-8086 mode. |
+
+|----|---------------------------------------------|
+
+Compatibility Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+64-Bit Mode Exceptions ¶
+
+|            \#UD            |If any of the LOCK/66H/REP/VEX prefixes are used. |
+
+|--------------------------------------------------|-------------------------------------------------|
+
+|    If current privilege level is not 0. |                         |
+
+| If CPUID.(EAX=12H,ECX=0):EAX.SGX1 [bit 0] = 0. |                         |
+
+|     If logical processor is in SMM.     |                         |
+
+|           \#GP(0)           |    If IA32\_FEATURE\_CONTROL.LOCK = 0. |
+
+|  If IA32\_FEATURE\_CONTROL.SGX\_ENABLE = 0. |                         |
+
+|If input value in EAX encodes an unsupported leaf. |                         |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

@@ -1,0 +1,133 @@
+CVTTSD2SI — Convert With Truncation Scalar Double Precision Floating-Point Value to SignedInteger
+
+* Index
+
+* December 2023
+
+CVTTSD2SI — Convert With Truncation Scalar Double Precision Floating-Point Value to SignedInteger
+
+|           Opcode/Instruction           |Op / En|64/32 bit Mode Support|CPUID Feature Flag|                            Description                            |
+
+|------------------------------------------------------------|-------|----------------------|------------------|-------------------------------------------------------------------------------------------------------------------------|
+
+|      F2 0F 2C /r CVTTSD2SI r32, xmm1/m64       |  A  |     V/V     |    SSE2    |Convert one double precision floating-point value from xmm1/m64 to one signed doubleword integer in r32 using truncation. |
+
+|     F2 REX.W 0F 2C /r CVTTSD2SI r64, xmm1/m64     |  A  |    V/N.E.    |    SSE2    | Convert one double precision floating-point value from xmm1/m64 to one signed quadword integer in r64 using truncation. |
+
+|VEX.LIG.F2.0F.W0 2C /r 1 VCVTTSD2SI r32, xmm1/m64|  A  |     V/V     |    AVX    |Convert one double precision floating-point value from xmm1/m64 to one signed doubleword integer in r32 using truncation. |
+
+|VEX.LIG.F2.0F.W1 2C /r 1 VCVTTSD2SI r64, xmm1/m64|  B  | V/N.E. 2  |    AVX    | Convert one double precision floating-point value from xmm1/m64 to one signed quadword integer in r64 using truncation. |
+
+|  EVEX.LLIG.F2.0F.W0 2C /r VCVTTSD2SI r32, xmm1/m64{sae}  |  B  |     V/V     |   AVX512F   |Convert one double precision floating-point value from xmm1/m64 to one signed doubleword integer in r32 using truncation. |
+
+|  EVEX.LLIG.F2.0F.W1 2C /r VCVTTSD2SI r64, xmm1/m64{sae}  |  B  | V/N.E. 2  |   AVX512F   | Convert one double precision floating-point value from xmm1/m64 to one signed quadword integer in r64 using truncation. |
+
+>
+
+>
+
+> 1. Software should ensure VCVTTSD2SI is encoded with VEX.L=0. Encoding VCVTTSD2SI with VEX.L=1 may encounter unpredictable behavior across different processor generations.
+
+>
+
+>
+
+>
+
+> 2. For this specific instruction, VEX.W/EVEX.W in non-64 bit is ignored; the instructions behaves as if the W0 version is used.
+
+>
+
+>
+
+Instruction Operand Encoding ¶
+
+|Op/En| Tuple Type | Operand 1 | Operand 2 |Operand 3|Operand 4|
+
+|-----|------------|-------------|-------------|---------|---------|
+
+| A |  N/A   |ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+| B |Tuple1 Fixed|ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+Description ¶
+
+Converts a double precision floating-point value in the source operand (the second operand) to a signed double-word integer (or signed quadword integer if operand size is 64 bits) in the destination operand (the first operand). The source operand can be an XMM register or a 64-bit memory location. The destination operand is a general purpose register. When the source operand is an XMM register, the double precision floating-point value is contained in the low quadword of the register.
+
+When a conversion is inexact, the value returned is rounded according to the rounding control bits in the MXCSR register.
+
+If a converted result exceeds the range limits of signed doubleword integer (in non-64-bit modes or 64-bit mode with REX.W/VEX.W/EVEX.W=0), the floating-point invalid exception is raised, and if this exception is masked, the indefinite integer value (80000000H) is returned.
+
+If a converted result exceeds the range limits of signed quadword integer (in 64-bit mode and REX.W/VEX.W/EVEX.W = 1), the floating-point invalid exception is raised, and if this exception is masked, the indefinite integer value (80000000\_00000000H) is returned.
+
+Legacy SSE instructions: In 64-bit mode, Use of the REX.W prefix promotes the instruction to 64-bit operation. See the summary chart at the beginning of this section for encoding data and limits.
+
+VEX.W1 and EVEX.W1 versions: promotes the instruction to produce 64-bit data in 64-bit mode.
+
+Note: VEX.vvvv and EVEX.vvvv are reserved and must be 1111b, otherwise instructions will #UD.
+
+Software should ensure VCVTTSD2SI is encoded with VEX.L=0. Encoding VCVTTSD2SI with VEX.L=1 may encounter unpredictable behavior across different processor generations.
+
+Operation ¶
+
+(V)CVTTSD2SI (All Versions) ¶
+
+```
+
+IF 64-Bit Mode and OperandSize = 64 THEN DEST[63:0] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[63:0]); ELSE DEST[31:0] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[63:0]); FI;
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+VCVTTSD2SI int _mm_cvttsd_i32( __m128d a);
+
+```
+
+```
+
+VCVTTSD2SI int _mm_cvtt_roundsd_i32( __m128d a, int sae);
+
+```
+
+```
+
+VCVTTSD2SI __int64 _mm_cvttsd_i64( __m128d a);
+
+```
+
+```
+
+VCVTTSD2SI __int64 _mm_cvtt_roundsd_i64( __m128d a, int sae);
+
+```
+
+```
+
+CVTTSD2SI int _mm_cvttsd_si32( __m128d a);
+
+```
+
+```
+
+CVTTSD2SI __int64 _mm_cvttsd_si64( __m128d a);
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+Invalid, Precision.
+
+Other Exceptions ¶
+
+VEX-encoded instructions, see Table 2-20, “Type 3 Class Exception Conditions,” additionally:
+
+|\#UD|If VEX.vvvv ! = 1111B.|
+
+|----|---------------------|
+
+EVEX-encoded instructions, see Table 2-48, “Type E3NF Class Exception Conditions.”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

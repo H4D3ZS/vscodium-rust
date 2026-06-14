@@ -1,0 +1,69 @@
+[package]
+name = "asl-parser"
+version = "0.1.0"
+edition = "2021"
+authors = ["ASL Parser Contributors"]
+description = "A parser for ARM Architecture Specification Language (ASL)"
+license = "BSD-3-Clause"
+repository = "https://github.com/GaloisInc/asl-parser"
+keywords = ["arm", "asl", "parser", "architecture"]
+categories = ["parsing", "development-tools"]
+
+[lib]
+name = "asl_parser"
+path = "src/lib.rs"
+
+[[bin]]
+name = "asl-parser"
+path = "src/main.rs"
+
+[dependencies]
+# Lexer
+logos = "0.14"
+
+# Error handling
+thiserror = "1.0"
+miette = { version = "7.2", features = ["fancy"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Efficient string interning
+smol_str = "0.2"
+
+# Serialization (optional, for S-expression output)
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+
+# Indexing utilities
+rustc-hash = "2.0"
+
+# XML parsing
+quick-xml = "0.37"
+
+# HTTP client (for downloading XML files)
+reqwest = { version = "0.12", features = ["blocking"], optional = true }
+
+# Archive handling
+flate2 = { version = "1.0", optional = true }
+tar = { version = "0.4", optional = true }
+
+# Regex for text processing
+regex = "1.11"
+
+# Globbing for file patterns
+glob = { version = "0.3", optional = true }
+once_cell = "1.21.3"
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+insta = "1.39"
+
+[features]
+default = []
+serde = ["dep:serde", "dep:serde_json", "smol_str/serde"]
+xml-extract = ["dep:reqwest", "dep:flate2", "dep:tar", "dep:glob"]
+
+[profile.release]
+lto = true
+codegen-units = 1

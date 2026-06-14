@@ -1,0 +1,539 @@
+EINIT — Initialize an Enclave for Execution
+
+* Index
+
+* December 2023
+
+EINIT — Initialize an Enclave for Execution
+
+| Opcode/Instruction |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                   Description                   |
+
+|----------------------|-----|----------------------|------------------|--------------------------------------------------------------------------------------|
+
+|EAX = 02H ENCLS[EINIT]| IR |     V/V     |    SGX1    |This leaf function initializes the enclave and makes it ready to execute enclave code. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX  |   RBX    |      RCX      |    RDX     |             |
+
+|-----|----------|----------------|-------------------------|--------------------|--------------------------|
+
+| IR |EINIT (In)|Error code (Out)|Address of SIGSTRUCT (In)|Address of SECS (In)|Address of EINITTOKEN (In)|
+
+Description ¶
+
+This leaf function is the final instruction executed in the enclave build process. After EINIT, the MRENCLAVE measurement is complete, and the enclave is ready to start user code execution using the EENTER instruction.
+
+EINIT takes the effective address of a SIGSTRUCT and EINITTOKEN. The SIGSTRUCT describes the enclave including MRENCLAVE, ATTRIBUTES, ISVSVN, a 3072 bit RSA key, and a signature using the included key. SIGSTRUCT must be populated with two values, q1 and q2. These are calculated using the formulas shown below:
+
+q1 = floor(Signature 2 / Modulus);
+
+q2 = floor((Signature 3 - q1 \* Signature \* Modulus) / Modulus);
+
+The EINITTOKEN contains the MRENCLAVE, MRSIGNER, and ATTRIBUTES. These values must match the corresponding values in the SECS. If the EINITTOKEN was created with a debug launch key, the enclave must be in debug mode as well.
+
+Signature Verify Hashed PubKey ATTRIBUTES ATTRIBUTEMASK Check MRENCLAVE If VALID=1, Check MRSIGNER SIGSTRUCT MRSIGNER DS:RBX ATTRIBUTES If VALID=1, MRENCLAVE Check DS:RDX EINITTOKEN EINIT Copy ATTRIBUTES SECS DS:RCX MRENCLAVE Check ENCLAVE EPC Figure 38-1. Relationships Between SECS, SIGSTRUCT, and EINITTOKEN
+
+EINIT Memory Parameter Semantics ¶
+
+SIGSTRUCT
+
+|      SECS      |   EINITTOKEN   |
+
+|----------------------------|---------------------|
+
+|Read/Write access by Enclave|Access by non-Enclave|
+
+Access by non-Enclave
+
+EINIT performs the following steps, which can be seen in Figure 38-1:
+
+1. Validates that SIGSTRUCT is signed using the enclosed public key.
+
+2. Checks that the completed computation of SECS.MRENCLAVE equals SIGSTRUCT.HASHENCLAVE.
+
+3. Checks that no controlled ATTRIBUTES bits are set in SIGSTRUCT.ATTRIBUTES unless the SHA256 digest of SIGSTRUCT.MODULUS equals IA32\_SGX\_LEPUBKEYHASH.
+
+4. Checks that the result of bitwise and-ing SIGSTRUCT.ATTRIBUTEMASK with SIGSTRUCT.ATTRIBUTES equals the result of bitwise and-ing SIGSTRUCT.ATTRIBUTEMASK with SECS.ATTRIBUTES.
+
+5. If EINITTOKEN.VALID is 0, checks that the SHA256 digest of SIGSTRUCT.MODULUS equals IA32\_SGX\_LEPUBKEYHASH.
+
+6. If EINITTOKEN.VALID is 1, checks the validity of EINITTOKEN.
+
+7. If EINITTOKEN.VALID is 1, checks that EINITTOKEN.MRENCLAVE equals SECS.MRENCLAVE.
+
+8. If EINITTOKEN.VALID is 1 and EINITTOKEN.ATTRIBUTES.DEBUG is 1, SECS.ATTRIBUTES.DEBUG must be 1.
+
+9. Commits SECS.MRENCLAVE, and sets SECS.MRSIGNER, SECS.ISVSVN, and SECS.ISVPRODID based on SIGSTRUCT.
+
+10. Update the SECS as Initialized.
+
+Periodically, EINIT polls for certain asynchronous events. If such an event is detected, it completes with failure code (ZF=1 and RAX = SGX\_UNMASKED\_EVENT), and RIP is incremented to point to the next instruction. These events includes external interrupts, non-maskable interrupts, system-management interrupts, machine checks, INIT signals, and the VMX-preemption timer. EINIT does not fail if the pending event is inhibited (eg, external interrupts could be inhibited due to blocking by MOV SS blocking or by STI).
+
+The following bits in RFLAGS are cleared: CF, PF, AF, OF, and SF. When the instruction completes with an error, RFLAGS.ZF is set to 1, and the corresponding error bit is set in RAX. If no error occurs, RFLAGS.ZF is cleared and RAX is set to 0.
+
+The error codes are:
+
+|Error Code (see Table 38-4)|                     Description                      |
+
+|---------------------------|------------------------------------------------------------------------------------------------|
+
+|     No Error     |                    EINIT successful. |
+
+| SGX\_INVALID\_SIG\_STRUCT |              If SIGSTRUCT contained an invalid value. |
+
+| SGX\_INVALID\_ATTRIBUTE |           If SIGSTRUCT contains an unauthorized attributes mask. |
+
+| SGX\_INVALID\_MEASUREMENT |If SIGSTRUCT contains an incorrect measurement. If EINITTOKEN contains an incorrect measurement. |
+
+| SGX\_INVALID\_SIGNATURE |          If signature does not validate with enclosed public key. |
+
+|  SGX\_INVALID\_LICENSE  |                   If license is invalid. |
+
+|  SGX\_INVALID\_CPUSVN  |                 If license SVN is unsupported. |
+
+|  SGX\_UNMASKED\_EVENT  |    If an unmasked event is received before the instruction completes its operation. |
+
+Table 38-25. EINIT Return Value in RAX
+
+Concurrency Restrictions ¶
+
+|            Leaf            | Parameter |Base Concurrency Restrictions|  |  |
+
+|----------------------------------------------------|-------------|-----------------------------|---|---|
+
+|                          | On Conflict |               |  |  |
+
+|EINIT EINIT SECS [DS:RCX] Shared EINIT SECS [DS:RCX]|SECS [DS:RCX]|               |  |  |
+
+Table 38-26. Base Concurrency Restrictions of EINIT
+
+|                  Leaf Access On Conflict EINIT SECS [DS:RCX] Concurrent Exclusive Access On Conflict EINIT SECS [DS:RCX] Concurrent                  |               Parameter               |Additional Concurrency Restrictions|  |  |  |     |  |
+
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|-----------------------------------|---|---|---|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC Access vs ETRACK, ETRACKC Access On Conflict Access vs ETRACK, ETRACKC Access On Conflict EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC|    vs ETRACK, ETRACKC    |  |  |  |     |  |
+
+|                          Access On Conflict Access On Conflict Access Access On Conflict Access On Conflict                          |                                   |                  |  |  |  |     |  |
+
+|                                             EINIT                                             |              SECS [DS:RCX]              |      Concurrent       |  |  |  |Concurrent|  |
+
+Table 38-27. Additional Concurrency Restrictions of ENIT
+
+Operation ¶
+
+Temp Variables in EINIT Operational Flow ¶
+
+|     Name     |    Type    | Size  |                     Description                     |
+
+|-----------------------|-------------------|---------|---------------------------------------------------------------------------------------------|
+
+|    TMP\_SIG    |   SIGSTRUCT   |1808Bytes|                 Temp space for SIGSTRUCT.                 |
+
+|   TMP\_TOKEN    |  EINITTOKEN   |304Bytes |                 Temp space for EINITTOKEN.                 |
+
+|  TMP\_MRENCLAVE   |          | 32Bytes |              Temp space for calculating MRENCLAVE.              |
+
+|   TMP\_MRSIGNER   |          | 32Bytes |              Temp space for calculating MRSIGNER.               |
+
+|CONTROLLED\_ATTRIBU TES|  ATTRIBUTES   | 16Bytes |   Constant mask of all ATTRIBUTE bits that can only be set for authorized enclaves. |
+
+| TMP\_KEYDEPENDENCIE S |   Buffer    |224Bytes |                Temp space for key derivation. |
+
+| TMP\_EINITTOKENKEY  |          | 16Bytes |             Temp space for the derived EINITTOKEN Key.             |
+
+|  TMP\_SIG\_PADDING  |PKCS Padding Buffer|352Bytes |The value of the top 352 bytes from the computation of Signature 3 modulo MRSIGNER.|
+
+(\* make sure SIGSTRUCT and SECS are aligned \*)
+
+IF ( (DS:RBX is not 4KByte Aligned) or (DS:RCX is not 4KByte Aligned) )
+
+THEN #GP(0); FI;
+
+(\* make sure the EINITTOKEN is aligned \*)
+
+IF (DS:RDX is not 512Byte Aligned)
+
+THEN #GP(0); FI;
+
+(\* make sure the SECS is inside the EPC \*)
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+TMP\_SIG[14463:0] := DS:RBX[14463:0]; // 1808 bytes
+
+TMP\_TOKEN[2423:0] := DS:RDX[2423:0]; // 304 bytes
+
+(\* Verify SIGSTRUCT Header. \*)
+
+IF ( (TMP\_SIG.HEADER ≠ 06000000E10000000000010000000000h) or
+
+((TMP\_SIG.VENDOR ≠ 0) and (TMP\_SIG.VENDOR ≠ 00008086h) ) or
+
+(TMP\_SIG HEADER2 ≠ 01010000600000006000000001000000h) or
+
+(TMP\_SIG.EXPONENT ≠ 00000003h) or (Reserved space is not 0’s) )
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_SIG\_STRUCT;
+
+GOTO EXIT;
+
+FI;
+
+(\* Open “Event Window” Check for Interrupts. Verify signature using embedded public key, q1, and q2. Save upper 352 bytes of the PKCS1.5 encoded message into the TMP\_SIG\_PADDING\*)
+
+IF (interrupt was pending) THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_UNMASKED\_EVENT;
+
+GOTO EXIT;
+
+FI
+
+IF (signature failed to verify) THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_SIGNATURE;
+
+GOTO EXIT;
+
+FI;
+
+(\*Close “Event Window” \*)
+
+(\* make sure no other Intel SGX instruction is modifying SECS\*)
+
+IF (Other instructions modifying SECS)
+
+THEN #GP(0); FI;
+
+IF ( (EPCM(DS:RCX). VALID = 0) or (EPCM(DS:RCX). PT ≠ PT\_SECS) )
+
+THEN #PF(DS:RCX); FI;
+
+(\* Verify ISVFAMILYID is not used on an enclave with KSS disabled \*)
+
+IF ((TMP\_SIG.ISVFAMILYID ! = 0) AND (DS:RCX.ATTRIBUTES.KSS == 0))
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_SIG\_STRUCT;
+
+GOTO EXIT;
+
+FI;
+
+(\* make sure no other instruction is accessing MRENCLAVE or ATTRIBUTES.INIT \*)
+
+IF ( (Other instruction modifying MRENCLAVE) or (Other instructions modifying the SECS’s Initialized state))
+
+THEN #GP(0); FI;
+
+(\* Calculate finalized version of MRENCLAVE \*)
+
+(\* SHA256 algorithm requires one last update that compresses the length of the hashed message into the output SHA256 digest \*)
+
+TMP\_ENCLAVE := SHA256FINAL( (DS:RCX). MRENCLAVE, enclave’s MRENCLAVE update count \*512);
+
+(\* Verify MRENCLAVE from SIGSTRUCT \*)
+
+IF (TMP\_SIG.ENCLAVEHASH ≠ TMP\_MRENCLAVE)
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_MEASUREMENT;
+
+GOTO EXIT;
+
+TMP\_MRSIGNER := SHA256(TMP\_SIG.MODULUS)
+
+(\* if controlled ATTRIBUTES are set, SIGSTRUCT must be signed using an authorized key \*)
+
+CONTROLLED\_ATTRIBUTES := 0000000000000020H;
+
+IF ( ( (DS:RCX.ATTRIBUTES & CONTROLLED\_ATTRIBUTES) ≠ 0) and (TMP\_MRSIGNER ≠ IA32\_SGXLEPUBKEYHASH) )
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_ATTRIBUTE;
+
+GOTO EXIT;
+
+FI;
+
+(\* Verify SIGSTRUCT.ATTRIBUTE requirements are met \*)
+
+IF ( (DS:RCX.ATTRIBUTES & TMP\_SIG.ATTRIBUTEMASK) ≠ (TMP\_SIG.ATTRIBUTE & TMP\_SIG.ATTRIBUTEMASK) )
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_ATTRIBUTE;
+
+GOTO EXIT;
+
+FI;
+
+( \*Verify SIGSTRUCT.MISCSELECT requirements are met \*)
+
+IF ( (DS:RCX.MISCSELECT & TMP\_SIG.MISCMASK) ≠ (TMP\_SIG.MISCSELECT & TMP\_SIG.MISCMASK) )
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_ATTRIBUTE;
+
+GOTO EXIT
+
+FI;
+
+IF (CPUID.(EAX=12H, ECX=1):EAX= 1)
+
+IF ( DS:RCX.CET\_ATTRIBUTES & TMP\_SIG.CET\_ATTRIBUTES\_MASK ≠ TMP\_SIG.CET\_ATTRIBUTES &
+
+TMP\_SIG.CET\_ATTRIB-UTES\_MASK )
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_ATTRIBUTE;
+
+GOTO EXIT
+
+FI;
+
+FI;
+
+(\* If EINITTOKEN.VALIDis 0, verify the enclave is signed by an authorized key \*)
+
+IF (TMP\_TOKEN.VALID= 0)
+
+IF (TMP\_MRSIGNER ≠ IA32\_SGXLEPUBKEYHASH)
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_EINITTOKEN;
+
+GOTO EXIT;
+
+FI;
+
+GOTO COMMIT;
+
+FI;
+
+(\* Debug Launch Enclave cannot launch Production Enclaves \*)
+
+IF ( (DS:RDX.MASKEDATTRIBUTESLE.DEBUG = 1) and (DS:RCX.ATTRIBUTES.DEBUG = 0) )
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_EINITTOKEN;
+
+GOTO EXIT;
+
+(\* Check reserve space in EINIT token includes reserved regions and upper bits in valid field \*)
+
+IF (TMP\_TOKEN reserved space is not clear)
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_EINITTOKEN;
+
+GOTO EXIT;
+
+FI;
+
+(\* EINIT token must not have been created by a configuration beyond the current CPU configuration \*)
+
+IF (TMP\_TOKEN.CPUSVN must not be a configuration beyond CR\_CPUSVN)
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_CPUSVN;
+
+GOTO EXIT;
+
+FI;
+
+(\* Derive Launch key used to calculate EINITTOKEN.MAC \*)
+
+HARDCODED\_PKCS1\_5\_PADDING[15:0] := 0100H;
+
+HARDCODED\_PKCS1\_5\_PADDING[2655:16] := SignExtend330Byte(-1); // 330 bytes of 0FFH
+
+HARDCODED\_PKCS1\_5\_PADDING[2815:2656] := 2004000501020403650148866009060D30313000H;
+
+TMP\_KEYDEPENDENCIES.KEYNAME := EINITTOKEN\_KEY;
+
+TMP\_KEYDEPENDENCIES.ISVFAMILYID := 0;
+
+TMP\_KEYDEPENDENCIES.ISVEXTPRODID := 0;
+
+TMP\_KEYDEPENDENCIES.ISVPRODID := TMP\_TOKEN.ISVPRODIDLE;
+
+TMP\_KEYDEPENDENCIES.ISVSVN := TMP\_TOKEN.ISVSVNLE;
+
+TMP\_KEYDEPENDENCIES.SGXOWNEREPOCH := CR\_SGXOWNEREPOCH;
+
+TMP\_KEYDEPENDENCIES.ATTRIBUTES := TMP\_TOKEN.MASKEDATTRIBUTESLE;
+
+TMP\_KEYDEPENDENCIES.ATTRIBUTESMASK := 0;
+
+TMP\_KEYDEPENDENCIES.MRENCLAVE := 0;
+
+TMP\_KEYDEPENDENCIES.MRSIGNER := IA32\_SGXLEPUBKEYHASH;
+
+TMP\_KEYDEPENDENCIES.KEYID := TMP\_TOKEN.KEYID;
+
+TMP\_KEYDEPENDENCIES.SEAL\_KEY\_FUSES := CR\_SEAL\_FUSES;
+
+TMP\_KEYDEPENDENCIES.CPUSVN := TMP\_TOKEN.CPUSVNLE;
+
+TMP\_KEYDEPENDENCIES.MISCSELECT := TMP\_TOKEN.MASKEDMISCSELECTLE;
+
+TMP\_KEYDEPENDENCIES.MISCMASK := 0;
+
+TMP\_KEYDEPENDENCIES.PADDING := HARDCODED\_PKCS1\_5\_PADDING;
+
+TMP\_KEYDEPENDENCIES.KEYPOLICY := 0;
+
+TMP\_KEYDEPENDENCIES.CONFIGID := 0;
+
+TMP\_KEYDEPENDENCIES.CONFIGSVN := 0;
+
+IF (CPUID.(EAX=12H, ECX=1):EAX= 1))
+
+TMP\_KEYDEPENDENCIES.CET\_ATTRIBUTES := TMP\_TOKEN.CET\_MASKED\_ATTRIBUTES\_ LE;
+
+TMP\_KEYDEPENDENCIES.CET\_ATTRIBUTES\_MASK := 0;
+
+FI;
+
+(\* Calculate the derived key\*)
+
+TMP\_EINITTOKENKEY := derivekey(TMP\_KEYDEPENDENCIES);
+
+(\* Verify EINITTOKEN was generated using this CPU's Launch key and that it has not been modified since issuing by the Launch Enclave. Only 192 bytes of EINITTOKEN are CMACed \*)
+
+IF (TMP\_TOKEN.MAC ≠ CMAC(TMP\_EINITTOKENKEY, TMP\_TOKEN[1535:0] ) )
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_EINITTOKEN;
+
+GOTO EXIT;
+
+FI;
+
+(\* Verify EINITTOKEN (RDX) is for this enclave \*)
+
+IF ( (TMP\_TOKEN.MRENCLAVE ≠ TMP\_MRENCLAVE) or (TMP\_TOKEN.MRSIGNER ≠ TMP\_MRSIGNER) )
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_MEASUREMENT;
+
+GOTO EXIT;
+
+FI;
+
+(\* Verify ATTRIBUTES in EINITTOKEN are the same as the enclave’s \*)
+
+IF (TMP\_TOKEN.ATTRIBUTES ≠ DS:RCX.ATTRIBUTES)
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_EINIT\_ATTRIBUTE;
+
+GOTO EXIT;
+
+FI;
+
+COMMIT:
+
+(\* Commit changes to the SECS; Set ISVPRODID, ISVSVN, MRSIGNER, INIT ATTRIBUTE fields in SECS (RCX) \*)
+
+DS:RCX.MRENCLAVE := TMP\_MRENCLAVE;
+
+(\* MRSIGNER stores a SHA256 in little endian implemented natively on x86 \*)
+
+DS:RCX.MRSIGNER := TMP\_MRSIGNER;
+
+DS:RCX.ISVEXTPRODID := TMP\_SIG.ISVEXTPRODID;
+
+DS:RCX.ISVPRODID := TMP\_SIG.ISVPRODID;
+
+DS:RCX.ISVSVN := TMP\_SIG.ISVSVN;
+
+DS:RCX.ISVFAMILYID := TMP\_SIG.ISVFAMILYID;
+
+DS:RCX.PADDING := TMP\_SIG\_PADDING;
+
+(\* Mark the SECS as initialized \*)
+
+Update DS:RCX to initialized;
+
+(\* Set RAX and ZF for success\*)
+
+RFLAGS.ZF := 0;
+
+RAX := 0;
+
+EXIT:
+
+RFLAGS.CF,PF,AF,OF,SF := 0;
+
+Flags Affected ¶
+
+ZF is cleared if successful, otherwise ZF is set and RAX contains the error code. CF, PF, AF, OF, SF are cleared.
+
+Protected Mode Exceptions ¶
+
+|             \#GP(0)             |    If a memory operand is not properly aligned. |
+
+|---------------------------------------------------------|----------------------------------------------------------|
+
+|   If another instruction is modifying the SECS.   |                             |
+
+|     If the enclave is already initialized. |                             |
+
+|      If the SECS.MRENCLAVE is in use. |                             |
+
+|            \#PF(error            |code) If a page fault occurs in accessing memory operands. |
+
+|     If RCX does not resolve in an EPC page. |                             |
+
+|If the memory address is not a valid, uninitialized SECS.|                             |
+
+64-Bit Mode Exceptions ¶
+
+|             \#GP(0)             |    If a memory operand is not properly aligned. |
+
+|---------------------------------------------------------|----------------------------------------------------------|
+
+|   If another instruction is modifying the SECS.   |                             |
+
+|     If the enclave is already initialized. |                             |
+
+|      If the SECS.MRENCLAVE is in use. |                             |
+
+|            \#PF(error            |code) If a page fault occurs in accessing memory operands. |
+
+|     If RCX does not resolve in an EPC page. |                             |
+
+|If the memory address is not a valid, uninitialized SECS.|                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

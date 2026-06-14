@@ -1,0 +1,133 @@
+MOVBE — Move Data After Swapping Bytes
+
+* Index
+
+* December 2023
+
+MOVBE — Move Data After Swapping Bytes
+
+|    Opcode/Instruction    |Op/En|64/32 bit Mode Support|CPUID Feature Flag|        Description        |
+
+|----------------------------------|-----|----------------------|------------------|------------------------------------------|
+
+|  0F 38 F0 /r MOVBE r16, m16  | RM |     V/V     |   MOVBE    |Reverse byte order in m16 and move to r16. |
+
+|  0F 38 F0 /r MOVBE r32, m32  | RM |     V/V     |   MOVBE    |Reverse byte order in m32 and move to r32. |
+
+|REX.W + 0F 38 F0 /r MOVBE r64, m64| RM |    V/N.E.    |   MOVBE    |Reverse byte order in m64 and move to r64. |
+
+|  0F 38 F1 /r MOVBE m16, r16  | MR |     V/V     |   MOVBE    |Reverse byte order in r16 and move to m16. |
+
+|  0F 38 F1 /r MOVBE m32, r32  | MR |     V/V     |   MOVBE    |Reverse byte order in r32 and move to m32. |
+
+|REX.W + 0F 38 F1 /r MOVBE m64, r64| MR |    V/N.E.    |   MOVBE    |Reverse byte order in r64 and move to m64. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Operand 1 | Operand 2 |Operand 3|Operand 4|
+
+|-----|-------------|-------------|---------|---------|
+
+| RM |ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+| MR |ModRM:r/m (w)|ModRM:reg (r)|  N/A  |  N/A  |
+
+Description ¶
+
+Performs a byte swap operation on the data copied from the second operand (source operand) and store the result in the first operand (destination operand). The source operand can be a general-purpose register, or memory location; the destination register can be a general-purpose register, or a memory location; however, both operands can not be registers, and only one operand can be a memory location. Both operands must be the same size, which can be a word, a doubleword or quadword.
+
+The MOVBE instruction is provided for swapping the bytes on a read from memory or on a write to memory; thus providing support for converting little-endian values to big-endian format and vice versa.
+
+In 64-bit mode, the instruction's default operation size is 32 bits. Use of the REX.R prefix permits access to additional registers (R8-R15). Use of the REX.W prefix promotes operation to 64 bits. See the summary chart at the beginning of this section for encoding data and limits.
+
+Operation ¶
+
+```
+
+TEMP := SRC IF ( OperandSize = 16) THEN DEST[7:0] := TEMP[15:8]; DEST[15:8] := TEMP[7:0]; ELES IF ( OperandSize = 32) DEST[7:0] := TEMP[31:24]; DEST[15:8] := TEMP[23:16]; DEST[23:16] := TEMP[15:8]; DEST[31:23] := TEMP[7:0]; ELSE IF ( OperandSize = 64) DEST[7:0] := TEMP[63:56]; DEST[15:8] := TEMP[55:48]; DEST[23:16] := TEMP[47:40]; DEST[31:24] := TEMP[39:32]; DEST[39:32] := TEMP[31:24]; DEST[47:40] := TEMP[23:16]; DEST[55:48] := TEMP[15:8]; DEST[63:56] := TEMP[7:0]; FI;
+
+```
+
+Flags Affected ¶
+
+None.
+
+Protected Mode Exceptions ¶
+
+|                     \#GP(0)                     |               If the destination operand is in a non-writable segment. |
+
+|-----------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
+
+|If a memory operand effective address is outside the CS, DS, ES, FS, or GS segment limit. |                                                         |
+
+|      If the DS, ES, FS, or GS register contains a NULL segment selector. |                                                         |
+
+|                     \#SS(0)                     |           If a memory operand effective address is outside the SS segment limit. |
+
+|                  \#PF(fault-code)                   |                       If a page fault occurs. |
+
+|                     \#AC(0)                     |If alignment checking is enabled and an unaligned memory reference is made while the current privilege level is 3. |
+
+|                     \#UD                      |                    If CPUID.01H:ECX.MOVBE[bit 22] = 0. |
+
+|                If the LOCK prefix is used. |                                                         |
+
+|               If REP (F3H) prefix is used. |                                                         |
+
+Real-Address Mode Exceptions ¶
+
+|      \#GP      |If a memory operand effective address is outside the CS, DS, ES, FS, or GS segment limit. |
+
+|----------------------------|-----------------------------------------------------------------------------------------|
+
+|      \#SS      |     If a memory operand effective address is outside the SS segment limit. |
+
+|      \#UD      |              If CPUID.01H:ECX.MOVBE[bit 22] = 0. |
+
+|If the LOCK prefix is used. |                                             |
+
+|If REP (F3H) prefix is used. |                                             |
+
+Virtual-8086 Mode Exceptions ¶
+
+|               \#GP(0)                |      If a memory operand effective address is outside the CS, DS, ES, FS, or GS segment limit. |
+
+|--------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
+
+|               \#SS(0)                |           If a memory operand effective address is outside the SS segment limit. |
+
+|             \#PF(fault-code)             |                       If a page fault occurs. |
+
+|               \#AC(0)                |If alignment checking is enabled and an unaligned memory reference is made while the current privilege level is 3. |
+
+|                \#UD                |                    If CPUID.01H:ECX.MOVBE[bit 22] = 0. |
+
+|          If the LOCK prefix is used. |                                                         |
+
+|          If REP (F3H) prefix is used. |                                                         |
+
+|If REPNE (F2H) prefix is used and CPUID.01H:ECX.SSE4\_2[bit 20] = 0. |                                                         |
+
+Compatibility Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+64-Bit Mode Exceptions ¶
+
+|     \#GP(0)      |                If the memory address is in a non-canonical form. |
+
+|----------------------------|------------------------------------------------------------------------------------------------------------------|
+
+|     \#SS(0)      |                 If the stack address is in a non-canonical form. |
+
+|   \#PF(fault-code)   |                       If a page fault occurs. |
+
+|     \#AC(0)      |If alignment checking is enabled and an unaligned memory reference is made while the current privilege level is 3. |
+
+|      \#UD      |                    If CPUID.01H:ECX.MOVBE[bit 22] = 0. |
+
+|If the LOCK prefix is used. |                                                         |
+
+|If REP (F3H) prefix is used. |                                                         |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

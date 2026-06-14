@@ -1,0 +1,554 @@
+use crate::common::{
+    CODE_ADDR, VM, run_until_hlt_legacy as run_until_hlt, setup_vm_legacy as setup_vm,
+};
+
+// RET - Return from Procedure
+// Pops return address from stack and jumps to it
+// Opcodes:
+//   C3 - RET (near return)
+//   C2 iw - RET imm16 (near return and pop imm16 bytes)
+//   CB - RETF (far return)
+//   CA iw - RETF imm16 (far return and pop imm16 bytes)
+
+#[test]
+fn test_ret_basic() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL function
+        // return point:
+        0xf4, // HLT
+        // function:
+        0x48, 0xc7, 0xc0, 0x42, 0x00, 0x00, 0x00, // MOV RAX, 0x42
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0x42);
+}
+
+#[test]
+fn test_ret_pops_stack() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL function
+        // return point:
+        0x48, 0x89, 0xe3, // MOV RBX, RSP (save SP after return)
+        0xf4, // HLT
+        // function:
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rbx, 0x2000); // RSP restored after RET
+}
+
+#[test]
+fn test_ret_increments_rsp_by_8() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL function
+        // return point:
+        0xf4, // HLT
+        // function:
+        0x48, 0x89, 0xe0, // MOV RAX, RSP (SP before RET)
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0x2000 - 8); // SP was decremented by CALL
+    assert_eq!(vm.rsp, 0x2000); // RET incremented it back
+}
+
+#[test]
+fn test_ret_uses_address_from_stack() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        // Manually push return address
+        0x48, 0xb8, 0x14, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, 0x1014
+        0x50, // PUSH RAX
+        0xc3, // RET (will jump to 0x1014)
+        0xf4, // HLT (should not execute)
+        // target at 0x1014:
+        0x48, 0xc7, 0xc1, 0x99, 0x00, 0x00, 0x00, // MOV RCX, 0x99
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rcx, 0x99);
+    assert_eq!(vm.rip, 0x1014 + 8);
+}
+
+#[test]
+fn test_ret_imm16_pops_additional_bytes() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        // Push some arguments
+        0x48, 0xc7, 0xc0, 0x11, 0x00, 0x00, 0x00, // MOV RAX, 0x11
+        0x50, // PUSH RAX (arg1)
+        0x48, 0xc7, 0xc0, 0x22, 0x00, 0x00, 0x00, // MOV RAX, 0x22
+        0x50, // PUSH RAX (arg2)
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL function
+        // return point:
+        0x48, 0x89, 0xe3, // MOV RBX, RSP
+        0xf4, // HLT
+        // function:
+        0xc2, 0x10, 0x00, // RET 16 (pop return address + 16 bytes)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rbx, 0x2000); // RSP back to original (popped 8 for ret + 16 for args)
+}
+
+#[test]
+fn test_ret_preserves_registers() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc3, 0x11, 0x00, 0x00, 0x00, // MOV RBX, 0x11
+        0x48, 0xc7, 0xc1, 0x22, 0x00, 0x00, 0x00, // MOV RCX, 0x22
+        0x48, 0xc7, 0xc2, 0x33, 0x00, 0x00, 0x00, // MOV RDX, 0x33
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL function
+        // return point:
+        0xf4, // HLT
+        // function:
+        0xc3, // RET (preserves all registers)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rbx, 0x11);
+    assert_eq!(vm.rcx, 0x22);
+    assert_eq!(vm.rdx, 0x33);
+}
+
+#[test]
+fn test_ret_preserves_flags() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff, // MOV RAX, -1
+        0x48, 0x83, 0xc0, 0x01, // ADD RAX, 1 (sets ZF=1, CF=1)
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL function
+        // return point:
+        0x74, 0x01, // JZ +1 (should jump if ZF preserved)
+        0xf4, // HLT (should not reach)
+        0xf4, // HLT (target)
+        // function:
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rip, CODE_ADDR + 27);
+}
+
+#[test]
+fn test_ret_multiple_returns() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL func1
+        0xf4, // HLT
+        // func1:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL func2
+        0x48, 0xff, 0xc0, // INC RAX
+        0xc3, // RET
+        // func2:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 3); // INC in func1, INC in func2, INC after func2 returns
+}
+
+#[test]
+fn test_ret_from_recursive_function() {
+    // Countdown from 5 to 0
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc0, 0x05, 0x00, 0x00, 0x00, // MOV RAX, 5
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL countdown
+        0xf4, // HLT
+        // countdown:
+        0x48, 0x85, 0xc0, // TEST RAX, RAX
+        0x74, 0x08, // JZ +8 (base case)
+        0x48, 0xff, 0xc8, // DEC RAX
+        0xe8, 0xf3, 0xff, 0xff, 0xff, // CALL countdown (recursive)
+        0xc3, // RET
+        // base case:
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0);
+    assert_eq!(vm.rsp, 0x2000); // All returns completed, stack balanced
+}
+
+#[test]
+fn test_ret_nested_three_levels() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0x31, 0xc0, // XOR RAX, RAX
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL level1
+        0xf4, // HLT
+        // level1:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL level2
+        0x48, 0xff, 0xc0, // INC RAX
+        0xc3, // RET
+        // level2:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL level3
+        0x48, 0xff, 0xc0, // INC RAX
+        0xc3, // RET
+        // level3:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 5); // Each level increments before and after (except level3)
+}
+
+#[test]
+fn test_ret_with_modified_return_address() {
+    // Function modifies its own return address on stack
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0xe8, 0x11, 0x00, 0x00, 0x00, // CALL function
+        // normal return (offset 12):
+        0x48, 0xc7, 0xc0, 0xaa, 0x00, 0x00, 0x00, // MOV RAX, 0xAA (should not execute)
+        0xeb, 0x07, // JMP +7
+        // alternate return (offset 21):
+        0x48, 0xc7, 0xc0, 0xbb, 0x00, 0x00, 0x00, // MOV RAX, 0xBB
+        // end:
+        0xf4, // HLT
+        // function (offset 29):
+        0x48, 0xb8, 0x15, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // MOV RAX, alternate_ret
+        0x48, 0x89, 0x04, 0x24, // MOV [RSP], RAX (modify return address)
+        0xc3, // RET (will go to alternate return)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0xBB); // Went to alternate return
+}
+
+#[test]
+fn test_ret_stack_frame_cleanup() {
+    // Function with local variables
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL function
+        0x48, 0x89, 0xe3, // MOV RBX, RSP
+        0xf4, // HLT
+        // function:
+        0x48, 0x83, 0xec, 0x20, // SUB RSP, 32 (allocate locals)
+        0x48, 0xc7, 0xc0, 0x42, 0x00, 0x00, 0x00, // MOV RAX, 0x42
+        0x48, 0x83, 0xc4, 0x20, // ADD RSP, 32 (deallocate before RET)
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0x42);
+    assert_eq!(vm.rbx, 0x2000); // Stack balanced
+}
+
+#[test]
+fn test_ret_imm16_with_8_bytes() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc0, 0x99, 0x00, 0x00, 0x00, // MOV RAX, 0x99
+        0x50, // PUSH RAX (argument)
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL function
+        // return point:
+        0x48, 0x89, 0xe3, // MOV RBX, RSP
+        0xf4, // HLT
+        // function:
+        0xc2, 0x08, 0x00, // RET 8 (pop return address + 8 bytes)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rbx, 0x2000); // Stack back to original
+}
+
+#[test]
+fn test_ret_imm16_with_16_bytes() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc0, 0x11, 0x00, 0x00, 0x00, // MOV RAX, 0x11
+        0x50, // PUSH RAX (arg1)
+        0x48, 0xc7, 0xc0, 0x22, 0x00, 0x00, 0x00, // MOV RAX, 0x22
+        0x50, // PUSH RAX (arg2)
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL function
+        // return point:
+        0x48, 0x89, 0xe3, // MOV RBX, RSP
+        0xf4, // HLT
+        // function:
+        0xc2, 0x10, 0x00, // RET 16 (pop return address + 16 bytes)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rbx, 0x2000);
+}
+
+#[test]
+fn test_ret_imm16_with_32_bytes() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        // Push 4 arguments (32 bytes)
+        0x50, 0x50, 0x50, 0x50, 0xe8, 0x04, 0x00, 0x00, 0x00, // CALL function
+        // return point:
+        0x48, 0x89, 0xe3, // MOV RBX, RSP
+        0xf4, // HLT
+        // function:
+        0xc2, 0x20, 0x00, // RET 32
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rbx, 0x2000);
+}
+
+#[test]
+fn test_ret_from_leaf_function() {
+    // Leaf function (doesn't call others)
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc7, 0x05, 0x00, 0x00, 0x00, // MOV RDI, 5
+        0x48, 0xc7, 0xc6, 0x03, 0x00, 0x00, 0x00, // MOV RSI, 3
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL add
+        0xf4, // HLT
+        // add:
+        0x48, 0x89, 0xf8, // MOV RAX, RDI
+        0x48, 0x01, 0xf0, // ADD RAX, RSI
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 8);
+}
+
+#[test]
+fn test_ret_tail_call_optimization_pattern() {
+    // Instead of CALL then RET, jump to function (tail call)
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL func1
+        0xf4, // HLT
+        // func1 (tail calls func2):
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL func2
+        0xc3, // RET (returns func2's result)
+        // func2:
+        0x48, 0xc7, 0xc0, 0x42, 0x00, 0x00, 0x00, // MOV RAX, 0x42
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0x42);
+}
+
+#[test]
+fn test_ret_early_return_pattern() {
+    // Function with early return on condition
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc7, 0x00, 0x00, 0x00, 0x00, // MOV RDI, 0 (input)
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL function
+        0xf4, // HLT
+        // function:
+        0x48, 0x85, 0xff, // TEST RDI, RDI
+        0x75, 0x08, // JNZ +8 (skip early return)
+        // early return:
+        0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff, // MOV RAX, -1 (error)
+        0xc3, // RET
+        // normal path:
+        0x48, 0xc7, 0xc0, 0x42, 0x00, 0x00, 0x00, // MOV RAX, 0x42
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0xFFFFFFFFFFFFFFFF); // Early return taken
+}
+
+#[test]
+fn test_ret_multiple_exit_points() {
+    // Function with 3 different return paths
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc7, 0x02, 0x00, 0x00, 0x00, // MOV RDI, 2 (selector)
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL function
+        0xf4, // HLT
+        // function:
+        0x48, 0x83, 0xff, 0x00, // CMP RDI, 0
+        0x75, 0x08, // JNZ +8
+        0x48, 0xc7, 0xc0, 0xaa, 0x00, 0x00, 0x00, // MOV RAX, 0xAA
+        0xc3, // RET (path 1)
+        0x48, 0x83, 0xff, 0x01, // CMP RDI, 1
+        0x75, 0x08, // JNZ +8
+        0x48, 0xc7, 0xc0, 0xbb, 0x00, 0x00, 0x00, // MOV RAX, 0xBB
+        0xc3, // RET (path 2)
+        0x48, 0xc7, 0xc0, 0xcc, 0x00, 0x00, 0x00, // MOV RAX, 0xCC
+        0xc3, // RET (path 3)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0xCC); // Path 3 taken
+}
+
+#[test]
+fn test_ret_balances_deeply_nested_calls() {
+    // 5 levels deep, all should return cleanly
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0x31, 0xc0, // XOR RAX, RAX
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL f1
+        0x48, 0x89, 0xe3, // MOV RBX, RSP
+        0xf4, // HLT
+        // f1:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL f2
+        0xc3, // RET
+        // f2:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL f3
+        0xc3, // RET
+        // f3:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL f4
+        0xc3, // RET
+        // f4:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL f5
+        0xc3, // RET
+        // f5:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 5);
+    assert_eq!(vm.rbx, 0x2000); // Stack balanced
+}
+
+#[test]
+fn test_ret_with_empty_function() {
+    // Function that does nothing but return
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc0, 0x99, 0x00, 0x00, 0x00, // MOV RAX, 0x99
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL nop_function
+        0xf4, // HLT
+        // nop_function:
+        0xc3, // RET (immediately)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0x99); // Unchanged
+}
+
+#[test]
+fn test_ret_preserves_stack_data() {
+    // Data below return address should be preserved
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc0, 0x42, 0x00, 0x00, 0x00, // MOV RAX, 0x42
+        0x50, // PUSH RAX (data on stack)
+        0xe8, 0x02, 0x00, 0x00, 0x00, // CALL function
+        // return point:
+        0x58, // POP RAX (retrieve data)
+        0xf4, // HLT
+        // function:
+        0x48, 0xc7, 0xc0, 0x99, 0x00, 0x00, 0x00, // MOV RAX, 0x99
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0x42); // Original data retrieved
+}
+
+#[test]
+fn test_ret_after_conditional_execution() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0xc7, 0xc7, 0x01, 0x00, 0x00, 0x00, // MOV RDI, 1 (condition)
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL function
+        0xf4, // HLT
+        // function:
+        0x48, 0x85, 0xff, // TEST RDI, RDI
+        0x74, 0x07, // JZ +7 (skip if zero)
+        0x48, 0xc7, 0xc0, 0x42, 0x00, 0x00, 0x00, // MOV RAX, 0x42
+        // common exit:
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 0x42);
+}
+
+#[test]
+fn test_ret_stack_alignment() {
+    // Verify stack stays 8-byte aligned
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000 (8-byte aligned)
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL function
+        0x48, 0x89, 0xe3, // MOV RBX, RSP
+        0xf4, // HLT
+        // function:
+        0x48, 0x89, 0xe0, // MOV RAX, RSP
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax & 0x7, 0); // RSP was 8-byte aligned in function
+    assert_eq!(vm.rbx & 0x7, 0); // RSP is 8-byte aligned after return
+}
+
+#[test]
+fn test_ret_from_multiple_call_sites() {
+    // Same function called from different locations
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0x48, 0x31, 0xc0, // XOR RAX, RAX
+        0xe8, 0x0b, 0x00, 0x00, 0x00, // CALL inc_rax (site 1)
+        0xe8, 0x06, 0x00, 0x00, 0x00, // CALL inc_rax (site 2)
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL inc_rax (site 3)
+        0xf4, // HLT
+        // inc_rax:
+        0x48, 0xff, 0xc0, // INC RAX
+        0xc3, // RET
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 3); // Called 3 times, each returned correctly
+}
+
+#[test]
+fn test_ret_imm16_zero() {
+    // RET 0 is equivalent to RET
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL function
+        0x48, 0x89, 0xe3, // MOV RBX, RSP
+        0xf4, // HLT
+        // function:
+        0xc2, 0x00, 0x00, // RET 0
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rbx, 0x2000); // Stack balanced just like normal RET
+}
+
+#[test]
+fn test_ret_consecutive_returns() {
+    let code = [
+        0x48, 0xc7, 0xc4, 0x00, 0x20, 0x00, 0x00, // MOV RSP, 0x2000
+        0xe8, 0x01, 0x00, 0x00, 0x00, // CALL outer
+        0xf4, // HLT
+        // outer:
+        0xe8, 0x04, 0x00, 0x00, 0x00, // CALL inner
+        0x48, 0xff, 0xc0, // INC RAX
+        0xc3, // RET (first return)
+        // inner:
+        0x48, 0xc7, 0xc0, 0x05, 0x00, 0x00, 0x00, // MOV RAX, 5
+        0xc3, // RET (second return)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 6); // 5 from inner + 1 from outer
+}

@@ -1,0 +1,540 @@
+//! Tests for Intel SGX (Software Guard Extensions) Instructions.
+//!
+//! This module covers SGX instructions for managing secure enclaves.
+//!
+//! Instructions covered:
+//! - ENCLS - Execute an Enclave System Function (Ring 0)
+//! - ENCLU - Execute an Enclave User Function (Ring 3)
+//! - ENCLV - Execute an Enclave VMM Function (VMX root)
+//!
+//! References: docs/encls.txt, docs/enclu.txt, docs/enclv.txt
+
+use crate::common::*;
+use rax::cpu::Registers;
+
+// ============================================================================
+// ENCLS Tests - Enclave System Functions (Ring 0)
+// ============================================================================
+
+#[test]
+fn test_encls_basic() {
+    // ENCLS - Execute enclave system function
+    // Opcode: 0F 01 CF
+    // EAX specifies the leaf function
+    let code = [
+        0x48, 0x31, 0xC0, // XOR RAX, RAX (function 0)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_ecreate() {
+    // ENCLS[ECREATE] - Create an enclave (leaf 0)
+    let code = [
+        0x48, 0x31, 0xC0, // XOR RAX, RAX (ECREATE = 0)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x10, 0x00, // MOV RBX, 0x100000 (PAGEINFO)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_eadd() {
+    // ENCLS[EADD] - Add a page to an enclave (leaf 1)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // MOV RAX, 1 (EADD)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x10, 0x00, // MOV RBX, 0x100000 (PAGEINFO)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_einit() {
+    // ENCLS[EINIT] - Initialize an enclave (leaf 2)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00, // MOV RAX, 2 (EINIT)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x30, 0x00, // MOV RBX, 0x300000 (SIGSTRUCT)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (SECS)
+        0x48, 0xC7, 0xC2, 0x00, 0x00, 0x40, 0x00, // MOV RDX, 0x400000 (EINITTOKEN)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_eremove() {
+    // ENCLS[EREMOVE] - Remove a page from EPC (leaf 3)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x03, 0x00, 0x00, 0x00, // MOV RAX, 3 (EREMOVE)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_edbgrd() {
+    // ENCLS[EDBGRD] - Read from debug enclave (leaf 4)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x04, 0x00, 0x00, 0x00, // MOV RAX, 4 (EDBGRD)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x50, 0x00, // MOV RBX, 0x500000 (target addr)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_edbgwr() {
+    // ENCLS[EDBGWR] - Write to debug enclave (leaf 5)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x05, 0x00, 0x00, 0x00, // MOV RAX, 5 (EDBGWR)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x50, 0x00, // MOV RBX, 0x500000 (source addr)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_eextend() {
+    // ENCLS[EEXTEND] - Extend enclave measurement (leaf 6)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x06, 0x00, 0x00, 0x00, // MOV RAX, 6 (EEXTEND)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_eldb_eldu() {
+    // ENCLS[ELDB/ELDU] - Load blocked/unblocked page (leaf 7/8)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x07, 0x00, 0x00, 0x00, // MOV RAX, 7 (ELDB)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x10, 0x00, // MOV RBX, 0x100000 (PAGEINFO)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE)
+        0x48, 0xC7, 0xC2, 0x00, 0x00, 0x60, 0x00, // MOV RDX, 0x600000 (VA slot)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_eblock() {
+    // ENCLS[EBLOCK] - Block EPC page (leaf 9)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x09, 0x00, 0x00, 0x00, // MOV RAX, 9 (EBLOCK)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_epa() {
+    // ENCLS[EPA] - Add version array (leaf 10)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x0A, 0x00, 0x00, 0x00, // MOV RAX, 10 (EPA)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_ewb() {
+    // ENCLS[EWB] - Writeback/invalidate EPC page (leaf 11)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x0B, 0x00, 0x00, 0x00, // MOV RAX, 11 (EWB)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x10, 0x00, // MOV RBX, 0x100000 (PAGEINFO)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE)
+        0x48, 0xC7, 0xC2, 0x00, 0x00, 0x60, 0x00, // MOV RDX, 0x600000 (VA slot)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_etrack() {
+    // ENCLS[ETRACK] - Activate EBLOCK checks (leaf 12)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x0C, 0x00, 0x00, 0x00, // MOV RAX, 12 (ETRACK)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPCPAGE/SECS)
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_encls_preserves_other_registers() {
+    // ENCLS should preserve non-output registers
+    let code = [
+        0x48, 0xC7, 0xC6, 0x11, 0x11, 0x11, 0x11, // MOV RSI, 0x11111111
+        0x48, 0xC7, 0xC7, 0x22, 0x22, 0x22, 0x22, // MOV RDI, 0x22222222
+        0x48, 0x31, 0xC0, // XOR RAX, RAX
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+// ============================================================================
+// ENCLU Tests - Enclave User Functions (Ring 3)
+// ============================================================================
+
+#[test]
+fn test_enclu_basic() {
+    // ENCLU - Execute enclave user function
+    // Opcode: 0F 01 D7
+    // EAX specifies the leaf function
+    let code = [
+        0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00, // MOV RAX, 2 (EENTER)
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclu_ereport() {
+    // ENCLU[EREPORT] - Create cryptographic report (leaf 0)
+    let code = [
+        0x48, 0x31, 0xC0, // XOR RAX, RAX (EREPORT = 0)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x70, 0x00, // MOV RBX, 0x700000 (TARGETINFO)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x80, 0x00, // MOV RCX, 0x800000 (REPORTDATA)
+        0x48, 0xC7, 0xC2, 0x00, 0x00, 0x90, 0x00, // MOV RDX, 0x900000 (OUTPUTDATA)
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclu_egetkey() {
+    // ENCLU[EGETKEY] - Get enclave sealing key (leaf 1)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // MOV RAX, 1 (EGETKEY)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x70, 0x00, // MOV RBX, 0x700000 (KEYREQUEST)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x80, 0x00, // MOV RCX, 0x800000 (KEY output)
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclu_eenter() {
+    // ENCLU[EENTER] - Enter an enclave (leaf 2)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00, // MOV RAX, 2 (EENTER)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x20, 0x00, // MOV RBX, 0x200000 (TCS)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x00, 0x00, // MOV RCX, 0 (AEP)
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclu_eresume() {
+    // ENCLU[ERESUME] - Resume execution in enclave (leaf 3)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x03, 0x00, 0x00, 0x00, // MOV RAX, 3 (ERESUME)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x20, 0x00, // MOV RBX, 0x200000 (TCS)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x00, 0x00, // MOV RCX, 0 (AEP)
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclu_eexit() {
+    // ENCLU[EEXIT] - Exit an enclave (leaf 4)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x04, 0x00, 0x00, 0x00, // MOV RAX, 4 (EEXIT)
+        0x48, 0xC7, 0xC3, 0x00, 0x10, 0x00, 0x00, // MOV RBX, 0x1000 (target RIP)
+        0x48, 0xC7, 0xC1, 0x00, 0x70, 0x00, 0x00, // MOV RCX, 0x7000 (target RSP)
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclu_eaccept() {
+    // ENCLU[EACCEPT] - Accept page into enclave (leaf 5)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x05, 0x00, 0x00, 0x00, // MOV RAX, 5 (EACCEPT)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x30, 0x00, // MOV RBX, 0x300000 (SECINFO)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (page addr)
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclu_emodpe() {
+    // ENCLU[EMODPE] - Modify page permissions (leaf 6)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x06, 0x00, 0x00, 0x00, // MOV RAX, 6 (EMODPE)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x30, 0x00, // MOV RBX, 0x300000 (SECINFO)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (page addr)
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclu_eacceptcopy() {
+    // ENCLU[EACCEPTCOPY] - Accept & copy (leaf 7)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x07, 0x00, 0x00, 0x00, // MOV RAX, 7 (EACCEPTCOPY)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x30, 0x00, // MOV RBX, 0x300000 (SECINFO)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (dest page)
+        0x48, 0xC7, 0xC2, 0x00, 0x00, 0x40, 0x00, // MOV RDX, 0x400000 (src page)
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclu_multiple_operations() {
+    // Multiple ENCLU operations in sequence
+    let code = [
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // MOV RAX, 1 (EGETKEY)
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x70, 0x00, // MOV RBX, 0x700000
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x80, 0x00, // MOV RCX, 0x800000
+        0x0F, 0x01, 0xD7, // ENCLU
+        0x48, 0x31, 0xC0, // XOR RAX, RAX (EREPORT)
+        0x48, 0xC7, 0xC2, 0x00, 0x00, 0x90, 0x00, // MOV RDX, 0x900000
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+// ============================================================================
+// ENCLV Tests - Enclave VMM Functions (VMX root)
+// ============================================================================
+
+#[test]
+fn test_enclv_basic() {
+    // ENCLV - Execute enclave VMM function
+    // Opcode: 0F 01 C0
+    // EAX specifies the leaf function
+    let code = [
+        0x48, 0x31, 0xC0, // XOR RAX, RAX
+        0x0F, 0x01, 0xC0, // ENCLV
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclv_edecvirtchild() {
+    // ENCLV[EDECVIRTCHILD] - Decrement virtual child count (leaf 0)
+    let code = [
+        0x48, 0x31, 0xC0, // XOR RAX, RAX (EDECVIRTCHILD = 0)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPC page)
+        0x0F, 0x01, 0xC0, // ENCLV
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclv_eincvirtchild() {
+    // ENCLV[EINCVIRTCHILD] - Increment virtual child count (leaf 1)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // MOV RAX, 1 (EINCVIRTCHILD)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPC page)
+        0x0F, 0x01, 0xC0, // ENCLV
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclv_esetcontext() {
+    // ENCLV[ESETCONTEXT] - Set enclave context (leaf 2)
+    let code = [
+        0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00, // MOV RAX, 2 (ESETCONTEXT)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000 (EPC page)
+        0x0F, 0x01, 0xC0, // ENCLV
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_enclv_multiple_operations() {
+    // Multiple ENCLV operations
+    let code = [
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // MOV RAX, 1 (EINCVIRTCHILD)
+        0x0F, 0x01, 0xC0, // ENCLV
+        0x48, 0x31, 0xC0, // XOR RAX, RAX (EDECVIRTCHILD)
+        0x0F, 0x01, 0xC0, // ENCLV
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+// ============================================================================
+// Combined SGX Operation Tests
+// ============================================================================
+
+#[test]
+fn test_sgx_enclave_lifecycle() {
+    // Simulate basic enclave lifecycle
+    let code = [
+        // ENCLS[ECREATE]
+        0x48, 0x31, 0xC0, // XOR RAX, RAX
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x10, 0x00, // MOV RBX, 0x100000
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000
+        0x0F, 0x01, 0xCF, // ENCLS
+        // ENCLS[EADD]
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // MOV RAX, 1
+        0x0F, 0x01, 0xCF, // ENCLS
+        // ENCLS[EINIT]
+        0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00, // MOV RAX, 2
+        0x48, 0xC7, 0xC2, 0x00, 0x00, 0x40, 0x00, // MOV RDX, 0x400000
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_sgx_debug_operations() {
+    // SGX debug read/write operations
+    let code = [
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x50, 0x00, // MOV RBX, 0x500000
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000
+        // ENCLS[EDBGRD]
+        0x48, 0xC7, 0xC0, 0x04, 0x00, 0x00, 0x00, // MOV RAX, 4
+        0x0F, 0x01, 0xCF, // ENCLS
+        // ENCLS[EDBGWR]
+        0x48, 0xC7, 0xC0, 0x05, 0x00, 0x00, 0x00, // MOV RAX, 5
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_sgx_paging_operations() {
+    // SGX EPC paging operations
+    let code = [
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x20, 0x00, // MOV RCX, 0x200000
+        // ENCLS[EBLOCK]
+        0x48, 0xC7, 0xC0, 0x09, 0x00, 0x00, 0x00, // MOV RAX, 9
+        0x0F, 0x01, 0xCF, // ENCLS
+        // ENCLS[ETRACK]
+        0x48, 0xC7, 0xC0, 0x0C, 0x00, 0x00, 0x00, // MOV RAX, 12
+        0x0F, 0x01, 0xCF, // ENCLS
+        // ENCLS[EWB]
+        0x48, 0xC7, 0xC0, 0x0B, 0x00, 0x00, 0x00, // MOV RAX, 11
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x10, 0x00, // MOV RBX, 0x100000
+        0x48, 0xC7, 0xC2, 0x00, 0x00, 0x60, 0x00, // MOV RDX, 0x600000
+        0x0F, 0x01, 0xCF, // ENCLS
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_sgx_user_mode_flow() {
+    // User mode enclave entry/exit flow
+    let code = [
+        // ENCLU[EENTER]
+        0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00, // MOV RAX, 2
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x20, 0x00, // MOV RBX, 0x200000
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x00, 0x00, // MOV RCX, 0
+        0x0F, 0x01, 0xD7, // ENCLU
+        // Simulate work inside enclave...
+        // ENCLU[EEXIT]
+        0x48, 0xC7, 0xC0, 0x04, 0x00, 0x00, 0x00, // MOV RAX, 4
+        0x48, 0xC7, 0xC3, 0x00, 0x10, 0x00, 0x00, // MOV RBX, 0x1000
+        0x48, 0xC7, 0xC1, 0x00, 0x70, 0x00, 0x00, // MOV RCX, 0x7000
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}
+
+#[test]
+fn test_sgx_attestation_flow() {
+    // SGX attestation operations
+    let code = [
+        // ENCLU[EREPORT] - Generate report
+        0x48, 0x31, 0xC0, // XOR RAX, RAX
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x70, 0x00, // MOV RBX, 0x700000 (TARGETINFO)
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x80, 0x00, // MOV RCX, 0x800000 (REPORTDATA)
+        0x48, 0xC7, 0xC2, 0x00, 0x00, 0x90, 0x00, // MOV RDX, 0x900000 (OUTPUT)
+        0x0F, 0x01, 0xD7, // ENCLU
+        // ENCLU[EGETKEY] - Get sealing key
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // MOV RAX, 1
+        0x48, 0xC7, 0xC3, 0x00, 0x00, 0x70, 0x00, // MOV RBX, 0x700000
+        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x80, 0x00, // MOV RCX, 0x800000
+        0x0F, 0x01, 0xD7, // ENCLU
+        0xF4, // HLT
+    ];
+    let (mut vcpu, _) = setup_vm(&code, None);
+    let _ = run_until_hlt(&mut vcpu);
+}

@@ -1,0 +1,171 @@
+VSCALEFPD — Scale Packed Float64 Values With Float64 Values
+
+* Index
+
+* December 2023
+
+VSCALEFPD — Scale Packed Float64 Values With Float64 Values
+
+|               Opcode/Instruction               |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                           Description                            |
+
+|-----------------------------------------------------------------------------|-----|----------------------|------------------|------------------------------------------------------------------------------------------------------------------------|
+
+| EVEX.128.66. 0F38. W1 2C /r VSCALEFPD xmm1 {k1}{z}, xmm2, xmm3/m128/m64bcst | A |     V/V     | AVX512VL AVX512F |Scale the packed double precision floating-point values in xmm2 using values from xmm3/m128/m64bcst Under writemask k1. |
+
+| EVEX.256.66. 0F38. W1 2C /r VSCALEFPD ymm1 {k1}{z}, ymm2, ymm3/m256/m64bcst | A |     V/V     | AVX512VL AVX512F |Scale the packed double precision floating-point values in ymm2 using values from ymm3/m256/m64bcst Under writemask k1. |
+
+|EVEX.512.66. 0F38. W1 2C /r VSCALEFPD zmm1 {k1}{z}, zmm2, zmm3/m512/m64bcst{er}| A |     V/V     |   AVX512F   |Scale the packed double precision floating-point values in zmm2 using values from zmm3/m512/m64bcst Under writemask k1. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|Tuple Type| Operand 1 | Operand 2 | Operand 3 |Operand 4|
+
+|-----|----------|-------------|-------------|-------------|---------|
+
+| A |  Full  |ModRM:reg (w)|EVEX.vvvv (r)|ModRM:r/m (r)|  N/A  |
+
+Description ¶
+
+Performs a floating-point scale of the packed double precision floating-point values in the first source operand by multiplying them by 2 to the power of the double precision floating-point values in second source operand.
+
+The equation of this operation is given by:
+
+zmm1 := zmm2\*2 floor(zmm3) .
+
+Floor(zmm3) means maximum integer value ≤ zmm3.
+
+If the result cannot be represented in double precision, then the proper overflow response (for positive scaling operand), or the proper underflow response (for negative scaling operand) is issued. The overflow and underflow responses are dependent on the rounding mode (for IEEE-compliant rounding), as well as on other settings in MXCSR (exception mask bits, FTZ bit), and on the SAE bit.
+
+The first source operand is a ZMM/YMM/XMM register. The second source operand is a ZMM/YMM/XMM register, a 512/256/128-bit memory location or a 512/256/128-bit vector broadcasted from a 64-bit memory location. The destination operand is a ZMM/YMM/XMM register conditionally updated with writemask k1.
+
+Handling of special-case input values are listed in Table 5-39 and Table 5-40.
+
+|  |      |  Src2  |   Set IE   |        |       |            |
+
+|----|-----------|----------|----------------|----------------|--------------|------------------------|
+
+|  |      |  ±NaN  |   \+Inf   |   \-Inf   |0/Denorm/Norm |            |
+
+|Src1|  ±QNaN  |QNaN(Src1)|   \+INF   |   \+0    | QNaN(Src1) |IF either source is SNAN|
+
+|  |  ±SNaN  |QNaN(Src1)|  QNaN(Src1)  |  QNaN(Src1)  | QNaN(Src1) |     YES      |
+
+|  |  ±Inf  |QNaN(Src2)|   Src1   |QNaN\_Indefinite|   Src1   |IF Src2 is SNAN or -INF |
+
+|  |  ±0   |QNaN(Src2)|QNaN\_Indefinite|   Src1   |   Src1   |IF Src2 is SNAN or +INF |
+
+|  |Denorm/Norm|QNaN(Src2)|±INF (Src1 sign)| ±0 (Src1 sign) |Compute Result|  IF Src2 is SNAN   |
+
+Table 5-39. VSCALEFPD/SD/PS/SS Special Cases
+
+|    Special Case     |       Returned value        | Faults |
+
+|-----------------------------|-------------------------------------------|---------|
+
+||result| \ -1074 |   ±0 or ±Min-Denormal (Src1 sign)   |Underflow|
+
+| |result| ≥ 2 1024 |±INF (Src1 sign) or ±Max-normal (Src1 sign)|Overflow |
+
+Table 5-40. Additional VSCALEFPD/SD Special Cases
+
+Operation ¶
+
+```
+
+SCALE(SRC1, SRC2) { TMP_SRC2 := SRC2 TMP_SRC1 := SRC1 IF (SRC2 is denormal AND MXCSR.DAZ) THEN TMP_SRC2=0 IF (SRC1 is denormal AND MXCSR.DAZ) THEN TMP_SRC1=0 /* SRC2 is a 64 bits floating-point value */ DEST[63:0] := TMP_SRC1[63:0] * POW(2, Floor(TMP_SRC2[63:0])) }
+
+```
+
+VSCALEFPD (EVEX encoded versions) ¶
+
+```
+
+(KL, VL) = (2, 128), (4, 256), (8, 512) IF (VL = 512) AND (EVEX.b = 1) AND (SRC2 *is register*) THEN SET_ROUNDING_MODE_FOR_THIS_INSTRUCTION(EVEX.RC); ELSE SET_ROUNDING_MODE_FOR_THIS_INSTRUCTION(MXCSR.RC); FI; FOR j := 0 TO KL-1 i := j * 64 IF k1[j] OR *no writemask* THEN IF (EVEX.b = 1) AND (SRC2 *is memory*) THEN DEST[i+63:i] := SCALE(SRC1[i+63:i], SRC2[63:0]); ELSE DEST[i+63:i] := SCALE(SRC1[i+63:i], SRC2[i+63:i]); FI; ELSE IF *merging-masking* ; merging-masking THEN *DEST[i+63:i] remains unchanged* ELSE ; zeroing-masking DEST[i+63:i] := 0 FI FI; ENDFOR DEST[MAXVL-1:VL] := 0
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+VSCALEFPD __m512d _mm512_scalef_round_pd(__m512d a, __m512d b, int rounding);
+
+```
+
+```
+
+VSCALEFPD __m512d _mm512_mask_scalef_round_pd(__m512d s, __mmask8 k, __m512d a, __m512d b, int rounding);
+
+```
+
+```
+
+VSCALEFPD __m512d _mm512_maskz_scalef_round_pd(__mmask8 k, __m512d a, __m512d b, int rounding);
+
+```
+
+```
+
+VSCALEFPD __m512d _mm512_scalef_pd(__m512d a, __m512d b);
+
+```
+
+```
+
+VSCALEFPD __m512d _mm512_mask_scalef_pd(__m512d s, __mmask8 k, __m512d a, __m512d b);
+
+```
+
+```
+
+VSCALEFPD __m512d _mm512_maskz_scalef_pd(__mmask8 k, __m512d a, __m512d b);
+
+```
+
+```
+
+VSCALEFPD __m256d _mm256_scalef_pd(__m256d a, __m256d b);
+
+```
+
+```
+
+VSCALEFPD __m256d _mm256_mask_scalef_pd(__m256d s, __mmask8 k, __m256d a, __m256d b);
+
+```
+
+```
+
+VSCALEFPD __m256d _mm256_maskz_scalef_pd(__mmask8 k, __m256d a, __m256d b);
+
+```
+
+```
+
+VSCALEFPD __m128d _mm_scalef_pd(__m128d a, __m128d b);
+
+```
+
+```
+
+VSCALEFPD __m128d _mm_mask_scalef_pd(__m128d s, __mmask8 k, __m128d a, __m128d b);
+
+```
+
+```
+
+VSCALEFPD __m128d _mm_maskz_scalef_pd(__mmask8 k, __m128d a, __m128d b);
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+Overflow, Underflow, Invalid, Precision, Denormal (for Src1).
+
+Denormal is not reported for Src2.
+
+Other Exceptions ¶
+
+See Table 2-46, “Type E2 Class Exception Conditions.”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

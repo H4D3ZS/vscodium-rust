@@ -1,0 +1,255 @@
+EDBGRD — Read From a Debug Enclave
+
+* Index
+
+* December 2023
+
+EDBGRD — Read From a Debug Enclave
+
+| Opcode/Instruction  |Op/En|64/32 bit Mode Support|CPUID Feature Flag|             Description             |
+
+|-----------------------|-----|----------------------|------------------|---------------------------------------------------------------|
+
+|EAX = 04H ENCLS[EDBGRD]| IR |     V/V     |    SGX1    |This leaf function reads a dword/quadword from a debug enclave. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX  |     RBX     |        RCX         |                    |
+
+|-----|-----------|-----------------------|------------------------------------|----------------------------------------|
+
+| IR |EDBGRD (In)|Return error code (Out)|Data read from a debug enclave (Out)|Address of source memory in the EPC (In)|
+
+Description ¶
+
+This leaf function copies a quadword/doubleword from an EPC page belonging to a debug enclave into the RBX register. Eight bytes are read in 64-bit mode, four bytes are read in non-64-bit modes. The size of data read cannot be overridden.
+
+The effective address of the source location inside the EPC is provided in the register RCX.
+
+EDBGRD Memory Parameter Semantics ¶
+
+|       EPCQW       |
+
+|--------------------------------|
+
+|Read access permitted by Enclave|
+
+The error codes are:
+
+|Error Code (see Table 38-4)|                 Description                 |
+
+|---------------------------|-------------------------------------------------------------------------------|
+
+|     No Error     |               EDBGRD successful. |
+
+|SGX\_PAGE\_NOT\_DEBUGGABLE |The EPC page cannot be accessed because it is in the PENDING or MODIFIED state. |
+
+Table 38-17. EDBGRD Return Value in RAX
+
+The instruction faults if any of the following:
+
+EDBGRD Faulting Conditions ¶
+
+|          RCX points into a page that is an SECS.          |            RCX does not resolve to a naturally aligned linear address. |
+
+|------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
+
+|RCX points to a page that does not belong to an enclave that is in debug mode. |RCX points to a location inside a TCS that is beyond the architectural size of the TCS (SGX\_TCS\_LIMIT). |
+
+|         An operand causing any segment violation. |                       May page fault. |
+
+|                 CPL \> 0. |                                                     |
+
+This instruction ignores the EPCM RWX attributes on the enclave page. Consequently, violation of EPCM RWX attributes via EDBGRD does not result in a #GP.
+
+Concurrency Restrictions ¶
+
+|              Leaf              |  Parameter  |Base Concurrency Restrictions|  |  |
+
+|-----------------------------------------------------------|---------------|-----------------------------|---|---|
+
+|                              | On Conflict |               |  |  |
+
+|EDBGRD EDBGRD Target [DS:RCX] Shared EDBGRD Target [DS:RCX]|Target [DS:RCX]|               |  |  |
+
+Table 38-18. Base Concurrency Restrictions of EDBGRD
+
+|                                             Leaf                                             |               Parameter               |Additional Concurrency Restrictions|  |     |  |     |  |
+
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|-----------------------------------|---|----------|---|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC Access vs ETRACK, ETRACKC Access On Conflict Access vs ETRACK, ETRACKC Access On Conflict EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC|    vs ETRACK, ETRACKC    |  |     |  |     |  |
+
+|                          Access On Conflict Access On Conflict Access Access On Conflict Access On Conflict                          |                                   |                  |  |     |  |     |  |
+
+|                                             EDBGRD                                             |              Target [DS:RCX]              |      Concurrent       |  |Concurrent|  |Concurrent|  |
+
+Table 38-19. Additional Concurrency Restrictions of EDBGRD
+
+Operation ¶
+
+Temp Variables in EDBGRD Operational Flow ¶
+
+|  Name  | Type |Size (Bits)|               Description                |
+
+|-----------|------|-----------|------------------------------------------------------------------------|
+
+|TMP\_MODE64|Binary|   1   |         ((IA32\_EFER.LMA = 1) && (CS.L = 1))         |
+
+| TMP\_SECS |   |  64   |Physical address of SECS of the enclave to which source operand belongs. |
+
+TMP\_MODE64 := ((IA32\_EFER.LMA = 1) && (CS.L = 1));
+
+IF ( (TMP\_MODE64 = 1) and (DS:RCX is not 8Byte Aligned) )
+
+THEN #GP(0); FI;
+
+IF ( (TMP\_MODE64 = 0) and (DS:RCX is not 4Byte Aligned) )
+
+THEN #GP(0); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+(\* make sure no other Intel SGX instruction is accessing the same EPCM entry \*)
+
+IF (Another instruction modifying the same EPCM entry is executing)
+
+THEN #GP(0); FI;
+
+IF (EPCM(DS:RCX). VALID = 0)
+
+THEN #PF(DS:RCX); FI;
+
+(\* make sure that DS:RCX (SOURCE) is pointing to a PT\_REG or PT\_TCS or PT\_VA or PT\_SS\_FIRST or PT\_SS\_REST \*)
+
+IF ( (EPCM(DS:RCX). PT ≠ PT\_REG) and (EPCM(DS:RCX). PT ≠ PT\_TCS) and (EPCM(DS:RCX). PT ≠ PT\_VA)
+
+and (EPCM(DS:RCX). PT ≠ PT\_SS\_FIRST) and (EPCM(DS:RCX). PT ≠ PT\_SS\_REST))
+
+THEN #PF(DS:RCX); FI;
+
+(\* make sure that DS:RCX points to an accessible EPC page \*)
+
+IF (EPCM(DS:RCX). PENDING is not 0 or (EPCM(DS:RCX). MODIFIED is not 0) )
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_PAGE\_NOT\_DEBUGGABLE;
+
+GOTO DONE;
+
+FI;
+
+(\* If source is a TCS, then make sure that the offset into the page is not beyond the TCS size\*) IF ( ( EPCM(DS:RCX). PT = PT\_TCS) and ((DS:RCX) & FFFH ≥ SGX\_TCS\_LIMIT) ) THEN #GP(0); FI;
+
+(\* make sure the enclave owning the PT\_REG or PT\_TCS page allow debug \*)
+
+IF ( (EPCM(DS:RCX). PT = PT\_REG) or (EPCM(DS:RCX). PT = PT\_TCS) )
+
+THEN
+
+TMP\_SECS := GET\_SECS\_ADDRESS;
+
+IF (TMP\_SECS.ATTRIBUTES.DEBUG = 0)
+
+THEN #GP(0); FI;
+
+IF ( (TMP\_MODE64 = 1) )
+
+THEN RBX[63:0] := (DS:RCX)[63:0];
+
+ELSE EBX[31:0] := (DS:RCX)[31:0];
+
+FI;
+
+ELSE
+
+TMP\_64BIT\_VAL[63:0] := (DS:RCX)[63:0] & (\~07H); // Read contents from VA slot
+
+IF (TMP\_MODE64 = 1)
+
+THEN
+
+IF (TMP\_64BIT\_VAL ≠ 0H)
+
+THEN RBX[63:0] := 0FFFFFFFFFFFFFFFFH;
+
+ELSE RBX[63:0] := 0H;
+
+FI;
+
+ELSE
+
+IF (TMP\_64BIT\_VAL ≠ 0H)
+
+THEN EBX[31:0] := 0FFFFFFFFH;
+
+ELSE EBX[31:0] := 0H;
+
+FI;
+
+FI;
+
+(\* clear EAX and ZF to indicate successful completion \*)
+
+RAX := 0;
+
+RFLAGS.ZF := 0;
+
+DONE:
+
+(\* clear flags \*)
+
+RFLAGS.CF,PF,AF,OF,SF := 0;
+
+Flags Affected ¶
+
+ZF is set if the page is MODIFIED or PENDING; RAX contains the error code. Otherwise ZF is cleared and RAX is set to 0. CF, PF, AF, OF, SF are cleared.
+
+Protected Mode Exceptions ¶
+
+|                    \#GP(0)                    |If the address in RCS violates DS limit or access rights. |
+
+|-------------------------------------------------------------------------------------|----------------------------------------------------------|
+
+|               If DS segment is unusable. |                             |
+
+|        If RCX points to a memory location not 4Byte-aligned. |                             |
+
+|   If the address in RCX points to a page belonging to a non-debug enclave. |                             |
+
+|  If the address in RCX points to a page which is not PT\_TCS, PT\_REG or PT\_VA.  |                             |
+
+|If the address in RCX points to a location inside TCS that is beyond SGX\_TCS\_LIMIT.|                             |
+
+|                   \#PF(error                   |code) If a page fault occurs in accessing memory operands. |
+
+|          If the address in RCX points to a non-EPC page. |                             |
+
+|        If the address in RCX points to an invalid EPC page. |                             |
+
+64-Bit Mode Exceptions ¶
+
+|                    \#GP(0)                    |       If RCX is non-canonical form. |
+
+|-------------------------------------------------------------------------------------|----------------------------------------------------------|
+
+|        If RCX points to a memory location not 8Byte-aligned. |                             |
+
+|   If the address in RCX points to a page belonging to a non-debug enclave. |                             |
+
+|  If the address in RCX points to a page which is not PT\_TCS, PT\_REG or PT\_VA.  |                             |
+
+|If the address in RCX points to a location inside TCS that is beyond SGX\_TCS\_LIMIT.|                             |
+
+|                   \#PF(error                   |code) If a page fault occurs in accessing memory operands. |
+
+|          If the address in RCX points to a non-EPC page. |                             |
+
+|        If the address in RCX points to an invalid EPC page. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

@@ -1,0 +1,103 @@
+VFIXUPIMMSD — Fix Up Special Scalar Float64 Value
+
+* Index
+
+* December 2023
+
+VFIXUPIMMSD — Fix Up Special Scalar Float64 Value
+
+|                Opcode/Instruction                |Op/En|64/32 Bit Mode Support|CPUID Feature Flag|                             Description                             |
+
+|---------------------------------------------------------------------------------|-----|----------------------|------------------|------------------------------------------------------------------------------------------------------------------------------|
+
+|EVEX.LLIG.66.0F3A.W1 55 /r ib VFIXUPIMMSD xmm1 {k1}{z}, xmm2, xmm3/m64{sae}, imm8| A |     V/V     |   AVX512F   |Fix up a float64 number in the low quadword element of xmm2 using scalar int32 table in xmm3/m64 and store the result in xmm1. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Tuple Type |  Operand 1  | Operand 2 | Operand 3 |Operand 4|
+
+|-----|-------------|----------------|-------------|-------------|---------|
+
+| A |Tuple1 Scalar|ModRM:reg (r, w)|EVEX.vvvv (r)|ModRM:r/m (r)| imm8  |
+
+Description ¶
+
+Perform a fix-up of the low quadword element encoded in double precision floating-point format in the first source operand (the second operand) using a 32-bit, two-level look-up table specified in the low quadword element of the second source operand (the third operand) with exception reporting specifier imm8. The element that is fixed-up is selected by mask bit of 1 specified in the opmask k1. Mask bit of 0 in the opmask k1 or table response action of 0000b preserves the corresponding element of the first operand. The fixed-up element from the first source operand or the preserved element in the first operand becomes the low quadword element of the destination operand (the first operand). Bits 127:64 of the destination operand is copied from the corresponding bits of the first source operand. The destination and first source operands are XMM registers. The second source operand can be a XMM register or a 64- bit memory location.
+
+The two-level look-up table perform a fix-up of each double precision floating-point input data in the first source operand by decoding the input data encoding into 8 token types. A response table is defined for each token type that converts the input encoding in the first source operand with one of 16 response actions.
+
+This instruction is specifically intended for use in fixing up the results of arithmetic calculations involving one source so that they match the spec, although it is generally useful for fixing up the results of multiple-instruction sequences to reflect special-number inputs. For example, consider rcp(0). Input 0 to rcp, and you should get INF according to the DX10 spec. However, evaluating rcp via Newton-Raphson, where x=approx(1/0), yields an incorrect result. To deal with this, VFIXUPIMMPD can be used after the N-R reciprocal sequence to set the result to the correct value (ie, INF when the input is 0).
+
+If MXCSR.DAZ is not set, denormal input elements in the first source operand are considered as normal inputs and do not trigger any fixup nor fault reporting.
+
+Imm8 is used to set the required flags reporting. It supports #ZE and #IE fault reporting (see details below).
+
+MXCSR.DAZ is used and refer to zmm2 only (ie, zmm1 is not considered as zero in case MXCSR.DAZ is set).
+
+MXCSR mask bits are ignored and are treated as if all mask bits are set to masked response). If any of the imm8 bits is set and the condition met for fault reporting, MXCSR.IE or MXCSR.ZE might be updated.
+
+Operation ¶
+
+```
+
+enum TOKEN_TYPE { QNAN_TOKEN := 0, SNAN_TOKEN := 1, ZERO_VALUE_TOKEN := 2, POS_ONE_VALUE_TOKEN := 3, NEG_INF_TOKEN := 4, POS_INF_TOKEN := 5, NEG_VALUE_TOKEN := 6, POS_VALUE_TOKEN := 7 } FIXUPIMM_DP (dest[63:0], src1[63:0],tbl3[63:0], imm8 [7:0]){ tsrc[63:0] := ((src1[62:52] = 0) AND (MXCSR.DAZ =1)) ? 0.0 : src1[63:0] CASE(tsrc[63:0] of TOKEN_TYPE) { QNAN_TOKEN: j := 0; SNAN_TOKEN: j := 1; ZERO_VALUE_TOKEN: j := 2; POS_ONE_VALUE_TOKEN: j := 3; NEG_INF_TOKEN: j := 4; POS_INF_TOKEN: j := 5; NEG_VALUE_TOKEN: j := 6; POS_VALUE_TOKEN: j := 7; } ; end source special CASE(tsrc...) ; The required response from src3 table is extracted token_response[3:0] = tbl3[3+4*j:4*j]; CASE(token_response[3:0]) { 0000: dest[63:0] := dest[63:0] 0001: dest[63:0] := tsrc[63:0]; 0010: dest[63:0] := QNaN(tsrc[63:0]); 0011: dest[63:0] := QNAN_Indefinite; 0100:dest[63:0] := -INF; 0101: dest[63:0] := +INF; 0110: dest[63:0] := tsrc. sign? –INF : +INF; 0111: dest[63:0] := -0; 1000: dest[63:0] := +0; 1001: dest[63:0] := -1; 1010: dest[63:0] := +1; 1011: dest[63:0] := 1⁄2; 1100: dest[63:0] := 90.0; 1101: dest[63:0] := PI/2; 1110: dest[63:0] := MAX_FLOAT; 1111: dest[63:0] := -MAX_FLOAT; } ; end of token_response CASE ; The required fault reporting from imm8 is extracted ; TOKENs are mutually exclusive and TOKENs priority defines the order. ; Multiple faults related to a single token can occur simultaneously. IF (tsrc[63:0] of TOKEN_TYPE: ZERO_VALUE_TOKEN) AND imm8then set #ZE; IF (tsrc[63:0] of TOKEN_TYPE: ZERO_VALUE_TOKEN) AND imm8then set #IE; IF (tsrc[63:0] of TOKEN_TYPE: ONE_VALUE_TOKEN) AND imm8then set #ZE; IF (tsrc[63:0] of TOKEN_TYPE: ONE_VALUE_TOKEN) AND imm8then set #IE; IF (tsrc[63:0] of TOKEN_TYPE: SNAN_TOKEN) AND imm8then set #IE; IF (tsrc[63:0] of TOKEN_TYPE: NEG_INF_TOKEN) AND imm8then set #IE; IF (tsrc[63:0] of TOKEN_TYPE: NEG_VALUE_TOKEN) AND imm8then set #IE; IF (tsrc[63:0] of TOKEN_TYPE: POS_INF_TOKEN) AND imm8then set #IE; ; end fault reporting return dest[63:0]; } ; end of FIXUPIMM_DP()
+
+```
+
+VFIXUPIMMSD (EVEX encoded version) ¶
+
+```
+
+IF k1OR *no writemask* THEN DEST[63:0] := FIXUPIMM_DP(DEST[63:0], SRC1[63:0], SRC2[63:0], imm8 [7:0]) ELSE IF *merging-masking* ; merging-masking THEN *DEST[63:0] remains unchanged* ELSE DEST[63:0] := 0 ; zeroing-masking FI FI; DEST[127:64] := SRC1[127:64] DEST[MAXVL-1:128] := 0 Immediate Control Description:
+
+```
+
+76543210 +INF #IE -VE #IE -INF #IE SNaN #IE ONE #IE ONE #ZE ZERO #IE ZERO #ZE Figure 5-11. VFIXUPIMMSD Immediate Control Description
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+VFIXUPIMMSD __m128d _mm_fixupimm_sd( __m128d a, __m128i tbl, int imm);
+
+```
+
+```
+
+VFIXUPIMMSD __m128d _mm_mask_fixupimm_sd(__m128d s, __mmask8 k, __m128d a, __m128i tbl, int imm);
+
+```
+
+```
+
+VFIXUPIMMSD __m128d _mm_maskz_fixupimm_sd( __mmask8 k, __m128d a, __m128i tbl, int imm);
+
+```
+
+```
+
+VFIXUPIMMSD __m128d _mm_fixupimm_round_sd( __m128d a, __m128i tbl, int imm, int sae);
+
+```
+
+```
+
+VFIXUPIMMSD __m128d _mm_mask_fixupimm_round_sd(__m128d s, __mmask8 k, __m128d a, __m128i tbl, int imm, int sae);
+
+```
+
+```
+
+VFIXUPIMMSD __m128d _mm_maskz_fixupimm_round_sd( __mmask8 k, __m128d a, __m128i tbl, int imm, int sae);
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+Zero, Invalid
+
+Other Exceptions ¶
+
+See Table 2-47, “Type E3 Class Exception Conditions.”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

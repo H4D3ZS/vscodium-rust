@@ -1,0 +1,353 @@
+#BEGIN_HEADER
+#
+# Copyright (C) 2020 Mahdi Safsafi.
+#
+# https://github.com/MahdiSafsafi/opcodesDB
+#
+# See licence file 'LICENCE' for use and distribution rights.
+#
+#END_HEADER
+
+use strict;
+use warnings;
+
+TABLE tbl_at_op => [
+	TV_AT_OP('S1E1R' , '0b0000000'),
+	TV_AT_OP('S1E1W' , '0b0000001'),
+	TV_AT_OP('S1E0R' , '0b0000010'),
+	TV_AT_OP('S1E0W' , '0b0000011'),
+	TV_AT_OP('S1E1RP', '0b0001000', 'ARMv8.2-ATS1E1'),
+	TV_AT_OP('S1E1WP', '0b0001001', 'ARMv8.2-ATS1E1'),
+	TV_AT_OP('S1E2R' , '0b1000000'),
+	TV_AT_OP('S1E2W' , '0b1000001'),
+	TV_AT_OP('S12E1R', '0b1000100'),
+	TV_AT_OP('S12E1W', '0b1000101'),
+	TV_AT_OP('S12E0R', '0b1000110'),
+	TV_AT_OP('S12E0W', '0b1000111'),
+	TV_AT_OP('S1E3R' , '0b1100000'),
+	TV_AT_OP('S1E3W' , '0b1100001'),
+];
+
+TABLE tbl_bti_op => [
+	TV_BTI_OP('OMITTED'  , '0b00'),
+	TV_BTI_OP('c'        , '0b01'),
+	TV_BTI_OP('j'        , '0b10'),
+	TV_BTI_OP('jc'       , '0b11'),
+];
+
+TABLE tbl_dc_op => [
+	TV_DC_OP('IVAC'   , '0b0000110001'),
+	TV_DC_OP('ISW'    , '0b0000110010'),
+	TV_DC_OP('IGVAC'  , '0b0000110011', 'ARMv8.5-MemTag'),
+	TV_DC_OP('IGSW'   , '0b0000110100', 'ARMv8.5-MemTag'),
+	TV_DC_OP('IGDVAC' , '0b0000110101', 'ARMv8.5-MemTag'),
+	TV_DC_OP('IGDSW'  , '0b0000110110', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CSW'    , '0b0001010010'),
+	TV_DC_OP('CGSW'   , '0b0001010100', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CGDSW'  , '0b0001010110', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CISW'   , '0b0001110010'),
+	TV_DC_OP('CIGSW'  , '0b0001110100', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CIGDSW' , '0b0001110110', 'ARMv8.5-MemTag'),
+	TV_DC_OP('ZVA'    , '0b0110100001'),
+	TV_DC_OP('GVA'    , '0b0110100011', 'ARMv8.5-MemTag'),
+	TV_DC_OP('GZVA'   , '0b0110100100', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CVAC'   , '0b0111010001'),
+	TV_DC_OP('CGVAC'  , '0b0111010011', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CGDVAC' , '0b0111010101', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CVAU'   , '0b0111011001'),
+	TV_DC_OP('CVAP'   , '0b0111100001', 'ARMv8.2-DCPoP'),
+	TV_DC_OP('CGVAP'  , '0b0111100011', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CGDVAP' , '0b0111100101', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CVADP'  , '0b0111101001', 'ARMv8.2-DCCVADP'),
+	TV_DC_OP('CGVADP' , '0b0111101011', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CGDVADP', '0b0111101101', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CIVAC'  , '0b0111110001'),
+	TV_DC_OP('CIGVAC' , '0b0111110011', 'ARMv8.5-MemTag'),
+	TV_DC_OP('CIGDVAC', '0b0111110101', 'ARMv8.5-MemTag'),
+];
+
+TABLE tbl_extend0 => [
+	TV_EXTEND('UXTB', '0b000'),
+	TV_EXTEND('UXTH', '0b001'),
+	TV_EXTEND('LSL' , '0b010', 'HASALIAS'),
+	TV_EXTEND('UXTX', '0b011'),
+	TV_EXTEND('SXTB', '0b100'),
+	TV_EXTEND('SXTH', '0b101'),
+	TV_EXTEND('SXTW', '0b110'),
+	TV_EXTEND('SXTX', '0b111'),
+	TV_EXTEND('UXTW', '0b010', 'ALIAS'),
+];
+
+TABLE tbl_extend1 => [
+	TV_EXTEND('UXTB', '0b000'),
+	TV_EXTEND('UXTH', '0b001'),
+	TV_EXTEND('UXTW', '0b010'),
+	TV_EXTEND('LSL' , '0b011', 'HASALIAS'),
+	TV_EXTEND('SXTB', '0b100'),
+	TV_EXTEND('SXTH', '0b101'),
+	TV_EXTEND('SXTW', '0b110'),
+	TV_EXTEND('SXTX', '0b111'),
+	TV_EXTEND('UXTX', '0b011', 'ALIAS'),
+];
+
+TABLE tbl_extend2 => [
+	TV_EXTEND('UXTW', '0b010'),
+	TV_EXTEND('SXTW', '0b110'),
+	TV_EXTEND('SXTX', '0b111'),
+];
+
+TABLE tbl_extend3 => [
+	TV_EXTEND('UXTW', '0b010'),
+	TV_EXTEND('LSL' , '0b011'),
+	TV_EXTEND('SXTW', '0b110'),
+	TV_EXTEND('SXTX', '0b111'),
+];
+
+TABLE tbl_extend4 => [
+	TV_EXTEND('ABSENT'  , '0b00'),
+	TV_EXTEND('LSL'     , '0bx1'),
+	TV_EXTEND('LSL'     , '0b10'),
+];
+
+TABLE tbl_extend5 => [
+	TV_EXTEND('UXTW', '0b0'),
+	TV_EXTEND('SXTW', '0b1'),
+];
+
+TABLE tbl_fpimm0 => [
+	TV_FPIMM('0.5', '0b0'),
+	TV_FPIMM('1.0', '0b1'),
+];
+
+TABLE tbl_fpimm1 => [
+	TV_FPIMM('0.0', '0b0'),
+	TV_FPIMM('1.0', '0b1'),
+];
+
+TABLE tbl_fpimm2 => [
+	TV_FPIMM('0.5', '0b0'),
+	TV_FPIMM('2.0', '0b1'),
+];
+
+TABLE tbl_ic_op => [
+	TV_IC_OP('IALLUIS', '0b0000001000'),
+	TV_IC_OP('IALLU'  , '0b0000101000'),
+	TV_IC_OP('IVAU'   , '0b0110101001'),
+];
+
+TABLE tbl_imm0 => [
+	TV_IMM('0'  , '0b00'),
+	TV_IMM('90' , '0b01'),
+	TV_IMM('180', '0b10'),
+	TV_IMM('270', '0b11'),
+];
+
+TABLE tbl_imm1 => [
+	TV_IMM('0', '0b0'),
+	TV_IMM('8', '0b1'),
+];
+
+TABLE tbl_imm2 => [
+	TV_IMM('0' , '0b00'),
+	TV_IMM('8' , '0b01'),
+	TV_IMM('16', '0b10'),
+	TV_IMM('24', '0b11'),
+];
+
+TABLE tbl_imm3 => [
+	TV_IMM('8' , '0b0'),
+	TV_IMM('16', '0b1'),
+];
+
+TABLE tbl_imm4 => [
+	TV_IMM('90' , '0b0'),
+	TV_IMM('270', '0b1'),
+];
+
+TABLE tbl_imm5 => [
+	TV_IMM('0', '0b0'),
+	TV_IMM('1', '0b1'),
+];
+
+TABLE tbl_imm6 => [
+	TV_IMM('0', '0b0'),
+	TV_IMM('2', '0b1'),
+];
+
+TABLE tbl_imm7 => [
+	TV_IMM('0', '0b0'),
+	TV_IMM('3', '0b1'),
+];
+
+TABLE tbl_imm8 => [
+	TV_IMM('0', '0b0'),
+	TV_IMM('4', '0b1'),
+];
+
+TABLE tbl_imm9 => [
+	TV_IMM('ABSENT'  , '0b00'),
+	TV_IMM('1'       , '0b01'),
+	TV_IMM('2'       , '0b10'),
+	TV_IMM('3'       , '0b11'),
+];
+
+TABLE tbl_pattern => [
+	TV_PATTERN('POW2' , '0b00000'),
+	TV_PATTERN('VL1'  , '0b00001'),
+	TV_PATTERN('VL2'  , '0b00010'),
+	TV_PATTERN('VL3'  , '0b00011'),
+	TV_PATTERN('VL4'  , '0b00100'),
+	TV_PATTERN('VL5'  , '0b00101'),
+	TV_PATTERN('VL6'  , '0b00110'),
+	TV_PATTERN('VL7'  , '0b00111'),
+	TV_PATTERN('VL8'  , '0b01000'),
+	TV_PATTERN('VL16' , '0b01001'),
+	TV_PATTERN('VL32' , '0b01010'),
+	TV_PATTERN('VL64' , '0b01011'),
+	TV_PATTERN('VL128', '0b01100'),
+	TV_PATTERN('VL256', '0b01101'),
+	TV_PATTERN('uimm5', '0b0111x'),
+	TV_PATTERN('uimm5', '0b101x1'),
+	TV_PATTERN('uimm5', '0b10110'),
+	TV_PATTERN('uimm5', '0b1x0x1'),
+	TV_PATTERN('uimm5', '0b1x010'),
+	TV_PATTERN('uimm5', '0b1xx00'),
+	TV_PATTERN('MUL4' , '0b11101'),
+	TV_PATTERN('MUL3' , '0b11110'),
+	TV_PATTERN('ALL'  , '0b11111'),
+];
+
+TABLE tbl_prf_op => [
+	TV_PRF_OP('PLDL1KEEP', '0b0000'),
+	TV_PRF_OP('PLDL1STRM', '0b0001'),
+	TV_PRF_OP('PLDL2KEEP', '0b0010'),
+	TV_PRF_OP('PLDL2STRM', '0b0011'),
+	TV_PRF_OP('PLDL3KEEP', '0b0100'),
+	TV_PRF_OP('PLDL3STRM', '0b0101'),
+	TV_PRF_OP('uimm4'    , '0bx11x'),
+	TV_PRF_OP('PSTL1KEEP', '0b1000'),
+	TV_PRF_OP('PSTL1STRM', '0b1001'),
+	TV_PRF_OP('PSTL2KEEP', '0b1010'),
+	TV_PRF_OP('PSTL2STRM', '0b1011'),
+	TV_PRF_OP('PSTL3KEEP', '0b1100'),
+	TV_PRF_OP('PSTL3STRM', '0b1101'),
+];
+
+TABLE tbl_pstatefield => [
+	TV_PSTATEFIELD('UAO'    , '0b000011', 'ARMv8.2-UAO'),
+	TV_PSTATEFIELD('PAN'    , '0b000100', 'ARMv8.1-PAN'),
+	TV_PSTATEFIELD('SPSel'  , '0b000101'),
+	TV_PSTATEFIELD('SSBS'   , '0b011001', 'ARMv8.0-SSBS'),
+	TV_PSTATEFIELD('DIT'    , '0b011010', 'ARMv8.4-DIT'),
+	TV_PSTATEFIELD('TCO'    , '0b011100', 'ARMv8.5-MemTag'),
+	TV_PSTATEFIELD('DAIFSet', '0b011110'),
+	TV_PSTATEFIELD('DAIFClr', '0b011111'),
+];
+
+TABLE tbl_shift0 => [
+	TV_SHIFT('LSL', '0b00'),
+	TV_SHIFT('LSR', '0b01'),
+	TV_SHIFT('ASR', '0b10'),
+];
+
+TABLE tbl_shift1 => [
+	TV_SHIFT('LSL', '0b00'),
+	TV_SHIFT('LSR', '0b01'),
+	TV_SHIFT('ASR', '0b10'),
+	TV_SHIFT('ROR', '0b11'),
+];
+
+TABLE tbl_shifter => [
+	TV_SHIFTER('LSL #0' , '0b0'),
+	TV_SHIFTER('LSL #12', '0b1'),
+];
+
+TABLE tbl_shifter1 => [
+	TV_SHIFTER('LSL #0', '0b0'),
+	TV_SHIFTER('LSL #8', '0b1'),
+];
+
+TABLE tbl_tlbi_op => [
+	TV_TLBI_OP('VMALLE1OS'   , '0b0000001000', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VAE1OS'      , '0b0000001001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('ASIDE1OS'    , '0b0000001010', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VAAE1OS'     , '0b0000001011', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VALE1OS'     , '0b0000001101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VAALE1OS'    , '0b0000001111', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAE1IS'     , '0b0000010001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAAE1IS'    , '0b0000010011', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVALE1IS'    , '0b0000010101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAALE1IS'   , '0b0000010111', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VMALLE1IS'   , '0b0000011000'),
+	TV_TLBI_OP('VAE1IS'      , '0b0000011001'),
+	TV_TLBI_OP('ASIDE1IS'    , '0b0000011010'),
+	TV_TLBI_OP('VAAE1IS'     , '0b0000011011'),
+	TV_TLBI_OP('VALE1IS'     , '0b0000011101'),
+	TV_TLBI_OP('VAALE1IS'    , '0b0000011111'),
+	TV_TLBI_OP('RVAE1OS'     , '0b0000101001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAAE1OS'    , '0b0000101011', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVALE1OS'    , '0b0000101101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAALE1OS'   , '0b0000101111', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAE1'       , '0b0000110001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAAE1'      , '0b0000110011', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVALE1'      , '0b0000110101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAALE1'     , '0b0000110111', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VMALLE1'     , '0b0000111000'),
+	TV_TLBI_OP('VAE1'        , '0b0000111001'),
+	TV_TLBI_OP('ASIDE1'      , '0b0000111010'),
+	TV_TLBI_OP('VAAE1'       , '0b0000111011'),
+	TV_TLBI_OP('VALE1'       , '0b0000111101'),
+	TV_TLBI_OP('VAALE1'      , '0b0000111111'),
+	TV_TLBI_OP('IPAS2E1IS'   , '0b1000000001'),
+	TV_TLBI_OP('RIPAS2E1IS'  , '0b1000000010', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('IPAS2LE1IS'  , '0b1000000101'),
+	TV_TLBI_OP('RIPAS2LE1IS' , '0b1000000110', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('ALLE2OS'     , '0b1000001000', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VAE2OS'      , '0b1000001001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('ALLE1OS'     , '0b1000001100', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VALE2OS'     , '0b1000001101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VMALLS12E1OS', '0b1000001110', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAE2IS'     , '0b1000010001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVALE2IS'    , '0b1000010101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('ALLE2IS'     , '0b1000011000'),
+	TV_TLBI_OP('VAE2IS'      , '0b1000011001'),
+	TV_TLBI_OP('ALLE1IS'     , '0b1000011100'),
+	TV_TLBI_OP('VALE2IS'     , '0b1000011101'),
+	TV_TLBI_OP('VMALLS12E1IS', '0b1000011110'),
+	TV_TLBI_OP('IPAS2E1OS'   , '0b1000100000', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('IPAS2E1'     , '0b1000100001'),
+	TV_TLBI_OP('RIPAS2E1'    , '0b1000100010', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RIPAS2E1OS'  , '0b1000100011', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('IPAS2LE1OS'  , '0b1000100100', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('IPAS2LE1'    , '0b1000100101'),
+	TV_TLBI_OP('RIPAS2LE1'   , '0b1000100110', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RIPAS2LE1OS' , '0b1000100111', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAE2OS'     , '0b1000101001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVALE2OS'    , '0b1000101101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAE2'       , '0b1000110001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVALE2'      , '0b1000110101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('ALLE2'       , '0b1000111000'),
+	TV_TLBI_OP('VAE2'        , '0b1000111001'),
+	TV_TLBI_OP('ALLE1'       , '0b1000111100'),
+	TV_TLBI_OP('VALE2'       , '0b1000111101'),
+	TV_TLBI_OP('VMALLS12E1'  , '0b1000111110'),
+	TV_TLBI_OP('ALLE3OS'     , '0b1100001000', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VAE3OS'      , '0b1100001001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('VALE3OS'     , '0b1100001101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAE3IS'     , '0b1100010001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVALE3IS'    , '0b1100010101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('ALLE3IS'     , '0b1100011000'),
+	TV_TLBI_OP('VAE3IS'      , '0b1100011001'),
+	TV_TLBI_OP('VALE3IS'     , '0b1100011101'),
+	TV_TLBI_OP('RVAE3OS'     , '0b1100101001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVALE3OS'    , '0b1100101101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVAE3'       , '0b1100110001', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('RVALE3'      , '0b1100110101', 'ARMv8.4-TLBI'),
+	TV_TLBI_OP('ALLE3'       , '0b1100111000'),
+	TV_TLBI_OP('VAE3'        , '0b1100111001'),
+	TV_TLBI_OP('VALE3'       , '0b1100111101'),
+];
+
+
+1;
+

@@ -1,0 +1,115 @@
+VMPTRLD — Load Pointer to Virtual-Machine Control Structure
+
+* Index
+
+* December 2023
+
+VMPTRLD — Load Pointer to Virtual-Machine Control Structure
+
+| Opcode/Instruction  |Op/En|        Description        |
+
+|-----------------------|-----|-------------------------------------------|
+
+|NP 0F C7 /6 VMPTRLD m64| M |Loads the current VMCS pointer from memory. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Operand 1 |Operand 2|Operand 3|Operand 4|
+
+|-----|-------------|---------|---------|---------|
+
+| M |ModRM:r/m (r)|  NA  |  NA  |  NA  |
+
+Description ¶
+
+Marks the current-VMCS pointer valid and loads it with the physical address in the instruction operand. The instruction fails if its operand is not properly aligned, sets unsupported physical-address bits, or is equal to the VMXON pointer. In addition, the instruction fails if the 32 bits in memory referenced by the operand do not match the VMCS revision identifier supported by this processor. 1
+
+The operand of this instruction is always 64 bits and is always in memory.
+
+Operation ¶
+
+```
+
+IF (register operand) or (not in VMX operation) or (CR0. PE = 0) or (RFLAGS.VM = 1) or (IA32_EFER.LMA = 1 and CS.L = 0) THEN #UD; ELSIF in VMX non-root operation THEN VMexit; ELSIF CPL > 0 THEN #GP(0); ELSE addr := contents of 64-bit in-memory source operand; IF addr is not 4KB-aligned OR addr sets any bits beyond the physical-address width2 THEN VMfail(VMPTRLD with invalid physical address); ELSIF addr = VMXON pointer THEN VMfail(VMPTRLD with VMXON pointer); ELSE rev := 32 bits located at physical address addr; IF rev[30:0] ≠ VMCS revision identifier supported by processor OR rev= 1 AND processor does not support 1-setting of “VMCS shadowing” THEN VMfail(VMPTRLD with incorrect VMCS revision identifier); ELSE current-VMCS pointer := addr; VMsucceed; FI; FI; FI;
+
+```
+
+>
+
+>
+
+> 1. Software should consult the VMX capability MSR VMX\_BASIC to discover the VMCS revision identifier supported by this processor (see Appendix A, “VMX Capability Reporting Facility”).
+
+>
+
+>
+
+>
+
+> 2. If IA32\_VMX\_BASICis read as 1, VMfail occurs if addr sets any bits in the range 63:32; see Appendix A.1.
+
+>
+
+>
+
+Flags Affected ¶
+
+See the operation section and Section 31.2.
+
+Protected Mode Exceptions ¶
+
+|                       \#GP(0)                       |          If the current privilege level is not 0. |
+
+|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
+
+|If the memory source operand effective address is outside the CS, DS, ES, FS, or GS segment limit. |                                        |
+
+|         If the DS, ES, FS, or GS register contains an unusable segment. |                                        |
+
+|        If the source operand is located in an execute-only code segment. |                                        |
+
+|                     \#PF(fault-code)                     |    If a page fault occurs in accessing the memory source operand. |
+
+|                       \#SS(0)                       |If the memory source operand effective address is outside the SS segment limit. |
+
+|             If the SS register contains an unusable segment. |                                        |
+
+|                        \#UD                        |              If operand is a register. |
+
+|                   If not in VMX operation. |                                        |
+
+Real-Address Mode Exceptions ¶
+
+|\#UD|The VMPTRLD instruction is not recognized in real-address mode. |
+
+|----|---------------------------------------------------------------|
+
+Virtual-8086 Mode Exceptions ¶
+
+|\#UD|The VMPTRLD instruction is not recognized in virtual-8086 mode. |
+
+|----|---------------------------------------------------------------|
+
+Compatibility Mode Exceptions ¶
+
+|\#UD|The VMPTRLD instruction is not recognized in compatibility mode. |
+
+|----|----------------------------------------------------------------|
+
+64-Bit Mode Exceptions ¶
+
+|                           \#GP(0)                           |             If the current privilege level is not 0. |
+
+|-----------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
+
+|If the source operand is in the CS, DS, ES, FS, or GS segments and the memory address is in a non-canonical form. |                                               |
+
+|                        \#PF(fault-code)                         |        If a page fault occurs in accessing the memory source operand. |
+
+|                           \#SS(0)                           |If the source operand is in the SS segment and the memory address is in a non-canonical form. |
+
+|                           \#UD                            |                 If operand is a register. |
+
+|                      If not in VMX operation. |                                               |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.
