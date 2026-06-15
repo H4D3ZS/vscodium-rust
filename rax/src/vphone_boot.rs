@@ -364,6 +364,8 @@ pub struct BootConfig {
     pub watch: Option<u64>,
     /// Optional PC to stop at and dump X0/X3 as C-strings (e.g. a panic entry).
     pub break_pc: Option<u64>,
+    /// Only honor break_pc after this many instructions (skip early benign hits).
+    pub break_after: u64,
 }
 
 // iBoot-equivalent boot seeds, specific to this kernelcache (iOS 26.1
@@ -376,6 +378,19 @@ pub struct BootConfig {
 // scratch page so the boot CPU (id 0) is found and the search loop exits.
 const CPU_DATA_ENTRIES: u64 = 0x837e_cee0;
 const CPU_DATA_SCRATCH: u64 = 0x8090_0000;
+
+// Event-stream globals that XNU's timer init expects to be pre-seeded.
+// The bit index global (dword_FFFFFE0007701C98) must be < 0x40; the timer
+// freq global (qword_FFFFFE00097030F8) must be non-zero or pktsched_init
+// panics.  With Apple's 24 MHz timer and default 1 MHz event rate, the
+// correct bit index is 4.
+// Decoded from raw binary ADRP+LDR in _enable_timebase_event_stream (file off 0xc48834).
+// IDA's .i64 was rebased; Mach-O vmaddrs ≠ IDA addrs. These are the runtime addresses
+// the kernel actually uses.
+const EVENT_STREAM_BIT_IDX: u64 = 0x8171_1c98; // ADRP 0x81711000 + LDR #3224
+const EVENT_STREAM_BIT_IDX_VAL: u32 = 4; // floor(log2(24MHz/1MHz)) - 1
+const TIMER_FREQ_GLOBAL: u64 = 0x8171_2048; // ADRP 0x81712000 + LDR #72
+const TIMER_FREQ_VAL: u64 = 24_000_000; // 24 MHz
 
 /// Execute the kernelcache on the AArch64 interpreter and return findings.
 pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
@@ -422,6 +437,23 @@ pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
     File::open(&cfg.dtb)?.read_to_end(&mut dtb_bytes)?;
     mem.load_bytes(layout.dtb_base, &dtb_bytes)?;
 
+    // Pre-seed the event-stream globals so XNU's timer init doesn't panic.
+    // The bit index global must be < 0x40; the timer freq must be non-zero.
+    mem.load_bytes(EVENT_STREAM_BIT_IDX, &EVENT_STREAM_BIT_IDX_VAL.to_le_bytes())?;
+    mem.load_bytes(TIMER_FREQ_GLOBAL, &TIMER_FREQ_VAL.to_le_bytes())?;
+    // Readback verification
+    {
+        let mut buf = [0u8; 4];
+        let _ = ArmMemory::read(&mem, EVENT_STREAM_BIT_IDX, &mut buf);
+        let readback = u32::from_le_bytes(buf);
+        diag!(
+            "[vphone-boot] seeded event-stream bit_idx={EVENT_STREAM_BIT_IDX_VAL} @{EVENT_STREAM_BIT_IDX:#x} (readback={readback}), timer_freq={TIMER_FREQ_VAL} @{TIMER_FREQ_GLOBAL:#x}"
+        );
+        if readback != EVENT_STREAM_BIT_IDX_VAL {
+            diag!("[vphone-boot] WARNING: bit index readback mismatch! Expected {}, got {}", EVENT_STREAM_BIT_IDX_VAL, readback);
+        }
+    }
+
     if cfg.seed {
         // Each 0x10-byte CpuDataEntries slot holds its cpu_data pointer at +8
         // (the trampoline does `LDR Xn,[Xtable,#8]`). Point entry[0].cpu_data at
@@ -459,6 +491,43 @@ pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
         );
     }
 
+    // Set up a minimal identity-mapping page table so XNU's kvtophys_nofail
+    // can translate VA→PA.  iBoot normally provides these; we skip iBoot.
+    // Uses 16KB granule (XNU default on Apple Silicon).  L1 table at a safe
+    // address below the boot stack, mapping 0x80000000–0xBFFFFFFF (1 GB of RAM)
+    // as 32 × 32 MB block entries.
+    {
+        const PT_L1_BASE: u64 = 0x8020_0000; // 16 KB-aligned, below boot stack
+        const L1_ENTRY_BITS: u64 = 25; // 32 MB per L1 block (16KB granule)
+        const L1_ENTRIES: usize = 2048;
+        let mut l1_table = [0u64; L1_ENTRIES];
+        // Identity-map 0x80000000..0xC0000000 (1 GB)
+        let ram_start_idx = (layout.ram_base >> L1_ENTRY_BITS) as usize; // 64
+        let ram_end_idx = ((layout.ram_base + layout.ram_size) >> L1_ENTRY_BITS) as usize; // 96
+        for i in ram_start_idx..ram_end_idx {
+            let pa = (i as u64) << L1_ENTRY_BITS;
+            // Block descriptor: valid=1, block, AttrIndx=0, AP=rw-EL1,
+            // SH=inner-shareable, AF=1, PA in [47:25]
+            l1_table[i] = (pa & 0x0000_FFFF_FFFF_E000) | 0x741;
+        }
+        // Write the table into RAM
+        let table_bytes: Vec<u8> = l1_table.iter().flat_map(|v| v.to_le_bytes()).collect();
+        mem.load_bytes(PT_L1_BASE, &table_bytes)?;
+        diag!(
+            "[vphone-boot] identity page table at {PT_L1_BASE:#x} ({} entries, L1[{}..{}])",
+            L1_ENTRIES,
+            ram_start_idx,
+            ram_end_idx
+        );
+        // Store the page table base so the sysregs setup below can set TTBR1_EL1.
+        // (We'll set it in the sysregs bank.)
+        layout.tpidr_el1 = layout.tpidr_el1; // keep existing; TTBR1 set separately
+        // We stash the PT base in a local for the sysregs setup below.
+        drop(table_bytes);
+        // Actually set TTBR1_EL1 after CPU creation below.
+        // For now, remember the value.
+    }
+
     // Share the device-tracking handles before the memory is boxed into the CPU.
     let dev_counts = Arc::clone(&mem.dev_counts);
     let last_dev = Arc::clone(&mem.last_dev);
@@ -482,12 +551,47 @@ pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
         bank.sctlr = layout.sctlr_el1;
         bank.vbar = layout.vbar_el1;
         bank.tpidr = layout.tpidr_el1;
+        bank.ttbr1 = 0x8020_0000; // identity page table base
     }
+    // TPIDR_EL3: XNU reads this for per-CPU data (cpu_data ptr).
+    // Point it at the scratch cpu_data page so early boot code can find it.
+    cpu.sysregs_mut().el3.tpidr = CPU_DATA_SCRATCH;
+    diag!("[vphone-boot] TPIDR_EL3 = {CPU_DATA_SCRATCH:#x} (cpu_data scratch)");
     // Apple silicon runs the architected timer at 24 MHz; iBoot programs CNTFRQ
     // to match. XNU's _enable_timebase_event_stream derives the event-stream
     // divider bit from CNTFRQ and panics ("invalid bit index") if it isn't the
     // expected power-of-two-friendly 24 MHz. rax defaults to 62.5 MHz, so set it.
     cpu.sysregs_mut().cntfrq_el0 = 24_000_000;
+
+    // Pre-enable GIC distributor and timer so the kernel can proceed past
+    // early-boot synchronization points. Normally iBoot sets up the GIC;
+    // without it, the kernel spins forever waiting for interrupts.
+    {
+        // Enable GIC distributor: set EnableGrp0 (bit 0) and EnableGrp1 (bit 1)
+        if let Some(gic_arc) = cpu.gic_handle() {
+            if let Ok(mut gic) = gic_arc.lock() {
+                // GICD_CTLR: EnableGrp0 | EnableGrp1 | ARE_S | ARE_NS
+                gic.write_dist(0x0000, 0x33);
+                // Enable timer PPI (PPI 30, bit 30 in ISENABLER1 which covers ints 32-63)
+                gic.write_dist(0x0104, 1 << 30);
+                diag!("[vphone-boot] pre-enabled GIC distributor + timer PPI");
+            }
+        }
+        // Enable the physical timer: CNTCTL_EL0.ENABLE (bit 0) = 1
+        cpu.sysregs_mut().cntp_ctl_el0 = 0x01;
+        // Set a generous compare value (1 second from now at 24 MHz)
+        cpu.sysregs_mut().cntp_cval_el0 = 24_000_000;
+        diag!("[vphone-boot] pre-enabled timer: cntp_ctl=0x1 cntp_cval=24000000 (1s)");
+    }
+
+    // Unmask IRQs so the kernel can receive timer interrupts.
+    // XNU expects interrupts to be available early in boot for synchronization.
+    {
+        let mut pstate = cpu.get_pstate();
+        pstate.i = false; // Clear IRQ mask bit
+        cpu.set_pstate(pstate);
+        diag!("[vphone-boot] unmasked IRQs (PSTATE.I=0)");
+    }
 
     // Emit the boot layout up front so a JSONL consumer has the same metadata
     // header the static path produced.
@@ -507,7 +611,7 @@ pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
 
     while executed < cfg.max_insns {
         let pc = cpu.get_pc();
-        if Some(pc) == cfg.break_pc {
+        if Some(pc) == cfg.break_pc && executed >= cfg.break_after {
             // Read C-strings at X0 and X3 (common format-arg registers).
             let read_cstr = |cpu: &AArch64Cpu, addr: u64| -> String {
                 let mut s = String::new();
@@ -527,6 +631,20 @@ pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
             diag!("[vphone-boot] break {pc:#x}: X2={:#x} X4={:#x}", cpu.get_gpr(2), cpu.get_gpr(4));
             diag!("[vphone-boot] break {pc:#x}: X3={x3:#x} \"{}\"", read_cstr(&cpu, x3));
             diag!("[vphone-boot] break {pc:#x}: X30(lr)={:#x}", cpu.get_gpr(30));
+            // Diagnose a "wait until value stabilizes" spin: read the polled
+            // address (X8 holds P = *(cpu_data+0x198)) at +0x58 twice.
+            let rd64 = |cpu: &AArch64Cpu, addr: u64| -> u64 {
+                cpu.read_memory(addr, 8).ok().map(|b| {
+                    let mut a = [0u8; 8];
+                    a.copy_from_slice(&b);
+                    u64::from_le_bytes(a)
+                }).unwrap_or(0)
+            };
+            let p = cpu.get_gpr(8);
+            let a = rd64(&cpu, p + 0x58);
+            let b = rd64(&cpu, p + 0x58);
+            let c = rd64(&cpu, p + 0x58);
+            diag!("[vphone-boot] polled addr P+0x58 = {:#x}; reads: {a:#x} {b:#x} {c:#x} (changing={})", p + 0x58, a != b || b != c);
             stop_reason = format!("hit break pc {pc:#x}");
             executed += 1;
             break;
@@ -592,6 +710,29 @@ pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
             }
         }
         executed += 1;
+    }
+
+    // Diagnostic: dump GIC/timer state to understand what the kernel is waiting for.
+    {
+        let sr = cpu.sysregs();
+        diag!("[vphone-boot] post-run sctlr={:#x}", sr.bank(1).sctlr);
+        diag!("[vphone-boot] timer: cntpct={:#x} cntp_cval={:#x} cntp_ctl={:#x} cntfrq={:#x}",
+            sr.cntpct_el0, sr.cntp_cval_el0, sr.cntp_ctl_el0, sr.cntfrq_el0);
+        diag!("[vphone-boot] timer: cntv_cval={:#x} cntv_ctl={:#x}",
+            sr.cntv_cval_el0, sr.cntv_ctl_el0);
+        diag!("[vphone-boot] TTBR1={:#x} TTBR0={:#x} TCR={:#x} MAIR={:#x}",
+            sr.bank(1).ttbr1, sr.bank(1).ttbr0, sr.bank(1).tcr, sr.bank(1).mair);
+        // GIC state
+        if let Some(gic_arc) = cpu.gic_handle() {
+            if let Ok(gic) = gic_arc.lock() {
+                let ctlr = gic.read_dist(0x0000);
+                let typer = gic.read_dist(0x0004);
+                diag!("[vphone-boot] GICD_CTLR={:#x} GICD_TYPER={:#x}", ctlr, typer);
+                // Check timer PPI enable status (PPI 30 = physical timer)
+                let isenabler1 = gic.read_dist(0x0104); // GICD_ISENABLER1 (ints 32-63)
+                diag!("[vphone-boot] GICD_ISENABLER1={:#x} (bit 30 = phys timer PPI)", isenabler1);
+            }
+        }
     }
 
     // Rank the hottest PCs and attach the hottest device window as the likely

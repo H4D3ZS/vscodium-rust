@@ -634,6 +634,8 @@ impl SystemRegisters {
             (3, 3, 13, 0, 3) => Some(self.tpidrro_el0),
             // TPIDR_EL1
             (3, 0, 13, 0, 4) => Some(self.el1.tpidr),
+            // TPIDR_EL3
+            (3, 6, 13, 0, 2) => Some(self.el3.tpidr),
 
             // HCR_EL2
             (3, 4, 1, 1, 0) => Some(self.hcr_el2),
@@ -892,6 +894,11 @@ impl SystemRegisters {
             // TPIDR_EL1
             (3, 0, 13, 0, 4) => {
                 self.el1.tpidr = value;
+                true
+            }
+            // TPIDR_EL3
+            (3, 6, 13, 0, 2) => {
+                self.el3.tpidr = value;
                 true
             }
 

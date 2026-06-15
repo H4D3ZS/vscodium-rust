@@ -49,6 +49,9 @@ struct Cli {
     /// Stop at this PC (hex) and dump X0/X3 as C-strings (e.g. panic entry).
     #[arg(long)]
     break_pc: Option<String>,
+    /// Only honor --break-pc after this many instructions (skip early hits).
+    #[arg(long, default_value = "0")]
+    break_after: u64,
 }
 
 /// Verbose diagnostics, compiled in only with `--features vphone-diag`. Default
@@ -85,6 +88,7 @@ fn main() -> Result<()> {
         watch: cli.watch.as_deref().and_then(|s| {
             u64::from_str_radix(s.trim_start_matches("0x"), 16).ok()
         }),
+        break_after: cli.break_after,
         break_pc: cli.break_pc.as_deref().and_then(|s| {
             u64::from_str_radix(s.trim_start_matches("0x"), 16).ok()
         }),
