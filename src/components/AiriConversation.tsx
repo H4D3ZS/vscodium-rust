@@ -23,7 +23,6 @@ const AiriConversation: React.FC = () => {
 
   // Initialize Digital Life
   useEffect(() => {
-    console.log('[Conversation] 💬 Initializing AIRI Conversation...');
     
     // Load conversation history
     const saved = localStorage.getItem('airi_conversations');

@@ -1710,7 +1710,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
 
         if (!probeOk) {
-            console.error('[Agent] ❌ Ollama pre-flight check FAILED:', lastErrorMsg);
+ console.error('[Agent] Ollama pre-flight check FAILED:', lastErrorMsg);
             store.getState().setIsAgentThinking?.(false);
             const tryHint = managedCloud
                 ? '**Try:** Settings → Ollama → **Cloud Model** → **Reconnect**. Confirm you are signed in with an active subscription.'
@@ -2356,7 +2356,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
 
             // Allow prompt to fall through to the Rust ai_chat autonomous execution loop!
         } catch (err: any) {
-            console.error('[Agent] ❌ AIRI Sentient Core memory update failed:', err);
+ console.error('[Agent] AIRI Sentient Core memory update failed:', err);
         }
     }
 

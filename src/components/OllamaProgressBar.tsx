@@ -25,7 +25,6 @@ const OllamaProgressBar: React.FC = () => {
             
             if (payload.status === 'generating' && loadingStartTime) {
                 const loadTime = (Date.now() - loadingStartTime) / 1000;
-                console.log('[Ollama] Model loaded in', loadTime.toFixed(1), 'seconds');
                 setLoadingStartTime(null);
             }
             

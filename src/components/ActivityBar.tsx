@@ -57,9 +57,7 @@ const ActivityBar: React.FC = () => {
 
     const openThemePicker = async () => {
         try {
-            console.log("Fetching installed themes...");
             const themes = await invoke<VscodeTheme[]>('get_installed_themes');
-            console.log("Found themes:", themes);
             setInstalledThemes(themes);
             setIsThemePickerOpen(true);
         } catch (e) {

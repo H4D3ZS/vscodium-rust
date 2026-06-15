@@ -4,7 +4,7 @@
  */
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import ChatMessage from './ChatMessage';
-import AgentToolBlocks from './AgentToolBlocks';
+import ActivityPanel from './ActivityPanel';
 import ComposerThinkingBlock from './ComposerThinkingBlock';
 import type { AgentMessage } from '../../store';
 import { useStore } from '../../store';
@@ -145,14 +145,13 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
                 />
             ))}
             {/* Live reasoning now streams inline on the in-progress message (ChatMessage),
-                so we only render live tool cards here — no duplicate thinking block. The
-                fallback below covers the rare case where no assistant message exists yet. */}
+                so we only render the activity panel here — tool activity is separate from chat. */}
             {(isAgentThinking || liveBlocks.length > 0) && (
                 <>
                     {isAgentThinking && lastAssistantThoughts && lastMessageRole !== 'assistant' && (
                         <ComposerThinkingBlock thoughts={lastAssistantThoughts} isStreaming />
                     )}
-                    <AgentToolBlocks blocks={liveBlocks} />
+                    <ActivityPanel isAgentThinking={isAgentThinking} />
                 </>
             )}
             {showJumpToBottom && (

@@ -427,7 +427,7 @@ LINE: [approximate line number]
         }
       } catch (error) {
         issue.status = 'active';
-        console.error(`[SelfHealing] ❌ Heal failed: ${issue.description}`, error);
+ console.error(`[SelfHealing] Heal failed: ${issue.description}`, error);
       }
     }
   }

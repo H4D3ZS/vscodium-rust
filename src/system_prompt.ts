@@ -541,6 +541,7 @@ export async function buildSystemPrompt(config: SystemPromptConfig): Promise<str
 | List files | list_directory | path |
 | Find by pattern | glob | pattern, path |
 | Search content | grep | pattern, path |
+| **FastContext explore** | **explore_repository** | **query, max_results, file_pattern** |
 | AIM exact spans | aim_query_spans | query, limit |
 | AIM compact context | aim_pack_context | query, limit |
 | Open in editor | editor_open_file | path |
@@ -558,6 +559,7 @@ web_search(query), browser_open() (spawns external visible Firefox — user watc
 
 - Always use absolute paths.
 - In huge workspaces, call aim_pack_context or aim_query_spans before broad grep/search. Treat AIM as the compressed map, then verify exact spans with file_read before editing.
+- **FastContext (explore_repository)**: Use this INSTEAD of doing your own exploration when finding code across a large codebase. It spawns a dedicated 4B explorer model that does parallel READ/GLOB/GREP and returns compact file citations. Use it when: (1) you need to find files related to a topic, (2) you're unfamiliar with the codebase structure, (3) you want to locate a specific function/class/pattern. Example: explore_repository({query: "authentication middleware", file_pattern: "*.rs"}). Pull the model first: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M.
 - Read files BEFORE editing — never patch blind.
 - run_command can execute: cargo, npm, python, pip, git, powershell, cmd — anything in PATH.
 `);

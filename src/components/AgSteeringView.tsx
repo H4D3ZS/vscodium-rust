@@ -52,7 +52,7 @@ const AgSteeringView: React.FC = () => {
         try {
             const stored = localStorage.getItem(HOOKS_STORAGE_KEY);
             if (stored) setHooks(JSON.parse(stored));
-        } catch (_) {}
+        } catch { /* corrupted localStorage */ }
     };
 
     useEffect(() => { loadSteering(); loadHooks(); }, [activeRoot]);
@@ -74,7 +74,7 @@ const AgSteeringView: React.FC = () => {
             try {
                 const content = await invoke<string>('read_file', { path });
                 store.openFile(path, content, 'markdown');
-            } catch (_) {}
+    } catch { /* non-fatal */ }
         }
     };
 

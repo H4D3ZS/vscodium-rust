@@ -93,7 +93,7 @@ export class AIRIVisionSystem {
         console.warn('[AIRI Vision] Screen capture unsupported on this platform; vision disabled.');
         return;
       }
-      console.error('[AIRI Vision] ❌ Failed:', msg);
+ console.error('[AIRI Vision] Failed:', msg);
       throw error;
     }
   }

@@ -65,6 +65,8 @@ pub(crate) const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
     "security_scan", "audit_dependencies", "disassemble", "get_binary_info",
     // Common model alias names (resolved via tool_aliases.rs, kept in schema filter)
     "run_terminal_cmd", "run_command", "nmap", "searchsploit", "vuln_hunt",
+    // FastContext repository explorer — dedicated exploration subagent
+    "explore_repository",
     // Live web pentest / bug-bounty against a target URL. Without these, a local
     // security model (e.g. sec-eng-neuraldevil) gets NO web tooling — the first
     // essential-tools retain stripped them before the domain filter could keep

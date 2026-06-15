@@ -897,6 +897,290 @@ impl AiTools {
         }
     }
 
+    /// FastContext repository explorer — spawns a lightweight subagent that does
+    /// parallel READ/GLOB/GREP and returns compact file citations. Uses the
+    /// FastContext-1.0-4B-SFT model if available, otherwise falls back to the
+    /// main agent's model with explorer-mode prompting.
+    pub(crate) async fn explore_repository(&self, args: Value) -> Result<Value> {
+        let query = args["query"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing query"))?;
+        let max_results = args["max_results"].as_u64().unwrap_or(10) as usize;
+        let file_pattern = args["file_pattern"].as_str();
+
+        let root = self.root_path.lock().await.clone();
+
+        // Check if FastContext model is available via Ollama
+        // GGUF tag: mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M
+        let fc_model_gguf = "mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M";
+        let ollama_url = {
+            let h_lock = self.app_handle.lock().await;
+            if let Some(h) = h_lock.as_ref() {
+                let state: tauri::State<crate::EditorState> = h.state();
+                state.ai.engine.resolved_ollama_base(&crate::ai_engine::AiRequest {
+                    provider: "ollama".to_string(),
+                    model: fc_model_gguf.to_string(),
+                    messages: vec![],
+                    temperature: None,
+                    autonomous: false,
+                    mode: None,
+                    cyber_mode: None,
+                    root_access: None,
+                    ollama_url: None,
+                    tools: None,
+                    reasoning_budget: None,
+                    reasoning_effort: None,
+                    reasoning_enabled: None,
+                    feature: None,
+                }).await
+            } else {
+                "http://localhost:11434".to_string()
+            }
+        };
+
+        // Try to pull and run FastContext via Ollama API
+        let client = reqwest::Client::new();
+
+        // First check if the model is available
+        let models_url = format!("{}/api/tags", ollama_url);
+        let fc_available = match client.get(&models_url).send().await {
+            Ok(resp) => {
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    body.get("models")
+                        .and_then(|m| m.as_array())
+                        .map(|models| {
+                            models.iter().any(|m| {
+                                m.get("name")
+                                    .and_then(|n| n.as_str())
+                                    .map(|n| n.contains("FastContext") || n.contains("fastcontext"))
+                                    .unwrap_or(false)
+                            })
+                        })
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            }
+            Err(_) => false,
+        };
+
+        if fc_available {
+            // Use FastContext as exploration subagent
+            println!("[EXPLORE] Using FastContext subagent for: {}", query);
+
+            // Build the exploration prompt
+            let explore_prompt = format!(
+                "You are a repository exploration subagent. Your ONLY job is to find relevant code.\n\
+                 Query: {}\n\
+                 {}\n\
+                 Use READ, GLOB, and GREP to find the relevant files and code.\n\
+                 Return a compact <final_answer> block with file paths and line ranges.\n\
+                 Do NOT write code or make changes. Only read and search.",
+                query,
+                if let Some(pat) = file_pattern {
+                    format!("File pattern scope: {}", pat)
+                } else {
+                    "Search the entire repository.".to_string()
+                }
+            );
+
+            // Spawn FastContext via Ollama
+            let req_body = json!({
+                "model": fc_model_gguf,
+                "messages": [
+                    {"role": "user", "content": explore_prompt}
+                ],
+                "stream": false,
+                "options": {
+                    "num_predict": 2048,
+                    "temperature": 0.1
+                }
+            });
+
+            let generate_url = format!("{}/api/generate", ollama_url);
+            match client.post(&generate_url).json(&req_body).send().await {
+                Ok(resp) => {
+                    if let Ok(body) = resp.json::<serde_json::Value>().await {
+                        let response_text = body.get("response")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("");
+
+                        // Parse the <final_answer> block
+                        let citations = self.parse_explorer_citations(response_text, max_results);
+
+                        Ok(json!({
+                            "status": "success",
+                            "explorer": "FastContext-1.0-4B-SFT",
+                            "query": query,
+                            "citations": citations,
+                            "raw_response": response_text.chars().take(4000).collect::<String>()
+                        }))
+                    } else {
+                        // Fallback to built-in exploration
+                        self.builtin_explore(query, max_results, file_pattern).await
+                    }
+                }
+                Err(e) => {
+                    println!("[EXPLORE] FastContext call failed: {}, falling back to built-in", e);
+                    self.builtin_explore(query, max_results, file_pattern).await
+                }
+            }
+        } else {
+            // FastContext not available — use built-in exploration
+            println!("[EXPLORE] FastContext not available, using built-in explorer");
+            self.builtin_explore(query, max_results, file_pattern).await
+        }
+    }
+
+    /// Parse citations from a FastContext-style <final_answer> block
+    fn parse_explorer_citations(&self, text: &str, max_results: usize) -> Vec<Value> {
+        let mut citations = Vec::new();
+
+        // Try to find <final_answer> block
+        if let Some(start) = text.find("<final_answer>") {
+            if let Some(end) = text[start..].find("</final_answer>") {
+                let block = &text[start + 14..start + end];
+                // Parse file:line citations
+                for line in block.lines() {
+                    if citations.len() >= max_results {
+                        break;
+                    }
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
+                    // Try to extract path:line patterns
+                    if let Some(colon_pos) = line.find(':') {
+                        let path = line[..colon_pos].trim().to_string();
+                        let rest = line[colon_pos + 1..].trim();
+                        let line_range = rest.split_whitespace().next().unwrap_or("").to_string();
+                        citations.push(json!({
+                            "path": path,
+                            "line_range": line_range,
+                            "context": rest.to_string()
+                        }));
+                    } else {
+                        citations.push(json!({
+                            "path": line.to_string(),
+                            "line_range": "",
+                            "context": ""
+                        }));
+                    }
+                }
+            }
+        }
+
+        // If no <final_answer> found, try to extract file paths from the response
+        if citations.is_empty() {
+            let mut seen = std::collections::HashSet::new();
+            for line in text.lines() {
+                if citations.len() >= max_results {
+                    break;
+                }
+                // Look for paths that look like source files
+                if let Some(path) = self.extract_source_path(line) {
+                    if !seen.contains(&path) {
+                        seen.insert(path.clone());
+                        citations.push(json!({
+                            "path": path,
+                            "line_range": "",
+                            "context": line.trim().to_string()
+                        }));
+                    }
+                }
+            }
+        }
+
+        citations
+    }
+
+    /// Extract a source file path from a line of text
+    fn extract_source_path(&self, line: &str) -> Option<String> {
+        let line = line.trim();
+        // Look for patterns like src/foo.rs or path/to/file.ts
+        let extensions = [".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".java", ".c", ".cpp", ".h"];
+        for ext in &extensions {
+            if let Some(pos) = line.find(ext) {
+                // Find the start of the path
+                let before = &line[..pos + ext.len()];
+                if let Some(start) = before.rfind(|c: char| c == ' ' || c == '(' || c == '"' || c == '\'' || c == '`') {
+                    let path = &line[start + 1..pos + ext.len()];
+                    if path.contains('/') || path.contains('\\') {
+                        return Some(path.to_string());
+                    }
+                } else if !before.is_empty() {
+                    return Some(before.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// Built-in exploration using existing tools (fallback when FastContext isn't available)
+    async fn builtin_explore(&self, query: &str, max_results: usize, file_pattern: Option<&str>) -> Result<Value> {
+        let root = self.root_path.lock().await.clone();
+        let mut citations = Vec::new();
+
+        // Step 1: GLOB to find relevant files
+        let glob_pattern = if let Some(pat) = file_pattern {
+            pat.to_string()
+        } else {
+            // Guess file extensions from query
+            "**/*.{rs,ts,tsx,js,jsx,py,go}".to_string()
+        };
+
+        let glob_args = json!({
+            "pattern": glob_pattern,
+            "path": root.to_string_lossy()
+        });
+
+        if let Ok(glob_result) = self.handle_fs_tool("find_by_name", glob_args).await {
+            if let Some(files) = glob_result.get("files").and_then(|f| f.as_array()) {
+                // Step 2: For each file, grep for the query terms
+                let query_terms: Vec<&str> = query.split_whitespace().collect();
+                for file_entry in files.iter().take(max_results * 3) {
+                    if citations.len() >= max_results {
+                        break;
+                    }
+                    if let Some(path) = file_entry.get("path").and_then(|p| p.as_str()) {
+                        let grep_args = json!({
+                            "pattern": query_terms.first().unwrap_or(&""),
+                            "path": path,
+                        });
+                        if let Ok(grep_result) = self.handle_fs_tool("search_files", grep_args).await {
+                            if let Some(matches) = grep_result.get("matches").and_then(|m| m.as_array()) {
+                                if !matches.is_empty() {
+                                    citations.push(json!({
+                                        "path": path,
+                                        "line_range": matches.first()
+                                            .and_then(|m| m.get("line"))
+                                            .and_then(|l| l.as_u64())
+                                            .map(|l| format!("L{}", l))
+                                            .unwrap_or_default(),
+                                        "context": matches.first()
+                                            .and_then(|m| m.get("text"))
+                                            .and_then(|t| t.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        "match_count": matches.len()
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(json!({
+            "status": "success",
+            "explorer": "builtin",
+            "query": query,
+            "citations": citations,
+            "note": "FastContext not available — used built-in exploration. Pull FastContext for better results: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M"
+        }))
+    }
+
     pub(crate) async fn generate_image(&self, args: Value) -> Result<Value> {
         let prompt = args["prompt"]
             .as_str()

@@ -532,6 +532,19 @@ impl AiTools {
                  }),
              },
              ToolDefinition {
+                 name: "explore_repository".to_string(),
+                 description: "FastContext repository explorer — lightweight subagent that does parallel READ/GLOB/GREP and returns compact file citations. Use this INSTEAD of doing your own exploration when you need to find relevant code across a large codebase. Returns file paths, line ranges, and key snippets. Much faster and cheaper than manual exploration.".to_string(),
+                 input_schema: json!({
+                     "type": "object",
+                     "properties": {
+                         "query": { "type": "string", "description": "What to find in the repository (e.g. 'authentication middleware', 'error handling in parser')" },
+                         "max_results": { "type": "number", "description": "Maximum number of file citations to return (default 10)", "default": 10 },
+                         "file_pattern": { "type": "string", "description": "Optional glob pattern to scope search (e.g. '*.rs', 'src/**/*.ts')" }
+                     },
+                     "required": ["query"]
+                 }),
+             },
+             ToolDefinition {
                  name: "generate_image".to_string(),
                  description: "Generate a custom UI asset or image based on a prompt.".to_string(),
                  input_schema: json!({

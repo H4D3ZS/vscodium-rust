@@ -350,6 +350,8 @@ const ollamaModels: Record<string, ModelCapabilities> = {
     'qwq': { contextWindow: 128_000, reservedOutputTokenSpace: 32_000, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 20 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
     'deepseek-r1': { contextWindow: 128_000, reservedOutputTokenSpace: null, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 4.7 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
     'devstral:latest': { contextWindow: 131_000, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 14 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
+    'FastContext-1.0-4B-SFT': { contextWindow: 262_144, reservedOutputTokenSpace: 4_096, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 8 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
+    'gemma-4-12B-coder-fable5-composer2.5-v1': { contextWindow: 131_072, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 7 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
 };
 
 export const ollamaRecommendedModels = ['qwen2.5-coder:7b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'];

@@ -172,7 +172,6 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         const toEvict = inactiveModels.slice(0, toEvictCount);
                         toEvict.forEach(m => {
                             m.dispose();
-                            console.log(`[Monaco Eviction] Disposed inactive model: ${m.uri.toString()} to conserve RAM.`);
                         });
                     }
                 }

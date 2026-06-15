@@ -1161,6 +1161,52 @@ impl Sentient {
                 });
             }
 
+            // ── Fable-5 Critical Thinking: phase-specific reasoning prompts ──
+            // Injects context-aware thinking prompts based on iteration count and
+            // whether recent actions failed. This is the core Fable-5 pattern:
+            // the model MUST reason before acting, not just act.
+            {
+                let has_failures = {
+                    let (fail, _) = crate::agent_harness::check_verification_failure(&messages);
+                    fail
+                };
+
+                // Check for verification failures → inject recovery prompt
+                if has_failures && iteration > 0 {
+                    let (_, failure_summary) = crate::agent_harness::check_verification_failure(&messages);
+                    messages.retain(|m| !(m.role == "system"
+                        && m.content.as_ref().map(|c| c.as_str().contains("[VERIFICATION FAILURE]")).unwrap_or(false)));
+                    messages.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: Some(MessageContent::Text(format!(
+                            "### [VERIFICATION FAILURE]\nThe last action produced errors:\n{}\n\
+                             Do NOT declare success. Fix the error first:\n\
+                             1. Read the error message carefully — what exactly failed?\n\
+                             2. View the relevant file(s) to understand the current state\n\
+                             3. Apply a targeted fix (surgical edit, not full rewrite)\n\
+                             4. Re-run verification to confirm the fix works\n\
+                             Think in `<think>` about the root cause before acting.",
+                            failure_summary
+                        ))),
+                        ..Default::default()
+                    });
+                }
+
+                // Phase-specific thinking prompts (Fable-5 pattern)
+                let thinking_prompt = crate::agent_harness::phase_thinking_prompt(iteration, has_failures);
+                if !thinking_prompt.is_empty() {
+                    messages.retain(|m| !(m.role == "system"
+                        && m.content.as_ref().map(|c| c.as_str().contains("[PHASE THINKING]")).unwrap_or(false)));
+                    messages.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: Some(MessageContent::Text(format!(
+                            "[PHASE THINKING]\n{}", thinking_prompt
+                        ))),
+                        ..Default::default()
+                    });
+                }
+            }
+
             // ── Reflection checkpoint (long-horizon coherence + live plan progress) ──
             // Every few iterations in a persistent run, step the plan forward in the UI
             // and inject a brief reflection so the model re-grounds against its plan

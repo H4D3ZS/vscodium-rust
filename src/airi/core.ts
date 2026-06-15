@@ -652,7 +652,7 @@ export class AIRICore {
 
       }
     } catch (error) {
-      console.warn('[AIRI] ⚠️ Ollama: DISCONNECTED (Failed to list models in non-Tauri env).');
+ console.warn('[AIRI] Ollama: DISCONNECTED (Failed to list models in non-Tauri env).');
     }
   }
 

@@ -84,7 +84,7 @@ export async function activateAIRI(): Promise<ActivationResult> {
     result.message = greeting;
 
   } catch (error: any) {
-    console.error('❌ Activation failed:', error.message);
+ console.error(' Activation failed:', error.message);
     result.message = `Activation failed: ${error.message}`;
   }
 

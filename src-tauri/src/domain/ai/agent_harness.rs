@@ -2,6 +2,9 @@
 //!
 //! Ports behavioral guardrails from Claude Code's query loop and Claurst's `run_query_loop`:
 //! verify-before-done, anti-stuck loops, tool-result budgeting, Qwen3 tool protocol.
+//!
+//! Fable-5 integration: critical thinking protocol that forces the model to reason
+//! about its approach BEFORE each action, matching Composer 2's deep-reasoning loop.
 
 use crate::ai_engine::{ChatMessage, MessageContent};
 
@@ -39,6 +42,73 @@ const CLAUDE_CODE_WORKFLOW: &str = r###"
 4. Only then declare completion with `MISSION_ACCOMPLISHED` on its own line.
 "###;
 
+/// Fable-5 critical thinking protocol — forces the model to reason before acting.
+/// This is the core pattern from the Fable-5 traces: every tool call is preceded
+/// by explicit reasoning about WHAT to do, WHY, and what could go wrong.
+const FABLE5_CRITICAL_THINKING: &str = r###"
+### CRITICAL THINKING PROTOCOL (Fable-5 / Composer 2 parity)
+Before EVERY action (tool call), you MUST reason in a `<think>` block:
+
+1. **ANALYZE**: What is the current state? What do I know from the last tool result?
+2. **PLAN**: What is the single best next action? Why this tool and not another?
+3. **ANTICIPATE**: What could go wrong? What's the fallback if this fails?
+4. **EXECUTE**: Call the tool with precise arguments.
+
+Example flow:
+<think>
+I see the user wants to add authentication. The codebase uses Express with no auth middleware.
+Current state: server/index.js has 3 routes, no session management.
+Plan: Add passport.js + express-session. Start with npm install, then create auth middleware.
+Risk: package.json might have conflicting deps. Fallback: manual session impl.
+Decision: run_command("npm install passport express-session") first.
+</think>
+<tool_call>{"name":"run_command","arguments":{"command":"npm install passport express-session"}}</tool_call>
+
+This thinking is VISIBLE to the user — it shows your reasoning process.
+Do NOT skip thinking blocks. Do NOT think silently and just call tools.
+The thinking IS the value — it shows HOW you solve problems, not just WHAT you do.
+"###;
+
+/// Phase-specific thinking prompts that adapt the critical thinking to the current context.
+pub fn phase_thinking_prompt(iteration: usize, has_failures: bool) -> String {
+    if iteration == 0 {
+        return "### [ITERATION 0 — DEEP REASONING]\n\
+            Before your first action, think deeply:\n\
+            - What exactly is the user asking for?\n\
+            - What files/patterns are relevant? (use BRAIN map, don't grep)\n\
+            - What's the implementation order? (dependencies first)\n\
+            - What verification command will you run at the end?\n\
+            Output your plan between `<TASK_PLAN>` and `</TASK_PLAN>`, then begin executing."
+            .to_string();
+    }
+
+    if has_failures {
+        return format!(
+            "### [ITERATION {} — RECOVERY MODE]\n\
+             Previous action FAILED. Before retrying:\n\
+             - What went wrong? (read the error carefully)\n\
+             - Is the same approach likely to work again? (if tried 2x already, NO)\n\
+             - What's a DIFFERENT approach?\n\
+             Think in `<think>` then execute with a changed strategy.",
+            iteration
+        );
+    }
+
+    if iteration % 5 == 0 {
+        return format!(
+            "### [ITERATION {} — REFLECTION]\n\
+             Step back and assess:\n\
+             - What's done vs what remains?\n\
+             - Am I on track or drifting?\n\
+             - Is there a faster path I'm missing?\n\
+             Then continue executing.",
+            iteration
+        );
+    }
+
+    String::new()
+}
+
 pub fn is_qwen3_family(model: &str) -> bool {
     let m = model.to_ascii_lowercase();
     m.contains("qwen3") || m.contains("qwen-3") || m.contains("qwen3.5") || m.contains("qwen3.6")
@@ -58,6 +128,7 @@ pub fn harness_system_addon(model: &str) -> String {
     let mut out = String::from(VERIFY_BEFORE_DONE);
     out.push_str(ANTI_STUCK);
     out.push_str(CLAUDE_CODE_WORKFLOW);
+    out.push_str(FABLE5_CRITICAL_THINKING);
     if is_qwen3_family(model) {
         out.push_str(QWEN3_AGENT_PROTOCOL);
     } else if is_reasoning_tag_model(model) {
@@ -122,6 +193,43 @@ pub fn apply_tool_result_budget(messages: &mut [ChatMessage], max_chars: usize) 
     }
 }
 
+/// Verify gate — checks if recent tool results contain build/test failures.
+/// Returns (has_failures, failure_summary) so the loop can inject recovery prompts.
+pub fn check_verification_failure(messages: &[ChatMessage]) -> (bool, String) {
+    let recent_tools: Vec<&str> = messages
+        .iter()
+        .rev()
+        .take(6)
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.content.as_ref().map(|c| c.as_str()))
+        .collect();
+
+    let failure_patterns = [
+        "error[E", "error:", "FAILED", "failed to", "Error:", "panic:",
+        "thread.*panicked", "exit status 1", "exit code 1",
+        "typecheck failed", "cargo check failed", "npm ERR!",
+        "Compilation failed", "BUILD FAILURE",
+    ];
+
+    for content in &recent_tools {
+        for pattern in &failure_patterns {
+            if content.contains(pattern) {
+                // Extract the first relevant error line
+                let summary = content
+                    .lines()
+                    .find(|l| l.contains(pattern) || l.contains("error"))
+                    .unwrap_or("Unknown error")
+                    .chars()
+                    .take(200)
+                    .collect::<String>();
+                return (true, summary);
+            }
+        }
+    }
+
+    (false, String::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +247,49 @@ mod tests {
     #[test]
     fn qwen36_detected() {
         assert!(is_qwen3_family("cyberifrit/qwen3.6:35b"));
+    }
+
+    #[test]
+    fn detect_build_failure() {
+        let messages = vec![
+            ChatMessage {
+                role: "tool".to_string(),
+                content: Some(MessageContent::Text(
+                    "error[E0432]: unresolved import `foo`\n  --> src/main.rs:3:5".to_string(),
+                )),
+                ..Default::default()
+            },
+        ];
+        let (has_failure, summary) = check_verification_failure(&messages);
+        assert!(has_failure);
+        assert!(summary.contains("error[E0432]"));
+    }
+
+    #[test]
+    fn no_false_positive_on_success() {
+        let messages = vec![
+            ChatMessage {
+                role: "tool".to_string(),
+                content: Some(MessageContent::Text(
+                    "Finished dev [unoptimized + debuginfo] target(s) in 0.42s".to_string(),
+                )),
+                ..Default::default()
+            },
+        ];
+        let (has_failure, _) = check_verification_failure(&messages);
+        assert!(!has_failure);
+    }
+
+    #[test]
+    fn phase_thinking_prompt_iter0() {
+        let prompt = phase_thinking_prompt(0, false);
+        assert!(prompt.contains("DEEP REASONING"));
+        assert!(prompt.contains("TASK_PLAN"));
+    }
+
+    #[test]
+    fn phase_thinking_prompt_recovery() {
+        let prompt = phase_thinking_prompt(3, true);
+        assert!(prompt.contains("RECOVERY MODE"));
     }
 }

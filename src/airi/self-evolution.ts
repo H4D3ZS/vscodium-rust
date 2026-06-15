@@ -374,7 +374,7 @@ CODE: [new code]
       });
 
     } catch (error) {
-      console.error('[SelfEvolution] ❌ Tests failed, rolling back...');
+ console.error('[SelfEvolution] Tests failed, rolling back...');
       await this.rollbackChanges();
     }
   }

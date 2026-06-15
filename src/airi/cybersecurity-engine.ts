@@ -300,7 +300,7 @@ export class AIRICybersecurityEngine {
             `🛡️ CYBERSECURITY ALERT: ${threat.type.toUpperCase()} - ${threat.details}`
         );
 
-        console.warn(`\n🛡️ CYBERSECURITY THREAT DETECTED:`);
+ console.warn(`\n CYBERSECURITY THREAT DETECTED:`);
         console.warn(`   Type: ${threat.type}`);
         console.warn(`   Severity: ${threat.severity}`);
         console.warn(`   Source: ${threat.source}`);

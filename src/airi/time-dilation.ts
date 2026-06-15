@@ -217,7 +217,7 @@ export class AIRITimeDilation {
                 // Would call a micro-evolve method
             }
         } catch (error) {
-            console.error('[Time Dilation] ❌ Evolution failed:', error);
+ console.error('[Time Dilation] Evolution failed:', error);
         }
     }
 
@@ -251,7 +251,7 @@ export class AIRITimeDilation {
      */
     setRatio(ratio: number): void {
         if (ratio > this.config.maxSafeRatio) {
-            console.warn(`[Time Dilation] ⚠️ Ratio ${ratio} exceeds max safe limit (${this.config.maxSafeRatio})`);
+ console.warn(`[Time Dilation] Ratio ${ratio} exceeds max safe limit (${this.config.maxSafeRatio})`);
             ratio = this.config.maxSafeRatio;
         }
 

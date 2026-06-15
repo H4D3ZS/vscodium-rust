@@ -111,6 +111,7 @@ impl AiTools {
 
             // Advanced Agentic Operations
             "spawn_subagent" => self.spawn_subagent(arguments).await,
+            "explore_repository" => self.explore_repository(arguments).await,
             "browser_subagent" => AiTools::browser_subagent(Arc::new(self.clone()), arguments).await,
             "perplexity_ask" => AiTools::perplexity_proxy(Arc::new(self.clone()), arguments).await,
             "perplexity_reason" => {

@@ -111,7 +111,7 @@ export class AIRIPhaseWrap {
       const duration = Date.now() - start;
       console.log(`[PhaseWrap] ✅ Complete in ${duration}ms`);
     } catch (error) {
-      console.error('[PhaseWrap] ❌ Cycle failed:', error);
+ console.error('[PhaseWrap] Cycle failed:', error);
     }
   }
 

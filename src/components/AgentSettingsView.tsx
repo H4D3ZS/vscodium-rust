@@ -210,18 +210,12 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
     const [isAddingMcp, setIsAddingMcp] = useState(false);
 
     useEffect(() => {
-        console.log('[Settings] === Loading API keys and voice configuration ===');
 
         listMcpServers().catch(console.error);
 
         // Load existing saved keys (masked) and voice ID
         invoke<Record<string, string>>('get_api_keys')
             .then(keys => {
-                console.log('[Settings] ✅ API keys loaded:', Object.keys(keys));
-                console.log('[Settings] Keys:', {
-                    elevenlabs_api_key: (keys as any).elevenlabs_api_key ? 'present' : 'missing',
-                    elevenlabs_voice_id: (keys as any).elevenlabs_voice_id || 'NOT SET'
-                });
 
                 setApiKeys(prev => {
                     const newKeys = {
@@ -248,15 +242,10 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         cyberifrit_base_url: (keys as any).cyberifrit_base_url || '',
                         highwayapi_base_url: (keys as any).highwayapi_base_url || '',
                     };
-                    console.log('[Settings] Setting apiKeys state:', {
-                        elevenlabs: newKeys.elevenlabs ? `${newKeys.elevenlabs.substring(0, 8)}...` : 'EMPTY',
-                        elevenlabs_length: newKeys.elevenlabs?.length || 0
-                    });
 
                     // Store REAL key for API calls
                     if ((keys as any).elevenlabs_api_key) {
                         setRealApiKey((keys as any).elevenlabs_api_key);
-                        console.log('[Settings] ✅ Real API key stored (length:', (keys as any).elevenlabs_api_key.length, ')');
                     }
 
                     return newKeys;
@@ -264,7 +253,6 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
 
                 // Load saved ElevenLabs voice ID
                 const savedVoiceId = (keys as any).elevenlabs_voice_id;
-                console.log('[Settings] 🎤 Saved voice ID:', savedVoiceId);
 
                 if ((keys as any).ollama && String((keys as any).ollama).length > 0) {
                     setOllamaBearerSaved(true);
@@ -272,17 +260,14 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
 
                 if (savedVoiceId) {
                     setSelectedElevenLabsVoice(savedVoiceId);
-                    console.log('[Settings] ✅ Voice ID set in component state:', savedVoiceId);
 
                     // Also set it in voice.ts module
                     import('../voice').then(({ setSelectedVoice }) => {
                         setSelectedVoice(savedVoiceId);
-                        console.log('[Settings] ✅ Voice ID set in voice.ts:', savedVoiceId);
                     }).catch(err => {
                         console.error('[Settings] ❌ Failed to set voice in voice.ts:', err);
                     });
                 } else {
-                    console.log('[Settings] ⚠️ No saved voice ID found in api_keys.json');
                 }
             })
             .catch(err => {
@@ -306,25 +291,20 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                 const { modelId, modelUrl } = JSON.parse(savedModel);
                 if (modelId) setVrmModelId(modelId);
                 if (modelUrl) setVrmModelUrl(modelUrl);
-                console.log('[Settings] ✅ Loaded VRM model from localStorage:', modelId);
             } catch (e) {
                 console.warn('[Settings] Failed to load VRM model from localStorage:', e);
             }
         }
 
-        console.log('[Settings] === Loading complete ===');
     }, []);
 
     // Force re-render when apiKeys are loaded (fixes input not updating)
     useEffect(() => {
         if (apiKeys.elevenlabs && apiKeys.elevenlabs.length > 0) {
-            console.log('[Settings] ✅ apiKeys.elevenlabs updated, length:', apiKeys.elevenlabs.length);
         }
     }, [apiKeys.elevenlabs]);
 
     const handleSaveKeys = async () => {
-        console.log('[Settings] === handleSaveKeys CALLED ===');
-        console.log('[Settings] apiKeys.elevenlabs BEFORE save:', apiKeys.elevenlabs ? `${apiKeys.elevenlabs.substring(0, 10)}... (length: ${apiKeys.elevenlabs.length})` : 'EMPTY');
 
         setSavingKeys(true);
         setKeyStatus({});
@@ -333,27 +313,21 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
             const keysToSave: Record<string, string> = {};
             if (apiKeys.anthropic && !isMaskedApiKey(apiKeys.anthropic)) {
                 keysToSave.anthropic = apiKeys.anthropic;
-                console.log('[Settings] Adding anthropic key to save');
             }
             if (apiKeys.google && !isMaskedApiKey(apiKeys.google)) {
                 keysToSave.google = apiKeys.google;
-                console.log('[Settings] Adding google key to save');
             }
             if (apiKeys.openai && !isMaskedApiKey(apiKeys.openai)) {
                 keysToSave.openai = apiKeys.openai;
-                console.log('[Settings] Adding openai key to save');
             }
             if ((apiKeys as any).groq && !isMaskedApiKey((apiKeys as any).groq)) {
                 keysToSave.groq = (apiKeys as any).groq;
-                console.log('[Settings] Adding groq key to save');
             }
             if ((apiKeys as any).openrouter && !isMaskedApiKey((apiKeys as any).openrouter)) {
                 keysToSave.openrouter = (apiKeys as any).openrouter;
-                console.log('[Settings] Adding openrouter key to save');
             }
             if ((apiKeys as any).deepseek && !isMaskedApiKey((apiKeys as any).deepseek)) {
                 keysToSave.deepseek = (apiKeys as any).deepseek;
-                console.log('[Settings] Adding deepseek key to save');
             }
             if ((apiKeys as any).mimo && !isMaskedApiKey((apiKeys as any).mimo)) {
                 keysToSave.mimo = (apiKeys as any).mimo;
@@ -369,53 +343,37 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
             if ((apiKeys as any).highwayapi_base_url !== undefined) { keysToSave.highwayapi_base_url = (apiKeys as any).highwayapi_base_url; }
             if ((apiKeys as any).mistral && !isMaskedApiKey((apiKeys as any).mistral)) {
                 keysToSave.mistral = (apiKeys as any).mistral;
-                console.log('[Settings] Adding mistral key to save');
             }
             if ((apiKeys as any).xai && !isMaskedApiKey((apiKeys as any).xai)) {
                 keysToSave.xai = (apiKeys as any).xai;
-                console.log('[Settings] Adding xai key to save');
             }
             if ((apiKeys as any).cerebras && !isMaskedApiKey((apiKeys as any).cerebras)) {
                 keysToSave.cerebras = (apiKeys as any).cerebras;
-                console.log('[Settings] Adding cerebras key to save');
             }
             if ((apiKeys as any).alibaba && !isMaskedApiKey((apiKeys as any).alibaba)) {
                 keysToSave.alibaba = (apiKeys as any).alibaba;
-                console.log('[Settings] Adding alibaba key to save');
             }
             if ((apiKeys as any).nvidia && !isMaskedApiKey((apiKeys as any).nvidia)) {
                 keysToSave.nvidia = (apiKeys as any).nvidia;
-                console.log('[Settings] Adding nvidia key to save');
             }
             if ((apiKeys as any).elevenlabs && !isMaskedApiKey((apiKeys as any).elevenlabs)) {
                 keysToSave.elevenlabs_api_key = (apiKeys as any).elevenlabs;
-                console.log('[Settings] ✅ Adding elevenlabs key to save:', (apiKeys as any).elevenlabs.substring(0, 10) + `... (length: ${(apiKeys as any).elevenlabs.length})`);
             } else {
-                console.log('[Settings] ⚠️ Elevenlabs key NOT added to save:', {
-                    exists: !!(apiKeys as any).elevenlabs,
-                    starts_with_bullet: (apiKeys as any).elevenlabs?.startsWith('•'),
-                    value: (apiKeys as any).elevenlabs
-                });
             }
 
             // Save custom base URLs verbatim since they are not secret/masked
             if ((apiKeys as any).openai_base_url !== undefined) {
                 keysToSave.openai_base_url = (apiKeys as any).openai_base_url;
-                console.log('[Settings] Adding openai_base_url to save');
             }
             if ((apiKeys as any).anthropic_base_url !== undefined) {
                 keysToSave.anthropic_base_url = (apiKeys as any).anthropic_base_url;
-                console.log('[Settings] Adding anthropic_base_url to save');
             }
             if ((apiKeys as any).google_base_url !== undefined) {
                 keysToSave.google_base_url = (apiKeys as any).google_base_url;
-                console.log('[Settings] Adding google_base_url to save');
             }
 
-            console.log('[Settings] Keys to save:', Object.keys(keysToSave), 'elevenlabs_api_key in payload:', !!keysToSave.elevenlabs_api_key);
 
             const results = await invoke<Record<string, string>>('save_api_keys', { keys: keysToSave });
-            console.log('[Settings] ✅ Save result:', results);
 
             setKeyStatus(results);
 
@@ -441,19 +399,13 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
             }
 
             // Reload keys to confirm they were saved
-            console.log('[Settings] Reloading keys to verify save...');
             const reloadedKeys = await invoke<Record<string, string>>('get_api_keys');
-            console.log('[Settings] Reloaded keys:', {
-                elevenlabs_api_key: (reloadedKeys as any).elevenlabs_api_key ? `present (length: ${(reloadedKeys as any).elevenlabs_api_key.length})` : 'missing',
-                elevenlabs_voice_id: (reloadedKeys as any).elevenlabs_voice_id || 'NOT SET'
-            });
         } catch (err) {
             console.error('[Settings] ❌ Save error:', err);
             setKeyStatus({ error: String(err) });
         } finally {
             setSavingKeys(false);
         }
-        console.log('[Settings] === handleSaveKeys COMPLETE ===');
     };
 
     return (
@@ -704,10 +656,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                         window.dispatchEvent(new CustomEvent('airi-vrm-model-change', {
                                             detail: { modelId: vrmModelId, modelUrl: vrmModelUrl }
                                         }));
-                                        console.log('[VRM] Model change signal sent:', { modelId: vrmModelId, modelUrl: vrmModelUrl });
                                         // Persist selection to localStorage
                                         localStorage.setItem('airi-vrm-model', JSON.stringify({ modelId: vrmModelId, modelUrl: vrmModelUrl }));
-                                        console.log('[VRM] Model selection saved to localStorage');
                                     }}
                                     disabled={!showVrmAvatar}
                                     style={{
@@ -1695,9 +1645,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 </button>
                                 <button
                                     onClick={async () => {
-                                        console.log('[ElevenLabs] 🔄 Force replacing API key...');
                                         const apiKey = (apiKeys as any).elevenlabs;
-                                        console.log('[ElevenLabs] Current key:', apiKey ? `${apiKey.substring(0, 8)}...` : 'empty', 'length:', apiKey?.length);
 
                                         // Always save, even if masked (force replace)
                                         if (apiKey && apiKey.length > 10) {
@@ -1705,15 +1653,10 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                                 const result = await invoke('save_api_keys', {
                                                     keys: { elevenlabs_api_key: apiKey }
                                                 });
-                                                console.log('[ElevenLabs] ✅ Force replace result:', result);
                                                 setKeyStatus(prev => ({ ...prev, ...(result as Record<string, string>) }));
 
                                                 // Verify save
                                                 const reloaded = await invoke('get_api_keys');
-                                                console.log('[ElevenLabs] 🔍 Verified save:', {
-                                                    elevenlabs_api_key: (reloaded as any).elevenlabs_api_key ? '✓ REPLACED' : '✗ FAILED',
-                                                    elevenlabs_voice_id: (reloaded as any).elevenlabs_voice_id || 'NOT SET'
-                                                });
 
                                                 alert('✅ ElevenLabs API key REPLACED successfully!\n\nOld key has been overwritten with new key.\nCheck console for details.');
                                             } catch (err: any) {
@@ -1721,7 +1664,6 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                                 alert('❌ Failed to replace: ' + (err.message || err));
                                             }
                                         } else {
-                                            console.log('[ElevenLabs] ⚠️ Key too short');
                                             alert('⚠️ Please enter a valid API key (starts with sk_, min 10 chars)');
                                         }
                                     }}
@@ -1754,14 +1696,12 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                 // Import voice module dynamically to set selected voice in voice.ts
                                 import('../voice').then(({ setSelectedVoice }) => {
                                     setSelectedVoice(voiceId);
-                                    console.log('[Settings] ElevenLabs voice set:', voiceId);
                                 });
 
                                 // Save to persistent storage
                                 invoke('save_api_keys', {
                                     keys: { elevenlabs_voice_id: voiceId }
                                 }).then(() => {
-                                    console.log('[Settings] ElevenLabs voice ID saved');
                                 }).catch(err => {
                                     console.error('[Settings] Failed to save voice ID:', err);
                                 });

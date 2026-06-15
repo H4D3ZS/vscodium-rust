@@ -229,7 +229,7 @@ export class AIRIContinuousImprovement {
       this.logCycleResults(cycle);
 
     } catch (error) {
-      console.error('[ContinuousImprovement] ❌ Cycle failed:', error);
+ console.error('[ContinuousImprovement] Cycle failed:', error);
     }
   }
 
@@ -500,7 +500,7 @@ Format:
         return { success: false };
       }
     } catch (error) {
-      console.error(`   ❌ Implementation failed:`, error);
+ console.error(` Implementation failed:`, error);
     }
 
     return null;
