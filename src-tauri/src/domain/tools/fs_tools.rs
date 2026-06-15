@@ -11,6 +11,26 @@ use super::registry::push_activity;
 use super::shell::ShellTranslator;
 use crate::process_ext::CommandExtHidden;
 
+/// Parse FastContext's trained text tool-call format — `READ(path)`, `GLOB(pat)`,
+/// `GREP(term)` (case-insensitive) — into `(internal_name, arg)` pairs. Used when
+/// the GGUF template doesn't emit native Ollama tool_calls.
+fn parse_text_tool_calls(text: &str) -> Vec<(String, String)> {
+    let re = regex::Regex::new(r#"(?i)\b(READ|GLOB|GREP|CODE_SEARCH|SEARCH)\s*\(\s*["']?([^"')]+?)["']?\s*\)"#).unwrap();
+    let mut out = Vec::new();
+    for cap in re.captures_iter(text) {
+        let name = match cap[1].to_lowercase().as_str() {
+            "read" => "read_file",
+            "glob" => "glob",
+            "code_search" => "code_search",
+            _ => "grep", // GREP / SEARCH
+        };
+        let arg = cap[2].trim().to_string();
+        if !arg.is_empty() { out.push((name.to_string(), arg)); }
+        if out.len() >= 8 { break; }
+    }
+    out
+}
+
 impl AiTools {
     pub(crate) fn validate_path(&self, root: &std::path::Path, path_str: &str) -> Result<PathBuf> {
         let path = PathBuf::from(path_str);
@@ -908,18 +928,13 @@ impl AiTools {
         let max_results = args["max_results"].as_u64().unwrap_or(10) as usize;
         let file_pattern = args["file_pattern"].as_str();
 
-        let root = self.root_path.lock().await.clone();
-
-        // Check if FastContext model is available via Ollama
-        // GGUF tag: mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M
-        let fc_model_gguf = "mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M";
         let ollama_url = {
             let h_lock = self.app_handle.lock().await;
             if let Some(h) = h_lock.as_ref() {
                 let state: tauri::State<crate::EditorState> = h.state();
                 state.ai.engine.resolved_ollama_base(&crate::ai_engine::AiRequest {
                     provider: "ollama".to_string(),
-                    model: fc_model_gguf.to_string(),
+                    model: "fastcontext".to_string(),
                     messages: vec![],
                     temperature: None,
                     autonomous: false,
@@ -938,98 +953,175 @@ impl AiTools {
             }
         };
 
-        // Try to pull and run FastContext via Ollama API
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(90))
+            .build()
+            .unwrap_or_default();
 
-        // First check if the model is available
+        // Resolve the actual installed FastContext tag (keeps `hf.co/` prefix etc.).
         let models_url = format!("{}/api/tags", ollama_url);
-        let fc_available = match client.get(&models_url).send().await {
-            Ok(resp) => {
-                if let Ok(body) = resp.json::<serde_json::Value>().await {
-                    body.get("models")
-                        .and_then(|m| m.as_array())
-                        .map(|models| {
-                            models.iter().any(|m| {
-                                m.get("name")
-                                    .and_then(|n| n.as_str())
-                                    .map(|n| n.contains("FastContext") || n.contains("fastcontext"))
-                                    .unwrap_or(false)
-                            })
-                        })
-                        .unwrap_or(false)
-                } else {
-                    false
-                }
-            }
-            Err(_) => false,
+        let fc_model: Option<String> = match client.get(&models_url).send().await {
+            Ok(resp) => resp.json::<serde_json::Value>().await.ok().and_then(|body| {
+                body.get("models").and_then(|m| m.as_array()).and_then(|models| {
+                    models.iter().find_map(|m| {
+                        m.get("name").and_then(|n| n.as_str())
+                            .filter(|n| n.to_lowercase().contains("fastcontext"))
+                            .map(|n| n.to_string())
+                    })
+                })
+            }),
+            Err(_) => None,
         };
 
-        if fc_available {
-            // Use FastContext as exploration subagent
-            println!("[EXPLORE] Using FastContext subagent for: {}", query);
+        let Some(model) = fc_model else {
+            println!("[EXPLORE] FastContext not installed, using built-in explorer");
+            return self.builtin_explore(query, max_results, file_pattern).await;
+        };
 
-            // Build the exploration prompt
-            let explore_prompt = format!(
-                "You are a repository exploration subagent. Your ONLY job is to find relevant code.\n\
-                 Query: {}\n\
-                 {}\n\
-                 Use READ, GLOB, and GREP to find the relevant files and code.\n\
-                 Return a compact <final_answer> block with file paths and line ranges.\n\
-                 Do NOT write code or make changes. Only read and search.",
-                query,
-                if let Some(pat) = file_pattern {
-                    format!("File pattern scope: {}", pat)
+        println!("[EXPLORE] Using FastContext subagent ({}) for: {}", model, query);
+        match self.run_fastcontext_loop(&client, &ollama_url, &model, query, file_pattern, max_results).await {
+            Ok(citations) if !citations.is_empty() => Ok(json!({
+                "status": "success",
+                "explorer": model,
+                "query": query,
+                "citations": citations,
+            })),
+            other => {
+                if let Err(e) = &other {
+                    println!("[EXPLORE] FastContext loop error: {} — falling back to built-in", e);
                 } else {
-                    "Search the entire repository.".to_string()
+                    println!("[EXPLORE] FastContext returned no citations — falling back to built-in");
                 }
-            );
-
-            // Spawn FastContext via Ollama
-            let req_body = json!({
-                "model": fc_model_gguf,
-                "messages": [
-                    {"role": "user", "content": explore_prompt}
-                ],
-                "stream": false,
-                "options": {
-                    "num_predict": 2048,
-                    "temperature": 0.1
-                }
-            });
-
-            let generate_url = format!("{}/api/generate", ollama_url);
-            match client.post(&generate_url).json(&req_body).send().await {
-                Ok(resp) => {
-                    if let Ok(body) = resp.json::<serde_json::Value>().await {
-                        let response_text = body.get("response")
-                            .and_then(|r| r.as_str())
-                            .unwrap_or("");
-
-                        // Parse the <final_answer> block
-                        let citations = self.parse_explorer_citations(response_text, max_results);
-
-                        Ok(json!({
-                            "status": "success",
-                            "explorer": "FastContext-1.0-4B-SFT",
-                            "query": query,
-                            "citations": citations,
-                            "raw_response": response_text.chars().take(4000).collect::<String>()
-                        }))
-                    } else {
-                        // Fallback to built-in exploration
-                        self.builtin_explore(query, max_results, file_pattern).await
-                    }
-                }
-                Err(e) => {
-                    println!("[EXPLORE] FastContext call failed: {}, falling back to built-in", e);
-                    self.builtin_explore(query, max_results, file_pattern).await
-                }
+                self.builtin_explore(query, max_results, file_pattern).await
             }
-        } else {
-            // FastContext not available — use built-in exploration
-            println!("[EXPLORE] FastContext not available, using built-in explorer");
-            self.builtin_explore(query, max_results, file_pattern).await
         }
+    }
+
+    /// Read-only agentic exploration loop. FastContext issues real READ/GLOB/GREP
+    /// tool calls (native Ollama tools, or its trained text format as fallback)
+    /// which we execute against the repo, looping until it emits `<final_answer>`
+    /// citations. Returns parsed `path:line` citations.
+    async fn run_fastcontext_loop(
+        &self,
+        client: &reqwest::Client,
+        ollama_url: &str,
+        model: &str,
+        query: &str,
+        file_pattern: Option<&str>,
+        max_results: usize,
+    ) -> Result<Vec<Value>> {
+        let scope = file_pattern
+            .map(|p| format!("Restrict search to files matching: {}", p))
+            .unwrap_or_else(|| "Search the entire repository.".to_string());
+        let system = format!(
+            "You are FastContext, a repository-exploration subagent. Your ONLY job is to \
+             LOCATE relevant code for the main agent — never edit or write code.\n\
+             {scope}\n\
+             Use the read-only tools (read_file, glob, grep, code_search) to find the files \
+             and line ranges relevant to the query. Issue several tool calls per turn to \
+             cover complementary hypotheses. When you have enough evidence, STOP calling \
+             tools and output a compact block:\n\
+             <final_answer>\n<path>:<start>-<end>  short reason\n...\n</final_answer>\n\
+             List at most {max_results} citations, most relevant first."
+        );
+        // Read-only tool schemas exposed to the explorer.
+        let tools = json!([
+            { "type": "function", "function": { "name": "read_file", "description": "Read a file (optionally a line range).",
+              "parameters": { "type": "object", "properties": {
+                  "path": {"type": "string"}, "start_line": {"type": "integer"}, "end_line": {"type": "integer"} }, "required": ["path"] } } },
+            { "type": "function", "function": { "name": "glob", "description": "Find files by name/glob pattern.",
+              "parameters": { "type": "object", "properties": { "pattern": {"type": "string"}, "path": {"type": "string"} }, "required": ["pattern"] } } },
+            { "type": "function", "function": { "name": "grep", "description": "Search file contents for a string across the repo.",
+              "parameters": { "type": "object", "properties": { "query": {"type": "string"} }, "required": ["query"] } } },
+            { "type": "function", "function": { "name": "code_search", "description": "Semantic/code search across the repo.",
+              "parameters": { "type": "object", "properties": { "query": {"type": "string"} }, "required": ["query"] } } }
+        ]);
+
+        let mut messages = vec![
+            json!({ "role": "system", "content": system }),
+            json!({ "role": "user", "content": format!("Query: {}", query) }),
+        ];
+        let chat_url = format!("{}/api/chat", ollama_url);
+
+        for _turn in 0..6 {
+            let body = json!({
+                "model": model,
+                "messages": messages,
+                "tools": tools,
+                "stream": false,
+                "options": { "temperature": 0.1, "num_ctx": 16384 }
+            });
+            let resp = client.post(&chat_url).json(&body).send().await
+                .map_err(|e| anyhow!("fastcontext chat: {}", e))?;
+            let v: Value = resp.json().await.map_err(|e| anyhow!("fastcontext json: {}", e))?;
+            let msg = v.get("message").cloned().unwrap_or_else(|| json!({}));
+            let content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+
+            // Native tool calls.
+            let tool_calls = msg.get("tool_calls").and_then(|t| t.as_array()).cloned().unwrap_or_default();
+            if !tool_calls.is_empty() {
+                messages.push(msg.clone());
+                for tc in &tool_calls {
+                    let name = tc["function"]["name"].as_str().unwrap_or("");
+                    let raw_args = tc["function"]["arguments"].clone();
+                    let args = if raw_args.is_string() {
+                        serde_json::from_str(raw_args.as_str().unwrap_or("{}")).unwrap_or(json!({}))
+                    } else { raw_args };
+                    let result = self.exec_explore_tool(name, args).await;
+                    messages.push(json!({ "role": "tool", "content": result }));
+                }
+                continue;
+            }
+
+            // Done if the model produced a final answer (or plain text, no further calls).
+            if content.contains("<final_answer>") {
+                return Ok(self.parse_explorer_citations(&content, max_results));
+            }
+
+            // Text-ReAct fallback: parse FastContext's trained READ()/GLOB()/GREP() calls.
+            let calls = parse_text_tool_calls(&content);
+            if calls.is_empty() {
+                return Ok(self.parse_explorer_citations(&content, max_results));
+            }
+            messages.push(json!({ "role": "assistant", "content": content }));
+            let mut obs = String::new();
+            for (name, arg) in calls {
+                let args = match name.as_str() {
+                    "read_file" => json!({ "path": arg }),
+                    "glob" => json!({ "pattern": arg }),
+                    _ => json!({ "query": arg }),
+                };
+                let result = self.exec_explore_tool(&name, args).await;
+                obs.push_str(&format!("{}({}) =>\n{}\n\n", name, arg, result.chars().take(1500).collect::<String>()));
+            }
+            messages.push(json!({ "role": "user", "content": format!("Observations:\n{}\nContinue or give <final_answer>.", obs) }));
+        }
+        Ok(Vec::new())
+    }
+
+    /// Execute one read-only explorer tool call, mapping the explorer's tool names
+    /// onto the existing dispatch. Returns a compact string result (capped).
+    async fn exec_explore_tool(&self, name: &str, args: Value) -> String {
+        if name == "code_search" {
+            return self.code_search(args).await
+                .map(|v| v.to_string()).unwrap_or_else(|e| format!("error: {}", e))
+                .chars().take(3000).collect();
+        }
+        let internal = match name {
+            "read_file" => "view_file",
+            "glob" => "find_by_name",
+            "grep" => "search_files",
+            other => other,
+        };
+        // grep maps to search_files which expects `query`, not `pattern`.
+        let args = if name == "grep" {
+            let q = args.get("query").or_else(|| args.get("pattern")).cloned().unwrap_or(json!(""));
+            json!({ "query": q })
+        } else { args };
+        self.handle_fs_tool(internal, args).await
+            .map(|v| v.to_string())
+            .unwrap_or_else(|e| format!("error: {}", e))
+            .chars().take(3000).collect()
     }
 
     /// Parse citations from a FastContext-style <final_answer> block

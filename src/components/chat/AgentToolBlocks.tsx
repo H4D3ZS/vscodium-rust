@@ -161,6 +161,7 @@ const ToolBlockCard: React.FC<{ block: AgentToolBlock }> = ({ block }) => {
         todo: 'list-flat',
         search: 'search',
         canvas: 'dashboard',
+        explore: 'telescope',
     };
     const icon = iconMap[block.kind] || 'tools';
 
@@ -259,6 +260,58 @@ const ToolBlockCard: React.FC<{ block: AgentToolBlock }> = ({ block }) => {
                 {block.status === 'done' && block.path && (
                     <div className="agent-edit-footer" style={{ padding: '4px 10px 6px' }}>
                         <EditDecision path={block.path} />
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    if (block.kind === 'explore') {
+        const cites = block.citations || [];
+        return (
+            <div style={cardStyle}>
+                <div
+                    style={{ ...headerStyle, cursor: cites.length ? 'pointer' : 'default', borderBottom: open ? headerStyle.borderBottom : 'none' }}
+                    onClick={() => cites.length && setOpen((v) => !v)}
+                >
+                    {statusDot}
+                    <i className="codicon codicon-telescope" style={{ fontSize: 12, opacity: 0.6, fontFamily: 'codicon', fontStyle: 'normal' }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11px' }}>
+                        {block.title}
+                    </span>
+                    {isRunning && (
+                        <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: 10, opacity: 0.4, fontFamily: 'codicon', fontStyle: 'normal' }} />
+                    )}
+                    {!isRunning && cites.length > 0 && (
+                        <i className={`codicon codicon-chevron-${open ? 'up' : 'down'}`} style={{ fontSize: 9, opacity: 0.3, fontFamily: 'codicon', fontStyle: 'normal' }} />
+                    )}
+                </div>
+                {isRunning && <ProgressBar indeterminate />}
+                {open && cites.length > 0 && (
+                    <div style={{ padding: '4px 0 6px' }}>
+                        {cites.map((c, i) => (
+                            <div
+                                key={i}
+                                onClick={() => { if (c.path) useStore.getState().openFile?.(c.path); }}
+                                title={c.context || c.path}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                    padding: '3px 10px', cursor: c.path ? 'pointer' : 'default',
+                                    fontSize: '10px', fontFamily: 'var(--font-mono)',
+                                }}
+                            >
+                                <i className="codicon codicon-file-code" style={{ fontSize: 10, opacity: 0.4, fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                <span style={{ color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {c.path.replace(/\\/g, '/').split('/').pop()}
+                                    {c.lineRange ? <span style={{ opacity: 0.4 }}>:{c.lineRange}</span> : null}
+                                </span>
+                                {c.context && (
+                                    <span style={{ opacity: 0.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                                        {c.context}
+                                    </span>
+                                )}
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>

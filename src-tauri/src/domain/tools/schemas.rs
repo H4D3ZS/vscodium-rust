@@ -533,7 +533,7 @@ impl AiTools {
              },
              ToolDefinition {
                  name: "explore_repository".to_string(),
-                 description: "FastContext repository explorer — lightweight subagent that does parallel READ/GLOB/GREP and returns compact file citations. Use this INSTEAD of doing your own exploration when you need to find relevant code across a large codebase. Returns file paths, line ranges, and key snippets. Much faster and cheaper than manual exploration.".to_string(),
+                 description: "Delegate codebase exploration to the FastContext explorer subagent — it does parallel READ/GLOB/GREP and returns compact file:line citations WITHOUT polluting your context. ALWAYS prefer this over your own manual read/grep sweeps when locating code in an unfamiliar or large codebase. Returns file paths, line ranges, and key snippets.".to_string(),
                  input_schema: json!({
                      "type": "object",
                      "properties": {
@@ -1231,19 +1231,19 @@ impl AiTools {
             },
             ToolDefinition {
                 name: "web_search".to_string(),
-                description: "Search the web for information. Returns instant answers, summaries, and related links. Use for: API documentation, error messages, library usage, current events, technical questions.".to_string(),
+                description: "Search the live web for CURRENT information. Returns real result links with titles + snippets (and an `answer` field when available). ALWAYS use this for anything time-sensitive, recent, version-specific, or newer than your training cutoff — latest releases, today's docs/APIs, current events, breaking changes, CVEs, pricing. Do not answer from memory when freshness matters; search, then `web_fetch` the best result for full content.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
-                        "query": { "type": "string", "description": "Search query (e.g. 'rust tokio spawn timeout example')" },
-                        "num_results": { "type": "integer", "description": "Max results to return (1-10, default 5)" }
+                        "query": { "type": "string", "description": "Search query (e.g. 'tokio 1.40 spawn timeout example', 'latest react 19 release notes')" },
+                        "num_results": { "type": "integer", "description": "Max results to return (1-15, default 6)" }
                     },
                     "required": ["query"]
                 }),
             },
             ToolDefinition {
                 name: "web_fetch".to_string(),
-                description: "Fetch a URL and return its body as text (HTTP GET). Use for reading pages, APIs, robots.txt, JS bundles, etc.".to_string(),
+                description: "Fetch a URL (HTTP GET). Returns clean readable `text` (scripts/markup stripped) + page `title`, plus raw `content`. Use after web_search to read a result page's full current content, or for APIs, robots.txt, JS bundles, etc.".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
