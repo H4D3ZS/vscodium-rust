@@ -20,6 +20,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use serde::Deserialize;
+
 use crate::arm::aarch64::{AArch64Config, AArch64Cpu};
 use crate::arm::cpu_trait::{ArmCpu, CpuExit, ProcessorState};
 use crate::arm::memory::{ArmMemory, ExclusiveMonitor, MemResult, MemoryError, MmioHandler};
@@ -350,6 +352,101 @@ fn parse_unixthread_entry_va(bytes: &[u8]) -> Option<u64> {
     None
 }
 
+// =============================================================================
+// Data-driven boot manifest (Part A.1)
+//
+// All experimental fixes — extra seeds, instruction NOPs, byte patches, and
+// function stubs — live in a TOML manifest loaded at runtime, so iterating on a
+// blocker needs NO rebuild: edit the manifest and re-run. The built-in
+// `apply_styx_seeds()` provides the verified base; the manifest layers on top.
+// =============================================================================
+
+#[derive(Deserialize, Default, Debug)]
+struct Manifest {
+    #[serde(default)]
+    seed: Vec<SeedEntry>,
+    #[serde(default)]
+    nop: Vec<NopEntry>,
+    #[serde(default)]
+    patch: Vec<PatchEntry>,
+    #[serde(default)]
+    stub: Vec<StubEntry>,
+}
+
+#[derive(Deserialize, Debug)]
+struct SeedEntry {
+    addr: u64,
+    width: u8,
+    value: u64,
+    #[serde(default)]
+    note: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct NopEntry {
+    addr: u64,
+    #[serde(default)]
+    note: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct PatchEntry {
+    addr: u64,
+    bytes: String, // hex, e.g. "1f2003d5"
+    #[serde(default)]
+    note: String,
+}
+
+/// Patch a function entry so it returns immediately: `MOV W0,#ret_value; RET`.
+/// Used for single-CPU lock short-circuits and device/IOKit stubs.
+#[derive(Deserialize, Debug)]
+struct StubEntry {
+    addr: u64,
+    #[serde(default)]
+    ret_value: u32,
+    #[serde(default)]
+    note: String,
+}
+
+fn apply_manifest(mem: &mut TracingMem, path: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| Error::InvalidConfig(format!("manifest {}: {e}", path.display())))?;
+    let m: Manifest = toml::from_str(&text)
+        .map_err(|e| Error::InvalidConfig(format!("manifest parse {}: {e}", path.display())))?;
+
+    for s in &m.seed {
+        let bytes = s.value.to_le_bytes();
+        let w = (s.width as usize).min(8);
+        mem.load_bytes(s.addr, &bytes[..w])?;
+    }
+    for n in &m.nop {
+        mem.load_bytes(n.addr, &0xD503_201Fu32.to_le_bytes())?;
+    }
+    for p in &m.patch {
+        let raw: Vec<u8> = (0..p.bytes.len() / 2)
+            .map(|i| u8::from_str_radix(&p.bytes[i * 2..i * 2 + 2], 16))
+            .collect::<std::result::Result<_, _>>()
+            .map_err(|e| Error::InvalidConfig(format!("patch hex: {e}")))?;
+        mem.load_bytes(p.addr, &raw)?;
+    }
+    for st in &m.stub {
+        // MOV W0,#imm16 (0x52800000 | imm<<5) ; RET (0xD65F03C0)
+        let mov = 0x5280_0000u32 | ((st.ret_value & 0xFFFF) << 5);
+        mem.load_bytes(st.addr, &mov.to_le_bytes())?;
+        mem.load_bytes(st.addr + 4, &0xD65F_03C0u32.to_le_bytes())?;
+    }
+    diag!(
+        "[vphone-boot] manifest {}: {} seeds, {} nops, {} patches, {} stubs",
+        path.display(),
+        m.seed.len(),
+        m.nop.len(),
+        m.patch.len(),
+        m.stub.len()
+    );
+    let _ = (&m.seed, &m.nop, &m.patch, &m.stub); // notes are documentation-only
+    Ok(())
+}
+
 /// Configuration for a dynamic boot run.
 pub struct BootConfig {
     pub kernel: std::path::PathBuf,
@@ -366,6 +463,8 @@ pub struct BootConfig {
     pub break_pc: Option<u64>,
     /// Only honor break_pc after this many instructions (skip early benign hits).
     pub break_after: u64,
+    /// Optional data-driven manifest (extra seeds/nops/patches/stubs).
+    pub manifest: Option<std::path::PathBuf>,
 }
 
 // iBoot-equivalent boot seeds, specific to this kernelcache (iOS 26.1
@@ -391,6 +490,99 @@ const EVENT_STREAM_BIT_IDX: u64 = 0x8171_1c98; // ADRP 0x81711000 + LDR #3224
 const EVENT_STREAM_BIT_IDX_VAL: u32 = 4; // floor(log2(24MHz/1MHz)) - 1
 const TIMER_FREQ_GLOBAL: u64 = 0x8171_2048; // ADRP 0x81712000 + LDR #72
 const TIMER_FREQ_VAL: u64 = 24_000_000; // 24 MHz
+
+/// 30 runtime-gate NOPs from the C++ Styx `kGateNops` (kernelcache digest
+/// 7fbcacda36851b1b). Each is a guest PC whose instruction the C++ replaces with
+/// NOP to bypass an early-boot check/spin. NOP = 0xD503201F.
+const STYX_GATE_NOPS: &[u64] = &[
+    0x81AF4AE8, 0x81AF4B84, 0x81AF4D4C, 0x81AF4D5C, 0x81AF4FD4, 0x81AF4FF0, 0x81AF5204,
+    0x81AE0260, 0x81AE0BC4, 0x81AE8F4C, 0x81AEA318, 0x81AEA31C, 0x81AEA3B0, 0x81AEFB8C,
+    0x81AF0C4C, 0x81AF0D9C, 0x81AF0E2C, 0x81AF2434, 0x81AF56FC, 0x81B03048, 0x81B0C488,
+    0x81B0D000, 0x81B0D098, 0x81B0D170, 0x81B0D23C, 0x81B0D92C, 0x81B0EAC0, 0x81B0F398,
+    0x81B0FE90, 0x81C51B80,
+];
+
+/// Port of the C++ Styx seed machinery (WindowsHypervisor.cpp): the boot-CPU
+/// data structure (two objects: `rec` + `cpu_data`), the BSS/FILESET metadata
+/// seeds, the timer/fileset/scheduler dispatch stubs, and the runtime-gate NOPs.
+/// These are digest-specific to this exact kernelcache and reproduce the in-RAM
+/// state iBoot/early-boot would leave, so XNU's validation paths pass.
+fn apply_styx_seeds(mem: &mut TracingMem) -> Result<()> {
+    let w64 = |mem: &mut TracingMem, addr: u64, v: u64| mem.load_bytes(addr, &v.to_le_bytes());
+    let w32 = |mem: &mut TracingMem, addr: u64, v: u32| mem.load_bytes(addr, &v.to_le_bytes());
+
+    // --- Boot-CPU data structure (WindowsHypervisor.cpp ~745-776) ---
+    const REC_PA: u64 = 0x80A0_0000; // the per-CPU "record" (CpuDataEntries[0].cpu_data)
+    const CPU_DATA_PA: u64 = 0x80B0_0000; // the cpu_data the trampoline puts in TPIDR_EL1
+    const INT_STK: u64 = 0x80C1_0000;
+    const THR_STK: u64 = 0x80CA_0000;
+    const PLATFORM_INIT_FN: u64 = 0x81C4_8834; // rec[0xB8] validated target (IDA)
+
+    // cpu_data: zeroed 0x2000, self-ptr at +0, back-ptr to rec at +0x198.
+    w64(mem, CPU_DATA_PA, CPU_DATA_PA)?;
+    w64(mem, CPU_DATA_PA + 0x198, REC_PA)?;
+    // rec: stacks, cpu_data ptr (-> TPIDR_EL1), platform-init fn, cpu id 0.
+    w64(mem, REC_PA + 0x18, THR_STK)?;
+    w64(mem, REC_PA + 0x28, INT_STK)?;
+    w64(mem, REC_PA + 0x30, CPU_DATA_PA)?;
+    w64(mem, REC_PA + 0x68, CPU_DATA_PA)?;
+    w64(mem, REC_PA + 0xB8, PLATFORM_INIT_FN)?;
+    w32(mem, REC_PA + 0x1C8, 0)?; // boot CPU id == MPIDR&0xff
+    // CpuDataEntries[0] -> rec (table+0 = 0, table+8 = rec_pa).
+    w64(mem, CPU_DATA_ENTRIES, 0)?;
+    w64(mem, CPU_DATA_ENTRIES + 8, REC_PA)?;
+
+    // --- BSS seeds (StyxRuntimeGates.generated.hpp kBssSeeds) ---
+    w64(mem, 0x8178_4570, 1)?;
+    w32(mem, 0x8383_7530, 1)?;
+
+    // --- FILESET metadata seeds (page GPA 0x81784000) ---
+    let fp = 0x8178_4000u64;
+    w64(mem, fp + 0x248, 0x8100_4000)?;
+    w64(mem, fp + 0x250, 0x839F_0000)?;
+    w64(mem, fp + 0x268, 0x8100_4000)?;
+    w64(mem, fp + 0x270, 0x839F_0000)?;
+    w64(mem, fp + 0x290, 0x8100_4000)?;
+    w64(mem, fp + 0x298, 0x839F_0000)?;
+    w64(mem, fp + 0x460, 0x8100_0000)?;
+    w64(mem, fp + 0x3E0, 0x8384_3C00)?;
+
+    // --- Timer dispatch seed: global -> object -> vtable -> method(ret 0) ---
+    w32(mem, 0x8384_3A00, 0x5280_0000)?; // method: mov w0,#0
+    w32(mem, 0x8384_3A04, 0xD65F_03C0)?; // method: ret
+    w64(mem, 0x8384_3900 + 0x5B8, 0x8384_3A00)?; // vtable[0x5B8] = method
+    w64(mem, 0x8384_3800, 0x8384_3900)?; // object[0] = vtable
+    w64(mem, 0x8384_37A0, 0x8384_3800)?; // global = object
+
+    // --- FILESET entry dispatch stub (returns offset 0xC) ---
+    w64(mem, 0x8384_3C00 + 0x0C, 0x0C)?;
+    w64(mem, 0x8178_43E0, 0x8384_3C00)?;
+    w64(mem, 0x8381_2E30, 0x8384_3C00)?;
+
+    // --- Scheduler callback seed ---
+    const SCHED_ROOT: u64 = 0x837B_7000;
+    const SCHED_NODE: u64 = 0x837B_7100;
+    const SCHED_METHOD: u64 = 0x8384_3E00;
+    const SCHED_VTABLE: u64 = 0x8384_3F00;
+    w32(mem, SCHED_METHOD, 0x5280_0000)?;
+    w32(mem, SCHED_METHOD + 4, 0xD65F_03C0)?;
+    w64(mem, SCHED_VTABLE, SCHED_METHOD)?;
+    w64(mem, SCHED_NODE + 0x008, SCHED_METHOD)?;
+    w64(mem, SCHED_ROOT + 0x000, SCHED_NODE)?;
+    w64(mem, SCHED_ROOT + 0x008, SCHED_METHOD)?;
+    w64(mem, SCHED_ROOT + 0x5F0, SCHED_VTABLE)?;
+
+    // --- Runtime-gate NOPs ---
+    for &pc in STYX_GATE_NOPS {
+        w32(mem, pc, 0xD503_201F)?;
+    }
+
+    diag!(
+        "[vphone-boot] applied Styx seeds: rec@{REC_PA:#x} cpu_data@{CPU_DATA_PA:#x}, {} gate NOPs",
+        STYX_GATE_NOPS.len()
+    );
+    Ok(())
+}
 
 /// Execute the kernelcache on the AArch64 interpreter and return findings.
 pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
@@ -455,30 +647,17 @@ pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
     }
 
     if cfg.seed {
-        // Each 0x10-byte CpuDataEntries slot holds its cpu_data pointer at +8
-        // (the trampoline does `LDR Xn,[Xtable,#8]`). Point entry[0].cpu_data at
-        // the zeroed scratch page; its cpu id field (at +0x1C8) is 0 == MPIDR&0xff
-        // for the boot CPU, so the trampoline's search matches and exits.
-        let slot = CPU_DATA_ENTRIES + 8;
-        mem.load_bytes(slot, &CPU_DATA_SCRATCH.to_le_bytes())?;
+        // Full C++ Styx seed port: two-object cpu_data (rec @0x80A00000 +
+        // cpu_data @0x80B00000), BSS/FILESET/dispatch seeds, and 30 gate NOPs.
+        // Replaces the earlier single-scratch approach, which left TPIDR_EL1 and
+        // the per-CPU reads landing in invalid memory (pmap_startup spin).
+        apply_styx_seeds(&mut mem)?;
+        let _ = CPU_DATA_SCRATCH; // retained for reference / other diagnostics
+    }
 
-        // Minimal cpu_data struct fields the boot trampoline consumes right after
-        // finding its entry (iBoot would have set these up):
-        //   +0x18, +0x28 → per-CPU stack tops (loaded into SP)
-        //   +0xB8        → a pointer that must be non-null (CBZ → panic otherwise)
-        // Stacks live in dedicated zeroed RAM pages below boot_args.
-        const BOOT_STACK_TOP: u64 = 0x8068_0000; // grows down, below SP_BASE
-        const INTR_STACK_TOP: u64 = 0x8060_0000;
-        // +0xB8 is validated against one of two known kernel pointers
-        // (ADRP@0x835c0118+0x834 and ADRP@0x835c0128+0xA04, page 0x81C48000):
-        // 0x81C48834 / 0x81C48A04. Use the first so the check passes.
-        const CPU_DATA_B8: u64 = 0x81C4_8834;
-        mem.load_bytes(CPU_DATA_SCRATCH + 0x18, &INTR_STACK_TOP.to_le_bytes())?;
-        mem.load_bytes(CPU_DATA_SCRATCH + 0x28, &BOOT_STACK_TOP.to_le_bytes())?;
-        mem.load_bytes(CPU_DATA_SCRATCH + 0xB8, &CPU_DATA_B8.to_le_bytes())?;
-        diag!(
-            "[vphone-boot] seeded CpuDataEntries[0].cpu_data={CPU_DATA_SCRATCH:#x} at {slot:#x} (stacks + aux)"
-        );
+    // Layer the data-driven manifest on top (no rebuild needed to add fixes).
+    if let Some(path) = &cfg.manifest {
+        apply_manifest(&mut mem, path)?;
     }
 
     #[cfg(feature = "vphone-diag")]

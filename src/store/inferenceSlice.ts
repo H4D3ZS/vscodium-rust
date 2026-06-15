@@ -2,7 +2,6 @@ import type { StateCreator } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppState } from './index';
 import { normalizeOllamaUrl } from './utils';
-import { mergeLocalRegistryHints } from '../lib/localOllamaRegistry';
 import { applyLocalOllamaAgentDefaults } from '../lib/localOllamaAgentDefaults';
 
 export interface InferenceSlice {
@@ -305,9 +304,10 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                         continue;
                     } else {
                         models = await invoke<string[]>('list_provider_models', { provider: p });
-                        if (p.toLowerCase() === 'ollama' && get().ollamaServerMode === 'local') {
-                            models = mergeLocalRegistryHints(models);
-                        }
+                        // Show only ACTUALLY-INSTALLED Ollama models in the picker —
+                        // do not flood it with registry pull-hints the user hasn't
+                        // downloaded (that belongs in the pull/install wizard). Keeps
+                        // the picker Cursor-clean: exactly `ollama list`.
                         allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
                     }
                     if (p.toLowerCase() === 'ollama' && models.length > 0) set({ ollamaStatus: 'running' });

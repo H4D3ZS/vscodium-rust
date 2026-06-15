@@ -5,29 +5,28 @@
  * Persistent, searchable, evolving memory
  */
 
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import { invoke } from '@tauri-apps/api/core';
 
 export interface Memory {
   id: string;
   type: MemoryType;
   content: string;
   timestamp: number;
-  importance: number; // 0-1
+  importance: number;
   tags: string[];
   compressed: boolean;
-  aimReference?: string; // Path to .aim file if compressed
+  aimReference?: string;
 }
 
-export type MemoryType = 
-  | 'episodic'    // Events, experiences
-  | 'semantic'    // Facts, knowledge
-  | 'procedural'  // Skills, how-to
-  | 'emotional'   // Feelings, moods
-  | 'conversation' // Dialog history
-  | 'observation' // Learnings from environment
-  | 'achievement' // Accomplishments
-  | 'goal';       // Objectives, plans
+export type MemoryType =
+  | 'episodic'
+  | 'semantic'
+  | 'procedural'
+  | 'emotional'
+  | 'conversation'
+  | 'observation'
+  | 'achievement'
+  | 'goal';
 
 export interface MemoryIndex {
   memories: Memory[];
@@ -36,12 +35,21 @@ export interface MemoryIndex {
   compressedCount: number;
 }
 
+function dirname(p: string): string {
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+  return i >= 0 ? p.substring(0, i) : '.';
+}
+
+function joinPath(...parts: string[]): string {
+  return parts.join('/').replace(/\/+/g, '/');
+}
+
 export class AIRIMemorySystem {
   private memoryIndex: MemoryIndex;
   private memoryPath: string;
   private aimCachePath: string;
   private isInitialized: boolean = false;
-  private compressionThreshold: number = 50; // Compress after 50 memories
+  private compressionThreshold: number = 50;
 
   constructor(memoryPath: string = './MEMORY.md', aimCachePath: string = './.hades/.aim_cache') {
     this.memoryPath = memoryPath;
@@ -52,48 +60,34 @@ export class AIRIMemorySystem {
       totalMemories: 0,
       compressedCount: 0
     };
-
   }
 
-  /**
-   * Initialize memory system - load existing memories
-   */
   async initialize(): Promise<void> {
     await this.ensureDirectories();
     await this.loadMemories();
     await this.loadAimCache();
-    
     this.isInitialized = true;
   }
 
-  /**
-   * Ensure directories exist
-   */
   private async ensureDirectories(): Promise<void> {
     try {
-      await fs.mkdir(path.dirname(this.aimCachePath), { recursive: true });
+      await invoke('create_dir', { path: dirname(this.aimCachePath) });
     } catch (error) {
       console.error('[Memory] Failed to create directories:', error);
     }
   }
 
-  /**
-   * Load memories from MEMORY.md
-   */
   private async loadMemories(): Promise<void> {
     try {
-      const content = await fs.readFile(this.memoryPath, 'utf-8');
+      const content = await invoke<string>('read_file', { path: this.memoryPath });
       const memories = this.parseMemoriesFromMarkdown(content);
       this.memoryIndex.memories = memories;
       this.memoryIndex.totalMemories = memories.length;
-    } catch (error) {
+    } catch {
       await this.createMemoryFile();
     }
   }
 
-  /**
-   * Parse memories from markdown format
-   */
   private parseMemoriesFromMarkdown(content: string): Memory[] {
     const memories: Memory[] = [];
     const sections = content.split(/^###\s+/m);
@@ -133,34 +127,27 @@ export class AIRIMemorySystem {
     return memories;
   }
 
-  /**
-   * Load compressed memories from .aim cache
-   */
   private async loadAimCache(): Promise<void> {
     try {
-      const files = await fs.readdir(this.aimCachePath);
-      
-      for (const file of files) {
-        if (file.endsWith('.aim.json')) {
-          const filePath = path.join(this.aimCachePath, file);
-          const content = await fs.readFile(filePath, 'utf-8');
+      const entries = await invoke<Array<{ name: string; path: string; is_dir: boolean }>>('list_dir_flat', { path: this.aimCachePath });
+
+      for (const entry of entries) {
+        if (!entry.is_dir && entry.name.endsWith('.aim.json')) {
+          const content = await invoke<string>('read_file', { path: entry.path });
           const memory: Memory = JSON.parse(content);
-          
+
           if (!this.memoryIndex.memories.some(m => m.id === memory.id)) {
             memory.compressed = true;
-            memory.aimReference = filePath;
+            memory.aimReference = entry.path;
             this.memoryIndex.memories.push(memory);
             this.memoryIndex.compressedCount++;
           }
         }
       }
-    } catch (error) {
+    } catch {
     }
   }
 
-  /**
-   * Create new MEMORY.md file
-   */
   private async createMemoryFile(): Promise<void> {
     const header = `# AIRI Memory - Living Digital Entity
 
@@ -171,12 +158,9 @@ For compressed memories, see \`.hades/.aim_cache/\`
 ---
 
 `;
-    await fs.writeFile(this.memoryPath, header, 'utf-8');
+    await invoke('write_file_content', { path: this.memoryPath, content: header });
   }
 
-  /**
-   * Add a new memory
-   */
   async addMemory(
     content: string,
     type: MemoryType = 'episodic',
@@ -200,10 +184,8 @@ For compressed memories, see \`.hades/.aim_cache/\`
     this.memoryIndex.memories.push(memory);
     this.memoryIndex.totalMemories++;
 
-    // Save to MEMORY.md
     await this.appendMemoryToMarkdown(memory);
 
-    // Check if compression is needed
     if (this.memoryIndex.memories.length >= this.compressionThreshold) {
       await this.compressOldMemories();
     }
@@ -211,9 +193,6 @@ For compressed memories, see \`.hades/.aim_cache/\`
     return memory;
   }
 
-  /**
-   * Append memory to MEMORY.md
-   */
   private async appendMemoryToMarkdown(memory: Memory): Promise<void> {
     const entry = `
 ### ${memory.id}
@@ -227,19 +206,19 @@ For compressed memories, see \`.hades/.aim_cache/\`
 ---
 `;
 
-    await fs.appendFile(this.memoryPath, entry, 'utf-8');
+    let existing = '';
+    try {
+      existing = await invoke<string>('read_file', { path: this.memoryPath });
+    } catch {
+    }
+    await invoke('write_file_content', { path: this.memoryPath, content: existing + entry });
   }
 
-  /**
-   * Compress old memories using .aim kortex format
-   */
   private async compressOldMemories(): Promise<void> {
-
-    // Get old, low-importance memories
     const oldMemories = this.memoryIndex.memories
       .filter(m => !m.compressed && m.importance < 0.7)
       .sort((a, b) => a.timestamp - b.timestamp)
-      .slice(0, 20); // Compress 20 at a time
+      .slice(0, 20);
 
     for (const memory of oldMemories) {
       await this.compressMemory(memory);
@@ -248,14 +227,10 @@ For compressed memories, see \`.hades/.aim_cache/\`
     this.memoryIndex.lastOptimized = Date.now();
   }
 
-  /**
-   * Compress single memory to .aim file
-   */
   private async compressMemory(memory: Memory): Promise<void> {
     try {
-      const aimFile = path.join(this.aimCachePath, `${memory.id}.aim.json`);
-      
-      // Create compressed format
+      const aimFile = joinPath(this.aimCachePath, `${memory.id}.aim.json`);
+
       const compressedData = {
         ...memory,
         compressed: true,
@@ -265,35 +240,23 @@ For compressed memories, see \`.hades/.aim_cache/\`
         embeddings: await this.generateEmbeddings(memory.content)
       };
 
-      await fs.writeFile(aimFile, JSON.stringify(compressedData, null, 2), 'utf-8');
-      
+      await invoke('write_file_content', { path: aimFile, content: JSON.stringify(compressedData, null, 2) });
+
       memory.compressed = true;
       memory.aimReference = aimFile;
       this.memoryIndex.compressedCount++;
-
     } catch (error) {
       console.error('[Memory] Compression failed:', error);
     }
   }
 
-  /**
-   * Generate summary for compressed memory
-   */
   private async generateSummary(content: string): Promise<string> {
-    // Simple extractive summary (in production, use AI)
     const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 10);
     return sentences.slice(0, 3).join('. ') + '.';
   }
 
-  /**
-   * Generate a real semantic embedding via Ollama `nomic-embed-text` (through
-   * the Rust `embed_text` command). Falls back to a deterministic hash vector
-   * only if Ollama/the embed model is unavailable, so memory search still
-   * functions offline.
-   */
   private async generateEmbeddings(content: string): Promise<number[]> {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
       const vec = await invoke<number[]>('embed_text', { text: content.slice(0, 4000) });
       if (Array.isArray(vec) && vec.length > 0) return vec;
     } catch (e) {
@@ -303,24 +266,18 @@ For compressed memories, see \`.hades/.aim_cache/\`
     return Array(128).fill(0).map((_, i) => Math.sin(hash * i));
   }
 
-  /**
-   * Search memories
-   */
   async search(query: string, type?: MemoryType, limit: number = 10): Promise<Memory[]> {
     const queryLower = query.toLowerCase();
-    
+
     const results = this.memoryIndex.memories
       .filter(m => {
-        const matchesQuery = 
+        const matchesQuery =
           m.content.toLowerCase().includes(queryLower) ||
           m.tags.some(t => t.toLowerCase().includes(queryLower));
-        
         const matchesType = !type || m.type === type;
-        
         return matchesQuery && matchesType;
       })
       .sort((a, b) => {
-        // Sort by importance and recency
         const scoreA = a.importance * 0.7 + (a.timestamp / Date.now()) * 0.3;
         const scoreB = b.importance * 0.7 + (b.timestamp / Date.now()) * 0.3;
         return scoreB - scoreA;
@@ -330,51 +287,35 @@ For compressed memories, see \`.hades/.aim_cache/\`
     return results;
   }
 
-  /**
-   * Get recent memories
-   */
   async getRecent(limit: number = 20): Promise<Memory[]> {
     return this.memoryIndex.memories
       .sort((a, b) => b.timestamp - a.timestamp)
       .slice(0, limit);
   }
 
-  /**
-   * Get memories by type
-   */
   async getByType(type: MemoryType): Promise<Memory[]> {
     return this.memoryIndex.memories.filter(m => m.type === type);
   }
 
-  /**
-   * Get important memories
-   */
   async getImportant(threshold: number = 0.8): Promise<Memory[]> {
     return this.memoryIndex.memories.filter(m => m.importance >= threshold);
   }
 
-  /**
-   * Update memory importance
-   */
   async updateImportance(memoryId: string, importance: number): Promise<void> {
     const memory = this.memoryIndex.memories.find(m => m.id === memoryId);
-    
+
     if (memory) {
       memory.importance = importance;
-      
-      // Update in .aim file if compressed
+
       if (memory.compressed && memory.aimReference) {
-        const content = await fs.readFile(memory.aimReference, 'utf-8');
+        const content = await invoke<string>('read_file', { path: memory.aimReference });
         const data = JSON.parse(content);
         data.importance = importance;
-        await fs.writeFile(memory.aimReference, JSON.stringify(data, null, 2), 'utf-8');
+        await invoke('write_file_content', { path: memory.aimReference, content: JSON.stringify(data, null, 2) });
       }
     }
   }
 
-  /**
-   * Get memory statistics
-   */
   getStats(): {
     total: number;
     byType: Record<string, number>;
@@ -397,16 +338,10 @@ For compressed memories, see \`.hades/.aim_cache/\`
     };
   }
 
-  /**
-   * Export all memories
-   */
   async exportMemories(): Promise<string> {
     return JSON.stringify(this.memoryIndex, null, 2);
   }
 
-  /**
-   * Import memories
-   */
   async importMemories(json: string): Promise<number> {
     const data: MemoryIndex = JSON.parse(json);
     let imported = 0;
@@ -422,17 +357,14 @@ For compressed memories, see \`.hades/.aim_cache/\`
     return imported;
   }
 
-  /**
-   * Clear old, unimportant memories
-   */
   async clearOldMemories(daysOld: number = 30, maxImportance: number = 0.3): Promise<number> {
     const cutoff = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
-    
-    const toRemove = this.memoryIndex.memories.filter(m => 
+
+    const toRemove = this.memoryIndex.memories.filter(m =>
       m.timestamp < cutoff && m.importance < maxImportance && !m.compressed
     );
 
-    this.memoryIndex.memories = this.memoryIndex.memories.filter(m => 
+    this.memoryIndex.memories = this.memoryIndex.memories.filter(m =>
       !toRemove.some(r => r.id === m.id)
     );
 
@@ -440,5 +372,4 @@ For compressed memories, see \`.hades/.aim_cache/\`
   }
 }
 
-// Export singleton
 export const airiMemory = new AIRIMemorySystem();

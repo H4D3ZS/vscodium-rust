@@ -52,6 +52,10 @@ struct Cli {
     /// Only honor --break-pc after this many instructions (skip early hits).
     #[arg(long, default_value = "0")]
     break_after: u64,
+    /// Data-driven boot manifest (TOML): extra seeds/nops/patches/stubs, applied
+    /// at runtime so fixes need no rebuild.
+    #[arg(long)]
+    manifest: Option<PathBuf>,
 }
 
 /// Verbose diagnostics, compiled in only with `--features vphone-diag`. Default
@@ -92,6 +96,7 @@ fn main() -> Result<()> {
         break_pc: cli.break_pc.as_deref().and_then(|s| {
             u64::from_str_radix(s.trim_start_matches("0x"), 16).ok()
         }),
+        manifest: cli.manifest,
     };
 
     let run = boot_and_trace(&cfg)?;

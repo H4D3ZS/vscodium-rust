@@ -2,7 +2,7 @@
  * Cursor-style chat toolbar — mode selector, model picker, attach, plan/live toggles.
  * Clean pill-based design with consistent hover states.
  */
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../../store';
 import { Volume2, VolumeX } from 'lucide-react';
 import ScreenRecordingButton from '../agent/ScreenRecordingButton';
@@ -49,18 +49,39 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
     const setAgentMode = useStore(state => state.setAgentMode);
     const agentModel = useStore(state => state.agentModel);
     const setAgentModel = useStore(state => state.setAgentModel);
+    const refreshAvailableModels = useStore(state => state.refreshAvailableModels);
+    const ollamaStatus = useStore(state => state.ollamaStatus);
 
     const [showModePicker, setShowModePicker] = useState(false);
     const [showModelPicker, setShowModelPicker] = useState(false);
+    const [isRefreshingModels, setIsRefreshingModels] = useState(false);
     const modeRef = useRef<HTMLDivElement>(null);
     const modelRef = useRef<HTMLDivElement>(null);
+
+    // Pull the live installed-model list from Ollama. Called when the picker
+    // opens and via the manual refresh button — fixes the "picker is empty if
+    // Ollama wasn't up at boot" case (a one-shot boot fetch never retries).
+    const doRefreshModels = React.useCallback(async () => {
+        setIsRefreshingModels(true);
+        try { await refreshAvailableModels?.('ollama'); }
+        finally { setIsRefreshingModels(false); }
+    }, [refreshAvailableModels]);
+
+    const openModelPicker = () => {
+        setShowModelPicker(v => {
+            const next = !v;
+            if (next) void doRefreshModels();
+            return next;
+        });
+    };
 
     const currentModeOption = AGENT_MODES.find(m => m.id === mode) || AGENT_MODES[0];
 
     // Build model list from available models
-    const modelList: ModelInfo[] = useStore(state => {
-        const models = state.availableModels || [];
-        return models.map((m: any) => ({
+    const availableModels = useStore(state => state.availableModels);
+    const modelList: ModelInfo[] = useMemo(() => {
+        const models = availableModels || [];
+        const mapped = models.map((m: any) => ({
             id: typeof m === 'string' ? m : m.id || m.name,
             name: typeof m === 'string' ? m.split('/').pop() || m : m.name || m.id,
             provider: typeof m === 'string' ? (m.includes('|') ? m.split('|')[0] : 'Ollama') : m.provider || 'Ollama',
@@ -68,7 +89,9 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
             capabilities: m.capabilities,
             isLocal: !m.provider || m.provider === 'Ollama' || m.provider === 'ollama',
         }));
-    }) || [];
+        // Ollama-first: local installed models float to the top of the picker.
+        return mapped.sort((a, b) => (a.isLocal === b.isLocal ? 0 : a.isLocal ? -1 : 1));
+    }, [availableModels]);
 
     // Close dropdowns on outside click
     useEffect(() => {
@@ -118,7 +141,7 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 {/* Model selector — Cursor-style pill */}
                 <div ref={modelRef} style={{ position: 'relative' }}>
                     <div
-                        onClick={(e) => { e.stopPropagation(); setShowModelPicker(v => !v); }}
+                        onClick={(e) => { e.stopPropagation(); openModelPicker(); }}
                         title={modelLabel}
                         className="vscr-pill vscr-pill--model"
                         style={{ cursor: 'pointer' }}
@@ -132,6 +155,9 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                             selectedModel={agentModel}
                             onSelect={(id) => setAgentModel(id)}
                             onClose={() => setShowModelPicker(false)}
+                            onRefresh={doRefreshModels}
+                            isRefreshing={isRefreshingModels}
+                            ollamaStatus={ollamaStatus}
                         />
                     )}
                 </div>
