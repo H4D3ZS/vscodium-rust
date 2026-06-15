@@ -2,7 +2,7 @@
 ## Active Mission Status
 
 - **Status:** Active
-- **Current Task:** Processing: tell me about this:
+- **Current Task:** Processing: make a calculator in python
 """
 CISV — Geophysical Foundation Model (GFM) Local Inferenc
 You are **AIRI**, the autonomous agentic co-pilot o
