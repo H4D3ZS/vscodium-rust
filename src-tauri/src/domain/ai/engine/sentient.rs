@@ -14,7 +14,6 @@ use tauri::AppHandle;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::Semaphore;
 
-use crate::ai_auth::AuthState;
 use crate::ai_tools::AiTools;
 use crate::mcp_registry::{McpRegistry, McpServerConfig};
 use crate::memory_store::MemoryStore;
@@ -91,7 +90,6 @@ pub struct Sentient {
     pub(crate) tool_invoker: Arc<ToolInvoker>,
     pub(crate) conversation_state: AsyncMutex<Vec<ChatMessage>>,
     pub(crate) app_handle: std::sync::RwLock<Option<AppHandle>>,
-    pub(crate) auth_state: Arc<AuthState>,
     pub(crate) ollama_url: tokio::sync::Mutex<String>,
     /// Caps concurrent Ollama HTTP calls from this process so one desktop seat
     /// does not trip nginx `limit_conn` on a shared reverse proxy.
@@ -145,7 +143,6 @@ impl Sentient {
     pub fn new(
         api_key: String,
         root_path: PathBuf,
-        auth_state: Arc<AuthState>,
         browser_state: Arc<crate::browser::BrowserState>,
         git_manager: Arc<crate::git::GitManager>,
         config_dir: PathBuf,
@@ -228,7 +225,6 @@ impl Sentient {
             tool_invoker,
             conversation_state: AsyncMutex::new(Vec::new()),
             app_handle: std::sync::RwLock::new(None),
-            auth_state,
             ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
             ollama_http_sem: Arc::new(Semaphore::new(4)),
             _browser_state: browser_state.clone(),

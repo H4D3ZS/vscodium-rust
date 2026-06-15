@@ -8,7 +8,7 @@ pub mod android;
 pub mod ane;
 pub mod antigravity;
 pub mod apex;
-pub mod auth;
+pub mod api_keys;
 pub mod chunk_secrets;
 pub mod cursor;
 pub mod debug;

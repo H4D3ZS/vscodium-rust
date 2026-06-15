@@ -15,7 +15,6 @@ use crate::debug_adapter::DebugManager;
 use crate::activation::ActivationManager;
 use crate::performance::PerformanceMonitor;
 use crate::ai_engine::Sentient;
-use crate::ai_auth;
 use crate::browser;
 use crate::mcp_registry::McpRegistry;
 use crate::ai_tools;
@@ -188,9 +187,8 @@ pub struct MemoryState {
     pub attachments: Arc<AttachmentManager>,
 }
 
-/// Cross-cutting services: auth, browser, MCP, VFS, specs, vcs helpers.
+/// Cross-cutting services: browser, MCP, VFS, specs, vcs helpers.
 pub struct ServiceState {
-    pub auth: Arc<ai_auth::AuthState>,
     pub browser: Arc<browser::BrowserState>,
     pub mcp_registry: Arc<McpRegistry>,
     pub mcp_server: Arc<mcp_server::McpServer>,
@@ -290,7 +288,6 @@ impl EditorState {
         }
 
         let root = resolve_startup_root(&config_dir);
-        let auth_state = Arc::new(ai_auth::AuthState::new());
         let browser_state = Arc::new(browser::BrowserState::new());
         // Tauri commands use State<Arc<BrowserState>> — must register or browser_open panics (IDE exit).
         app.manage(Arc::clone(&browser_state));
@@ -307,7 +304,6 @@ impl EditorState {
         let sentient = Arc::new(Sentient::new(
             "".to_string(), // Initial empty API key
             root.clone(),
-            auth_state.clone(),
             browser_state.clone(),
             git_manager.clone(),
             config_dir.clone(),
@@ -582,7 +578,6 @@ impl EditorState {
             webui_bridge,
             web_chat,
             services: ServiceState {
-                auth: auth_state,
                 browser: browser_state,
                 mcp_registry: Arc::new(McpRegistry::new(config_dir.join("mcp_servers.json"))),
                 mcp_server,

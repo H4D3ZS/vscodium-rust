@@ -54,12 +54,25 @@ pub async fn open_ai_login(
 ) -> Result<String, String> {
     let mode = mode.unwrap_or_else(|| "api_key".to_string());
     match mode.as_str() {
-        "api_key" => crate::ai_auth::open_api_key_console(&provider),
-        "webview" => {
-            crate::ai_auth::open_login_window(app, provider).await?;
-            Ok("opened-in-webview".to_string())
+        "api_key" => {
+            let url = match provider.to_lowercase().as_str() {
+                "anthropic" => "https://console.anthropic.com/settings/keys",
+                "openai" => "https://platform.openai.com/api-keys",
+                "google" => "https://aistudio.google.com/app/apikey",
+                "groq" => "https://console.groq.com/keys",
+                "openrouter" => "https://openrouter.ai/keys",
+                "mistral" => "https://console.mistral.ai/api-keys",
+                _ => "https://console.anthropic.com/settings/keys",
+            };
+            #[cfg(target_os = "windows")]
+            { let _ = std::process::Command::new("cmd").args(["/c", "start", url]).spawn(); }
+            #[cfg(target_os = "macos")]
+            { let _ = std::process::Command::new("open").arg(url).spawn(); }
+            #[cfg(target_os = "linux")]
+            { let _ = std::process::Command::new("xdg-open").arg(url).spawn(); }
+            Ok(format!("Opened {} API key page in browser", provider))
         }
-        other => Err(format!("Unknown login mode '{}'. Use 'api_key' or 'webview'.", other)),
+        other => Err(format!("Unknown login mode '{}'. Use 'api_key'.", other)),
     }
 }
 

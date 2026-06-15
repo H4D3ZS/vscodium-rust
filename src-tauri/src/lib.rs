@@ -7,17 +7,12 @@ pub use state::EditorState;
 pub mod vega;
 pub mod infrastructure;
 // ── Overhaul shims (services/workspace/compat batch) — deleted in A1 cleanup.
-pub use domain::services::account;
-pub(crate) use domain::services::ai_auth;
 pub(crate) use infrastructure::airi_bridge;
 pub(crate) use domain::compat::antigravity_compat;
 pub(crate) use domain::workspace::attachment_manager;
-pub use domain::services::auth;
 pub(crate) use infrastructure::binary_analyzer;
 pub(crate) use infrastructure::claurst_bridge;
 pub(crate) use domain::compat::cursor_compat;
-pub use domain::services::enterprise_audit;
-pub use domain::services::enterprise_governance;
 pub(crate) use infrastructure::ghost_runtime;
 pub(crate) use infrastructure::hermes_gateway;
 pub(crate) use domain::extensions::hermes_skills;
@@ -47,7 +42,7 @@ pub(crate) use application::commands::android as android_commands;
 pub(crate) use application::commands::ane as ane_commands;
 pub(crate) use application::commands::antigravity as antigravity_commands;
 pub(crate) use application::commands::apex as apex_commands;
-pub use application::commands::auth as auth_commands;
+pub(crate) use application::commands::api_keys as api_keys_commands;
 pub(crate) use application::commands::chunk_secrets as chunk_secrets_commands;
 pub(crate) use application::commands::cursor as cursor_commands;
 pub(crate) use application::commands::debug as debug_commands;
@@ -297,17 +292,6 @@ pub fn run() {
 
             // ANE warms on first inference / deferred offline stack — not at boot (saves RSS).
 
-            // Start background OAuth listener. Lite: defer 30s off the boot path.
-            let oauth_app_handle = _app_handle.clone();
-            tauri::async_runtime::spawn(async move {
-                if lite {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                }
-                if let Err(e) = auth_commands::start_oauth_listener(14285, oauth_app_handle).await {
-                    eprintln!("Failed to start OAuth listener: {}", e);
-                }
-            });
-
             // Initial working set trim on Windows — drops paged-out memory immediately.
             #[cfg(target_os = "windows")]
             unsafe {
@@ -372,54 +356,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // ═══ AI Auth & API Keys ═══
-            ai_auth::get_api_keys,
-            ai_auth::save_api_keys,
-            ai_auth::save_api_key,
-            ai_auth::hunt_api_keys,
-            ai_auth::save_ai_session,
-            ai_auth::capture_ai_session,
-            ai_auth::capture_ai_session_now,
-            ai_auth::provider_login_capabilities,
-            auth_commands::start_webui_login,
-            auth_commands::list_webui_sessions,
-            auth_commands::switch_webui_session,
-            auth_commands::delete_webui_session,
-            auth_commands::check_login_status,
-            auth_commands::get_stored_token,
-            auth_commands::send_webui_prompt,
-            auth_commands::save_webui_response,
-            auth_commands::webui_agent_run,
-            auth_commands::toggle_webui_window_visibility,
-            // ═══ Auth (Supabase) ═══
-            auth::auth_sign_up,
-            auth::auth_sign_in,
-            auth::auth_session,
-            auth::auth_sign_out,
-            // ═══ Account / Subscription / ToS ═══
-            account::account_get,
-            account::account_accept_tos,
-            account::account_tos_status,
-            account::account_has_feature,
-            account::account_has_feature_offline,
-            account::account_set_tier,
-            account::account_acquire_addon,
-            account::account_subscribe,
-            account::account_sync,
-            account::account_check_and_count,
-            account::account_usage,
-            account::account_add_tokens,
-            account::account_start_trial,
-            account::account_open_billing,
-            // ═══ Enterprise (audit + org policy) ═══
-            enterprise_audit::enterprise_get_policy,
-            enterprise_audit::enterprise_set_policy,
-            enterprise_audit::enterprise_audit_list,
-            enterprise_audit::enterprise_audit_export,
-            enterprise_audit::enterprise_audit_log,
-            enterprise_audit::enterprise_seed_cyber_policy,
-            enterprise_audit::enterprise_init_engagement,
-            enterprise_audit::enterprise_export_sarif,
+            // ═══ API Keys ═══
+            api_keys_commands::get_api_keys,
+            api_keys_commands::save_api_keys,
+            api_keys_commands::save_api_key,
             // ═══ Security Arsenal (Obsidian-style generators) ═══
             security_generator_commands::security_reverse_shell,
             security_generator_commands::security_listener,

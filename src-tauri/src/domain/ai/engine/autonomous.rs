@@ -37,49 +37,6 @@ impl Sentient {
             return self.single_shot_completion(req).await;
         }
 
-        // ── SaaS entitlement enforcement (backend — not UI-only) ─────────────
-        {
-            let p = req.provider.to_lowercase();
-            if p.contains("cyberifrit") || p.contains("cyber-ifrit") {
-                let cfg = crate::account::account_config_dir(&self.brain_dir);
-                if let Err(e) = crate::account::require_feature_at(&cfg, "cloud_models") {
-                    return Err(anyhow!(e));
-                }
-            }
-            let mode_l = req.mode.as_deref().unwrap_or("agent").to_ascii_lowercase();
-            let needs_full_agentic = matches!(
-                mode_l.as_str(),
-                "sentient" | "harness" | "planning" | "yolo" | "autonomous"
-            ) || (mode_l.contains("bug") && mode_l.contains("bounty"));
-            if needs_full_agentic {
-                let cfg = crate::account::account_config_dir(&self.brain_dir);
-                if let Err(e) = crate::account::require_feature_at(&cfg, "agentic") {
-                    return Err(anyhow!(e));
-                }
-            }
-        }
-
-        // ── Enterprise org policy (models, offline-only) ─────────────────────
-        {
-            let cfg = crate::account::account_config_dir(&self.brain_dir);
-            if let Err(e) = crate::enterprise_governance::model_allowed(&cfg, &req.model) {
-                return Err(anyhow!(e));
-            }
-            let policy = crate::enterprise_audit::load_policy(&cfg);
-            if policy.audit_enabled && policy.audit_model_calls {
-                let _ = crate::enterprise_audit::append_audit(
-                    &cfg,
-                    "agent",
-                    "model.invoke",
-                    serde_json::json!({
-                        "model": req.model,
-                        "provider": req.provider,
-                        "mode": req.mode,
-                    }),
-                );
-            }
-        }
-
         // Detect "local quantized model" providers early — used throughout the
         // function for budget decisions. Ollama, the antigravity local proxy,
         // AND the local DeepSeek-ANE server (llama.cpp / MLX on Apple Silicon)
@@ -1927,16 +1884,10 @@ impl Sentient {
             }
 
             // Get session first (async)
-            let mut session_opt = None;
             if active_provider.ends_with("(Browser)") {
-                let provider_name = active_provider.replace(" (Browser)", "").to_lowercase();
-                session_opt = crate::ai_auth::get_session(&self.auth_state, &provider_name).await;
-                if session_opt.is_none() {
-                    return Err(anyhow!(
-                        "No active browser session for {}. Please login first.",
-                        active_provider
-                    ));
-                }
+                return Err(anyhow!(
+                    "Browser sessions are not available in the community edition. Use an API key instead."
+                ));
             }
 
             let provider_key = self
@@ -1947,23 +1898,6 @@ impl Sentient {
 
             // Now create the request (must not hold non-Send state across await if any)
             let mut request = self.client.post(endpoint.clone());
-
-            if let Some(session) = session_opt {
-                let provider_name = active_provider.replace(" (Browser)", "").to_lowercase();
-                request = request
-                    .header("Cookie", &session.cookies)
-                    .header("User-Agent", &session.user_agent);
-
-                if provider_name == "claude" {
-                    request = request
-                        .header("Accept", "application/json")
-                        .header("Referer", "https://claude.ai/chat");
-                } else if provider_name == "gemini" {
-                    request = request
-                        .header("x-goog-authuser", "0")
-                        .header("Referer", "https://gemini.google.com/app");
-                }
-            }
 
             let keyless_providers = ["ollama", "antigravity", "vllm", "lmstudio", "lm-studio", "lm_studio", "litellm", "lite-llm", "lite_llm", "openwebui", "webchat"];
             let is_keyless = keyless_providers.iter().any(|p| active_provider.to_lowercase().starts_with(p));

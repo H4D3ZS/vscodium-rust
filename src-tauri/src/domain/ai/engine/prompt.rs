@@ -80,32 +80,12 @@ impl Sentient {
         if !k.trim().is_empty() {
             return k;
         }
-        if Self::is_cyberifrit_managed_ollama_url(base_url) {
-            let cfg = crate::account::account_config_dir(&self.brain_dir);
-            if let Some(s) = crate::auth::load_session(&cfg) {
-                if !s.access_token.is_empty() {
-                    return s.access_token;
-                }
-            }
-        }
         String::new()
     }
 
     pub(crate) fn get_key_for_provider(&self, provider: &str) -> String {
         let provider_base = provider.split(':').next().unwrap_or(provider).to_lowercase();
         
-        // 1. Try OAuth token first
-        let lookup_provider = if provider_base.contains("openwebui") {
-            "openwebui"
-        } else if provider_base == "gemini" {
-            "google"
-        } else {
-            &provider_base
-        };
-        if let Some(token) = crate::auth_commands::get_stored_token_sync(lookup_provider) {
-            if !token.is_empty() { return token; }
-        }
-
         let env_var = match provider_base.as_str() {
             "anthropic" => "ANTHROPIC_API_KEY",
             "google" | "gemini" => "GOOGLE_API_KEY",
@@ -152,17 +132,6 @@ impl Sentient {
                 if let Some(key) = keys[provider_base.clone()].as_str() {
                     if !key.is_empty() { return key.to_string(); }
                 }
-            }
-        }
-
-        // Cyber-Ifrit managed cloud (AMD MI300X Ollama): if no explicit key was
-        // set, authorize with the signed-in SUBSCRIPTION token (Supabase access
-        // token). This is the "pay & subscribe → managed cloud just works, no
-        // BYO key" path — the AMD gateway validates this JWT + the entitlement.
-        if matches!(provider_base.as_str(), "cyberifrit" | "cyber-ifrit" | "cyberifrit-cloud") {
-            let cfg = crate::account::account_config_dir(&self.brain_dir);
-            if let Some(s) = crate::auth::load_session(&cfg) {
-                if !s.access_token.is_empty() { return s.access_token; }
             }
         }
 

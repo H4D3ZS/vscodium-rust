@@ -212,10 +212,6 @@ impl McpRegistry {
                         .iter()
                         .any(|t| t.get("name").and_then(|n| n.as_str()) == Some(name))
                     {
-                        if let Some(dir) = config_dir {
-                            crate::enterprise_governance::mcp_server_allowed(dir, server_name)
-                                .map_err(|e| anyhow::anyhow!(e))?;
-                        }
                         let params = serde_json::json!({
                             "name": name,
                             "arguments": arguments

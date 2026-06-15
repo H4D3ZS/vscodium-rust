@@ -242,14 +242,6 @@ impl AiTools {
     }
 
     pub(crate) async fn handle_security_generator(&self, name: &str, args: Value) -> Result<Value> {
-        if let Some(dir) = self.config_dir().await {
-            let acct = crate::account::AccountManager::load(&dir);
-            if !crate::account::AccountManager::has_accepted(&acct, "bug-bounty") {
-                return Err(anyhow!(
-                    "Accept Bug Bounty Terms in Settings → Account before using security generators."
-                ));
-            }
-        }
         use crate::security_generators::{
             analyze_csp, encode_payload, listener_config, reverse_shell, shellcode_recipe,
         };

@@ -618,11 +618,11 @@ pub async fn spawn_opencode_terminal(
 
     // Load API keys from disk
     let api_keys_path = state.config_dir.join("api_keys.json");
-    let api_keys: crate::ai_auth::ApiKeys = if api_keys_path.exists() {
+    let api_keys: serde_json::Value = if api_keys_path.exists() {
         let content = std::fs::read_to_string(&api_keys_path).unwrap_or_default();
-        serde_json::from_str(&content).unwrap_or_default()
+        serde_json::from_str(&content).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
     } else {
-        crate::ai_auth::ApiKeys::default()
+        serde_json::Value::Object(serde_json::Map::new())
     };
 
     // Resolve workspace root
@@ -648,29 +648,30 @@ pub async fn spawn_opencode_terminal(
     cmd.env("OPENAI_API_KEY", "ollama");
 
     // Layer on real cloud keys so opencode can detect + use them
-    if let Some(key) = &api_keys.anthropic {
+    if let Some(key) = api_keys.get("anthropic").and_then(|v| v.as_str()) {
         if !key.is_empty() { cmd.env("ANTHROPIC_API_KEY", key); }
     }
-    if let Some(url) = &api_keys.anthropic_base_url {
+    if let Some(url) = api_keys.get("anthropic_base_url").and_then(|v| v.as_str()) {
         if !url.is_empty() { cmd.env("ANTHROPIC_BASE_URL", url); }
     }
-    if let Some(key) = &api_keys.openai {
+    if let Some(key) = api_keys.get("openai").and_then(|v| v.as_str()) {
         if !key.is_empty() {
             // Real OpenAI key overrides the ollama stub
             cmd.env("OPENAI_API_KEY", key);
-            cmd.env("OPENAI_BASE_URL", api_keys.openai_base_url.as_deref().unwrap_or("https://api.openai.com/v1"));
+            let base_url = api_keys.get("openai_base_url").and_then(|v| v.as_str()).unwrap_or("https://api.openai.com/v1");
+            cmd.env("OPENAI_BASE_URL", base_url);
         }
     }
-    if let Some(key) = &api_keys.google {
+    if let Some(key) = api_keys.get("google").and_then(|v| v.as_str()) {
         if !key.is_empty() { cmd.env("GOOGLE_API_KEY", key); }
     }
-    if let Some(key) = &api_keys.groq {
+    if let Some(key) = api_keys.get("groq").and_then(|v| v.as_str()) {
         if !key.is_empty() { cmd.env("GROQ_API_KEY", key); }
     }
-    if let Some(key) = &api_keys.openrouter {
+    if let Some(key) = api_keys.get("openrouter").and_then(|v| v.as_str()) {
         if !key.is_empty() { cmd.env("OPENROUTER_API_KEY", key); }
     }
-    if let Some(key) = &api_keys.mistral {
+    if let Some(key) = api_keys.get("mistral").and_then(|v| v.as_str()) {
         if !key.is_empty() { cmd.env("MISTRAL_API_KEY", key); }
     }
 

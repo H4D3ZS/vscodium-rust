@@ -10,7 +10,6 @@ pub mod indexing;
 pub mod memory;
 pub mod mobile;
 pub mod security;
-pub mod services;
 pub mod types;
 pub mod vcs;
 pub mod workspace;
