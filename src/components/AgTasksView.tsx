@@ -38,7 +38,7 @@ const AgTasksView: React.FC = () => {
         try {
             await invoke('ag_mark_task_done', { tasksPath, taskId: task.task_id });
             await load();
-        } catch (_) {}
+        } catch { /* non-fatal */ }
     };
 
     const executeTask = (task: AgTask) => {

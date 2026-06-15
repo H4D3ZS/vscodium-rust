@@ -327,7 +327,7 @@ Respond as JSON array:
         } catch (error: any) {
           task.status = 'blocked';
           task.error = error.message;
-          console.error(`[AutonomousDev] ❌ Failed: ${task.description}`);
+ console.error(`[AutonomousDev] Failed: ${task.description}`);
           console.error(`   Error: ${error.message}\n`);
         }
       }

@@ -1,0 +1,21 @@
+{
+  "exampleHook": {
+    "PostInvocation": [],
+    "PostToolUse": [],
+    "PreInvocation": [],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "echo pre-tool",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "run_command"
+      }
+    ],
+    "Stop": [],
+    "enabled": false
+  }
+}

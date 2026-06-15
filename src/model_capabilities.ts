@@ -63,7 +63,7 @@ export interface GlobalSettings {
 export const defaultGlobalSettings: GlobalSettings = {
     autoRefreshModels: true,
     aiInstructions: '',
-    enableAutocomplete: false,
+    enableAutocomplete: true,
     syncApplyToChat: true,
     enableFastApply: true,
     chatMode: 'agent',
@@ -133,6 +133,19 @@ const openSourceModels: Record<string, Partial<ModelCapabilities>> = {
         reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
         contextWindow: 16_000, reservedOutputTokenSpace: 4_096,
     },
+    'gemma4': {
+        supportsSystemMessage: 'system-role',
+        supportsFIM: false,
+        specialToolFormat: 'openai-style',
+        reasoningCapabilities: {
+            supportsReasoning: true,
+            canTurnOffReasoning: true,
+            canIOReasoning: true,
+            openSourceThinkTags: ['<|channel>thought', '<channel|>'],
+        },
+        contextWindow: 128_000,
+        reservedOutputTokenSpace: 8_192,
+    },
     'gemma': {
         supportsSystemMessage: 'system-role',
         supportsFIM: false,
@@ -184,8 +197,27 @@ const openSourceModels: Record<string, Partial<ModelCapabilities>> = {
     'qwen3': {
         supportsFIM: false,
         supportsSystemMessage: 'system-role',
+        specialToolFormat: 'openai-style',
         reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
-        contextWindow: 32_768, reservedOutputTokenSpace: 8_192,
+        contextWindow: 65_536, reservedOutputTokenSpace: 8_192,
+    },
+    'kimi': {
+        supportsSystemMessage: 'system-role',
+        supportsFIM: false,
+        reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+        contextWindow: 256_000, reservedOutputTokenSpace: 16_384,
+    },
+    'glm': {
+        supportsSystemMessage: 'system-role',
+        supportsFIM: false,
+        reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+        contextWindow: 200_000, reservedOutputTokenSpace: 16_384,
+    },
+    'minimax': {
+        supportsSystemMessage: 'system-role',
+        supportsFIM: false,
+        reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+        contextWindow: 256_000, reservedOutputTokenSpace: 16_384,
     },
     'starcoder2': {
         supportsFIM: true,
@@ -281,6 +313,7 @@ const deepseekModels: Record<string, ModelCapabilities> = {
     // DeepSeek-V4-Pro — permanent 75%-off pricing, automatic server-side context
     // caching (cache-hit input is ~120x cheaper). Ideal resell/rebrand executor.
     'deepseek-v4-pro': { contextWindow: 128_000, reservedOutputTokenSpace: 8_192, cost: { cache_read: 0.003625, input: 0.435, output: 0.87 }, downloadable: false, supportsFIM: false, supportsSystemMessage: 'system-role', specialToolFormat: 'openai-style', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] } },
+    'deepseek-v4-flash': { contextWindow: 128_000, reservedOutputTokenSpace: 8_192, cost: { cache_read: 0.002, input: 0.2, output: 0.4 }, downloadable: false, supportsFIM: false, supportsSystemMessage: 'system-role', specialToolFormat: 'openai-style', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: false } },
 };
 
 // Xiaomi MiMo — OpenAI/Anthropic-compatible coding models (Token Plan subscription
@@ -317,6 +350,8 @@ const ollamaModels: Record<string, ModelCapabilities> = {
     'qwq': { contextWindow: 128_000, reservedOutputTokenSpace: 32_000, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 20 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
     'deepseek-r1': { contextWindow: 128_000, reservedOutputTokenSpace: null, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 4.7 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
     'devstral:latest': { contextWindow: 131_000, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 14 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
+    'FastContext-1.0-4B-SFT': { contextWindow: 262_144, reservedOutputTokenSpace: 4_096, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 8 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: false },
+    'gemma-4-12B-coder-fable5-composer2.5-v1': { contextWindow: 131_072, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 7 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
 };
 
 export const ollamaRecommendedModels = ['qwen2.5-coder:7b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'];
@@ -367,13 +402,18 @@ function fuzzyLookup(modelName: string): Partial<ModelCapabilities> | null {
     if (m.includes('grok-3') || m.includes('grok3')) return { ...xAIModels['grok-3'] };
     if (m.includes('grok')) return { ...xAIModels['grok-2'] };
 
-    if (m.includes('deepseek-v4') || m.includes('v4-pro')) return { ...deepseekModels['deepseek-v4-pro'] };
+    if (m.includes('deepseek-v4') || m.includes('v4-pro') || m.includes('v4-flash')) return { ...deepseekModels['deepseek-v4-pro'] };
     if (m.includes('deepseek-reasoner') || m.includes('deepseek-r1')) return { ...deepseekModels['deepseek-reasoner'] };
     if (m.includes('deepseek')) return { ...deepseekModels['deepseek-chat'] };
+
+    if (m.includes('kimi')) return openSourceModels.kimi as ModelCapabilities;
+    if (m.includes('glm')) return openSourceModels.glm as ModelCapabilities;
+    if (m.includes('minimax')) return openSourceModels.minimax as ModelCapabilities;
 
     if (m.includes('codestral')) return openSourceModels.codestral as ModelCapabilities;
     if (m.includes('devstral')) return openSourceModels.devstral as ModelCapabilities;
     if (m.includes('phi4') || m.includes('phi-4')) return openSourceModels.phi4 as ModelCapabilities;
+    if (m.includes('gemma4') || m.includes('gemma-4')) return openSourceModels.gemma4 as ModelCapabilities;
     if (m.includes('gemma')) return openSourceModels.gemma as ModelCapabilities;
     if (m.includes('llama3.3')) return openSourceModels['llama3.3'] as ModelCapabilities;
     if (m.includes('llama3.2')) return openSourceModels['llama3.2'] as ModelCapabilities;
@@ -498,10 +538,16 @@ export interface SearchReplaceBlock {
 
 export function extractSearchReplaceBlocks(text: string): SearchReplaceBlock[] {
     const blocks: SearchReplaceBlock[] = [];
-    const pattern = /<<<<<<< ORIGINAL\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> UPDATED/g;
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(text)) !== null) {
-        blocks.push({ original: match[1], updated: match[2] });
+    const patterns = [
+        /<<<<<<< ORIGINAL\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> UPDATED/g,
+        /<<<< SEARCH\n([\s\S]*?)\n?====\n([\s\S]*?)\n?>>>>/g,
+        /<<<<<<< SEARCH\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/g,
+    ];
+    for (const pattern of patterns) {
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(text)) !== null) {
+            blocks.push({ original: match[1], updated: match[2] });
+        }
     }
     return blocks;
 }
@@ -523,8 +569,23 @@ export function modelKey(m: AvailableModelLite): string {
     return `${String(m.provider || '').toLowerCase()}|${m.id}`;
 }
 
-const BIG_LOCAL = /(?::|-)(?:30b|32b|34b|65b|70b|72b|110b)\b/;
-const SMALL_LOCAL = /(?::|-)(?:0\.5b|1\.5b|1b|2b|3b|4b|7b|8b|9b|13b|14b)\b/;
+const BIG_LOCAL = /(?::|-)(?:30b|32b|34b|40b|65b|70b|72b|110b)\b/i;
+const SMALL_LOCAL = /(?::|-)(?:0\.5b|1\.5b|1b|2b|3b|4b|7b|8b|9b|12b|13b|14b)\b/i;
+const HEAVY_LOCAL = /(?:^|[/:\-_])(40|35|32|30|27|70|72|128|229)(?:b|-)|deck-opus|neo-code|abliterat/i;
+
+const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'lm-studio', 'lm_studio', 'vllm', 'local']);
+
+/** Models that will stall a consumer GPU/CPU if used as hybrid planner. */
+export function isHeavyLocalModel(modelId: string): boolean {
+    const id = String(modelId || '').toLowerCase();
+    if (HEAVY_LOCAL.test(id)) return true;
+    if (BIG_LOCAL.test(id)) return true;
+    return false;
+}
+
+function isLocalProvider(provider: string): boolean {
+    return LOCAL_PROVIDERS.has(String(provider || '').toLowerCase());
+}
 
 /** Higher = stronger reasoner. Frontier cloud > large local > mid local. */
 function plannerScore(m: AvailableModelLite): number {
@@ -537,6 +598,13 @@ function plannerScore(m: AvailableModelLite): number {
     if (id.includes('o1')) return 86;
     if (id.includes('gpt-4.1') && !id.includes('mini') && !id.includes('nano')) return 82;
     if (id.includes('deepseek') && (id.includes('r1') || id.includes('reason'))) return 80;
+    if (id.includes('deepseek') && (id.includes('v4') || id.includes('v4-pro'))) return 85;
+    if (id.includes('kimi')) return id.includes('k2.6') || id.includes('k2-6') ? 92 : 78;
+    if (id.includes('glm')) return id.includes('5.1') || id.includes('5-1') ? 86 : 72;
+    if (id.includes('minimax') && id.includes('m2.7')) return 84;
+    if (id.includes('minimax') && id.includes('m3')) return 82;
+    if (id.includes('minimax')) return 70;
+    if (id.includes('qwen3.5') || id.includes('qwen3-5')) return 83;
     if (id.includes('gpt-4o') && !id.includes('mini')) return 78;
     if (id.includes('grok-3') && !id.includes('mini')) return 74;
     if (id.includes('claude')) return 70;
@@ -551,6 +619,9 @@ function plannerScore(m: AvailableModelLite): number {
 function executorScore(m: AvailableModelLite): number {
     const id = String(m.id || '').toLowerCase();
     if (id.includes('coder')) return 100;
+    if (id.includes('minimax') && id.includes('m3')) return 98;
+    if (id.includes('kimi') && id.includes('k2.6')) return 94;
+    if (id.includes('glm') && id.includes('5.1')) return 90;
     if (id.includes('codestral') || id.includes('starcoder')) return 95;
     if (id.includes('devstral')) return 88;
     if (id.includes('haiku')) return 85;
@@ -568,17 +639,47 @@ function executorScore(m: AvailableModelLite): number {
  * Pick a (planner, executor) pair from the available models. The executor is the
  * best fast model that differs from the planner; if only one model exists, both
  * roles collapse to it (degrades to today's single-model behavior).
+ *
+ * All-local installs (typical 4b–14b Ollama rigs): never auto-pick 30B+ deck models
+ * as planner — that doubles cold-load time on consumer hardware.
  */
 export function classifyModels(models: AvailableModelLite[]): PlannerExecutorPick {
     // Never pick apiradar (removed: leaked-key aggregator, unreachable → hangs the loop).
-    const list = (models || []).filter((m) => m && m.id && String(m.provider || '').toLowerCase() !== 'apiradar');
+    const list = (models || []).filter((m) => {
+        if (!m || !m.id) return false;
+        const p = String(m.provider || '').toLowerCase();
+        if (p === 'apiradar') return false;
+        // Ollama tags in the picker were already fetched — treat as reachable.
+        if (p === 'ollama') return true;
+        // Skip cloud-only model names that aren't installed locally.
+        if (/:cloud$|-cloud$/i.test(m.id)) return false;
+        return true;
+    });
     if (list.length === 0) return { planner: null, executor: null };
     if (list.length === 1) return { planner: list[0], executor: list[0] };
 
-    const planner = [...list].sort((a, b) => plannerScore(b) - plannerScore(a))[0];
     const byExecutor = [...list].sort((a, b) => executorScore(b) - executorScore(a));
-    const executor = byExecutor.find((m) => modelKey(m) !== modelKey(planner)) || byExecutor[0];
-    return { planner, executor };
+    const executor = byExecutor[0];
+    const allLocal = list.every((m) => isLocalProvider(String(m.provider || '')));
+
+    if (allLocal) {
+        const light = list.filter((m) => !isHeavyLocalModel(String(m.id || '')));
+        const pool = light.length > 0 ? light : list;
+        const plannerCandidate = [...pool]
+            .sort((a, b) => executorScore(b) - executorScore(a))[0];
+        // Same fast local model for both roles → no hybrid (avoid loading a second model).
+        if (modelKey(plannerCandidate) === modelKey(executor)) {
+            return { planner: executor, executor };
+        }
+        return { planner: plannerCandidate, executor };
+    }
+
+    const cloudPlannerPool = list.filter((m) => !isLocalProvider(String(m.provider || ''))
+        || !isHeavyLocalModel(String(m.id || '')));
+    const plannerPool = cloudPlannerPool.length > 0 ? cloudPlannerPool : list;
+    const planner = [...plannerPool].sort((a, b) => plannerScore(b) - plannerScore(a))[0];
+    const exec = byExecutor.find((m) => modelKey(m) !== modelKey(planner)) || byExecutor[0];
+    return { planner, executor: exec };
 }
 
 export function buildSearchReplacePrompt(originalFile: string, instruction: string): string {

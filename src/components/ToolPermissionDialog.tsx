@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { listen } from '../tauri_bridge';
 import { useStore } from '../store';
+import { isPersistentAgentMode } from '../lib/agentAutonomy';
 import { AlertTriangle, Terminal, Trash2, GitCommit, X, Check } from 'lucide-react';
 
 const LEVEL_ICONS: Record<string, React.ReactNode> = {
@@ -22,6 +23,12 @@ export const ToolPermissionDialog: React.FC = () => {
     useEffect(() => {
         const unlisten = listen('tool_permission_request', (event: any) => {
             const { id, tool, args, level } = event.payload ?? {};
+            const st = useStore.getState();
+            const autoApprove = st.isYoloMode || isPersistentAgentMode(st.agentMode);
+            if (autoApprove && id) {
+                st.respondToolPermission(id, true);
+                return;
+            }
             setPendingToolPermission({ id, tool, args, level });
         });
         return () => { unlisten.then(f => f()); };

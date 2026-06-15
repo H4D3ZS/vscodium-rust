@@ -125,7 +125,7 @@ export class AIRIAgentBridge {
             console.log('\n💬 AIRI is ready to work, learn, and evolve with you!\n');
 
         } catch (error) {
-            console.error('❌ AIRI initialization failed:', error);
+ console.error(' AIRI initialization failed:', error);
             throw error;
         }
     }

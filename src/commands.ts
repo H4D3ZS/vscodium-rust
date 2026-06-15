@@ -549,9 +549,18 @@ export function initCommands() {
     registerCoreCommands();
 
     (window as any).showCommandPalette = () => openCommandPalette();
-    (window as any).executeCommand = (id: string) => {
+    (window as any).executeCommand = (id: string, ...args: unknown[]) => {
         const cmd = commands.find(c => c.id === id);
-        if (cmd) cmd.run();
+        if (cmd) {
+            cmd.run();
+            return;
+        }
+        const extCommands: Map<string, string> | undefined = (window as any).__extensionCommands;
+        if (extCommands?.has(id)) {
+            void import('./application/extensions/ExtHostBridge').then(({ executeExtensionCommand }) =>
+                executeExtensionCommand(id, args),
+            );
+        }
     };
 
     document.addEventListener('keydown', handleGlobalKeydown);

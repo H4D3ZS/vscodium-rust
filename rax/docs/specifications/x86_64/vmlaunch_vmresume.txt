@@ -1,0 +1,83 @@
+VMLAUNCH/VMRESUME — Launch/Resume Virtual Machine
+
+* Index
+
+* December 2023
+
+VMLAUNCH/VMRESUME — Launch/Resume Virtual Machine
+
+|Opcode/Instruction|Op/En|         Description         |
+
+|------------------|-----|-----------------------------------------------|
+
+|0F 01 C2 VMLAUNCH | ZO |Launch virtual machine managed by current VMCS.|
+
+|0F 01 C3 VMRESUME | ZO |Resume virtual machine managed by current VMCS.|
+
+Instruction Operand Encoding ¶
+
+|Op/En|Operand 1|Operand 2|Operand 3|Operand 4|
+
+|-----|---------|---------|---------|---------|
+
+| ZO |  NA  |  NA  |  NA  |  NA  |
+
+Description ¶
+
+Effects a VM entry managed by the current VMCS.
+
+* VMLAUNCH fails if the launch state of current VMCS is not “clear”. If the instruction is successful, it sets the launch state to “launched.”
+
+* VMRESUME fails if the launch state of the current VMCS is not “launched.”
+
+If VM entry is attempted, the logical processor performs a series of consistency checks as detailed in Chapter 27, “VM Entries.” Failure to pass checks on the VMX controls or on the host-state area passes control to the instruction following the VMLAUNCH or VMRESUME instruction. If these pass but checks on the guest-state area fail, the logical processor loads state from the host-state area of the VMCS, passing control to the instruction referenced by the RIP field in the host-state area.
+
+VM entry is not allowed when events are blocked by MOV SS or POP SS. Neither VMLAUNCH nor VMRESUME should be used immediately after either MOV to SS or POP to SS.
+
+Operation ¶
+
+```
+
+IF (not in VMX operation) or (CR0. PE = 0) or (RFLAGS.VM = 1) or (IA32_EFER.LMA = 1 and CS.L = 0) THEN #UD; ELSIF in VMX non-root operation THEN VMexit; ELSIF CPL > 0 THEN #GP(0); ELSIF current-VMCS pointer is not valid THEN VMfailInvalid; ELSIF events are being blocked by MOV SS THEN VMfailValid(VM entry with events blocked by MOV SS); ELSIF (VMLAUNCH and launch state of current VMCS is not “clear”) THEN VMfailValid(VMLAUNCH with non-clear VMCS); ELSIF (VMRESUME and launch state of current VMCS is not “launched”) THEN VMfailValid(VMRESUME with non-launched VMCS); ELSE Check settings of VMX controls and host-state area; IF invalid settings THEN VMfailValid(VM entry with invalid VMX-control field(s)) or VMfailValid(VM entry with invalid host-state field(s)) or VMfailValid(VM entry with invalid executive-VMCS pointer)) or VMfailValid(VM entry with non-launched executive VMCS) or VMfailValid(VM entry with executive-VMCS pointer not VMXON pointer) or VMfailValid(VM entry with invalid VM-execution control fields in executive VMCS) as appropriate; ELSE Attempt to load guest state and PDPTRs as appropriate; clear address-range monitoring; IF failure in checking guest state or PDPTRs THEN VM entry fails (see Section 27.8); ELSE Attempt to load MSRs from VM-entry MSR-load area; IF failure THEN VM entry fails (see Section 27.8); ELSE IF VMLAUNCH THEN launch state of VMCS := “launched”; FI; IF in SMM and “entry to SMM” VM-entry control is 0 THEN IF “deactivate dual-monitor treatment” VM-entry control is 0 THEN SMM-transfer VMCS pointer := current-VMCS pointer; FI; IF executive-VMCS pointer is VMXON pointer THEN current-VMCS pointer := VMCS-link pointer; ELSE current-VMCS pointer := executive-VMCS pointer; FI; leave SMM; FI; VM entry succeeds; FI; FI; FI; FI; Further details of the operation of the VM-entry appear in Chapter 27.
+
+```
+
+Flags Affected ¶
+
+See the operation section and Section 31.2.
+
+Protected Mode Exceptions ¶
+
+|\#GP(0)|If the current privilege level is not 0. |
+
+|-------|----------------------------------------|
+
+| \#UD |  If executed outside VMX operation. |
+
+Real-Address Mode Exceptions ¶
+
+|\#UD|The VMLAUNCH and VMRESUME instructions are not recognized in real-address mode. |
+
+|----|-------------------------------------------------------------------------------|
+
+Virtual-8086 Mode Exceptions ¶
+
+|\#UD|The VMLAUNCH and VMRESUME instructions are not recognized in virtual-8086 mode. |
+
+|----|-------------------------------------------------------------------------------|
+
+Compatibility Mode Exceptions ¶
+
+|\#UD|The VMLAUNCH and VMRESUME instructions are not recognized in compatibility mode. |
+
+|----|--------------------------------------------------------------------------------|
+
+64-Bit Mode Exceptions ¶
+
+|\#GP(0)|If the current privilege level is not 0. |
+
+|-------|----------------------------------------|
+
+| \#UD |  If executed outside VMX operation. |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

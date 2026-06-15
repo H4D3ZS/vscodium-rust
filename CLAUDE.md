@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 VSCodium-Rust: a custom IDE built with **Rust/Tauri v2** backend + **React 19/TypeScript/Vite** frontend. Designed for agentic development with local Ollama models, cybersecurity research, and data sovereignty.
 
+> **Active overhaul in progress** (Structure → UI → Settings → Perf → Extension API).
+> Before changing code, read `docs/overhaul/MASTER_PLAN.md`, follow the rules in
+> `docs/overhaul/CONVENTIONS.md`, and update `docs/overhaul/PROGRESS.md` before every commit.
+> This applies to any agent (Claude Code, Cursor) or human picking up the work.
+
 ---
 
 ## Build & Run Commands
@@ -124,7 +129,7 @@ The `aim-proxy` intercepts Ollama calls on `:1536` and injects compressed `.aim`
 
 - **Patch discipline:** Use surgical SEARCH/REPLACE via `patch_engine.rs` / `diffy`. No full-file rewrites.
 - **Memory budget:** Core footprint < 150MB. Heap-heavy operations belong in `kortex/daemon`, not main process.
-- **Windows-native:** All paths use Windows conventions. PowerShell for scripts.
+- **Cross-platform:** Active development happens on macOS (`mac_dev` branch, Apple Silicon); Windows remains a release target. Don't hardcode platform paths — platform-specific code is gated (`#[cfg(...)]` in Rust, runtime checks in TS).
 - **Tauri IPC:** All frontend↔backend calls go through `#[tauri::command]` handlers registered in `lib.rs`. Commands are grouped by domain (`file_commands`, `ai_commands`, `git_commands`, etc.).
 - **Model assignments:** APEX engines use hardcoded Ollama model strings in `apex_orchestrator.rs` (e.g. `qwen2.5:32b` for architect, `qwen2.5-coder:7b` for perf). Change there to swap models.
 
@@ -143,3 +148,19 @@ kortex\target\release\aim-proxy.exe
 # 3. AIRI avatar (optional)
 cd airi && pnpm dev --host
 ```
+
+---
+
+## Working Agreement (read every session)
+
+- **Quality over token efficiency.** Do the judgment-heavy work yourself. Never silently
+  downgrade to a cheaper model or cut corners to save tokens. If a task is genuinely
+  better suited to a smaller/cheaper model, *say so and ask* — don't reroute on your own.
+- **Don't pad.** Terse is fine; dropping verification, edge cases, or correctness to save
+  tokens is not. Efficiency means no filler, not less rigor.
+- **Stale sessions are the real token sink.** Resuming a long conversation after >1h is a
+  full prompt-cache miss (re-bills the whole transcript). To cut this:
+  - Launch with a 400k context window instead of 1M:
+    `CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 claude`
+  - `/clear` before starting unrelated work instead of continuing a stale thread.
+  - `/compact` at natural breakpoints rather than letting context balloon.

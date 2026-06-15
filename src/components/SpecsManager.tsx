@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
-import { sendAgentMessage } from '../agent';
+import { sendAgentMessage } from '../application/agent';
 
 interface SpecsManagerProps {
     onClose?: () => void;

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { searchCodebase, findSymbol, getIndexStats, type IndexStats, type SearchResult } from '../services/vectorSearch';
+import { searchCodebase, findSymbol, getIndexStats, type IndexStats, type SearchResult } from '../infrastructure/vectorSearch';
 
 const VectorSearchPanel: React.FC = () => {
     const [query, setQuery] = useState('');

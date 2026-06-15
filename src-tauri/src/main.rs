@@ -37,3 +37,39 @@ fn main() {
     // Call the lib runner which initializes everything properly
     vscode_rust_app_lib::run();
 }
+
+/// Linux/WebKitGTK display hardening. Newer WebKitGTK (2.42+) with several GPU
+/// drivers (Nvidia proprietary, some Intel/Mesa combos) renders a blank/black
+/// window unless DMA-BUF and accelerated compositing are disabled. We set these
+/// only when the user hasn't already chosen, so power users keep control.
+/// Returns a human-readable note describing what was applied (or `None`).
+#[cfg(target_os = "linux")]
+fn configure_display_backend() -> Option<String> {
+    fn set_if_unset(key: &str, value: &str) -> bool {
+        if std::env::var_os(key).is_some() {
+            return false;
+        }
+        // Safety: called during startup before any threads are spawned.
+        unsafe { std::env::set_var(key, value) };
+        true
+    }
+
+    let mut applied: Vec<&str> = Vec::new();
+    if set_if_unset("WEBKIT_DISABLE_DMABUF_RENDERER", "1") {
+        applied.push("WEBKIT_DISABLE_DMABUF_RENDERER=1");
+    }
+    if set_if_unset("WEBKIT_DISABLE_COMPOSITING_MODE", "1") {
+        applied.push("WEBKIT_DISABLE_COMPOSITING_MODE=1");
+    }
+
+    let session = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
+    if applied.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "[display] {} session — applied {} (override by exporting these yourself)",
+            if session.is_empty() { "unknown" } else { &session },
+            applied.join(", ")
+        ))
+    }
+}

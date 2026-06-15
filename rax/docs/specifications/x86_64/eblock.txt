@@ -1,0 +1,207 @@
+EBLOCK — Mark a page in EPC as Blocked
+
+* Index
+
+* December 2023
+
+EBLOCK — Mark a page in EPC as Blocked
+
+| Opcode/Instruction  |Op/En|64/32 bit Mode Support|CPUID Feature Flag|           Description           |
+
+|-----------------------|-----|----------------------|------------------|------------------------------------------------------|
+
+|EAX = 09H ENCLS[EBLOCK]| IR |     V/V     |    SGX1    |This leaf function marks a page in the EPC as blocked. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX  |     RCX     |                   |
+
+|-----|-----------|-----------------------|--------------------------------------|
+
+| IR |EBLOCK (In)|Return error code (Out)|Effective address of the EPC page (In)|
+
+Description ¶
+
+This leaf function causes an EPC page to be marked as BLOCKED. This instruction can only be executed when current privilege level is 0.
+
+The content of RCX is an effective address of an EPC page. The DS segment is used to create linear address. Segment override is not supported.
+
+An error code is returned in RAX.
+
+The table below provides additional information on the memory parameter of EBLOCK leaf function.
+
+EBLOCK Memory Parameter Semantics ¶
+
+|        EPCPAGE        |
+
+|--------------------------------------|
+
+|Read/Write access permitted by Enclave|
+
+The error codes are:
+
+|Error Code (see Table 38-4)|                                                    Description                                                    |
+
+|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+
+|     No Error     |                                                  EBLOCK successful. |
+
+|    SGX\_BLKSTATE    |Page already blocked. This value is used to indicate to a VMM that the page was already in BLOCKED state as a result of EBLOCK and thus will need to be restored to this state when it is eventually reloaded (using ELDB). |
+
+| SGX\_ENTRYEPOCH\_LOCKED |                    SECS locked for Entry Epoch update. This value indicates that an ETRACK is currently executing on the SECS. The EBLOCK should be reattempted. |
+
+|   SGX\_NOTBLOCKABLE   |                                            Page type is not one which can be blocked. |
+
+|   SGX\_PG\_INVLD    |                                             Page is not valid and cannot be blocked. |
+
+| SGX\_EPC\_PAGE\_CONFLICT |                                      Page is being written by EADD, EAUG, ECREATE, ELDU/B, EMODT, or EWB.                                      |
+
+Table 38-12. EBLOCK Return Value in RAX
+
+Concurrency Restrictions ¶
+
+| Leaf |  Parameter  |  Base Concurrency Restrictions  |             |  |
+
+|------|---------------|-----------------------------------|-------------------------|---|
+
+|Access| On Conflict |SGX\_CONFLICT VM Exit Qualification|             |  |
+
+|EBLOCK|Target [DS:RCX]|       Shared        |SGX\_EPC\_PAGE\_ CONFLICT|  |
+
+Table 38-13. Base Concurrency Restrictions of EBLOCK
+
+|                                             Leaf                                             |               Parameter               |Additional Concurrency Restrictions|  |     |  |     |  |
+
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|-----------------------------------|---|----------|---|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC Access vs ETRACK, ETRACKC Access On Conflict Access vs ETRACK, ETRACKC Access On Conflict EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC|    vs ETRACK, ETRACKC    |  |     |  |     |  |
+
+|                          Access On Conflict Access On Conflict Access Access On Conflict Access On Conflict                          |                                   |                  |  |     |  |     |  |
+
+|                                             EBLOCK                                             |              Target [DS:RCX]              |      Concurrent       |  |Concurrent|  |Concurrent|  |
+
+Table 38-14. Additional Concurrency Restrictions of EBLOCK
+
+Operation ¶
+
+Temp Variables in EBLOCK Operational Flow ¶
+
+|  Name   | Type |Size (Bits)|   Description    |
+
+|-------------|-------|-----------|------------------------|
+
+|TMP\_BLKSTATE|Integer|  64   |Page is already blocked. |
+
+IF (DS:RCX is not 4KByte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+RFLAGS.ZF,CF,PF,AF,OF,SF := 0;
+
+RAX := 0;
+
+(\* Check the EPC page for concurrency\*)
+
+IF (EPC page in use)
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_EPC\_PAGE\_CONFLICT;
+
+GOTO DONE;
+
+FI;
+
+IF (EPCM(DS:RCX). VALID = 0)
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_PG\_INVLD;
+
+GOTO DONE;
+
+FI;
+
+IF ( (EPCM(DS:RCX). PT ≠ PT\_REG) and (EPCM(DS:RCX). PT ≠ PT\_TCS) and (EPCM(DS:RCX). PT ≠ PT\_TRIM)
+
+and EPCM(DS:RCX). PT ≠ PT\_SS\_FIRST) and (EPCM(DS:RCX). PT ≠ PT\_SS\_REST))
+
+THEN
+
+RFLAGS.CF := 1;
+
+IF (EPCM(DS:RCX). PT = PT\_SECS)
+
+THEN RAX := SGX\_PG\_IS\_SECS;
+
+ELSE RAX := SGX\_NOTBLOCKABLE;
+
+FI;
+
+GOTO DONE;
+
+FI;
+
+(\* Check if the page is already blocked and report blocked state \*)
+
+TMP\_BLKSTATE := EPCM(DS:RCX). BLOCKED;
+
+(\* at this point, the page must be valid and PT\_TCS or PT\_REG or PT\_TRIM\*)
+
+IF (TMP\_BLKSTATE = 1)
+
+THEN
+
+RFLAGS.CF := 1;
+
+RAX := SGX\_BLKSTATE;
+
+ELSE
+
+EPCM(DS:RCX). BLOCKED := 1
+
+FI;
+
+DONE:
+
+Flags Affected ¶
+
+Sets ZF if SECS is in use or invalid, otherwise cleared. Sets CF if page is BLOCKED or not blockable, otherwise cleared. Clears PF, AF, OF, SF.
+
+Protected Mode Exceptions ¶
+
+|         \#GP(0)          |If a memory operand effective address is outside the DS segment limit. |
+
+|--------------------------------------------|----------------------------------------------------------------------|
+
+|If a memory operand is not properly aligned. |                                   |
+
+| If the specified EPC resource is in use. |                                   |
+
+|         \#PF(error         |   code) If a page fault occurs in accessing memory operands. |
+
+| If a memory operand is not an EPC page. |                                   |
+
+64-Bit Mode Exceptions ¶
+
+|         \#GP(0)          |    If a memory operand is non-canonical form. |
+
+|--------------------------------------------|----------------------------------------------------------|
+
+|If a memory operand is not properly aligned. |                             |
+
+| If the specified EPC resource is in use. |                             |
+
+|         \#PF(error         |code) If a page fault occurs in accessing memory operands. |
+
+| If a memory operand is not an EPC page. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

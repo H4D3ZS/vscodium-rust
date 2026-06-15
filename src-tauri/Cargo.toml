@@ -19,8 +19,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+boa_engine = "0.20"
 memmap2 = "0.9.10"
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
@@ -54,6 +55,7 @@ ripgrep-api = "0.2.0"
 sysinfo = "0.30"
 lz4_flex = "0.11"
 zip = "0.6"
+flate2 = "1"
 rand = { version = "=0.8.5", features = ["small_rng"] }
 base64 = "0.21"
 glob = "0.3"
@@ -62,12 +64,14 @@ ignore = "0.4"
 uuid = { version = "1", features = ["v4", "serde"] }
 futures = "0.3.32"
 async-trait = "0.1.89"
+url = "2.5"
 urlencoding = "2.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tracing-chrome = "0.7.2"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = "0.4"
+dirs = "5"
 libaim = { path = "../kortex/libaim" }
 daemon = { path = "../kortex/daemon" }
 candle-core = "=0.7.1"
@@ -112,10 +116,12 @@ debug = true
 
 [profile.release]
 panic = "abort"
-lto = false
+# lto=false / codegen-units=16 were Windows-linker workarounds
+# (STATUS_ACCESS_VIOLATION with codegen-units=1). thin-LTO builds green on
+# macOS (verified Milestone D) — revisit per-target profiles if Windows
+# release builds regress.
+lto = "thin"
 opt-level = 2
-# codegen-units=1 compiles this large crate as one unit and crashes rustc
-# (STATUS_ACCESS_VIOLATION) during the tauri release build. 16 splits the work.
 codegen-units = 16
 strip = true # smaller installer
 

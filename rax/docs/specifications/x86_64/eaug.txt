@@ -1,0 +1,331 @@
+EAUG — Add a Page to an Initialized Enclave
+
+* Index
+
+* December 2023
+
+EAUG — Add a Page to an Initialized Enclave
+
+| Opcode/Instruction |Op/En|64/32 bit Mode Support|CPUID Feature Flag|            Description            |
+
+|---------------------|-----|----------------------|------------------|---------------------------------------------------------|
+
+|EAX = 0DH ENCLS[EAUG]| IR |     V/V     |    SGX2    |This leaf function adds a page to an initialized enclave. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX  |      RBX      |         RCX          |
+
+|-----|---------|--------------------------|----------------------------------------|
+
+| IR |EAUG (In)|Address of a PAGEINFO (In)|Address of the destination EPC page (In)|
+
+Description ¶
+
+This leaf function zeroes a page of EPC memory, associates the EPC page with an SECS page residing in the EPC, and stores the linear address and security attributes in the EPCM. As part of the association, the security attributes are configured to prevent access to the EPC page until a corresponding invocation of the EACCEPT leaf or EACCEPTCOPY leaf confirms the addition of the new page into the enclave. This instruction can only be executed when current privilege level is 0.
+
+RBX contains the effective address of a PAGEINFO structure while RCX contains the effective address of an EPC page. The table below provides additional information on the memory parameter of the EAUG leaf function.
+
+EAUG Memory Parameter Semantics ¶
+
+|       PAGEINFO       |      PAGEINFO.SECS       |PAGEINFO.SRCPGE|     PAGEINFO.SECINFO     |       EPCPAGE       |
+
+|------------------------------------|--------------------------------------|---------------|------------------------------------|---------------------------------|
+
+|Read access permitted by Non Enclave|Read/Write access permitted by Enclave| Must be zero |Read access permitted by Non Enclave|Write access permitted by Enclave|
+
+The instruction faults if any of the following:
+
+EAUG Faulting Conditions ¶
+
+| The operands are not properly aligned. |       Unsupported security attributes are set. |
+
+|-----------------------------------------|---------------------------------------------------------------------|
+
+|    Refers to an invalid SECS.    |  Reference is made to an SECS that is locked by another thread. |
+
+|The EPC page is locked by another thread. |   RCX does not contain an effective address of an EPC page. |
+
+|   The EPC page is already valid. |The specified enclave offset is outside of the enclave address space. |
+
+|   The SECS has been initialized. |                                   |
+
+Concurrency Restrictions ¶
+
+|      Leaf      |  Parameter  |  Base Concurrency Restrictions  |  |               |
+
+|--------------------------|---------------|-----------------------------------|----|------------------------------|
+
+|     Access     | On Conflict |SGX\_CONFLICT VM Exit Qualification|  |               |
+
+|      EAUG      |Target [DS:RCX]|       Exclusive       |\#GP|EPC\_PAGE\_CONFLICT\_EXCEPTION|
+
+|SECS [DS:RBX]PAGEINFO.SECS|  Shared   |        \#GP        |  |               |
+
+Table 38-10. Base Concurrency Restrictions of EAUG
+
+|           Leaf           |    Parameter    |Additional Concurrency Restrictions|      |     |      |     |  |
+
+|-----------------------------------------------|------------------------|-----------------------------------|-----------|----------|-----------|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT|    vs ETRACK, ETRACKC    |      |     |      |     |  |
+
+|          Access           |   On Conflict    |       Access        |On Conflict| Access |On Conflict|     |  |
+
+|           EAUG           |  Target [DS:RCX]   |      Concurrent       |      |Concurrent|      |Concurrent|  |
+
+|     SECS [DS:RBX]PAGEINFO.SECS      |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+Table 38-11. Additional Concurrency Restrictions of EAUG
+
+Operation ¶
+
+Temp Variables in EAUG Operational Flow ¶
+
+|   Name   |   Type    |Size (bits)|                       Description                       |
+
+|----------------|-----------------|-----------|-----------------------------------------------------------------------------------------------------|
+
+|  TMP\_SECS  |Effective Address|  32/64  |              Effective address of the SECS destination page. |
+
+| TMP\_SECINFO |Effective Address|  32/64  |Effective address of an SECINFO structure which contains security attributes of the page to be added. |
+
+|SCRATCH\_SECINFO|   SECINFO   |  512  |          Scratch storage for holding the contents of DS:TMP\_SECINFO.           |
+
+| TMP\_LINADDR |Unsigned Integer |  64   |   Holds the linear address to be stored in the EPCM and used to calculate TMP\_ENCLAVEOFFSET.   |
+
+IF (DS:RBX is not 32Byte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RCX is not 4KByte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+TMP\_SECS := DS:RBX.SECS;
+
+TMP\_SECINFO := DS:RBX.SECINFO;
+
+IF (DS:RBX.SECINFO is not 0)
+
+THEN
+
+IF (DS:TMP\_SECINFO is not 64B aligned)
+
+THEN #GP(0); FI;
+
+FI;
+
+TMP\_LINADDR := DS:RBX.LINADDR;
+
+IF ( DS:TMP\_SECS is not 4KByte aligned or TMP\_LINADDR is not 4KByte aligned )
+
+THEN #GP(0); FI;
+
+IF DS:RBX.SRCPAGE is not 0
+
+THEN #GP(0); FI;
+
+IF (DS:TMP\_SECS does not resolve within an EPC)
+
+THEN #PF(DS:TMP\_SECS); FI;
+
+(\* Check the EPC page for concurrency \*)
+
+IF (EPC page in use)
+
+THEN
+
+IF (\ \> AND \ \>)
+
+THEN
+
+VMCS.Exit\_reason := SGX\_CONFLICT;
+
+VMCS.Exit\_qualification. code := EPC\_PAGE\_CONFLICT\_EXCEPTION;
+
+VMCS.Exit\_qualification. error := 0;
+
+VMCS.Guest-physical\_address := \ \>;
+
+VMCS.Guest-linear\_address := DS:RCX;
+
+Deliver VMEXIT;
+
+ELSE
+
+\#GP(0);
+
+FI;
+
+FI:
+
+IF (EPCM(DS:RCX). VALID ≠ 0)
+
+THEN #PF(DS:RCX); FI;
+
+(\* copy SECINFO contents into a scratch SECINFO \*)
+
+IF (DS:RBX.SECINFO is 0)
+
+THEN
+
+(\* allocate and initialize a new scratch SECINFO structure \*)
+
+SCRATCH\_SECINFO.PT := PT\_REG;
+
+SCRATCH\_SECINFO.R := 1;
+
+SCRATCH\_SECINFO.W := 1;
+
+SCRATCH\_SECINFO.X := 0;
+
+\ \>
+
+ELSE
+
+(\* copy SECINFO contents into scratch SECINFO \*)
+
+SCRATCH\_SECINFO := DS:TMP\_SECINFO;
+
+(\* check SECINFO flags for misconfiguration \*)
+
+(\* reserved flags must be zero \*)
+
+(\* SECINFO.FLAGS.PT must either be PT\_SS\_FIRST, or PT\_SS\_REST \*)
+
+IF ( (SCRATCH\_SECINFO reserved fields are not 0) or
+
+CPUID.(EAX=12H, ECX=1):EAXis 0) OR
+
+(SCRATCH\_SECINFO.PT is not PT\_SS\_FIRST, or PT\_SS\_REST) OR
+
+( (SCRATCH\_SECINFO.FLAGS.R is 0) OR (SCRATCH\_SECINFO.FLAGS.W is 0) OR (SCRATCH\_SECINFO.FLAGS.X is 1) ) )
+
+THEN #GP(0); FI;
+
+FI;
+
+(\* Check if PT\_SS\_FIRST/PT\_SS\_REST page types are requested then CR4. CET must be 1 \*)
+
+IF ( (SCRATCH\_SECINFO.PT is PT\_SS\_FIRST OR SCRATCH\_SECINFO.PT is PT\_SS\_REST) AND CR4. CET == 0 )
+
+THEN #GP(0); FI;
+
+(\* Check the SECS for concurrency \*)
+
+IF (SECS is not available for EAUG)
+
+THEN #GP(0); FI;
+
+IF (EPCM(DS:TMP\_SECS). VALID = 0 or EPCM(DS:TMP\_SECS). PT ≠ PT\_SECS)
+
+THEN #PF(DS:TMP\_SECS); FI;
+
+(\* Check if the enclave to which the page will be added is in the Initialized state \*)
+
+IF (DS:TMP\_SECS is not initialized)
+
+THEN #GP(0); FI;
+
+(\* Check the enclave offset is within the enclave linear address space \*) IF ( (TMP\_LINADDR \< DS:TMP\_SECS.BASEADDR) or (TMP\_LINADDR ≥ DS:TMP\_SECS.BASEADDR + DS:TMP\_SECS.SIZE) ) THEN #GP(0); FI;
+
+IF ( (SCRATCH\_SECINFO.PT is PT\_SS\_FIRST OR SCRATCH\_SECINFO.PT is PT\_SS\_REST) )
+
+THEN
+
+(\* SS pages cannot created on first or last page of ELRANGE \*)
+
+IF ( TMP\_LINADDR == DS:TMP\_SECS.BASEADDR OR
+
+TMP\_LINADDR == (DS:TMP\_SECS.BASEADDR + DS:TMP\_SECS.SIZE - 0x1000) )
+
+THEN
+
+\#GP(0); FI;
+
+FI;
+
+(\* Clear the content of EPC page\*)
+
+DS:RCX[32767:0] := 0;
+
+IF (CPUID.(EAX=07H, ECX=0H):ECX[CET\_SS] = 1)
+
+THEN
+
+(\* set up shadow stack RSTORSSP token \*)
+
+IF (SCRATCH\_SECINFO.PT is PT\_SS\_FIRST)
+
+THEN
+
+DS:RCX[0xFF8] := (TMP\_LINADDR + 0x1000) | TMP\_SECS.ATTRIBUTES.MODE64BIT; FI;
+
+FI;
+
+(\* Set EPCM security attributes \*)
+
+EPCM(DS:RCX). R := SCRATCH\_SECINFO.FLAGS.R;
+
+EPCM(DS:RCX). W := SCRATCH\_SECINFO.FLAGS.W;
+
+EPCM(DS:RCX). X := SCRATCH\_SECINFO.FLAGS.X;
+
+EPCM(DS:RCX). PT := SCRATCH\_SECINFO.FLAGS.PT;
+
+EPCM(DS:RCX). ENCLAVEADDRESS := TMP\_LINADDR;
+
+EPCM(DS:RCX). BLOCKED := 0;
+
+EPCM(DS:RCX). PENDING := 1;
+
+EPCM(DS:RCX). MODIFIED := 0;
+
+EPCM(DS:RCX). PR := 0;
+
+(\* associate the EPCPAGE with the SECS by storing the SECS identifier of DS:TMP\_SECS \*)
+
+Update EPCM(DS:RCX) SECS identifier to reference DS:TMP\_SECS identifier;
+
+(\* Set EPCM valid fields \*)
+
+EPCM(DS:RCX). VALID := 1;
+
+Flags Affected ¶
+
+None
+
+Protected Mode Exceptions ¶
+
+|         \#GP(0)          |If a memory operand effective address is outside the DS segment limit. |
+
+|--------------------------------------------|----------------------------------------------------------------------|
+
+|If a memory operand is not properly aligned. |                                   |
+
+|    If a memory operand is locked. |                                   |
+
+|   If the enclave is not initialized. |                                   |
+
+|         \#PF(error         |   code) If a page fault occurs in accessing memory operands. |
+
+64-Bit Mode Exceptions ¶
+
+|         \#GP(0)          |    If a memory operand is non-canonical form. |
+
+|--------------------------------------------|----------------------------------------------------------|
+
+|If a memory operand is not properly aligned. |                             |
+
+|    If a memory operand is locked. |                             |
+
+|   If the enclave is not initialized. |                             |
+
+|         \#PF(error         |code) If a page fault occurs in accessing memory operands. |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

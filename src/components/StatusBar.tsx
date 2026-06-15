@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useStore } from '../store';
 import { invoke } from '@tauri-apps/api/core';
 import { formatMemoryTooltip, type ProcessStatsDto } from '../domain/performance/ProcessMemorySnapshot';
-import { STATS_POLL_MS, ACCOUNT_POLL_MS } from '../memory_budget';
+import { STATS_POLL_MS, ACCOUNT_POLL_MS, LEAN_IDLE_TARGET_MB } from '../memory_budget';
+import { currentStatsPollMs } from '../application/performance/memoryGovernor';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -58,20 +59,25 @@ const MemoryStatusItem: React.FC<{
 }> = ({ processStats, onOptimize }) => {
     const snap = processStats.snapshot;
     const totalMb = snap?.total_working_set_mb ?? processStats.memory_mb;
+    const lean = totalMb <= LEAN_IDLE_TARGET_MB;
     const title = useMemo(() => {
         const body = snap ? formatMemoryTooltip(snap) : `RAM ${processStats.memory_mb} MB`;
-        return `${body}\n\nClick to optimize memory`;
+        return `${body}\n\nTarget idle band: ≤${LEAN_IDLE_TARGET_MB} MB (lean) · click to trim`;
     }, [snap, processStats.memory_mb]);
 
     return (
         <StatusItem
             onClick={onOptimize}
             title={title}
+            accent={lean}
             danger={processStats.available_ram_gb > 0 && processStats.available_ram_gb < 1}
         >
             <i className="codicon codicon-pulse" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
             <span title="Total working set (host + WebView2 children)">
                 {totalMb.toFixed(0)} MB
+                {lean && (
+                    <span style={{ opacity: 0.7, fontSize: '9px', marginLeft: 4 }}>lean</span>
+                )}
                 {snap && snap.child_process_count > 0 && (
                     <span style={{ opacity: 0.45, fontSize: '10px', marginLeft: '4px' }}>
                         ({snap.child_process_count + 1} proc)
@@ -111,6 +117,7 @@ const StatusBar: React.FC = () => {
     const isIndexingCodebase = useStore(state => state.isIndexingCodebase);
     const indexingProgress = useStore(state => state.indexingProgress);
     const startIndexingCodebase = useStore(state => state.startIndexingCodebase);
+    const refreshIndexingProgress = useStore(state => state.refreshIndexingProgress);
     const securityReviewReport = useStore(state => state.securityReviewReport);
     const securityReviewRunning = useStore(state => state.securityReviewRunning);
     const criticalCount = securityReviewReport
@@ -156,10 +163,17 @@ const StatusBar: React.FC = () => {
             return sum + Math.ceil(txt.length / 4);
         }, 0);
         const model = (useStore.getState() as any).agentModel ?? '';
-        const max = model.toLowerCase().includes('gemini-2.5') ? 1048576
-            : model.toLowerCase().includes('gemini') ? 131072
-            : model.toLowerCase().includes('claude') ? 200000
-            : model.toLowerCase().includes('gpt-4') ? 128000
+        const ml = model.toLowerCase();
+        const paramMatch = ml.match(/(?:^|[/:\-_])(\d+)b(?:[^a-z]|$)/);
+        const paramB = paramMatch ? parseInt(paramMatch[1], 10) : 0;
+        const max = ml.includes('gemini-2.5') ? 1048576
+            : ml.includes('gemini') ? 131072
+            : ml.includes('claude') ? 200000
+            : ml.includes('gpt-4') ? 128000
+            : paramB >= 30 ? 32768
+            : paramB >= 14 ? 24576
+            : paramB >= 8 ? 16384
+            : ml.includes('ollama') || ml.includes('/') || ml.includes(':') ? 8192
             : 128000;
         return { used, max, pct: Math.min(100, Math.round((used / max) * 100)) };
     }, [agentMessages]);
@@ -197,6 +211,41 @@ const StatusBar: React.FC = () => {
     const [modelPickerOpen, setModelPickerOpen] = useState(false);
     const [pickerPos, setPickerPos] = useState<{ left: number; bottom: number } | null>(null);
     const modelPickerRef = useRef<HTMLDivElement>(null);
+
+    const [indexPanelOpen, setIndexPanelOpen] = useState(false);
+    const [indexPanelPos, setIndexPanelPos] = useState<{ left: number; bottom: number } | null>(null);
+    const indexPanelRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!indexPanelOpen) return;
+        const handler = (e: MouseEvent) => {
+            if (indexPanelRef.current && !indexPanelRef.current.contains(e.target as Node))
+                setIndexPanelOpen(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [indexPanelOpen]);
+
+    useEffect(() => {
+        if (!indexPanelOpen) return;
+        void refreshIndexingProgress();
+        if (!isIndexingCodebase) return;
+        const timer = setInterval(() => { void refreshIndexingProgress(); }, 500);
+        return () => clearInterval(timer);
+    }, [indexPanelOpen, isIndexingCodebase, refreshIndexingProgress]);
+
+    const openIndexPanel = () => {
+        if (!indexPanelOpen && indexPanelRef.current) {
+            const rect = indexPanelRef.current.getBoundingClientRect();
+            setIndexPanelPos({ left: rect.left, bottom: window.innerHeight - rect.top });
+        }
+        setIndexPanelOpen(v => !v);
+        if (!indexPanelOpen) void refreshIndexingProgress();
+    };
+
+    const indexPct = indexingProgress?.progress_percent != null
+        ? Math.round(indexingProgress.progress_percent)
+        : null;
 
     useEffect(() => {
         if (!modelPickerOpen) return;
@@ -244,17 +293,26 @@ const StatusBar: React.FC = () => {
     };
 
     useEffect(() => {
-        refreshProcessStats();
-        refreshMemorySavings();
-        const t = setInterval(() => {
-            refreshProcessStats().then(() => {
-                const free = useStore.getState().processStats?.available_ram_gb;
-                if (free != null && free < 1) {
-                    handleOptimize();
-                }
-            });
-        }, STATS_POLL_MS);
-        return () => clearInterval(t);
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+
+        const tick = async () => {
+            if (cancelled) return;
+            await refreshProcessStats();
+            await refreshMemorySavings();
+            const free = useStore.getState().processStats?.available_ram_gb;
+            if (free != null && free < 1) {
+                void handleOptimize();
+            }
+            const ms = currentStatsPollMs();
+            if (ms > 0) timer = setTimeout(tick, ms);
+        };
+
+        void tick();
+        return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
+        };
     }, []);
 
     // ── Account / usage chip (SaaS) ───────────────────────────────────────────
@@ -415,41 +473,147 @@ const StatusBar: React.FC = () => {
                     </StatusItem>
                 )}
 
-                {/* Codebase Indexing Progress Indicator */}
+                {/* Codebase Indexing — click opens progress panel (does not re-index) */}
                 {activeRoot && (
-                    <StatusItem
-                        onClick={async () => {
-                            await startIndexingCodebase();
-                        }}
-                        title={
-                            isIndexingCodebase
-                                ? `Indexing in progress: ${indexingProgress?.files_processed ?? 0}/${indexingProgress?.total_files ?? 0} files. Click to re-index.`
-                                : "Codebase fully indexed. Click to re-index."
-                        }
-                    >
-                        <i
-                            className={`codicon ${isIndexingCodebase ? 'codicon-sync animate-spin' : 'codicon-database'}`}
-                            style={{
-                                fontFamily: 'codicon',
-                                fontStyle: 'normal',
+                    <div ref={indexPanelRef} style={{ position: 'relative' }}>
+                        <StatusItem
+                            onClick={openIndexPanel}
+                            title="Click for vector index status"
+                        >
+                            <i
+                                className={`codicon ${isIndexingCodebase ? 'codicon-sync animate-spin' : 'codicon-database'}`}
+                                style={{
+                                    fontFamily: 'codicon',
+                                    fontStyle: 'normal',
+                                    fontSize: '12px',
+                                    color: isIndexingCodebase ? '#00c6ff' : '#4ade80',
+                                    display: 'inline-block'
+                                }}
+                            />
+                            <span style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                {isIndexingCodebase ? (
+                                    <>
+                                        <span>Indexing</span>
+                                        <span style={{ fontWeight: 600, color: '#00c6ff' }}>
+                                            {indexPct != null ? `${indexPct}%` : '…'}
+                                        </span>
+                                        {(indexingProgress?.total_files ?? 0) > 0 && (
+                                            <span style={{ opacity: 0.75, fontSize: '10px' }}>
+                                                {indexingProgress!.files_processed}/{indexingProgress!.total_files}
+                                            </span>
+                                        )}
+                                    </>
+                                ) : (
+                                    <span style={{ opacity: 0.9 }}>Indexed</span>
+                                )}
+                                <i className="codicon codicon-chevron-up" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '9px', opacity: 0.5 }} />
+                            </span>
+                        </StatusItem>
+
+                        {indexPanelOpen && indexPanelPos && (
+                            <div style={{
+                                position: 'fixed',
+                                bottom: indexPanelPos.bottom,
+                                left: indexPanelPos.left,
+                                width: '280px',
+                                background: 'var(--vscode-menu-background, #1e1e1e)',
+                                border: '1px solid var(--vscode-menu-border, rgba(255,255,255,0.15))',
+                                borderRadius: '6px',
+                                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                                zIndex: 99999,
+                                padding: '10px 12px',
                                 fontSize: '12px',
-                                color: isIndexingCodebase ? '#00c6ff' : '#4ade80',
-                                display: 'inline-block'
-                            }}
-                        />
-                        <span style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            {isIndexingCodebase ? (
-                                <>
-                                    <span>Indexing</span>
-                                    <span style={{ fontWeight: 600, color: '#00c6ff' }}>
-                                        {indexingProgress?.progress_percent != null ? `${indexingProgress.progress_percent}%` : '...'}
-                                    </span>
-                                </>
-                            ) : (
-                                <span style={{ opacity: 0.9 }}>Indexed</span>
-                            )}
-                        </span>
-                    </StatusItem>
+                            }}>
+                                <div style={{ fontSize: '10px', opacity: 0.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                                    Vector Index
+                                </div>
+                                {isIndexingCodebase ? (
+                                    <>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                                            <span style={{ color: '#00c6ff' }}>Indexing…</span>
+                                            <span style={{ fontWeight: 600 }}>{indexPct != null ? `${indexPct}%` : '…'}</span>
+                                        </div>
+                                        <div style={{
+                                            height: 6,
+                                            borderRadius: 3,
+                                            background: 'rgba(255,255,255,0.08)',
+                                            overflow: 'hidden',
+                                            marginBottom: 8,
+                                        }}>
+                                            <div style={{
+                                                height: '100%',
+                                                width: `${indexPct ?? 0}%`,
+                                                background: 'linear-gradient(90deg, #00c6ff, #4ade80)',
+                                                transition: 'width 0.3s ease',
+                                            }} />
+                                        </div>
+                                        <div style={{ fontSize: '11px', opacity: 0.85, marginBottom: 4 }}>
+                                            {indexingProgress?.files_processed ?? 0} / {indexingProgress?.total_files ?? '?'} files
+                                        </div>
+                                        {indexingProgress?.current_file && (
+                                            <div style={{
+                                                fontSize: '10px',
+                                                opacity: 0.55,
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                                marginBottom: 10,
+                                            }} title={indexingProgress.current_file}>
+                                                {indexingProgress.current_file}
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, color: '#4ade80' }}>
+                                        <i className="codicon codicon-check" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                                        <span>Index complete</span>
+                                    </div>
+                                )}
+                                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                                    <button
+                                        type="button"
+                                        disabled={isIndexingCodebase}
+                                        onClick={async (e) => {
+                                            e.stopPropagation();
+                                            await startIndexingCodebase({ force: true });
+                                            void refreshIndexingProgress();
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '5px 10px',
+                                            fontSize: '11px',
+                                            cursor: isIndexingCodebase ? 'not-allowed' : 'pointer',
+                                            opacity: isIndexingCodebase ? 0.5 : 1,
+                                            background: 'var(--vscode-button-background, #0e639c)',
+                                            color: 'var(--vscode-button-foreground, #fff)',
+                                            border: 'none',
+                                            borderRadius: 4,
+                                        }}
+                                    >
+                                        Re-index
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setIndexPanelOpen(false); }}
+                                        style={{
+                                            padding: '5px 10px',
+                                            fontSize: '11px',
+                                            cursor: 'pointer',
+                                            background: 'transparent',
+                                            color: 'inherit',
+                                            border: '1px solid rgba(255,255,255,0.15)',
+                                            borderRadius: 4,
+                                        }}
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                                <div style={{ fontSize: '10px', opacity: 0.45, marginTop: 8, lineHeight: 1.4 }}>
+                                    Semantic search index. AIM brain (`.aim/`) is separate — Settings → Kortex / AIM.
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 {/* Model picker */}

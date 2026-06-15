@@ -99,7 +99,6 @@ const MultiFileReview: React.FC = () => {
                 ...s,
                 [path]: { ...s[path], decision: 'reverted', error: undefined, diff: s[path]?.diff || '', loading: false, path, tool: s[path]?.tool || '' },
             }));
-            console.log('[MultiFileReview] revert', path, out);
             window.dispatchEvent(new CustomEvent('editor:reload-file', { detail: { path } }));
         } catch (e) {
             setPerFile(s => ({

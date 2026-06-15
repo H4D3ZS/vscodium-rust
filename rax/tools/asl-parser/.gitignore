@@ -1,0 +1,11 @@
+# Build outputs
+/asl
+/asl-parsed
+/xml
+
+# Rust
+target/
+
+# Editor
+*.swp
+.DS_Store

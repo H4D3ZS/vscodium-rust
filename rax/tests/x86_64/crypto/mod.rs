@@ -1,0 +1,17 @@
+mod aesdec;
+mod aesdeclast;
+mod aesenc;
+mod aesenclast;
+mod aesimc;
+mod aeskeygenassist;
+mod aes_keylocker;
+mod gf2p8;
+mod pclmulqdq;
+mod sha1msg1;
+mod sha1msg2;
+mod sha1nexte;
+mod sha1rnds4;
+mod sha256msg1;
+mod sha256msg2;
+mod sha256rnds2;
+mod galois_field;

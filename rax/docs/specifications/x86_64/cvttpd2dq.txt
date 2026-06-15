@@ -1,0 +1,185 @@
+CVTTPD2DQ — Convert with Truncation Packed Double Precision Floating-Point Values toPacked Doubleword Integers
+
+* Index
+
+* December 2023
+
+CVTTPD2DQ — Convert with Truncation Packed Double Precision Floating-Point Values toPacked Doubleword Integers
+
+|             Opcode/Instruction              |Op / En|64/32 bit Mode Support|CPUID Feature Flag|                                       Description                                       |
+
+|-----------------------------------------------------------------------|-------|----------------------|------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+
+|         66 0F E6 /r CVTTPD2DQ xmm1, xmm2/m128         |  A  |     V/V     |    SSE2    |         Convert two packed double precision floating-point values in xmm2/mem to two signed doubleword integers in xmm1 using truncation. |
+
+|     VEX.128.66. 0F.WIG E6 /r VCVTTPD2DQ xmm1, xmm2/m128      |  A  |     V/V     |    AVX    |         Convert two packed double precision floating-point values in xmm2/mem to two signed doubleword integers in xmm1 using truncation. |
+
+|     VEX.256.66. 0F.WIG E6 /r VCVTTPD2DQ xmm1, ymm2/m256      |  A  |     V/V     |    AVX    |         Convert four packed double precision floating-point values in ymm2/mem to four signed doubleword integers in xmm1 using truncation. |
+
+| EVEX.128.66. 0F.W1 E6 /r VCVTTPD2DQ xmm1 {k1}{z}, xmm2/m128/m64bcst  |  B  |     V/V     | AVX512VL AVX512F | Convert two packed double precision floating-point values in xmm2/m128/m64bcst to two signed doubleword integers in xmm1 using truncation subject to writemask k1. |
+
+| EVEX.256.66. 0F.W1 E6 /r VCVTTPD2DQ xmm1 {k1}{z}, ymm2/m256/m64bcst  |  B  |     V/V     | AVX512VL AVX512F | Convert four packed double precision floating-point values in ymm2/m256/m64bcst to four signed doubleword integers in xmm1 using truncation subject to writemask k1. |
+
+|EVEX.512.66. 0F.W1 E6 /r VCVTTPD2DQ ymm1 {k1}{z}, zmm2/m512/m64bcst{sae}|  B  |     V/V     |   AVX512F   |Convert eight packed double precision floating-point values in zmm2/m512/m64bcst to eight signed doubleword integers in ymm1 using truncation subject to writemask k1. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|Tuple Type| Operand 1 | Operand 2 |Operand 3|Operand 4|
+
+|-----|----------|-------------|-------------|---------|---------|
+
+| A |  N/A  |ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+| B |  Full  |ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+Description ¶
+
+Converts two, four or eight packed double precision floating-point values in the source operand (second operand) to two, four or eight packed signed doubleword integers in the destination operand (first operand).
+
+When a conversion is inexact, a truncated (round toward zero) value is returned. If a converted result is larger than the maximum signed doubleword integer, the floating-point invalid exception is raised, and if this exception is masked, the indefinite integer value (80000000H) is returned.
+
+EVEX encoded versions: The source operand is a ZMM/YMM/XMM register, a 512/256/128-bit memory location, or a 512/256/128-bit vector broadcasted from a 64-bit memory location. The destination operand is a YMM/XMM/XMM (low 64 bits) register conditionally updated with writemask k1. The upper bits (MAXVL-1:256) of the corresponding destination are zeroed.
+
+VEX.256 encoded version: The source operand is a YMM register or 256- bit memory location. The destination operand is an XMM register. The upper bits (MAXVL-1:128) of the corresponding ZMM register destination are zeroed.
+
+VEX.128 encoded version: The source operand is an XMM register or 128- bit memory location. The destination operand is a XMM register. The upper bits (MAXVL-1:64) of the corresponding ZMM register destination are zeroed.
+
+128-bit Legacy SSE version: The source operand is an XMM register or 128- bit memory location. The destination operand is an XMM register. The upper bits (MAXVL-1:128) of the corresponding ZMM register destination are unmodified.
+
+Note: VEX.vvvv and EVEX.vvvv are reserved and must be 1111b, otherwise instructions will #UD.
+
+SR X3 X2 X1 X0 DEST 0 X3 X2 X1 X0 Figure 3-15. VCVTTPD2DQ (VEX.256 encoded version)
+
+Operation ¶
+
+VCVTTPD2DQ (EVEX Encoded Versions) When SRC Operand is a Register ¶
+
+```
+
+(KL, VL) = (2, 128), (4, 256), (8, 512) FOR j := 0 TO KL-1 i := j * 32 k := j * 64 IF k1[j] OR *no writemask* THEN DEST[i+31:i] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[k+63:k]) ELSE IF *merging-masking* ; merging-masking THEN *DEST[i+31:i] remains unchanged* ELSE ; zeroing-masking DEST[i+31:i] := 0 FI FI; ENDFOR DEST[MAXVL-1:VL/2] := 0
+
+```
+
+VCVTTPD2DQ (EVEX Encoded Versions) When SRC Operand is a Memory Source ¶
+
+```
+
+(KL, VL) = (2, 128), (4, 256), (8, 512) FOR j := 0 TO KL-1 i := j * 32 k := j * 64 IF k1[j] OR *no writemask* THEN IF (EVEX.b = 1) THEN DEST[i+31:i] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[63:0]) ELSE DEST[i+31:i] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[k+63:k]) FI; ELSE IF *merging-masking* ; merging-masking THEN *DEST[i+31:i] remains unchanged* ELSE ; zeroing-masking DEST[i+31:i] := 0 FI FI; ENDFOR DEST[MAXVL-1:VL/2] := 0
+
+```
+
+VCVTTPD2DQ (VEX.256 Encoded Version) ¶
+
+```
+
+DEST[31:0] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[63:0]) DEST[63:32] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[127:64]) DEST[95:64] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[191:128]) DEST[127:96] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[255:192) DEST[MAXVL-1:128] := 0
+
+```
+
+VCVTTPD2DQ (VEX.128 Encoded Version) ¶
+
+```
+
+DEST[31:0] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[63:0]) DEST[63:32] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[127:64]) DEST[MAXVL-1:64] := 0
+
+```
+
+CVTTPD2DQ (128-bit Legacy SSE Version) ¶
+
+```
+
+DEST[31:0] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[63:0]) DEST[63:32] := Convert_Double_Precision_Floating_Point_To_Integer_Truncate(SRC[127:64]) DEST[127:64] := 0 DEST[MAXVL-1:128] (unmodified)
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+VCVTTPD2DQ __m256i _mm512_cvttpd_epi32( __m512d a);
+
+```
+
+```
+
+VCVTTPD2DQ __m256i _mm512_mask_cvttpd_epi32( __m256i s, __mmask8 k, __m512d a);
+
+```
+
+```
+
+VCVTTPD2DQ __m256i _mm512_maskz_cvttpd_epi32( __mmask8 k, __m512d a);
+
+```
+
+```
+
+VCVTTPD2DQ __m256i _mm512_cvtt_roundpd_epi32( __m512d a, int sae);
+
+```
+
+```
+
+VCVTTPD2DQ __m256i _mm512_mask_cvtt_roundpd_epi32( __m256i s, __mmask8 k, __m512d a, int sae);
+
+```
+
+```
+
+VCVTTPD2DQ __m256i _mm512_maskz_cvtt_roundpd_epi32( __mmask8 k, __m512d a, int sae);
+
+```
+
+```
+
+VCVTTPD2DQ __m128i _mm256_mask_cvttpd_epi32( __m128i s, __mmask8 k, __m256d a);
+
+```
+
+```
+
+VCVTTPD2DQ __m128i _mm256_maskz_cvttpd_epi32( __mmask8 k, __m256d a);
+
+```
+
+```
+
+VCVTTPD2DQ __m128i _mm_mask_cvttpd_epi32( __m128i s, __mmask8 k, __m128d a);
+
+```
+
+```
+
+VCVTTPD2DQ __m128i _mm_maskz_cvttpd_epi32( __mmask8 k, __m128d a);
+
+```
+
+```
+
+VCVTTPD2DQ __m128i _mm256_cvttpd_epi32 (__m256d src);
+
+```
+
+```
+
+CVTTPD2DQ __m128i _mm_cvttpd_epi32 (__m128d src);
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+Invalid, Precision.
+
+Other Exceptions ¶
+
+VEX-encoded instructions, see Table 2-19, “Type 2 Class Exception Conditions.”
+
+EVEX-encoded instructions, see Table 2-46, “Type E2 Class Exception Conditions.”
+
+Additionally:
+
+|\#UD|If VEX.vvvv ! = 1111B or EVEX.vvvv ! = 1111B.|
+
+|----|-------------------------------------------|
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

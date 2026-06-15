@@ -1,0 +1,115 @@
+MOVLPS — Move Low Packed Single Precision Floating-Point Values
+
+* Index
+
+* December 2023
+
+MOVLPS — Move Low Packed Single Precision Floating-Point Values
+
+|       Opcode/Instruction       |Op / En|64/32 bit Mode Support|CPUID Feature Flag|                     Description                     |
+
+|--------------------------------------------|-------|----------------------|------------------|-----------------------------------------------------------------------------------------------|
+
+|    NP 0F 12 /r MOVLPS xmm1, m64    |  A  |     V/V     |    SSE    |  Move two packed single precision floating-point values from m64 to low quadword of xmm1. |
+
+|VEX.128.0F.WIG 12 /r VMOVLPS xmm2, xmm1, m64|  B  |     V/V     |    AVX    |Merge two packed single precision floating-point values from m64 and the high quadword of xmm1. |
+
+|EVEX.128.0F.W0 12 /r VMOVLPS xmm2, xmm1, m64|  D  |     V/V     |   AVX512F   |Merge two packed single precision floating-point values from m64 and the high quadword of xmm1. |
+
+|     0F 13/r MOVLPS m64, xmm1     |  C  |     V/V     |    SSE    |  Move two packed single precision floating-point values from low quadword of xmm1 to m64. |
+
+|  VEX.128.0F.WIG 13/r VMOVLPS m64, xmm1  |  C  |     V/V     |    AVX    |  Move two packed single precision floating-point values from low quadword of xmm1 to m64. |
+
+|  EVEX.128.0F.W0 13/r VMOVLPS m64, xmm1  |  E  |     V/V     |   AVX512F   |  Move two packed single precision floating-point values from low quadword of xmm1 to m64. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|Tuple Type|  Operand 1  | Operand 2 | Operand 3 |Operand 4|
+
+|-----|----------|----------------|-------------|-------------|---------|
+
+| A |  N/A  |ModRM:reg (r, w)|ModRM:r/m (r)|   N/A   |  N/A  |
+
+| B |  N/A  | ModRM:reg (w) |VEX.vvvv (r) |ModRM:r/m (r)|  N/A  |
+
+| C |  N/A  | ModRM:r/m (w) |ModRM:reg (r)|   N/A   |  N/A  |
+
+| D | Tuple2 | ModRM:reg (w) |EVEX.vvvv (r)|ModRM:r/m (r)|  N/A  |
+
+| E | Tuple2 | ModRM:r/m (w) |ModRM:reg (r)|   N/A   |  N/A  |
+
+Description ¶
+
+This instruction cannot be used for register to register or memory to memory moves.
+
+128-bit Legacy SSE load:
+
+Moves two packed single precision floating-point values from the source 64-bit memory operand and stores them in the low 64-bits of the destination XMM register. The upper 64bits of the XMM register are preserved. Bits (MAXVL-1:128) of the corresponding destination register are preserved.
+
+VEX.128 & EVEX encoded load:
+
+Loads two packed single precision floating-point values from the source 64-bit memory operand (the third operand), merges them with the upper 64-bits of the first source operand (the second operand), and stores them in the low 128-bits of the destination register (the first operand). Bits (MAXVL-1:128) of the corresponding destination register are zeroed.
+
+128-bit store:
+
+Loads two packed single precision floating-point values from the low 64-bits of the XMM register source (second operand) to the 64-bit memory location (first operand).
+
+Note: VMOVLPS (store) (VEX.128.0F 13 /r) is legal and has the same behavior as the existing 0F 13 store. For VMOVLPS (store) VEX.vvvv and EVEX.vvvv are reserved and must be 1111b otherwise instruction will #UD.
+
+If VMOVLPS is encoded with VEX.L or EVEX.L’L= 1, an attempt to execute the instruction encoded with VEX.L or EVEX.L’L= 1 will cause an #UD exception.
+
+Operation ¶
+
+MOVLPS (128-bit Legacy SSE Load) ¶
+
+```
+
+DEST[63:0] := SRC[63:0] DEST[MAXVL-1:64] (Unmodified)
+
+```
+
+VMOVLPS (VEX.128 & EVEX Encoded Load) ¶
+
+```
+
+DEST[63:0] := SRC2[63:0] DEST[127:64] := SRC1[127:64] DEST[MAXVL-1:128] := 0
+
+```
+
+VMOVLPS (Store) ¶
+
+```
+
+DEST[63:0] := SRC[63:0]
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+MOVLPS __m128 _mm_loadl_pi ( __m128 a, __m64 *p)
+
+```
+
+```
+
+MOVLPS void _mm_storel_pi (__m64 *p, __m128 a)
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+None.
+
+Other Exceptions ¶
+
+Non-EVEX-encoded instruction, see Table 2-22, “Type 5 Class Exception Conditions,” additionally:
+
+|\#UD|If VEX.L = 1. |
+
+|----|-------------|
+
+EVEX-encoded instruction, see Table 2-57, “Type E9NF Class Exception Conditions.”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

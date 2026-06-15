@@ -8,7 +8,7 @@ export interface EditorTab {
     content: string;
     isModified: boolean;
     language: string;
-    type?: 'file' | 'settings' | 'mcp-store';
+    type?: 'file' | 'settings' | 'mcp-store' | 'aim' | 'canvas';
     diagnostics?: any[];
 }
 
@@ -54,7 +54,10 @@ export interface AgentMessage {
     role: 'user' | 'assistant' | 'system' | 'tool';
     content: string;
     thoughts?: string;
+    thoughtStartedAt?: number;
+    thoughtDurationMs?: number;
     steps?: AgentStep[];
+    toolBlocks?: import('../domain/agent/agentToolBlocks').AgentToolBlock[];
     files?: string[];
     artifacts?: Artifact[];
     context?: AttachedContext[];

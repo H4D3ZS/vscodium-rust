@@ -1,0 +1,385 @@
+use crate::common::{
+    Bytes, VM, run_until_hlt_legacy as run_until_hlt, setup_vm_legacy as setup_vm,
+};
+
+// SCAS/SCASB/SCASW/SCASD/SCASQ - Scan String
+// Compares AL/AX/EAX/RAX with [RDI], sets flags, increments/decrements RDI based on DF
+// Opcodes:
+//   AE - SCASB (scan byte)
+//   AF - SCASW (scan word, 66h prefix)
+//   AF - SCASD (scan doubleword)
+//   REX.W AF - SCASQ (scan quadword)
+
+#[test]
+fn test_scasb_basic_match() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0xc6, 0x07, 0x42, // MOV BYTE PTR [RDI], 0x42
+        0xb0, 0x42, // MOV AL, 0x42
+        0xfc, // CLD
+        0xae, // SCASB
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x4001); // RDI incremented
+    // ZF should be 1 (equal)
+}
+
+#[test]
+fn test_scasb_no_match() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0xc6, 0x07, 0x42, // MOV BYTE PTR [RDI], 0x42
+        0xb0, 0x99, // MOV AL, 0x99
+        0xfc, // CLD
+        0xae, // SCASB
+        0x74, 0x01, // JE +1 (should not jump, not equal)
+        0xf4, // HLT (should execute)
+        0xf4, // HLT (should not reach)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x4001);
+    assert_eq!(vm.rip, (0x1000 + code.len() - 1) as u64);
+}
+
+#[test]
+fn test_scasb_with_std() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0xc6, 0x07, 0xaa, // MOV BYTE PTR [RDI], 0xAA
+        0xb0, 0xaa, // MOV AL, 0xAA
+        0xfd, // STD
+        0xae, // SCASB
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x3FFF); // RDI decremented
+}
+
+#[test]
+fn test_repne_scasb_find_byte() {
+    // Find first occurrence of byte
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0x48, 0xc7, 0xc1, 0x05, 0x00, 0x00, 0x00, // MOV RCX, 5
+        0xc6, 0x07, 0x01, // MOV BYTE PTR [RDI], 1
+        0xc6, 0x47, 0x01, 0x02, // MOV BYTE PTR [RDI+1], 2
+        0xc6, 0x47, 0x02, 0x03, // MOV BYTE PTR [RDI+2], 3
+        0xc6, 0x47, 0x03, 0x00, // MOV BYTE PTR [RDI+3], 0 (target)
+        0xc6, 0x47, 0x04, 0x05, // MOV BYTE PTR [RDI+4], 5
+        0xb0, 0x00, // MOV AL, 0 (search for null)
+        0xfc, // CLD
+        0xf2, 0xae, // REPNE SCASB (scan while not equal)
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x4004); // Found at position 3, RDI at 4
+    assert_eq!(vm.rcx, 1); // 1 remaining
+}
+
+#[test]
+fn test_repe_scasb_count_matching() {
+    // Count consecutive matching bytes
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0x48, 0xc7, 0xc1, 0x06, 0x00, 0x00, 0x00, // MOV RCX, 6
+        0xc6, 0x07, 0x42, // MOV BYTE PTR [RDI], 0x42
+        0xc6, 0x47, 0x01, 0x42, // MOV BYTE PTR [RDI+1], 0x42
+        0xc6, 0x47, 0x02, 0x42, // MOV BYTE PTR [RDI+2], 0x42
+        0xc6, 0x47, 0x03, 0x99, // MOV BYTE PTR [RDI+3], 0x99 (different)
+        0xb0, 0x42, // MOV AL, 0x42
+        0xfc, // CLD
+        0xf3, 0xae, // REPE SCASB (scan while equal)
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x4004); // Stopped at first non-match
+    assert_eq!(vm.rcx, 2); // 3 matched, 3 remaining
+}
+
+#[test]
+fn test_scasw_basic() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0x66, 0xc7, 0x07, 0x34, 0x12, // MOV WORD PTR [RDI], 0x1234
+        0x66, 0xb8, 0x34, 0x12, // MOV AX, 0x1234
+        0xfc, // CLD
+        0x66, 0xaf, // SCASW
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x4002); // Incremented by 2
+}
+
+#[test]
+fn test_scasd_basic() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0xc7, 0x07, 0x78, 0x56, 0x34, 0x12, // MOV DWORD PTR [RDI], 0x12345678
+        0xb8, 0x78, 0x56, 0x34, 0x12, // MOV EAX, 0x12345678
+        0xfc, // CLD
+        0xaf, // SCASD
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x4004); // Incremented by 4
+}
+
+#[test]
+fn test_scasq_basic() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0x48, 0xb8, 0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34,
+        0x12, // MOV RAX, 0x1234567890ABCDEF
+        0x48, 0x89, 0x07, // MOV [RDI], RAX
+        0xfc, // CLD
+        0x48, 0xaf, // SCASQ
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x4008); // Incremented by 8
+}
+
+#[test]
+fn test_scasb_strlen_pattern() {
+    // Measure string length by scanning for null
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0xc6, 0x07, 0x48, // H
+        0xc6, 0x47, 0x01, 0x45, // E
+        0xc6, 0x47, 0x02, 0x4c, // L
+        0xc6, 0x47, 0x03, 0x4c, // L
+        0xc6, 0x47, 0x04, 0x4f, // O
+        0xc6, 0x47, 0x05, 0x00, // \0
+        0x48, 0x89, 0xfb, // MOV RBX, RDI (save start)
+        0x48, 0xc7, 0xc1, 0xff, 0xff, 0xff, 0xff, // MOV RCX, -1 (max)
+        0xb0, 0x00, // MOV AL, 0 (null terminator)
+        0xfc, // CLD
+        0xf2, 0xae, // REPNE SCASB (find null)
+        0x48, 0x89, 0xf8, // MOV RAX, RDI
+        0x48, 0x29, 0xd8, // SUB RAX, RBX (length + 1)
+        0x48, 0xff, 0xc8, // DEC RAX (exclude null)
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax, 5); // "HELLO" length
+}
+
+#[test]
+fn test_scasb_preserves_other_registers() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0xc6, 0x07, 0x42, // MOV BYTE PTR [RDI], 0x42
+        0xb0, 0x42, // MOV AL, 0x42
+        0x48, 0xc7, 0xc3, 0x99, 0x00, 0x00, 0x00, // MOV RBX, 0x99
+        0x48, 0xc7, 0xc6, 0xaa, 0x00, 0x00, 0x00, // MOV RSI, 0xAA
+        0xfc, // CLD
+        0xae, // SCASB
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rax & 0xFF, 0x42); // AL preserved
+    assert_eq!(vm.rbx, 0x99); // Preserved
+    assert_eq!(vm.rsi, 0xAA); // Preserved
+}
+
+#[test]
+fn test_scasb_non_destructive() {
+    // SCAS doesn't modify memory
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0xc6, 0x07, 0x42, // MOV BYTE PTR [RDI], 0x42
+        0xb0, 0x42, // MOV AL, 0x42
+        0xfc, // CLD
+        0xae, // SCASB
+        0xf4, // HLT
+    ];
+    let mut vm = setup_vm(&code);
+    vm = run_until_hlt(vm);
+    assert_eq!(vm.read_memory(0x4000, 1)[0], 0x42); // Memory unchanged
+}
+
+#[test]
+fn test_repne_scasb_not_found() {
+    // Search for byte that doesn't exist
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0x48, 0xc7, 0xc1, 0x05, 0x00, 0x00, 0x00, // MOV RCX, 5
+        0xc6, 0x07, 0x01, // MOV BYTE PTR [RDI], 1
+        0xc6, 0x47, 0x01, 0x02, // MOV BYTE PTR [RDI+1], 2
+        0xc6, 0x47, 0x02, 0x03, // MOV BYTE PTR [RDI+2], 3
+        0xc6, 0x47, 0x03, 0x04, // MOV BYTE PTR [RDI+3], 4
+        0xc6, 0x47, 0x04, 0x05, // MOV BYTE PTR [RDI+4], 5
+        0xb0, 0x99, // MOV AL, 0x99 (not in buffer)
+        0xfc, // CLD
+        0xf2, 0xae, // REPNE SCASB
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rcx, 0); // Exhausted
+    assert_eq!(vm.rdi, 0x4005); // Scanned all 5
+}
+
+#[test]
+fn test_repe_scasb_all_match() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0x48, 0xc7, 0xc1, 0x04, 0x00, 0x00, 0x00, // MOV RCX, 4
+        0xc6, 0x07, 0xaa, // MOV BYTE PTR [RDI], 0xAA
+        0xc6, 0x47, 0x01, 0xaa, // MOV BYTE PTR [RDI+1], 0xAA
+        0xc6, 0x47, 0x02, 0xaa, // MOV BYTE PTR [RDI+2], 0xAA
+        0xc6, 0x47, 0x03, 0xaa, // MOV BYTE PTR [RDI+3], 0xAA
+        0xb0, 0xaa, // MOV AL, 0xAA
+        0xfc, // CLD
+        0xf3, 0xae, // REPE SCASB
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rcx, 0); // All matched
+    assert_eq!(vm.rdi, 0x4004);
+}
+
+#[test]
+fn test_scasb_backward() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x04, 0x40, 0x00, 0x00, // MOV RDI, 0x4004 (end)
+        0x48, 0xc7, 0xc1, 0x05, 0x00, 0x00, 0x00, // MOV RCX, 5
+        0xc6, 0x47, 0xfc, 0x01, // MOV BYTE PTR [RDI-4], 1
+        0xc6, 0x47, 0xfd, 0x02, // MOV BYTE PTR [RDI-3], 2
+        0xc6, 0x47, 0xfe, 0x03, // MOV BYTE PTR [RDI-2], 3
+        0xc6, 0x47, 0xff, 0x00, // MOV BYTE PTR [RDI-1], 0
+        0xc6, 0x07, 0x05, // MOV BYTE PTR [RDI], 5
+        0xb0, 0x00, // MOV AL, 0
+        0xfd, // STD
+        0xf2, 0xae, // REPNE SCASB (backward)
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    // Found null at position [RDI-1] before STD, after scanning backward
+}
+
+#[test]
+fn test_scasw_array_search() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0x48, 0xc7, 0xc1, 0x04, 0x00, 0x00, 0x00, // MOV RCX, 4
+        0x66, 0xc7, 0x07, 0x11, 0x11, // MOV WORD PTR [RDI], 0x1111
+        0x66, 0xc7, 0x47, 0x02, 0x22, 0x22, // MOV WORD PTR [RDI+2], 0x2222
+        0x66, 0xc7, 0x47, 0x04, 0x33, 0x33, // MOV WORD PTR [RDI+4], 0x3333 (target)
+        0x66, 0xc7, 0x47, 0x06, 0x44, 0x44, // MOV WORD PTR [RDI+6], 0x4444
+        0x66, 0xb8, 0x33, 0x33, // MOV AX, 0x3333
+        0xfc, // CLD
+        0xf2, 0x66, 0xaf, // REPNE SCASW
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x4006); // Found at position 2 (word offset)
+}
+
+#[test]
+fn test_scasd_verify_pattern() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0xc7, 0x07, 0xff, 0xff, 0xff, 0xff, // MOV DWORD PTR [RDI], -1
+        0xb8, 0xff, 0xff, 0xff, 0xff, // MOV EAX, -1
+        0xfc, // CLD
+        0xaf, // SCASD
+        0x75, 0x01, // JNE +1 (should not jump, equal)
+        0xf4, // HLT (should execute)
+        0xf4, // HLT (should not reach)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rip, (0x1000 + code.len() - 1) as u64);
+}
+
+#[test]
+fn test_scasb_empty_rep() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0x48, 0xc7, 0xc1, 0x00, 0x00, 0x00, 0x00, // MOV RCX, 0
+        0xb0, 0x42, // MOV AL, 0x42
+        0xfc, // CLD
+        0xf2, 0xae, // REPNE SCASB (no iterations)
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x4000); // Unchanged
+}
+
+#[test]
+fn test_scasb_sets_flags() {
+    // SCAS computes AL - [RDI], not [RDI] - AL
+    // With AL=3, [RDI]=5: 3 - 5 = -2 (SF=1, ZF=0)
+    // JG jumps when SF=OF and ZF=0, but here SF=1, OF=0 so JG does NOT jump
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0xc6, 0x07, 0x03, // MOV BYTE PTR [RDI], 3
+        0xb0, 0x05, // MOV AL, 5
+        0xfc, // CLD
+        0xae, // SCASB (5 - 3 = 2, positive, SF=0)
+        0x7f, 0x01, // JG +1 (should jump, AL > [RDI] signed)
+        0xf4, // HLT (should not reach)
+        0xf4, // HLT (target)
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rip, (0x1000 + code.len()) as u64);
+}
+
+#[test]
+fn test_repne_scasb_first_match() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0x48, 0xc7, 0xc1, 0x08, 0x00, 0x00, 0x00, // MOV RCX, 8
+        // Fill with 0xAA except position 5
+        0xc6, 0x07, 0xaa, // [0]
+        0xc6, 0x47, 0x01, 0xaa, // [1]
+        0xc6, 0x47, 0x02, 0xaa, // [2]
+        0xc6, 0x47, 0x03, 0xaa, // [3]
+        0xc6, 0x47, 0x04, 0xaa, // [4]
+        0xc6, 0x47, 0x05, 0x42, // [5] - target
+        0xc6, 0x47, 0x06, 0xaa, // [6]
+        0xc6, 0x47, 0x07, 0xaa, // [7]
+        0xb0, 0x42, // MOV AL, 0x42
+        0xfc, // CLD
+        0xf2, 0xae, // REPNE SCASB
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rdi, 0x4006); // Found at position 5, RDI at 6
+    assert_eq!(vm.rcx, 2); // 6 scanned, 2 remaining
+}
+
+#[test]
+fn test_scasq_large_value() {
+    let code = [
+        0x48, 0xc7, 0xc7, 0x00, 0x40, 0x00, 0x00, // MOV RDI, 0x4000
+        0x48, 0xb8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f, // MOV RAX, max i64
+        0x48, 0x89, 0x07, // MOV [RDI], RAX
+        0xfc, // CLD
+        0x48, 0xaf, // SCASQ
+        0x75, 0x01, // JNE +1 (should not jump)
+        0xf4, // HLT
+        0xf4, // HLT
+    ];
+    let vm = setup_vm(&code);
+    let vm = run_until_hlt(vm);
+    assert_eq!(vm.rip, (0x1000 + code.len() - 1) as u64);
+}

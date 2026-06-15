@@ -2,6 +2,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { AppState } from './index';
 import { normalizeOllamaUrl } from './utils';
+import { mergeLocalRegistryHints } from '../lib/localOllamaRegistry';
+import { applyLocalOllamaAgentDefaults } from '../lib/localOllamaAgentDefaults';
 
 export interface InferenceSlice {
     ollamaUrl: string;
@@ -180,7 +182,22 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             localStorage.setItem('ollamaUrl', url);
             if (mode === 'cloud') localStorage.setItem('customOllamaUrl', CYBERIFRIT_CLOUD_OLLAMA_URL);
         } catch { /* ignore */ }
+        if (mode === 'local') {
+            applyLocalOllamaAgentDefaults(get() as Parameters<typeof applyLocalOllamaAgentDefaults>[0]);
+        }
         void get().syncOllamaEndpoint?.();
+        // Cloud AMD requires a live Supabase session — nudge if signed out.
+        if (mode === 'cloud') {
+            import('../tauri_bridge').then(({ invoke }) =>
+                invoke<{ signed_in?: boolean }>('auth_session')
+                    .then((s) => {
+                        if (!s?.signed_in) {
+                            console.warn('[Ollama] Cloud mode needs Settings → Account sign-in.');
+                        }
+                    })
+                    .catch(() => { /* offline */ }),
+            );
+        }
     },
     syncOllamaEndpoint: async () => {
         const mode = get().ollamaServerMode;
@@ -215,6 +232,9 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
         localStorage.setItem('inferenceBackend', backend);
         set({ inferenceBackend: backend });
         const st = get();
+        if (backend === 'ollama' && st.ollamaServerMode === 'local') {
+            applyLocalOllamaAgentDefaults(st as Parameters<typeof applyLocalOllamaAgentDefaults>[0]);
+        }
         if (backend === 'llama-cpp') {
             import('../tauri_bridge').then(({ invoke }) => invoke('set_ollama_url', { url: st.llamaCppUrl }).catch(() => { }));
         } else if (backend === 'ollama') {
@@ -243,6 +263,12 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
         const { ollamaUrl } = get();
         try {
             const keys: any = await invoke('get_api_keys');
+            let acct: any = null;
+            try { acct = await invoke('account_get'); } catch { /* offline */ }
+            const cloudEntitled = !!(
+                acct?.entitlements?.features?.includes('cloud_models')
+                || acct?.trial_active
+            );
             const providers: string[] = ['Ollama'];
             if (keys.google) providers.push('Google');
             if (keys.anthropic) providers.push('Anthropic');
@@ -253,9 +279,10 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             if ((keys as any).mimo) providers.push('Mimo');
             // Interface AI / highwayapi.ai — Claude Opus 4.8 (BYO key).
             if ((keys as any).highwayapi || (keys as any).highwayapi_base_url) providers.push('Highwayapi');
-            // Cyber-Ifrit may front a keyless local AMD box — list it if a key OR a
-            // custom base URL is configured.
-            if ((keys as any).cyberifrit || (keys as any).cyberifrit_base_url) providers.push('Cyberifrit');
+            // Cyber-Ifrit: show when subscribed/trial OR when a key/base URL is configured.
+            if ((keys as any).cyberifrit || (keys as any).cyberifrit_base_url || cloudEntitled) {
+                providers.push('Cyberifrit');
+            }
             if (typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')) providers.push('Deepseek-ANE');
             if (keys.groq) providers.push('Groq');
             if (keys.xai) providers.push('xAI');
@@ -300,15 +327,29 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                         continue;
                     } else {
                         models = await invoke<string[]>('list_provider_models', { provider: p });
+                        if (p.toLowerCase() === 'ollama' && get().ollamaServerMode === 'local') {
+                            models = mergeLocalRegistryHints(models);
+                        }
                         allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
                     }
                     if (p.toLowerCase() === 'ollama' && models.length > 0) set({ ollamaStatus: 'running' });
                 } catch (e: any) {
-                    if (!(e && typeof e === 'string' && e.includes('API key not found'))) console.error(`Failed to fetch models for ${p}:`, e);
+                    const msg = typeof e === 'string' ? e : String(e ?? '');
+                    const quiet =
+                        msg.includes('API key not found') ||
+                        msg.includes('Connection refused') ||
+                        msg.includes('not reachable') ||
+                        msg.includes('error trying to connect');
+                    if (!quiet) console.error(`Failed to fetch models for ${p}:`, e);
                     if (p.toLowerCase() === 'ollama') set({ ollamaStatus: 'error' });
                 }
             }
-            allModels.push({ id: 'antigravity-sentient', provider: 'antigravity' });
+            // Subscribed users: always surface curated Cyber-Ifrit cloud models.
+            if (cloudEntitled && !allModels.some(m => m.provider === 'cyberifrit')) {
+                for (const id of ['cyberifrit/qwen3.6:35b', 'cyberifrit/qwen2.5-coder:32b', 'cyberifrit/qwen2.5:32b']) {
+                    allModels.push({ id, provider: 'cyberifrit' });
+                }
+            }
             // Guarantee Opus 4.8 appears when the Interface AI key is set + enabled,
             // even if the provider's /models listing is unavailable.
             if (((keys as any).highwayapi) && isEnabled('highwayapi') && !allModels.some(m => m.provider === 'highwayapi')) {
@@ -352,7 +393,10 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
         catch (e: any) { get().addMitmLog(`Error stopping server: ${e}`); }
     },
     addMitmLog: (log) => set((s) => ({ mitmLogs: [...s.mitmLogs, `[${new Date().toLocaleTimeString()}] ${log}`].slice(-100) })),
-    addMcpServer: async (name, config) => { try { await invoke('add_mcp_server', { name, config }); await get().listMcpServers(); } catch { } },
+    addMcpServer: async (name, config) => {
+        await invoke('add_mcp_server', { name, config });
+        await get().listMcpServers();
+    },
     removeMcpServer: async (name) => { try { await invoke('remove_mcp_server', { name }); await get().listMcpServers(); } catch { } },
     listMcpServers: async () => { try { const servers = await invoke<any[]>('list_mcp_servers'); set({ mcpServers: servers }); } catch { } },
     setMcpServerEnabled: async (name, enabled) => { try { await invoke('set_mcp_server_enabled', { name, enabled }); await get().listMcpServers(); } catch { } },

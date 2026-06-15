@@ -10,12 +10,14 @@ import { TrustDialog } from './components/TrustDialog';
 import { useStore } from './store.ts';
 import { initCommands } from './commands.ts';
 import { initTheme } from './theme_engine';
-import { scheduleDeferredInit } from './memory_budget';
+import { scheduleDeferredInit, DEFERRED_INIT_MS } from './memory_budget';
 
 // Lazy-load modal/overlay components — they only render on user trigger,
 // keeping the initial bundle ~200KB smaller and saving renderer RAM.
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const MultiFileReview = lazy(() => import('./components/agent/MultiFileReview'));
+const OllamaFirstLaunchWizard = lazy(() => import('./components/onboarding/OllamaFirstLaunchWizard'));
+const AgentSetupWizard = lazy(() => import('./components/onboarding/AgentSetupWizard'));
 const TrajectoryPanel = lazy(() => import('./components/agent/TrajectoryPanel'));
 const QuickOpen = lazy(() => import('./components/QuickOpen'));
 const ToolPermissionDialog = lazy(() => import('./components/ToolPermissionDialog'));
@@ -54,14 +56,21 @@ const App: React.FC = () => {
     useEffect(() => {
         (window as any).useStore = useStore;
         let unsubAgentRuntime: (() => void) | undefined;
+        let unsubMemoryGov: (() => void) | undefined;
         // Critical path only — defer heavy subsystems until idle.
         initCommands();
         initTheme();
         import('./application/performance/ensureAgentRuntime').then(m => {
             unsubAgentRuntime = m.scheduleAgentRuntimeBootstrap();
         });
-        import('./application/debug/bootstrapDebugRuntime').then(m => m.bootstrapDebugRuntime());
-        import('./application/workspace/multiRootWorkspace').then(m => m.initWorkspaceFoldersFromStorage());
+        import('./application/performance/memoryGovernor').then(m => {
+            unsubMemoryGov = m.scheduleMemoryGovernor();
+        });
+
+        scheduleDeferredInit(() => {
+            import('./application/debug/bootstrapDebugRuntime').then(m => m.bootstrapDebugRuntime());
+            import('./application/workspace/multiRootWorkspace').then(m => m.initWorkspaceFoldersFromStorage());
+        }, 2_000);
 
         scheduleDeferredInit(() => {
             import('./search').then(m => m.initSearch());
@@ -85,18 +94,46 @@ const App: React.FC = () => {
         else document.body.classList.add('is-web');
         // ----------------------------------------
 
-        const { refreshAvailableModels, setActiveRoot, activeRoot, refreshFileTree, syncOllamaEndpoint } = useStore.getState();
-        // Push resolved Ollama URL into Rust (cloud/local/self-hosted) before model refresh.
-        void syncOllamaEndpoint?.().then(() => refreshAvailableModels()).catch(() => refreshAvailableModels());
+        const { setActiveRoot, activeRoot, refreshFileTree } = useStore.getState();
+
+        let unsubBilling: (() => void) | undefined;
+
+        scheduleDeferredInit(() => {
+            const st = useStore.getState();
+            import('./lib/agentAutonomy').then(({ ensureAgenticAutonomy }) => {
+                void ensureAgenticAutonomy(st.agentMode);
+            });
+            import('./lib/localOllamaAgentDefaults').then(({ migrateLocalOllamaPlannerSettings }) => {
+                migrateLocalOllamaPlannerSettings(useStore.getState());
+            });
+            void st.syncOllamaEndpoint?.()
+                .then(() => st.refreshAvailableModels())
+                .catch(() => st.refreshAvailableModels());
+            import('./lib/billingSync').then((m) => {
+                unsubBilling = m.wireBillingFocusSync();
+            });
+        }, DEFERRED_INIT_MS);
 
         // Default subscribed users to managed cloud model (Cyber-Ifrit Qwen 35B).
-        invoke<any>('account_get').then((acct) => {
+        scheduleDeferredInit(() => invoke<any>('account_get').then((acct) => {
             if (!acct?.signed_in) return;
+            import('./application/enterprise/applyEnterprisePolicy').then((m) =>
+                m.applyEnterprisePolicyFromAccount(acct),
+            );
+            const features: string[] = acct?.entitlements?.features || [];
+            const hasCloud = features.includes('cloud_models') || acct?.trial_active;
             const st = useStore.getState();
+            if (hasCloud && !localStorage.getItem('cyberifrit.cloudOnboarded')) {
+                try { localStorage.setItem('cyberifrit.cloudOnboarded', '1'); } catch { /* */ }
+                st.setOllamaServerMode?.('cloud');
+                void st.syncOllamaEndpoint?.().then(() => st.refreshAvailableModels());
+            }
             const current = (st.agentModel || '').trim();
-            if (current) return;
-            st.setAgentModel?.('cyberifrit|cyberifrit/qwen3.6:35b');
-        }).catch(() => { /* offline / first launch */ });
+            const prefersOffline = localStorage.getItem('ide.offline-cyber-boot-v1') === '1';
+            if (!current && hasCloud && !prefersOffline) {
+                st.setAgentModel?.('cyberifrit|cyberifrit/qwen3.6:35b');
+            }
+        }).catch(() => { /* offline / first launch */ }), DEFERRED_INIT_MS + 1_000);
 
         import('./application/workspace/restoreWorkspaceOnBoot').then(({ restoreWorkspaceOnBoot }) =>
             restoreWorkspaceOnBoot(activeRoot, {
@@ -139,7 +176,11 @@ const App: React.FC = () => {
             subscribe: useStore.subscribe,
         };
 
-        return () => { unsubAgentRuntime?.(); };
+        return () => {
+            unsubAgentRuntime?.();
+            unsubMemoryGov?.();
+            unsubBilling?.();
+        };
     }, []);
 
     return (
@@ -169,6 +210,8 @@ const App: React.FC = () => {
             <TrustDialog />
             <Suspense fallback={null}>
                 <ToolPermissionDialog />
+                <OllamaFirstLaunchWizard />
+                <AgentSetupWizard />
                 <MultiFileReview />
                 <TrajectoryPanel />
             </Suspense>

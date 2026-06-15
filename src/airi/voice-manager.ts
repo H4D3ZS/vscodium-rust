@@ -48,11 +48,11 @@ export async function initializeVoice(): Promise<boolean> {
       
       return true;
     } else {
-      console.error('[VoiceManager] ❌ TTS initialization failed');
+ console.error('[VoiceManager] TTS initialization failed');
       return false;
     }
   } catch (error) {
-    console.error('[VoiceManager] ❌ Initialization error:', error);
+ console.error('[VoiceManager] Initialization error:', error);
     return false;
   }
 }
@@ -74,7 +74,7 @@ export async function speak(
   onEnd?: () => void
 ): Promise<boolean> {
   if (!isInitialized) {
-    console.warn('[VoiceManager] ⚠️ Voice not initialized, queuing request');
+ console.warn('[VoiceManager] Voice not initialized, queuing request');
     // Queue the request for when initialization completes
     queueSpeech(text, preset, priority, onEnd);
     return false;
@@ -181,7 +181,7 @@ async function processSpeechQueue(): Promise<void> {
     );
 
     if (!success) {
-      console.warn('[VoiceManager] ⚠️ Speech failed');
+ console.warn('[VoiceManager] Speech failed');
       isSpeaking = false;
       voiceLock = false;
       currentRequest?.onEnd?.();
@@ -191,7 +191,7 @@ async function processSpeechQueue(): Promise<void> {
     }
 
   } catch (error) {
-    console.error('[VoiceManager] ❌ Speech error:', error);
+ console.error('[VoiceManager] Speech error:', error);
     isSpeaking = false;
     voiceLock = false;
     currentRequest?.onEnd?.();

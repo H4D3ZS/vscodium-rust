@@ -1,0 +1,115 @@
+ETRACK — Activates EBLOCK Checks
+
+* Index
+
+* December 2023
+
+ETRACK — Activates EBLOCK Checks
+
+| Opcode/Instruction  |Op/En|64/32 bit Mode Support|CPUID Feature Flag|        Description        |
+
+|-----------------------|-----|----------------------|------------------|-------------------------------------------|
+
+|EAX = 0CH ENCLS[ETRACK]| IR |     V/V     |    SGX1    |This leaf function activates EBLOCK checks. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX  |     RCX     |                    |
+
+|-----|-----------|-----------------------|----------------------------------------|
+
+| IR |ETRACK (In)|Return error code (Out)|Pointer to the SECS of the EPC page (In)|
+
+Description ¶
+
+This leaf function provides the mechanism for hardware to track that software has completed the required TLB address clears successfully. The instruction can only be executed when the current privilege level is 0.
+
+The content of RCX is an effective address of an EPC page.
+
+The table below provides additional information on the memory parameter of ETRACK leaf function.
+
+ETRACK Memory Parameter Semantics ¶
+
+|        EPCPAGE        |
+
+|--------------------------------------|
+
+|Read/Write access permitted by Enclave|
+
+The error codes are:
+
+|Error Code (see Table 38-4)|              Description              |
+
+|---------------------------|-----------------------------------------------------------------|
+
+|     No Error     |            ETRACK successful. |
+
+| SGX\_PREV\_TRK\_INCMPL  |All processors did not complete the previous shoot-down sequence. |
+
+Table 38-45. ETRACK Return Value in RAX
+
+Concurrency Restrictions ¶
+
+|             Leaf             | Parameter |Base Concurrency Restrictions|  |  |
+
+|-------------------------------------------------------|-------------|-----------------------------|---|---|
+
+|                            | On Conflict |               |  |  |
+
+|ETRACK ETRACK SECS [DS:RCX] Shared ETRACK SECS [DS:RCX]|SECS [DS:RCX]|               |  |  |
+
+Table 38-46. Base Concurrency Restrictions of ETRACK
+
+|           Leaf           |    Parameter    |Additional Concurrency Restrictions|      |     |      |     |             |
+
+|-----------------------------------------------|------------------------|-----------------------------------|-----------|----------|-----------|---------|-------------------------|
+
+|vs EACCEPT, EACCEPTCOPY, EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT|    vs ETRACK, ETRACKC    |      |     |      |     |             |
+
+|          Access           |   On Conflict    |       Access        |On Conflict| Access |On Conflict|     |             |
+
+|          ETRACK           |   SECS [DS:RCX]   |      Concurrent       |      |Concurrent|      |Exclusive|SGX\_EPC\_PAGE \_CONFLICT|
+
+Table 38-47. Additional Concurrency Restrictions of ETRACK
+
+Operation ¶
+
+```
+
+IF (DS:RCX is not 4KByte Aligned) THEN #GP(0); FI; IF (DS:RCX does not resolve within an EPC) THEN #PF(DS:RCX); FI; (* Check concurrency with other Intel SGX instructions *) IF (Other Intel SGX instructions using tracking facility on this SECS) THEN IF ( > AND >) THEN VMCS.Exit_reason := SGX_CONFLICT; VMCS.Exit_qualification. code := TRACKING_RESOURCE_CONFLICT; VMCS.Exit_qualification. error := 0; VMCS.Guest-physical_address := SECS(TMP_SECS). ENCLAVECONTEXT; VMCS.Guest-linear_address := 0; Deliver VMEXIT; ELSE #GP(0); FI; FI; IF (EPCM(DS:RCX). VALID = 0) THEN #PF(DS:RCX); FI; IF (EPCM(DS:RCX). PT ≠ PT_SECS) THEN #PF(DS:RCX); FI; (* All processors must have completed the previous tracking cycle*) IF ( (DS:RCX). TRACKING ≠ 0) ) THEN IF ( > AND >) THEN VMCS.Exit_reason := SGX_CONFLICT; VMCS.Exit_qualification. code := TRACKING_REFERENCE_CONFLICT; VMCS.Exit_qualification. error := 0; VMCS.Guest-physical_address := SECS(TMP_SECS). ENCLAVECONTEXT; VMCS.Guest-linear_address := 0; Deliver VMEXIT; FI; RFLAGS.ZF := 1; RAX := SGX_PREV_TRK_INCMPL; GOTO DONE; ELSE RAX := 0; RFLAGS.ZF := 0; FI; DONE: RFLAGS.CF,PF,AF,OF,SF := 0;
+
+```
+
+Flags Affected ¶
+
+Sets ZF if SECS is in use or invalid, otherwise cleared. Clears CF, PF, AF, OF, SF.
+
+Protected Mode Exceptions ¶
+
+|                 \#GP(0)                 |If a memory operand effective address is outside the DS segment limit. |
+
+|---------------------------------------------------------------------------|----------------------------------------------------------------------|
+
+|        If a memory operand is not properly aligned. |                                   |
+
+|If another thread is concurrently using the tracking facility on this SECS.|                                   |
+
+|                \#PF(error                 |   code) If a page fault occurs in accessing memory operands. |
+
+|         If a memory operand is not an EPC page. |                                   |
+
+64-Bit Mode Exceptions ¶
+
+|         \#GP(0)          |    If a memory operand is non-canonical form. |
+
+|--------------------------------------------|----------------------------------------------------------|
+
+|If a memory operand is not properly aligned. |                             |
+
+| If the specified EPC resource is in use. |                             |
+
+|         \#PF(error         |code) If a page fault occurs in accessing memory operands. |
+
+| If a memory operand is not an EPC page. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

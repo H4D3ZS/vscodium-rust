@@ -1,0 +1,193 @@
+EMODPE — Extend an EPC Page Permissions
+
+* Index
+
+* December 2023
+
+EMODPE — Extend an EPC Page Permissions
+
+| Opcode/Instruction  |Op/En|64/32 bit Mode Support|CPUID Feature Flag|               Description               |
+
+|-----------------------|-----|----------------------|------------------|---------------------------------------------------------------------|
+
+|EAX = 06H ENCLU[EMODPE]| IR |     V/V     |    SGX2    |This leaf function extends the access rights of an existing EPC page. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX  |      RBX      |         RCX          |
+
+|-----|-----------|-------------------------|----------------------------------------|
+
+| IR |EMODPE (In)|Address of a SECINFO (In)|Address of the destination EPC page (In)|
+
+Description ¶
+
+This leaf function extends the access rights associated with an existing EPC page in the running enclave. THE RWX bits of the SECINFO parameter are treated as a permissions mask; supplying a value that does not extend the page permissions will have no effect. This instruction leaf can only be executed when inside the enclave.
+
+RBX contains the effective address of a SECINFO structure while RCX contains the effective address of an EPC page. The table below provides additional information on the memory parameter of the EMODPE leaf function.
+
+EMODPE Memory Parameter Semantics ¶
+
+|       SECINFO        |      EPCPAGE       |
+
+|------------------------------------|--------------------------------|
+
+|Read access permitted by Non Enclave|Read access permitted by Enclave|
+
+The instruction faults if any of the following:
+
+EMODPE Faulting Conditions ¶
+
+| The operands are not properly aligned. |   If security attributes of the SECINFO page make the page inaccessible. |
+
+|-----------------------------------------|--------------------------------------------------------------------------------|
+
+|The EPC page is locked by another thread. |RBX does not contain an effective address in an EPC page in the running enclave. |
+
+|    The EPC page is not valid. |RCX does not contain an effective address of an EPC page in the running enclave. |
+
+| SECINFO contains an invalid request  |                                        |
+
+Concurrency Restrictions ¶
+
+|   Leaf   |  Parameter  |  Base Concurrency Restrictions  |  |  |
+
+|----------------|---------------|-----------------------------------|---|---|
+
+|   Access   | On Conflict |SGX\_CONFLICT VM Exit Qualification|  |  |
+
+|   EMODPE   |Target [DS:RCX]|      Concurrent       |  |  |
+
+|SECINFO [DS:RBX]| Concurrent  |                  |  |  |
+
+Table 38-70. Base Concurrency Restrictions of EMODPE
+
+|           Leaf           |    Parameter    |Additional Concurrency Restrictions|      |     |      |     |  |
+
+|-----------------------------------------------|------------------------|-----------------------------------|-----------|----------|-----------|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT|    vs ETRACK, ETRACKC    |      |     |      |     |  |
+
+|          Access           |   On Conflict    |       Access        |On Conflict| Access |On Conflict|     |  |
+
+|          EMODPE           |  Target [DS:RCX]   |       Exclusive       |  \#GP  |Concurrent|      |Concurrent|  |
+
+|        SECINFO [DS:RBX]        |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+Table 38-71. Additional Concurrency Restrictions of EMODPE
+
+Operation ¶
+
+Temp Variables in EMODPE Operational Flow ¶
+
+|   Name   | Type |Size (bits)|          Description          |
+
+|----------------|-------|-----------|---------------------------------------------------|
+
+|SCRATCH\_SECINFO|SECINFO|  512  |Scratch storage for holding the contents of DS:RBX.|
+
+IF (DS:RBX is not 64Byte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RCX is not 4KByte Aligned)
+
+THEN #GP(0); FI;
+
+IF ((DS:RBX is not within CR\_ELRANGE) or (DS:RCX is not within CR\_ELRANGE) )
+
+THEN #GP(0); FI;
+
+IF (DS:RBX does not resolve within an EPC)
+
+THEN #PF(DS:RBX); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+IF ( (EPCM(DS:RBX). VALID = 0) or (EPCM(DS:RBX). R = 0) or (EPCM(DS:RBX). PENDING ≠ 0) or (EPCM(DS:RBX). MODIFIED ≠ 0) or
+
+(EPCM(DS:RBX). BLOCKED ≠ 0) or (EPCM(DS:RBX). PT ≠ PT\_REG) or (EPCM(DS:RBX). ENCLAVESECS ≠ CR\_ACTIVE\_SECS) or
+
+(EPCM(DS:RBX). ENCLAVEADDRESS ≠ (DS:RBX & \~0xFFF)) )
+
+THEN #PF(DS:RBX); FI;
+
+SCRATCH\_SECINFO := DS:RBX;
+
+(\* Check for misconfigured SECINFO flags\*)
+
+IF (SCRATCH\_SECINFO reserved fields are not zero )
+
+THEN #GP(0); FI;
+
+(\* Check security attributes of the EPC page \*)
+
+IF ( (EPCM(DS:RCX). VALID = 0) or (EPCM(DS:RCX). PENDING ≠ 0) or (EPCM(DS:RCX). MODIFIED ≠ 0) or
+
+(EPCM(DS:RCX). BLOCKED ≠ 0) or (EPCM(DS:RCX). PT ≠ PT\_REG) or (EPCM(DS:RCX). ENCLAVESECS ≠ CR\_ACTIVE\_SECS) )
+
+THEN #PF(DS:RCX); FI;
+
+(\* Check the EPC page for concurrency \*)
+
+IF (EPC page in use by another SGX2 instruction)
+
+THEN #GP(0); FI;
+
+(\* Re-Check security attributes of the EPC page \*)
+
+IF ( (EPCM(DS:RCX). VALID = 0) or (EPCM(DS:RCX). PENDING ≠ 0) or (EPCM(DS:RCX). MODIFIED ≠ 0) or
+
+(EPCM(DS:RCX). PT ≠ PT\_REG) or (EPCM(DS:RCX). ENCLAVESECS ≠ CR\_ACTIVE\_SECS) or
+
+(EPCM(DS:RCX). ENCLAVEADDRESS ≠ DS:RCX))
+
+THEN #PF(DS:RCX); FI;
+
+(\* Check for misconfigured SECINFO flags\*)
+
+IF ( (EPCM(DS:RCX). R = 0) and (SCRATCH\_SECINFO.FLAGS.R = 0) and (SCRATCH\_SECINFO.FLAGS.W ≠ 0) )
+
+(\* Update EPCM permissions \*)
+
+EPCM(DS:RCX). R := EPCM(DS:RCX). R | SCRATCH\_SECINFO.FLAGS.R;
+
+EPCM(DS:RCX). W := EPCM(DS:RCX). W | SCRATCH\_SECINFO.FLAGS.W;
+
+EPCM(DS:RCX). X := EPCM(DS:RCX). X | SCRATCH\_SECINFO.FLAGS.X;
+
+Flags Affected ¶
+
+None
+
+Protected Mode Exceptions ¶
+
+|                \#GP(0)                |       If executed outside an enclave. |
+
+|----------------------------------------------------------------------|----------------------------------------------------------|
+
+|If a memory operand effective address is outside the DS segment limit. |                             |
+
+|       If a memory operand is not properly aligned. |                             |
+
+|          If a memory operand is locked. |                             |
+
+|               \#PF(error               |code) If a page fault occurs in accessing memory operands. |
+
+64-Bit Mode Exceptions ¶
+
+|         \#GP(0)          |       If executed outside an enclave. |
+
+|--------------------------------------------|----------------------------------------------------------|
+
+| If a memory operand is non-canonical form. |                             |
+
+|If a memory operand is not properly aligned. |                             |
+
+|    If a memory operand is locked. |                             |
+
+|         \#PF(error         |code) If a page fault occurs in accessing memory operands. |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

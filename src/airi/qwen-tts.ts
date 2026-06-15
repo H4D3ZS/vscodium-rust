@@ -97,7 +97,7 @@ export class Qwen3TTS {
 
             utterance.onerror = (event) => {
                 this.isSpeaking = false;
-                console.error('[Qwen3-TTS] ❌ Speech error:', event.error);
+ console.error('[Qwen3-TTS] Speech error:', event.error);
                 resolve(); // Resolve anyway
             };
 

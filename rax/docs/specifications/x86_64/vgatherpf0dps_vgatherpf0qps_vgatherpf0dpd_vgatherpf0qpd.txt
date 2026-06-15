@@ -1,0 +1,129 @@
+VGATHERPF0DPS/VGATHERPF0QPS/VGATHERPF0DPD/VGATHERPF0QPD — Sparse PrefetchPacked SP/DP Data Values With Signed Dword, Signed Qword Indices Using T0 Hint
+
+* Index
+
+* December 2023
+
+VGATHERPF0DPS/VGATHERPF0QPS/VGATHERPF0DPD/VGATHERPF0QPD — Sparse PrefetchPacked SP/DP Data Values With Signed Dword, Signed Qword Indices Using T0 Hint
+
+|          Opcode/Instruction          |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                             Description                             |
+
+|--------------------------------------------------------|-----|----------------------|------------------|-------------------------------------------------------------------------------------------------------------------------------|
+
+|EVEX.512.66. 0F38. W0 C6 /1 /vsib VGATHERPF0DPS vm32z {k1}| A |     V/V     |   AVX512PF   |Using signed dword indices, prefetch sparse byte memory locations containing single-precision data using opmask k1 and T0 hint. |
+
+|EVEX.512.66. 0F38. W0 C7 /1 /vsib VGATHERPF0QPS vm64z {k1}| A |     V/V     |   AVX512PF   |Using signed qword indices, prefetch sparse byte memory locations containing single-precision data using opmask k1 and T0 hint. |
+
+|EVEX.512.66. 0F38. W1 C6 /1 /vsib VGATHERPF0DPD vm32y {k1}| A |     V/V     |   AVX512PF   |Using signed dword indices, prefetch sparse byte memory locations containing double precision data using opmask k1 and T0 hint. |
+
+|EVEX.512.66. 0F38. W1 C7 /1 /vsib VGATHERPF0QPD vm64z {k1}| A |     V/V     |   AVX512PF   |Using signed qword indices, prefetch sparse byte memory locations containing double precision data using opmask k1 and T0 hint. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Tuple Type |          Operand 1          |Operand 2|Operand 3|Operand 4|
+
+|-----|-------------|------------------------------------------------|---------|---------|---------|
+
+| A |Tuple1 Scalar|BaseReg (R): VSIB:base, VectorReg(R): VSIB:index|  N/A  |  N/A  |  N/A  |
+
+Description ¶
+
+The instruction conditionally prefetches up to sixteen 32-bit or eight 64-bit integer byte data elements. The elements are specified via the VSIB (ie, the index register is an zmm, holding packed indices). Elements will only be prefetched if their corresponding mask bit is one.
+
+Lines prefetched are loaded into to a location in the cache hierarchy specified by a locality hint (T0):
+
+* T0 (temporal data)—prefetch data into the first level cache.
+
+[PS data] For dword indices, the instruction will prefetch sixteen memory locations. For qword indices, the instruction will prefetch eight values.
+
+[PD data] For dword and qword indices, the instruction will prefetch eight memory locations.
+
+Note that:
+
+(1) The prefetches may happen in any order (or not at all). The instruction is a hint.
+
+(2) The mask is left unchanged.
+
+(3) Not valid with 16-bit effective addresses. Will deliver a #UD fault.
+
+(4) No FP nor memory faults may be produced by this instruction.
+
+(5) Prefetches do not handle cache line splits
+
+(6) A #UD is signaled if the memory operand is encoded without the SIB byte.
+
+Operation ¶
+
+```
+
+BASE_ADDR stands for the memory operand base address (a GPR); may not exist VINDEX stands for the memory operand vector of indices (a vector register). SCALE stands for the memory operand scalar (1, 2, 4 or 8). DISP is the optional 1, 2 or 4 byte displacement. PREFETCH(mem, Level, State) Prefetches a byte memory location pointed by ‘mem’ into the cache level specified by ‘Level’; a request for exclusive/ownership is done if ‘State’ is 1. Note that the memory location ignore cache line splits. This operation is considered a hint for the processor and may be skipped depending on implementation.
+
+```
+
+VGATHERPF0DPS (EVEX Encoded Version) ¶
+
+```
+
+(KL, VL) = (16, 512) FOR j := 0 TO KL-1 i := j * 32 IF k1[j] Prefetch( [BASE_ADDR + SignExtend(VINDEX[i+31:i]) * SCALE + DISP], Level=0, RFO = 0) FI; ENDFOR
+
+```
+
+VGATHERPF0DPD (EVEX Encoded Version) ¶
+
+```
+
+(KL, VL) = (8, 512) FOR j := 0 TO KL-1 i := j * 64 k := j * 32 IF k1[j] Prefetch( [BASE_ADDR + SignExtend(VINDEX[k+31:k]) * SCALE + DISP], Level=0, RFO = 0) FI; ENDFOR
+
+```
+
+VGATHERPF0QPS (EVEX Encoded Version) ¶
+
+```
+
+(KL, VL) = (8, 256) FOR j := 0 TO KL-1 i := j * 64 IF k1[j] Prefetch( [BASE_ADDR + SignExtend(VINDEX[i+63:i]) * SCALE + DISP], Level=0, RFO = 0) FI; ENDFOR
+
+```
+
+VGATHERPF0QPD (EVEX Encoded Version) ¶
+
+```
+
+(KL, VL) = (8, 512) FOR j := 0 TO KL-1 i := j * 64 k := j * 64 IF k1[j] Prefetch( [BASE_ADDR + SignExtend(VINDEX[k+63:k]) * SCALE + DISP], Level=0, RFO = 0) FI; ENDFOR
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+VGATHERPF0DPD void _mm512_mask_prefetch_i32gather_pd(__m256i vdx, __mmask8 m, void * base, int scale, int hint);
+
+```
+
+```
+
+VGATHERPF0DPS void _mm512_mask_prefetch_i32gather_ps(__m512i vdx, __mmask16 m, void * base, int scale, int hint);
+
+```
+
+```
+
+VGATHERPF0QPD void _mm512_mask_prefetch_i64gather_pd(__m512i vdx, __mmask8 m, void * base, int scale, int hint);
+
+```
+
+```
+
+VGATHERPF0QPS void _mm512_mask_prefetch_i64gather_ps(__m512i vdx, __mmask8 m, void * base, int scale, int hint);
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+None.
+
+Other Exceptions ¶
+
+See Table 2-62, “Type E12NP Class Exception Conditions.”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

@@ -1,0 +1,1120 @@
+{
+  "version": 4,
+  "updated": "2026-06-06",
+  "catalog_url": "https://raw.githubusercontent.com/H4D3ZS/vscodium-rust-ide-saas/mac_dev/catalog/hades-modules.json",
+  "publisher": "H4D3ZS",
+  "categories": [
+    {
+      "id": "dev-tools",
+      "label": "Dev Tools",
+      "icon": "graph"
+    },
+    {
+      "id": "pentest",
+      "label": "Penetration Testing",
+      "icon": "shield"
+    },
+    {
+      "id": "web-pentest",
+      "label": "Web Pentest",
+      "icon": "globe"
+    },
+    {
+      "id": "malware-re",
+      "label": "Malware RE",
+      "icon": "circuit-board"
+    },
+    {
+      "id": "red-team",
+      "label": "Red Team & Phishing",
+      "icon": "flame"
+    },
+    {
+      "id": "secret-intel",
+      "label": "Secret & Bundle Intel",
+      "icon": "key"
+    },
+    {
+      "id": "osint-recon",
+      "label": "OSINT & Recon",
+      "icon": "search"
+    },
+    {
+      "id": "tech-industry",
+      "label": "Tech Industry",
+      "icon": "briefcase"
+    },
+    {
+      "id": "documentation",
+      "label": "Documentation",
+      "icon": "book"
+    },
+    {
+      "id": "performance",
+      "label": "Performance Optimization",
+      "icon": "pulse"
+    },
+    {
+      "id": "ai-ml",
+      "label": "AI / ML",
+      "icon": "beaker"
+    },
+    {
+      "id": "compliance",
+      "label": "Compliance & Reporting",
+      "icon": "law"
+    },
+    {
+      "id": "mobile-security",
+      "label": "Mobile Security",
+      "icon": "device-mobile"
+    }
+  ],
+  "modules": [
+    {
+      "id": "architecture-visualizer",
+      "name": "Architecture Visualizer",
+      "description": "Interactive dependency graphs and module relationship maps.",
+      "category": "dev-tools",
+      "kind": "component",
+      "component_id": "architecture-visualizer",
+      "size_mb": 2,
+      "tags": [
+        "graph",
+        "deps"
+      ]
+    },
+    {
+      "id": "network-scanner-gui",
+      "name": "Network Scanner GUI",
+      "description": "nmap + nuclei integration with scoped target workflows.",
+      "category": "pentest",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-network-scanner",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 45,
+      "tags": [
+        "nmap",
+        "nuclei",
+        "recon"
+      ]
+    },
+    {
+      "id": "web-vuln-scanner",
+      "name": "Web Vuln Scanner",
+      "description": "OWASP ZAP + sqlmap GUI for web application testing.",
+      "category": "pentest",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-web-scanner",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 80,
+      "tags": [
+        "zap",
+        "sqlmap",
+        "owasp"
+      ]
+    },
+    {
+      "id": "exploit-db-search",
+      "name": "Exploit Database Search",
+      "description": "searchsploit GUI with CVE correlation.",
+      "category": "pentest",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-exploitdb",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 15,
+      "tags": [
+        "searchsploit",
+        "exploit"
+      ]
+    },
+    {
+      "id": "pentest-report-generator",
+      "name": "Pentest Report Generator",
+      "description": "Professional PDF/HTML pentest reports with executive summary.",
+      "category": "pentest",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-pentest-reports",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 25,
+      "tags": [
+        "pdf",
+        "report"
+      ]
+    },
+    {
+      "id": "pytorch-studio",
+      "name": "AI Model Training UI",
+      "description": "PyTorch integration \u2014 train, experiment, and verify locally.",
+      "category": "tech-industry",
+      "kind": "component",
+      "component_id": "pytorch-studio",
+      "size_mb": 8,
+      "tags": [
+        "pytorch",
+        "ml"
+      ]
+    },
+    {
+      "id": "accessibility-checker",
+      "name": "Accessibility Checker",
+      "description": "WCAG compliance scanner for web and UI projects.",
+      "category": "tech-industry",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-a11y",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 20,
+      "tags": [
+        "wcag",
+        "a11y"
+      ]
+    },
+    {
+      "id": "performance-profiler",
+      "name": "Performance Profiler",
+      "description": "Lighthouse CI + bundle analyzer for frontend performance.",
+      "category": "tech-industry",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-perf-profiler",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 35,
+      "tags": [
+        "lighthouse",
+        "bundle"
+      ]
+    },
+    {
+      "id": "sast-dast",
+      "name": "SAST / DAST Integration",
+      "description": "Static and dynamic application security testing hub.",
+      "category": "tech-industry",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-sast-dast",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 50,
+      "tags": [
+        "sast",
+        "dast",
+        "security"
+      ]
+    },
+    {
+      "id": "doc-generator",
+      "name": "Documentation Generator",
+      "description": "API + code documentation orchestrator (Swagger, JSDoc, Sphinx, Rustdoc).",
+      "category": "tech-industry",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-docgen",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 30,
+      "tags": [
+        "docs",
+        "api"
+      ]
+    },
+    {
+      "id": "api-docs-swagger",
+      "name": "API Docs (Swagger / Redoc)",
+      "description": "OpenAPI spec editor with live Swagger UI and Redoc preview.",
+      "category": "documentation",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-api-docs",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 18,
+      "tags": [
+        "swagger",
+        "redoc",
+        "openapi"
+      ]
+    },
+    {
+      "id": "code-docs-generator",
+      "name": "Code Docs Generator",
+      "description": "JSDoc, Sphinx, and Rustdoc runners with IDE preview.",
+      "category": "documentation",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-code-docs",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 22,
+      "tags": [
+        "jsdoc",
+        "sphinx",
+        "rustdoc"
+      ]
+    },
+    {
+      "id": "runbook-generator",
+      "name": "Runbook Generator",
+      "description": "Incident response playbooks and on-call runbooks.",
+      "category": "documentation",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-runbooks",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 12,
+      "tags": [
+        "runbook",
+        "sre"
+      ]
+    },
+    {
+      "id": "onboarding-docs",
+      "name": "Onboarding Docs",
+      "description": "New developer guide generator from repo structure.",
+      "category": "documentation",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-onboarding",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 10,
+      "tags": [
+        "onboarding"
+      ]
+    },
+    {
+      "id": "knowledge-base",
+      "name": "Knowledge Base",
+      "description": "Notion-style wiki for team documentation.",
+      "category": "documentation",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-wiki",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 28,
+      "tags": [
+        "wiki",
+        "kb"
+      ]
+    },
+    {
+      "id": "bundle-analyzer",
+      "name": "Bundle Analyzer",
+      "description": "Webpack and Vite bundle size analysis.",
+      "category": "performance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-bundle-analyzer",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 15,
+      "tags": [
+        "webpack",
+        "vite"
+      ]
+    },
+    {
+      "id": "image-optimizer",
+      "name": "Image Optimizer",
+      "description": "WebP and AVIF conversion pipeline.",
+      "category": "performance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-image-opt",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 12,
+      "tags": [
+        "webp",
+        "avif"
+      ]
+    },
+    {
+      "id": "cdn-configurator",
+      "name": "CDN Configurator",
+      "description": "Cloudflare and Fastly config helpers.",
+      "category": "performance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-cdn",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 8,
+      "tags": [
+        "cdn",
+        "cloudflare"
+      ]
+    },
+    {
+      "id": "caching-tester",
+      "name": "Caching Strategy Tester",
+      "description": "Redis and Memcached cache hit/miss analysis.",
+      "category": "performance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-cache",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 14,
+      "tags": [
+        "redis",
+        "memcached"
+      ]
+    },
+    {
+      "id": "db-query-optimizer",
+      "name": "Database Query Optimizer",
+      "description": "Slow query analyzer and index recommendations.",
+      "category": "performance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-db-opt",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 16,
+      "tags": [
+        "sql",
+        "postgres"
+      ]
+    },
+    {
+      "id": "lighthouse-ci",
+      "name": "Lighthouse CI",
+      "description": "Frontend performance budgets and CI integration.",
+      "category": "performance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-lighthouse-ci",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 20,
+      "tags": [
+        "lighthouse",
+        "ci"
+      ]
+    },
+    {
+      "id": "ml-training-ui",
+      "name": "Visual Model Builder",
+      "description": "Drag-and-drop model training UI with PyTorch backend.",
+      "category": "ai-ml",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-ml-builder",
+      "branch": "main",
+      "install_script": "npm install && pip install -r requirements.txt",
+      "launch_command": "npm start",
+      "size_mb": 60,
+      "tags": [
+        "automl",
+        "pytorch"
+      ]
+    },
+    {
+      "id": "dvc-integration",
+      "name": "Dataset Versioning (DVC)",
+      "description": "DVC integration for dataset and model versioning.",
+      "category": "ai-ml",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-dvc",
+      "branch": "main",
+      "install_script": "pip install -r requirements.txt",
+      "launch_command": "npm start",
+      "size_mb": 25,
+      "tags": [
+        "dvc",
+        "datasets"
+      ]
+    },
+    {
+      "id": "mlflow-tracker",
+      "name": "Experiment Tracker",
+      "description": "MLflow and Weights & Biases experiment tracking.",
+      "category": "ai-ml",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-mlflow",
+      "branch": "main",
+      "install_script": "pip install -r requirements.txt",
+      "launch_command": "npm start",
+      "size_mb": 40,
+      "tags": [
+        "mlflow",
+        "wandb"
+      ]
+    },
+    {
+      "id": "model-serving",
+      "name": "Model Serving",
+      "description": "TensorFlow Serving and TorchServe deployment helpers.",
+      "category": "ai-ml",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-serving",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 35,
+      "tags": [
+        "torchserve",
+        "tfserving"
+      ]
+    },
+    {
+      "id": "feature-store",
+      "name": "Feature Store",
+      "description": "Feast feature store integration.",
+      "category": "ai-ml",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-feast",
+      "branch": "main",
+      "install_script": "pip install -r requirements.txt",
+      "launch_command": "npm start",
+      "size_mb": 30,
+      "tags": [
+        "feast",
+        "features"
+      ]
+    },
+    {
+      "id": "model-monitoring",
+      "name": "Model Monitoring",
+      "description": "Drift detection and performance decay alerts.",
+      "category": "ai-ml",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-ml-monitor",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 28,
+      "tags": [
+        "drift",
+        "monitoring"
+      ]
+    },
+    {
+      "id": "automl",
+      "name": "AutoML Integration",
+      "description": "H2O and Auto-sklearn pipelines.",
+      "category": "ai-ml",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-automl",
+      "branch": "main",
+      "install_script": "pip install -r requirements.txt",
+      "launch_command": "npm start",
+      "size_mb": 55,
+      "tags": [
+        "automl",
+        "h2o"
+      ]
+    },
+    {
+      "id": "mlops-pipelines",
+      "name": "MLOps Pipelines",
+      "description": "Kubeflow and TFX pipeline orchestration.",
+      "category": "ai-ml",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-mlops",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 45,
+      "tags": [
+        "kubeflow",
+        "tfx"
+      ]
+    },
+    {
+      "id": "ptes-framework",
+      "name": "PTES Framework",
+      "description": "Penetration Testing Execution Standard checklist and workflows.",
+      "category": "compliance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-ptes",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 10,
+      "tags": [
+        "ptes",
+        "pentest"
+      ]
+    },
+    {
+      "id": "owasp-top10",
+      "name": "OWASP Top 10 Checker",
+      "description": "Automated OWASP Top 10 compliance scanning.",
+      "category": "compliance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-owasp",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 22,
+      "tags": [
+        "owasp",
+        "compliance"
+      ]
+    },
+    {
+      "id": "nist-compliance",
+      "name": "NIST Compliance Tool",
+      "description": "NIST CSF and 800-53 alignment mapper.",
+      "category": "compliance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-nist",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 18,
+      "tags": [
+        "nist",
+        "csf"
+      ]
+    },
+    {
+      "id": "pci-dss-auditor",
+      "name": "PCI-DSS Auditor",
+      "description": "Payment card industry compliance checklist.",
+      "category": "compliance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-pci",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 15,
+      "tags": [
+        "pci",
+        "compliance"
+      ]
+    },
+    {
+      "id": "gdpr-checker",
+      "name": "GDPR Checker",
+      "description": "Data privacy and GDPR compliance scanner.",
+      "category": "compliance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-gdpr",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 14,
+      "tags": [
+        "gdpr",
+        "privacy"
+      ]
+    },
+    {
+      "id": "compliance-reports",
+      "name": "Compliance Report Generator",
+      "description": "Professional compliance reports in PDF/HTML.",
+      "category": "compliance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-compliance-reports",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 20,
+      "tags": [
+        "pdf",
+        "compliance"
+      ]
+    },
+    {
+      "id": "executive-summary",
+      "name": "Executive Summary Builder",
+      "description": "Non-technical finding summaries for leadership.",
+      "category": "compliance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-exec-summary",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 8,
+      "tags": [
+        "executive",
+        "report"
+      ]
+    },
+    {
+      "id": "remediation-tracker",
+      "name": "Remediation Tracker",
+      "description": "Vulnerability fix tracking and SLA dashboards.",
+      "category": "compliance",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-remediation",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 12,
+      "tags": [
+        "remediation",
+        "vuln"
+      ]
+    },
+    {
+      "id": "flutter-sentinel",
+      "name": "FlutterSentinel",
+      "description": "Flutter & React Native mobile RE \u2014 static/dynamic analysis, MobSF, Frida hooks, APK/IPA workflows. https://github.com/H4D3ZS/FlutterSentinel",
+      "category": "mobile-security",
+      "kind": "git",
+      "repo": "H4D3ZS/FlutterSentinel",
+      "branch": "main",
+      "requires": [
+        "npm",
+        "git"
+      ],
+      "install_script": "npm run install:all",
+      "launch_command": "npm run dev:all",
+      "launch_url": "http://localhost:5173",
+      "size_mb": 180,
+      "tags": [
+        "mobile",
+        "flutter",
+        "react-native",
+        "reverse-engineering",
+        "mobsf",
+        "frida"
+      ]
+    },
+    {
+      "id": "apk-analyzer",
+      "name": "Android APK Analyzer",
+      "description": "APKTool and jadx integration for static APK analysis.",
+      "category": "mobile-security",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-apk-analyzer",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 40,
+      "tags": [
+        "apk",
+        "jadx"
+      ]
+    },
+    {
+      "id": "ipa-analyzer",
+      "name": "iOS IPA Analyzer",
+      "description": "IPA static analysis with Frida hook templates.",
+      "category": "mobile-security",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-ipa-analyzer",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 35,
+      "tags": [
+        "ipa",
+        "ios"
+      ]
+    },
+    {
+      "id": "mobsf-integration",
+      "name": "MobSF Integration",
+      "description": "Mobile Security Framework orchestration UI.",
+      "category": "mobile-security",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-mobsf",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 50,
+      "tags": [
+        "mobsf",
+        "mobile"
+      ]
+    },
+    {
+      "id": "frida-runner",
+      "name": "Frida Script Runner",
+      "description": "Dynamic instrumentation script library and runner.",
+      "category": "mobile-security",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-frida",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 20,
+      "tags": [
+        "frida",
+        "hook"
+      ]
+    },
+    {
+      "id": "adb-toolkit",
+      "name": "ADB Exploit Toolkit",
+      "description": "Android debugging bridge attack surface tools.",
+      "category": "mobile-security",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-adb",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 18,
+      "tags": [
+        "adb",
+        "android"
+      ]
+    },
+    {
+      "id": "root-jailbreak-detector",
+      "name": "Root / Jailbreak Detector",
+      "description": "Bypass tooling for root and jailbreak detection.",
+      "category": "mobile-security",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-root-detector",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 12,
+      "tags": [
+        "root",
+        "jailbreak"
+      ]
+    },
+    {
+      "id": "insecure-storage-scanner",
+      "name": "Insecure Storage Scanner",
+      "description": "SharedPreferences and Keychain insecure storage finder.",
+      "category": "mobile-security",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-storage-scan",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 15,
+      "tags": [
+        "storage",
+        "keychain"
+      ]
+    },
+    {
+      "id": "ssl-pinning-bypass",
+      "name": "SSL Pinning Bypass",
+      "description": "Certificate pinning removal toolkit for mobile apps.",
+      "category": "mobile-security",
+      "kind": "git",
+      "repo": "H4D3ZS/hades-module-ssl-bypass",
+      "branch": "main",
+      "install_script": "npm install",
+      "launch_command": "npm start",
+      "size_mb": 14,
+      "tags": [
+        "ssl",
+        "pinning"
+      ]
+    },
+    {
+      "id": "chunk-secret-scanner",
+      "name": "JS Chunk Secret Scanner",
+      "description": "Rust-native: parallel scan of webpack/vite chunks and source maps for OpenAI keys, VITE_* leaks, Firebase/Supabase configs, and .env strings. No external install.",
+      "category": "secret-intel",
+      "kind": "component",
+      "component_id": "chunk-secret-scanner",
+      "native_rust": true,
+      "size_mb": 0,
+      "tags": [
+        "secrets",
+        "javascript",
+        "bounty",
+        "bundles",
+        "rust-native"
+      ]
+    },
+    {
+      "id": "zero-day-hunter",
+      "name": "Zero-Day Hunter Stack",
+      "description": "Rust-native combined bounty scan: bundle secrets + XSS reflection probe + Vega differential DAST path (authorized targets only).",
+      "category": "secret-intel",
+      "kind": "component",
+      "component_id": "zero-day-hunter",
+      "native_rust": true,
+      "size_mb": 0,
+      "tags": [
+        "0day",
+        "dast",
+        "anomaly",
+        "bounty",
+        "rust-native"
+      ]
+    },
+    {
+      "id": "vega-dast",
+      "name": "Vega DAST Engine",
+      "description": "Rust-native Subgraph Vega rebuild \u2014 passive + active injection, SSRF/SSTI/JWT packs, Ollama payload assist. Built into IDE.",
+      "category": "web-pentest",
+      "kind": "component",
+      "component_id": "vega-dast",
+      "native_rust": true,
+      "size_mb": 0,
+      "tags": [
+        "vega",
+        "dast",
+        "xss",
+        "sqli",
+        "rust-native"
+      ]
+    },
+    {
+      "id": "moxy-dast",
+      "name": "Moxy Agentic DAST",
+      "description": "Optional external: MITM proxy with browser-use + Ollama. Use when Docker available; Rust-native Vega/Moxy-lite covers core DAST.",
+      "category": "web-pentest",
+      "kind": "git",
+      "repo": "matank001/Moxy",
+      "branch": "main",
+      "requires": [
+        "docker",
+        "git"
+      ],
+      "install_script": "cd backend && uv sync && cd ../frontend && npm install",
+      "install_script_darwin": "command -v uv >/dev/null || brew install uv; cd backend && uv sync && cd ../frontend && npm install",
+      "install_script_windows": "cd backend && uv sync && cd ../frontend && npm install",
+      "launch_command": "docker-compose up -d",
+      "launch_url": "http://localhost:5000",
+      "size_mb": 220,
+      "tags": [
+        "moxy",
+        "dast",
+        "mitm",
+        "ollama",
+        "proxy",
+        "external"
+      ]
+    },
+    {
+      "id": "hetty-proxy",
+      "name": "Hetty HTTP Toolkit",
+      "description": "Optional external Burp alternative. On macOS: brew install hettysoft/tap/hetty. Rust-native proxy capture coming in Vega Phase 5.",
+      "category": "web-pentest",
+      "kind": "git",
+      "repo": "dstotijn/hetty",
+      "branch": "main",
+      "requires": [
+        "go",
+        "git"
+      ],
+      "install_script": "go build -o hetty ./cmd/hetty",
+      "install_script_darwin": "command -v hetty >/dev/null || brew install hettysoft/tap/hetty; go build -o hetty ./cmd/hetty 2>/dev/null || true",
+      "launch_command": "./hetty --addr :8080",
+      "launch_url": "http://localhost:8080",
+      "size_mb": 35,
+      "tags": [
+        "hetty",
+        "burp",
+        "mitm",
+        "proxy",
+        "external"
+      ]
+    },
+    {
+      "id": "dissectx-pro",
+      "name": "DissectX Pro",
+      "description": "Spear phishing & red team ops \u2014 Evilginx phishlets, vishing, binary RE. Authorized engagements only.",
+      "category": "red-team",
+      "kind": "git",
+      "repo": "H4D3ZS/DissectX_Pro",
+      "branch": "main",
+      "requires": [
+        "python3",
+        "pip",
+        "npm",
+        "git"
+      ],
+      "install_script": "pip install -r requirements.txt && cd src/web/client && npm install && npm run build",
+      "install_script_darwin": "python3 -m pip install -r requirements.txt && cd src/web/client && npm install && npm run build",
+      "launch_command": "python3 main.py --web --port 5000",
+      "launch_url": "http://localhost:5000",
+      "size_mb": 250,
+      "tags": [
+        "phishing",
+        "red-team",
+        "evilginx",
+        "social-engineering",
+        "external"
+      ]
+    },
+    {
+      "id": "dalfox-xss",
+      "name": "DalFox XSS Scanner",
+      "description": "Optional external XSS scanner. Rust-native reflection probe is built-in \u2014 install DalFox for deep param mining.",
+      "category": "pentest",
+      "kind": "git",
+      "repo": "hahwul/dalfox",
+      "branch": "main",
+      "requires": [
+        "go",
+        "git"
+      ],
+      "install_script": "go install github.com/hahwul/dalfox/v2@latest",
+      "launch_command": "dalfox --help",
+      "size_mb": 25,
+      "tags": [
+        "xss",
+        "dalfox",
+        "dast",
+        "external"
+      ]
+    },
+    {
+      "id": "commix-cmdi",
+      "name": "Commix CMDi",
+      "description": "Optional external OS command injection tool. Vega injection modules cover CMDi in Rust-native path.",
+      "category": "pentest",
+      "kind": "git",
+      "repo": "commixproject/commix",
+      "branch": "master",
+      "requires": [
+        "python3",
+        "pip",
+        "git"
+      ],
+      "install_script": "pip install -r requirements.txt",
+      "launch_command": "python3 commix.py --help",
+      "size_mb": 30,
+      "tags": [
+        "cmdi",
+        "injection",
+        "commix",
+        "external"
+      ]
+    },
+    {
+      "id": "owasp-nettacker",
+      "name": "OWASP Nettacker",
+      "description": "Optional external network recon at scale. Pair with built-in network-scanner module.",
+      "category": "osint-recon",
+      "kind": "git",
+      "repo": "OWASP/Nettacker",
+      "branch": "master",
+      "requires": [
+        "python3",
+        "pip",
+        "git"
+      ],
+      "install_script": "pip install -r requirements.txt",
+      "launch_command": "python3 nettacker.py --help",
+      "size_mb": 40,
+      "tags": [
+        "nettacker",
+        "recon",
+        "owasp",
+        "external"
+      ]
+    },
+    {
+      "id": "woodpecker-ai-redteam",
+      "name": "Woodpecker AI Red Team",
+      "description": "Optional external AI/K8s/API red team. Built-in APEX orchestrator + Vega AI assist cover LLM abuse testing.",
+      "category": "ai-ml",
+      "kind": "git",
+      "repo": "FuzzingLabs/woodpecker",
+      "branch": "main",
+      "requires": [
+        "python3",
+        "pip",
+        "git"
+      ],
+      "install_script": "pip install -e . 2>/dev/null || pip install -r requirements.txt",
+      "launch_command": "woodpecker --help",
+      "size_mb": 45,
+      "tags": [
+        "woodpecker",
+        "ai-redteam",
+        "kubernetes",
+        "external"
+      ]
+    },
+    {
+      "id": "nuclei-templates",
+      "name": "Nuclei CVE Scanner",
+      "description": "Optional external nuclei binary for CVE templates. Install when Go available.",
+      "category": "osint-recon",
+      "kind": "git",
+      "repo": "projectdiscovery/nuclei",
+      "branch": "dev",
+      "requires": [
+        "go",
+        "git"
+      ],
+      "install_script": "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+      "launch_command": "nuclei -help",
+      "size_mb": 55,
+      "tags": [
+        "nuclei",
+        "cve",
+        "templates",
+        "external"
+      ]
+    },
+    {
+      "id": "hawk-eye-secrets",
+      "name": "Secrets Hunter (Rust-native)",
+      "description": "Replaced by built-in chunk scanner + workspace secrets_scan \u2014 no external install. Opens Bundle Intel panel.",
+      "category": "secret-intel",
+      "kind": "component",
+      "component_id": "chunk-secret-scanner",
+      "native_rust": true,
+      "size_mb": 0,
+      "tags": [
+        "secrets",
+        "pii",
+        "rust-native"
+      ]
+    },
+    {
+      "id": "dependency-check-sca",
+      "name": "OWASP Dependency-Check",
+      "description": "Optional external SCA \u2014 download release JAR from GitHub releases if Java available.",
+      "category": "compliance",
+      "kind": "git",
+      "repo": "jeremylong/DependencyCheck",
+      "branch": "main",
+      "requires": [
+        "git"
+      ],
+      "install_script": "echo 'Clone complete \u2014 download release binary from GitHub releases'",
+      "launch_command": "echo 'Run dependency-check.sh after downloading release'",
+      "size_mb": 120,
+      "tags": [
+        "sca",
+        "dependencies",
+        "owasp",
+        "external"
+      ]
+    },
+    {
+      "id": "baddns-takeover",
+      "name": "BadDNS Subdomain Takeover",
+      "description": "Optional external DNS takeover auditor.",
+      "category": "osint-recon",
+      "kind": "git",
+      "repo": "ProjectAnte/baddns",
+      "branch": "main",
+      "requires": [
+        "python3",
+        "pip",
+        "git"
+      ],
+      "install_script": "pip install -e .",
+      "launch_command": "baddns --help",
+      "size_mb": 15,
+      "tags": [
+        "dns",
+        "subdomain",
+        "takeover",
+        "external"
+      ]
+    }
+  ]
+}

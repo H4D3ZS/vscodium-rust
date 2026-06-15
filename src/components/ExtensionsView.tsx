@@ -57,8 +57,9 @@ const ExtensionItem: React.FC<ExtensionItemProps> = ({ ext, isInstalled, onInsta
             if (onInstall) onInstall();
         } catch (err: any) {
             console.error("Installation failed:", err);
-            setError("Failed");
-            setTimeout(() => setError(null), 3000);
+            // Backend errors are now actionable (timeouts/offline/rate-limit) — show them.
+            setError(String(err).slice(0, 120) || 'Failed');
+            setTimeout(() => setError(null), 8000);
         } finally {
             setInstalling(false);
         }

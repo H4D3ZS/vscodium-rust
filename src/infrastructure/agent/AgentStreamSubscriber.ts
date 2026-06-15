@@ -13,11 +13,18 @@ import { extractSearchReplaceBlocks } from '../../model_capabilities';
 import { MAX_WEBUI_RESPONSE_CACHE_ENTRIES } from '../../domain/agent/AgentSessionPolicy';
 import { SubAgentManager } from '../../task_manager';
 import {
+    agUpsertSubagent,
+    persistAgentTrajectoryEvent,
+    agSaveTrajectory,
+    type TrajectoryRecord,
+} from '../../infrastructure/antigravity/antigravityClient';
+import {
     navigatePendingChange,
     acceptFocusedPendingChange,
     rejectFocusedPendingChange,
 } from '../../application/editor/navigatePendingChange';
 import { notifyAgentComplete } from '../../application/agent/notifyAgentComplete';
+import { cleanAgentContent, shouldReplaceAgentContent } from '../../domain/agent/cleanAgentContent';
 
 let attached = false;
 
@@ -60,11 +67,17 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
     listen('ai-content', (event: any) => {
         const { updateLastAgentMessage, setIsAgentThinking } = useStore.getState();
         setIsAgentThinking(false);
-        const content = typeof event.payload === 'object' && event.payload.content
+        const raw = typeof event.payload === 'object' && event.payload.content
             ? event.payload.content
             : (typeof event.payload === 'string' ? event.payload : '');
-        updateLastAgentMessage(content);
-        if (/MISSION_ACCOMPLISHED|TASK_COMPLETE/i.test(content)) {
+        const content = cleanAgentContent(raw);
+        const last = useStore.getState().agentMessages.at(-1);
+        const existing = last?.role === 'assistant' ? cleanAgentContent(last.content || '') : '';
+        if (shouldReplaceAgentContent(existing, content)) {
+            updateLastAgentMessage(content);
+        }
+        useStore.getState().finalizeAgentToolBlocks?.();
+        if (/MISSION_ACCOMPLISHED|TASK_COMPLETE/i.test(raw)) {
             const mode = useStore.getState().agentMode || 'Agent';
             void notifyAgentComplete({
                 reason: 'mission',
@@ -75,15 +88,16 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         import('../../application/agent/syncAgentMessages').then(m => m.scheduleChatHistorySync()).catch(() => {});
 
         const stFa = useStore.getState() as any;
-        if (stFa.betaFastApply !== false && content.includes('<<<<<<< ORIGINAL')) {
+        if (stFa.betaFastApply !== false && (content.includes('<<<<<<< ORIGINAL') || content.includes('<<<< SEARCH') || content.includes('<<<<<<< SEARCH'))) {
             const blocks = extractSearchReplaceBlocks(content);
             const activeFile = stFa.activeEditorPath || stFa.tabs?.find((t: any) => t.id === stFa.activeTabId)?.path;
             if (blocks.length > 0 && activeFile) {
                 blocks.forEach((blk: any) => {
-                    invoke('propose_file_change', {
+                    invoke('preview_search_replace', {
                         path: activeFile,
                         searchText: blk.original,
                         replaceText: blk.updated,
+                        description: 'Fast apply (Composer-style)',
                     }).catch(() => { /* non-fatal */ });
                 });
             }
@@ -95,7 +109,12 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         const delta = typeof event.payload === 'object' && event.payload.delta
             ? event.payload.delta
             : (typeof event.payload === 'string' ? event.payload : '');
-        if (delta) appendLastAgentMessage(delta);
+        if (!delta) return;
+        // Drop streaming tool-call JSON fragments from chat (terminal shows tooling).
+        const t = delta.trim();
+        if (t.startsWith('{') && (t.includes('"status"') || t.includes('"arguments"'))) return;
+        if (/^Executing tool:/i.test(t)) return;
+        appendLastAgentMessage(delta);
     });
 
     // React chat panel owns rendering — no DOM injection for aim-active.
@@ -149,6 +168,12 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         useStore.getState().addAgentArtifact(event.payload);
     });
 
+    listen<any>('canvas-updated', async (event) => {
+        const { normalizeCanvasSpec } = await import('../../domain/canvas/CanvasSpec');
+        const spec = normalizeCanvasSpec(event.payload);
+        if (spec) useStore.getState().upsertCanvas(spec, { open: true });
+    });
+
     listen<any>('webui-response', (event) => {
         const payload = event.payload || {};
         const text = String(payload.text || '').trim();
@@ -158,6 +183,14 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
         if (cache[key] === text) return;
         cache[key] = text;
         useStore.getState().addAgentMessage('assistant', `### ${payload.provider || 'WebUI'} response\n\n${text}`);
+    });
+
+    listen<any>('ai-advisor-fallback', (event) => {
+        const msg = event.payload?.error
+            ? `Planner timed out or failed — continuing with executor (${event.payload?.fallback_model || 'primary model'}).`
+            : 'Planner unavailable — continuing with executor.';
+        useStore.getState().addAgentMessage('assistant', `ℹ️ ${msg}`);
+        useStore.getState().setAgentCurrentAction(null);
     });
 
     listen<any>('propose-edit', (event) => {
@@ -173,6 +206,30 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
 
     listen<any>('subagent-progress', (event) => {
         SubAgentManager.handleProgress(event.payload);
+        const state = useStore.getState();
+        const root = state.activeRoot;
+        const cascadeId = state.activeCascadeId;
+        const p = event.payload || {};
+        const taskId = p.task_id || p.id || 'subagent';
+        if (root && cascadeId) {
+            void agUpsertSubagent(root, cascadeId, {
+                id: taskId,
+                name: p.title || `Subagent ${String(taskId).slice(0, 6)}`,
+                role: p.role,
+                status: p.status || 'running',
+                parent_id: cascadeId,
+                started_at: Date.now(),
+                summary: p.message,
+                progress: p.progress,
+            });
+            void persistAgentTrajectoryEvent(root, cascadeId, {
+                kind: 'subagent',
+                title: p.message || p.title || 'Subagent progress',
+                detail: p.result || p.error,
+                subagentId: taskId,
+                success: p.status === 'completed',
+            });
+        }
     });
 
     listen<string>('ai-action', (event: any) => {
@@ -192,13 +249,53 @@ export async function attachAgentStreamSubscriber(): Promise<void> {
 
     listen<any>('ai-mission-complete', (event) => {
         const mode = event.payload?.mode || useStore.getState().agentMode || 'Agent';
-        useStore.getState().pushTrajectoryEvent?.({
+        const state = useStore.getState();
+        state.pushTrajectoryEvent?.({
             kind: 'tool_result',
             tool: 'mission',
             title: '✓ Mission complete',
             detail: `${mode} finished — review reports/ exploits/ recon/ for deliverables`,
             success: true,
         });
+        const root = state.activeRoot;
+        if (root) {
+            const msgs = state.agentMessages || [];
+            const lastUser = [...msgs].reverse().find(m => m.role === 'user');
+            const cascadeId = state.activeCascadeId || `run-${Date.now()}`;
+            const finished = Date.now();
+            const record: TrajectoryRecord = {
+                id: cascadeId,
+                objective: (lastUser?.content || 'Agent mission').slice(0, 500),
+                status: 'completed',
+                started_at: finished - 1000,
+                finished_at: finished,
+                steps: (state.agentTrajectory || []).map((e, i) => ({
+                    id: `step-${i}`,
+                    kind: e.kind,
+                    title: e.title,
+                    detail: e.detail,
+                    tool: e.tool,
+                    timestamp: finished,
+                    success: e.success,
+                })),
+                subagents: [],
+                artifact_paths: [],
+                summary: event.payload?.detail || 'Mission complete',
+            };
+            void agSaveTrajectory(root, record).catch(() => {});
+            void invoke('workspace_save_agent_run', {
+                run: {
+                    id: cascadeId,
+                    objective: record.objective,
+                    status: 'completed',
+                    started_at: record.started_at,
+                    finished_at: finished,
+                    tool_count: state.agentSteps?.length ?? 0,
+                    summary: record.summary,
+                },
+                root,
+            }).catch(() => {});
+        }
         void notifyAgentComplete({
             reason: 'mission',
             mode,

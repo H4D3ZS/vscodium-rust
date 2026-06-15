@@ -243,7 +243,7 @@ export async function initTTS(): Promise<boolean> {
         console.log(`[TTS] 🎯 TTS Provider: ${ttsProvider}`);
         return true;
     } catch (e) {
-        console.error('[TTS] ❌ Error initializing TTS:', e);
+ console.error('[TTS] Error initializing TTS:', e);
         ttsProvider = 'qwen'; // Fallback to local
         console.log('[TTS] ⚠️  Using Qwen3-TTS (local) as fallback');
         return false;
@@ -263,7 +263,7 @@ export function setProvider(provider: typeof ttsProvider): void {
         qwenNativeTTS.reset();
         qwenNativeTTS.start().then(ok => {
             if (!ok) {
-                console.warn('[TTS] ⚠ Qwen3-TTS native server not reachable. Run: python Qwen3-TTS/api_server.py');
+ console.warn('[TTS] Qwen3-TTS native server not reachable. Run: python Qwen3-TTS/api_server.py');
             }
         }).catch(() => { /* swallow */ });
     }
@@ -540,26 +540,19 @@ export async function speak(
     onEnd?: () => void,
     onStart?: () => void
 ): Promise<boolean> {
-    // ALWAYS check for ElevenLabs API key first (highest priority)
-    if (!currentApiKey) {
-        // Try to load from hardcoded config first
-        if (ELEVENLABS_API_KEY && ELEVENLABS_API_KEY.trim().length > 0) {
-            currentApiKey = ELEVENLABS_API_KEY;
-            ttsProvider = 'elevenlabs';
-            console.log('[TTS] ✅ ElevenLabs ACTIVATED (from hardcoded config)');
-        } else {
-            // Try to load from storage
-            try {
-                const apiKeys = await invoke<any>('get_api_keys');
-                if (apiKeys?.elevenlabs_api_key && apiKeys.elevenlabs_api_key.trim().length > 0) {
-                    currentApiKey = apiKeys.elevenlabs_api_key;
-                    ttsProvider = 'elevenlabs';
-                    console.log('[TTS] ✅ ElevenLabs ACTIVATED (from storage)');
-                }
-            } catch (e) {
-                console.warn('[TTS] Could not load API keys:', e);
-            }
+    // User kill-switch (Settings → Voice). TTS is otherwise always functional:
+    // remote providers when configured, offline browser SpeechSynthesis otherwise.
+    try {
+        if (localStorage.getItem('tts.enabled') === '0') {
+            onEnd?.();
+            return false;
         }
+    } catch { /* no localStorage in this context */ }
+
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        console.warn('[TTS] No speech synthesis available in this environment.');
+        onEnd?.();
+        return false;
     }
 
     // Auto-detect Filipino/Tagalog text and switch voice
@@ -602,10 +595,12 @@ export async function speak(
         }
     }
 
-    // Priority: ElevenLabs > OpenAI > Qwen3-TTS (local) > Browser
+    // Priority: ElevenLabs > OpenAI > Qwen3-TTS (local) > Browser.
+    // Default with nothing configured: browser SpeechSynthesis — zero downloads,
+    // fully offline, safe on low-RAM machines.
     if (ttsProvider !== 'elevenlabs' && ttsProvider !== 'openai' && ttsProvider !== 'qwen' && ttsProvider !== 'qwen-native') {
-        console.warn('[TTS] ⚠️ No valid TTS provider configured. Using Qwen3-TTS (local browser) fallback.');
-        ttsProvider = 'qwen';
+        console.log('[TTS] No remote TTS configured — using offline browser SpeechSynthesis.');
+        ttsProvider = 'browser';
     }
 
     isPlaying = true;

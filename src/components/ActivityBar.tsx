@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { invoke } from '../tauri_bridge';
 import { applyTheme, type VscodeTheme } from '../theme_engine';
+import PyTorchLogo from './pytorch/PyTorchLogo';
+import { togglePyTorchStudio } from '../application/pytorch/openPyTorchStudio';
 
 // Stable sentinel so a missing viewsContainers entry never produces a fresh
 // array reference; otherwise Zustand's selector identity check thrashes and
@@ -10,6 +12,7 @@ const EMPTY_EXTENSION_ITEMS: any[] = [];
 
 const ActivityBar: React.FC = () => {
     const activeView = useStore(state => state.activeSidebarView);
+    const layoutMode = useStore(state => state.layoutMode);
     const externalBrowserActive = useStore(state => state.externalBrowserActive);
     const setActiveView = useStore(state => state.setActiveSidebarView);
 
@@ -25,10 +28,12 @@ const ActivityBar: React.FC = () => {
         { id: 'explorer-view', icon: 'files', title: 'Explorer (Ctrl+Shift+E)' },
         { id: 'search-view', icon: 'search', title: 'Search (Ctrl+Shift+F)' },
         { id: 'scm-view', icon: 'source-control', title: 'Source Control (Ctrl+Shift+G)' },
-        { id: 'security-view', icon: 'shield', title: 'Security Review — click to audit codebase (Ctrl+Shift+Alt+R)' },
+        { id: 'security-view', icon: 'shield', title: 'Cyber Ops — DAST, RE, red team, mobile pentest (Ctrl+Shift+Alt+R)' },
+        { id: 'canvas-view', icon: 'dashboard', title: 'Canvases — interactive agent dashboards' },
         { id: 'debug-view', icon: 'debug-alt', title: 'Run and Debug (Ctrl+Shift+D)' },
         { id: 'extensions-view', icon: 'extensions', title: 'Extensions (Ctrl+Shift+X)' },
         { id: 'browser-panel', icon: 'globe', title: 'External Browser — live Firefox (Ctrl+Shift+U)', isBrowser: true },
+        { id: 'pytorch-studio', icon: 'beaker', title: 'PyTorch ML Studio — friend of AI engineers (click again to close)', isPyTorch: true },
         ...extensionItems
             .filter((ext: any) => {
                 const id = String(ext.id || '').toLowerCase();
@@ -52,9 +57,7 @@ const ActivityBar: React.FC = () => {
 
     const openThemePicker = async () => {
         try {
-            console.log("Fetching installed themes...");
             const themes = await invoke<VscodeTheme[]>('get_installed_themes');
-            console.log("Found themes:", themes);
             setInstalledThemes(themes);
             setIsThemePickerOpen(true);
         } catch (e) {
@@ -78,11 +81,15 @@ const ActivityBar: React.FC = () => {
                 {items.map(item => (
                     <div
                         key={item.id}
-                        className={`activity-item ${activeView === item.id || ((item as any).isBrowser && externalBrowserActive) ? 'active' : ''}`}
+                        className={`activity-item ${activeView === item.id || ((item as any).isBrowser && externalBrowserActive) || ((item as any).isPyTorch && layoutMode === 'ml-studio') ? 'active' : ''}`}
                         title={item.title}
                         onClick={() => {
                             if ((item as any).isBrowser) {
                                 import('../application/browser/openBrowserPanel').then(m => m.toggleExternalBrowser());
+                                return;
+                            }
+                            if ((item as any).isPyTorch) {
+                                togglePyTorchStudio();
                                 return;
                             }
                             const store = (window as any).useStore?.getState();
@@ -94,7 +101,9 @@ const ActivityBar: React.FC = () => {
                         }}
                     >
                         <div className="activity-item-icon">
-                            {item.base64_icon ? (
+                            {(item as any).isPyTorch ? (
+                                <PyTorchLogo size={22} />
+                            ) : item.base64_icon ? (
                                 <img src={item.base64_icon} style={{ width: '24px', height: '24px', opacity: activeView === item.id ? 1 : 0.6 }} alt="" />
                             ) : (
                                 <i className={`codicon codicon-${item.icon}`} style={{ fontFamily: 'codicon', fontStyle: 'normal' }}></i>

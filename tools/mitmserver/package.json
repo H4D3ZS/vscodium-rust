@@ -1,15 +1,14 @@
 {
   "name": "mitmserver",
   "version": "1.0.0",
-  "description": "A man-in-the-middle server for intercepting requests from the official Antigravity application.",
-  "main": "server.js",
+  "description": "Zero-dependency logging reverse proxy for local debugging.",
+  "type": "module",
+  "main": "server.ts",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "http-proxy": "^1.18.1"
-  }
+  "engines": {
+    "node": ">=23.6"
+  },
+  "license": "ISC"
 }

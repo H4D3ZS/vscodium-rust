@@ -1,84 +1,224 @@
-# VSCodium-Rust | Agentic & Sovereign IDE
+# VSCodium-Rust
 
-A groundbreaking, high-performance implementation of the VS Code architecture, rewritten from the ground up using **Rust**, **Tauri**, and **TypeScript**. 
+A local-first agentic IDE built with Rust/Tauri v2 + React 19/TypeScript/Vite.
 
-VSCodium-Rust is more than an editor — it is a **full-scale, ultra-lightweight agentic development environment** designed for **Data Sovereignty, Speed, and "Parallel Mind" Engineering.**
-
-![VSCodium-Rust Agentic View](pics/1.png)
+![VSCodium-Rust](pics/1.png)
 
 ---
 
-## ☁️ Open-Core / Cloud AI
+## What This Is
 
-This repository is the **MIT Community Edition** — fully usable with **local Ollama**;
-your data never has to leave your machine.
+VSCodium-Rust is a full-scale development environment designed for developers who want:
 
-**Hosted cloud AI, Neural VFS compression, and subscription billing** are proprietary
-Cyber-Ifrit Pro services at **https://cyberifrit.xyz/pricing**. See `docs/COMMUNITY.md`,
-`SEPARATION.md`, and `FULL_SPLIT_PLAN.md` for the split.
+- **Local AI agents** — autonomous coding with Ollama, no cloud required
+- **Data sovereignty** — your code never leaves your machine
+- **Security research** — integrated offensive tooling and browser automation
+- **ML experimentation** — in-IDE PyTorch training and model management
 
----
-
-## 🚀 Key Evolutionary Features
-
-### 🧠 1. Claude Code Integrated (42+ Tools)
-We have achieved 100% feature parity with Claude Code's agentic architecture. The built-in **Antigravity Agent** utilizes 42+ specialized tools with standard JSON schemas, allowing it to:
-- **Analyze & Plan:** High-fidelity project research and roadmap generation.
-- **Execute:** Atomic file edits, partial modifications, and full-volume writes.
-- **Git & Terminal Mastery:** Native backend PTY terminals and Git integration for automated commits, diffs, and staging.
-
-### 🌐 2. Parallel Mind Architecture (Multi-Agent)
-The only IDE that supports **True Asynchronous Sub-Agent Orchestration**. Delegate complex tasks to specialized background agents:
-- **Research while Implementing:** Spawn a browser sub-agent to find documentation while you implement the feature.
-- **Multi-Tasking:** Run planning, roadmap, development, and reverse engineering tasks simultaneously in a parallelized backend (`tokio` + `Arc<Self>`).
-- **Live Progress:** Real-time tracking of all background thoughts and tasks in the Agent Sidebar.
-
-### 🏠 3. Absolute Data Sovereignty (Ollama First)
-VSCodium-Rust is designed for developers who demand **freedom from corporate filters**:
-- **Self-Hosted Brain:** Connect to local models via **Ollama** or custom providers with 100% private, offline tool-calling.
-- **JSON Schema Parity:** All IDE tools are exposed via standard formats, ensuring any tool-calling model (Llama 3, Mistral) can be fully agentic within your workspace.
-- **Pay Only for What You Use:** Bring your own API keys for hosted models (Anthropic, OpenAI, Gemini) and eliminate redundant subscriptions.
-
-### 📊 5. Visual Lab & Data Flow Builder
-A powerful, **Rust-backend-driven** visualization engine for complex data structures:
-- **Instant JSON/SQL Visualization:** Toggle a visual graph view for any JSON file or SQL schema directly from the editor.
-- **Cross-Format Support:** Intelligent parsers for JSON (hierarchical), SQL (ERDs), and MongoDB/BSON documents.
-- **AI Flow Builder:** Describe your desired architecture in natural language and have the built-in engine generate a complete interactive diagram.
-- **High Performance:** Optimized for 60fps interaction even with 100+ nodes using lightweight rendering and native layout calculations.
-
-![Visual Lab Flow](pics/flow_visualizer.png)
+Built on the VS Code architecture, rewritten in Rust for performance.
 
 ---
 
-## 🛠️ For Cybersecurity & Reverse Engineering
-Built by a researcher for researchers. VSCodium-Rust is an elite tool for **Security Audits and Malware Analysis**:
-- **Integrated Reverse Engineering:** Native **Model Context Protocol (MCP)** support for integration with tools like IDA Pro.
-- **Isolated PTY Terminals:** Full control over process spawning and network isolation.
-- **Simulator Mastery:** Integrated professional-grade emulators for **iOS (v26.3.1)** and Android directly in workspace panels. The iPhone-emulator integration ships in-repo; the heavy `acheron` hypervisor binary + iOS `.ipsw` firmware are user-provided — see **[docs/IPHONE_EMULATOR.md](docs/IPHONE_EMULATOR.md)** for how to obtain/build them.
+## Features
+
+### AI Agent
+
+| Feature | Description |
+|---------|-------------|
+| Autonomous agent loop | Multi-turn tool execution with verify-before-done |
+| Fable-5 thinking protocol | Model reasons before every action |
+| FastContext explorer | Dedicated 4B repo exploration subagent |
+| Shadow workspace | Safe code mutation before commit |
+| Background agents | Long-running parallel tasks |
+| Tool permissions | Approve/deny destructive operations |
+| MCP integration | Client + server for external tools |
+| Cursor rules | `.cursor/rules/*.mdc` project configuration |
+
+### Editor
+
+| Feature | Description |
+|---------|-------------|
+| Monaco editor | Full VS Code editor with extensions |
+| Tab autocomplete | FIM-based code completion |
+| Inline diff | Agent edit preview with accept/reject |
+| Quick edit | Selection-scoped inline modification |
+| Git integration | Status, diff, commit, branches |
+
+### Code Intelligence
+
+| Feature | Description |
+|---------|-------------|
+| Semantic search | Vector embeddings via Ollama |
+| Codebase index | Symbol + chunk index with cosine similarity |
+| LSP support | Language Server Protocol diagnostics |
+| Knowledge briefs | Distilled project context |
+
+### Security Research
+
+| Feature | Description |
+|---------|-------------|
+| APEX orchestrator | 7-model specialist routing |
+| Browser automation | Headless Firefox with DOM interaction |
+| Pentest tools | SQLi, XSS, SSRF, reverse shells |
+| Secret scanning | Entropy-based credential detection |
+
+### ML Studio
+
+| Feature | Description |
+|---------|-------------|
+| PyTorch training | Dataset, train, loss curves, export |
+| Model hub | torchvision, timm, HuggingFace gallery |
+| Optuna HPO | Hyperparameter optimization |
+| ONNX export | Model conversion and deployment |
 
 ---
 
-## 📁 Project Architecture
-- **Frontend:** TypeScript/Vite application designed for 100% visual parity with VS Code layout metrics.
-- **Backend:** Rust (Tauri) handling IPC, file I/O, Git operations, and the **Agentic Dispatcher**.
-- **Agent Orchestrator:** Modular, category-based tool handler with enforced path security (`validate_path`).
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- Rust toolchain (rustup)
+- Ollama (for local AI)
+
+### Install
+
+```bash
+git clone https://github.com/your-org/vscodium-rust.git
+cd vscodium-rust
+npm install
+```
+
+### Run
+
+```bash
+# Frontend dev server
+npm run dev
+
+# Full IDE (Tauri app)
+npm run dev:tauri
+
+# Rust backend check
+cd src-tauri && cargo check
+```
+
+### Build
+
+```bash
+# Production build
+npx tauri build
+```
 
 ---
 
-## ☁️ Cloud AI & Neural VFS
+## AI Agent Setup
 
-The Cyber-Ifrit IDE client is open-source under the MIT License. 
-Cloud AI routing, Neural VFS compression, and subscription management are **proprietary services** hosted on Cyber-Ifrit infrastructure. 
-To use AI features, you must subscribe to Cyber-Ifrit Cloud at https://cyberifrit.xyz/pricing
+### Pull a model
+
+```bash
+# Best local agent model (Gemma4 12B, Fable-5 trained)
+ollama pull hf.co/yuxinlu1/gemma-4-12B-coder-fable5-composer2.5-v1-GGUF:Q4_K_M
+
+# Fast coding model
+ollama pull qwen2.5-coder:14b
+
+# Exploration subagent
+ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M
+```
+
+### Start Ollama
+
+```bash
+ollama serve
+```
+
+Open the IDE, select your model in the agent toolbar, and start coding.
 
 ---
 
-## 📝 License & Credits
-- **Credits:** Standing on the shoulders of giants: Zed Industries (GPUI), VSCodium Team, and Palinuro.
-- **License:** MIT
+## Architecture
+
+```
+vscodium-rust/
+  src/                    # React 19 + TypeScript frontend
+    components/           # UI components
+    store/                # Zustand state management
+    domain/               # Business logic
+    application/          # Application services
+    infrastructure/       # Tauri bridge adapters
+  src-tauri/              # Rust backend (Tauri v2)
+    src/domain/ai/        # AI engine + autonomous loop
+    src/domain/tools/     # Tool registry + dispatch
+    src/domain/vcs/       # Git, patches, shadow workspace
+    src/domain/security/  # APEX orchestrator, pentest tools
+  kortex/                 # Supporting Rust workspace
+    aim-proxy/            # Ollama MITM proxy
+    libaim/               # .aim binary format
+```
+
+### Key Design Decisions
+
+- **Patch discipline**: Surgical SEARCH/REPLACE via `patch_engine.rs`, no full-file rewrites
+- **Memory budget**: Core footprint under 150MB
+- **Tauri IPC**: All frontend-backend calls through `#[tauri::command]` handlers
+- **Tool registry**: JSON Schema-based tools compatible with OpenAI/Anthropic function calling
 
 ---
 
-**VSCodium-Rust is for any developer who demands speed, privacy, and full architectural sovereignty.**
+## Testing
 
-[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/H4D3ZS)
+```bash
+# Frontend tests
+npm test
+
+# Type checking
+npm run typecheck
+
+# Rust tests
+cd src-tauri && cargo test
+```
+
+---
+
+## Project Structure
+
+| Directory | Purpose |
+|-----------|---------|
+| `src/` | React frontend (Vite + TypeScript) |
+| `src-tauri/` | Rust backend (Tauri v2) |
+| `kortex/` | Supporting crates (proxy, VFS, daemon) |
+| `airi/` | 3D VRM avatar (optional) |
+| `claurst/` | External agent SDK |
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run `npm test` and `cargo test`
+5. Submit a pull request
+
+### Code Standards
+
+- No `console.log` in production code
+- Use CSS classes over inline styles where possible
+- Follow existing naming conventions
+- Add tests for new features
+
+---
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+## Acknowledgments
+
+Built on the work of:
+- [VSCodium](https://vscodium.com/) — VS Code without Microsoft telemetry
+- [Tauri](https://tauri.app/) — Rust backend for desktop apps
+- [Ollama](https://ollama.com/) — Local LLM runtime
+- [Monaco Editor](https://microsoft.github.io/monaco-editor/) — Code editor component

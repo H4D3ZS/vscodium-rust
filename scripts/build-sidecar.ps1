@@ -24,6 +24,7 @@ Write-Host "==> Freezing browser_agent.py -> browser-agent.exe" -ForegroundColor
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 python -m PyInstaller `
   --onefile `
+  --noconsole `
   --name browser-agent `
   --distpath $out `
   --workpath (Join-Path $env:TEMP "cf-sidecar-build") `

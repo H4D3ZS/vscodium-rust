@@ -1,7 +1,21 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { useStore } from '../../store';
 import { runCodebaseSecurityReview } from '../../application/security/runCodebaseSecurityReview';
+import type { SecurityPanelTab } from '../../application/security/runCodebaseSecurityReview';
 import { severityColor, severityRank, type SecurityFinding, type SecuritySeverity } from '../../domain/security/SecurityFinding';
+import CyberOpsOverview from './CyberOpsOverview';
+
+const SecurityArsenalPanel = React.lazy(() => import('./SecurityArsenalPanel'));
+const ChunkSecretScannerPanel = React.lazy(() => import('./ChunkSecretScannerPanel'));
+const VegaScannerPanel = React.lazy(() => import('./VegaScannerPanel'));
+const InterceptProxyPanel = React.lazy(() => import('./InterceptProxyPanel'));
+const RepeaterPanel = React.lazy(() => import('./RepeaterPanel'));
+const IntruderPanel = React.lazy(() => import('./IntruderPanel'));
+const OastPanel = React.lazy(() => import('./OastPanel'));
+
+const PanelFallback = () => (
+    <div style={{ padding: 20, fontSize: 11, opacity: 0.5, textAlign: 'center' }}>Loading…</div>
+);
 
 const SEVERITIES: SecuritySeverity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
 
@@ -26,6 +40,31 @@ const SecurityReviewPanel: React.FC = () => {
 
     const [filter, setFilter] = useState<SecuritySeverity | 'ALL'>('ALL');
     const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [tab, setTab] = useState<SecurityPanelTab>('overview');
+
+    const openModules = useCallback(() => {
+        try {
+            localStorage.setItem('settings.category.agent', 'modules');
+            sessionStorage.setItem('settings.initialTab', 'agent');
+        } catch { /* ignore */ }
+        useStore.getState().openSettings('agent');
+    }, []);
+
+    useEffect(() => {
+        if (tab === 'modules') {
+            openModules();
+            setTab('overview');
+        }
+    }, [tab, openModules]);
+
+    useEffect(() => {
+        const onTab = (e: Event) => {
+            const t = (e as CustomEvent<{ tab?: SecurityPanelTab }>).detail?.tab;
+            if (t) setTab(t);
+        };
+        window.addEventListener('hades:security-tab', onTab);
+        return () => window.removeEventListener('hades:security-tab', onTab);
+    }, []);
 
     const filtered = useMemo(() => {
         if (!report) return [];
@@ -66,15 +105,120 @@ const SecurityReviewPanel: React.FC = () => {
 
     if (!activeRoot) {
         return (
-            <div style={{ padding: 20, textAlign: 'center', fontSize: 12, opacity: 0.65 }}>
-                <i className="codicon codicon-shield" style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: 0.4 }} />
-                Open a folder to run a codebase security review.
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                {tab === 'arsenal' ? (
+                    <Suspense fallback={<PanelFallback />}>
+                        <SecurityArsenalPanel onOpenReview={() => setTab('review')} />
+                    </Suspense>
+                ) : (
+                    <div style={{ padding: 20, textAlign: 'center', fontSize: 12, opacity: 0.65 }}>
+                        <i className="codicon codicon-shield" style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: 0.4 }} />
+                        Open a folder to run a codebase security review.
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    if (tab === 'overview') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <CyberOpsOverview onNavigate={setTab} onOpenModules={openModules} />
+            </div>
+        );
+    }
+
+    if (tab === 'arsenal') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <Suspense fallback={<PanelFallback />}>
+                    <SecurityArsenalPanel onOpenReview={() => setTab('review')} />
+                </Suspense>
+            </div>
+        );
+    }
+
+    if (tab === 'chunks') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <Suspense fallback={<PanelFallback />}>
+                    <ChunkSecretScannerPanel />
+                </Suspense>
+            </div>
+        );
+    }
+
+    if (tab === 'vega') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <Suspense fallback={<PanelFallback />}>
+                    <VegaScannerPanel />
+                </Suspense>
+            </div>
+        );
+    }
+
+    if (tab === 'proxy') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <Suspense fallback={<PanelFallback />}>
+                    <InterceptProxyPanel />
+                </Suspense>
+            </div>
+        );
+    }
+
+    if (tab === 'repeater') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <Suspense fallback={<PanelFallback />}>
+                    <RepeaterPanel />
+                </Suspense>
+            </div>
+        );
+    }
+
+    if (tab === 'intruder') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <Suspense fallback={<PanelFallback />}>
+                    <IntruderPanel />
+                </Suspense>
+            </div>
+        );
+    }
+
+    if (tab === 'oast') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <Suspense fallback={<PanelFallback />}>
+                    <OastPanel />
+                </Suspense>
+            </div>
+        );
+    }
+
+    if (tab === 'modules') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <TabBar tab={tab} setTab={setTab} />
+                <PanelFallback />
             </div>
         );
     }
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+            <TabBar tab={tab} setTab={setTab} />
             {/* Action bar */}
             <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--vscode-panel-border)', flexShrink: 0 }}>
                 <button
@@ -301,5 +445,39 @@ const SecurityReviewPanel: React.FC = () => {
         </div>
     );
 };
+
+const TabBar: React.FC<{ tab: SecurityPanelTab; setTab: (t: SecurityPanelTab) => void }> = ({ tab, setTab }) => (
+    <div style={{ display: 'flex', gap: 3, padding: '8px 8px', borderBottom: '1px solid var(--vscode-panel-border)', flexShrink: 0, overflowX: 'auto' }}>
+        {([
+            ['overview', 'Hub'],
+            ['vega', 'Vega DAST'],
+            ['proxy', 'Proxy'],
+            ['repeater', 'Repeater'],
+            ['intruder', 'Intruder'],
+            ['oast', 'OAST'],
+            ['chunks', 'Bundles'],
+            ['review', 'Audit'],
+            ['arsenal', 'Arsenal'],
+        ] as const).map(([t, label]) => (
+            <button
+                key={t}
+                type="button"
+                onClick={() => setTab(t)}
+                style={{
+                    padding: '5px 12px',
+                    borderRadius: 6,
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    background: tab === t ? 'var(--vscode-button-background, #4daafc)' : 'transparent',
+                    color: tab === t ? 'var(--vscode-button-foreground, #fff)' : 'inherit',
+                }}
+            >
+                {label}
+            </button>
+        ))}
+    </div>
+);
 
 export default SecurityReviewPanel;

@@ -11,6 +11,7 @@ import { invoke } from '../tauri_bridge';
 const TerminalView = lazy(() => import('./terminal/TerminalView'));
 const DebugConsolePanel = lazy(() => import('./debug/DebugConsolePanel'));
 const PortsPanel = lazy(() => import('./ports/PortsPanel'));
+const LogcatPanel = lazy(() => import('./android/LogcatPanel'));
 
 const PanelChunkFallback = () => (
     <div style={{ padding: 12, fontSize: 11, opacity: 0.45 }}>Loading panel…</div>
@@ -169,7 +170,7 @@ const BottomPanel: React.FC = () => {
                 letterSpacing: '0.05em'
             }}>
                 <div className="panel-tabs" style={{ display: 'flex', gap: '2px', height: '100%', alignItems: 'center', minWidth: 0, flexShrink: 1, overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none' as any }}>
-                    {['Problems', 'Output', 'Debug Console', 'Terminal', 'Ports', 'Jobs'].map(tab => (
+                    {['Problems', 'Output', 'Debug Console', 'Logcat', 'Terminal', 'Ports', 'Jobs'].map(tab => (
                         <div
                             key={tab}
                             className={`panel-tab ${activeTab === tab.toUpperCase() ? 'active' : ''}`}
@@ -346,6 +347,11 @@ const BottomPanel: React.FC = () => {
                 {activeTab === 'DEBUG CONSOLE' && (
                     <Suspense fallback={<PanelChunkFallback />}>
                         <DebugConsolePanel />
+                    </Suspense>
+                )}
+                {activeTab === 'LOGCAT' && (
+                    <Suspense fallback={<PanelChunkFallback />}>
+                        <LogcatPanel />
                     </Suspense>
                 )}
                 {activeTab === 'PROBLEMS' && (() => {

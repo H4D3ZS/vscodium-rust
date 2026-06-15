@@ -1,0 +1,195 @@
+ESETCONTEXT — Set the ENCLAVECONTEXT Field in SECS
+
+* Index
+
+* December 2023
+
+ESETCONTEXT — Set the ENCLAVECONTEXT Field in SECS
+
+|   Opcode/Instruction   |Op/En|64/32 bit Mode Support|CPUID Feature Flag|            Description            |
+
+|----------------------------|-----|----------------------|------------------|---------------------------------------------------------|
+
+|EAX = 02H ENCLV[ESETCONTEXT]| IR |     V/V     |   EAX  |This leaf function sets the ENCLAVECONTEXT field in SECS.|
+
+Instruction Operand Encoding ¶
+
+|Op/En|   EAX    |     RCX     |          RDX           |           |
+
+|-----|----------------|-----------------------|--------------------------------------------|----------------------|
+
+| IR |ESETCONTEXT (In)|Return error code (Out)|Address of the destination EPC page (In, EA)|Context Value (In, EA)|
+
+Description ¶
+
+The ESETCONTEXT leaf overwrites the ENCLAVECONTEXT field in the SECS. ECREATE and ELD of an SECS set the ENCLAVECONTEXT field in the SECS to the address of the SECS (for access later in ERDINFO). The ESETCONTEXT instruction allows a VMM to overwrite the default context value if necessary, for example, if the VMM is emulating ECREATE or ELD on behalf of the guest
+
+The content of RCX is an effective address of the SECS page to be updated, RDX contains the address pointing to the value to be stored in the SECS. The DS segment is used to create linear address. Segment override is not supported.
+
+The instruction fails if:
+
+* The operand is not properly aligned.
+
+* RCX does not refer to an SECS page.
+
+ESETCONTEXT Memory Parameter Semantics ¶
+
+|      EPCPAGE       |         CONTEXT         |
+
+|--------------------------------|------------------------------------------|
+
+|Read access permitted by Enclave|Read/Write access permitted by Non Enclave|
+
+The instruction faults if any of the following:
+
+ESETCONTEXT Faulting Conditions ¶
+
+|A memory operand effective address is outside the DS segment limit (32b mode). |  A memory operand is not properly aligned. |
+
+|------------------------------------------------------------------------------|-------------------------------------------------|
+
+|           DS segment is unusable (32b mode). |A page fault occurs in accessing memory operands. |
+
+|      A memory address is in a non-canonical form (64b mode). |                         |
+
+Concurrency Restrictions ¶
+
+|  Leaf  | Parameter |  Base Concurrency Restrictions  |             |  |
+
+|-----------|-------------|-----------------------------------|-------------------------|---|
+
+| Access  | On Conflict |SGX\_CONFLICT VM Exit Qualification|             |  |
+
+|ESETCONTEXT|SECS [DS:RCX]|       Shared        |SGX\_EPC\_PAGE\_ CONFLICT|  |
+
+Table 38-80. Base Concurrency Restrictions of ESETCONTEXT
+
+|                                             Leaf                                             |               Parameter               |Additional Concurrency Restrictions|  |     |  |     |  |
+
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|-----------------------------------|---|----------|---|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC Access vs ETRACK, ETRACKC Access On Conflict Access vs ETRACK, ETRACKC Access On Conflict EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT vs EADD, EEXTEND, EINIT vs ETRACK, ETRACKC|    vs ETRACK, ETRACKC    |  |     |  |     |  |
+
+|                          Access On Conflict Access On Conflict Access Access On Conflict Access On Conflict                          |                                   |                  |  |     |  |     |  |
+
+|                                           ESETCONTEXT                                            |              SECS [DS:RCX]              |      Concurrent       |  |Concurrent|  |Concurrent|  |
+
+Table 38-81. Additional Concurrency Restrictions of ESETCONTEXT
+
+Operation ¶
+
+Temp Variables in ESETCONTEXT Operational Flow ¶
+
+|  Name  |   Type   |Size (bits)|           Description            |
+
+|------------|----------------|-----------|--------------------------------------------------------|
+
+| TMP\_SECS |Physical Address|  64   |Physical address of the SECS of the page being modified. |
+
+|TMP\_CONTEXT|  CONTEXT   |  64   |         Data Value of CONTEXT.         |
+
+ESETCONTEXT Return Value in RAX ¶
+
+|     Error     |Value|             Description             |
+
+|------------------------|-----|---------------------------------------------------------------|
+
+|    No Error    | 0 |          ESETCONTEXT Successful. |
+
+|SGX\_EPC\_PAGE\_CONFLICT|   |Failure due to concurrent operation of another SGX instruction. |
+
+(\* check alignment of the EPCPAGE (RCX) \*)
+
+IF (DS:RCX is not 4KByte Aligned) THEN
+
+\#GP(0); FI;
+
+(\* check that EPCPAGE (DS:RCX) is the address of an EPC page \*)
+
+IF (DS:RCX does not resolve within an EPC)THEN
+
+\#PF(DS:RCX, PFEC.SGX); FI;
+
+(\* check alignment of the CONTEXT field (RDX) \*)
+
+IF (DS:RDX is not 8Byte Aligned) THEN
+
+\#GP(0); FI;
+
+(\* Load CONTEXT into local variable \*)
+
+TMP\_CONTEXT := DS:RDX
+
+(\* Check the EPC page for concurrency \*)
+
+IF (EPC page is being modified) THEN
+
+RFLAGS.ZF := 1;
+
+RFLAGS.CF := 0;
+
+RAX := SGX\_EPC\_PAGE\_CONFLICT;
+
+goto DONE;
+
+FI;
+
+(\* check page validity \*)
+
+IF (EPCM(DS:RCX). VALID = 0) THEN
+
+\#PF(DS:RCX, PFEC.SGX);
+
+FI;
+
+(\* check EPC page is an SECS page \*)
+
+IF (EPCM(DS:RCX). PT is not PT\_SECS) THEN
+
+\#PF(DS:RCX, PFEC.SGX);
+
+FI;
+
+(\* load the context value into SECS(DS:RCX). ENCLAVECONTEXT \*)
+
+SECS(DS:RCX). ENCLAVECONTEXT := TMP\_CONTEXT;
+
+RAX := 0;
+
+RFLAGS.ZF := 0;
+
+DONE:
+
+(\* clear flags \*)
+
+RFLAGS.CF,PF,AF,OF,SF := 0;
+
+Flags Affected ¶
+
+ZF is set if ESETCONTEXT fails due to concurrent operation with another SGX instruction; otherwise cleared.
+
+CF, PF, AF, OF, and SF are cleared.
+
+Protected Mode Exceptions ¶
+
+|         \#GP(0)          |If a memory operand effective address is outside the DS segment limit. |
+
+|--------------------------------------------|----------------------------------------------------------------------|
+
+|     If DS segment is unusable. |                                   |
+
+|If a memory operand is not properly aligned. |                                   |
+
+|         \#PF(error         |   code) If a page fault occurs in accessing memory operands. |
+
+64-Bit Mode Exceptions ¶
+
+|         \#GP(0)          |   If a memory address is in a non-canonical form. |
+
+|--------------------------------------------|----------------------------------------------------------|
+
+|If a memory operand is not properly aligned. |                             |
+
+|         \#PF(error         |code) If a page fault occurs in accessing memory operands. |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

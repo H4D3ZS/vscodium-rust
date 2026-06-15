@@ -1,4 +1,5 @@
 import { invoke } from '../../tauri_bridge';
+import { desktopProjectPath, isWindowsHost, toHostPath } from '../../lib/hostPaths';
 
 const CANDIDATE_NAMES = ['Virtual-iPhone-Emulator', 'virtual-iphone-emulator'];
 
@@ -6,9 +7,9 @@ const CANDIDATE_NAMES = ['Virtual-iPhone-Emulator', 'virtual-iphone-emulator'];
 export async function resolveEmulatorProjectPath(): Promise<string> {
     const activeRoot = (await import('../../store')).useStore.getState().activeRoot;
 
-    const candidates: string[] = [
-        'C:/Users/HADES/Desktop/vscodium-rust/Virtual-iPhone-Emulator',
-    ];
+    const candidates: string[] = [];
+    const legacyDefault = await desktopProjectPath('vscodium-rust/Virtual-iPhone-Emulator');
+    if (legacyDefault) candidates.push(legacyDefault);
     if (activeRoot) {
         for (const name of CANDIDATE_NAMES) {
             candidates.push(`${activeRoot.replace(/\\/g, '/')}/${name}`);
@@ -27,23 +28,24 @@ export async function resolveEmulatorProjectPath(): Promise<string> {
     } catch { /* */ }
 
     for (const c of candidates) {
-        const normalized = c.replace(/\//g, '\\');
+        const normalized = toHostPath(c);
         try {
             const exists = await invoke<boolean>('path_exists', { path: normalized });
             if (exists) return normalized;
         } catch { /* try next */ }
     }
 
-    return candidates[candidates.length - 1];
+    return toHostPath(candidates[candidates.length - 1] ?? 'Virtual-iPhone-Emulator');
 }
 
 export async function probeEmulatorBinary(projectPath: string): Promise<string | null> {
+    const sep = isWindowsHost() ? '\\' : '/';
     const checks = [
-        `${projectPath}\\build\\Release\\acheron.exe`,
-        `${projectPath}\\build\\acheron.exe`,
-        `${projectPath}\\acheron.exe`,
-        `${projectPath}\\acheron-native`,
-        `${projectPath}\\acheron-signed`,
+        `${projectPath}${sep}build${sep}Release${sep}acheron.exe`,
+        `${projectPath}${sep}build${sep}acheron.exe`,
+        `${projectPath}${sep}acheron.exe`,
+        `${projectPath}${sep}acheron-native`,
+        `${projectPath}${sep}acheron-signed`,
     ];
     for (const p of checks) {
         try {

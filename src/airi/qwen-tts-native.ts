@@ -32,7 +32,9 @@ export class Qwen3TTSServer {
     constructor(config?: Partial<QwenTTSConfig>) {
         this.config = {
             pythonPath: 'python',
-            modelPath: 'C:/Users/HADES/Desktop/vscodium-rust/Qwen3-TTS',
+            // No default install location — pass modelPath explicitly when
+            // running a local Qwen3-TTS checkout (server is external anyway).
+            modelPath: '',
             port: 8080,
             speed: 1.0,
             pitch: 1.0,
@@ -65,7 +67,7 @@ export class Qwen3TTSServer {
             } else {
                 this.consecutiveFailures++;
                 if (this.consecutiveFailures >= Qwen3TTSServer.MAX_FAILURES) {
-                    console.warn('[Qwen3-TTS] ⚠ Server unreachable after', this.consecutiveFailures, 'attempts. Will not retry until reset.');
+ console.warn('[Qwen3-TTS] Server unreachable after', this.consecutiveFailures, 'attempts. Will not retry until reset.');
                 }
                 return false;
             }

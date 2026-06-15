@@ -23,9 +23,22 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     if (cmd === 'get_file_tree') return Promise.resolve([] as any);
     if (cmd === 'get_settings') return Promise.resolve({ theme: 'vs-dark', font_size: 14 } as any);
     if (cmd === 'get_config_path') return Promise.resolve('/mock/config.json' as any);
-    if (cmd === 'ai_chat') return Promise.resolve("Hello! I am your VSCODE AI assistant. How can I help you today?") as any;
+    if (cmd === 'ai_chat' || cmd === 'ai_chat_fast') {
+        return Promise.reject(
+            new Error('Rust backend not connected — run `npm run dev:tauri` (Vite-only dev cannot call Ollama).'),
+        ) as any;
+    }
 
     return Promise.resolve(null as any);
+}
+
+/** Map an on-disk path to a WebView-safe asset URL (no base64 IPC). */
+export function convertFileSrc(filePath: string): string {
+    const tauri = (window as any).__TAURI__;
+    if (tauri?.core?.convertFileSrc) {
+        return tauri.core.convertFileSrc(filePath);
+    }
+    return `asset://localhost/${encodeURIComponent(filePath)}`;
 }
 
 export async function listen<T = any>(event: string, handler: (event: { payload: T; [k: string]: any }) => void): Promise<() => void> {

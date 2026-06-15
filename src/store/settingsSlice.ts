@@ -122,7 +122,14 @@ export const createSettingsSlice: StateCreator<AppState, [], [], SettingsSlice> 
     kortexGacEnabled: (() => { try { return localStorage.getItem('kortex.gacEnabled') !== '0'; } catch { return true; } })(),
     kortexVramTotalMb: (() => { try { return parseInt(localStorage.getItem('kortex.vramTotalMb') || '8192'); } catch { return 8192; } })(),
     kortexTheta: (() => { try { return parseFloat(localStorage.getItem('kortex.theta') || '0.85'); } catch { return 0.85; } })(),
-    kortexBackend: (() => { try { return localStorage.getItem('kortex.backend') || 'vulkan'; } catch { return 'vulkan'; } })(),
+    kortexBackend: (() => {
+        try {
+            const saved = localStorage.getItem('kortex.backend');
+            if (saved) return saved;
+            const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
+            return isMac ? 'metal' : 'vulkan';
+        } catch { return 'vulkan'; }
+    })(),
     kortexServerBinary: (() => { try { return localStorage.getItem('kortex.serverBinary') || ''; } catch { return ''; } })(),
     kvCacheEnabled: (() => { try { return localStorage.getItem('kvcache.enabled') !== '0'; } catch { return true; } })(),
     kvCacheBaseDir: (() => { try { return localStorage.getItem('kvcache.baseDir') || ''; } catch { return ''; } })(),

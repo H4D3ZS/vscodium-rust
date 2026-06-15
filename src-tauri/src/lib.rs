@@ -2,106 +2,186 @@ use std::fs;
 use tauri::Manager;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-pub mod aim_store;
-pub mod account;
-pub mod auth;
-mod ai_auth;
-mod ai_commands;
-mod editor_commands;
-mod hunter;
 mod state;
-mod window_commands;
 pub use state::EditorState;
-pub mod ai_engine;
-pub mod ai_tools;
-pub mod ane;
-pub mod auth_commands;
-pub mod browser_actuation;
-pub mod process_ext;
-// use crate::process_ext::CommandExtHidden;
+pub mod vega;
+pub mod infrastructure;
+// ── Overhaul shims (services/workspace/compat batch) — deleted in A1 cleanup.
+pub use domain::services::account;
+pub(crate) use domain::services::ai_auth;
+pub(crate) use infrastructure::airi_bridge;
+pub(crate) use domain::compat::antigravity_compat;
+pub(crate) use domain::workspace::attachment_manager;
+pub use domain::services::auth;
+pub(crate) use infrastructure::binary_analyzer;
+pub(crate) use infrastructure::claurst_bridge;
+pub(crate) use domain::compat::cursor_compat;
+pub use domain::services::enterprise_audit;
+pub use domain::services::enterprise_governance;
+pub(crate) use infrastructure::ghost_runtime;
+pub(crate) use infrastructure::hermes_gateway;
+pub(crate) use domain::extensions::hermes_skills;
+pub(crate) use domain::workspace::ide_shell;
+pub use application::jobs;
+pub(crate) use domain::workspace::kairos;
+pub(crate) use domain::ai::ml_studio;
+pub(crate) use domain::extensions::module_registry;
+pub(crate) use domain::extensions::skill_audit;
+pub(crate) use domain::extensions::skill_store;
+pub use domain::workspace::specs_db;
+pub(crate) use domain::workspace::stop_hooks;
+pub use infrastructure::system_profile;
+pub(crate) use domain::workspace::test_runner_service;
+pub(crate) use domain::workspace::visual_lab;
+pub(crate) use domain::workspace::workers;
+pub(crate) use domain::compat::workspace_compat;
+pub mod application;
+pub(crate) use application::asymmetric_orchestrator as triage;
+pub(crate) use application::autonomous_supervisor as supervisor;
+// ── Overhaul shims (commands batch) — deleted in the A1 cleanup commit.
+pub(crate) use application::commands::ai as ai_commands;
+pub(crate) use application::commands::ai_agent as ai_agent_commands;
+pub(crate) use application::commands::ai_patch as ai_patch_commands;
+pub(crate) use application::commands::ai_project as ai_project_commands;
+pub(crate) use application::commands::android as android_commands;
+pub(crate) use application::commands::ane as ane_commands;
+pub(crate) use application::commands::antigravity as antigravity_commands;
+pub(crate) use application::commands::apex as apex_commands;
+pub use application::commands::auth as auth_commands;
+pub(crate) use application::commands::chunk_secrets as chunk_secrets_commands;
+pub(crate) use application::commands::cursor as cursor_commands;
+pub(crate) use application::commands::debug as debug_commands;
+pub(crate) use application::commands::editor as editor_commands;
+pub(crate) use application::commands::extensions as extensions_commands;
+pub(crate) use application::commands::file as file_commands;
+pub use application::commands::git as git_commands;
+pub(crate) use application::commands::gradle as gradle_commands;
+pub(crate) use application::commands::inference as inference_commands;
+pub(crate) use application::commands::intercept_proxy as intercept_proxy_commands;
+pub(crate) use application::commands::kortex as kortex_commands;
+pub(crate) use application::commands::logcat as logcat_commands;
+pub(crate) use application::commands::lsp as lsp_commands;
+pub(crate) use application::commands::mcp as mcp_commands;
+pub(crate) use application::commands::model as model_commands;
+pub(crate) use application::commands::module as module_commands;
+pub(crate) use application::commands::oast as oast_commands;
+pub(crate) use application::commands::offensive as offensive_commands;
+pub(crate) use application::commands::performance as performance_commands;
+pub(crate) use application::commands::port as port_commands;
+pub(crate) use application::commands::pytorch as pytorch_commands;
+pub(crate) use application::commands::remote as remote_commands;
+pub(crate) use application::commands::security_generator as security_generator_commands;
+pub(crate) use application::commands::specs as specs_commands;
+pub(crate) use application::commands::system as system_commands;
+pub(crate) use application::commands::terminal as terminal_commands;
+pub(crate) use application::commands::test as test_commands;
+pub(crate) use application::commands::vector as vector_commands;
+pub(crate) use application::commands::vega as vega_commands;
+pub(crate) use application::commands::visual as visual_commands;
+pub(crate) use application::commands::voice as voice_commands;
+pub(crate) use application::commands::web as web_commands;
+pub(crate) use application::commands::webui_bridge as webui_bridge_commands;
+pub(crate) use application::commands::window as window_commands;
+pub(crate) use application::commands::workspace as workspace_commands;
+pub(crate) use application::commands::workspace_settings as workspace_settings_commands;
+// ── Overhaul shims (infrastructure batch) — deleted in the A1 cleanup commit.
+pub use infrastructure::browser_actuation;
+pub use infrastructure::process_ext;
+pub(crate) use infrastructure::browser;
+pub(crate) use infrastructure::mcp_client;
+pub(crate) use infrastructure::mcp_registry;
+pub(crate) use infrastructure::mcp_resolver;
+pub(crate) use infrastructure::mcp_server;
+pub(crate) use infrastructure::performance;
+pub(crate) use infrastructure::vfs_bridge;
 
-mod ai_agent_commands;
-mod ai_patch_commands;
-mod antigravity_commands;
-mod ai_project_commands;
-mod airi_bridge;
-mod claurst_bridge;
-mod android_commands;
-mod apex_commands;
-mod attachment_manager;
-mod binary_analyzer;
-mod context_indexer;
-pub mod context_quantizer;
-mod debug_commands;
-mod image_gen;
-mod symbols;
 pub mod domain;
-mod extensions_commands;
-mod file_commands;
-mod ghost_runtime;
-mod hades_harness;
-mod hades_vision;
-mod iphone_emulator;
-mod kairos;
-mod knowledge_distiller;
-mod kortex_commands;
+// ── Overhaul shims: old flat-module paths re-exported from their new DDD homes.
+// Deleted in the A1 cleanup commit. See docs/overhaul/CONVENTIONS.md §3.
+pub(crate) use domain::vcs::git;
+pub(crate) use domain::vcs::git_checkpoints;
+pub(crate) use domain::vcs::patch_engine;
+pub(crate) use domain::vcs::shadow_workspace;
+pub(crate) use domain::mobile::android_sdk;
+pub(crate) use domain::mobile::emulator_stream;
+pub(crate) use domain::mobile::ios_sim_embed;
+pub(crate) use domain::mobile::ios_sim_native;
+pub(crate) use domain::mobile::ios_simulator;
+pub(crate) use domain::mobile::ios_stream;
+pub(crate) use domain::mobile::iphone_emulator;
+pub(crate) use domain::mobile::logcat_service;
+pub(crate) use domain::mobile::mobile_toolchain;
+pub(crate) use domain::mobile::scrcpy;
+pub use domain::security::apex_orchestrator;
+pub use domain::security::apex_red_team;
+pub use domain::security::finding_ledger;
+pub use domain::security::pentest_executor;
+pub use domain::security::pentest_report;
+pub use domain::security::pentest_scope;
+pub use domain::security::probe_engine;
+pub use domain::security::sec_distro;
+pub(crate) use domain::security::chunk_secrets;
+pub(crate) use domain::security::hunter;
+pub(crate) use domain::security::intercept_proxy;
+pub(crate) use domain::security::intruder;
+pub(crate) use domain::security::oast;
+pub(crate) use domain::security::repeater;
+pub(crate) use domain::security::security_distiller;
+pub(crate) use domain::security::security_generators;
+pub(crate) use domain::security::security_native;
+pub(crate) use domain::security::security_patterns;
+pub(crate) use application::commands::probe as probe_commands;
+pub use domain::memory::aim_store;
+pub use domain::memory::context_quantizer;
+pub use domain::memory::memory_offload;
+pub use domain::memory::memory_optimizer;
+pub(crate) use domain::memory::memory_layer;
+pub(crate) use domain::memory::memory_store;
+pub(crate) use domain::indexing::ann_index;
+pub(crate) use domain::indexing::context_indexer;
+pub(crate) use domain::indexing::embeddings;
+pub(crate) use domain::indexing::knowledge_distiller;
+pub(crate) use domain::indexing::ripgrep_search;
+pub(crate) use domain::indexing::symbols;
+pub(crate) use domain::indexing::vector_indexer;
+pub(crate) use domain::editor::debug_adapter;
+pub(crate) use domain::editor::lsp;
+pub(crate) use domain::editor::lsp_bundle;
+pub(crate) use domain::editor::lsp_catalog;
+pub(crate) use domain::editor::lsp_manager;
+pub(crate) use domain::editor::lsp_router;
+pub(crate) use domain::editor::lsp_store;
+pub(crate) use domain::extensions::activation;
+pub(crate) use domain::extensions::context_key;
+pub(crate) use domain::extensions::extension_host;
+pub(crate) use domain::extensions::keybindings;
+pub(crate) use domain::extensions::marketplace;
+pub use domain::ai::engine as ai_engine;
+pub use domain::tools as ai_tools;
+pub use domain::ai::ane;
+pub use domain::ai::ane_inference;
+pub use domain::ai::model_manager;
+pub use domain::ai::ollama_offload;
+pub use domain::ai::optimized_inference;
+pub use domain::ai::tool_aliases;
+pub(crate) use domain::ai::agent_harness;
+pub(crate) use domain::ai::ai_prompts;
+pub(crate) use domain::ai::hades_harness;
+pub(crate) use domain::ai::hades_vision;
+pub(crate) use domain::ai::image_gen;
+pub(crate) use domain::ai::rules_engine;
+pub(crate) use domain::ai::streaming_tool_executor;
+pub(crate) use domain::ai::task_planner;
+pub(crate) use domain::ai::tool_invoker;
+pub(crate) use domain::ai::vision;
+pub(crate) use domain::ai::vision_bridge;
+pub(crate) use domain::ai::vision_sidecar;
+pub(crate) use domain::ai::workflow_engine;
 pub mod kortex_gac;
 pub mod kortex_kvcache;
-mod lsp_commands;
-mod lsp_manager;
-mod lsp_bundle;
-mod workspace_settings_commands;
-mod port_commands;
-mod mcp_client;
-mod mcp_commands;
-mod mcp_registry;
-mod mcp_server;
-mod memory_layer;
-pub mod memory_optimizer;
-mod memory_store;
-mod patch_engine;
-mod performance_commands;
-mod security_distiller;
-mod system_commands;
-mod task_planner;
-mod terminal_commands;
-mod tool_invoker;
-mod vector_commands;
-mod vfs_bridge;
-mod vision_bridge;
-mod visual_commands;
-mod visual_lab;
-mod voice_commands;
-mod web_commands;
-mod workflow_engine;
-pub mod jobs;
 
 // ═══ APEX Intelligence Framework ═══
-mod activation;
-mod ai_prompts;
-pub mod apex_orchestrator;
-pub mod apex_red_team;
-mod browser;
-mod context_key;
-mod debug_adapter;
-mod emulator_stream;
-mod extension_host;
-mod git;
-mod git_checkpoints;
-pub mod git_commands;
-mod keybindings;
-mod lsp;
-mod marketplace;
 mod architecture;
-mod performance;
-mod rules_engine;
-mod scrcpy;
-mod shadow_workspace;
-mod specs_commands;
-pub mod specs_db;
-mod vector_indexer;
-mod vision;
-mod workers;
 
 #[cfg(target_os = "windows")]
 extern "system" {
@@ -138,6 +218,37 @@ pub fn run() {
             let state = app.state::<EditorState>();
             let _app_handle = app.handle().clone();
 
+            // Multi-key probe ledger (brutecat methodology).
+            app.manage(finding_ledger::FindingLedger::new());
+
+            // Triage orchestrator — init with workspace root + Ollama URL.
+            {
+                let workspace = state.editor.active_root
+                    .try_lock()
+                    .ok()
+                    .and_then(|r| r.clone())
+                    .unwrap_or_else(|| state.config_dir.clone());
+                let ollama_url = "http://localhost:11434"; // overridden by user settings later
+                let orch = triage::init(workspace, state.config_dir.clone(), ollama_url);
+                app.manage(orch);
+            }
+
+            // 24/7 autonomous supervisor — durable task queue driven via the WebUI bridge.
+            {
+                let workspace = state.editor.active_root
+                    .try_lock()
+                    .ok()
+                    .and_then(|r| r.clone())
+                    .unwrap_or_else(|| state.config_dir.clone());
+                let sup = supervisor::init(
+                    app.handle().clone(),
+                    state.webui_bridge.clone(),
+                    workspace,
+                    state.config_dir.clone(),
+                );
+                app.manage(sup);
+            }
+
             // Re-hide console if on windows and not debug
             #[cfg(all(windows, not(debug_assertions)))]
             {
@@ -152,11 +263,46 @@ pub fn run() {
                 fs::create_dir_all(&state.config_dir).ok();
             }
 
+            // Potato mode: <9GB RAM (or HADES_LITE=1) defers/disables non-essential boot work.
+            let profile = system_profile::get();
+            println!(
+                "[profile] RAM {:.1}GB → {} mode ({})",
+                profile.total_ram_gb,
+                if profile.lite_mode { "LITE/potato" } else { "full" },
+                profile.source
+            );
+            let lite = profile.lite_mode;
+
+            // Bundle PortableGit + ripgrep into %LOCALAPPDATA%\\HADES\\ on first launch.
+            // Lite: defer 90s so the disk/CPU spike never lands on boot.
+            tauri::async_runtime::spawn(async move {
+                if lite {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(90)).await;
+                }
+                match tauri::async_runtime::spawn_blocking(ide_shell::ensure_portable_git_installed).await {
+                    Ok(Ok(true)) => println!("[ide_shell] PortableGit installed to HADES home."),
+                    Ok(Ok(false)) => {}
+                    Ok(Err(e)) => eprintln!("[ide_shell] PortableGit install: {e}"),
+                    Err(e) => eprintln!("[ide_shell] ensure_portable_git task failed: {e}"),
+                }
+                match tauri::async_runtime::spawn_blocking(ide_shell::ensure_ripgrep_installed).await {
+                    Ok(Ok(true)) => println!("[ide_shell] ripgrep installed to HADES home."),
+                    Ok(Ok(false)) => {}
+                    Ok(Err(e)) => eprintln!("[ide_shell] ripgrep install: {e}"),
+                    Err(e) => eprintln!("[ide_shell] ensure_ripgrep task failed: {e}"),
+                }
+            });
+
             // ChatGPT bridge: lazy-init on first use — a hidden webview costs ~40–80MB RSS.
 
-            // Start background OAuth listener
+            // ANE warms on first inference / deferred offline stack — not at boot (saves RSS).
+
+            // Start background OAuth listener. Lite: defer 30s off the boot path.
             let oauth_app_handle = _app_handle.clone();
             tauri::async_runtime::spawn(async move {
+                if lite {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                }
                 if let Err(e) = auth_commands::start_oauth_listener(14285, oauth_app_handle).await {
                     eprintln!("Failed to start OAuth listener: {}", e);
                 }
@@ -183,23 +329,41 @@ pub fn run() {
                 }
             });
 
-            // Memory watchdog — trim aggressively to stay in the 80–150MB idle band.
-            // Monaco + an open file will push higher; this catches runaway agent/indexer RAM.
-            let perf_monitor = state.perf_monitor.clone();
-            let engine_for_trim = state.ai_engine.clone();
+            // Dev builds: native fullscreen (hides macOS Dock / uses full display).
+            // Release builds keep the normal resizable window from tauri.conf.json.
+            #[cfg(debug_assertions)]
+            if let Some(w) = app.get_webview_window("main") {
+                if let Err(e) = w.set_fullscreen(true) {
+                    eprintln!("[dev] set_fullscreen failed: {e}");
+                }
+            }
+
+            // Memory watchdog — soft trim ~90MB, hard trim ~150MB (lean idle target 54MB when panels closed).
+            let perf_monitor = state.services.perf_monitor.clone();
+            let engine_for_trim = state.ai.engine.clone();
+            let mem_opt = state.memory.optimizer.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(45)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
                     if let Some(stats) = perf_monitor.get_stats().await {
                         let mb = stats.memory_mb;
-                        if mb > 100 {
-                            println!("[Memory Watchdog] RSS={}MB — trimming conversation + working set.", mb);
+                        if mb > 150 {
+                            println!("[Memory Watchdog] RSS={mb}MB — hard trim");
                             let _ = engine_for_trim.optimize_memory().await;
-                            #[cfg(target_os = "windows")]
+                            let _ = mem_opt.optimize().await;
+                        } else if mb > 90 {
+                            let _ = mem_opt.optimize().await;
+                        }
+                        #[cfg(target_os = "windows")]
+                        if mb > 90 {
                             unsafe {
                                 let handle = GetCurrentProcess();
                                 let _ = SetProcessWorkingSetSize(handle, usize::MAX, usize::MAX);
                             }
+                        }
+                        #[cfg(target_os = "macos")]
+                        if mb > 90 {
+                            crate::performance_commands::macos_pressure_relief();
                         }
                     }
                 }
@@ -237,6 +401,7 @@ pub fn run() {
             account::account_accept_tos,
             account::account_tos_status,
             account::account_has_feature,
+            account::account_has_feature_offline,
             account::account_set_tier,
             account::account_acquire_addon,
             account::account_subscribe,
@@ -246,6 +411,56 @@ pub fn run() {
             account::account_add_tokens,
             account::account_start_trial,
             account::account_open_billing,
+            // ═══ Enterprise (audit + org policy) ═══
+            enterprise_audit::enterprise_get_policy,
+            enterprise_audit::enterprise_set_policy,
+            enterprise_audit::enterprise_audit_list,
+            enterprise_audit::enterprise_audit_export,
+            enterprise_audit::enterprise_audit_log,
+            enterprise_audit::enterprise_seed_cyber_policy,
+            enterprise_audit::enterprise_init_engagement,
+            enterprise_audit::enterprise_export_sarif,
+            // ═══ Security Arsenal (Obsidian-style generators) ═══
+            security_generator_commands::security_reverse_shell,
+            security_generator_commands::security_listener,
+            security_generator_commands::security_csp_analyze,
+            security_generator_commands::security_shellcode_recipe,
+            security_generator_commands::security_encode_payload,
+            // ═══ Multi-Key API Probe Engine (brutecat methodology) ═══
+            probe_commands::probe_create_session,
+            probe_commands::probe_add_keys,
+            probe_commands::probe_api,
+            probe_commands::probe_visibility_labels,
+            probe_commands::probe_report_vulnerability,
+            probe_commands::probe_verify_finding,
+            probe_commands::probe_get_endpoint_context,
+            probe_commands::probe_confirm_complete,
+            probe_commands::probe_get_operation,
+            probe_commands::probe_session_operations,
+            probe_commands::probe_session_findings,
+            probe_commands::probe_session_stats,
+            probe_commands::probe_add_discovered,
+            probe_commands::probe_list_sessions,
+            // ═══ WebUI→MCP Bridge (ZeroScript-style) ═══
+            webui_bridge_commands::webui_bridge_status,
+            webui_bridge_commands::webui_bridge_providers,
+            webui_bridge_commands::webui_bridge_start_task,
+            webui_bridge_commands::webui_bridge_inject,
+            webui_bridge_commands::webchat_login,
+            webui_bridge_commands::webchat_sessions,
+            // ═══ 24/7 Autonomous Supervisor ═══
+            supervisor::supervisor_enqueue,
+            supervisor::supervisor_status,
+            supervisor::supervisor_pause,
+            supervisor::supervisor_resume,
+            supervisor::supervisor_skip,
+            supervisor::supervisor_clear,
+            supervisor::supervisor_set_config,
+            // ═══ Triage ═══
+            triage::triage_run,
+            triage::triage_last_snapshot,
+            triage::triage_register_drift,
+            triage::triage_stats,
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
             ai_commands::aim_inspect,
@@ -261,6 +476,20 @@ pub fn run() {
             ai_commands::predict_next_edit,
             claurst_bridge::claurst_status,
             claurst_bridge::claurst_run,
+            ide_shell::ide_shell_status,
+            ide_shell::ide_git_bash_path,
+            ide_shell::ide_ensure_portable_git,
+            ide_shell::ide_ensure_ripgrep,
+            hermes_skills::hermes_integration_status,
+            hermes_skills::hermes_skills_list,
+            hermes_skills::hermes_skills_get,
+            hermes_skills::hermes_skills_search,
+            skill_store::skill_store_status,
+            skill_store::skill_store_list,
+            skill_store::skill_store_install,
+            skill_store::skill_store_uninstall,
+            skill_store::skill_store_audit,
+            skill_store::skill_store_refresh,
             ai_commands::ai_modify_file,
             ai_commands::ai_multi_cursor_edit,
             ai_commands::ai_pr_review,
@@ -271,6 +500,7 @@ pub fn run() {
             ai_commands::call_tool,
             ai_commands::grep_files,
             ai_commands::propose_file_change,
+            ai_commands::preview_search_replace,
             ai_commands::set_ollama_url,
             ai_commands::list_workspace_rules,
             ai_commands::reindex_workspace,
@@ -280,6 +510,7 @@ pub fn run() {
             ai_commands::get_ollama_ps,
             ai_commands::diagnose_ollama,
             ai_commands::list_provider_models,
+            ai_commands::search_ollama_library,
             ai_commands::ollama_native_get,
             ai_commands::ollama_native_post,
             ai_commands::set_ai_model,
@@ -293,6 +524,24 @@ pub fn run() {
             ai_commands::archive_chat_session,
             ai_commands::create_new_session,
             ai_commands::agent_activity_drain,
+            cursor_commands::cursor_scan_project,
+            cursor_commands::cursor_init_project,
+            cursor_commands::cursor_append_debug_log,
+            cursor_commands::cursor_list_worktrees,
+            cursor_commands::cursor_create_worktree,
+            cursor_commands::cursor_reload_workspace,
+            workspace_commands::workspace_scan,
+            workspace_commands::workspace_architecture_layout,
+            workspace_commands::workspace_init,
+            workspace_commands::workspace_reload,
+            workspace_commands::workspace_get_steering,
+            workspace_commands::workspace_steering_prompt,
+            workspace_commands::workspace_dispatch_hooks,
+            workspace_commands::workspace_list_hooks,
+            workspace_commands::workspace_save_hook,
+            workspace_commands::workspace_delete_hook,
+            workspace_commands::workspace_list_agent_runs,
+            workspace_commands::workspace_save_agent_run,
             ai_commands::chat_stream_drain,
             ai_commands::agent_proposals_drain,
             ai_commands::revert_file_content,
@@ -314,12 +563,32 @@ pub fn run() {
             antigravity_commands::ag_phase_wrap,
             antigravity_commands::ag_get_workflows,
             antigravity_commands::ag_get_rules,
+            antigravity_commands::ag_init_layout,
+            antigravity_commands::ag_brain_list,
+            antigravity_commands::ag_brain_list_cascades,
+            antigravity_commands::ag_brain_save_artifact,
+            antigravity_commands::ag_brain_save_media,
+            antigravity_commands::ag_list_trajectories,
+            antigravity_commands::ag_get_trajectory,
+            antigravity_commands::ag_save_trajectory,
+            antigravity_commands::ag_append_trajectory_step,
+            antigravity_commands::ag_export_trajectory_jsonl,
+            antigravity_commands::ag_upsert_subagent,
+            antigravity_commands::ag_load_lifecycle_hooks,
+            antigravity_commands::ag_save_lifecycle_hooks,
+            antigravity_commands::ag_dispatch_lifecycle_hooks,
+            antigravity_commands::ag_get_autonomy_policies,
+            antigravity_commands::ag_save_autonomy_policies,
+            antigravity_commands::ag_apply_autonomy_preset,
             // ═══ AI Patching ═══
             ai_patch_commands::accept_sentient_patch,
             ai_patch_commands::reject_sentient_patch,
             ai_patch_commands::propose_fast_edit,
             // ═══ Background Jobs ═══
             jobs::get_background_jobs,
+            jobs::register_background_job,
+            jobs::update_background_job,
+            jobs::remove_background_job,
             // ═══ APEX Intelligence ═══
             apex_commands::apex_architect_design,
             apex_commands::apex_architect_scaffold,
@@ -341,6 +610,24 @@ pub fn run() {
             apex_commands::apex_simulate_attack,
             apex_commands::apex_threat_anticipate,
             apex_commands::apex_threat_simulate,
+            apex_commands::apex_set_local_mode,
+            // ═══ ANE Inference Acceleration (M1/M2/M3/M4) ═══
+            ane_commands::ane_get_status,
+            ane_commands::ane_init_inference,
+            ane_commands::ane_can_accelerate,
+            ane_commands::ane_update_metrics,
+            ane_commands::ane_diagnostics,
+            // ═══ Model Management (Dynamic Ollama selection) ═══
+            model_commands::list_ollama_models,
+            model_commands::get_current_model,
+            model_commands::set_current_model,
+            model_commands::get_model_info,
+            model_commands::detect_best_model,
+            model_commands::apply_model_to_all_engines,
+            // ═══ Optimized Inference (ANE + Memory + MoE) ═══
+            inference_commands::inference_get_status,
+            inference_commands::inference_prepare_model,
+            inference_commands::inference_get_setup_recommendation,
             // ═══ Android Commands ═══
             android_commands::adb_list_devices,
             android_commands::adb_list_emulators,
@@ -349,6 +636,53 @@ pub fn run() {
             android_commands::get_android_config,
             android_commands::set_android_sdk_path,
             android_commands::spawn_emulator,
+            gradle_commands::gradle_detect_project,
+            gradle_commands::gradle_sync_project,
+            gradle_commands::gradle_list_tasks,
+            gradle_commands::gradle_run_task,
+            logcat_commands::logcat_start,
+            logcat_commands::logcat_stop,
+            logcat_commands::logcat_status,
+            test_commands::test_sniff_framework,
+            test_commands::test_discover,
+            test_commands::test_run_file,
+            test_commands::test_run_all,
+            pytorch_commands::pytorch_detect,
+            pytorch_commands::pytorch_install,
+            pytorch_commands::pytorch_verify,
+            ml_studio::ml_studio_init,
+            ml_studio::ml_studio_get_config,
+            ml_studio::ml_studio_save_config,
+            ml_studio::ml_studio_list_data,
+            ml_studio::ml_studio_prepare_dataset,
+            ml_studio::ml_studio_train,
+            ml_studio::ml_studio_list_runs,
+            ml_studio::ml_studio_get_run_metrics,
+            ml_studio::ml_studio_get_active_run,
+            ml_studio::ml_studio_infer,
+            ml_studio::ml_studio_install_deps,
+            ml_studio::ml_studio_dataset_stats,
+            ml_studio::ml_studio_model_summary,
+            ml_studio::ml_studio_export_model,
+            ml_studio::ml_studio_pretrained_gallery,
+            ml_studio::ml_studio_hpo,
+            ml_studio::ml_studio_lr_finder,
+            ml_studio::ml_studio_grad_check,
+            ml_studio::ml_studio_benchmark,
+            ml_studio::ml_studio_list_experiments,
+            ml_studio::ml_studio_export_report,
+            ml_studio::ml_studio_cancel_train,
+            ml_studio::ml_studio_model_graph,
+            ml_studio::ml_studio_augment_preview,
+            ml_studio::ml_studio_load_pretrained,
+            ml_studio::ml_studio_compare_runs,
+            ml_studio::ml_studio_list_workers,
+            ml_studio::ml_studio_save_worker,
+            ml_studio::ml_studio_export_onnx,
+            ml_studio::ml_studio_netron_url,
+            stop_hooks::stop_hooks_get,
+            stop_hooks::stop_hooks_save,
+            stop_hooks::stop_hooks_run,
             // ═══ Emulator Stream ═══
             emulator_stream::list_available_avds,
             emulator_stream::create_avd,
@@ -378,6 +712,8 @@ pub fn run() {
             // ═══ Editor Commands ═══
             editor_commands::get_settings,
             editor_commands::update_settings,
+            editor_commands::ui_settings_get_all,
+            editor_commands::ui_settings_set,
             editor_commands::resolve_keybinding,
             editor_commands::list_keybindings,
             editor_commands::update_keybinding,
@@ -439,6 +775,7 @@ pub fn run() {
             // ═══ Git Commands ═══
             git_commands::git_status,
             git_commands::git_diff,
+            git_commands::get_git_diff,
             git_commands::git_diff_file,
             git_commands::git_stage,
             git_commands::git_unstage,
@@ -472,9 +809,12 @@ pub fn run() {
             terminal_commands::terminal_terminate,
             terminal_commands::terminal_toggle,
             terminal_commands::get_available_shells,
+            terminal_commands::spawn_opencode_terminal,
             // ═══ File Commands ═══
             file_commands::refresh_file_tree,
             // ═══ MCP ═══
+            mcp_commands::detect_ghidra_install_dir,
+            mcp_commands::detect_ida_install_dir,
             mcp_commands::add_mcp_server,
             mcp_commands::remove_mcp_server,
             mcp_commands::list_mcp_servers,
@@ -494,6 +834,8 @@ pub fn run() {
             system_commands::stop_mitm_server,
             system_commands::get_mitm_status,
             // ═══ Performance ═══
+            system_profile::get_system_profile,
+            ollama_offload::ollama_doctor,
             performance_commands::get_system_health,
             performance_commands::get_process_stats,
             performance_commands::benchmark_ane,
@@ -519,6 +861,8 @@ pub fn run() {
             voice_commands::elevenlabs_get_voices,
             // ═══ Workspace ═══
             attachment_manager::select_and_process_attachment,
+            vision_sidecar::discover_vision_models_cmd,
+            vision_sidecar::vision_sidecar_process_attachments,
             kortex_commands::save_kortex_memory,
             kortex_commands::load_kortex_memory,
             kortex_commands::load_kortex_metadata,
@@ -556,6 +900,7 @@ pub fn run() {
             kortex_kvcache::kortex_kvcache_clear,
             // ═══ Browser ═══
             browser::browser_open,
+            browser::browser_set_headless,
             browser::browser_close,
             browser::browser_navigate,
             browser::browser_read_dom,
@@ -563,7 +908,23 @@ pub fn run() {
             browser::browser_click,
             browser::browser_screenshot,
             browser::browser_get_content_summary,
+            browser::browser_status,
             browser::browser_capture_vision_context,
+            // ═══ Remote SSH ═══
+            remote_commands::remote_ssh_probe,
+            remote_commands::remote_ssh_list_dir,
+            remote_commands::remote_ssh_mount,
+            remote_commands::remote_ssh_sync_pull,
+            remote_commands::remote_ssh_sync_push,
+            remote_commands::remote_ssh_disconnect,
+            remote_commands::remote_ssh_status,
+            remote_commands::remote_ssh_exec,
+            remote_commands::remote_ssh_read_file,
+            remote_commands::remote_ssh_write_file,
+            // ═══ Hermes gateway (:8642) ═══
+            hermes_gateway::hermes_gateway_start,
+            hermes_gateway::hermes_gateway_stop,
+            hermes_gateway::hermes_gateway_status,
             // ═══ Vector Search ═══
             vector_commands::vector_index_codebase,
             vector_commands::vector_search_codebase,
@@ -587,6 +948,9 @@ pub fn run() {
             // ═══ LSP Commands ═══
             lsp_commands::lsp_start,
             lsp_commands::lsp_auto_start,
+            lsp_commands::lsp_ensure_for_file,
+            lsp_commands::lsp_detect_workspace,
+            lsp_commands::lsp_start_server,
             lsp_commands::lsp_bundle_status,
             lsp_commands::lsp_ensure_bundle,
             lsp_commands::lsp_send_request,
@@ -608,6 +972,46 @@ pub fn run() {
             lsp_commands::lsp_workspace_symbols,
             lsp_commands::lsp_code_lens,
             lsp_commands::lsp_document_symbols,
+            lsp_store::lsp_store_status,
+            lsp_store::lsp_store_list,
+            lsp_store::lsp_store_catalog,
+            lsp_store::lsp_store_scan_path,
+            lsp_store::lsp_store_install_preset,
+            lsp_store::lsp_store_install_path,
+            lsp_store::lsp_store_set_enabled,
+            lsp_store::lsp_store_uninstall,
+            lsp_store::lsp_store_install_npm,
+            module_commands::modules_fetch_catalog,
+            module_commands::modules_list_installed,
+            module_commands::modules_install,
+            module_commands::modules_uninstall,
+            module_commands::modules_set_enabled,
+            module_commands::modules_launch,
+            module_commands::modules_default_catalog_url,
+            chunk_secrets_commands::chunk_secrets_scan_path,
+            chunk_secrets_commands::chunk_secrets_scan_url,
+            chunk_secrets_commands::security_xss_probe_url,
+            chunk_secrets_commands::security_bounty_scan_url,
+            chunk_secrets_commands::security_native_tools,
+            vega_commands::vega_list_modules,
+            vega_commands::vega_scan,
+            vega_commands::vega_disciplines,
+            vega_commands::vega_export_report,
+            intercept_proxy_commands::proxy_start,
+            intercept_proxy_commands::proxy_stop,
+            intercept_proxy_commands::proxy_status,
+            intercept_proxy_commands::proxy_flows,
+            intercept_proxy_commands::proxy_clear,
+            intercept_proxy_commands::proxy_replay,
+            oast_commands::oast_start,
+            oast_commands::oast_stop,
+            oast_commands::oast_status,
+            oast_commands::oast_register,
+            oast_commands::oast_poll,
+            oast_commands::oast_clear,
+            oast_commands::oast_set_public_host,
+            offensive_commands::repeater_send,
+            offensive_commands::intruder_run,
             workspace_settings_commands::get_workspace_settings,
             workspace_settings_commands::update_workspace_settings,
             port_commands::list_listening_ports,
@@ -622,6 +1026,26 @@ pub fn run() {
             iphone_emulator::launch_vphone,
             iphone_emulator::prepare_ios_firmware,
             iphone_emulator::create_stub_ramdisk,
+            ios_simulator::ios_sim_preflight,
+            ios_simulator::ios_sim_list_devices,
+            ios_simulator::ios_sim_boot_device,
+            ios_simulator::ios_sim_start_mirror,
+            ios_simulator::ios_sim_stop_mirror,
+            ios_simulator::ios_sim_send_touch,
+            ios_simulator::ios_sim_send_home,
+            ios_simulator::ios_sim_capture_screenshot,
+            ios_simulator::ios_sim_mirror_running,
+            ios_simulator::ios_sim_warmup,
+            ios_simulator::ios_sim_pause,
+            ios_simulator::ios_sim_resume,
+            ios_simulator::ios_sim_session_state,
+            ios_simulator::ios_sim_stream_url,
+            ios_simulator::ios_sim_stream_status,
+            ios_simulator::ios_sim_embed_layout,
+            mobile_toolchain::resolve_mobile_toolchain_paths,
+            mobile_toolchain::run_vphone_doctor,
+            mobile_toolchain::install_vphone_toolchain,
+            mobile_toolchain::get_mobile_toolchain_env,
             window_commands::win_minimize,
             window_commands::win_toggle_maximize,
             window_commands::win_close,

@@ -6,7 +6,7 @@ import { useStore } from '../store';
 // maps onto our real autonomy flags (YOLO / auto-accept) so it isn't cosmetic;
 // the granular toggles persist to localStorage for the relevant subsystems.
 
-type SecMode = 'full' | 'sandboxed' | 'strict';
+type SecMode = 'secure' | 'auto' | 'turbo';
 
 function getLS(key: string, fallback: string): string {
     try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -15,10 +15,10 @@ function setLS(key: string, value: string) {
     try { localStorage.setItem(key, value); } catch { /* */ }
 }
 
-const MODES: { id: SecMode; title: string; desc: string }[] = [
-    { id: 'full', title: 'Full access', desc: 'Agents have full access to your machine and external resources.' },
-    { id: 'sandboxed', title: 'Sandboxed', desc: 'Agents run in a secure sandbox that restricts access to external resources outside your trusted folders.' },
-    { id: 'strict', title: 'Strict', desc: 'Terminal commands always require review and the agent cannot access files outside its given workspaces.' },
+const MODES: { id: SecMode; title: string; desc: string; antigravity: string }[] = [
+    { id: 'secure', title: 'Secure', desc: 'Prompt before every action. Terminal, browser JS, and artifacts require review.', antigravity: 'Secure mode' },
+    { id: 'auto', title: 'Auto', desc: 'Model decides when to ask. Sandboxed file access; balanced autonomy.', antigravity: 'Auto mode' },
+    { id: 'turbo', title: 'Turbo', desc: 'Maximum autonomy — proceed on artifacts, terminal, and browser unless blocked.', antigravity: 'Turbo mode' },
 ];
 
 const AgentPermissionsPanel: React.FC = () => {
@@ -26,42 +26,79 @@ const AgentPermissionsPanel: React.FC = () => {
     const setAutoAccept = useStore(s => (s as any).setAutoAcceptChanges);
     const visionEnabled = useStore(s => s.isAgentVisionEnabled);
     const setVision = useStore(s => s.setAgentVisionEnabled);
+    const browserHidden = useStore(s => s.browserStealthHidden);
+    const setBrowserHidden = useStore(s => s.setBrowserStealthHidden);
 
-    const [mode, setMode] = useState<SecMode>(() => getLS('agent.securityMode', 'full') as SecMode);
+    const activeRoot = useStore(s => s.activeRoot);
+    const setArtifactReview = useStore(s => s.setArtifactReviewPolicy);
+
+    const [mode, setMode] = useState<SecMode>(() => {
+        const legacy = getLS('agent.securityMode', 'turbo');
+        if (legacy === 'full') return 'turbo';
+        if (legacy === 'sandboxed') return 'auto';
+        if (legacy === 'strict') return 'secure';
+        return legacy as SecMode;
+    });
+    const [secureMode, setSecureMode] = useState(() => getLS('agent.secureModeEnabled', '0') === '1');
+    const [browserJs, setBrowserJs] = useState(() => getLS('agent.browserJsPolicy', 'always_ask'));
     const [termAuto, setTermAuto] = useState(() => getLS('agent.terminalAutoExec', 'proceed'));
     const [shellInt, setShellInt] = useState(() => getLS('agent.shellIntegration', '1') === '1');
     const [nonWsFiles, setNonWsFiles] = useState(() => getLS('agent.nonWorkspaceFileAccess', '0') === '1');
     const [autoOpen, setAutoOpen] = useState(() => getLS('agent.autoOpenEdited', '1') === '1');
     const [reviewPolicy, setReviewPolicy] = useState(() => getLS('agent.reviewPolicy', 'proceed'));
 
-    const applyMode = (m: SecMode) => {
+    const applyMode = async (m: SecMode) => {
         setMode(m);
         setLS('agent.securityMode', m);
-        // Map to real autonomy flags.
-        if (m === 'full') {
+        if (m === 'turbo') {
             setYoloMode?.(true); setAutoAccept?.(true);
             setTermAuto('proceed'); setLS('agent.terminalAutoExec', 'proceed');
             setReviewPolicy('proceed'); setLS('agent.reviewPolicy', 'proceed');
             setNonWsFiles(true); setLS('agent.nonWorkspaceFileAccess', '1');
-        } else if (m === 'sandboxed') {
+            setArtifactReview?.('always_proceed');
+            setBrowserJs(secureMode ? 'always_ask' : 'turbo');
+            setLS('agent.browserJsPolicy', secureMode ? 'always_ask' : 'turbo');
+        } else if (m === 'auto') {
             setYoloMode?.(false); setAutoAccept?.(true);
             setTermAuto('ask'); setLS('agent.terminalAutoExec', 'ask');
             setReviewPolicy('proceed'); setLS('agent.reviewPolicy', 'proceed');
             setNonWsFiles(false); setLS('agent.nonWorkspaceFileAccess', '0');
+            setArtifactReview?.('request_review');
+            setBrowserJs('model_decides');
+            setLS('agent.browserJsPolicy', 'model_decides');
         } else {
             setYoloMode?.(false); setAutoAccept?.(false);
             setTermAuto('ask'); setLS('agent.terminalAutoExec', 'ask');
             setReviewPolicy('ask'); setLS('agent.reviewPolicy', 'ask');
             setNonWsFiles(false); setLS('agent.nonWorkspaceFileAccess', '0');
+            setArtifactReview?.('request_review');
+            setBrowserJs('always_ask');
+            setLS('agent.browserJsPolicy', 'always_ask');
+        }
+        if (activeRoot) {
+            try {
+                const { agApplyAutonomyPreset } = await import('../infrastructure/antigravity/antigravityClient');
+                await agApplyAutonomyPreset(activeRoot, m, secureMode);
+            } catch { /* offline */ }
         }
     };
 
     return (
         <div style={{ padding: '4px 4px 40px', color: 'var(--vscode-foreground)' }}>
-            <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 4px' }}>Agent security mode</h2>
-            <p style={{ fontSize: 12, opacity: 0.65, margin: '0 0 16px' }}>
-                Select one of the three options. Agent settings and permissions can be further customized below.
+            <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 4px' }}>Autonomy mode</h2>
+            <p style={{ fontSize: 12, opacity: 0.65, margin: '0 0 12px' }}>
+                Antigravity-style Secure · Auto · Turbo. Enterprise secure mode disables turbo browser/artifact options.
             </p>
+            <RowToggle
+                title="Secure mode (enterprise)"
+                desc="When enabled, Turbo options for browser JS and artifacts are disabled."
+                value={secureMode}
+                onChange={(v) => {
+                    setSecureMode(v);
+                    setLS('agent.secureModeEnabled', v ? '1' : '0');
+                    void applyMode(mode);
+                }}
+            />
 
             {/* Mode cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 28 }}>
@@ -81,9 +118,10 @@ const AgentPermissionsPanel: React.FC = () => {
                             }}
                         >
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
-                                <i className={`codicon codicon-${m.id === 'full' ? 'unlock' : m.id === 'sandboxed' ? 'shield' : 'lock'}`} style={{ opacity: 0.8 }} />
+                                <i className={`codicon codicon-${m.id === 'turbo' ? 'rocket' : m.id === 'auto' ? 'shield' : 'lock'}`} style={{ opacity: 0.8 }} />
                                 {m.title}
                             </div>
+                            <div style={{ fontSize: 10, opacity: 0.45, marginBottom: 4 }}>{m.antigravity}</div>
                             <div style={{ fontSize: 12, opacity: 0.6, lineHeight: 1.45 }}>{m.desc}</div>
                         </div>
                     );
@@ -132,11 +170,33 @@ const AgentPermissionsPanel: React.FC = () => {
             </Section>
 
             <Section title="Browser">
+                <RowSelect
+                    title="Browser JavaScript execution"
+                    desc="Controls whether the agent can run JS in the browser (Antigravity browserJsExecutionPolicy)."
+                    value={browserJs}
+                    options={[
+                        ['disabled', 'Disabled'],
+                        ['always_ask', 'Request Review'],
+                        ['model_decides', 'Model Decides'],
+                        ['turbo', secureMode ? 'Turbo (blocked in Secure)' : 'Always Proceed'],
+                    ]}
+                    onChange={(v) => {
+                        if (v === 'turbo' && secureMode) return;
+                        setBrowserJs(v);
+                        setLS('agent.browserJsPolicy', v);
+                    }}
+                />
                 <RowToggle
                     title="Live Agent Vision"
                     desc="Mirror the agent's browser into the IDE panel by polling screenshots while it works. OFF by default — it's memory/CPU-heavy on low-spec machines. Leave off if you rely on a cloud vision model (e.g. MiMo) instead."
                     value={visionEnabled}
                     onChange={(v) => setVision(v)}
+                />
+                <RowToggle
+                    title="Hidden stealth browser (invisible desktop)"
+                    desc="When ON, the agent's Firefox runs off-screen on a hidden Windows desktop (still real rendering — use VISION panel to watch). When OFF, a normal Firefox window opens so you can watch the agent live. Restart browser after toggling."
+                    value={browserHidden}
+                    onChange={(v) => setBrowserHidden(v)}
                 />
             </Section>
         </div>

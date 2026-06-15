@@ -2,9 +2,22 @@
 
 Legend: ✅ have · 🟡 partial · ⬜ missing
 
-Last verified: product-grade pass (chat tabs, history restore, release pipeline, Manus/invisible_playwright).
+Last verified: extension host production pass (bridge, document sync, require('vscode')).
 
 ---
+
+## Enterprise & billing
+
+| Feature | Status | Where |
+|---|---|---|
+| Agent setup onboarding (mode vs model) | ✅ | `AgentSetupWizard.tsx` |
+| Billing auto-sync on focus / post-checkout | ✅ | `billingSync.ts`, `AccountSettingsPanel` |
+| Usage meters (tokens + requests) | ✅ | `AccountSettingsPanel`, `account_usage` |
+| Enterprise org policy | ✅ | `enterprise_audit.rs`, `EnterprisePanel` |
+| Compliance audit trail (JSONL) | ✅ | `audit.jsonl`, export command |
+| Enterprise secure defaults | ✅ | `applyEnterprisePolicy.ts` |
+| SSO / team admin portal | ⬜ | website + backend (not IDE-local) |
+| Signed auto-updater | ⬜ | disabled until signing keys configured |
 
 ## Core AI coding (Cursor / Void / Kilo)
 
@@ -40,7 +53,8 @@ Last verified: product-grade pass (chat tabs, history restore, release pipeline,
 | MCP client/server/registry | ✅ | `mcp_*.rs`, `McpManager.tsx` |
 | MCP catalog (install) | ✅ | `MCP_CATALOG` in `McpManager.tsx` |
 | Open VSX extensions | ✅ | `marketplace.rs`, ext-host |
-| Extension API coverage | 🟡 | host scaffolding; smoke-test per release |
+| VSIX install (local file) | ✅ | `install_vsix`, `marketplace.rs` |
+| Extension API coverage | 🟡 | `ExtHostBridge.ts`, `ext-host/index.js` — core path wired; webviews/tree views still partial |
 
 ## Spec-driven & automation (Kiro)
 
@@ -70,6 +84,7 @@ Last verified: product-grade pass (chat tabs, history restore, release pipeline,
 | iPhone / Android emulator | ✅ | `iphone_emulator.rs` (user-provided firmware) |
 | AIRI avatar / voice | ✅ | `AiriPanel`, `voice.ts` |
 | Local-first Ollama | ✅ | provider manager |
+| Gemma 4 12B local SWE agent | ✅ | `ai_engine.rs` (sampling, ctx, tools, thinking) |
 
 ## Release / ship
 
@@ -84,7 +99,7 @@ Last verified: product-grade pass (chat tabs, history restore, release pipeline,
 
 ## Remaining post-1.0 (optional)
 
-1. Extension `vscode` API audit + fill gaps
+1. Extension webview panels + tree view UI wiring
 2. claurst deep integration (default agent backend)
 3. Tauri auto-updater + code signing
 4. macOS browser-agent freeze (PyInstaller on CI)

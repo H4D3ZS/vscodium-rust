@@ -49,7 +49,7 @@
     --color-border: var(--vscode-panel-border, rgba(255, 255, 255, 0.1));
     --color-border-focus: var(--vscode-focusBorder, #007fd4);
     --color-text: var(--vscode-editor-foreground, #cccccc);
-    --color-text-muted: rgba(204, 204, 204, 0.6);
+    --color-text-muted: var(--vscode-descriptionForeground, rgba(255, 255, 255, 0.78));
     --color-accent: var(--vscode-activityBarBadge-background, #007acc);
     --color-accent-green: #4ade80;
     --color-accent-red: #f87171;

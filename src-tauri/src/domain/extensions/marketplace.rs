@@ -1,0 +1,238 @@
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::fs;
+use std::io::{copy, Read, Seek};
+use zip::ZipArchive;
+use anyhow::{Result, anyhow};
+use reqwest::Client;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MarketplaceExtension {
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    #[serde(rename = "iconUrl")]
+    pub icon_url: Option<String>,
+    #[serde(rename = "downloadCount")]
+    pub download_count: Option<u64>,
+    #[serde(rename = "averageRating")]
+    pub average_rating: Option<f64>,
+}
+
+pub async fn search_extensions(query: String) -> Result<Vec<MarketplaceExtension>> {
+    let client = Client::new();
+    let url = format!("https://open-vsx.org/api/-/search?query={}&size=20", urlencoding::encode(&query));
+    fetch_extensions_from_url(client, url).await
+}
+
+pub async fn get_popular_extensions() -> Result<Vec<MarketplaceExtension>> {
+    let client = Client::new();
+    let url = "https://open-vsx.org/api/-/search?size=20&sortBy=downloadCount".to_string();
+    fetch_extensions_from_url(client, url).await
+}
+
+async fn fetch_extensions_from_url(client: Client, url: String) -> Result<Vec<MarketplaceExtension>> {
+    // Hardened error states (Milestone E): timeouts and HTTP errors return
+    // actionable messages instead of bubbling raw reqwest debug output.
+    let response = client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| {
+            if e.is_timeout() {
+                anyhow::anyhow!("Open VSX timed out — check your connection and retry")
+            } else if e.is_connect() {
+                anyhow::anyhow!("Cannot reach open-vsx.org — offline? Extensions still work; only the gallery is unavailable")
+            } else {
+                anyhow::anyhow!("Open VSX request failed: {e}")
+            }
+        })?;
+    if !response.status().is_success() {
+        let status = response.status();
+        return Err(anyhow::anyhow!(
+            "Open VSX returned {status}{}",
+            if status.as_u16() == 429 { " — rate limited, wait a minute" } else { "" }
+        ));
+    }
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| anyhow::anyhow!("Open VSX sent malformed JSON: {e}"))?;
+    
+    let mut results = Vec::new();
+    if let Some(extensions) = data.get("extensions").and_then(|e| e.as_array()) {
+        for ext in extensions {
+            if let Ok(mut m) = serde_json::from_value::<MarketplaceExtension>(ext.clone()) {
+                // Heuristic: if icon_url is missing, try to find it in files/icon or icons/small
+                if m.icon_url.is_none() {
+                    m.icon_url = ext.get("files").and_then(|f| f.get("icon")).and_then(|v| v.as_str()).map(|s| s.to_string())
+                        .or_else(|| ext.get("icons").and_then(|i| i.get("small")).and_then(|v| v.as_str()).map(|s| s.to_string()));
+                }
+                results.push(m);
+            }
+        }
+    }
+    
+    Ok(results)
+}
+
+pub async fn install_extension(
+    publisher: String, 
+    name: String, 
+    version: String,
+    extensions_dir: PathBuf
+) -> Result<String> {
+    let client = Client::new();
+    let download_url = format!(
+        "https://open-vsx.org/api/{}/{}/{}/file/{}.{}-{}.vsix",
+        publisher, name, version, publisher, name, version
+    );
+    
+    let response = client.get(download_url).send().await?;
+    if !response.status().is_success() {
+        return Err(anyhow!("Failed to download extension: {}", response.status()));
+    }
+    
+    let bytes = response.bytes().await?;
+    let reader = std::io::Cursor::new(bytes);
+    let mut archive = ZipArchive::new(reader)?;
+    
+    let target_dir = extensions_dir.join(format!("{}.{}-{}", publisher, name, version));
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir)?;
+    }
+    
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let outpath = match file.enclosed_name() {
+            Some(path) => {
+                // VS Code extensions in .vsix are usually under an "extension/" folder
+                let path_str = path.to_string_lossy();
+                if path_str.starts_with("extension/") {
+                    target_dir.join(&path_str[10..])
+                } else {
+                    continue; // Skip other files like [Content_Types].xml
+                }
+            },
+            None => continue,
+        };
+
+        if file.name().ends_with('/') {
+            fs::create_dir_all(&outpath)?;
+        } else {
+            if let Some(p) = outpath.parent() {
+                if !p.exists() {
+                    fs::create_dir_all(&p)?;
+                }
+            }
+            let mut outfile = fs::File::create(&outpath)?;
+            copy(&mut file, &mut outfile)?;
+        }
+    }
+    
+    Ok(format!("{}.{}", publisher, name))
+}
+
+fn extract_vsix_entries(archive: &mut ZipArchive<impl Read + Seek>, target_dir: &Path) -> Result<()> {
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let outpath = match file.enclosed_name() {
+            Some(path) => {
+                let path_str = path.to_string_lossy();
+                if path_str.starts_with("extension/") {
+                    target_dir.join(&path_str[10..])
+                } else {
+                    continue;
+                }
+            }
+            None => continue,
+        };
+
+        if file.name().ends_with('/') {
+            fs::create_dir_all(&outpath)?;
+        } else {
+            if let Some(p) = outpath.parent() {
+                if !p.exists() {
+                    fs::create_dir_all(p)?;
+                }
+            }
+            let mut outfile = fs::File::create(&outpath)?;
+            copy(&mut file, &mut outfile)?;
+        }
+    }
+    Ok(())
+}
+
+/// Install a local `.vsix` file into the extensions directory.
+pub fn install_vsix_from_path(vsix_path: &Path, extensions_dir: &Path) -> Result<(String, PathBuf)> {
+    let file = fs::File::open(vsix_path)?;
+    let mut archive = ZipArchive::new(file)?;
+
+    let mut publisher = String::new();
+    let mut name = String::new();
+    let mut version = String::new();
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        if entry.name() == "extension/package.json" {
+            let mut content = String::new();
+            entry.read_to_string(&mut content)?;
+            let pkg: serde_json::Value = serde_json::from_str(&content)?;
+            publisher = pkg
+                .get("publisher")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            name = pkg
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("extension")
+                .to_string();
+            version = pkg
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0.0.0")
+                .to_string();
+            break;
+        }
+    }
+
+    if name.is_empty() {
+        return Err(anyhow!("Invalid VSIX: missing extension/package.json"));
+    }
+
+    let target_dir = extensions_dir.join(format!("{}.{}-{}", publisher, name, version));
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir)?;
+    }
+
+    let file = fs::File::open(vsix_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    extract_vsix_entries(&mut archive, &target_dir)?;
+
+    Ok((format!("{}.{}", publisher, name), target_dir))
+}
+
+pub async fn get_extension_details(publisher: String, name: String) -> Result<serde_json::Value> {
+    let client = Client::new();
+    let url = format!("https://open-vsx.org/api/{}/{}", urlencoding::encode(&publisher), urlencoding::encode(&name));
+    let response = client.get(url).send().await?;
+    let mut data: serde_json::Value = response.json().await?;
+    
+    // Try to fetch README content if it exists in files
+    if let Some(readme_url) = data.get("files").and_then(|f| f.get("readme")).and_then(|r| r.as_str()) {
+        if let Ok(readme_response) = client.get(readme_url).send().await {
+            if let Ok(readme_text) = readme_response.text().await {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("readme".to_string(), serde_json::Value::String(readme_text));
+                }
+            }
+        }
+    }
+    
+    Ok(data)
+}

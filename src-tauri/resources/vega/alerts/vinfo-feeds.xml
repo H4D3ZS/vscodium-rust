@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert>
+<title>News Feed Detected</title>
+	
+	<class>Information</class>
+	<severity>Info</severity>		
+	
+	<impact>Vega has discovered an RSS-style news feed.</impact>
+	<impact>This is a purely informational finding.</impact>
+
+	<discussion>RSS (Really Simple Syndication) and related formats are methods for publishing regularly updated web content. RSS feeds are XML documents that are made available for client downloads and are often included with content managament systems, such as blogs.</discussion>
+</alert>

@@ -1,0 +1,149 @@
+VMXON — Enter VMX Operation
+
+* Index
+
+* December 2023
+
+VMXON — Enter VMX Operation
+
+| Opcode/Instruction |Op/En|    Description    |
+
+|---------------------|-----|-------------------------|
+
+|F3 0F C7 /6 VMXON m64| M |Enter VMX root operation. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Operand 1 |Operand 2|Operand 3|Operand 4|
+
+|-----|-------------|---------|---------|---------|
+
+| M |ModRM:r/m (r)|  NA  |  NA  |  NA  |
+
+Description ¶
+
+Puts the logical processor in VMX operation with no current VMCS, blocks INIT signals, disables A20M, and clears any address-range monitoring established by the MONITOR instruction. 1
+
+The operand of this instruction is a 4KB-aligned physical address (the VMXON pointer) that references the VMXON region, which the logical processor may use to support VMX operation. This operand is always 64 bits and is always in memory.
+
+Operation ¶
+
+```
+
+IF (register operand) or (CR0. PE = 0) or (CR4. VMXE = 0) or (RFLAGS.VM = 1) or (IA32_EFER.LMA = 1 and CS.L = 0) THEN #UD; ELSIF not in VMX operation THEN IF (CPL > 0) or (in A20M mode) or (the values of CR0 and CR4 are not supported in VMX operation; see Section 24.8) or (bit 0 (lock bit) of IA32_FEATURE_CONTROL MSR is clear) or (in SMX operation2 and bit 1 of IA32_FEATURE_CONTROL MSR is clear) or (outside SMX operation and bit 2 of IA32_FEATURE_CONTROL MSR is clear) THEN #GP(0); ELSE addr := contents of 64-bit in-memory source operand; IF addr is not 4KB-aligned or addr sets any bits beyond the physical-address width3 THEN VMfailInvalid; ELSE rev := 32 bits located at physical address addr; IF rev[30:0] ≠ VMCS revision identifier supported by processor OR rev= 1 THEN VMfailInvalid; ELSE current-VMCS pointer := FFFFFFFF_FFFFFFFFH; enter VMX operation; block INIT signals; block and disable A20M;
+
+```
+
+>
+
+>
+
+> 1. See the information on MONITOR/MWAIT in Chapter 9, “Multiple-Processor Management,” of the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 3A.
+
+>
+
+>
+
+>
+
+> 2. A logical processor is in SMX operation if GETSEC[SEXIT] has not been executed since the last execution of GETSEC[SENTER]. A logical processor is outside SMX operation if GETSEC[SENTER] has not been executed or if GETSEC[SEXIT] was executed after the last execution of GETSEC[SENTER]. See Chapter 6, “Safer Mode Extensions Reference.”
+
+>
+
+>
+
+>
+
+> 3. If IA32\_VMX\_BASICis read as 1, VMfailInvalid occurs if addr sets any bits in the range 63:32; see Appendix A.1.
+
+>
+
+>
+
+```
+
+clear address-range monitoring; IF the processor supports Intel PT but does not allow it to be used in VMX operation1 THEN IA32_RTIT_CTL.TraceEn := 0; FI; VMsucceed; FI; FI; FI; ELSIF in VMX non-root operation THEN VMexit; ELSIF CPL > 0 THEN #GP(0); ELSE VMfail(“VMXON executed in VMX root operation”); FI;
+
+```
+
+>
+
+>
+
+> 1. Software should read the VMX capability MSR IA32\_VMX\_MISC to determine whether the processor allows Intel PT to be used in VMX operation (see Appendix A.6).
+
+>
+
+>
+
+Flags Affected ¶
+
+See the operation section and Section 31.2.
+
+Protected Mode Exceptions ¶
+
+|                            \#GP(0)                            |If executed outside VMX operation with CPL\>0 or with invalid CR0 or CR4 fixed bits. |
+
+|---------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
+
+|                       If executed in A20M mode. |                                          |
+
+|     If the memory source operand effective address is outside the CS, DS, ES, FS, or GS segment limit. |                                          |
+
+|              If the DS, ES, FS, or GS register contains an unusable segment. |                                          |
+
+|             If the source operand is located in an execute-only code segment. |                                          |
+
+|If the value of the IA32\_FEATURE\_CONTROL MSR does not support entry to VMX operation in the current processor mode. |                                          |
+
+|                         \#PF(fault-code)                          |      If a page fault occurs in accessing the memory source operand. |
+
+|                            \#SS(0)                            | If the memory source operand effective address is outside the SS segment limit. |
+
+|                 If the SS register contains an unusable segment. |                                          |
+
+|                            \#UD                             |               If operand is a register. |
+
+|                      If executed with CR4. VMXE = 0. |                                          |
+
+Real-Address Mode Exceptions ¶
+
+|\#UD|The VMXON instruction is not recognized in real-address mode. |
+
+|----|-------------------------------------------------------------|
+
+Virtual-8086 Mode Exceptions ¶
+
+|\#UD|The VMXON instruction is not recognized in virtual-8086 mode. |
+
+|----|-------------------------------------------------------------|
+
+Compatibility Mode Exceptions ¶
+
+|\#UD|The VMXON instruction is not recognized in compatibility mode. |
+
+|----|--------------------------------------------------------------|
+
+64-Bit Mode Exceptions ¶
+
+|                           \#GP(0)                           |If executed outside VMX operation with CPL \> 0 or with invalid CR0 or CR4 fixed bits. |
+
+|-----------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------|
+
+|                      If executed in A20M mode. |                                           |
+
+|If the source operand is in the CS, DS, ES, FS, or GS segments and the memory address is in a non-canonical form. |                                           |
+
+If the value of the IA32\_FEATURE\_CONTROL MSR does not support entry to VMX operation in the current processor mode.
+
+|    \#PF(fault-code)    |        If a page fault occurs in accessing the memory source operand. |
+
+|------------------------------|---------------------------------------------------------------------------------------------|
+
+|      \#SS(0)      |If the source operand is in the SS segment and the memory address is in a non-canonical form. |
+
+|       \#UD       |                 If operand is a register. |
+
+|If executed with CR4. VMXE = 0. |                                               |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

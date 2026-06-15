@@ -1,0 +1,237 @@
+EEXTEND — Extend Uninitialized Enclave Measurement by 256 Bytes
+
+* Index
+
+* December 2023
+
+EEXTEND — Extend Uninitialized Enclave Measurement by 256 Bytes
+
+|  Opcode/Instruction  |Op/En|64/32 bit Mode Support|CPUID Feature Flag|               Description               |
+
+|------------------------|-----|----------------------|------------------|-----------------------------------------------------------------------|
+
+|EAX = 06H ENCLS[EEXTEND]| IR |     V/V     |    SGX1    |This leaf function measures 256 bytes of an uninitialized enclave page. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|  EAX   |            EBX             |             RCX             |
+
+|-----|------------|----------------------------------------------------|-----------------------------------------------------|
+
+| IR |EEXTEND (In)|Effective address of the SECS of the data chunk (In)|Effective address of a 256-byte chunk in the EPC (In)|
+
+Description ¶
+
+This leaf function updates the MRENCLAVE measurement register of an SECS with the measurement of an EXTEND string compromising of “EEXTEND” || ENCLAVEOFFSET || PADDING || 256 bytes of the enclave page. This instruction can only be executed when current privilege level is 0 and the enclave is uninitialized.
+
+RBX contains the effective address of the SECS of the region to be measured. The address must be the same as the one used to add the page into the enclave.
+
+RCX contains the effective address of the 256 byte region of an EPC page to be measured. The DS segment is used to create linear addresses. Segment override is not supported.
+
+EEXTEND Memory Parameter Semantics ¶
+
+|    EPC[RCX]    |
+
+|----------------------|
+
+|Read access by Enclave|
+
+The instruction faults if any of the following:
+
+EEXTEND Faulting Conditions ¶
+
+|RBX points to an address not 4KBytes aligned. |      RBX does not resolve to an SECS.      |
+
+|---------------------------------------------|------------------------------------------------------|
+
+|   RBX does not point to an SECS page. |RBX does not point to the SECS page of the data chunk. |
+
+| RCX points to an address not 256B aligned. |    RCX points to an unused page or a SECS.    |
+
+|  RCX does not resolve in an EPC page. |         If SECS is locked. |
+
+|   If the SECS is already initialized. |          May page fault. |
+
+|         CPL \> 0. |                           |
+
+Concurrency Restrictions ¶
+
+|  Leaf   |  Parameter  |  Base Concurrency Restrictions  |  |  |
+
+|-------------|---------------|-----------------------------------|----|---|
+
+|  Access  | On Conflict |SGX\_CONFLICT VM Exit Qualification|  |  |
+
+|  EEXTEND  |Target [DS:RCX]|       Shared        |\#GP|  |
+
+|SECS [DS:RBX]| Concurrent  |                  |  |  |
+
+Table 38-23. Base Concurrency Restrictions of EEXTEND
+
+|           Leaf           |    Parameter    |Additional Concurrency Restrictions|      |     |      |     |  |
+
+|-----------------------------------------------|------------------------|-----------------------------------|-----------|----------|-----------|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT|    vs ETRACK, ETRACKC    |      |     |      |     |  |
+
+|          Access           |   On Conflict    |       Access        |On Conflict| Access |On Conflict|     |  |
+
+|          EEXTEND          |  Target [DS:RCX]   |      Concurrent       |      |Concurrent|      |Concurrent|  |
+
+|         SECS [DS:RBX]         |    Concurrent    |                  | Exclusive |  \#GP  |Concurrent |     |  |
+
+Table 38-24. Additional Concurrency Restrictions of EEXTEND
+
+Operation ¶
+
+Temp Variables in EEXTEND Operational Flow ¶
+
+|    Name    |   Type   |Size (Bits)|               Description                |
+
+|-------------------|--------------|-----------|------------------------------------------------------------------------|
+
+|   TMP\_SECS   |       |  64   |Physical address of SECS of the enclave to which source operand belongs. |
+
+|TMP\_ENCLAVEOFFS ET|Enclave Offset|  64   |     The page displacement from the enclave base address. |
+
+| TMPUPDATEFIELD  |SHA256 Buffer |  512  |   Buffer used to hold data being added to TMP\_SECS.MRENCLAVE.   |
+
+TMP\_MODE64 := ((IA32\_EFER.LMA = 1) && (CS.L = 1));
+
+IF (DS:RBX is not 4096 Byte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RBX does not resolve to an EPC page)
+
+THEN #PF(DS:RBX); FI;
+
+IF (DS:RCX is not 256Byte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+(\* make sure no other Intel SGX instruction is accessing EPCM \*)
+
+IF (Other instructions accessing EPCM)
+
+THEN #GP(0); FI;
+
+IF (EPCM(DS:RCX). VALID = 0)
+
+THEN #PF(DS:RCX); FI;
+
+(\* make sure that DS:RCX (DST) is pointing to a PT\_REG or PT\_TCS or PT\_SS\_FIRST or PT\_SS\_REST \*)
+
+IF ( (EPCM(DS:RCX). PT ≠ PT\_REG) and (EPCM(DS:RCX). PT ≠ PT\_TCS)
+
+and (EPCM(DS:RCX). PT ≠ PT\_SS\_FIRST) and (EPCM(DS:RCX). PT ≠ PT\_SS\_REST))
+
+THEN #PF(DS:RCX); FI;
+
+TMP\_SECS := Get\_SECS\_ADDRESS();
+
+IF (DS:RBX does not resolve to TMP\_SECS)
+
+THEN #GP(0); FI;
+
+(\* make sure no other instruction is accessing MRENCLAVE or ATTRIBUTES.INIT \*)
+
+IF ( (Other instruction accessing MRENCLAVE) or (Other instructions checking or updating the initialized state of the SECS))
+
+THEN #GP(0); FI;
+
+(\* Calculate enclave offset \*)
+
+TMP\_ENCLAVEOFFSET := EPCM(DS:RCX). ENCLAVEADDRESS - TMP\_SECS.BASEADDR;
+
+TMP\_ENCLAVEOFFSET := TMP\_ENCLAVEOFFSET + (DS:RCX & 0FFFH)
+
+(\* Add EEXTEND message and offset to MRENCLAVE \*)
+
+TMPUPDATEFIELD[63:0] := 00444E4554584545H; // “EEXTEND”
+
+TMPUPDATEFIELD[127:64] := TMP\_ENCLAVEOFFSET;
+
+TMPUPDATEFIELD[511:128] := 0; // 48 bytes
+
+TMP\_SECS.MRENCLAVE := SHA256UPDATE(TMP\_SECS.MRENCLAVE, TMPUPDATEFIELD)
+
+INC enclave’s MRENCLAVE update counter;
+
+(\*Add 256 bytes to MRENCLAVE, 64 byte at a time \*)
+
+TMP\_SECS.MRENCLAVE := SHA256UPDATE(TMP\_SECS.MRENCLAVE, DS:RCX[511:0] );
+
+TMP\_SECS.MRENCLAVE := SHA256UPDATE(TMP\_SECS.MRENCLAVE, DS:RCX[1023: 512] );
+
+TMP\_SECS.MRENCLAVE := SHA256UPDATE(TMP\_SECS.MRENCLAVE, DS:RCX[1535: 1024] );
+
+TMP\_SECS.MRENCLAVE := SHA256UPDATE(TMP\_SECS.MRENCLAVE, DS:RCX[2047: 1536] );
+
+INC enclave’s MRENCLAVE update counter by 4;
+
+Flags Affected ¶
+
+None
+
+Protected Mode Exceptions ¶
+
+|                \#GP(0)                | If the address in RBX is outside the DS segment limit. |
+
+|-----------------------------------------------------------------------|----------------------------------------------------------|
+
+|If RBX points to an SECS page which is not the SECS of the data chunk. |                             |
+
+|    If the address in RCX is outside the DS segment limit. |                             |
+
+|    If RCX points to a memory location not 256Byte-aligned. |                             |
+
+|      If another instruction is accessing MRENCLAVE.       |                             |
+
+|    If another instruction is checking or updating the SECS.    |                             |
+
+|        If the enclave is already initialized. |                             |
+
+|               \#PF(error                |code) If a page fault occurs in accessing memory operands. |
+
+|      If the address in RBX points to a non-EPC page. |                             |
+
+|If the address in RCX points to a page which is not PT\_TCS or PT\_REG.|                             |
+
+|      If the address in RCX points to a non-EPC page. |                             |
+
+|     If the address in RCX points to an invalid EPC page. |                             |
+
+64-Bit Mode Exceptions ¶
+
+|                \#GP(0)                |       If RBX is non-canonical form. |
+
+|-----------------------------------------------------------------------|----------------------------------------------------------|
+
+|If RBX points to an SECS page which is not the SECS of the data chunk. |                             |
+
+|           If RCX is non-canonical form. |                             |
+
+|    If RCX points to a memory location not 256 Byte-aligned. |                             |
+
+|      If another instruction is accessing MRENCLAVE.       |                             |
+
+|    If another instruction is checking or updating the SECS.    |                             |
+
+|        If the enclave is already initialized. |                             |
+
+|               \#PF(error                |code) If a page fault occurs in accessing memory operands. |
+
+|      If the address in RBX points to a non-EPC page. |                             |
+
+|If the address in RCX points to a page which is not PT\_TCS or PT\_REG.|                             |
+
+|      If the address in RCX points to a non-EPC page. |                             |
+
+|     If the address in RCX points to an invalid EPC page. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

@@ -1,21 +1,10 @@
 import { listen } from '../../tauri_bridge';
 import { useStore } from '../../store';
 import { sendDapRequest } from './sendDapRequest';
+import { parseDapPayload } from './dapPayload';
 import type { DebugStackFrame, DebugVariable } from '../../store/debugSlice';
 
 let attached = false;
-
-function parseDapPayload(raw: unknown): Record<string, unknown> | null {
-    if (typeof raw === 'string') {
-        try {
-            return JSON.parse(raw) as Record<string, unknown>;
-        } catch {
-            return null;
-        }
-    }
-    if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
-    return null;
-}
 
 async function refreshStackAndScopes(threadId?: number): Promise<void> {
     const threads = useStore.getState().debugThreads;

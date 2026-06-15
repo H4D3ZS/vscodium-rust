@@ -8,6 +8,7 @@
 // =============================================================================
 
 import { invoke } from './tauri_bridge';
+import { canonicalToolName, BACKEND_TO_TS_TOOL } from './domain/agent/toolAliases';
 
 // ---------------------------------------------------------------------------
 // Core Types
@@ -92,7 +93,12 @@ function fail(error: string): ToolResult {
 // ---------------------------------------------------------------------------
 export const BashTool: ToolDef = {
     name: 'bash',
-    description: `Execute a shell command on the system. Use this for running scripts, installing packages, compiling code, managing git, or any system-level task. The command runs in the project root directory. Commands run with the user's full permissions. For long-running commands, the output will be captured and returned.`,
+    description: `Execute a shell command on the system. Use for git, npm, cargo, curl downloads, python scripts, etc.
+
+NEVER use shell grep/egrep/rg — use the \`grep\` tool instead (bundled ripgrep, works on single files like JS bundles).
+For "curl file && grep pattern file": bash will auto-run curl then ripgrep, but prefer: curl in bash, then grep({ pattern, path }).
+
+IMPORTANT: For Python/shell with regex or nested quotes, write a .py/.sh file with write_to_file first, then run \`python script.py\`. Do NOT use python -c one-liners with complex escaping.`,
     inputSchema: {
         type: 'object',
         properties: {
@@ -198,6 +204,12 @@ export const FileWriteTool: ToolDef = {
                 path: input.file_path,
                 content: input.content,
             });
+            const p = String(input.file_path || '');
+            if (/\.(md|markdown)$/i.test(p) && (/\/reports\//i.test(p.replace(/\\/g, '/')) || /PENTEST-REPORT/i.test(p))) {
+                window.dispatchEvent(new CustomEvent('ide:open-markdown-preview', {
+                    detail: { path: p },
+                }));
+            }
             return ok({ filePath: input.file_path, type: 'written' });
         } catch (e: any) {
             return fail(`Failed to write file: ${e.message || e}`);
@@ -318,7 +330,7 @@ export const GlobTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const GrepTool: ToolDef = {
     name: 'grep',
-    description: `NATIVE CORE TOOL: Search for text patterns in files using ultra-fast ripgrep patterns. Returns matching lines with file paths and line numbers. ALWAYS available and optimized for Windows. Supports regex.`,
+    description: `NATIVE RIPGREP: Instant regex search via \`rg\` — project-wide or single-file (e.g. minified JS bundles). Returns path:line:match. ALWAYS use this tool; NEVER shell grep/rg in bash (slow and breaks quoting on Windows).`,
     inputSchema: {
         type: 'object',
         properties: {
@@ -693,6 +705,46 @@ export const SpawnSubAgentTool: ToolDef = {
             return ok({ agentResult: result });
         } catch (e: any) {
             return fail(`Sub-agent failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 16b. ExploreRepositoryTool — FastContext exploration subagent
+// ---------------------------------------------------------------------------
+export const ExploreRepositoryTool: ToolDef = {
+    name: 'explore_repository',
+    description: `FastContext repository explorer — lightweight subagent that does parallel READ/GLOB/GREP and returns compact file citations. Use this INSTEAD of doing your own exploration when you need to find relevant code across a large codebase. Returns file paths, line ranges, and key snippets. Much faster and cheaper than manual exploration. Pull the model first: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            query: {
+                type: 'string',
+                description: 'What to find in the repository (e.g. "authentication middleware", "error handling in parser")',
+            },
+            max_results: {
+                type: 'number',
+                description: 'Maximum number of file citations to return (default 10)',
+                default: 10,
+            },
+            file_pattern: {
+                type: 'string',
+                description: 'Optional glob pattern to scope search (e.g. "*.rs", "src/**/*.ts")',
+            },
+        },
+        required: ['query'],
+    },
+    isReadOnly: true,
+    execute: async (input, ctx) => {
+        try {
+            const result = await invoke<any>('explore_repository', {
+                query: input.query,
+                max_results: input.max_results || 10,
+                file_pattern: input.file_pattern || null,
+            });
+            return ok(result);
+        } catch (e: any) {
+            return fail(`Explore failed: ${e.message || e}`);
         }
     },
 };
@@ -1258,6 +1310,53 @@ export const TaskBoundaryTool: ToolDef = {
             return ok({ status: 'Task boundary updated successfully in the UI.' });
         } catch (e: any) {
             return fail(`Task boundary failed: ${e.message || e}`);
+        }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// 24b. CreateCanvasTool — Render an interactive dashboard artifact in the IDE
+// ---------------------------------------------------------------------------
+export const CreateCanvasTool: ToolDef = {
+    name: 'create_canvas',
+    description: `Render an interactive visual canvas (dashboard) in the IDE instead of a wall of text. Use when presenting data-heavy results: scan findings, audits, comparisons, progress reports, metrics, task plans. The canvas opens as an editor tab and persists as a workspace artifact.
+Pass a flat JSON spec with "title" and "blocks". Block types:
+- {"type":"stats","items":[{"label":"Critical","value":3,"tone":"danger"}]}  — metric cards (tones: success|warning|danger|info|accent|neutral)
+- {"type":"table","title":"Findings","columns":["Severity","Issue"],"rows":[["High","XSS in /search"]]}  — sortable table
+- {"type":"chart","chart":"bar|line|pie","title":"...","labels":["Mon","Tue"],"series":[{"name":"Requests","values":[120,340]}]}
+- {"type":"callout","tone":"warning","title":"...","content":"markdown text"}
+- {"type":"progress","items":[{"label":"Coverage","value":72}]}
+- {"type":"todo","items":[{"text":"Fix auth bypass","done":false}]}
+- {"type":"kv","pairs":[{"key":"Target","value":"https://example.com"}]}
+- {"type":"timeline","items":[{"title":"Recon","status":"done"},{"title":"Exploit","status":"active"}]}
+- {"type":"markdown","content":"## Notes\\n..."}
+- {"type":"code","language":"rust","content":"..."}
+Reuse the same "id" to update an existing canvas in place (e.g. live progress).`,
+    inputSchema: {
+        type: 'object',
+        properties: {
+            id: { type: 'string', description: 'Stable canvas id (slug). Reuse to update an existing canvas in place. Omit to derive from title.' },
+            title: { type: 'string', description: 'Canvas title shown as the dashboard heading and tab name' },
+            subtitle: { type: 'string', description: 'Optional one-line context under the title' },
+            blocks: {
+                type: 'array',
+                description: 'Ordered list of block objects (see tool description for shapes)',
+                items: { type: 'object' },
+            },
+        },
+        required: ['title', 'blocks'],
+    },
+    execute: async (input, _ctx) => {
+        try {
+            const { normalizeCanvasSpec } = await import('./domain/canvas/CanvasSpec');
+            const spec = normalizeCanvasSpec(input);
+            if (!spec) return fail('Canvas spec invalid: provide "title" and at least one valid block in "blocks".');
+            const store = (window as any).useStore?.getState();
+            if (!store?.upsertCanvas) return fail('Canvas store unavailable.');
+            store.upsertCanvas(spec, { open: true });
+            return ok({ status: 'rendered', canvas_id: spec.id, blocks: spec.blocks.length, info: 'Canvas is now visible to the user in an editor tab.' });
+        } catch (e: any) {
+            return fail(`create_canvas failed: ${e.message || e}`);
         }
     },
 };
@@ -1881,7 +1980,7 @@ export const ProjectRulesTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const PRAIReviewTool: ToolDef = {
     name: 'ai_pr_review',
-    description: `Perform an AI-powered review of a Pull Request or code changes. Analyzes the diff, identifies potential issues, suggests improvements, and provides a comprehensive review report. Similar to GitHub Copilot's PR review.`,
+    description: `AI review of a code diff. Pass diff_content (e.g. output of \`git diff\`); the configured model analyzes it for correctness, security, performance and style issues and returns a review with a verdict (approve / request_changes). Large diffs are truncated to keep small local models coherent.`,
     inputSchema: {
         type: 'object',
         properties: {
@@ -1920,7 +2019,7 @@ export const PRAIReviewTool: ToolDef = {
 // ---------------------------------------------------------------------------
 export const ContextAwarenessTool: ToolDef = {
     name: 'ai_get_context',
-    description: `Retrieve relevant context from the codebase for the current task. Uses semantic search to find related files, functions, and patterns that are relevant to what you are working on. This provides the "knowledge" that makes AI coding assistants effective.`,
+    description: `Retrieve relevant codebase context for the current task. Uses vector/semantic search when the workspace is indexed and embeddings are available (response reports method: "semantic"), otherwise falls back to fast text search (method: "grep_fallback").`,
     inputSchema: {
         type: 'object',
         properties: {
@@ -2178,6 +2277,7 @@ const ALL_TOOLS: ToolDef[] = [
     GlobTool,
     GrepTool,
     ListDirectoryTool,
+    CreateCanvasTool,
 
     // Web operations
     WebFetchTool,
@@ -2202,6 +2302,7 @@ const ALL_TOOLS: ToolDef[] = [
 
     // Multi-agent
     SpawnSubAgentTool,
+    ExploreRepositoryTool,
     BrowserSubAgentTool,
     AskUserQuestionTool,
     SendMessageTool,
@@ -2254,7 +2355,14 @@ export function getAllTools(): ToolDef[] {
 }
 
 export function getToolByName(name: string): ToolDef | undefined {
-    return ALL_TOOLS.find(t => t.name === name);
+    const direct = ALL_TOOLS.find(t => t.name === name);
+    if (direct) return direct;
+    const canon = canonicalToolName(name);
+    const byCanon = ALL_TOOLS.find(t => t.name === canon);
+    if (byCanon) return byCanon;
+    const tsName = BACKEND_TO_TS_TOOL[canon];
+    if (tsName) return ALL_TOOLS.find(t => t.name === tsName);
+    return undefined;
 }
 
 export function getToolSchemas(): any[] {
@@ -2300,12 +2408,13 @@ export async function executeToolCall(
     toolCall: ToolCall,
     ctx: ToolContext,
 ): Promise<ToolCallResult> {
-    const tool = getToolByName(toolCall.name);
+    const canonical = canonicalToolName(toolCall.name);
+    const tool = getToolByName(toolCall.name) || getToolByName(canonical);
     if (!tool) {
         // Full Rust catalog (security audits, apex, ag tasks, etc.) — not duplicated in TS registry.
         try {
             const data = await invoke<any>('call_tool', {
-                name: toolCall.name,
+                name: canonical,
                 arguments: toolCall.arguments ?? {},
             });
             const content = typeof data === 'string' ? data : JSON.stringify(data, null, 2);

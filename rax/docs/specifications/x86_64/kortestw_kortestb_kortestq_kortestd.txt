@@ -1,0 +1,89 @@
+KORTESTW/KORTESTB/KORTESTQ/KORTESTD — OR Masks and Set Flags
+
+* Index
+
+* December 2023
+
+KORTESTW/KORTESTB/KORTESTQ/KORTESTD — OR Masks and Set Flags
+
+|     Opcode/Instruction     |Op/E n|64/32 bit Mode Support|CPUID Feature Flag|              Description               |
+
+|-------------------------------------|------|----------------------|------------------|--------------------------------------------------------------------|
+
+| VEX.L0.0F.W0 98 /r KORTESTW k1, k2 | RR |     V/V     |   AVX512F   |Bitwise OR 16 bits masks k1 and k2 and update ZF and CF accordingly. |
+
+|VEX.L0.66. 0F.W0 98 /r KORTESTB k1, k2| RR |     V/V     |   AVX512DQ   |Bitwise OR 8 bits masks k1 and k2 and update ZF and CF accordingly. |
+
+| VEX.L0.0F.W1 98 /r KORTESTQ k1, k2 | RR |     V/V     |   AVX512BW   |Bitwise OR 64 bits masks k1 and k2 and update ZF and CF accordingly. |
+
+|VEX.L0.66. 0F.W1 98 /r KORTESTD k1, k2| RR |     V/V     |   AVX512BW   |Bitwise OR 32 bits masks k1 and k2 and update ZF and CF accordingly. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Operand 1 |       Operand 2        |
+
+|-----|-------------|--------------------------------------|
+
+| RR |ModRM:reg (w)|ModRM:r/m (r, ModRM:[7:6] must be 11b)|
+
+Description ¶
+
+Performs a bitwise OR between the vector mask register k2, and the vector mask register k1, and sets CF and ZF based on the operation result.
+
+ZF flag is set if both sources are 0x0. CF is set if, after the OR operation is done, the operation result is all 1’s.
+
+Operation ¶
+
+KORTESTW ¶
+
+```
+
+TMP[15:0] := DEST[15:0] BITWISE OR SRC[15:0] IF(TMP[15:0]=0) THEN ZF := 1 ELSE ZF := 0 FI; IF(TMP[15:0]=FFFFh) THEN CF := 1 ELSE CF := 0 FI;
+
+```
+
+KORTESTB ¶
+
+```
+
+TMP[7:0] := DEST[7:0] BITWISE OR SRC[7:0] IF(TMP[7:0]=0) THEN ZF := 1 ELSE ZF := 0 FI; IF(TMP[7:0]==FFh) THEN CF := 1 ELSE CF := 0 FI;
+
+```
+
+KORTESTQ ¶
+
+```
+
+TMP[63:0] := DEST[63:0] BITWISE OR SRC[63:0] IF(TMP[63:0]=0) THEN ZF := 1 ELSE ZF := 0 FI; IF(TMP[63:0]==FFFFFFFF_FFFFFFFFh) THEN CF := 1 ELSE CF := 0 FI;
+
+```
+
+KORTESTD ¶
+
+```
+
+TMP[31:0] := DEST[31:0] BITWISE OR SRC[31:0] IF(TMP[31:0]=0) THEN ZF := 1 ELSE ZF := 0 FI; IF(TMP[31:0]=FFFFFFFFh) THEN CF := 1 ELSE CF := 0 FI;
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+KORTESTW __mmask16 _mm512_kortest[cz](__mmask16 a, __mmask16 b);
+
+```
+
+Flags Affected ¶
+
+The ZF flag is set if the result of OR-ing both sources is all 0s.
+
+The CF flag is set if the result of OR-ing both sources is all 1s.
+
+The OF, SF, AF, and PF flags are set to 0.
+
+Other Exceptions ¶
+
+See Table 2-63, “TYPE K20 Exception Definition (VEX-Encoded OpMask Instructions w/o Memory Arg).”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

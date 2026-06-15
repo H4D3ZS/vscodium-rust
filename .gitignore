@@ -14,7 +14,8 @@ dist-ssr
 antigravity-workflows/
 open-antigravity/
 vscodium/
-antigravity/
+/antigravity/
+!src/infrastructure/antigravity/
 claude-code-fork/
 manus_ai_source_code/
 manus-ai-source-code/
@@ -31,11 +32,17 @@ antigravity-ide*/
 antigravity_ide*/
 
 # IDE binaries — never commit these
-cursor/
+src-tauri/binaries/lsp/clangd/
+src-tauri/binaries/browser-agent.exe
+src-tauri/binaries/lsp/typescript-language-server/node-v20.18.0-win-x64/node.exe
+/cursor/
+!src/components/cursor/
 Cursor/
 Kiro/
 kiro/
 cursor-ide/
+# Cursor IDE extract (reference only — Anysphere proprietary, do not commit)
+cursor/
 kiro-ide/
 
 
@@ -61,6 +68,12 @@ api_keys.json
 .aim/
 **/.aim/
 
+# Local ML runtime artifacts (per-machine; scripts ship from scripts/ml/)
+src-tauri/.hades/
+**/.hades/ml/runs/
+**/.hades/ml/data/train.csv
+**/.hades/ml/data/val.csv
+
 # Proprietary — has own git repo, not a submodule
 Virtual-iPhone-Emulator/
 
@@ -68,6 +81,8 @@ Virtual-iPhone-Emulator/
 src-tauri/target/
 src-tauri/zed/
 native/
+!tools/ios-simulator/native/
+!tools/ios-simulator/native/**
 "config/api_keys.json"  
 "src-tauri/config/api_keys.json"  
 "*.env"  
@@ -128,3 +143,4 @@ src/public/models/airi.vrm
 
 # Separate repo (Cyber-Ifrit portfolio/website) — has its own git, never embed here
 Cyber-Ifrit-Portfolio/
+/Vega/

@@ -1,0 +1,457 @@
+ELDB/ELDU/ELDBC/ELDUC — Load an EPC Page and Mark its State
+
+* Index
+
+* December 2023
+
+ELDB/ELDU/ELDBC/ELDUC — Load an EPC Page and Mark its State
+
+| Opcode/Instruction |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                     Description                     |
+
+|----------------------|-----|----------------------|------------------|----------------------------------------------------------------------------------------------|
+
+|EAX = 07H ENCLS[ELDB] | IR |     V/V     |    SGX1    |    This leaf function loads, verifies an EPC page and marks the page as blocked. |
+
+|EAX = 08H ENCLS[ELDU] | IR |     V/V     |    SGX1    |    This leaf function loads, verifies an EPC page and marks the page as unblocked. |
+
+|EAX = 12H ENCLS[ELDBC]| IR |     V/V     |   EAX  |This leaf function behaves lie ELDB but with improved conflict handling for oversubscription. |
+
+|EAX = 13H ENCLS[ELDUC]| IR |     V/V     |   EAX  |This leaf function behaves like ELDU but with improved conflict handling for oversubscription. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|          EAX          |RBX|      RCX       |      RDX       |                   |
+
+|-----|------------------------------------------|---|----------------------------|----------------------------|--------------------------------------|
+
+| IR | (In) r (In) LDU Return error Return error|  |Address of the PAGEINFO (In)|Address of the EPC page (In)|Address of the version-array slot (In)|
+
+Description ¶
+
+This leaf function copies a page from regular main memory to the EPC. As part of the copying process, the page is cryptographically authenticated and decrypted. This instruction can only be executed when current privilege level is 0.
+
+The ELDB leaf function sets the BLOCK bit in the EPCM entry for the destination page in the EPC after copying. The ELDU leaf function clears the BLOCK bit in the EPCM entry for the destination page in the EPC after copying.
+
+RBX contains the effective address of a PAGEINFO structure; RCX contains the effective address of the destination EPC page; RDX holds the effective address of the version array slot that holds the version of the page.
+
+The ELDBC/ELDUC leafs are very similar to ELDB and ELDU. They provide an error code on the concurrency conflict for any of the pages which need to acquire a lock. These include the destination, SECS, and VA slot.
+
+The table below provides additional information on the memory parameter of ELDB/ELDU leaf functions.
+
+ELDB/ELDU/ELDBC/ELBUC Memory Parameter Semantics ¶
+
+|    PAGEINFO    |  PAGEINFO.SRCPGE  |   PAGEINFO.PCMD   |   PAGEINFO.SECS   |        EPCPAGE        |     Version-Array Slot     |
+
+|-----------------------|-----------------------|-----------------------|-------------------------|--------------------------------------|--------------------------------------|
+
+|Non-enclave read access|Non-enclave read access|Non-enclave read access|Enclave read/write access|Read/Write access permitted by Enclave|Read/Write access permitted by Enclave|
+
+The error codes are:
+
+|Error Code (see Table 38-4)|   Description   |
+
+|---------------------------|-----------------------|
+
+|     No Error     | ELDB/ELDU successful. |
+
+| SGX\_MAC\_COMPARE\_FAIL |If the MAC check fails. |
+
+Table 38-28. ELDB/ELDU/ELDBC/ELBUC Return Value in RAX
+
+Concurrency Restrictions ¶
+
+|      Leaf      |  Parameter  |  Base Concurrency Restrictions  |             |               |
+
+|--------------------------|---------------|-----------------------------------|-------------------------|------------------------------|
+
+|     Access     | On Conflict |SGX\_CONFLICT VM Exit Qualification|             |               |
+
+|    ELDB/ELDU     |Target [DS:RCX]|       Exclusive       |     \#GP      |EPC\_PAGE\_CONFLICT\_EXCEPTION|
+
+|    VA [DS:RDX]    |  Shared   |        \#GP        |             |               |
+
+|SECS [DS:RBX]PAGEINFO.SECS|  Shared   |        \#GP        |             |               |
+
+|    ELDBC/ELBUC    |Target [DS:RCX]|       Exclusive       |SGX\_EPC\_PAGE\_ CONFLICT| EPC\_PAGE\_CONFLICT\_ERROR |
+
+|    VA [DS:RDX]    |  Shared   |   SGX\_EPC\_PAGE\_ CONFLICT   |             |               |
+
+|SECS [DS:RBX]PAGEINFO.SECS|  Shared   |   SGX\_EPC\_PAGE\_ CONFLICT   |             |               |
+
+Table 38-29. Base Concurrency Restrictions of ELDB/ELDU/ELDBC/ELBUC
+
+|           Leaf           |    Parameter    |Additional Concurrency Restrictions|      |     |      |     |  |
+
+|-----------------------------------------------|------------------------|-----------------------------------|-----------|----------|-----------|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT|    vs ETRACK, ETRACKC    |      |     |      |     |  |
+
+|          Access           |   On Conflict    |       Access        |On Conflict| Access |On Conflict|     |  |
+
+|          ELDB/ELDU          |  Target [DS:RCX]   |      Concurrent       |      |Concurrent|      |Concurrent|  |
+
+|         VA [DS:RDX]         |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+|     SECS [DS:RBX]PAGEINFO.SECS      |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+|         ELDBC/ELBUC         |  Target [DS:RCX]   |      Concurrent       |      |Concurrent|      |Concurrent|  |
+
+|         VA [DS:RDX]         |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+|     SECS [DS:RBX]PAGEINFO.SECS      |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+Table 38-30. Additional Concurrency Restrictions of ELDB/ELDU/ELDBC/ELBUC
+
+Operation ¶
+
+Temp Variables in ELDB/ELDU/ELDBC/ELBUC Operational Flow ¶
+
+|  Name   |  Type  |Size (Bits)|   Description    |
+
+|-------------|-----------|-----------|------------------------|
+
+| TMP\_SRCPGE |Memory page| 4KBytes |            |
+
+| TMP\_SECS |Memory page| 4KBytes |            |
+
+| TMP\_PCMD |  PCMD  | 128 Bytes |            |
+
+| TMP\_HEADER | MACHEADER | 128 Bytes |            |
+
+| TMP\_VER  | UINT64  |  64   |            |
+
+| TMP\_MAC  | UINT128 |  128  |            |
+
+|  TMP\_PK  | UINT128 |  128  |Page encryption/MAC key. |
+
+|SCRATCH\_PCMD|  PCMD  | 128 Bytes |            |
+
+(\* Check PAGEINFO and EPCPAGE alignment \*)
+
+IF ( (DS:RBX is not 32Byte Aligned) or (DS:RCX is not 4KByte Aligned) )
+
+THEN #GP(0); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+(\* Check VASLOT alignment \*)
+
+IF (DS:RDX is not 8Byte aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RDX does not resolve within an EPC)
+
+THEN #PF(DS:RDX); FI;
+
+TMP\_SRCPGE := DS:RBX.SRCPGE;
+
+TMP\_SECS := DS:RBX.SECS;
+
+TMP\_PCMD := DS:RBX.PCMD;
+
+(\* Check alignment of PAGEINFO (RBX) linked parameters. Note: PCMD pointer is overlaid on top of PAGEINFO.SECINFO field \*)
+
+IF ( (DS:TMP\_PCMD is not 128Byte aligned) or (DS:TMP\_SRCPGE is not 4KByte aligned) )
+
+THEN #GP(0); FI;
+
+(\* Check concurrency of EPC by other Intel SGX instructions \*)
+
+IF (other instructions accessing EPC)
+
+THEN
+
+IF ((EAX==07h) OR (EAX==08h)) (\* ELDB/ELDU \*)
+
+THEN
+
+IF (\ \> AND
+
+\ \>)
+
+THEN
+
+VMCS.Exit\_reason := SGX\_CONFLICT;
+
+VMCS.Exit\_qualification. code := EPC\_PAGE\_CONFLICT\_EXCEPTION;
+
+VMCS.Exit\_qualification. error := 0;
+
+VMCS.Guest-physical\_address :=
+
+\ \>;
+
+VMCS.Guest-linear\_address := DS:RCX;
+
+Deliver VMEXIT;
+
+ELSE
+
+\#GP(0);
+
+FI;
+
+ELSE (\* ELDBC/ELDUC \*)
+
+IF (\ \> AND
+
+\ \>)
+
+THEN
+
+VMCS.Exit\_reason := SGX\_CONFLICT;
+
+VMCS.Exit\_qualification. code := EPC\_PAGE\_CONFLICT\_ERROR;
+
+VMCS.Exit\_qualification. error := SGX\_EPC\_PAGE\_CONFLICT;
+
+VMCS.Guest-physical\_address :=
+
+\ \>;
+
+VMCS.Guest-linear\_address := DS:RCX;
+
+Deliver VMEXIT;
+
+ELSE
+
+RFLAGS.ZF := 1;
+
+RFLAGS.CF := 0;
+
+RAX := SGX\_EPC\_PAGE\_CONFLICT;
+
+GOTO ERROR\_EXIT;
+
+FI;
+
+FI;
+
+FI;
+
+(\* Check concurrency of EPC and VASLOT by other Intel SGX instructions \*)
+
+IF (Other instructions modifying VA slot) THEN
+
+IF ((EAX==07h) OR (EAX==08h)) (\* ELDB/ELDU \*)
+
+THEN #GP(0);
+
+ELSE (\* ELDBC/ELDUC \*)
+
+RFLAGS.ZF := 1;
+
+RFLAGS.CF := 0;
+
+RAX := SGX\_EPC\_PAGE\_CONFLICT;
+
+GOTO ERROR\_EXIT;
+
+FI;
+
+FI;
+
+(\* Verify EPCM attributes of EPC page, VA, and SECS \*)
+
+IF (EPCM(DS:RCX). VALID = 1)
+
+THEN #PF(DS:RCX); FI;
+
+IF ( (EPCM(DS:RDX & \~0FFFH). VALID = 0) or (EPCM(DS:RDX & \~0FFFH). PT ≠ PT\_VA) )
+
+THEN #PF(DS:RDX); FI;
+
+(\* Copy PCMD into scratch buffer \*)
+
+SCRATCH\_PCMD[1023: 0] := DS:TMP\_PCMD[1023:0];
+
+(\* Zero out TMP\_HEADER\*)
+
+TMP\_HEADER[sizeof(TMP\_HEADER)-1: 0] := 0;
+
+TMP\_HEADER.SECINFO := SCRATCH\_PCMD.SECINFO;
+
+TMP\_HEADER.RSVD := SCRATCH\_PCMD.RSVD;
+
+TMP\_HEADER.LINADDR := DS:RBX.LINADDR;
+
+(\* Verify various attributes of SECS parameter \*)
+
+IF ( (TMP\_HEADER.SECINFO.FLAGS.PT = PT\_REG) or (TMP\_HEADER.SECINFO.FLAGS.PT = PT\_TCS) or
+
+(TMP\_HEADER.SECINFO.FLAGS.PT = PT\_TRIM) or
+
+(TMP\_HEADER.SECINFO.FLAGS.PT = PT\_SS\_FIRST and CPUID.(EAX=12H, ECX=1):EAX= 1) or
+
+(TMP\_HEADER.SECINFO.FLAGS.PT = PT\_SS\_REST and CPUID.(EAX=12H, ECX=1):EAX= 1))
+
+THEN
+
+IF ( DS:TMP\_SECS is not 4KByte aligned)
+
+THEN #GP(0) FI;
+
+IF (DS:TMP\_SECS does not resolve within an EPC)
+
+THEN #PF(DS:TMP\_SECS) FI;
+
+IF ( Another instruction is currently modifying the SECS) THEN
+
+IF ((EAX==07h) OR (EAX==08h)) (\* ELDB/ELDU \*)
+
+THEN #GP(0);
+
+ELSE (\* ELDBC/ELDUC \*)
+
+RFLAGS.ZF := 1;
+
+RFLAGS.CF := 0;
+
+RAX := SGX\_EPC\_PAGE\_CONFLICT;
+
+GOTO ERROR\_EXIT;
+
+FI;
+
+FI;
+
+TMP\_HEADER.EID := DS:TMP\_SECS.EID;
+
+ELSE
+
+(\* TMP\_HEADER.SECINFO.FLAGS.PT is PT\_SECS or PT\_VA which do not have a parent SECS, and hence no EID binding \*)
+
+TMP\_HEADER.EID := 0;
+
+IF (DS:TMP\_SECS ≠ 0)
+
+THEN #GP(0) FI;
+
+FI;
+
+(\* Copy 4KBytes SRCPGE to secure location \*)
+
+DS:RCX[32767: 0] := DS:TMP\_SRCPGE[32767: 0];
+
+TMP\_VER := DS:RDX[63:0];
+
+(\* Decrypt and MAC page. AES\_GCM\_DEC has 2 outputs, {plain text, MAC} \*)
+
+(\* Parameters for AES\_GCM\_DEC {Key, Counter, . . } \*)
+
+{DS:RCX, TMP\_MAC} := AES\_GCM\_DEC(CR\_BASE\_PK, TMP\_VER \<\< 32, TMP\_HEADER, 128, DS:RCX, 4096);
+
+IF ( (TMP\_MAC ≠ DS:TMP\_PCMD.MAC) )
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_MAC\_COMPARE\_FAIL;
+
+GOTO ERROR\_EXIT;
+
+FI;
+
+(\* Clear VA Slot \*)
+
+DS:RDX := 0
+
+(\* Commit EPCM changes \*)
+
+EPCM(DS:RCX). PT := TMP\_HEADER.SECINFO.FLAGS.PT;
+
+EPCM(DS:RCX). RWX := TMP\_HEADER.SECINFO.FLAGS.RWX;
+
+EPCM(DS:RCX). PENDING := TMP\_HEADER.SECINFO.FLAGS.PENDING;
+
+EPCM(DS:RCX). MODIFIED := TMP\_HEADER.SECINFO.FLAGS.MODIFIED;
+
+EPCM(DS:RCX). PR := TMP\_HEADER.SECINFO.FLAGS.PR;
+
+EPCM(DS:RCX). ENCLAVEADDRESS := TMP\_HEADER.LINADDR;
+
+IF ( ((EAX = 07H) or (EAX = 12H)) and (TMP\_HEADER.SECINFO.FLAGS.PT is NOT PT\_SECS or PT\_VA))
+
+THEN
+
+EPCM(DS:RCX). BLOCKED := 1;
+
+ELSE
+
+EPCM(DS:RCX). BLOCKED := 0;
+
+FI;
+
+IF (TMP\_HEADER.SECINFO.FLAGS.PT is PT\_SECS)
+
+\ \>
+
+FI;
+
+EPCM(DS:RCX). VALID := 1;
+
+RAX := 0;
+
+RFLAGS.ZF := 0;
+
+ERROR\_EXIT:
+
+RFLAGS.CF,PF,AF,OF,SF := 0;
+
+Flags Affected ¶
+
+Sets ZF if unsuccessful, otherwise cleared and RAX returns error code. Clears CF, PF, AF, OF, SF.
+
+Protected Mode Exceptions ¶
+
+|                 \#GP(0)                 |If a memory operand effective address is outside the DS segment limit. |
+
+|--------------------------------------------------------------------------|----------------------------------------------------------------------|
+
+|        If a memory operand is not properly aligned. |                                   |
+
+|     If the instruction’s EPC resource is in use by others. |                                   |
+
+|         If the instruction fails to verify MAC.         |                                   |
+
+|          If the version-array slot is in use. |                                   |
+
+|        If the parameters fail consistency checks. |                                   |
+
+|                \#PF(error                |   code) If a page fault occurs in accessing memory operands. |
+
+|If a memory operand expected to be in EPC does not resolve to an EPC page. |                                   |
+
+|    If one of the EPC memory operands has incorrect page type. |                                   |
+
+|       If the destination EPC page is already valid. |                                   |
+
+64-Bit Mode Exceptions ¶
+
+|                 \#GP(0)                 |    If a memory operand is non-canonical form. |
+
+|--------------------------------------------------------------------------|----------------------------------------------------------|
+
+|        If a memory operand is not properly aligned. |                             |
+
+|     If the instruction’s EPC resource is in use by others. |                             |
+
+|         If the instruction fails to verify MAC.         |                             |
+
+|          If the version-array slot is in use. |                             |
+
+|        If the parameters fail consistency checks. |                             |
+
+|                \#PF(error                |code) If a page fault occurs in accessing memory operands. |
+
+|If a memory operand expected to be in EPC does not resolve to an EPC page. |                             |
+
+|    If one of the EPC memory operands has incorrect page type. |                             |
+
+|       If the destination EPC page is already valid. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

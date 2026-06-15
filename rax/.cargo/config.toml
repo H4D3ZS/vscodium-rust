@@ -1,0 +1,11 @@
+# Build tuning for rax.
+#
+# x86-64-v3 (Haswell+, 2013+) is a portable x86-64 baseline that still lets LLVM
+# emit AVX2/BMI2/FMA/POPCNT/LZCNT and autovectorize the scalar SIMD/flag loops.
+# Keep this scoped to x86-64 hosts; Apple Silicon and other non-x86 hosts must
+# use their native Rust target defaults.
+#
+# For a local benchmark/throughput build on the machine you're sitting at, prefer
+# the host's full ISA:  RUSTFLAGS="-C target-cpu=native" cargo build --release
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["-C", "target-cpu=x86-64-v3"]

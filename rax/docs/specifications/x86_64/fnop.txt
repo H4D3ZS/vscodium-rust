@@ -1,0 +1,57 @@
+FNOP — No Operation
+
+* Index
+
+* December 2023
+
+FNOP — No Operation
+
+|Opcode|  |Mode|Leg Mode|    Description    |
+
+|------|---|----|--------|--------------------------|
+
+|D9 D0 |  |  |    |No operation is performed. |
+
+Description ¶
+
+Performs no FPU operation. This instruction takes up space in the instruction stream but does not affect the FPU or machine context, except the EIP register and the FPU Instruction Pointer.
+
+This instruction’s operation is the same in non-64-bit modes and 64-bit mode.
+
+FPU Flags Affected ¶
+
+|C0, C1, C2, C3|undefined. |
+
+|--------------|----------|
+
+Floating-Point Exceptions ¶
+
+None.
+
+Protected Mode Exceptions ¶
+
+|\#NM| CR0. EM[bit 2] or CR0. TS[bit 3] = 1. |
+
+|----|----------------------------------------|
+
+|\#MF|If there is a pending x87 FPU exception. |
+
+|\#UD|   If the LOCK prefix is used. |
+
+Real-Address Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+Virtual-8086 Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+Compatibility Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+64-Bit Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

@@ -1,0 +1,11 @@
+mod cmpxchg;
+mod xadd;
+mod cmpxchg8b_cmpxchg16b;
+mod cmpxchg_extended;
+mod xadd_extended;
+mod cmpxchg8b_extended;
+mod cmpxchg16b_extended;
+mod lock_prefix;
+mod xchg_extended;
+mod mfence_ordering;
+mod lfence_ordering;

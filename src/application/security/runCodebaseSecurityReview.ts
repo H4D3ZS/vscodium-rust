@@ -54,7 +54,20 @@ export async function runCodebaseSecurityReview(
     }
 }
 
-export function openSecurityReviewPanel(): void {
+export type SecurityPanelTab =
+    | 'overview'
+    | 'review'
+    | 'vega'
+    | 'chunks'
+    | 'proxy'
+    | 'repeater'
+    | 'intruder'
+    | 'oast'
+    | 'arsenal'
+    | 'modules';
+
+export function openSecurityReviewPanel(tab: SecurityPanelTab = 'overview'): void {
     useStore.getState().setActiveSidebarView('security-view');
     useStore.getState().setSecurityReviewPanelOpen(true);
+    window.dispatchEvent(new CustomEvent('hades:security-tab', { detail: { tab } }));
 }

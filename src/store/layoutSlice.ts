@@ -18,14 +18,14 @@ export interface LayoutSlice {
     isDebugToolbarOpen: boolean;
     contextMenuPosition: { x: number; y: number };
     commandPaletteQuery: string;
-    layoutMode: 'editor' | 'browser';
+    layoutMode: 'editor' | 'ml-studio' | 'browser-preview';
     /** True while the external stealth-Firefox OS window is (expected to be) running. */
     externalBrowserActive: boolean;
     isAiriOpen: boolean;
     isComposerOpen: boolean;
     isAiriPanelOpen: boolean;
     isEmulatorPanelOpen: boolean;
-    emulatorPanelPosition: 'android' | 'iphone';
+    emulatorPanelPosition: 'android' | 'iphone' | 'toolchain' | 'gradle';
     emulatorLayout: 'left' | 'right' | 'hidden';
 
     // Actions
@@ -42,7 +42,7 @@ export interface LayoutSlice {
     setContextMenuOpen: (open: boolean, x?: number, y?: number) => void;
     setDebugToolbarOpen: (open: boolean) => void;
     setCommandPaletteQuery: (query: string) => void;
-    setLayoutMode: (mode: 'editor' | 'browser') => void;
+    setLayoutMode: (mode: 'editor' | 'ml-studio' | 'browser-preview' | 'browser' | 'browser-ml') => void;
     setExternalBrowserActive: (active: boolean) => void;
     toggleAiri: (open?: boolean) => void;
     toggleComposer: (open?: boolean) => void;
@@ -52,7 +52,7 @@ export interface LayoutSlice {
     closeAiriPanel: () => void;
     openEmulatorPanel: () => void;
     closeEmulatorPanel: () => void;
-    setEmulatorPanelPosition: (pos: 'android' | 'iphone') => void;
+    setEmulatorPanelPosition: (pos: 'android' | 'iphone' | 'toolchain' | 'gradle') => void;
     setEmulatorLayout: (layout: 'left' | 'right' | 'hidden') => void;
     // Zen mode
     isZenMode: boolean;
@@ -97,7 +97,13 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     editorWordWrap: (() => { try { return localStorage.getItem('editor.wordWrap') === '1'; } catch { return false; } })(),
 
     toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
-    setActiveSidebarView: (view) => set({ activeSidebarView: view, isSidebarOpen: true }),
+    // VS Code parity: click active view again → hide sidebar; click it while hidden → show.
+    setActiveSidebarView: (view) => set((s) => {
+        if (s.activeSidebarView === view) {
+            return { isSidebarOpen: !s.isSidebarOpen };
+        }
+        return { activeSidebarView: view, isSidebarOpen: true };
+    }),
     toggleBottomPanel: () => set((s) => ({ isBottomPanelOpen: !s.isBottomPanelOpen })),
     setActivePanelTab: (tab) => set({ activePanelTab: tab, isBottomPanelOpen: true }),
     toggleRightSidebar: () => set((s) => {
@@ -127,7 +133,9 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     setContextMenuOpen: (isContextMenuOpen, x = 0, y = 0) => set({ isContextMenuOpen, contextMenuPosition: { x, y } }),
     setDebugToolbarOpen: (isDebugToolbarOpen) => set({ isDebugToolbarOpen }),
     setCommandPaletteQuery: (commandPaletteQuery) => set({ commandPaletteQuery }),
-    setLayoutMode: (mode) => set({ layoutMode: mode }),
+    setLayoutMode: (mode) => set({
+        layoutMode: mode === 'browser' || mode === 'browser-ml' ? 'browser-preview' : mode,
+    }),
     setExternalBrowserActive: (externalBrowserActive) => set({ externalBrowserActive }),
     toggleAiri: (open?) => set((s) => ({ isAiriOpen: open !== undefined ? open : !s.isAiriOpen })),
     toggleComposer: (open?) => set((s) => ({ isComposerOpen: open !== undefined ? open : !s.isComposerOpen })),

@@ -9,6 +9,22 @@ import MarkdownPreview from './MarkdownPreview';
 import BrandedWelcomeScreen from './BrandedWelcomeScreen';
 import PredictiveEditOverlay from './PredictiveEditOverlay';
 import { invoke, listen } from '../tauri_bridge';
+import { ensureLanguageServerForFile } from '../application/lsp/bootstrapLanguageServer';
+import { isMarkdownPath } from '../lib/markdown';
+import {
+    syncDocumentChanged,
+    syncDocumentClosed,
+    syncDocumentOpened,
+    getLspLanguageId as extHostLanguageId,
+} from '../application/extensions/extHostDocumentSync';
+import {
+    extHostCompletions,
+    extHostDefinition,
+    extHostHover,
+    mapExtCompletionItems,
+    mapExtDefinitionToMonaco,
+    mapExtHoverToMonaco,
+} from '../application/extensions/extHostProviders';
 
 // Map file extension → LSP language id
 function getLspLanguageId(path: string): string {
@@ -18,6 +34,10 @@ function getLspLanguageId(path: string): string {
         js: 'javascript', jsx: 'javascriptreact', py: 'python',
         go: 'go', java: 'java', c: 'c', cpp: 'cpp', cs: 'csharp',
         json: 'json', md: 'markdown', toml: 'toml', yaml: 'yaml', yml: 'yaml',
+        prisma: 'prisma', vue: 'vue', svelte: 'svelte', graphql: 'graphql', gql: 'graphql',
+        rb: 'ruby', php: 'php', lua: 'lua', zig: 'zig', ex: 'elixir', exs: 'elixir',
+        tf: 'terraform', hcl: 'terraform', dart: 'dart', kt: 'kotlin', kts: 'kotlin',
+        sh: 'shellscript', bash: 'shellscript', zsh: 'shellscript',
     };
     return map[ext] ?? 'plaintext';
 }
@@ -47,6 +67,7 @@ interface EditorProps {
 }
 
 const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
+    const activeRoot = useStore(state => state.activeRoot);
     const activeTabId = useStore(state => state.activeTabId);
     const tabs = useStore(state => state.tabs);
     const updateTabContent = useStore(state => state.updateTabContent);
@@ -59,6 +80,8 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     const toggleVisualLab = useStore(state => state.toggleVisualLab);
     const isGitBlameVisible = useStore(state => (state as any).isGitBlameVisible ?? false);
     const toggleGitBlame = useStore(state => (state as any).toggleGitBlame);
+    const isMarkdownPreviewOpen = useStore(state => (state as any).isMarkdownPreviewOpen ?? false);
+    const toggleMarkdownPreview = useStore(state => (state as any).toggleMarkdownPreview);
     const setVisualLabMode = useStore(state => state.setVisualLabMode);
     const debugBreakpoints = useStore(state => state.debugBreakpoints);
 
@@ -72,6 +95,37 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
     const editorRef = useRef<any>(null);
     const bpDecorationsRef = useRef<any>(null);
     const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const extHostChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const prevTabPathsRef = useRef<Set<string>>(new Set());
+
+    // Sync open documents to the VS Code extension host
+    useEffect(() => {
+        if (!activeTab?.path || activeTab.path.startsWith('vscode://')) return;
+        void syncDocumentOpened(
+            activeTab.path,
+            activeTab.content,
+            activeTab.language || extHostLanguageId(activeTab.path),
+        );
+    }, [activeTab?.path]);
+
+    useEffect(() => {
+        if (!activeTab?.path || activeTab.path.startsWith('vscode://')) return;
+        if (extHostChangeTimer.current) clearTimeout(extHostChangeTimer.current);
+        extHostChangeTimer.current = setTimeout(() => {
+            void syncDocumentChanged(activeTab.path, activeTab.content);
+        }, 250);
+        return () => {
+            if (extHostChangeTimer.current) clearTimeout(extHostChangeTimer.current);
+        };
+    }, [activeTab?.content, activeTab?.path]);
+
+    useEffect(() => {
+        const current = new Set(tabs.map((t) => t.path).filter(Boolean));
+        for (const path of prevTabPathsRef.current) {
+            if (!current.has(path)) void syncDocumentClosed(path);
+        }
+        prevTabPathsRef.current = current;
+    }, [tabs]);
 
     // Update active editor path in store whenever tab changes (only for primary pane)
     useEffect(() => {
@@ -118,7 +172,6 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                         const toEvict = inactiveModels.slice(0, toEvictCount);
                         toEvict.forEach(m => {
                             m.dispose();
-                            console.log(`[Monaco Eviction] Disposed inactive model: ${m.uri.toString()} to conserve RAM.`);
                         });
                     }
                 }
@@ -349,19 +402,31 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                             startColumn: word.startColumn,
                             endColumn: word.endColumn,
                         };
+                        const lspSuggestions = (res?.items ?? []).map((item: any) => ({
+                            label: item.label,
+                            kind: lspKindToMonaco(item.kind ?? 1),
+                            insertText: item.insertText ?? item.textEdit?.newText ?? item.label,
+                            insertTextRules: item.insertTextFormat === 2 ? 4 : 0,
+                            detail: item.detail ?? '',
+                            documentation: { value: item.documentation?.value ?? item.documentation ?? '' },
+                            sortText: item.sortText ?? item.label,
+                            filterText: item.filterText ?? item.label,
+                            preselect: item.preselect ?? false,
+                            range,
+                        }));
+                        const extItems = await extHostCompletions(
+                            getFileUri(),
+                            activeTab?.path || '',
+                            lang,
+                            model.getValue(),
+                            position.lineNumber - 1,
+                            position.column - 1,
+                        );
                         return {
-                            suggestions: (res?.items ?? []).map((item: any) => ({
-                                label: item.label,
-                                kind: lspKindToMonaco(item.kind ?? 1),
-                                insertText: item.insertText ?? item.textEdit?.newText ?? item.label,
-                                insertTextRules: item.insertTextFormat === 2 ? 4 : 0,
-                                detail: item.detail ?? '',
-                                documentation: { value: item.documentation?.value ?? item.documentation ?? '' },
-                                sortText: item.sortText ?? item.label,
-                                filterText: item.filterText ?? item.label,
-                                preselect: item.preselect ?? false,
-                                range,
-                            })),
+                            suggestions: [
+                                ...lspSuggestions,
+                                ...mapExtCompletionItems(extItems, range),
+                            ],
                             incomplete: false,
                         };
                     } catch { return { suggestions: [] }; }
@@ -370,55 +435,74 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
 
             // ── Hover (doc on mouseover) ───────────────────────────────────
             const hoverDisposable = monaco.languages.registerHoverProvider(lang, {
-                provideHover: async (_model, position) => {
+                provideHover: async (model, position) => {
                     try {
                         const res = await invoke<any>('lsp_hover', {
                             uri: getFileUri(),
                             line: position.lineNumber - 1,
                             character: position.column - 1,
                         });
-                        if (!res) return null;
-                        const raw = res.contents ?? res;
-                        const contents = Array.isArray(raw) ? raw : [raw];
-                        const mdParts = contents.map((c: any) => ({
-                            value: typeof c === 'string' ? c : (c.value ?? String(c)),
-                        }));
-                        if (!mdParts.length || !mdParts[0].value) return null;
-                        const range = res.range ? {
-                            startLineNumber: res.range.start.line + 1,
-                            startColumn: res.range.start.character + 1,
-                            endLineNumber: res.range.end.line + 1,
-                            endColumn: res.range.end.character + 1,
-                        } : undefined;
-                        return { contents: mdParts, range };
+                        if (res) {
+                            const raw = res.contents ?? res;
+                            const contents = Array.isArray(raw) ? raw : [raw];
+                            const mdParts = contents.map((c: any) => ({
+                                value: typeof c === 'string' ? c : (c.value ?? String(c)),
+                            }));
+                            if (mdParts.length && mdParts[0].value) {
+                                const range = res.range ? {
+                                    startLineNumber: res.range.start.line + 1,
+                                    startColumn: res.range.start.character + 1,
+                                    endLineNumber: res.range.end.line + 1,
+                                    endColumn: res.range.end.character + 1,
+                                } : undefined;
+                                return { contents: mdParts, range };
+                            }
+                        }
+                        const extHover = await extHostHover(
+                            getFileUri(),
+                            lang,
+                            model.getValue(),
+                            position.lineNumber - 1,
+                            position.column - 1,
+                        );
+                        return mapExtHoverToMonaco(extHover, monaco);
                     } catch { return null; }
                 },
             });
 
             // ── Go To Definition ───────────────────────────────────────────
             const definitionDisposable = monaco.languages.registerDefinitionProvider(lang, {
-                provideDefinition: async (_model, position) => {
+                provideDefinition: async (model, position) => {
                     try {
                         const res = await invoke<any>('lsp_goto_definition', {
                             uri: getFileUri(),
                             line: position.lineNumber - 1,
                             character: position.column - 1,
                         });
-                        if (!res) return [];
-                        const locs = Array.isArray(res) ? res : [res];
-                        return locs.map((loc: any) => {
-                            const locUri = loc.uri ?? loc.targetUri ?? '';
-                            const r = loc.range ?? loc.targetSelectionRange ?? {};
-                            return {
-                                uri: monaco.Uri.parse(locUri.startsWith('file:') ? locUri : `file:///${locUri.replace(/\\/g, '/')}`),
-                                range: {
-                                    startLineNumber: (r.start?.line ?? 0) + 1,
-                                    startColumn: (r.start?.character ?? 0) + 1,
-                                    endLineNumber: (r.end?.line ?? 0) + 1,
-                                    endColumn: (r.end?.character ?? 0) + 1,
-                                },
-                            };
-                        });
+                        if (res) {
+                            const locs = Array.isArray(res) ? res : [res];
+                            return locs.map((loc: any) => {
+                                const locUri = loc.uri ?? loc.targetUri ?? '';
+                                const r = loc.range ?? loc.targetSelectionRange ?? {};
+                                return {
+                                    uri: monaco.Uri.parse(locUri.startsWith('file:') ? locUri : `file:///${locUri.replace(/\\/g, '/')}`),
+                                    range: {
+                                        startLineNumber: (r.start?.line ?? 0) + 1,
+                                        startColumn: (r.start?.character ?? 0) + 1,
+                                        endLineNumber: (r.end?.line ?? 0) + 1,
+                                        endColumn: (r.end?.character ?? 0) + 1,
+                                    },
+                                };
+                            });
+                        }
+                        const extDef = await extHostDefinition(
+                            getFileUri(),
+                            lang,
+                            model.getValue(),
+                            position.lineNumber - 1,
+                            position.column - 1,
+                        );
+                        return mapExtDefinitionToMonaco(extDef, monaco);
                     } catch { return []; }
                 },
             });
@@ -750,21 +834,21 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
         }
     }, [effectiveTabId, activeFilePendingChange]);
 
-    // LSP: notify did_open when a file is opened / tab switches
+    // LSP: resolve correct server per file and notify did_open on tab switch
     const lspVersionRef = useRef<Record<string, number>>({});
     useEffect(() => {
-        if (!activeTab?.path) return;
-        const uri = pathToUri(activeTab.path);
+        if (!activeTab?.path || !activeRoot) return;
         const langId = getLspLanguageId(activeTab.path);
-        const ver = (lspVersionRef.current[uri] ?? 0) + 1;
-        lspVersionRef.current[uri] = ver;
-        invoke('lsp_did_open', {
-            uri,
+        const ver = (lspVersionRef.current[activeTab.path] ?? 0) + 1;
+        lspVersionRef.current[activeTab.path] = ver;
+        void ensureLanguageServerForFile({
+            root: activeRoot,
+            path: activeTab.path,
             languageId: langId,
             version: ver,
             text: activeTab.content ?? '',
-        }).catch(() => { /* LSP may not be running */ });
-    }, [effectiveTabId, activeTab?.path]);
+        });
+    }, [effectiveTabId, activeTab?.path, activeRoot]);
 
     // LSP: notify did_change when content changes (debounced 300 ms)
     const lspChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -954,7 +1038,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     run: async (ed) => {
                         const line = ed.getPosition()?.lineNumber ?? 1;
                         if (!activeFilePendingChange) return;
-                        const { computeDiffBlocks } = await import('../services/DiffService');
+                        const { computeDiffBlocks } = await import('../domain/editor/DiffService');
                         const oldText = activeFilePendingChange.originalContent ?? activeFilePendingChange.oldContent ?? '';
                         const newText = activeFilePendingChange.newContent ?? activeFilePendingChange.proposedContent ?? '';
                         const block = computeDiffBlocks(oldText, newText).find(
@@ -976,7 +1060,7 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                     run: async (ed) => {
                         const line = ed.getPosition()?.lineNumber ?? 1;
                         if (!activeFilePendingChange) return;
-                        const { computeDiffBlocks } = await import('../services/DiffService');
+                        const { computeDiffBlocks } = await import('../domain/editor/DiffService');
                         const oldText = activeFilePendingChange.originalContent ?? activeFilePendingChange.oldContent ?? '';
                         const newText = activeFilePendingChange.newContent ?? activeFilePendingChange.proposedContent ?? '';
                         const block = computeDiffBlocks(oldText, newText).find(
@@ -1188,6 +1272,34 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                 </button>
             )}
 
+            {isMarkdownPath(activeTab.path) && (
+                <button
+                    onClick={() => toggleMarkdownPreview?.()}
+                    title="Open Preview to the Side (Ctrl+Shift+V)"
+                    style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '40px',
+                        zIndex: 100,
+                        background: isMarkdownPreviewOpen ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.06)',
+                        border: `1px solid ${isMarkdownPreviewOpen ? 'rgba(56, 189, 248, 0.45)' : 'rgba(255,255,255,0.12)'}`,
+                        borderRadius: '6px',
+                        color: isMarkdownPreviewOpen ? '#38bdf8' : 'inherit',
+                        padding: '4px 10px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer',
+                        backdropFilter: 'blur(4px)',
+                    }}
+                >
+                    <i className="codicon codicon-open-preview" style={{ fontFamily: 'codicon', fontStyle: 'normal' }} />
+                    Preview
+                </button>
+            )}
+
             {activeFilePendingChange && (
                 <>
                     <div style={{
@@ -1302,10 +1414,13 @@ ${selectedText}
                         const store = useStore.getState();
                         store.setIsAgentThinking?.(true);
 
-                        const rawModel = store.agentModel || 'cyberifrit|cyberifrit/qwen3.6:35b';
+                        const qeSel = store.modelSelectionOfFeature?.['QuickEdit'];
+                        const rawModel = qeSel?.modelName || store.agentModel || 'cyberifrit|cyberifrit/qwen3.6:35b';
                         const pipe = rawModel.indexOf('|');
-                        const inlineProvider = pipe >= 0 ? rawModel.slice(0, pipe).toLowerCase() : 'cyberifrit';
-                        const inlineModel = pipe >= 0 ? rawModel.slice(pipe + 1) : rawModel;
+                        const inlineProvider = qeSel?.providerName
+                            || (pipe >= 0 ? rawModel.slice(0, pipe).toLowerCase() : 'cyberifrit');
+                        const inlineModel = qeSel?.modelName
+                            || (pipe >= 0 ? rawModel.slice(pipe + 1) : rawModel);
 
                         try {
                             const { invoke } = await import('@tauri-apps/api/core');

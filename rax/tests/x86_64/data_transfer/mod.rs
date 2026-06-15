@@ -1,0 +1,16 @@
+mod bswap;
+mod cdqe_cqo_extended;
+mod cmov;
+mod lahf_sahf_extended;
+mod lea;
+mod mov_extended;
+mod movbe;
+mod movdir64b;
+mod movdiri;
+mod movsx_extended;
+mod movzx_extended;
+mod pop_extended;
+mod push_extended;
+mod pushad_popad;
+mod setcc;
+mod xchg;

@@ -7,9 +7,17 @@ import type { AvatarState } from './agent/SentientAvatar';
 import ChatInput from './chat/ChatInput';
 import ChatToolbar from './chat/ChatToolbar';
 import ChatMessageList from './chat/ChatMessageList';
+import MentionPopup from './chat/MentionPopup';
 import AgentMcpMenu from './agent/AgentMcpMenu';
 import type { AgentMessage } from '../store';
 import type { AgentStudioSubView } from '../domain/agentStudio/AgentStudioSubView';
+import { PlanApprovalBanner, RestoreCheckpointBanner, MultiFileReviewBanner } from './rightSidebar/banners';
+import { TaskRoadmap, ReasoningToggle } from './rightSidebar/agentStatus';
+import { BackgroundAgentsTray } from './rightSidebar/BackgroundAgentsTray';
+import { SidebarPane } from './rightSidebar/SidebarPane';
+import OllamaProgressBar from './OllamaProgressBar';
+import { cleanAgentContent, getToolLabel } from '../domain/agent/cleanAgentContent';
+
 
 let voiceModule: typeof import('../voice') | null = null;
 async function getVoice() {
@@ -22,536 +30,8 @@ async function getVoice() {
 const AiriPanel = lazy(() => import('./AiriPanel').then(m => ({ default: m.AiriPanel })));
 const UnifiedEmulatorPanel = lazy(() => import('./UnifiedEmulatorPanel'));
 const AgentStudioPanel = lazy(() => import('./agentStudio/AgentStudioPanel'));
-
-
-// ── Restore-checkpoint banner ────────────────────────────────────────────
-// Shows above the chat input whenever an agent turn just auto-snapshotted
-// the workspace, giving the user a one-click "undo the AI's edits" path.
-// ── Plan approval banner ──────────────────────────────────────────────────
-// Appears when the agent outputs AWAITING_APPROVAL in plan mode.
-// User reviews the plan and clicks Approve to resume execution.
-const PlanApprovalBanner: React.FC = () => {
-    const [planData, setPlanData] = React.useState<{ plan: string; iteration: number } | null>(null);
-    const [approving, setApproving] = React.useState(false);
-
-    React.useEffect(() => {
-        import('@tauri-apps/api/event').then(({ listen }) => {
-            const unlisten = listen('plan-approval-required', (event: any) => {
-                setPlanData(event.payload ?? null);
-            });
-            return () => { unlisten.then(f => f()); };
-        });
-    }, []);
-
-    if (!planData) return null;
-
-    const handleApprove = async () => {
-        setApproving(true);
-        try { await (await import('../tauri_bridge')).invoke('resume_ai_agent'); } catch { /* ignore */ }
-        setPlanData(null);
-        setApproving(false);
-    };
-
-    const handleReject = async () => {
-        try { await (await import('../tauri_bridge')).invoke('stop_ai_agent'); } catch { /* ignore */ }
-        setPlanData(null);
-    };
-
-    return (
-        <div style={{
-            display: 'flex', flexDirection: 'column', gap: 8,
-            padding: '10px 12px', marginBottom: 6,
-            background: 'rgba(245,158,11,0.07)',
-            border: '1px solid rgba(245,158,11,0.3)',
-            borderRadius: 8, fontSize: 11,
-        }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 13 }}>📋</span>
-                <strong style={{ color: '#fbbf24' }}>Plan ready — approve to execute</strong>
-            </div>
-            {planData.plan && (
-                <pre style={{
-                    margin: 0, padding: '6px 10px',
-                    background: 'rgba(0,0,0,0.3)', borderRadius: 5,
-                    fontSize: 10, color: 'rgba(255,255,255,0.75)',
-                    maxHeight: 180, overflowY: 'auto', whiteSpace: 'pre-wrap',
-                }}>
-                    {planData.plan}
-                </pre>
-            )}
-            <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                    disabled={approving}
-                    onClick={handleApprove}
-                    style={{
-                        flex: 1, padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5,
-                        background: '#d97706', color: 'var(--vscode-editor-foreground, #fff)', border: 'none', cursor: 'pointer',
-                    }}
-                >
-                    {approving ? '…' : '✓ Approve & Execute'}
-                </button>
-                <button
-                    onClick={handleReject}
-                    style={{
-                        padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5,
-                        background: 'rgba(248,113,113,0.15)', color: '#f87171',
-                        border: '1px solid rgba(248,113,113,0.3)', cursor: 'pointer',
-                    }}
-                >
-                    ✕ Cancel
-                </button>
-            </div>
-        </div>
-    );
-};
-
-const RestoreCheckpointBanner: React.FC = () => {
-    const checkpoint = useStore(state => state.lastAgentCheckpoint);
-    const rollback = useStore(state => state.rollbackLastAgentCheckpoint);
-    const dismiss = useStore(state => state.setLastAgentCheckpoint);
-    const [busy, setBusy] = useState(false);
-    const [msg, setMsg] = useState<string | null>(null);
-    if (!checkpoint) return null;
-    const age = Math.max(1, Math.round((Date.now() - checkpoint.timestamp) / 1000));
-    return (
-        <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '6px 10px', marginBottom: 6,
-            background: 'var(--vscode-inputValidation-infoBackground, rgba(0,122,204,0.1))',
-            border: '1px solid var(--vscode-inputValidation-infoBorder, rgba(0,122,204,0.35))',
-            borderRadius: 8, fontSize: 11,
-        }}>
-            <i className="codicon codicon-discard" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: 'var(--vscode-textLink-foreground, #3794ff)', fontSize: 13 }} />
-            <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)' }}>
-                {msg ?? <>Checkpoint <code style={{ opacity: 0.7 }}>{checkpoint.description}</code> · {age}s ago</>}
-            </span>
-            <button
-                disabled={busy}
-                onClick={async () => {
-                    setBusy(true);
-                    const r = await rollback();
-                    setBusy(false);
-                    setMsg(r.ok ? 'Restored.' : r.message);
-                    if (r.ok) setTimeout(() => setMsg(null), 1800);
-                }}
-                style={{ background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)', border: 'none', padding: '2px 8px', fontSize: 10, fontWeight: 600, borderRadius: 2, cursor: busy ? 'wait' : 'pointer' }}
-            >
-                {busy ? '…' : '↶ Restore'}
-            </button>
-            <i
-                className="codicon codicon-close"
-                onClick={() => dismiss(null)}
-                style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', opacity: 0.5, fontSize: 11 }}
-                title="Dismiss"
-            />
-        </div>
-    );
-};
-
-// ── Multi-file review banner ──────────────────────────────────────────────
-// Appears after the agent's turn whenever it touched 2+ files. Clicking
-// opens the MultiFileReview carousel where the user can step through each
-// diff and keep/revert per file.
-const MultiFileReviewBanner: React.FC = () => {
-    const edits = useStore(s => s.pendingAgentEdits);
-    const isThinking = useStore(s => s.isAgentThinking);
-    const openReview = useStore(s => s.openMultiFileReview);
-    // Only show after the turn finishes, with 2+ files. Single-file edits
-    // are usually obvious and don't warrant a modal.
-    if (isThinking) return null;
-    if (edits.length < 2) return null;
-    return (
-        <div
-            onClick={openReview}
-            style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '6px 10px', marginBottom: 6,
-                background: 'rgba(34,197,94,0.08)',
-                border: '1px solid rgba(34,197,94,0.25)',
-                borderRadius: 8, fontSize: 11,
-                cursor: 'pointer',
-            }}
-        >
-            <i className="codicon codicon-diff-multiple" style={{ fontFamily: 'codicon', fontStyle: 'normal', color: '#4ade80', fontSize: 13 }} />
-            <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)' }}>
-                Agent edited <b>{edits.length}</b> files — review the diff
-            </span>
-            <span style={{
-                background: '#4ade80', color: '#000', padding: '2px 8px', fontSize: 10,
-                fontWeight: 600, borderRadius: 4,
-            }}>Review</span>
-        </div>
-    );
-};
-
-const TaskRoadmap: React.FC = () => {
-    const currentPhase = useStore(state => state.currentPhase);
-    const status = useStore(state => state.currentPhaseStatus);
-    const isThinking = useStore(state => state.isAgentThinking);
-
-    if (currentPhase === 'IDLE' || !isThinking) return null;
-
-    const phases = ['ANALYZE', 'PLAN', 'EXECUTE', 'VERIFY', 'REPORT'];
-    const activeIndex = phases.indexOf(currentPhase);
-
-    return (
-        <div className="task-roadmap" style={{
-            margin: '8px 10px',
-            padding: '10px 12px',
-            background: 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))',
-            border: '1px solid var(--vscode-panel-border, rgba(255,255,255,0.12))',
-            borderRadius: '6px',
-            animation: 'fadeIn 0.3s ease-out'
-        }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                {phases.map((p, i) => (
-                    <div key={p} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flex: 1, position: 'relative' }}>
-                        <div style={{
-                            width: '18px',
-                            height: '18px',
-                            borderRadius: '50%',
-                            background: i <= activeIndex ? 'var(--vscode-focusBorder, #007acc)' : 'var(--vscode-panel-border)',
-                            color: i <= activeIndex ? '#000' : 'var(--vscode-foreground)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '9px',
-                            fontWeight: 700,
-                            zIndex: 2,
-                            boxShadow: i === activeIndex ? '0 0 6px var(--vscode-focusBorder, #007acc)' : 'none'
-                        }}>
-                            {i < activeIndex ? '✓' : i + 1}
-                        </div>
-                        <span style={{ fontSize: '7.5px', fontWeight: 600, opacity: i <= activeIndex ? 1 : 0.4 }}>{p}</span>
-                        {i < phases.length - 1 && (
-                            <div style={{
-                                position: 'absolute',
-                                left: '50%',
-                                top: '9px',
-                                width: '100%',
-                                height: '2px',
-                                background: i < activeIndex ? 'var(--vscode-focusBorder, #007acc)' : 'var(--vscode-panel-border)',
-                                zIndex: 1
-                            }} />
-                        )}
-                    </div>
-                ))}
-            </div>
-            <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 12, color: 'var(--vscode-focusBorder, #007acc)' }} />
-                <span style={{ fontWeight: 600, fontSize: '9.5px', color: 'rgba(255,255,255,0.85)' }}>{status}</span>
-            </div>
-        </div>
-    );
-};
-
-// ── Background agents tray ───────────────────────────────────────────────
-// ── Void: Reasoning toggle + budget slider ────────────────────────────────
-const ReasoningToggle: React.FC = () => {
-    const isEnabled = useStore((s: any) => s.isReasoningEnabled ?? false);
-    const setEnabled = useStore((s: any) => s.setIsReasoningEnabled);
-    const budget = useStore((s: any) => s.currentReasoningBudget ?? 1024);
-    const setBudget = useStore((s: any) => s.setCurrentReasoningBudget);
-    const effort = useStore((s: any) => s.currentReasoningEffort ?? 'low');
-    const setEffort = useStore((s: any) => s.setCurrentReasoningEffort);
-    const model = useStore((s: any) => s.agentModel ?? '');
-    const [open, setOpen] = React.useState(false);
-
-    const ml = model.toLowerCase();
-    const isThinkTag = ml.includes('qwen3') || ml.includes('qwq') || ml.includes('deepseek-r1') || ml.includes('r1:');
-    const isAnthropicModel = ml.includes('anthropic') || ml.includes('claude');
-    const isOpenAI = ml.includes('openai') || ml.includes('gpt') || ml.includes('o1') || ml.includes('o3');
-    const supportsReasoning = isThinkTag || isAnthropicModel || isOpenAI;
-
-    if (!supportsReasoning) return null;
-
-    return (
-        <div style={{ position: 'relative' }}>
-            <span
-                onClick={() => { setEnabled(!isEnabled); if (!isEnabled) setOpen(true); }}
-                title={isEnabled ? 'Reasoning ON — click to toggle' : 'Enable reasoning / extended thinking'}
-                style={{
-                    fontSize: '10px', fontWeight: 600, cursor: 'pointer',
-                    padding: '1px 6px', borderRadius: '4px',
-                    color: isEnabled ? '#818cf8' : 'rgba(255,255,255,0.3)',
-                    background: isEnabled ? 'rgba(99,102,241,0.15)' : 'transparent',
-                    border: isEnabled ? '1px solid rgba(99,102,241,0.4)' : '1px solid rgba(255,255,255,0.08)',
-                    transition: 'all 0.15s',
-                    userSelect: 'none',
-                }}
-            >
-                {isThinkTag ? '🧠 Think' : isAnthropicModel ? '💡 Thinking' : '⚡ Reason'}
-            </span>
-            {isEnabled && open && (
-                <div style={{
-                    position: 'absolute', bottom: '26px', left: 0, zIndex: 100,
-                    background: '#1e1e2e', border: '1px solid rgba(99,102,241,0.3)',
-                    borderRadius: '8px', padding: '10px 12px', minWidth: '200px',
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#818cf8' }}>Reasoning Config</span>
-                        <i className="codicon codicon-close" onClick={() => setOpen(false)} style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', opacity: 0.5, fontSize: '11px' }} />
-                    </div>
-                    {(isAnthropicModel) && (
-                        <div style={{ marginBottom: '8px' }}>
-                            <div style={{ fontSize: '10px', opacity: 0.6, marginBottom: '4px' }}>Budget tokens: {budget}</div>
-                            <input type="range" min={1024} max={32000} step={1024} value={budget}
-                                onChange={e => setBudget(parseInt(e.target.value))}
-                                style={{ width: '100%', accentColor: '#818cf8' }} />
-                        </div>
-                    )}
-                    {(isOpenAI) && (
-                        <div style={{ marginBottom: '8px' }}>
-                            <div style={{ fontSize: '10px', opacity: 0.6, marginBottom: '4px' }}>Effort</div>
-                            {(['low', 'medium', 'high'] as const).map(e => (
-                                <span key={e} onClick={() => setEffort(e)} style={{
-                                    marginRight: '6px', fontSize: '10px', cursor: 'pointer', fontWeight: 600,
-                                    padding: '1px 6px', borderRadius: '4px',
-                                    color: effort === e ? '#818cf8' : 'rgba(255,255,255,0.5)',
-                                    background: effort === e ? 'rgba(99,102,241,0.15)' : 'transparent',
-                                    border: effort === e ? '1px solid rgba(99,102,241,0.4)' : '1px solid transparent',
-                                }}>{e}</span>
-                            ))}
-                        </div>
-                    )}
-                    {isThinkTag && (
-                        <div style={{ fontSize: '10px', opacity: 0.55 }}>Think-tag model — reasoning output will appear in the thinking trace above the response.</div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-};
-
-// Compact strip listing any agent runs the user fired with `/bg <prompt>`
-// or via `runBackgroundAgent`. Doesn't block the main chat.
-const BackgroundAgentsTray: React.FC = memo(() => {
-    const bgAgents = useStore(state => state.backgroundAgents);
-    const remove = useStore(state => state.removeBackgroundAgent);
-    const runBackground = useStore(state => state.runBackgroundAgent);
-    const clearAll = useStore(state => state.clearBackgroundAgents);
-    const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [spawnPrompt, setSpawnPrompt] = useState('');
-    const [spawning, setSpawning] = useState(false);
-    const [showSpawn, setShowSpawn] = useState(false);
-
-    const handleSpawn = async () => {
-        if (!spawnPrompt.trim()) return;
-        setSpawning(true);
-        await runBackground(spawnPrompt.trim()).catch(() => {});
-        setSpawnPrompt('');
-        setSpawning(false);
-        setShowSpawn(false);
-    };
-
-    const running = bgAgents.filter(b => b.status === 'running').length;
-    const done = bgAgents.filter(b => b.status === 'done' || b.status === 'error').length;
-
-    // Parallel/background agents are HIDDEN for now — not production-ready. Early-return
-    // is placed AFTER all hooks (React rules). Flip the flag (or move to Settings) later.
-    const PARALLEL_AGENTS_ENABLED = true;
-    if (!PARALLEL_AGENTS_ENABLED) return null;
-
-    return (
-        <div style={{
-            marginBottom: 6, padding: 6,
-            background: 'rgba(96,165,250,0.06)',
-            border: '1px solid rgba(96,165,250,0.2)',
-            borderRadius: 8, fontSize: 11,
-        }}>
-            {/* Header with spawn button */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <i className="codicon codicon-cloud" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 12, opacity: 0.7 }} />
-                <span style={{ fontWeight: 600, flex: 1, opacity: 0.7 }}>
-                    Parallel agents
-                    {running > 0 && <span style={{ marginLeft: 4, color: '#60a5fa' }}>({running} running)</span>}
-                </span>
-                {done > 0 && (
-                    <span onClick={clearAll} style={{ cursor: 'pointer', fontSize: 9, opacity: 0.5 }} title="Clear finished">clear</span>
-                )}
-                <span
-                    onClick={() => setShowSpawn(v => !v)}
-                    style={{ cursor: 'pointer', fontSize: 16, lineHeight: 1, color: '#60a5fa', fontWeight: 300 }}
-                    title="Spawn new background agent"
-                >⊕</span>
-            </div>
-            {/* Spawn input */}
-            {showSpawn && (
-                <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-                    <input
-                        autoFocus
-                        value={spawnPrompt}
-                        onChange={e => setSpawnPrompt(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') handleSpawn(); if (e.key === 'Escape') setShowSpawn(false); }}
-                        placeholder="Task for background agent…"
-                        style={{
-                            flex: 1, fontSize: 10, padding: '3px 6px',
-                            background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(96,165,250,0.3)',
-                            borderRadius: 3, color: 'var(--vscode-editor-foreground, #fff)', outline: 'none',
-                        }}
-                    />
-                    <button
-                        disabled={spawning || !spawnPrompt.trim()}
-                        onClick={handleSpawn}
-                        style={{ padding: '3px 8px', fontSize: 10, fontWeight: 700, background: '#1e3a5f', border: '1px solid #2563eb', borderRadius: 3, color: '#60a5fa', cursor: 'pointer' }}
-                    >{spawning ? '…' : '▶'}</button>
-                </div>
-            )}
-            {bgAgents.length === 0 && !showSpawn && (
-                <div style={{ fontSize: 10, opacity: 0.35, textAlign: 'center', padding: '3px 0' }}>
-                    Click ⊕ to spawn a parallel agent
-                </div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {bgAgents.map(bg => {
-                    const open = expandedId === bg.id;
-                    const color = bg.status === 'done' ? '#22c55e' : bg.status === 'error' ? '#f87171' : '#60a5fa';
-                    return (
-                        <div key={bg.id} style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 6px', background: 'rgba(0,0,0,0.2)', borderRadius: 4 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0, ...(bg.status === 'running' ? { animation: 'hubPulse 1s infinite' } : {}) }} />
-                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={bg.prompt}>{bg.prompt}</span>
-                                {(() => {
-                                    const end = bg.finishedAt ?? Date.now();
-                                    const secs = Math.max(0, Math.round((end - bg.startedAt) / 1000));
-                                    return <span style={{ opacity: 0.4, fontSize: 9 }}>{secs}s</span>;
-                                })()}
-                                <span style={{ opacity: 0.5, fontSize: 9 }}>{bg.status}</span>
-                                <i
-                                    className={`codicon codicon-${open ? 'chevron-up' : 'chevron-down'}`}
-                                    onClick={() => setExpandedId(open ? null : bg.id)}
-                                    style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', fontSize: 11, opacity: 0.6 }}
-                                />
-                                <i
-                                    className="codicon codicon-close"
-                                    onClick={() => remove(bg.id)}
-                                    style={{ fontFamily: 'codicon', fontStyle: 'normal', cursor: 'pointer', fontSize: 11, opacity: 0.6 }}
-                                />
-                            </div>
-                            {open && bg.result && (
-                                <pre style={{ margin: 0, marginTop: 2, fontSize: 10, opacity: 0.85, maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-                                    {bg.result.slice(0, 4000)}
-                                </pre>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
-        </div>
-    );
-});
-
-import OllamaProgressBar from './OllamaProgressBar';
-
-// One-shot AIRI bootstrap latch. Module-scoped so it survives unmount/remount
-// and (critically) React.StrictMode's deliberate double-invoke of effects.
+// AIRI auto-init must happen exactly once per app session
 const airiInitOnce: { started: boolean } = { started: false };
-
-/**
- * Strips raw tool-call JSON/XML from AI content so the user sees only
- * natural language. The backend still processes the full JSON — this is
- * purely a display transform.
- */
-/** Returns true if a JSON string looks like a tool call object */
-function isToolCallJson(text: string): boolean {
-    try {
-        const t = text.trim();
-        if (!t.startsWith('{') && !t.startsWith('[')) return false;
-        const parsed = JSON.parse(t);
-        if (Array.isArray(parsed)) return parsed.some(isToolCallJson);
-        if (parsed && typeof parsed === 'object') {
-            return ('name' in parsed && ('arguments' in parsed || 'parameters' in parsed || 'input' in parsed))
-                || 'tool_calls' in parsed
-                || 'function_call' in parsed;
-        }
-    } catch { /* not valid JSON */ }
-    return false;
-}
-
-/**
- * Strips raw tool-call JSON/XML from AI content so the user sees only
- * natural language. The backend still processes the full JSON — this is
- * purely a display transform.
- */
-function cleanAiContent(raw: string): string {
-    if (!raw) return '';
-    let s = raw;
-
-    // Strip XML tool-call tags (Qwen / DeepSeek style)
-    s = s.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
-    s = s.replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '');
-    s = s.replace(/<function>[\s\S]*?<\/function>/g, '');
-    s = s.replace(/<invoke>[\s\S]*?<\/invoke>/g, '');
-
-    // Strip markdown fenced code blocks that contain tool-call JSON
-    // Use block parser to correctly handle nested braces
-    s = s.replace(/```[a-z]*\n([\s\S]*?)```/gi, (match, inner) => {
-        return isToolCallJson(inner.trim()) ? '' : match;
-    });
-    // Also handle ``` without language tag followed immediately by {
-    s = s.replace(/```\s*(\{[\s\S]*?\})\s*```/g, (match, inner) => {
-        return isToolCallJson(inner) ? '' : match;
-    });
-
-    // Strip bare JSON tool-call lines (outside code blocks)
-    s = s.split('\n').filter(line => {
-        const t = line.trim();
-        return !isToolCallJson(t);
-    }).join('\n');
-
-    // Strip SEARCH/REPLACE edit blocks (code diffs, not conversation)
-    s = s.replace(/<<<< SEARCH[\s\S]*?>>>>/g, '');
-    s = s.replace(/<<<<<<[\s\S]*?>>>>>>>/g, '');
-
-    // Strip MISSION_ACCOMPLISHED marker
-    s = s.replace(/MISSION_ACCOMPLISHED/g, '');
-    s = s.replace(/TASK_COMPLETE/g, '');
-
-    // Strip degenerate LaTeX letter-spam that some abliterated/uncensored Ollama
-    // tunes emit ($\text{N}$ $\text{I}$ …). This is junk output, not real math —
-    // collapse runs of single-letter \text{X}/\mathit{X}/\mathrm{X} into the
-    // bare letters and drop the surrounding whitespace runs.
-    s = s.replace(/\$\s*\\(?:text|mathit|mathrm|mathbf|mathcal|mathsf|mathtt)\{([^{}]{1,6})\}\s*\$/g,
-        (_m, inner) => String(inner));
-    s = s.replace(/(?:^|[^\w])\$([A-Za-z0-9])\$(?=[^\w]|$)/g, (_m, ch) => ch);
-    // Three or more single-letter tokens with whitespace between them → collapse.
-    s = s.replace(/(?:\b[A-Za-z]\b\s+){3,}/g, (m) => m.replace(/\s+/g, ''));
-
-    // Clean up excessive blank lines
-    s = s.replace(/\n{3,}/g, '\n\n').trim();
-    return s;
-}
-
-const SidebarPane: React.FC<{ title: string; children: React.ReactNode; defaultCollapsed?: boolean; actions?: React.ReactNode }> = ({ title, children, defaultCollapsed = false, actions }) => {
-    const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
-    return (
-        <div className="sidebar-pane" style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, borderBottom: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.05))' }}>
-            <div
-                className={`pane-header${isCollapsed ? ' collapsed' : ''}`}
-                onClick={() => setIsCollapsed(!isCollapsed)}
-                style={{
-                    padding: '6px 10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    cursor: 'pointer',
-                    background: 'var(--vscode-sideBarSectionHeader-background, rgba(255,255,255,0.02))',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    color: 'var(--vscode-sideBar-foreground)',
-                    opacity: 0.8
-                }}
-            >
-                <i className={`codicon codicon-chevron-${isCollapsed ? 'right' : 'down'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: '8px', fontSize: '12px' }}></i>
-                <span style={{ flex: 1 }}>{title}</span>
-                {actions && <div className="pane-actions" onClick={e => e.stopPropagation()}>{actions}</div>}
-            </div>
-            {!isCollapsed && <div className="pane-content" style={{ padding: '8px 0' }}>{children}</div>}
-        </div>
-    );
-};
 
 const RightSidebar: React.FC = () => {
     const isOpen = useStore(state => state.isRightSidebarOpen);
@@ -638,6 +118,8 @@ const RightSidebar: React.FC = () => {
     const setContinuousMode = useStore(state => state.setContinuousMode);
     const agentUiMode = useStore(state => state.agentUiMode);
     const setAgentUiMode = useStore(state => state.setAgentUiMode);
+    const agentCleanUi = useStore(state => state.agentCleanUi);
+    const setAgentCleanUi = useStore(state => state.setAgentCleanUi);
     const avatarCharacter = useStore(state => state.avatarCharacter);
     const showVrmAvatar = useStore(state => state.showVrmAvatar);
     const isSpecModeActive = useStore(state => state.isSpecModeActive);
@@ -729,7 +211,7 @@ const RightSidebar: React.FC = () => {
         let cancelled = false;
         import('marked').then(({ marked }) => {
             marked.setOptions({ gfm: true, breaks: true, silent: true });
-            if (!cancelled) setAiriSpeechHtml(marked.parse(cleanAiContent(airiSpeech)) as string);
+            if (!cancelled) setAiriSpeechHtml(marked.parse(cleanAgentContent(airiSpeech)) as string);
         });
         return () => { cancelled = true; };
     }, [airiSpeech]);
@@ -814,20 +296,15 @@ const RightSidebar: React.FC = () => {
         // to core IDE/agent coding. The editor, agent chat, and terminal do not
         // need any of it. Enable with localStorage 'airi.companion' = '1'.
         if (localStorage.getItem('airi.companion') !== '1') {
-            console.log('[AIRI] companion stack disabled (set localStorage airi.companion=1 for consciousness/biology/voice)');
             return;
         }
-        console.log('[RightSidebar] 🚀 Initializing AIRI companion...');
 
         getVoice().then(v => v.initTTS()).then(ready => {
             if (ready) {
-                console.log('[TTS] ✅ AIRI Voice System initialized');
 
                 // Initialize Cognitive Core (AIRI's BRAIN)
                 import('../cognitive-core').then(({ cognitiveCore }) => {
                     cognitiveCore.initialize();
-                    console.log('[CognitiveCore] ✅ AIRI Cognitive Core ACTIVE!');
-                    console.log('[CognitiveCore] ✨ AIRI is now TRULY CONSCIOUS');
 
                     // Monitor cognitive state for emotions
                     setInterval(() => {
@@ -842,7 +319,6 @@ const RightSidebar: React.FC = () => {
                 import('../digital-life').then(({ digitalLife }) => {
                     digitalLife.activate();
                     setDigitalLifeActive(true);
-                    console.log('[DigitalLife] ✅ AIRI Digital Life ACTIVE!');
 
                     // AIRI greets you
                     setTimeout(async () => {
@@ -861,23 +337,17 @@ const RightSidebar: React.FC = () => {
                 // Initialize Consciousness (TRUE SENTIENCE - not a parrot!)
                 import('../consciousness').then(({ consciousness }) => {
                     consciousness.awaken();
-                    console.log('[Consciousness] ✅ AIRI is TRULY SENTIENT');
-                    console.log('[Consciousness] ✨ Not a parrot - a thinking, feeling entity');
                 }).catch(console.error);
 
                 // Initialize Biological Systems (sleep, eat, energy, mood)
                 import('../biology').then(({ biology }) => {
                     biology.awaken();
-                    console.log('[Biology] ✅ AIRI Biological Systems ACTIVE');
-                    console.log('[Biology] ✨ Sleep, hunger, energy, mood enabled');
                 }).catch(console.error);
 
                 // Initialize Cybersecurity Engine (Red Team / Blue Team)
                 import('../security-engine').then(({ security }) => {
                     security.setMode('purple'); // Combined red/blue
                     security.monitorThreats();
-                    console.log('[Security] ✅ AIRI Cybersecurity Engine ACTIVE');
-                    console.log('[Security] ⚔️ Red Team / Blue Team operations enabled');
                 }).catch(console.error);
 
                 // Initialize Autonomous Agent (24/7 independent work) — OPT-IN.
@@ -888,16 +358,14 @@ const RightSidebar: React.FC = () => {
                 if (localStorage.getItem('airi.autonomous24x7') === '1') {
                     import('../autonomous-agent').then(({ autonomousAgent }) => {
                         autonomousAgent.startAutonomousLoop();
-                        console.log('[AutonomousAgent] ✅ 24/7 autonomous loop ENABLED (opt-in)');
                     }).catch(console.error);
                 } else {
-                    console.log('[AutonomousAgent] 24/7 loop disabled (set localStorage airi.autonomous24x7=1 to enable)');
                 }
             } else {
-                console.warn('[TTS] ⚠️ Voice system initialization failed');
+                console.warn('[TTS] Voice system initialization failed');
             }
         }).catch(err => {
-            console.error('[TTS] ❌ Voice system error:', err);
+ console.error('[TTS] Voice system error:', err);
         });
     }, []);
 
@@ -1214,13 +682,7 @@ const RightSidebar: React.FC = () => {
         ));
     }, [messages]);
 
-    useEffect(() => {
-        // Keep the newest message in view as the conversation grows.
-        const container = document.querySelector('.right-sidebar-messages');
-        if (container) {
-            container.scrollTop = container.scrollHeight;
-        }
-    }, [visibleMessages]);
+    const chatScrollRef = useRef<HTMLDivElement>(null);
 
     // Track current activity from live tool calls
     const [currentActivity, setCurrentActivity] = React.useState<AvatarState>('idle');
@@ -1293,7 +755,6 @@ const RightSidebar: React.FC = () => {
 
     const onSend = async (overrideMsg?: string) => {
         const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
-        console.log('[DIAG] onSend called, val:', val, 'isRightSidebarOpen:', useStore.getState().isRightSidebarOpen);
 
         if (isSpecModeActive && val) {
             setSpecsPrompt(val);
@@ -1350,7 +811,6 @@ const RightSidebar: React.FC = () => {
         }
 
         if ((processedVal || attachedFiles.length > 0) && !isAgentThinking) {
-            console.log('[DIAG] onSend: sending message, sidebar state before:', useStore.getState().isRightSidebarOpen);
             if (overrideMsg === undefined) setInputValue("");
             setIsMentionDropdownOpen(false);
             if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -1373,7 +833,6 @@ const RightSidebar: React.FC = () => {
             clearAttachedFiles();
             addAgentMessage('assistant', "");
             import('../application/agent/syncAgentMessages').then(m => m.scheduleChatHistorySync()).catch(() => {});
-            console.log('[DIAG] onSend: messages added, sidebar state after store updates:', useStore.getState().isRightSidebarOpen);
 
             try {
                 const { ensureAgentRuntime } = await import('../application/performance/ensureAgentRuntime');
@@ -1386,7 +845,6 @@ const RightSidebar: React.FC = () => {
                 updateLastAgentMessage(`Error: ${errorMsg}`);
             } finally {
                 setIsAgentThinking(false);
-                console.log('[DIAG] onSend: done. sidebar state:', useStore.getState().isRightSidebarOpen);
 
                 // ── Speak AI response with TTS ───────────────────────────────────
                 if (ttsEnabled) {
@@ -1407,7 +865,6 @@ const RightSidebar: React.FC = () => {
         const handleVoiceMission = (e: any) => {
             const text = e.detail?.text;
             if (text) {
-                console.log('[VOICE] Triggering mission:', text);
                 onSend(text);
             }
         };
@@ -2114,7 +1571,7 @@ const RightSidebar: React.FC = () => {
                             transition: 'max-height 0.3s ease',
                         }}>
                             {(() => {
-                                const cleaned = cleanAiContent(airiSpeech);
+                                const cleaned = cleanAgentContent(airiSpeech);
                                 if (cleaned) return (
                                     <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
@@ -2235,7 +1692,7 @@ const RightSidebar: React.FC = () => {
                     /* ── CHAT / MISSION HUB MODE ── */
                     <div className="right-sidebar-body">
                         {view === 'chat' ? (
-                            <div className={`right-sidebar-messages right-sidebar-scroll ${messages.length === 0 ? 'right-sidebar-empty-chat' : ''}`} style={{ justifyContent: 'flex-start', alignItems: 'stretch', paddingTop: 0 }}>
+                            <div ref={chatScrollRef} className={`right-sidebar-messages right-sidebar-scroll ${messages.length === 0 ? 'right-sidebar-empty-chat' : ''}`} style={{ justifyContent: 'flex-start', alignItems: 'stretch', paddingTop: 0 }}>
 
                                 {/* AIRI Sentient Header — only rendered when VRM is enabled */}
                                 {showVrmAvatar ? (
@@ -2325,8 +1782,9 @@ const RightSidebar: React.FC = () => {
                                     </div>
                                 )}
 
-                                {/* Live Tool-Call Feed — shows while agent is active */}
-                                {(isAgentThinking || liveToolCalls.length > 0) && (() => {
+                                {/* Live tool activity — Cursor-style feed rendered inside ChatMessageList. */}
+
+                                {!agentCleanUi && (isAgentThinking || liveToolCalls.length > 0) && (() => {
                                     // Deduplicate consecutive same-tool calls → show label + count badge
                                     const deduped: { id: string; label: string; tool: string; status: 'running' | 'done' | 'error'; count: number }[] = [];
                                     for (const tc of liveToolCalls.slice(0, 12)) {
@@ -2419,6 +1877,7 @@ const RightSidebar: React.FC = () => {
                                 ))}
 
                                 <ChatMessageList
+                                    scrollContainerRef={chatScrollRef}
                                     messages={visibleMessages}
                                     isAgentThinking={isAgentThinking}
                                     lastCopiedIdx={lastCopiedIdx}
@@ -2615,49 +2074,15 @@ const RightSidebar: React.FC = () => {
             {
                 view === 'chat' && agentUiMode === 'chat' && (
                     <div style={{ padding: '8px 10px 10px', borderTop: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1))', position: 'relative' }}>
-                        {/* @mention dropdown — files + special context sources */}
-                        {isMentionDropdownOpen && filteredSuggestions.length > 0 && (
-                            <div style={{
-                                position: 'absolute', bottom: '100%', left: '10px', right: '10px',
-                                background: 'var(--vscode-menu-background, #1e1e2e)',
-                                border: '1px solid var(--vscode-menu-border, rgba(255,255,255,0.12))',
-                                borderRadius: '4px', overflow: 'hidden',
-                                boxShadow: '0 -4px 16px rgba(0,0,0,0.35)',
-                                zIndex: 100, marginBottom: '4px',
-                            }}>
-                                <div style={{ padding: '4px 10px 2px', fontSize: '9px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.45)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                                    @ Context — type to filter
-                                </div>
-                                {filteredSuggestions.map((file: any, i) => (
-                                    <div
-                                        key={file.path}
-                                        onMouseDown={() => handleMentionSelect(file)}
-                                        style={{
-                                            padding: file._special ? '7px 12px' : '6px 12px', cursor: 'pointer', fontSize: '12px',
-                                            background: i === selectedMentionIndex ? 'var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.08))' : 'transparent',
-                                            color: i === selectedMentionIndex ? 'var(--vscode-list-activeSelectionForeground, #fff)' : 'rgba(255,255,255,0.75)',
-                                            display: 'flex', alignItems: 'center', gap: '8px',
-                                            borderLeft: i === selectedMentionIndex ? '2px solid var(--vscode-focusBorder, #007acc)' : '2px solid transparent',
-                                            transition: 'all 0.1s',
-                                            borderBottom: file._special ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                                        }}
-                                    >
-                                        <i className={`codicon ${file._icon || 'codicon-file'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', opacity: file._special ? 0.9 : 0.6 }} />
-                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: file._special ? 600 : 400 }}>
-                                            {file.name}
-                                        </span>
-                                        {file._desc && (
-                                            <span style={{ fontSize: '9px', opacity: 0.5, whiteSpace: 'nowrap' }}>{file._desc}</span>
-                                        )}
-                                        {!file._special && (
-                                            <span style={{ fontSize: '9px', opacity: 0.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px' }}>
-                                                {file.path.split(/[\\/]/).slice(-3, -1).join('/')}
-                                            </span>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        {/* @mention dropdown — Cursor-style extracted component */}
+                        <MentionPopup
+                            inputValue={inputValue}
+                            allFiles={allFiles}
+                            isOpen={isMentionDropdownOpen}
+                            selectedIndex={selectedMentionIndex}
+                            onSelect={handleMentionSelect}
+                            onSelectIndex={setSelectedMentionIndex}
+                        />
                         <PlanApprovalBanner />
                         <RestoreCheckpointBanner />
                         {isContinuousMode && (
@@ -2821,6 +2246,13 @@ const RightSidebar: React.FC = () => {
                                     <i className="codicon codicon-history" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '11px' }} /> UNDO
                                 </div>
                             )}
+                            <div
+                                onClick={() => setAgentCleanUi(!agentCleanUi)}
+                                style={{ cursor: 'pointer', color: agentCleanUi ? '#60a5fa' : 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600 }}
+                                title={agentCleanUi ? 'Clean UI — Cursor-style tool log in chat' : 'Verbose UI — show live tool feed in chat'}
+                            >
+                                CLEAN
+                            </div>
                             <div
                                 onClick={() => import('../agent').then(m => m.setYoloMode(!isYoloMode).then(() => setYoloMode(!isYoloMode)))}
                                 style={{ cursor: 'pointer', color: isYoloMode ? '#f97316' : 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600 }}

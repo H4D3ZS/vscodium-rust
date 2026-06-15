@@ -1,0 +1,34 @@
+{
+  "id": "cascade-1780999000704",
+  "objective": "Agent mission",
+  "status": "running",
+  "started_at": 1780999036180,
+  "finished_at": null,
+  "steps": [
+    {
+      "id": "step-1780999036180-sfvyn3",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "what is our code all about",
+      "tool": null,
+      "timestamp": 1780999036180,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    },
+    {
+      "id": "step-1780999129548-qws7xb",
+      "kind": "phase",
+      "title": "User turn",
+      "detail": "introduce yourself",
+      "tool": null,
+      "timestamp": 1780999129548,
+      "success": null,
+      "subagent_id": null,
+      "media_path": null
+    }
+  ],
+  "subagents": [],
+  "artifact_paths": [],
+  "summary": null
+}

@@ -44,15 +44,17 @@ def ensure_browser(args):
     # headless=False (default) = a REAL visible Firefox window — this is the
     # user-facing browser. The agent drives this same instance, so what the agent
     # does is visible. Pass headless=True only for pure background automation.
+    headless = bool(args.get("headless", False))
     kwargs = {
         "humanize": bool(args.get("humanize", True)),
-        "headless": bool(args.get("headless", False)),
+        "headless": headless,
     }
     if args.get("seed") is not None:
         kwargs["seed"] = args["seed"]
     if args.get("proxy"):
         kwargs["proxy"] = args["proxy"]
-    log("[sidecar] launching stealth Firefox (visible window; first run downloads it)...")
+    mode = "hidden desktop" if headless else "visible window"
+    log(f"[sidecar] launching stealth Firefox ({mode}; first run downloads it)...")
     _ip = InvisiblePlaywright(**kwargs)
     _browser = _ip.__enter__()
     _page = _browser.new_page()
@@ -173,6 +175,18 @@ def do(action, args):
 
     if action == "cookies":
         return {"cookies": _page.context.cookies()}
+
+    if action == "add_cookies":
+        # Restore a previously-saved login. Cookies are added to the context
+        # (carried on every request); localStorage is restored separately via
+        # `eval` once the origin is loaded. Bad/expired cookies are ignored.
+        cookies = args.get("cookies") or []
+        if cookies:
+            try:
+                _page.context.add_cookies(cookies)
+            except Exception as e:
+                log(f"[sidecar] add_cookies partial failure: {e}")
+        return {"added": len(cookies)}
 
     if action == "http":
         # Send a crafted request through the browser's network context (carries

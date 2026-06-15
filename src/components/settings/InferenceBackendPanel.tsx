@@ -39,7 +39,16 @@ const InferenceBackendPanel: React.FC = () => {
                     type="radio"
                     name="inference-backend"
                     checked={backend === 'ollama'}
-                    onChange={() => setBackend('ollama')}
+                    onChange={async () => {
+                        setBackend('ollama');
+                        // Auto-downgrade APEX models when Ollama is selected
+                        try {
+                            const { invoke } = await import('../../tauri_bridge');
+                            await invoke('apex_set_local_mode', { smallModel: 'qwen3.5:2b' });
+                        } catch (err) {
+                            console.warn('Failed to auto-downgrade APEX models:', err);
+                        }
+                    }}
                 />
                 Ollama — {statusDot(ollamaStatus)} ({ollamaUrl})
             </label>

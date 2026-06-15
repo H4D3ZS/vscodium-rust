@@ -1,33 +1,21 @@
-import React, { useState } from 'react';
+/**
+ * ChatMessage — Cursor-style clean message rendering.
+ * Chat messages show ONLY the assistant's text (and thinking block).
+ * Tool activity is rendered separately in ActivityPanel.
+ */
+import React from 'react';
 import MessageBody from '../agent/MessageBody';
+import ComposerThinkingBlock from './ComposerThinkingBlock';
 import type { AgentMessage } from '../../store';
-
-function cleanAiContent(raw: string): string {
-    if (!raw) return '';
-    let s = raw;
-    s = s.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
-    s = s.replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '');
-    s = s.replace(/<function>[\s\S]*?<\/function>/g, '');
-    s = s.replace(/<invoke>[\s\S]*?<\/invoke>/g, '');
-    s = s.replace(/```[a-z]*\n([\s\S]*?)```/gi, (match, inner) => {
-        try {
-            const t = inner.trim();
-            if ((t.startsWith('{') || t.startsWith('[')) && JSON.parse(t) && typeof JSON.parse(t) === 'object') {
-                const p = JSON.parse(t);
-                if ('name' in p && ('arguments' in p || 'input' in p)) return '';
-            }
-        } catch { /* not JSON */ }
-        return match;
-    });
-    s = s.replace(/MISSION_ACCOMPLISHED|TASK_COMPLETE/g, '');
-    s = s.replace(/\n{3,}/g, '\n\n').trim();
-    return s;
-}
+import { useStore } from '../../store';
+import { cleanAgentContent } from '../../domain/agent/cleanAgentContent';
+import { shouldAutoAcceptEverything } from '../../lib/agentAutonomy';
 
 interface ChatMessageProps {
     msg: AgentMessage;
     idx: number;
     isAgentThinking: boolean;
+    isLastMessage?: boolean;
     onCopy: (content: string, idx: number) => void;
     onEditStart: (idx: number, content: string) => void;
     onRestoreCheckpoint?: (msg: AgentMessage) => void;
@@ -40,21 +28,22 @@ interface ChatMessageProps {
 }
 
 const ChatMessage: React.FC<ChatMessageProps> = ({
-    msg, idx, isAgentThinking,
+    msg, idx, isAgentThinking, isLastMessage,
     onCopy, onEditStart, onRestoreCheckpoint,
     lastCopiedIdx, editingMsgIdx, editValue,
     onEditChange, onEditSave, onEditCancel,
 }) => {
-    const cleaned = cleanAiContent(msg.content || '');
+    const agentMode = useStore((s) => s.agentMode);
+    const cleaned = cleanAgentContent(msg.content || '');
     const hasContent = !!cleaned;
     const hasThoughts = !!msg.thoughts;
-    const hasSteps = msg.steps && msg.steps.length > 0;
     const hasContext = msg.context && msg.context.length > 0;
-    const shouldRender = hasContent || hasThoughts || hasSteps || hasContext;
-    if (!shouldRender) return null;
+    // Only render if there's actual text content or thoughts — no tool blocks inline
+    if (!hasContent && !hasThoughts && !hasContext) return null;
 
     return (
         <div className="agent-message-container" style={{ padding: '6px 10px', position: 'relative' }}>
+            {/* Header: role label + actions */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                 <span style={{ fontSize: '10px', fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     {msg.role === 'user'
@@ -89,15 +78,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 </div>
             </div>
 
+            {/* Message body — CLEAN: only text + thinking, no tool blocks */}
             <div style={{
                 background: msg.role === 'user'
                     ? 'rgba(59,130,246,0.06)'
-                    : msg.isSubAgentResponse ? 'rgba(59,130,246,0.03)' : 'rgba(255,255,255,0.01)',
-                padding: '9px 12px',
-                borderRadius: '8px',
+                    : msg.isSubAgentResponse ? 'rgba(59,130,246,0.03)' : 'transparent',
+                padding: msg.role === 'user' ? '9px 12px' : '2px 0',
+                borderRadius: msg.role === 'user' ? '8px' : 0,
                 border: msg.role === 'user'
                     ? '1px solid rgba(59,130,246,0.15)'
-                    : '1px solid rgba(255,255,255,0.04)',
+                    : msg.isSubAgentResponse ? '1px solid rgba(59,130,246,0.10)' : 'none',
             }}>
                 {editingMsgIdx === idx ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -105,38 +95,54 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                             value={editValue}
                             onChange={e => onEditChange(e.target.value)}
                             autoFocus
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--vscode-focusBorder)', color: 'var(--vscode-editor-foreground, #fff)', padding: '8px', borderRadius: '6px', fontSize: '13px', resize: 'vertical', minHeight: '60px', outline: 'none' }}
+                            style={{
+                                background: 'rgba(0,0,0,0.2)', border: '1px solid var(--vscode-focusBorder)',
+                                color: 'var(--vscode-editor-foreground, #fff)', padding: '8px', borderRadius: '6px',
+                                fontSize: '13px', resize: 'vertical', minHeight: '60px', outline: 'none',
+                            }}
                         />
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            <button onClick={onEditCancel} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: 'var(--vscode-editor-foreground, #fff)', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
-                            <button onClick={() => onEditSave(idx)} style={{ background: 'var(--vscode-button-background, #0e639c)', border: 'none', color: 'var(--vscode-button-foreground, #fff)', padding: '4px 12px', borderRadius: '2px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>Resend</button>
+                            <button onClick={onEditCancel} style={{
+                                background: 'transparent', border: '1px solid rgba(255,255,255,0.2)',
+                                color: 'var(--vscode-editor-foreground, #fff)', padding: '4px 8px',
+                                borderRadius: '4px', fontSize: '11px', cursor: 'pointer',
+                            }}>Cancel</button>
+                            <button onClick={() => onEditSave(idx)} style={{
+                                background: 'var(--vscode-button-background, #0e639c)', border: 'none',
+                                color: 'var(--vscode-button-foreground, #fff)', padding: '4px 12px',
+                                borderRadius: '2px', fontSize: '11px', cursor: 'pointer', fontWeight: 600,
+                            }}>Resend</button>
                         </div>
                     </div>
                 ) : (
                     <>
+                        {/* Thinking block — collapsible, shown above text */}
                         {msg.thoughts && (
-                            <details style={{ marginBottom: '8px', opacity: 0.6 }}>
-                                <summary style={{ fontSize: '10px', cursor: 'pointer', fontWeight: 600 }}>Cognitive trace...</summary>
-                                <div style={{ fontSize: '10px', padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>{msg.thoughts}</div>
-                            </details>
+                            <ComposerThinkingBlock
+                                thoughts={msg.thoughts}
+                                durationMs={msg.thoughtDurationMs}
+                                isStreaming={isAgentThinking && isLastMessage}
+                            />
                         )}
-                        {msg.steps && msg.steps.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
-                                {msg.steps.map((step: any, sIdx: number) => {
-                                    const statusColor = step.status === 'running' ? '#3794ff' : step.status === 'success' ? '#89d185' : step.status === 'error' ? '#f48771' : '#555';
-                                    return (
-                                        <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', opacity: 0.7 }}>
-                                            <span style={{ color: statusColor, fontSize: '8px' }}>●</span>
-                                            <span style={{ fontFamily: 'var(--font-mono)' }}>{step.name}</span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
+
+                        {/* Clean text content — NO tool blocks, NO steps */}
+                        {hasContent && (
+                            <MessageBody
+                                content={cleaned}
+                                allowApply={msg.role === 'assistant' && !isAgentThinking && !shouldAutoAcceptEverything(agentMode)}
+                            />
                         )}
-                        {msg.context && msg.context.length > 0 && (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px', opacity: 0.8 }}>
+
+                        {/* Attached context chips */}
+                        {hasContext && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px', opacity: 0.8 }}>
                                 {msg.context.map((item: any, i: number) => (
-                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', fontSize: '10px', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)' }}>
+                                    <div key={i} style={{
+                                        display: 'flex', alignItems: 'center', gap: '4px',
+                                        padding: '2px 6px', background: 'rgba(255,255,255,0.06)',
+                                        borderRadius: '4px', fontSize: '10px',
+                                        border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)',
+                                    }}>
                                         {item.thumbnail
                                             ? <img src={item.thumbnail} style={{ width: '14px', height: '14px', borderRadius: '2px', objectFit: 'cover' }} alt="" />
                                             : <i className="codicon codicon-files" style={{ fontSize: '10px' }} />
@@ -146,7 +152,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                 ))}
                             </div>
                         )}
-                        <MessageBody content={cleaned} allowApply={msg.role === 'assistant' && !isAgentThinking} />
                     </>
                 )}
             </div>
