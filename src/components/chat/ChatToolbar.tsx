@@ -3,12 +3,25 @@
  * Clean pill-based design with consistent hover states.
  */
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '../../store';
 import { Volume2, VolumeX } from 'lucide-react';
 import ScreenRecordingButton from '../agent/ScreenRecordingButton';
 import ModeSwitcher, { AGENT_MODES } from './ModeSwitcher';
 import ModelPicker from './ModelPicker';
 import type { ModelInfo } from './ModelPicker';
+
+/**
+ * Fixed-position wrapper for a dropdown rendered in a body portal. Anchors the
+ * picker to the pill's on-screen rect and opens upward (children use
+ * `bottom: 100%`), clamped to stay inside the viewport. Escapes the toolbar's
+ * overflow-scroll clip that otherwise hides the dropdown.
+ */
+function pickerPortalStyle(anchor: DOMRect, width: number): React.CSSProperties {
+    const margin = 8;
+    const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - width - margin));
+    return { position: 'fixed', left, top: anchor.top, width, zIndex: 1000 };
+}
 
 interface ChatToolbarProps {
     mode: string;
@@ -67,10 +80,27 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
         finally { setIsRefreshingModels(false); }
     }, [refreshAvailableModels]);
 
+    // Pickers render in a fixed-position portal (below) so they escape the
+    // toolbar's horizontal-scroll overflow clip. Capture the pill's screen rect
+    // on open to anchor the portal.
+    const [modelAnchor, setModelAnchor] = useState<DOMRect | null>(null);
+    const [modeAnchor, setModeAnchor] = useState<DOMRect | null>(null);
+
     const openModelPicker = () => {
         setShowModelPicker(v => {
             const next = !v;
-            if (next) void doRefreshModels();
+            if (next) {
+                setModelAnchor(modelRef.current?.getBoundingClientRect() ?? null);
+                void doRefreshModels();
+            }
+            return next;
+        });
+    };
+
+    const openModePicker = () => {
+        setShowModePicker(v => {
+            const next = !v;
+            if (next) setModeAnchor(modeRef.current?.getBoundingClientRect() ?? null);
             return next;
         });
     };
@@ -96,8 +126,12 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
     // Close dropdowns on outside click
     useEffect(() => {
         const handler = (e: MouseEvent) => {
-            if (modeRef.current && !modeRef.current.contains(e.target as Node)) setShowModePicker(false);
-            if (modelRef.current && !modelRef.current.contains(e.target as Node)) setShowModelPicker(false);
+            const t = e.target as HTMLElement;
+            // Pickers live in a body portal — treat clicks inside them as "inside".
+            const inModePortal = !!t.closest?.('[data-portal="mode-picker"]');
+            const inModelPortal = !!t.closest?.('[data-portal="model-picker"]');
+            if (modeRef.current && !modeRef.current.contains(t) && !inModePortal) setShowModePicker(false);
+            if (modelRef.current && !modelRef.current.contains(t) && !inModelPortal) setShowModelPicker(false);
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
@@ -114,7 +148,7 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 {/* Mode selector — Cursor-style pill */}
                 <div ref={modeRef} style={{ position: 'relative' }}>
                     <div
-                        onClick={(e) => { e.stopPropagation(); setShowModePicker(v => !v); }}
+                        onClick={(e) => { e.stopPropagation(); openModePicker(); }}
                         className="vscr-pill"
                         style={{
                             color: currentModeOption.color,
@@ -130,11 +164,14 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                         {currentModeOption.label}
                         <i className="codicon codicon-chevron-down vscr-pill__caret" />
                     </div>
-                    {showModePicker && (
-                        <ModeSwitcher
-                            currentMode={mode}
-                            onSelect={(m) => { setAgentMode(m); setShowModePicker(false); }}
-                        />
+                    {showModePicker && modeAnchor && createPortal(
+                        <div data-portal="mode-picker" style={pickerPortalStyle(modeAnchor, 240)}>
+                            <ModeSwitcher
+                                currentMode={mode}
+                                onSelect={(m) => { setAgentMode(m); setShowModePicker(false); }}
+                            />
+                        </div>,
+                        document.body,
                     )}
                 </div>
 
@@ -149,16 +186,19 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                         <span className="vscr-pill__label">{modelLabel}</span>
                         <i className="codicon codicon-chevron-down vscr-pill__caret" />
                     </div>
-                    {showModelPicker && (
-                        <ModelPicker
-                            models={modelList}
-                            selectedModel={agentModel}
-                            onSelect={(id) => setAgentModel(id)}
-                            onClose={() => setShowModelPicker(false)}
-                            onRefresh={doRefreshModels}
-                            isRefreshing={isRefreshingModels}
-                            ollamaStatus={ollamaStatus}
-                        />
+                    {showModelPicker && modelAnchor && createPortal(
+                        <div data-portal="model-picker" style={pickerPortalStyle(modelAnchor, 300)}>
+                            <ModelPicker
+                                models={modelList}
+                                selectedModel={agentModel}
+                                onSelect={(id) => setAgentModel(id)}
+                                onClose={() => setShowModelPicker(false)}
+                                onRefresh={doRefreshModels}
+                                isRefreshing={isRefreshingModels}
+                                ollamaStatus={ollamaStatus}
+                            />
+                        </div>,
+                        document.body,
                     )}
                 </div>
 
