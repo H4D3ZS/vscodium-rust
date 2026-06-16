@@ -1,0 +1,113 @@
+{
+  "report_date": "2026-03-04",
+  "source": "https://github.com/maderix/ANE/issues/3",
+  "model": "Stories110M (12-layer transformer, 109M params)",
+  "config": {"dim": 768, "hidden": 2048, "heads": 12, "seq": 256, "vocab": 32000, "layers": 12},
+  "training_results": [
+    {
+      "chip": "M1 Pro",
+      "cores": "10-core CPU",
+      "ram_gb": 32,
+      "macos": "15.0",
+      "ms_per_step": [148, 163],
+      "ane_ms": [32, 35],
+      "compile_ms": [7900, 8500],
+      "ane_tflops": [0.57, 0.63],
+      "ane_util_pct": [3.6, 4.0],
+      "benchmarks_pass": false,
+      "notes": "Standalone benchmarks fail (MIL compat). Training works via stories_mil.h.",
+      "contributor": "moriwang"
+    },
+    {
+      "chip": "M1 Max",
+      "cores": "10-core CPU",
+      "ram_gb": 64,
+      "macos": "15.6.1",
+      "ms_per_step": [143, 167],
+      "ane_ms": [35, 45],
+      "compile_ms": [7100, 7100],
+      "ane_tflops": [0.54, 0.65],
+      "ane_util_pct": [3.4, 4.1],
+      "benchmarks_pass": false,
+      "notes": "Same MIL compat issue as M1 Pro.",
+      "contributor": "andyg5000"
+    },
+    {
+      "chip": "M3 Pro",
+      "cores": "12-core CPU",
+      "ram_gb": 36,
+      "macos": "15.7.4",
+      "peak_tflops": 16.77,
+      "sustained_tflops": 15.04,
+      "sustained_util_pct": 95.2,
+      "channel_constraint": "ch=512 only",
+      "notes": "Only ch=512 compiles. 52 values tested. Peak at 128x conv 512ch sp2048.",
+      "contributor": "D-Ogi"
+    },
+    {
+      "chip": "M4 Pro",
+      "cores": "unknown",
+      "ram_gb": null,
+      "macos": null,
+      "ms_per_step": [69, 73],
+      "ane_ms": [8.9, 8.9],
+      "compile_ms": [3465, 3465],
+      "ane_tflops": [1.28, 1.28],
+      "ane_util_pct": [8.1, 8.1],
+      "peak_tflops_inmem": 12.57,
+      "notes": "sram_probe and inmem_bench fail. inmem_peak and training work.",
+      "contributor": "srt54558"
+    },
+    {
+      "chip": "M4 Max",
+      "cores": "unknown",
+      "ram_gb": null,
+      "macos": null,
+      "ms_per_step": [64, 64],
+      "ane_ms": [10.2, 10.2],
+      "compile_ms": [3531, 3531],
+      "ane_tflops": [1.45, 1.45],
+      "ane_util_pct": [9.2, 9.2],
+      "peak_tflops_inmem": 10.93,
+      "notes": "Fastest training ms/step overall.",
+      "contributor": "SethBurkart123"
+    },
+    {
+      "chip": "M5",
+      "cores": "10-core (4P+6E)",
+      "ram_gb": 16,
+      "macos": "26.3",
+      "ms_per_step": [101, 120],
+      "ane_ms": [9.1, 9.8],
+      "compile_ms": [3200, 3400],
+      "ane_tflops": [0.77, 0.91],
+      "ane_util_pct": [4.9, 5.8],
+      "peak_tflops_inmem": 12.44,
+      "notes": "H16 ANE family (same as M4). Training works with existing program(1.3) MIL.",
+      "contributor": "GitBubble"
+    },
+    {
+      "chip": "M5",
+      "cores": "unknown",
+      "ram_gb": 32,
+      "macos": "26.4",
+      "peak_tflops_inmem": 12.17,
+      "notes": "inmem_peak only, no training data submitted.",
+      "contributor": "elijah-pelton"
+    }
+  ],
+  "neural_engine_specs": {
+    "M1":       {"ne_cores": 16, "rated_tops": 11},
+    "M1_Max":   {"ne_cores": 16, "rated_tops": 11},
+    "M1_Ultra": {"ne_cores": 32, "rated_tops": 22},
+    "M2":       {"ne_cores": 16, "rated_tops": 15.8},
+    "M2_Max":   {"ne_cores": 16, "rated_tops": 15.8},
+    "M2_Ultra": {"ne_cores": 32, "rated_tops": 31.6},
+    "M3":       {"ne_cores": 16, "rated_tops": 15.8},
+    "M3_Max":   {"ne_cores": 16, "rated_tops": 15.8},
+    "M3_Ultra": {"ne_cores": 32, "rated_tops": 31.6},
+    "M4":       {"ne_cores": 16, "rated_tops": 38, "note": "INT8/mixed-precision spec"},
+    "M4_Max":   {"ne_cores": 16, "rated_tops": 38, "note": "INT8/mixed-precision spec"},
+    "M5":       {"ne_cores": 16, "rated_tops": null, "estimated_tops": 19}
+  }
+}
