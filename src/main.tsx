@@ -16,10 +16,21 @@ initMonaco();
 // one-time localStorage migration) before panels read preferences.
 void hydrateUiSettings();
 
-// Warm up Ollama model — keeps it in GPU memory so first agent turn is fast
+// Warm up Ollama — keeps main model in GPU so first agent turn is fast
 scheduleDeferredInit(() => {
-    void fetch('http://localhost:11434/api/tags').catch(() => {});
-}, 3_000);
+    // Ping Ollama to keep connection alive
+    fetch('http://localhost:11434/api/tags').catch(() => {});
+    // Pre-load the agent model (non-blocking, takes 30-60s first time)
+    const agentModel = localStorage.getItem('agentModel') || '';
+    const modelTag = agentModel.includes('|') ? agentModel.split('|').slice(1).join('|') : agentModel;
+    if (modelTag) {
+        fetch('http://localhost:11434/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: modelTag, prompt: '', stream: false, keep_alive: '60m' }),
+        }).catch(() => {});
+    }
+}, 5_000);
 
 // Kokoro/VRM error filters — only needed when AIRI avatar loads.
 scheduleDeferredInit(() => { void import('./airi/kokoro-worker-wrapper'); }, 8_000);
