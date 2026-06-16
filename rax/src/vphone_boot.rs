@@ -20,6 +20,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use serde::Deserialize;
+
 use crate::arm::aarch64::{AArch64Config, AArch64Cpu};
 use crate::arm::cpu_trait::{ArmCpu, CpuExit, ProcessorState};
 use crate::arm::memory::{ArmMemory, ExclusiveMonitor, MemResult, MemoryError, MmioHandler};
@@ -76,6 +78,10 @@ struct TracingMem {
     last_dev_valid: Arc<std::sync::atomic::AtomicBool>,
     /// Free-running platform-timer counter (Apple timer window reads).
     timer: Arc<AtomicU64>,
+    /// SEP mailbox: set when host wrote a handshake to SEND; RECV returns READY.
+    sep_ready: Arc<std::sync::atomic::AtomicBool>,
+    /// SMC: set when host triggered a TX_SEND; RX_STATUS then reads "data avail".
+    smc_sent: Arc<std::sync::atomic::AtomicBool>,
     /// Optional RAM write watchpoint [watch, watch+8): records (pc, addr, value).
     watch: Option<u64>,
     watch_hits: Arc<std::sync::Mutex<Vec<(u64, u64, u64)>>>,
@@ -101,6 +107,8 @@ impl TracingMem {
             last_dev: Arc::new(AtomicU64::new(0)),
             last_dev_valid: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             timer: Arc::new(AtomicU64::new(0)),
+            sep_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            smc_sent: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             watch,
             watch_hits: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
@@ -166,55 +174,114 @@ impl TracingMem {
     }
 }
 
-// Apple SoC device window bases (from the C++ DeviceEmulator map + vphone_trace).
-const APPLE_UART_BASE: u64 = 0x2352_00000;
+// Apple SoC device window bases + register layouts, ported from the C++
+// DeviceEmulator / io/* (see rax/vphone/CPP_PORT_MAP.md §2).
+const APPLE_SEP_BASE: u64 = 0x2_1000_0000;
+const APPLE_SEP_SIZE: u64 = 0x1000;
+const APPLE_PMU_BASE: u64 = 0x2_3100_0000;
+const APPLE_PMU_SIZE: u64 = 0x4000;
+const APPLE_UART_BASE: u64 = 0x2_3520_0000;
 const APPLE_UART_SIZE: u64 = 0x4000;
-const APPLE_AIC_BASE: u64 = 0x28E1_00000;
-const APPLE_AIC_SIZE: u64 = 0x10000;
-const APPLE_TIMER_BASE: u64 = 0x23E1_00000;
+const APPLE_SMC_BASE: u64 = 0x2_3B70_0000;
+const APPLE_SMC_SIZE: u64 = 0x10_0000;
+const APPLE_TIMER_BASE: u64 = 0x2_3E10_0000;
 const APPLE_TIMER_SIZE: u64 = 0x1000;
+const APPLE_AIC_BASE: u64 = 0x2_8E10_0000;
+const APPLE_AIC_SIZE: u64 = 0x80_0000;
 
 impl TracingMem {
     /// Service a read to a device window. PL011-compatible UART (the layout the
     /// C++ DeviceTree advertises), AIC (no pending IRQ), and a free-running
     /// timer counter. Everything else reads as 0.
     fn device_read(&self, addr: u64, size: usize) -> u64 {
+        let _ = size;
         if (APPLE_UART_BASE..APPLE_UART_BASE + APPLE_UART_SIZE).contains(&addr) {
-            let off = addr - APPLE_UART_BASE;
-            return match off {
-                // PL011 UARTFR (flags): TXFE set (0x80), TXFF/RXFF clear, RXFE set
-                // (0x10) — i.e. "ready to transmit, nothing to receive".
-                0x18 => 0x90,
+            // PL011: FR (0x18) = TXFE|RXFE (ready to TX, nothing to RX).
+            return if addr - APPLE_UART_BASE == 0x18 { 0x90 } else { 0 };
+        }
+        if (APPLE_AIC_BASE..APPLE_AIC_BASE + APPLE_AIC_SIZE).contains(&addr) {
+            // AIC: INFO (+0x04) = nr_irqs=128, nr_cpus=1; EVENT (+0x2000) = none.
+            return match addr - APPLE_AIC_BASE {
+                0x04 => 0x0000_0401,
                 _ => 0,
             };
         }
-        if (APPLE_AIC_BASE..APPLE_AIC_BASE + APPLE_AIC_SIZE).contains(&addr) {
-            // No interrupt is pending in M1 (delivery comes later); WHOAMI/IACK
-            // and event registers all read 0 so the kernel's IRQ probe passes.
-            return 0;
-        }
         if (APPLE_TIMER_BASE..APPLE_TIMER_BASE + APPLE_TIMER_SIZE).contains(&addr) {
-            // Free-running counter so a kernel busy-wait on the platform timer
-            // makes progress instead of stalling.
-            let _ = size;
-            return self.timer.fetch_add(1, Ordering::Relaxed);
+            return match addr - APPLE_TIMER_BASE {
+                0x00 => self.timer.fetch_add(1, Ordering::Relaxed) & 0xFFFF_FFFF,
+                0x04 => self.timer.load(Ordering::Relaxed) >> 32,
+                0x08 => 1, // CONFIG: enabled
+                _ => 0,
+            };
+        }
+        if (APPLE_SEP_BASE..APPLE_SEP_BASE + APPLE_SEP_SIZE).contains(&addr) {
+            // SEP mailbox: RECV (+0x10) = READY after handshake; STS (+0x20)
+            // bit0=empty (0 = has data).
+            return match addr - APPLE_SEP_BASE {
+                0x10 => {
+                    if self.sep_ready.swap(false, Ordering::Relaxed) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                0x20 => {
+                    if self.sep_ready.load(Ordering::Relaxed) {
+                        0
+                    } else {
+                        1
+                    }
+                }
+                _ => 0,
+            };
+        }
+        if (APPLE_SMC_BASE..APPLE_SMC_BASE + APPLE_SMC_SIZE).contains(&addr) {
+            // SMC MCA: RX_STATUS (+0x24) bit0 = data available after a SEND;
+            // status (+0x30) = 0 (ready); RX FIFO (+0x20) = 0-fill response.
+            return match addr - APPLE_SMC_BASE {
+                0x24 => self.smc_sent.load(Ordering::Relaxed) as u64,
+                _ => 0,
+            };
+        }
+        if (APPLE_PMU_BASE..APPLE_PMU_BASE + APPLE_PMU_SIZE).contains(&addr) {
+            // PMU: POWER_GATE_STATUS (+0x10) = all gates stable.
+            return if addr - APPLE_PMU_BASE == 0x10 { 0x1 } else { 0 };
         }
         0
     }
 
-    /// Service a write to a device window. A UART data-register write is the
-    /// Darwin serial console — emit it to stdout immediately.
+    /// Service a write to a device window. UART DR → Darwin serial console;
+    /// SEP/SMC SEND triggers set the "response ready" state read back above.
     fn device_write(&self, addr: u64, data: &[u8]) {
+        let val = {
+            let mut v = 0u32;
+            for (i, &b) in data.iter().take(4).enumerate() {
+                v |= (b as u32) << (i * 8);
+            }
+            v
+        };
         if (APPLE_UART_BASE..APPLE_UART_BASE + APPLE_UART_SIZE).contains(&addr) {
-            let off = addr - APPLE_UART_BASE;
-            // PL011 UARTDR is offset 0x00; the low byte is the character.
-            if off == 0x00 {
+            if addr - APPLE_UART_BASE == 0x00 {
                 if let Some(&b) = data.first() {
                     use std::io::Write as _;
                     let mut out = std::io::stdout().lock();
                     let _ = out.write_all(&[b]);
                     let _ = out.flush();
                 }
+            }
+            return;
+        }
+        if (APPLE_SEP_BASE..APPLE_SEP_BASE + APPLE_SEP_SIZE).contains(&addr) {
+            // SEND (+0x00) with handshake 0x1/0x3/0x6 → queue READY for RECV.
+            if addr - APPLE_SEP_BASE == 0x00 && matches!(val, 0x1 | 0x3 | 0x6) {
+                self.sep_ready.store(true, Ordering::Relaxed);
+            }
+            return;
+        }
+        if (APPLE_SMC_BASE..APPLE_SMC_BASE + APPLE_SMC_SIZE).contains(&addr) {
+            // TX_SEND (+0x10) dispatch → mark a response available.
+            if addr - APPLE_SMC_BASE == 0x10 {
+                self.smc_sent.store(true, Ordering::Relaxed);
             }
         }
     }
@@ -350,6 +417,101 @@ fn parse_unixthread_entry_va(bytes: &[u8]) -> Option<u64> {
     None
 }
 
+// =============================================================================
+// Data-driven boot manifest (Part A.1)
+//
+// All experimental fixes — extra seeds, instruction NOPs, byte patches, and
+// function stubs — live in a TOML manifest loaded at runtime, so iterating on a
+// blocker needs NO rebuild: edit the manifest and re-run. The built-in
+// `apply_styx_seeds()` provides the verified base; the manifest layers on top.
+// =============================================================================
+
+#[derive(Deserialize, Default, Debug)]
+struct Manifest {
+    #[serde(default)]
+    seed: Vec<SeedEntry>,
+    #[serde(default)]
+    nop: Vec<NopEntry>,
+    #[serde(default)]
+    patch: Vec<PatchEntry>,
+    #[serde(default)]
+    stub: Vec<StubEntry>,
+}
+
+#[derive(Deserialize, Debug)]
+struct SeedEntry {
+    addr: u64,
+    width: u8,
+    value: u64,
+    #[serde(default)]
+    note: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct NopEntry {
+    addr: u64,
+    #[serde(default)]
+    note: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct PatchEntry {
+    addr: u64,
+    bytes: String, // hex, e.g. "1f2003d5"
+    #[serde(default)]
+    note: String,
+}
+
+/// Patch a function entry so it returns immediately: `MOV W0,#ret_value; RET`.
+/// Used for single-CPU lock short-circuits and device/IOKit stubs.
+#[derive(Deserialize, Debug)]
+struct StubEntry {
+    addr: u64,
+    #[serde(default)]
+    ret_value: u32,
+    #[serde(default)]
+    note: String,
+}
+
+fn apply_manifest(mem: &mut TracingMem, path: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| Error::InvalidConfig(format!("manifest {}: {e}", path.display())))?;
+    let m: Manifest = toml::from_str(&text)
+        .map_err(|e| Error::InvalidConfig(format!("manifest parse {}: {e}", path.display())))?;
+
+    for s in &m.seed {
+        let bytes = s.value.to_le_bytes();
+        let w = (s.width as usize).min(8);
+        mem.load_bytes(s.addr, &bytes[..w])?;
+    }
+    for n in &m.nop {
+        mem.load_bytes(n.addr, &0xD503_201Fu32.to_le_bytes())?;
+    }
+    for p in &m.patch {
+        let raw: Vec<u8> = (0..p.bytes.len() / 2)
+            .map(|i| u8::from_str_radix(&p.bytes[i * 2..i * 2 + 2], 16))
+            .collect::<std::result::Result<_, _>>()
+            .map_err(|e| Error::InvalidConfig(format!("patch hex: {e}")))?;
+        mem.load_bytes(p.addr, &raw)?;
+    }
+    for st in &m.stub {
+        // MOV W0,#imm16 (0x52800000 | imm<<5) ; RET (0xD65F03C0)
+        let mov = 0x5280_0000u32 | ((st.ret_value & 0xFFFF) << 5);
+        mem.load_bytes(st.addr, &mov.to_le_bytes())?;
+        mem.load_bytes(st.addr + 4, &0xD65F_03C0u32.to_le_bytes())?;
+    }
+    diag!(
+        "[vphone-boot] manifest {}: {} seeds, {} nops, {} patches, {} stubs",
+        path.display(),
+        m.seed.len(),
+        m.nop.len(),
+        m.patch.len(),
+        m.stub.len()
+    );
+    let _ = (&m.seed, &m.nop, &m.patch, &m.stub); // notes are documentation-only
+    Ok(())
+}
+
 /// Configuration for a dynamic boot run.
 pub struct BootConfig {
     pub kernel: std::path::PathBuf,
@@ -366,6 +528,8 @@ pub struct BootConfig {
     pub break_pc: Option<u64>,
     /// Only honor break_pc after this many instructions (skip early benign hits).
     pub break_after: u64,
+    /// Optional data-driven manifest (extra seeds/nops/patches/stubs).
+    pub manifest: Option<std::path::PathBuf>,
 }
 
 // iBoot-equivalent boot seeds, specific to this kernelcache (iOS 26.1
@@ -391,6 +555,99 @@ const EVENT_STREAM_BIT_IDX: u64 = 0x8171_1c98; // ADRP 0x81711000 + LDR #3224
 const EVENT_STREAM_BIT_IDX_VAL: u32 = 4; // floor(log2(24MHz/1MHz)) - 1
 const TIMER_FREQ_GLOBAL: u64 = 0x8171_2048; // ADRP 0x81712000 + LDR #72
 const TIMER_FREQ_VAL: u64 = 24_000_000; // 24 MHz
+
+/// 30 runtime-gate NOPs from the C++ Styx `kGateNops` (kernelcache digest
+/// 7fbcacda36851b1b). Each is a guest PC whose instruction the C++ replaces with
+/// NOP to bypass an early-boot check/spin. NOP = 0xD503201F.
+const STYX_GATE_NOPS: &[u64] = &[
+    0x81AF4AE8, 0x81AF4B84, 0x81AF4D4C, 0x81AF4D5C, 0x81AF4FD4, 0x81AF4FF0, 0x81AF5204,
+    0x81AE0260, 0x81AE0BC4, 0x81AE8F4C, 0x81AEA318, 0x81AEA31C, 0x81AEA3B0, 0x81AEFB8C,
+    0x81AF0C4C, 0x81AF0D9C, 0x81AF0E2C, 0x81AF2434, 0x81AF56FC, 0x81B03048, 0x81B0C488,
+    0x81B0D000, 0x81B0D098, 0x81B0D170, 0x81B0D23C, 0x81B0D92C, 0x81B0EAC0, 0x81B0F398,
+    0x81B0FE90, 0x81C51B80,
+];
+
+/// Port of the C++ Styx seed machinery (WindowsHypervisor.cpp): the boot-CPU
+/// data structure (two objects: `rec` + `cpu_data`), the BSS/FILESET metadata
+/// seeds, the timer/fileset/scheduler dispatch stubs, and the runtime-gate NOPs.
+/// These are digest-specific to this exact kernelcache and reproduce the in-RAM
+/// state iBoot/early-boot would leave, so XNU's validation paths pass.
+fn apply_styx_seeds(mem: &mut TracingMem) -> Result<()> {
+    let w64 = |mem: &mut TracingMem, addr: u64, v: u64| mem.load_bytes(addr, &v.to_le_bytes());
+    let w32 = |mem: &mut TracingMem, addr: u64, v: u32| mem.load_bytes(addr, &v.to_le_bytes());
+
+    // --- Boot-CPU data structure (WindowsHypervisor.cpp ~745-776) ---
+    const REC_PA: u64 = 0x80A0_0000; // the per-CPU "record" (CpuDataEntries[0].cpu_data)
+    const CPU_DATA_PA: u64 = 0x80B0_0000; // the cpu_data the trampoline puts in TPIDR_EL1
+    const INT_STK: u64 = 0x80C1_0000;
+    const THR_STK: u64 = 0x80CA_0000;
+    const PLATFORM_INIT_FN: u64 = 0x81C4_8834; // rec[0xB8] validated target (IDA)
+
+    // cpu_data: zeroed 0x2000, self-ptr at +0, back-ptr to rec at +0x198.
+    w64(mem, CPU_DATA_PA, CPU_DATA_PA)?;
+    w64(mem, CPU_DATA_PA + 0x198, REC_PA)?;
+    // rec: stacks, cpu_data ptr (-> TPIDR_EL1), platform-init fn, cpu id 0.
+    w64(mem, REC_PA + 0x18, THR_STK)?;
+    w64(mem, REC_PA + 0x28, INT_STK)?;
+    w64(mem, REC_PA + 0x30, CPU_DATA_PA)?;
+    w64(mem, REC_PA + 0x68, CPU_DATA_PA)?;
+    w64(mem, REC_PA + 0xB8, PLATFORM_INIT_FN)?;
+    w32(mem, REC_PA + 0x1C8, 0)?; // boot CPU id == MPIDR&0xff
+    // CpuDataEntries[0] -> rec (table+0 = 0, table+8 = rec_pa).
+    w64(mem, CPU_DATA_ENTRIES, 0)?;
+    w64(mem, CPU_DATA_ENTRIES + 8, REC_PA)?;
+
+    // --- BSS seeds (StyxRuntimeGates.generated.hpp kBssSeeds) ---
+    w64(mem, 0x8178_4570, 1)?;
+    w32(mem, 0x8383_7530, 1)?;
+
+    // --- FILESET metadata seeds (page GPA 0x81784000) ---
+    let fp = 0x8178_4000u64;
+    w64(mem, fp + 0x248, 0x8100_4000)?;
+    w64(mem, fp + 0x250, 0x839F_0000)?;
+    w64(mem, fp + 0x268, 0x8100_4000)?;
+    w64(mem, fp + 0x270, 0x839F_0000)?;
+    w64(mem, fp + 0x290, 0x8100_4000)?;
+    w64(mem, fp + 0x298, 0x839F_0000)?;
+    w64(mem, fp + 0x460, 0x8100_0000)?;
+    w64(mem, fp + 0x3E0, 0x8384_3C00)?;
+
+    // --- Timer dispatch seed: global -> object -> vtable -> method(ret 0) ---
+    w32(mem, 0x8384_3A00, 0x5280_0000)?; // method: mov w0,#0
+    w32(mem, 0x8384_3A04, 0xD65F_03C0)?; // method: ret
+    w64(mem, 0x8384_3900 + 0x5B8, 0x8384_3A00)?; // vtable[0x5B8] = method
+    w64(mem, 0x8384_3800, 0x8384_3900)?; // object[0] = vtable
+    w64(mem, 0x8384_37A0, 0x8384_3800)?; // global = object
+
+    // --- FILESET entry dispatch stub (returns offset 0xC) ---
+    w64(mem, 0x8384_3C00 + 0x0C, 0x0C)?;
+    w64(mem, 0x8178_43E0, 0x8384_3C00)?;
+    w64(mem, 0x8381_2E30, 0x8384_3C00)?;
+
+    // --- Scheduler callback seed ---
+    const SCHED_ROOT: u64 = 0x837B_7000;
+    const SCHED_NODE: u64 = 0x837B_7100;
+    const SCHED_METHOD: u64 = 0x8384_3E00;
+    const SCHED_VTABLE: u64 = 0x8384_3F00;
+    w32(mem, SCHED_METHOD, 0x5280_0000)?;
+    w32(mem, SCHED_METHOD + 4, 0xD65F_03C0)?;
+    w64(mem, SCHED_VTABLE, SCHED_METHOD)?;
+    w64(mem, SCHED_NODE + 0x008, SCHED_METHOD)?;
+    w64(mem, SCHED_ROOT + 0x000, SCHED_NODE)?;
+    w64(mem, SCHED_ROOT + 0x008, SCHED_METHOD)?;
+    w64(mem, SCHED_ROOT + 0x5F0, SCHED_VTABLE)?;
+
+    // --- Runtime-gate NOPs ---
+    for &pc in STYX_GATE_NOPS {
+        w32(mem, pc, 0xD503_201F)?;
+    }
+
+    diag!(
+        "[vphone-boot] applied Styx seeds: rec@{REC_PA:#x} cpu_data@{CPU_DATA_PA:#x}, {} gate NOPs",
+        STYX_GATE_NOPS.len()
+    );
+    Ok(())
+}
 
 /// Execute the kernelcache on the AArch64 interpreter and return findings.
 pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
@@ -455,30 +712,17 @@ pub fn boot_and_trace(cfg: &BootConfig) -> Result<BootRun> {
     }
 
     if cfg.seed {
-        // Each 0x10-byte CpuDataEntries slot holds its cpu_data pointer at +8
-        // (the trampoline does `LDR Xn,[Xtable,#8]`). Point entry[0].cpu_data at
-        // the zeroed scratch page; its cpu id field (at +0x1C8) is 0 == MPIDR&0xff
-        // for the boot CPU, so the trampoline's search matches and exits.
-        let slot = CPU_DATA_ENTRIES + 8;
-        mem.load_bytes(slot, &CPU_DATA_SCRATCH.to_le_bytes())?;
+        // Full C++ Styx seed port: two-object cpu_data (rec @0x80A00000 +
+        // cpu_data @0x80B00000), BSS/FILESET/dispatch seeds, and 30 gate NOPs.
+        // Replaces the earlier single-scratch approach, which left TPIDR_EL1 and
+        // the per-CPU reads landing in invalid memory (pmap_startup spin).
+        apply_styx_seeds(&mut mem)?;
+        let _ = CPU_DATA_SCRATCH; // retained for reference / other diagnostics
+    }
 
-        // Minimal cpu_data struct fields the boot trampoline consumes right after
-        // finding its entry (iBoot would have set these up):
-        //   +0x18, +0x28 → per-CPU stack tops (loaded into SP)
-        //   +0xB8        → a pointer that must be non-null (CBZ → panic otherwise)
-        // Stacks live in dedicated zeroed RAM pages below boot_args.
-        const BOOT_STACK_TOP: u64 = 0x8068_0000; // grows down, below SP_BASE
-        const INTR_STACK_TOP: u64 = 0x8060_0000;
-        // +0xB8 is validated against one of two known kernel pointers
-        // (ADRP@0x835c0118+0x834 and ADRP@0x835c0128+0xA04, page 0x81C48000):
-        // 0x81C48834 / 0x81C48A04. Use the first so the check passes.
-        const CPU_DATA_B8: u64 = 0x81C4_8834;
-        mem.load_bytes(CPU_DATA_SCRATCH + 0x18, &INTR_STACK_TOP.to_le_bytes())?;
-        mem.load_bytes(CPU_DATA_SCRATCH + 0x28, &BOOT_STACK_TOP.to_le_bytes())?;
-        mem.load_bytes(CPU_DATA_SCRATCH + 0xB8, &CPU_DATA_B8.to_le_bytes())?;
-        diag!(
-            "[vphone-boot] seeded CpuDataEntries[0].cpu_data={CPU_DATA_SCRATCH:#x} at {slot:#x} (stacks + aux)"
-        );
+    // Layer the data-driven manifest on top (no rebuild needed to add fixes).
+    if let Some(path) = &cfg.manifest {
+        apply_manifest(&mut mem, path)?;
     }
 
     #[cfg(feature = "vphone-diag")]

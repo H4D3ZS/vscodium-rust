@@ -41,6 +41,9 @@ export const SLASH_COMMANDS: MentionItem[] = [
     { path: '/debug', name: '/debug', _special: true, _icon: 'codicon-bug', _desc: 'Debug code' },
     { path: '/document', name: '/document', _special: true, _icon: 'codicon-list-selection', _desc: 'Document code' },
     { path: '/test', name: '/test', _special: true, _icon: 'codicon-beaker', _desc: 'Create tests' },
+    { path: '/review', name: '/review', _special: true, _icon: 'codicon-shield', _desc: 'Review for bugs & security' },
+    { path: '/bugbot', name: '/bugbot', _special: true, _icon: 'codicon-bug', _desc: 'AI code review (BugBot)' },
+    { path: '/design', name: '/design', _special: true, _icon: 'codicon-device-desktop', _desc: 'Image → code' },
     { path: '/commit', name: '/commit', _special: true, _icon: 'codicon-git-commit', _desc: 'Git commit' },
     { path: '/fix', name: '/fix', _special: true, _icon: 'codicon-tools', _desc: 'Fix errors' },
 ];

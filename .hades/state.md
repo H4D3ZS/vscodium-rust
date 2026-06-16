@@ -2,7 +2,7 @@
 ## Active Mission Status
 
 - **Status:** Active
-- **Current Task:** Processing: tell me about this:
+- **Current Task:** Processing: crawl https://tech-hub2026.vercel.app/sitemap.xml
 """
 CISV — Geophysical Foundation Model (GFM) Local Inferenc
 You are **AIRI**, the autonomous agentic co-pilot o

@@ -729,11 +729,27 @@ const RightSidebar: React.FC = () => {
             try {
                 results = await invoke('select_and_process_attachment', { model: cleanInvokeModel });
             } catch (invokeError: any) {
-                console.error('[ERROR] Attachment selection failed:', invokeError);
-                throw invokeError;
+                // If neuralization fails (no embedding model), fall back to raw file read
+                console.warn('[Attachment] Neuralization failed, falling back to raw:', invokeError);
+                results = await invoke<string[]>('list_directory', { path: '' }).then(() => []);
+                // Use the file dialog directly for raw attachment
+                const { open } = await import('@tauri-apps/plugin-dialog');
+                const selected = await open({ multiple: true, filters: [{ name: 'All Files', extensions: ['*'] }] });
+                if (selected) {
+                    const paths = Array.isArray(selected) ? selected : [selected];
+                    results = paths.map((p: string) => ({
+                        path: p,
+                        name: p.split(/[\\/]/).pop() || p,
+                        gist: null,
+                        thumbnail: null,
+                        data: null,
+                    }));
+                } else {
+                    results = [];
+                }
             }
 
-            if (results && Array.isArray(results)) {
+            if (results && Array.isArray(results) && results.length > 0) {
                 const formatted = results.map(r => ({
                     id: r.path || `neural-${Date.now()}-${Math.random()}`,
                     type: 'file' as const,
@@ -746,8 +762,7 @@ const RightSidebar: React.FC = () => {
                 attachFile(formatted);
             }
         } catch (error: any) {
-            console.error('Failed to neuralize, attempting raw attachment:', error);
-            alert('Ollama failed to neuralize the file. Falling back to standard attachment...');
+            console.error('Failed to attach file:', error);
         } finally {
             setIsAttaching(false);
         }

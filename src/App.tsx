@@ -139,6 +139,20 @@ const App: React.FC = () => {
                     },
                 }));
             });
+
+            // Auto-open files created by the agent (Cursor-style)
+            listen('editor_open_file', (event: any) => {
+                const path = event.payload?.path;
+                if (path) {
+                    const store = useStore.getState();
+                    const existing = store.tabs?.find((t: any) => t.path === path);
+                    if (existing) {
+                        store.setActiveTab?.(existing.id);
+                    } else {
+                        store.openFile?.(path);
+                    }
+                }
+            });
         });
 
         // Expose store to window for debugging/automation (getState/setState/subscribe).

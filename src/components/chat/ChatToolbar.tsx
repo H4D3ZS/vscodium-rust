@@ -2,13 +2,26 @@
  * Cursor-style chat toolbar — mode selector, model picker, attach, plan/live toggles.
  * Clean pill-based design with consistent hover states.
  */
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '../../store';
 import { Volume2, VolumeX } from 'lucide-react';
 import ScreenRecordingButton from '../agent/ScreenRecordingButton';
 import ModeSwitcher, { AGENT_MODES } from './ModeSwitcher';
 import ModelPicker from './ModelPicker';
 import type { ModelInfo } from './ModelPicker';
+
+/**
+ * Fixed-position wrapper for a dropdown rendered in a body portal. Anchors the
+ * picker to the pill's on-screen rect and opens upward (children use
+ * `bottom: 100%`), clamped to stay inside the viewport. Escapes the toolbar's
+ * overflow-scroll clip that otherwise hides the dropdown.
+ */
+function pickerPortalStyle(anchor: DOMRect, width: number): React.CSSProperties {
+    const margin = 8;
+    const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - width - margin));
+    return { position: 'fixed', left, top: anchor.top, width, zIndex: 1000 };
+}
 
 interface ChatToolbarProps {
     mode: string;
@@ -49,18 +62,56 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
     const setAgentMode = useStore(state => state.setAgentMode);
     const agentModel = useStore(state => state.agentModel);
     const setAgentModel = useStore(state => state.setAgentModel);
+    const refreshAvailableModels = useStore(state => state.refreshAvailableModels);
+    const ollamaStatus = useStore(state => state.ollamaStatus);
 
     const [showModePicker, setShowModePicker] = useState(false);
     const [showModelPicker, setShowModelPicker] = useState(false);
+    const [isRefreshingModels, setIsRefreshingModels] = useState(false);
     const modeRef = useRef<HTMLDivElement>(null);
     const modelRef = useRef<HTMLDivElement>(null);
+
+    // Pull the live installed-model list from Ollama. Called when the picker
+    // opens and via the manual refresh button — fixes the "picker is empty if
+    // Ollama wasn't up at boot" case (a one-shot boot fetch never retries).
+    const doRefreshModels = React.useCallback(async () => {
+        setIsRefreshingModels(true);
+        try { await refreshAvailableModels?.('ollama'); }
+        finally { setIsRefreshingModels(false); }
+    }, [refreshAvailableModels]);
+
+    // Pickers render in a fixed-position portal (below) so they escape the
+    // toolbar's horizontal-scroll overflow clip. Capture the pill's screen rect
+    // on open to anchor the portal.
+    const [modelAnchor, setModelAnchor] = useState<DOMRect | null>(null);
+    const [modeAnchor, setModeAnchor] = useState<DOMRect | null>(null);
+
+    const openModelPicker = () => {
+        setShowModelPicker(v => {
+            const next = !v;
+            if (next) {
+                setModelAnchor(modelRef.current?.getBoundingClientRect() ?? null);
+                void doRefreshModels();
+            }
+            return next;
+        });
+    };
+
+    const openModePicker = () => {
+        setShowModePicker(v => {
+            const next = !v;
+            if (next) setModeAnchor(modeRef.current?.getBoundingClientRect() ?? null);
+            return next;
+        });
+    };
 
     const currentModeOption = AGENT_MODES.find(m => m.id === mode) || AGENT_MODES[0];
 
     // Build model list from available models
-    const modelList: ModelInfo[] = useStore(state => {
-        const models = state.availableModels || [];
-        return models.map((m: any) => ({
+    const availableModels = useStore(state => state.availableModels);
+    const modelList: ModelInfo[] = useMemo(() => {
+        const models = availableModels || [];
+        const mapped = models.map((m: any) => ({
             id: typeof m === 'string' ? m : m.id || m.name,
             name: typeof m === 'string' ? m.split('/').pop() || m : m.name || m.id,
             provider: typeof m === 'string' ? (m.includes('|') ? m.split('|')[0] : 'Ollama') : m.provider || 'Ollama',
@@ -68,13 +119,19 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
             capabilities: m.capabilities,
             isLocal: !m.provider || m.provider === 'Ollama' || m.provider === 'ollama',
         }));
-    }) || [];
+        // Ollama-first: local installed models float to the top of the picker.
+        return mapped.sort((a, b) => (a.isLocal === b.isLocal ? 0 : a.isLocal ? -1 : 1));
+    }, [availableModels]);
 
     // Close dropdowns on outside click
     useEffect(() => {
         const handler = (e: MouseEvent) => {
-            if (modeRef.current && !modeRef.current.contains(e.target as Node)) setShowModePicker(false);
-            if (modelRef.current && !modelRef.current.contains(e.target as Node)) setShowModelPicker(false);
+            const t = e.target as HTMLElement;
+            // Pickers live in a body portal — treat clicks inside them as "inside".
+            const inModePortal = !!t.closest?.('[data-portal="mode-picker"]');
+            const inModelPortal = !!t.closest?.('[data-portal="model-picker"]');
+            if (modeRef.current && !modeRef.current.contains(t) && !inModePortal) setShowModePicker(false);
+            if (modelRef.current && !modelRef.current.contains(t) && !inModelPortal) setShowModelPicker(false);
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
@@ -91,7 +148,7 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 {/* Mode selector — Cursor-style pill */}
                 <div ref={modeRef} style={{ position: 'relative' }}>
                     <div
-                        onClick={(e) => { e.stopPropagation(); setShowModePicker(v => !v); }}
+                        onClick={(e) => { e.stopPropagation(); openModePicker(); }}
                         className="vscr-pill"
                         style={{
                             color: currentModeOption.color,
@@ -107,18 +164,21 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                         {currentModeOption.label}
                         <i className="codicon codicon-chevron-down vscr-pill__caret" />
                     </div>
-                    {showModePicker && (
-                        <ModeSwitcher
-                            currentMode={mode}
-                            onSelect={(m) => { setAgentMode(m); setShowModePicker(false); }}
-                        />
+                    {showModePicker && modeAnchor && createPortal(
+                        <div data-portal="mode-picker" style={pickerPortalStyle(modeAnchor, 240)}>
+                            <ModeSwitcher
+                                currentMode={mode}
+                                onSelect={(m) => { setAgentMode(m); setShowModePicker(false); }}
+                            />
+                        </div>,
+                        document.body,
                     )}
                 </div>
 
                 {/* Model selector — Cursor-style pill */}
                 <div ref={modelRef} style={{ position: 'relative' }}>
                     <div
-                        onClick={(e) => { e.stopPropagation(); setShowModelPicker(v => !v); }}
+                        onClick={(e) => { e.stopPropagation(); openModelPicker(); }}
                         title={modelLabel}
                         className="vscr-pill vscr-pill--model"
                         style={{ cursor: 'pointer' }}
@@ -126,13 +186,19 @@ const ChatToolbar: React.FC<ChatToolbarProps> = ({
                         <span className="vscr-pill__label">{modelLabel}</span>
                         <i className="codicon codicon-chevron-down vscr-pill__caret" />
                     </div>
-                    {showModelPicker && (
-                        <ModelPicker
-                            models={modelList}
-                            selectedModel={agentModel}
-                            onSelect={(id) => setAgentModel(id)}
-                            onClose={() => setShowModelPicker(false)}
-                        />
+                    {showModelPicker && modelAnchor && createPortal(
+                        <div data-portal="model-picker" style={pickerPortalStyle(modelAnchor, 300)}>
+                            <ModelPicker
+                                models={modelList}
+                                selectedModel={agentModel}
+                                onSelect={(id) => setAgentModel(id)}
+                                onClose={() => setShowModelPicker(false)}
+                                onRefresh={doRefreshModels}
+                                isRefreshing={isRefreshingModels}
+                                ollamaStatus={ollamaStatus}
+                            />
+                        </div>,
+                        document.body,
                     )}
                 </div>
 

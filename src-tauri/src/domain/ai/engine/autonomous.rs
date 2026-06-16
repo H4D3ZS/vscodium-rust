@@ -352,6 +352,70 @@ impl Sentient {
         
         let mut messages = req.messages.clone();
 
+        // ── Auto-delegate exploration (FastContext two-agent, Cursor-style) ──
+        // Before the solver's first turn, a dedicated explorer subagent locates
+        // relevant code; we inject compact citations so the main agent reasons on
+        // clean evidence instead of burning tokens on its own read/grep sweeps.
+        // Best-effort — any failure is swallowed and the run proceeds normally.
+        {
+            let mode_l = req.mode.as_deref().unwrap_or("").to_lowercase();
+            let agentic = matches!(mode_l.as_str(), "agent" | "planning" | "sentient" | "harness")
+                || mode_l.contains("agent");
+            let task = req.messages.iter().rev()
+                .find(|m| m.role == "user")
+                .and_then(|m| m.content.as_ref())
+                .map(|c| c.as_str().to_string())
+                .unwrap_or_default();
+            let words = task.split_whitespace().count();
+            let trimmed = task.trim_start();
+            let trivial = trimmed.starts_with('[') || trimmed.starts_with('/');
+            if agentic && req.autonomous && !trivial && words >= 6 {
+                let call_id = uuid::Uuid::new_v4().to_string();
+                self.emit_event("ai-tool-call", json!({
+                    "name": "explore_repository",
+                    "args": json!({ "query": task.chars().take(200).collect::<String>() }).to_string(),
+                    "call_id": call_id,
+                }));
+                let explore = self.ai_tools
+                    .explore_repository(json!({ "query": task, "max_results": 12 }))
+                    .await;
+                let res_val = explore.as_ref().map(|v| v.clone()).unwrap_or_else(|e| json!({ "error": e.to_string() }));
+                self.emit_event("ai-tool-result", json!({
+                    "name": "explore_repository",
+                    "result": res_val.to_string(),
+                    "blocked": false,
+                    "call_id": call_id,
+                }));
+                if let Ok(v) = explore {
+                    let citations = v.get("citations").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+                    if !citations.is_empty() {
+                        let mut ctx = String::from(
+                            "Relevant code located by the repository explorer subagent. \
+                             Use these as your starting evidence (read more only as needed):\n");
+                        for c in citations.iter().take(12) {
+                            let p = c.get("path").and_then(|x| x.as_str()).unwrap_or("");
+                            let lr = c.get("line_range").and_then(|x| x.as_str()).unwrap_or("");
+                            let cx = c.get("context").and_then(|x| x.as_str()).unwrap_or("");
+                            ctx.push_str(&format!(
+                                "- {}{}{}\n",
+                                p,
+                                if lr.is_empty() { String::new() } else { format!(":{}", lr) },
+                                if cx.is_empty() { String::new() } else { format!("  — {}", cx.chars().take(100).collect::<String>()) },
+                            ));
+                        }
+                        messages.push(crate::ai_engine::ChatMessage {
+                            role: "system".to_string(),
+                            content: Some(crate::ai_engine::MessageContent::Text(ctx)),
+                            tool_calls: None,
+                            tool_call_id: None,
+                            metadata: None,
+                        });
+                        println!("[EXPLORE] Auto-delegate injected {} citations", citations.len());
+                    }
+                }
+            }
+        }
+
         // Phase-Wrap tracking: files written in the current context window
         let mut phase_files_written: Vec<String> = Vec::new();
         // Trigger Phase-Wrap every N iterations to compress context → .aim.
@@ -921,7 +985,7 @@ impl Sentient {
             let system_prompt = format!(
                 "{}{}",
                 system_prompt,
-                crate::agent_harness::harness_system_addon(&req.model),
+                crate::agent_harness::harness_system_addon(&req.model, is_small_model),
             );
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
@@ -1869,6 +1933,13 @@ impl Sentient {
                     payload["tools"] = json!(normalized);
                     payload["tool_choice"] = json!("auto");
                 }
+            }
+
+            // Force tool use for Ollama models — prevents them from outputting
+            // code as plain text instead of using tool calls.
+            if is_ollama && !tools.is_empty() && !is_chat_mode && supports_native_tools_payload {
+                payload["tool_choice"] = json!("required");
+                println!("[AI] Forced tool_choice=required for model {} (tools: {})", active_model, tools.len());
             }
 
             if active_provider.to_lowercase() == "ollama" {
@@ -3386,9 +3457,21 @@ impl Sentient {
                             "stuck": stuck,
                             "tools_this_turn": tools_run_this_turn,
                         }));
+                        // Small models drift back to prose; re-show the exact
+                        // single-format contract so the next turn is a tool call.
+                        let nudge_text = if Self::is_small_model_name(&active_model) {
+                            format!(
+                                "{}\n\nYou replied with PROSE and no tool call. That is not allowed. \
+                                 Emit the next step NOW as ONE fenced JSON block, nothing else:\n\
+                                 ```json\n{{\"name\": \"view_file\", \"arguments\": {{\"path\": \"REPLACE\"}}}}\n```",
+                                nudge_for_mode
+                            )
+                        } else {
+                            nudge_for_mode.to_string()
+                        };
                         messages.push(ChatMessage {
                             role: "user".to_string(),
-                            content: Some(MessageContent::Text(nudge_for_mode.to_string())),
+                            content: Some(MessageContent::Text(nudge_text)),
                             ..Default::default()
                         });
                         // Clear stuck history after one nudge so the model gets

@@ -14,15 +14,23 @@ function formatDuration(ms?: number): string {
 }
 
 const ComposerThinkingBlock: React.FC<ComposerThinkingBlockProps> = ({ thoughts, durationMs, isStreaming }) => {
-    const [open, setOpen] = useState(isStreaming ?? false);
-    const [userToggled, setUserToggled] = useState(false);
-    // Auto-expand while the model is reasoning so you see it stream; auto-collapse
-    // when it finishes — unless the user manually toggled it (then respect that).
+    // Cursor-style: ALWAYS collapsed. The reasoning never streams into the chat;
+    // you only see the live "Thinking…" / final "Thought for Ns" label. Click to
+    // expand and read the reasoning on demand.
+    const [open, setOpen] = useState(false);
+
+    // Live elapsed counter while the model reasons (no durationMs yet).
+    const [liveMs, setLiveMs] = useState(0);
     useEffect(() => {
-        if (!userToggled) setOpen(!!isStreaming);
-    }, [isStreaming, userToggled]);
+        if (!isStreaming) return;
+        const start = Date.now();
+        setLiveMs(0);
+        const t = setInterval(() => setLiveMs(Date.now() - start), 500);
+        return () => clearInterval(t);
+    }, [isStreaming]);
+
     const label = isStreaming
-        ? 'Thinking…'
+        ? (liveMs >= 1000 ? `Thinking for ${formatDuration(liveMs)}` : 'Thinking…')
         : durationMs
             ? `Thought for ${formatDuration(durationMs)}`
             : 'Thought process';
@@ -33,7 +41,7 @@ const ComposerThinkingBlock: React.FC<ComposerThinkingBlockProps> = ({ thoughts,
         <details
             className="composer-thinking"
             open={open}
-            onToggle={(e) => { setUserToggled(true); setOpen((e.target as HTMLDetailsElement).open); }}
+            onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
         >
             <summary className="composer-thinking__summary">
                 <span className={`composer-thinking__dot${isStreaming ? ' composer-thinking__dot--live' : ''}`} />

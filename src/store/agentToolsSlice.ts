@@ -9,7 +9,7 @@ import type {
     AgentMessage, AgentStep, Artifact, AttachedContext, AgentTask, TaskArtifact, SemanticSlot,
 } from './types';
 import type { AgentToolBlock } from '../domain/agent/agentToolBlocks';
-import { createToolBlock, enrichCanvasBlockFromResult, enrichEditBlockFromResult } from '../domain/agent/agentToolBlocks';
+import { createToolBlock, enrichCanvasBlockFromResult, enrichEditBlockFromResult, enrichExploreBlockFromResult } from '../domain/agent/agentToolBlocks';
 import { toolsMatchForFinish } from '../domain/agent/toolAliases';
 import { cleanAgentContent, shouldReplaceAgentContent } from '../domain/agent/cleanAgentContent';
 import { onAgentModeChanged } from '../lib/agentAutonomy';
@@ -230,6 +230,12 @@ export const createAgentToolsSlice: StateCreator<AppState, [], [], AgentToolsSli
                     ...enriched,
                     status: success ? 'done' as const : 'error' as const,
                     preview: enriched.preview || (result.length < 500 ? result.slice(0, 400) : enriched.preview),
+                };
+            }
+            if (result && b.kind === 'explore') {
+                next = {
+                    ...enrichExploreBlockFromResult(next, result),
+                    status: success ? 'done' as const : 'error' as const,
                 };
             }
             return next;

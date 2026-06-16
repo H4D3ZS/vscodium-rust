@@ -9,6 +9,67 @@ use super::registry::AiTools;
 use crate::binary_analyzer::BinaryAnalyzer;
 use crate::security_distiller::SecurityDistiller;
 
+/// Desktop Chrome UA — many search/result endpoints reject the default reqwest UA.
+const WEB_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+/// Decode a DuckDuckGo HTML redirect (`//duckduckgo.com/l/?uddg=<enc>`) to the real URL.
+fn ddg_unwrap_url(href: &str) -> String {
+    let h = href.trim();
+    if let Some(idx) = h.find("uddg=") {
+        let rest = &h[idx + 5..];
+        let enc = rest.split('&').next().unwrap_or(rest);
+        if let Ok(dec) = urlencoding::decode(enc) {
+            return dec.into_owned();
+        }
+    }
+    if h.starts_with("//") { format!("https:{}", h) } else { h.to_string() }
+}
+
+/// Decode the common HTML entities (no external dep).
+fn decode_entities(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#x27;", "'")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ")
+}
+
+/// Strip HTML tags + decode entities, collapse whitespace to a single line.
+fn strip_html(s: &str) -> String {
+    let no_tags = regex::Regex::new(r"(?s)<[^>]*>").unwrap().replace_all(s, " ");
+    decode_entities(&no_tags).split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn extract_html_title(html: &str) -> String {
+    if let Some(cap) = regex::Regex::new(r"(?is)<title[^>]*>(.*?)</title>").unwrap().captures(html) {
+        return strip_html(&cap[1]);
+    }
+    String::new()
+}
+
+/// Convert an HTML document to readable text: drop script/style/head, turn block
+/// closes into newlines, strip remaining tags. Regex crate has no backrefs, so
+/// each container tag is removed in its own pass.
+fn html_to_text(html: &str) -> String {
+    let mut s = html.to_string();
+    for tag in ["script", "style", "noscript", "svg", "head"] {
+        let re = regex::Regex::new(&format!(r"(?is)<{0}[^>]*>.*?</{0}>", tag)).unwrap();
+        s = re.replace_all(&s, " ").into_owned();
+    }
+    let blocks = regex::Regex::new(r"(?i)</(p|div|li|h[1-6]|tr|section|article)>|<br[^>]*>").unwrap();
+    let s = blocks.replace_all(&s, "\n");
+    let no_tags = regex::Regex::new(r"(?s)<[^>]*>").unwrap().replace_all(&s, " ");
+    let decoded = decode_entities(&no_tags);
+    decoded
+        .lines()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 impl AiTools {
     pub(crate) async fn search_codebase(&self, args: Value) -> Result<Value> {
         let query = args["query"].as_str().ok_or_else(|| anyhow!("Missing query"))?.to_string();
@@ -175,49 +236,187 @@ impl AiTools {
             .to_string();
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
-            .user_agent("Mozilla/5.0 vscodium-rust/1.0")
+            .user_agent(WEB_UA)
             .build()
             .map_err(|e| anyhow!(e.to_string()))?;
-        let body = client
+        let resp = client
             .get(&url)
             .send()
             .await
-            .map_err(|e| anyhow!("web_fetch failed for {}: {}", url, e))?
+            .map_err(|e| anyhow!("web_fetch failed for {}: {}", url, e))?;
+        let final_url = resp.url().to_string();
+        let body = resp
             .text()
             .await
             .map_err(|e| anyhow!("web_fetch body read failed: {}", e))?;
-        let capped: String = body.chars().take(200_000).collect();
+        let raw: String = body.chars().take(120_000).collect();
+        let title = extract_html_title(&body);
+        // Readable text — strip scripts/styles/markup so the model reads the page
+        // content, not HTML (Claude Code WebFetch style).
+        let text: String = html_to_text(&body).chars().take(60_000).collect();
         Ok(json!({
             "status": "success",
-            "url": url,
-            "content": capped,
-            "bytes": capped.len(),
+            "url": final_url,
+            "title": title,
+            "text": text,
+            "content": raw,
+            "bytes": raw.len(),
         }))
     }
 
+    /// Live web search. Priority: keyed providers (Tavily → Brave → Serper) for the
+    /// freshest, highest-quality results, then a keyless DuckDuckGo HTML scrape, then
+    /// the DDG instant-answer API. Works out of the box with no key; add a key in
+    /// Settings (TAVILY_API_KEY / BRAVE_API_KEY / SERPER_API_KEY) for Perplexity-grade
+    /// results. Use this for anything time-sensitive or newer than the model's cutoff.
     pub(crate) async fn web_search_tool(&self, args: Value) -> Result<Value> {
-        let query = args["query"].as_str().unwrap_or("").to_string();
+        let query = args["query"].as_str().unwrap_or("").trim().to_string();
         if query.is_empty() {
             return Ok(json!({ "error": "query is required" }));
         }
-        let num = args["num_results"].as_u64().unwrap_or(5) as usize;
-        let encoded = urlencoding::encode(&query);
-        let url = format!(
-            "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1", encoded
-        );
+        let num = (args["num_results"].as_u64().unwrap_or(6)).clamp(1, 15) as usize;
+
+        let keys = self.load_keys_value().await;
+        let key_of = |names: &[&str]| -> String {
+            for n in names {
+                if let Ok(v) = std::env::var(n) {
+                    if !v.trim().is_empty() { return v.trim().to_string(); }
+                }
+            }
+            for n in names {
+                let lc = n.to_lowercase();
+                if let Some(v) = keys.get(&lc).and_then(|x| x.as_str()) {
+                    if !v.trim().is_empty() { return v.trim().to_string(); }
+                }
+            }
+            String::new()
+        };
+        let tavily = key_of(&["TAVILY_API_KEY", "tavily", "tavily_api_key"]);
+        let brave = key_of(&["BRAVE_API_KEY", "brave", "brave_api_key", "brave_search"]);
+        let serper = key_of(&["SERPER_API_KEY", "serper", "serper_api_key"]);
+
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(12))
-            .user_agent("Mozilla/5.0 vscodium-rust/1.0")
+            .timeout(std::time::Duration::from_secs(15))
+            .user_agent(WEB_UA)
             .build()
             .map_err(|e| anyhow!(e.to_string()))?;
 
+        if !tavily.is_empty() {
+            if let Ok(v) = self.search_tavily(&client, &tavily, &query, num).await { return Ok(v); }
+        }
+        if !brave.is_empty() {
+            if let Ok(v) = self.search_brave(&client, &brave, &query, num).await { return Ok(v); }
+        }
+        if !serper.is_empty() {
+            if let Ok(v) = self.search_serper(&client, &serper, &query, num).await { return Ok(v); }
+        }
+        if let Ok(v) = self.search_ddg_html(&client, &query, num).await {
+            if v.get("count").and_then(|c| c.as_u64()).unwrap_or(0) > 0 { return Ok(v); }
+        }
+        self.search_ddg_instant(&client, &query, num).await
+    }
+
+    async fn search_tavily(&self, client: &reqwest::Client, key: &str, query: &str, num: usize) -> Result<Value> {
+        let resp = client
+            .post("https://api.tavily.com/search")
+            .json(&json!({ "api_key": key, "query": query, "max_results": num, "search_depth": "basic", "include_answer": true }))
+            .send().await.map_err(|e| anyhow!(e.to_string()))?;
+        if !resp.status().is_success() { return Err(anyhow!("tavily {}", resp.status())); }
+        let b: Value = resp.json().await.map_err(|e| anyhow!(e.to_string()))?;
+        let mut results = vec![];
+        if let Some(arr) = b["results"].as_array() {
+            for r in arr.iter().take(num) {
+                results.push(json!({
+                    "title": r["title"].as_str().unwrap_or(""),
+                    "url": r["url"].as_str().unwrap_or(""),
+                    "snippet": r["content"].as_str().unwrap_or(""),
+                    "source": "tavily",
+                }));
+            }
+        }
+        let count = results.len();
+        Ok(json!({ "query": query, "answer": b["answer"].as_str().unwrap_or(""), "results": results, "count": count, "provider": "tavily" }))
+    }
+
+    async fn search_brave(&self, client: &reqwest::Client, key: &str, query: &str, num: usize) -> Result<Value> {
+        let url = format!("https://api.search.brave.com/res/v1/web/search?q={}&count={}", urlencoding::encode(query), num);
+        let resp = client
+            .get(&url)
+            .header("Accept", "application/json")
+            .header("X-Subscription-Token", key)
+            .send().await.map_err(|e| anyhow!(e.to_string()))?;
+        if !resp.status().is_success() { return Err(anyhow!("brave {}", resp.status())); }
+        let b: Value = resp.json().await.map_err(|e| anyhow!(e.to_string()))?;
+        let mut results = vec![];
+        if let Some(arr) = b["web"]["results"].as_array() {
+            for r in arr.iter().take(num) {
+                results.push(json!({
+                    "title": r["title"].as_str().unwrap_or(""),
+                    "url": r["url"].as_str().unwrap_or(""),
+                    "snippet": r["description"].as_str().unwrap_or(""),
+                    "source": "brave",
+                }));
+            }
+        }
+        let count = results.len();
+        Ok(json!({ "query": query, "results": results, "count": count, "provider": "brave" }))
+    }
+
+    async fn search_serper(&self, client: &reqwest::Client, key: &str, query: &str, num: usize) -> Result<Value> {
+        let resp = client
+            .post("https://google.serper.dev/search")
+            .header("X-API-KEY", key)
+            .json(&json!({ "q": query, "num": num }))
+            .send().await.map_err(|e| anyhow!(e.to_string()))?;
+        if !resp.status().is_success() { return Err(anyhow!("serper {}", resp.status())); }
+        let b: Value = resp.json().await.map_err(|e| anyhow!(e.to_string()))?;
+        let mut results = vec![];
+        if let Some(arr) = b["organic"].as_array() {
+            for r in arr.iter().take(num) {
+                results.push(json!({
+                    "title": r["title"].as_str().unwrap_or(""),
+                    "url": r["link"].as_str().unwrap_or(""),
+                    "snippet": r["snippet"].as_str().unwrap_or(""),
+                    "source": "serper",
+                }));
+            }
+        }
+        let count = results.len();
+        Ok(json!({ "query": query, "results": results, "count": count, "provider": "serper" }))
+    }
+
+    /// Keyless real-results path: scrape the DuckDuckGo HTML endpoint. Returns
+    /// actual current result links + snippets (unlike the sparse instant-answer API).
+    async fn search_ddg_html(&self, client: &reqwest::Client, query: &str, num: usize) -> Result<Value> {
+        let url = format!("https://html.duckduckgo.com/html/?q={}", urlencoding::encode(query));
+        let html = client
+            .get(&url)
+            .header("Accept", "text/html")
+            .send().await.map_err(|e| anyhow!(e.to_string()))?
+            .text().await.map_err(|e| anyhow!(e.to_string()))?;
+        let link_re = regex::Regex::new(r#"(?s)class="result__a"[^>]*?href="([^"]*)"[^>]*>(.*?)</a>"#).unwrap();
+        let snip_re = regex::Regex::new(r#"(?s)class="result__snippet"[^>]*>(.*?)</a>"#).unwrap();
+        let snippets: Vec<String> = snip_re.captures_iter(&html).map(|c| strip_html(&c[1])).collect();
+        let mut results = vec![];
+        for (i, cap) in link_re.captures_iter(&html).enumerate() {
+            if results.len() >= num { break; }
+            let href = ddg_unwrap_url(&cap[1]);
+            let title = strip_html(&cap[2]);
+            if title.is_empty() || href.is_empty() { continue; }
+            let snippet = snippets.get(i).cloned().unwrap_or_default();
+            results.push(json!({ "title": title, "url": href, "snippet": snippet, "source": "duckduckgo" }));
+        }
+        let count = results.len();
+        Ok(json!({ "query": query, "results": results, "count": count, "provider": "duckduckgo-html" }))
+    }
+
+    async fn search_ddg_instant(&self, client: &reqwest::Client, query: &str, num: usize) -> Result<Value> {
+        let encoded = urlencoding::encode(query);
+        let url = format!("https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1", encoded);
         let body: Value = client.get(&url).send().await
             .map_err(|e| anyhow!(e.to_string()))?
-            .json().await
-            .map_err(|e| anyhow!(e.to_string()))?;
-
+            .json().await.map_err(|e| anyhow!(e.to_string()))?;
         let mut results: Vec<Value> = vec![];
-
         if let Some(t) = body["Abstract"].as_str() {
             if !t.is_empty() {
                 results.push(json!({
@@ -251,12 +450,12 @@ impl AiTools {
             results.push(json!({
                 "title": format!("Search: {}", query),
                 "url": format!("https://duckduckgo.com/?q={}", encoded),
-                "snippet": "No instant results. Visit URL for full search.",
+                "snippet": "No instant results. Use web_fetch on the URL for full content.",
                 "source": "fallback",
             }));
         }
         let n = results.len().min(num);
-        Ok(json!({ "query": query, "results": &results[..n], "count": n }))
+        Ok(json!({ "query": query, "results": &results[..n], "count": n, "provider": "duckduckgo-instant" }))
     }
 
     pub(crate) async fn browser_open(&self, _args: Value) -> Result<Value> {

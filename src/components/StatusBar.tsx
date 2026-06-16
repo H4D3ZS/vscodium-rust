@@ -473,6 +473,29 @@ const StatusBar: React.FC = () => {
                     </StatusItem>
                 )}
 
+                {/* BugBot — AI code review of current file/diff */}
+                {activeRoot && (
+                    <StatusItem
+                        onClick={() => {
+                            // Trigger BugBot review of current file
+                            const activeTab = tabs.find((t: any) => t.id === activeTabId);
+                            if (activeTab?.path) {
+                                window.dispatchEvent(new CustomEvent('agent:send', {
+                                    detail: { prompt: `/review ${activeTab.path}` }
+                                }));
+                            } else {
+                                window.dispatchEvent(new CustomEvent('agent:send', {
+                                    detail: { prompt: '/review the current changes' }
+                                }));
+                            }
+                        }}
+                        title="BugBot — AI code review"
+                    >
+                        <i className="codicon codicon-bug" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px' }} />
+                        <span style={{ fontSize: '11px' }}>BugBot</span>
+                    </StatusItem>
+                )}
+
                 {/* Codebase Indexing — click opens progress panel (does not re-index) */}
                 {activeRoot && (
                     <div ref={indexPanelRef} style={{ position: 'relative' }}>

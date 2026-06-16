@@ -27,13 +27,14 @@ export const PROVIDERS: { id: ProviderName; label: string; local?: boolean; fiel
     { id: 'liteLLM', label: 'LiteLLM', local: true, fields: ['endpoint', 'apiKey'], hint: 'Proxy server to route between providers' },
 ];
 
-const FEATURES: FeatureName[] = ['Chat', 'Apply', 'Autocomplete', 'QuickEdit', 'SCM'];
+const FEATURES: FeatureName[] = ['Chat', 'Apply', 'Autocomplete', 'QuickEdit', 'SCM', 'Web'];
 const FEATURE_DESC: Record<FeatureName, string> = {
     Chat: 'Main sidebar agent & chat',
     Apply: 'Fast Apply / surgical file edits',
     Autocomplete: 'Inline FIM completions (Tab key)',
     QuickEdit: 'Ctrl+K quick inline edit',
     SCM: 'Git commit message generation',
+    Web: 'Web search & crawl (lightweight model recommended)',
 };
 
 // ── Types ────────────────────────────────────────────────────────────────

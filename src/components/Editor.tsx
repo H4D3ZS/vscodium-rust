@@ -1168,7 +1168,20 @@ const Editor: React.FC<EditorProps> = React.memo(({ tabId: forcedTabId }) => {
                 refreshGitGutter();
             }
         });
-        return () => { unlisten.then(f => f()); };
+        // Auto-open files created by the agent
+        const unlistenOpen = listen('editor_open_file', (event: any) => {
+            const path = event.payload?.path;
+            if (path) {
+                const store = useStore.getState();
+                const existing = store.tabs?.find((t: any) => t.path === path);
+                if (existing) {
+                    store.setActiveTab?.(existing.id);
+                } else {
+                    store.openFile?.(path);
+                }
+            }
+        });
+        return () => { unlisten.then(f => f()); unlistenOpen.then(f => f()); };
     }, [activeTab?.path, refreshGitGutter]);
 
     if (!activeTab) {

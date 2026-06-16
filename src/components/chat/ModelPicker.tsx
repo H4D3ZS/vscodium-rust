@@ -21,6 +21,10 @@ interface ModelPickerProps {
     selectedModel: string;
     onSelect: (modelId: string) => void;
     onClose: () => void;
+    /** Re-fetch installed Ollama models (manual retry / refresh-on-open). */
+    onRefresh?: () => void;
+    isRefreshing?: boolean;
+    ollamaStatus?: 'idle' | 'checking' | 'running' | 'error';
 }
 
 const SPEED_COLORS: Record<string, string> = {
@@ -35,7 +39,7 @@ const SPEED_LABELS: Record<string, string> = {
     powerful: 'Powerful',
 };
 
-const ModelPicker: React.FC<ModelPickerProps> = ({ models, selectedModel, onSelect, onClose }) => {
+const ModelPicker: React.FC<ModelPickerProps> = ({ models, selectedModel, onSelect, onClose, onRefresh, isRefreshing, ollamaStatus }) => {
     const [search, setSearch] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const searchRef = useRef<HTMLInputElement>(null);
@@ -110,14 +114,51 @@ const ModelPicker: React.FC<ModelPickerProps> = ({ models, selectedModel, onSele
                             flex: 1, minWidth: 0,
                         }}
                     />
+                    {onRefresh && (
+                        <i
+                            className={`codicon codicon-refresh${isRefreshing ? ' codicon-modifier-spin' : ''}`}
+                            onClick={() => onRefresh()}
+                            title="Refresh Ollama models"
+                            style={{
+                                fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px',
+                                cursor: 'pointer', opacity: 0.6,
+                            }}
+                        />
+                    )}
                 </div>
             </div>
 
             {/* Model list */}
             <div ref={listRef} style={{ overflowY: 'auto', flex: 1 }}>
                 {filtered.length === 0 && (
-                    <div style={{ padding: '16px 12px', textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: '12px' }}>
-                        No models found
+                    <div style={{ padding: '18px 14px', textAlign: 'center', color: 'rgba(255,255,255,0.5)', fontSize: '12px', lineHeight: 1.5 }}>
+                        {isRefreshing ? (
+                            <span><i className="codicon codicon-loading codicon-modifier-spin" style={{ fontFamily: 'codicon', fontStyle: 'normal', marginRight: 6 }} />Loading models…</span>
+                        ) : search ? (
+                            <>No model matches “{search}”.</>
+                        ) : ollamaStatus === 'error' ? (
+                            <>
+                                <div style={{ color: '#f87171', fontWeight: 600, marginBottom: 4 }}>Ollama not reachable</div>
+                                <div style={{ fontSize: 11, opacity: 0.7 }}>Run <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 4px', borderRadius: 3 }}>ollama serve</code>, then refresh.</div>
+                            </>
+                        ) : (
+                            <>
+                                <div style={{ marginBottom: 4 }}>No Ollama models installed.</div>
+                                <div style={{ fontSize: 11, opacity: 0.7 }}>Pull one, e.g. <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 4px', borderRadius: 3 }}>ollama pull qwen2.5-coder:7b</code></div>
+                            </>
+                        )}
+                        {onRefresh && !isRefreshing && (
+                            <div
+                                onClick={() => onRefresh()}
+                                style={{
+                                    marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 5,
+                                    cursor: 'pointer', color: '#3b82f6', fontSize: 11, fontWeight: 600,
+                                }}
+                            >
+                                <i className="codicon codicon-refresh" style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: 11 }} />
+                                Retry
+                            </div>
+                        )}
                     </div>
                 )}
                 {filtered.map((model, i) => {
