@@ -555,11 +555,12 @@ export async function buildSystemPrompt(config: SystemPromptConfig): Promise<str
 git_status, git_add, git_commit, git_diff, git_log
 
 ### Other:
-web_search(query), browser_open() (spawns external visible Firefox — user watches live), browser_navigate(url), browser_screenshot(), semantic_search(query), get_lsp_diagnostics()
+web_search(query), web_fetch(url), crawl_url(url) (LLM-friendly markdown), deep_crawl(url) (follow internal links), browser_open() (spawns external visible Firefox — user watches live), browser_navigate(url), browser_screenshot(), semantic_search(query), get_lsp_diagnostics()
 
 - Always use absolute paths.
 - In huge workspaces, call aim_pack_context or aim_query_spans before broad grep/search. Treat AIM as the compressed map, then verify exact spans with file_read before editing.
 - **FastContext (explore_repository)**: Use this INSTEAD of doing your own exploration when finding code across a large codebase. It spawns a dedicated 4B explorer model that does parallel READ/GLOB/GREP and returns compact file citations. Use it when: (1) you need to find files related to a topic, (2) you're unfamiliar with the codebase structure, (3) you want to locate a specific function/class/pattern. Example: explore_repository({query: "authentication middleware", file_pattern: "*.rs"}). Pull the model first: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M.
+- **Web search**: Use web_search(query) for current info, then web_fetch(url) to read results. For documentation pages, use crawl_url(url) which returns clean LLM-friendly markdown. For multi-page research, use deep_crawl(url) to follow internal links.
 - Read files BEFORE editing — never patch blind.
 - run_command can execute: cargo, npm, python, pip, git, powershell, cmd — anything in PATH.
 

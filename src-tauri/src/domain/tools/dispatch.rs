@@ -762,6 +762,8 @@ impl AiTools {
             "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
             "web_search" => self.web_search_tool(arguments).await,
             "web_fetch" => self.web_fetch_tool(arguments).await,
+            "crawl_url" => super::websearch::crawl_url_tool(&arguments).await,
+            "deep_crawl" => super::websearch::deep_crawl_tool(&arguments).await,
             "ai_propose_edit" => self.ai_propose_edit(arguments).await,
             "str_replace" => self.str_replace_file(arguments).await,
             "search_replace_edit" => self.search_replace_edit(arguments).await,

@@ -2,6 +2,7 @@
 //! implementations. Split from the 8.5K-LOC ai_tools.rs — one struct
 //! (`AiTools`), impl blocks distributed across submodules.
 
+pub mod websearch;
 pub mod dispatch;
 pub mod fs_tools;
 pub mod registry;
@@ -12,3 +13,4 @@ pub mod web_edit;
 
 pub use registry::{AiTools, ToolDefinition};
 pub use shell::ShellTranslator;
+pub use websearch::{Crawl4AI, CrawlOptions, CrawlResult};

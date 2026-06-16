@@ -1253,6 +1253,32 @@ impl AiTools {
                 }),
             },
             ToolDefinition {
+                name: "crawl_url".to_string(),
+                description: "Crawl a URL and return LLM-friendly clean markdown. Better than web_fetch for documentation, articles, and content-heavy pages. Returns structured markdown with headings, lists, tables, code blocks preserved. Use when you need the full page content in a clean format for analysis.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "URL to crawl" },
+                        "fit_markdown": { "type": "boolean", "description": "Filter content by relevance to a query", "default": false },
+                        "fit_query": { "type": "string", "description": "Query for relevance filtering (used with fit_markdown)" }
+                    },
+                    "required": ["url"]
+                }),
+            },
+            ToolDefinition {
+                name: "deep_crawl".to_string(),
+                description: "Deep crawl a website following internal links (BFS). Returns clean markdown for each page. Use for comprehensive documentation reading, site mapping, or research across multiple pages.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "Starting URL" },
+                        "max_depth": { "type": "integer", "description": "Max link depth to follow (default 2)", "default": 2 },
+                        "max_pages": { "type": "integer", "description": "Max pages to crawl (default 10)", "default": 10 }
+                    },
+                    "required": ["url"]
+                }),
+            },
+            ToolDefinition {
                 name: "security_scan".to_string(),
                 description: "Run a deep static analysis (semgrep) on a file or directory to find security vulnerabilities.".to_string(),
                 input_schema: json!({

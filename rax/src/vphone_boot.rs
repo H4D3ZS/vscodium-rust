@@ -78,6 +78,10 @@ struct TracingMem {
     last_dev_valid: Arc<std::sync::atomic::AtomicBool>,
     /// Free-running platform-timer counter (Apple timer window reads).
     timer: Arc<AtomicU64>,
+    /// SEP mailbox: set when host wrote a handshake to SEND; RECV returns READY.
+    sep_ready: Arc<std::sync::atomic::AtomicBool>,
+    /// SMC: set when host triggered a TX_SEND; RX_STATUS then reads "data avail".
+    smc_sent: Arc<std::sync::atomic::AtomicBool>,
     /// Optional RAM write watchpoint [watch, watch+8): records (pc, addr, value).
     watch: Option<u64>,
     watch_hits: Arc<std::sync::Mutex<Vec<(u64, u64, u64)>>>,
@@ -103,6 +107,8 @@ impl TracingMem {
             last_dev: Arc::new(AtomicU64::new(0)),
             last_dev_valid: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             timer: Arc::new(AtomicU64::new(0)),
+            sep_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            smc_sent: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             watch,
             watch_hits: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
@@ -168,55 +174,114 @@ impl TracingMem {
     }
 }
 
-// Apple SoC device window bases (from the C++ DeviceEmulator map + vphone_trace).
-const APPLE_UART_BASE: u64 = 0x2352_00000;
+// Apple SoC device window bases + register layouts, ported from the C++
+// DeviceEmulator / io/* (see rax/vphone/CPP_PORT_MAP.md §2).
+const APPLE_SEP_BASE: u64 = 0x2_1000_0000;
+const APPLE_SEP_SIZE: u64 = 0x1000;
+const APPLE_PMU_BASE: u64 = 0x2_3100_0000;
+const APPLE_PMU_SIZE: u64 = 0x4000;
+const APPLE_UART_BASE: u64 = 0x2_3520_0000;
 const APPLE_UART_SIZE: u64 = 0x4000;
-const APPLE_AIC_BASE: u64 = 0x28E1_00000;
-const APPLE_AIC_SIZE: u64 = 0x10000;
-const APPLE_TIMER_BASE: u64 = 0x23E1_00000;
+const APPLE_SMC_BASE: u64 = 0x2_3B70_0000;
+const APPLE_SMC_SIZE: u64 = 0x10_0000;
+const APPLE_TIMER_BASE: u64 = 0x2_3E10_0000;
 const APPLE_TIMER_SIZE: u64 = 0x1000;
+const APPLE_AIC_BASE: u64 = 0x2_8E10_0000;
+const APPLE_AIC_SIZE: u64 = 0x80_0000;
 
 impl TracingMem {
     /// Service a read to a device window. PL011-compatible UART (the layout the
     /// C++ DeviceTree advertises), AIC (no pending IRQ), and a free-running
     /// timer counter. Everything else reads as 0.
     fn device_read(&self, addr: u64, size: usize) -> u64 {
+        let _ = size;
         if (APPLE_UART_BASE..APPLE_UART_BASE + APPLE_UART_SIZE).contains(&addr) {
-            let off = addr - APPLE_UART_BASE;
-            return match off {
-                // PL011 UARTFR (flags): TXFE set (0x80), TXFF/RXFF clear, RXFE set
-                // (0x10) — i.e. "ready to transmit, nothing to receive".
-                0x18 => 0x90,
+            // PL011: FR (0x18) = TXFE|RXFE (ready to TX, nothing to RX).
+            return if addr - APPLE_UART_BASE == 0x18 { 0x90 } else { 0 };
+        }
+        if (APPLE_AIC_BASE..APPLE_AIC_BASE + APPLE_AIC_SIZE).contains(&addr) {
+            // AIC: INFO (+0x04) = nr_irqs=128, nr_cpus=1; EVENT (+0x2000) = none.
+            return match addr - APPLE_AIC_BASE {
+                0x04 => 0x0000_0401,
                 _ => 0,
             };
         }
-        if (APPLE_AIC_BASE..APPLE_AIC_BASE + APPLE_AIC_SIZE).contains(&addr) {
-            // No interrupt is pending in M1 (delivery comes later); WHOAMI/IACK
-            // and event registers all read 0 so the kernel's IRQ probe passes.
-            return 0;
-        }
         if (APPLE_TIMER_BASE..APPLE_TIMER_BASE + APPLE_TIMER_SIZE).contains(&addr) {
-            // Free-running counter so a kernel busy-wait on the platform timer
-            // makes progress instead of stalling.
-            let _ = size;
-            return self.timer.fetch_add(1, Ordering::Relaxed);
+            return match addr - APPLE_TIMER_BASE {
+                0x00 => self.timer.fetch_add(1, Ordering::Relaxed) & 0xFFFF_FFFF,
+                0x04 => self.timer.load(Ordering::Relaxed) >> 32,
+                0x08 => 1, // CONFIG: enabled
+                _ => 0,
+            };
+        }
+        if (APPLE_SEP_BASE..APPLE_SEP_BASE + APPLE_SEP_SIZE).contains(&addr) {
+            // SEP mailbox: RECV (+0x10) = READY after handshake; STS (+0x20)
+            // bit0=empty (0 = has data).
+            return match addr - APPLE_SEP_BASE {
+                0x10 => {
+                    if self.sep_ready.swap(false, Ordering::Relaxed) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                0x20 => {
+                    if self.sep_ready.load(Ordering::Relaxed) {
+                        0
+                    } else {
+                        1
+                    }
+                }
+                _ => 0,
+            };
+        }
+        if (APPLE_SMC_BASE..APPLE_SMC_BASE + APPLE_SMC_SIZE).contains(&addr) {
+            // SMC MCA: RX_STATUS (+0x24) bit0 = data available after a SEND;
+            // status (+0x30) = 0 (ready); RX FIFO (+0x20) = 0-fill response.
+            return match addr - APPLE_SMC_BASE {
+                0x24 => self.smc_sent.load(Ordering::Relaxed) as u64,
+                _ => 0,
+            };
+        }
+        if (APPLE_PMU_BASE..APPLE_PMU_BASE + APPLE_PMU_SIZE).contains(&addr) {
+            // PMU: POWER_GATE_STATUS (+0x10) = all gates stable.
+            return if addr - APPLE_PMU_BASE == 0x10 { 0x1 } else { 0 };
         }
         0
     }
 
-    /// Service a write to a device window. A UART data-register write is the
-    /// Darwin serial console — emit it to stdout immediately.
+    /// Service a write to a device window. UART DR → Darwin serial console;
+    /// SEP/SMC SEND triggers set the "response ready" state read back above.
     fn device_write(&self, addr: u64, data: &[u8]) {
+        let val = {
+            let mut v = 0u32;
+            for (i, &b) in data.iter().take(4).enumerate() {
+                v |= (b as u32) << (i * 8);
+            }
+            v
+        };
         if (APPLE_UART_BASE..APPLE_UART_BASE + APPLE_UART_SIZE).contains(&addr) {
-            let off = addr - APPLE_UART_BASE;
-            // PL011 UARTDR is offset 0x00; the low byte is the character.
-            if off == 0x00 {
+            if addr - APPLE_UART_BASE == 0x00 {
                 if let Some(&b) = data.first() {
                     use std::io::Write as _;
                     let mut out = std::io::stdout().lock();
                     let _ = out.write_all(&[b]);
                     let _ = out.flush();
                 }
+            }
+            return;
+        }
+        if (APPLE_SEP_BASE..APPLE_SEP_BASE + APPLE_SEP_SIZE).contains(&addr) {
+            // SEND (+0x00) with handshake 0x1/0x3/0x6 → queue READY for RECV.
+            if addr - APPLE_SEP_BASE == 0x00 && matches!(val, 0x1 | 0x3 | 0x6) {
+                self.sep_ready.store(true, Ordering::Relaxed);
+            }
+            return;
+        }
+        if (APPLE_SMC_BASE..APPLE_SMC_BASE + APPLE_SMC_SIZE).contains(&addr) {
+            // TX_SEND (+0x10) dispatch → mark a response available.
+            if addr - APPLE_SMC_BASE == 0x10 {
+                self.smc_sent.store(true, Ordering::Relaxed);
             }
         }
     }
