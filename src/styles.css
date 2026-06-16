@@ -194,6 +194,28 @@
   --airi-warning: #cca700;
   --airi-error: #f48771;
 
+  /* Semantic Color Tokens (replace raw hex in components) */
+  --color-success: #10b981;
+  --color-success-muted: rgba(16, 185, 129, 0.15);
+  --color-error: #ef4444;
+  --color-error-muted: rgba(239, 68, 68, 0.15);
+  --color-warning: #f59e0b;
+  --color-warning-muted: rgba(245, 158, 11, 0.15);
+  --color-info: #3b82f6;
+  --color-info-muted: rgba(59, 130, 246, 0.15);
+  --color-purple: #c084fc;
+  --color-purple-muted: rgba(192, 132, 252, 0.15);
+  --color-cyan: #22d3ee;
+  --color-cyan-muted: rgba(34, 211, 238, 0.15);
+  --color-green: #4ade80;
+  --color-green-muted: rgba(74, 222, 128, 0.15);
+  --color-red: #f87171;
+  --color-red-muted: rgba(248, 113, 113, 0.15);
+  --color-orange: #fb923c;
+  --color-orange-muted: rgba(251, 146, 60, 0.15);
+  --color-pink: #f472b6;
+  --color-pink-muted: rgba(244, 114, 182, 0.15);
+
   /* Layout Metrics (Pixel Perfect VS Code) */
   --activity-bar-width: 48px;
   --sidebar-width: 240px;
