@@ -2473,9 +2473,9 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
         });
 
         if (routingProvider === 'ollama') {
-            store.getState().updateLastAgentMessage?.(
-                `⏳ *Loading **${routingModel}** on local Ollama — first reply can take 1–2 min while the model loads…*`,
-            );
+                store.getState().updateLastAgentMessage?.(
+                    `⏳ *Loading **${routingModel}** on local Ollama — first reply can take 30s–1 min while the model loads into GPU…*`,
+                );
         }
 
         const { beginAgentRun, isAgentRunAborted, registerStreamPollTimer, clearStreamPollTimer, startAgentRunWatchdog, stopAgentRunWatchdog, bumpAgentRunActivity } =
