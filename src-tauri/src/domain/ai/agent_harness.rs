@@ -123,8 +123,37 @@ pub fn is_reasoning_tag_model(model: &str) -> bool {
         || m.contains("minimax")
 }
 
+/// Terse, single-format directive for small/local models (≤7B, e.g. gemma-4).
+///
+/// Small models obey the FIRST strong instruction they latch onto. The full
+/// FABLE5 "write deep <think> reasoning before every action" protocol makes them
+/// produce a prose PLAN and never reach the tool call. They also can't reconcile
+/// two tool-call formats (```json vs <tool_call> XML). So small models get ONE
+/// format, an explicit anti-plan rule, and nothing that rewards prose.
+const SMALL_MODEL_DIRECTIVE: &str = r###"
+### ACT — DO NOT PLAN (small-model contract)
+Your reply MUST be EITHER a single tool call OR the token MISSION_ACCOMPLISHED.
+- Do NOT write numbered plans, "I will…", "Here's my approach", or any prose-only answer.
+- Do NOT write <think> blocks. Do NOT explain before acting. Just emit the tool call.
+- Use EXACTLY ONE format — a fenced JSON block, nothing before or after it:
+```json
+{"name": "view_file", "arguments": {"path": "src/main.rs"}}
+```
+- One tool call per reply. After the result comes back, emit the NEXT tool call.
+- If you catch yourself writing a plan, STOP and emit the first step as a tool call instead.
+"###;
+
 /// System prompt addon keyed to model family (Claude Code behavioral contract).
-pub fn harness_system_addon(model: &str) -> String {
+/// `is_small` selects the terse act-now contract for weak local models; large
+/// models get the full reasoning/workflow protocol.
+pub fn harness_system_addon(model: &str, is_small: bool) -> String {
+    if is_small {
+        // Small models: terse + single-format. NO FABLE5 (it induces plan-prose),
+        // NO conflicting XML protocol. Keep only the anti-stuck guard + act-now.
+        let mut out = String::from(ANTI_STUCK);
+        out.push_str(SMALL_MODEL_DIRECTIVE);
+        return out;
+    }
     let mut out = String::from(VERIFY_BEFORE_DONE);
     out.push_str(ANTI_STUCK);
     out.push_str(CLAUDE_CODE_WORKFLOW);

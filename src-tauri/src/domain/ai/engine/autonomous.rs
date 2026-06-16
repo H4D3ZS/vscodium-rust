@@ -985,7 +985,7 @@ impl Sentient {
             let system_prompt = format!(
                 "{}{}",
                 system_prompt,
-                crate::agent_harness::harness_system_addon(&req.model),
+                crate::agent_harness::harness_system_addon(&req.model, is_small_model),
             );
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
@@ -3457,9 +3457,21 @@ impl Sentient {
                             "stuck": stuck,
                             "tools_this_turn": tools_run_this_turn,
                         }));
+                        // Small models drift back to prose; re-show the exact
+                        // single-format contract so the next turn is a tool call.
+                        let nudge_text = if Self::is_small_model_name(&active_model) {
+                            format!(
+                                "{}\n\nYou replied with PROSE and no tool call. That is not allowed. \
+                                 Emit the next step NOW as ONE fenced JSON block, nothing else:\n\
+                                 ```json\n{{\"name\": \"view_file\", \"arguments\": {{\"path\": \"REPLACE\"}}}}\n```",
+                                nudge_for_mode
+                            )
+                        } else {
+                            nudge_for_mode.to_string()
+                        };
                         messages.push(ChatMessage {
                             role: "user".to_string(),
-                            content: Some(MessageContent::Text(nudge_for_mode.to_string())),
+                            content: Some(MessageContent::Text(nudge_text)),
                             ..Default::default()
                         });
                         // Clear stuck history after one nudge so the model gets
