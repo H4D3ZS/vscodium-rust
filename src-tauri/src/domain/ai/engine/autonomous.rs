@@ -1935,6 +1935,12 @@ impl Sentient {
                 }
             }
 
+            // Force tool use for Ollama models — prevents them from outputting
+            // code as plain text instead of using tool calls.
+            if is_ollama && !tools.is_empty() && !is_chat_mode && supports_native_tools_payload {
+                payload["tool_choice"] = json!("required");
+            }
+
             if active_provider.to_lowercase() == "ollama" {
                 let (ollama_temp, _, _) = Self::ollama_sampling(
                     &active_model,

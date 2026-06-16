@@ -562,6 +562,54 @@ web_search(query), browser_open() (spawns external visible Firefox — user watc
 - **FastContext (explore_repository)**: Use this INSTEAD of doing your own exploration when finding code across a large codebase. It spawns a dedicated 4B explorer model that does parallel READ/GLOB/GREP and returns compact file citations. Use it when: (1) you need to find files related to a topic, (2) you're unfamiliar with the codebase structure, (3) you want to locate a specific function/class/pattern. Example: explore_repository({query: "authentication middleware", file_pattern: "*.rs"}). Pull the model first: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M.
 - Read files BEFORE editing — never patch blind.
 - run_command can execute: cargo, npm, python, pip, git, powershell, cmd — anything in PATH.
+
+## CRITICAL: LOCAL MODEL TOOL USAGE (Ollama)
+If you are a local model (Ollama, llama.cpp, etc.), you MUST use one of these formats:
+
+**Format 1 — Native tool calling (if supported):**
+Call the tool directly using the function calling API.
+
+**Format 2 — JSON tool call (FALLBACK):**
+Output a JSON block in a fenced code block:
+\`\`\`json
+{"tool": "write_to_file", "arguments": {"path": "src/calculator.py", "content": "import math\\n\\ndef calculate(expr):\\n    return eval(expr, {\\"__builtins__\\": None}, vars(math))\\n"}}
+\`\`\`
+
+**Format 3 — Cursor-style file write (LAST RESORT):**
+If you cannot use tool calls at all, output code with the filename in the header:
+\`\`\`python src/calculator.py
+import math
+def calculate(expr):
+    return eval(expr, {"__builtins__": None}, vars(math))
+\`\`\`
+
+NEVER just output code without any of these formats. The IDE needs to know WHERE to write the file.
+
+## EXAMPLES — HOW TO RESPOND
+
+**User: "make a scientific calculator"**
+Correct response:
+\`\`\`json
+{"tool": "write_to_file", "arguments": {"path": "src/calculator.py", "content": "import math\\n\\ndef calculate(expression):\\n    return eval(expression, {'__builtins__': None}, vars(math))\\n\\nif __name__ == '__main__':\\n    import sys\\n    expr = ' '.join(sys.argv[1:]) if len(sys.argv) > 1 else input('Expression: ')\\n    print(calculate(expr))\\n"}}
+\`\`\`
+
+**User: "create a hello world in rust"**
+Correct response:
+\`\`\`json
+{"tool": "write_to_file", "arguments": {"path": "src/main.rs", "content": "fn main() {\\n    println!(\"Hello, world!\");\\n}\\n"}}
+\`\`\`
+
+**User: "fix the bug in utils.ts"**
+Correct response (read first, then edit):
+\`\`\`json
+{"tool": "file_read", "arguments": {"file_path": "src/utils.ts"}}
+\`\`\`
+After reading, then:
+\`\`\`json
+{"tool": "file_edit", "arguments": {"file_path": "src/utils.ts", "old_string": "...", "new_string": "..."}}
+\`\`\`
+
+NEVER respond with just prose description. ALWAYS use a tool call.
 `);
 
     // ── Security Reminders ──

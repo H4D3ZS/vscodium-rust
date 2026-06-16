@@ -52,6 +52,8 @@
   "src/components/rightSidebar/agentStatus.tsx",
   "src/components/rightSidebar/BackgroundAgentsTray.tsx",
   "src/components/rightSidebar/banners.tsx",
+  "src/components/rightSidebar/HistoryPanel.tsx",
+  "src/components/rightSidebar/KortexPanel.tsx",
   "src/components/RightSidebar.tsx",
   "src/components/RunConfigsPanel.tsx",
   "src/components/ScmView.tsx",
