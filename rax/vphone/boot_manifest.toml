@@ -21,3 +21,11 @@
 addr = 0x81B0C29C   # sub_FFFFFE0007AD429C  (contended lock acquire)
 ret_value = 0
 note = "hw_lock contended acquire -> immediate success (single-CPU)"
+
+# pmap_startup lock (qword_FFFFFE00096DCBC8) must be 0 (free) for the CASA
+# acquire to succeed; seed it free in case the kernelcache/our setup left it held.
+[[seed]]
+addr = 0x83714BC8
+width = 8
+value = 0
+note = "pmap_startup hw_lock qword_096DCBC8 = free"

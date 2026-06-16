@@ -8,7 +8,7 @@ export type ProviderName =
     | 'openAICompatible' | 'googleVertex' | 'microsoftAzure' | 'awsBedrock'
     | 'antigravity' | 'mimo' | 'cyberifrit' | 'highwayapi';
 
-export type FeatureName = 'Chat' | 'Apply' | 'Autocomplete' | 'QuickEdit' | 'SCM';
+export type FeatureName = 'Chat' | 'Apply' | 'Autocomplete' | 'QuickEdit' | 'SCM' | 'Web';
 
 export interface ModelCapabilities {
     contextWindow: number;
@@ -354,7 +354,7 @@ const ollamaModels: Record<string, ModelCapabilities> = {
     'gemma-4-12B-coder-fable5-composer2.5-v1': { contextWindow: 131_072, reservedOutputTokenSpace: 8_192, cost: { input: 0, output: 0 }, downloadable: { sizeGb: 7 }, supportsFIM: false, supportsSystemMessage: 'system-role', reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, openSourceThinkTags: ['<think>', '</think>'] } },
 };
 
-export const ollamaRecommendedModels = ['qwen2.5-coder:7b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'];
+export const ollamaRecommendedModels = ['qwen2.5-coder:7b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest', 'gemma2:2b'];
 
 const providerModelDbs: Partial<Record<ProviderName, Record<string, ModelCapabilities>>> = {
     anthropic: anthropicModels,
@@ -481,13 +481,15 @@ export function getContextWindow(providerName: ProviderName, modelName: string):
 }
 
 // ── Default model selections per feature ─────────────────────────────────────
+// Optimized for local Ollama setup — all models run locally, no cloud.
 
 export const defaultModelSelectionOfFeature: ModelSelectionOfFeature = {
-    Chat: { providerName: 'gemini', modelName: 'gemini-2.5-pro' },
-    Apply: { providerName: 'anthropic', modelName: 'claude-3-5-sonnet-latest' },
-    Autocomplete: { providerName: 'ollama', modelName: 'qwen2.5-coder:7b' },
-    QuickEdit: { providerName: 'gemini', modelName: 'gemini-2.5-flash' },
-    SCM: { providerName: 'openAI', modelName: 'gpt-4.1-mini' },
+    Chat: { providerName: 'ollama', modelName: 'tinyllama:1.1b' },
+    Apply: { providerName: 'ollama', modelName: 'FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M' },
+    Autocomplete: { providerName: 'ollama', modelName: 'FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M' },
+    QuickEdit: { providerName: 'ollama', modelName: 'gemma2:2b' },
+    SCM: { providerName: 'ollama', modelName: 'tinyllama:1.1b' },
+    Web: { providerName: 'ollama', modelName: 'tinyllama:1.1b' },
 };
 
 export const featureDisplayNames: Record<FeatureName, string> = {
@@ -496,6 +498,7 @@ export const featureDisplayNames: Record<FeatureName, string> = {
     Autocomplete: 'Autocomplete (FIM)',
     QuickEdit: 'Quick Edit (Ctrl+K)',
     SCM: 'Commit Message Generator',
+    Web: 'Web Search & Crawl',
 };
 
 // ── Provider display info ─────────────────────────────────────────────────────

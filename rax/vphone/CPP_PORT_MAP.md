@@ -33,7 +33,11 @@ Source: `WindowsHypervisor.cpp` (ApplyStyx* fns), `StyxRuntimeGates.generated.hp
 **Cleanup:** C++ seed code → reference-only; the *generated headers* + discovery scripts
 stay (they regenerate seeds for new kernels). Port future regenerations into the manifest.
 
-## 2. MMIO device map  → `rax/src/vphone_boot.rs` TracingMem 🟡 (addresses ✅, behaviors partial)
+## 2. MMIO device map  → `rax/src/vphone_boot.rs` TracingMem ✅ (boot-critical behaviors ported)
+> **Ported:** AIC (INFO=0x401, EVENT=0), Apple timer (counter/config), SEP mailbox
+> (handshake→READY), SMC (RX_STATUS), PMU (gates stable), UART (TX→stdout). VirtIO +
+> framebuffer remain ⬜ (not on the early-boot path; framebuffer is M3).
+
 Source: `io/DeviceEmulator.hpp`. Apple-SoC windows (all above RAM, intercepted):
 
 | Device | Base | Region | rax |
@@ -119,12 +123,14 @@ These regenerate the manifest data for new kernel versions. **Keep**; wire their
 
 ---
 
-## Cleanup plan (what to delete/archive after rax parity is confirmed per item)
-1. Archive `hypervisors/` (jit/win32/macos/linux), `cpu/`, JIT decoder — rax replaces them.
-2. Archive C++ device `io/` + `devices/` once §2 behaviors are in rax.
-3. Archive iBoot/AVPBooter/TXM patchers + firmware pipeline (rax direct-boots).
-4. Keep: `_scripts/windows_patcher/*` (offline), generated headers, `vm/*` artifacts, this map.
-5. Higher-level subsystems (§8): archive lazily as each rax milestone ports them.
+## Cleanup status (done — moved to `Virtual-iPhone-Emulator/_archive_replaced_by_rax/`)
+1. ✅ Archived `hypervisors/` (jit/win32/macos/linux), `cpu/` — rax replaces them.
+2. ✅ Archived C++ device `io/` + `devices/` (§2 behaviors ported to rax).
+3. ✅ Archived `patchers/` + `firmware/` (iBoot/AVPBooter/TXM/Kernel/DT) — rax direct-boots.
+4. ✅ Kept: `_scripts/windows_patcher/*` (offline), generated headers, `vm/*` artifacts, this map.
+5. ⬜ Higher-level subsystems (§8: sep, security, biometric, nvram, launchd, springboard,
+   display, usb…): still active; archive lazily as each rax milestone ports them.
+See `_archive_replaced_by_rax/README.md` for the table + restore instructions.
 
 ## rax-side layout (the rewrite home)
 - `rax/src/vphone_boot.rs` — boot harness: loader, seeds, devices, manifest, diagnostics.
