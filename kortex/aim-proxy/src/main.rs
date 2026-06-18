@@ -153,7 +153,7 @@ impl AimPaths {
         if let Some(home) = &home {
             paths.push(PathBuf::from(format!("{home}/.aim/memory.aim")));
         }
-        paths.push(PathBuf::from("/opt/cyberifrit/.aim/memory.aim"));
+        paths.push(PathBuf::from("/opt/COMMUNITYAI/.aim/memory.aim"));
         paths.push(PathBuf::from("./.aim/memory.aim"));
         paths.push(PathBuf::from("../.aim/memory.aim"));
         // Legacy home-relative dev layouts (any user, any OS).

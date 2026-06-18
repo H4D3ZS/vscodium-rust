@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { resolve } from 'node:path';
 
-const DEV_OLLAMA_DEFAULT = 'https://ai.cyberifrit.xyz';
+const DEV_OLLAMA_DEFAULT = 'https://example.invalid';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');

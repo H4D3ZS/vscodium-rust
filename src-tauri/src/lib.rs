@@ -17,7 +17,6 @@ pub(crate) use infrastructure::binary_analyzer;
 pub(crate) use infrastructure::claurst_bridge;
 pub(crate) use domain::compat::cursor_compat;
 pub use domain::services::enterprise_audit;
-pub use domain::services::enterprise_governance;
 pub(crate) use infrastructure::ghost_runtime;
 pub(crate) use infrastructure::hermes_gateway;
 pub(crate) use domain::extensions::hermes_skills;
@@ -99,16 +98,6 @@ pub(crate) use domain::vcs::git;
 pub(crate) use domain::vcs::git_checkpoints;
 pub(crate) use domain::vcs::patch_engine;
 pub(crate) use domain::vcs::shadow_workspace;
-pub(crate) use domain::mobile::android_sdk;
-pub(crate) use domain::mobile::emulator_stream;
-pub(crate) use domain::mobile::ios_sim_embed;
-pub(crate) use domain::mobile::ios_sim_native;
-pub(crate) use domain::mobile::ios_simulator;
-pub(crate) use domain::mobile::ios_stream;
-pub(crate) use domain::mobile::iphone_emulator;
-pub(crate) use domain::mobile::logcat_service;
-pub(crate) use domain::mobile::mobile_toolchain;
-pub(crate) use domain::mobile::scrcpy;
 pub use domain::security::apex_orchestrator;
 pub use domain::security::apex_red_team;
 pub use domain::security::pentest_executor;
@@ -207,8 +196,6 @@ pub fn run() {
         .setup(|app| {
             app.manage(EditorState::new(app.handle()));
             app.manage(std::sync::Arc::new(jobs::JobManager::new()));
-            let iphone_manager = iphone_emulator::IPhoneEmulatorManager::new();
-            app.manage(iphone_manager);
             let state = app.state::<EditorState>();
             let _app_handle = app.handle().clone();
 
@@ -360,20 +347,6 @@ pub fn run() {
             auth::auth_session,
             auth::auth_sign_out,
             // ═══ Account / Subscription / ToS ═══
-            account::account_get,
-            account::account_accept_tos,
-            account::account_tos_status,
-            account::account_has_feature,
-            account::account_has_feature_offline,
-            account::account_set_tier,
-            account::account_acquire_addon,
-            account::account_subscribe,
-            account::account_sync,
-            account::account_check_and_count,
-            account::account_usage,
-            account::account_add_tokens,
-            account::account_start_trial,
-            account::account_open_billing,
             // ═══ Enterprise (audit + org policy) ═══
             enterprise_audit::enterprise_get_policy,
             enterprise_audit::enterprise_set_policy,
@@ -612,23 +585,7 @@ pub fn run() {
             stop_hooks::stop_hooks_save,
             stop_hooks::stop_hooks_run,
             // ═══ Emulator Stream ═══
-            emulator_stream::list_available_avds,
-            emulator_stream::create_avd,
-            emulator_stream::spawn_emulator_by_name,
-            emulator_stream::list_running_emulators,
-            emulator_stream::start_emulator_stream,
-            emulator_stream::stop_emulator_stream,
-            emulator_stream::get_stream_status,
             // ═══ Scrcpy Integration ═══
-            scrcpy::spawn_emulator_headless,
-            scrcpy::start_scrcpy_stream,
-            scrcpy::stop_scrcpy_stream,
-            scrcpy::capture_emulator_frame,
-            scrcpy::send_emulator_tap,
-            scrcpy::send_emulator_swipe,
-            scrcpy::send_emulator_text,
-            scrcpy::send_emulator_key,
-            scrcpy::get_scrcpy_status,
             // ═══ Vision System ═══
             vision::airi_vision_analyze_screen,
             vision::airi_vision_capture_screen,
@@ -946,33 +903,6 @@ pub fn run() {
             port_commands::port_forward_remove,
             // ═══ Extra Commands ═══
             file_commands::open_folder,
-            iphone_emulator::launch_iphone_emulator,
-            iphone_emulator::stop_iphone_emulator,
-            iphone_emulator::is_iphone_emulator_running,
-            iphone_emulator::send_iphone_touch,
-            iphone_emulator::launch_vphone,
-            iphone_emulator::prepare_ios_firmware,
-            iphone_emulator::create_stub_ramdisk,
-            ios_simulator::ios_sim_preflight,
-            ios_simulator::ios_sim_list_devices,
-            ios_simulator::ios_sim_boot_device,
-            ios_simulator::ios_sim_start_mirror,
-            ios_simulator::ios_sim_stop_mirror,
-            ios_simulator::ios_sim_send_touch,
-            ios_simulator::ios_sim_send_home,
-            ios_simulator::ios_sim_capture_screenshot,
-            ios_simulator::ios_sim_mirror_running,
-            ios_simulator::ios_sim_warmup,
-            ios_simulator::ios_sim_pause,
-            ios_simulator::ios_sim_resume,
-            ios_simulator::ios_sim_session_state,
-            ios_simulator::ios_sim_stream_url,
-            ios_simulator::ios_sim_stream_status,
-            ios_simulator::ios_sim_embed_layout,
-            mobile_toolchain::resolve_mobile_toolchain_paths,
-            mobile_toolchain::run_vphone_doctor,
-            mobile_toolchain::install_vphone_toolchain,
-            mobile_toolchain::get_mobile_toolchain_env,
             window_commands::win_minimize,
             window_commands::win_toggle_maximize,
             window_commands::win_close,

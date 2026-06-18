@@ -450,7 +450,7 @@ function executeMenuAction(item: string) {
             exec?.('workbench.action.showWelcome');
             break;
         case 'About':
-            alert('VSCodium-Rust\nVS Code–native shell · Agentic chat · Android & iPhone emulators\n\nCyber-Ifrit Cloud · Neural VFS · Local Ollama BYOB');
+            alert('VSCodium-Rust\nVS Code–native shell · Agentic chat · Android & iPhone emulators\n\nCommunity AI Cloud · Neural VFS · Local Ollama BYOB');
             break;
 
         default:

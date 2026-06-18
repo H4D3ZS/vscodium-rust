@@ -187,7 +187,7 @@ const OllamaFirstLaunchWizard: React.FC = () => {
           <span className="ollama-wizard-badge">Open source · Local-first</span>
           <h2 id="ollama-wizard-title">Ollama-ready in minutes</h2>
           <p className="ollama-wizard-sub">
-            Cyber-Ifrit is built for <strong>local open models</strong> — full agent, tools, and checkpoints on your
+            Community AI is built for <strong>local open models</strong> — full agent, tools, and checkpoints on your
             hardware. Optional cloud tiers when you need scale.
           </p>
         </header>

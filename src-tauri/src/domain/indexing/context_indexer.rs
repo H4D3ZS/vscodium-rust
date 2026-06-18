@@ -313,7 +313,7 @@ impl ContextIndexer {
             // Monorepo bulk — skip indexing multi-GB vendored trees by default.
             "/kortex/", "\\kortex\\", "/airi/", "\\airi\\",
             "/llama.cpp/", "\\llama.cpp\\", "/.agent/", "\\.agent\\",
-            "/Cyber-Ifrit-Portfolio/", "\\Cyber-Ifrit-Portfolio\\",
+            "/Community AI-Portfolio/", "\\Community AI-Portfolio\\",
         ];
         for seg in &pruned_segments {
             if s.contains(seg) { return false; }

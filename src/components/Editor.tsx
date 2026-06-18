@@ -1416,10 +1416,10 @@ ${selectedText}
                         store.setIsAgentThinking?.(true);
 
                         const qeSel = store.modelSelectionOfFeature?.['QuickEdit'];
-                        const rawModel = qeSel?.modelName || store.agentModel || 'cyberifrit|cyberifrit/qwen3.6:35b';
+                        const rawModel = qeSel?.modelName || store.agentModel || 'COMMUNITYAI|COMMUNITYAI/qwen3.6:35b';
                         const pipe = rawModel.indexOf('|');
                         const inlineProvider = qeSel?.providerName
-                            || (pipe >= 0 ? rawModel.slice(0, pipe).toLowerCase() : 'cyberifrit');
+                            || (pipe >= 0 ? rawModel.slice(0, pipe).toLowerCase() : 'COMMUNITYAI');
                         const inlineModel = qeSel?.modelName
                             || (pipe >= 0 ? rawModel.slice(pipe + 1) : rawModel);
 
