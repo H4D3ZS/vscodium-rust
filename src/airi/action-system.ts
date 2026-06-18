@@ -135,7 +135,7 @@ export class AIRIActionSystem {
       action.error = error.message;
       this.actionHistory.push(action);
 
-      console.error(`[Action] ❌ ${action.type}: ${error.message}`);
+ console.error(`[Action] ${action.type}: ${error.message}`);
 
       throw error;
     }
@@ -149,7 +149,7 @@ export class AIRIActionSystem {
     if (action.type === 'command_execute') {
       for (const blocked of this.blockedCommands) {
         if (action.description.includes(blocked)) {
-          console.warn(`[Action] 🚫 Blocked dangerous command: ${action.description}`);
+ console.warn(`[Action] Blocked dangerous command: ${action.description}`);
           return false;
         }
       }

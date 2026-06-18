@@ -11,6 +11,26 @@ use super::registry::push_activity;
 use super::shell::ShellTranslator;
 use crate::process_ext::CommandExtHidden;
 
+/// Parse FastContext's trained text tool-call format — `READ(path)`, `GLOB(pat)`,
+/// `GREP(term)` (case-insensitive) — into `(internal_name, arg)` pairs. Used when
+/// the GGUF template doesn't emit native Ollama tool_calls.
+fn parse_text_tool_calls(text: &str) -> Vec<(String, String)> {
+    let re = regex::Regex::new(r#"(?i)\b(READ|GLOB|GREP|CODE_SEARCH|SEARCH)\s*\(\s*["']?([^"')]+?)["']?\s*\)"#).unwrap();
+    let mut out = Vec::new();
+    for cap in re.captures_iter(text) {
+        let name = match cap[1].to_lowercase().as_str() {
+            "read" => "read_file",
+            "glob" => "glob",
+            "code_search" => "code_search",
+            _ => "grep", // GREP / SEARCH
+        };
+        let arg = cap[2].trim().to_string();
+        if !arg.is_empty() { out.push((name.to_string(), arg)); }
+        if out.len() >= 8 { break; }
+    }
+    out
+}
+
 impl AiTools {
     pub(crate) fn validate_path(&self, root: &std::path::Path, path_str: &str) -> Result<PathBuf> {
         let path = PathBuf::from(path_str);
@@ -895,6 +915,362 @@ impl AiTools {
         } else {
             Err(anyhow!("App handle not set"))
         }
+    }
+
+    /// FastContext repository explorer — spawns a lightweight subagent that does
+    /// parallel READ/GLOB/GREP and returns compact file citations. Uses the
+    /// FastContext-1.0-4B-SFT model if available, otherwise falls back to the
+    /// main agent's model with explorer-mode prompting.
+    pub(crate) async fn explore_repository(&self, args: Value) -> Result<Value> {
+        let query = args["query"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing query"))?;
+        let max_results = args["max_results"].as_u64().unwrap_or(10) as usize;
+        let file_pattern = args["file_pattern"].as_str();
+
+        let ollama_url = {
+            let h_lock = self.app_handle.lock().await;
+            if let Some(h) = h_lock.as_ref() {
+                let state: tauri::State<crate::EditorState> = h.state();
+                state.ai.engine.resolved_ollama_base(&crate::ai_engine::AiRequest {
+                    provider: "ollama".to_string(),
+                    model: "fastcontext".to_string(),
+                    messages: vec![],
+                    temperature: None,
+                    autonomous: false,
+                    mode: None,
+                    cyber_mode: None,
+                    root_access: None,
+                    ollama_url: None,
+                    tools: None,
+                    reasoning_budget: None,
+                    reasoning_effort: None,
+                    reasoning_enabled: None,
+                    feature: None,
+                }).await
+            } else {
+                "http://localhost:11434".to_string()
+            }
+        };
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(90))
+            .build()
+            .unwrap_or_default();
+
+        // Resolve the actual installed FastContext tag (keeps `hf.co/` prefix etc.).
+        let models_url = format!("{}/api/tags", ollama_url);
+        let fc_model: Option<String> = match client.get(&models_url).send().await {
+            Ok(resp) => resp.json::<serde_json::Value>().await.ok().and_then(|body| {
+                body.get("models").and_then(|m| m.as_array()).and_then(|models| {
+                    models.iter().find_map(|m| {
+                        m.get("name").and_then(|n| n.as_str())
+                            .filter(|n| n.to_lowercase().contains("fastcontext"))
+                            .map(|n| n.to_string())
+                    })
+                })
+            }),
+            Err(_) => None,
+        };
+
+        let Some(model) = fc_model else {
+            println!("[EXPLORE] FastContext not installed, using built-in explorer");
+            return self.builtin_explore(query, max_results, file_pattern).await;
+        };
+
+        println!("[EXPLORE] Using FastContext subagent ({}) for: {}", model, query);
+        match self.run_fastcontext_loop(&client, &ollama_url, &model, query, file_pattern, max_results).await {
+            Ok(citations) if !citations.is_empty() => Ok(json!({
+                "status": "success",
+                "explorer": model,
+                "query": query,
+                "citations": citations,
+            })),
+            other => {
+                if let Err(e) = &other {
+                    println!("[EXPLORE] FastContext loop error: {} — falling back to built-in", e);
+                } else {
+                    println!("[EXPLORE] FastContext returned no citations — falling back to built-in");
+                }
+                self.builtin_explore(query, max_results, file_pattern).await
+            }
+        }
+    }
+
+    /// Read-only agentic exploration loop. FastContext issues real READ/GLOB/GREP
+    /// tool calls (native Ollama tools, or its trained text format as fallback)
+    /// which we execute against the repo, looping until it emits `<final_answer>`
+    /// citations. Returns parsed `path:line` citations.
+    async fn run_fastcontext_loop(
+        &self,
+        client: &reqwest::Client,
+        ollama_url: &str,
+        model: &str,
+        query: &str,
+        file_pattern: Option<&str>,
+        max_results: usize,
+    ) -> Result<Vec<Value>> {
+        let scope = file_pattern
+            .map(|p| format!("Restrict search to files matching: {}", p))
+            .unwrap_or_else(|| "Search the entire repository.".to_string());
+        let system = format!(
+            "You are FastContext, a repository-exploration subagent. Your ONLY job is to \
+             LOCATE relevant code for the main agent — never edit or write code.\n\
+             {scope}\n\
+             Use the read-only tools (read_file, glob, grep, code_search) to find the files \
+             and line ranges relevant to the query. Issue several tool calls per turn to \
+             cover complementary hypotheses. When you have enough evidence, STOP calling \
+             tools and output a compact block:\n\
+             <final_answer>\n<path>:<start>-<end>  short reason\n...\n</final_answer>\n\
+             List at most {max_results} citations, most relevant first."
+        );
+        // Read-only tool schemas exposed to the explorer.
+        let tools = json!([
+            { "type": "function", "function": { "name": "read_file", "description": "Read a file (optionally a line range).",
+              "parameters": { "type": "object", "properties": {
+                  "path": {"type": "string"}, "start_line": {"type": "integer"}, "end_line": {"type": "integer"} }, "required": ["path"] } } },
+            { "type": "function", "function": { "name": "glob", "description": "Find files by name/glob pattern.",
+              "parameters": { "type": "object", "properties": { "pattern": {"type": "string"}, "path": {"type": "string"} }, "required": ["pattern"] } } },
+            { "type": "function", "function": { "name": "grep", "description": "Search file contents for a string across the repo.",
+              "parameters": { "type": "object", "properties": { "query": {"type": "string"} }, "required": ["query"] } } },
+            { "type": "function", "function": { "name": "code_search", "description": "Semantic/code search across the repo.",
+              "parameters": { "type": "object", "properties": { "query": {"type": "string"} }, "required": ["query"] } } }
+        ]);
+
+        let mut messages = vec![
+            json!({ "role": "system", "content": system }),
+            json!({ "role": "user", "content": format!("Query: {}", query) }),
+        ];
+        let chat_url = format!("{}/api/chat", ollama_url);
+
+        for _turn in 0..6 {
+            let body = json!({
+                "model": model,
+                "messages": messages,
+                "tools": tools,
+                "stream": false,
+                "options": { "temperature": 0.1, "num_ctx": 16384 }
+            });
+            let resp = client.post(&chat_url).json(&body).send().await
+                .map_err(|e| anyhow!("fastcontext chat: {}", e))?;
+            let v: Value = resp.json().await.map_err(|e| anyhow!("fastcontext json: {}", e))?;
+            let msg = v.get("message").cloned().unwrap_or_else(|| json!({}));
+            let content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+
+            // Native tool calls.
+            let tool_calls = msg.get("tool_calls").and_then(|t| t.as_array()).cloned().unwrap_or_default();
+            if !tool_calls.is_empty() {
+                messages.push(msg.clone());
+                for tc in &tool_calls {
+                    let name = tc["function"]["name"].as_str().unwrap_or("");
+                    let raw_args = tc["function"]["arguments"].clone();
+                    let args = if raw_args.is_string() {
+                        serde_json::from_str(raw_args.as_str().unwrap_or("{}")).unwrap_or(json!({}))
+                    } else { raw_args };
+                    let result = self.exec_explore_tool(name, args).await;
+                    messages.push(json!({ "role": "tool", "content": result }));
+                }
+                continue;
+            }
+
+            // Done if the model produced a final answer (or plain text, no further calls).
+            if content.contains("<final_answer>") {
+                return Ok(self.parse_explorer_citations(&content, max_results));
+            }
+
+            // Text-ReAct fallback: parse FastContext's trained READ()/GLOB()/GREP() calls.
+            let calls = parse_text_tool_calls(&content);
+            if calls.is_empty() {
+                return Ok(self.parse_explorer_citations(&content, max_results));
+            }
+            messages.push(json!({ "role": "assistant", "content": content }));
+            let mut obs = String::new();
+            for (name, arg) in calls {
+                let args = match name.as_str() {
+                    "read_file" => json!({ "path": arg }),
+                    "glob" => json!({ "pattern": arg }),
+                    _ => json!({ "query": arg }),
+                };
+                let result = self.exec_explore_tool(&name, args).await;
+                obs.push_str(&format!("{}({}) =>\n{}\n\n", name, arg, result.chars().take(1500).collect::<String>()));
+            }
+            messages.push(json!({ "role": "user", "content": format!("Observations:\n{}\nContinue or give <final_answer>.", obs) }));
+        }
+        Ok(Vec::new())
+    }
+
+    /// Execute one read-only explorer tool call, mapping the explorer's tool names
+    /// onto the existing dispatch. Returns a compact string result (capped).
+    async fn exec_explore_tool(&self, name: &str, args: Value) -> String {
+        if name == "code_search" {
+            return self.code_search(args).await
+                .map(|v| v.to_string()).unwrap_or_else(|e| format!("error: {}", e))
+                .chars().take(3000).collect();
+        }
+        let internal = match name {
+            "read_file" => "view_file",
+            "glob" => "find_by_name",
+            "grep" => "search_files",
+            other => other,
+        };
+        // grep maps to search_files which expects `query`, not `pattern`.
+        let args = if name == "grep" {
+            let q = args.get("query").or_else(|| args.get("pattern")).cloned().unwrap_or(json!(""));
+            json!({ "query": q })
+        } else { args };
+        self.handle_fs_tool(internal, args).await
+            .map(|v| v.to_string())
+            .unwrap_or_else(|e| format!("error: {}", e))
+            .chars().take(3000).collect()
+    }
+
+    /// Parse citations from a FastContext-style <final_answer> block
+    fn parse_explorer_citations(&self, text: &str, max_results: usize) -> Vec<Value> {
+        let mut citations = Vec::new();
+
+        // Try to find <final_answer> block
+        if let Some(start) = text.find("<final_answer>") {
+            if let Some(end) = text[start..].find("</final_answer>") {
+                let block = &text[start + 14..start + end];
+                // Parse file:line citations
+                for line in block.lines() {
+                    if citations.len() >= max_results {
+                        break;
+                    }
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
+                    // Try to extract path:line patterns
+                    if let Some(colon_pos) = line.find(':') {
+                        let path = line[..colon_pos].trim().to_string();
+                        let rest = line[colon_pos + 1..].trim();
+                        let line_range = rest.split_whitespace().next().unwrap_or("").to_string();
+                        citations.push(json!({
+                            "path": path,
+                            "line_range": line_range,
+                            "context": rest.to_string()
+                        }));
+                    } else {
+                        citations.push(json!({
+                            "path": line.to_string(),
+                            "line_range": "",
+                            "context": ""
+                        }));
+                    }
+                }
+            }
+        }
+
+        // If no <final_answer> found, try to extract file paths from the response
+        if citations.is_empty() {
+            let mut seen = std::collections::HashSet::new();
+            for line in text.lines() {
+                if citations.len() >= max_results {
+                    break;
+                }
+                // Look for paths that look like source files
+                if let Some(path) = self.extract_source_path(line) {
+                    if !seen.contains(&path) {
+                        seen.insert(path.clone());
+                        citations.push(json!({
+                            "path": path,
+                            "line_range": "",
+                            "context": line.trim().to_string()
+                        }));
+                    }
+                }
+            }
+        }
+
+        citations
+    }
+
+    /// Extract a source file path from a line of text
+    fn extract_source_path(&self, line: &str) -> Option<String> {
+        let line = line.trim();
+        // Look for patterns like src/foo.rs or path/to/file.ts
+        let extensions = [".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".java", ".c", ".cpp", ".h"];
+        for ext in &extensions {
+            if let Some(pos) = line.find(ext) {
+                // Find the start of the path
+                let before = &line[..pos + ext.len()];
+                if let Some(start) = before.rfind(|c: char| c == ' ' || c == '(' || c == '"' || c == '\'' || c == '`') {
+                    let path = &line[start + 1..pos + ext.len()];
+                    if path.contains('/') || path.contains('\\') {
+                        return Some(path.to_string());
+                    }
+                } else if !before.is_empty() {
+                    return Some(before.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// Built-in exploration using existing tools (fallback when FastContext isn't available)
+    async fn builtin_explore(&self, query: &str, max_results: usize, file_pattern: Option<&str>) -> Result<Value> {
+        let root = self.root_path.lock().await.clone();
+        let mut citations = Vec::new();
+
+        // Step 1: GLOB to find relevant files
+        let glob_pattern = if let Some(pat) = file_pattern {
+            pat.to_string()
+        } else {
+            // Guess file extensions from query
+            "**/*.{rs,ts,tsx,js,jsx,py,go}".to_string()
+        };
+
+        let glob_args = json!({
+            "pattern": glob_pattern,
+            "path": root.to_string_lossy()
+        });
+
+        if let Ok(glob_result) = self.handle_fs_tool("find_by_name", glob_args).await {
+            if let Some(files) = glob_result.get("files").and_then(|f| f.as_array()) {
+                // Step 2: For each file, grep for the query terms
+                let query_terms: Vec<&str> = query.split_whitespace().collect();
+                for file_entry in files.iter().take(max_results * 3) {
+                    if citations.len() >= max_results {
+                        break;
+                    }
+                    if let Some(path) = file_entry.get("path").and_then(|p| p.as_str()) {
+                        let grep_args = json!({
+                            "pattern": query_terms.first().unwrap_or(&""),
+                            "path": path,
+                        });
+                        if let Ok(grep_result) = self.handle_fs_tool("search_files", grep_args).await {
+                            if let Some(matches) = grep_result.get("matches").and_then(|m| m.as_array()) {
+                                if !matches.is_empty() {
+                                    citations.push(json!({
+                                        "path": path,
+                                        "line_range": matches.first()
+                                            .and_then(|m| m.get("line"))
+                                            .and_then(|l| l.as_u64())
+                                            .map(|l| format!("L{}", l))
+                                            .unwrap_or_default(),
+                                        "context": matches.first()
+                                            .and_then(|m| m.get("text"))
+                                            .and_then(|t| t.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        "match_count": matches.len()
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(json!({
+            "status": "success",
+            "explorer": "builtin",
+            "query": query,
+            "citations": citations,
+            "note": "FastContext not available — used built-in exploration. Pull FastContext for better results: ollama pull hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M"
+        }))
     }
 
     pub(crate) async fn generate_image(&self, args: Value) -> Result<Value> {

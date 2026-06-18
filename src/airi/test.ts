@@ -41,7 +41,7 @@ async function testAIRI(): Promise<void> {
 
 
   } catch (error) {
-    console.error('\n❌ TEST FAILED:', error);
+ console.error('\n TEST FAILED:', error);
     process.exit(1);
   }
 }

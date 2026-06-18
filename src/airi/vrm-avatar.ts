@@ -166,7 +166,7 @@ export class AIRIVRMAvatar {
       if (msg.includes('Unrecognized token') || msg.includes('<')) {
         console.warn('[VRM] Model URL returned HTML/non-VRM payload; avatar disabled.');
       } else {
-        console.error('[VRM] ❌ Failed to load VRM:', error);
+ console.error('[VRM] Failed to load VRM:', error);
       }
       // Always clean up the renderer canvas on failure so the DOM doesn't
       // show an empty/transparent Three.js canvas (which causes the visual gap).

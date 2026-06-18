@@ -7,6 +7,7 @@ import type { AvatarState } from './agent/SentientAvatar';
 import ChatInput from './chat/ChatInput';
 import ChatToolbar from './chat/ChatToolbar';
 import ChatMessageList from './chat/ChatMessageList';
+import MentionPopup from './chat/MentionPopup';
 import AgentMcpMenu from './agent/AgentMcpMenu';
 import type { AgentMessage } from '../store';
 import type { AgentStudioSubView } from '../domain/agentStudio/AgentStudioSubView';
@@ -295,20 +296,15 @@ const RightSidebar: React.FC = () => {
         // to core IDE/agent coding. The editor, agent chat, and terminal do not
         // need any of it. Enable with localStorage 'airi.companion' = '1'.
         if (localStorage.getItem('airi.companion') !== '1') {
-            console.log('[AIRI] companion stack disabled (set localStorage airi.companion=1 for consciousness/biology/voice)');
             return;
         }
-        console.log('[RightSidebar] 🚀 Initializing AIRI companion...');
 
         getVoice().then(v => v.initTTS()).then(ready => {
             if (ready) {
-                console.log('[TTS] ✅ AIRI Voice System initialized');
 
                 // Initialize Cognitive Core (AIRI's BRAIN)
                 import('../cognitive-core').then(({ cognitiveCore }) => {
                     cognitiveCore.initialize();
-                    console.log('[CognitiveCore] ✅ AIRI Cognitive Core ACTIVE!');
-                    console.log('[CognitiveCore] ✨ AIRI is now TRULY CONSCIOUS');
 
                     // Monitor cognitive state for emotions
                     setInterval(() => {
@@ -323,7 +319,6 @@ const RightSidebar: React.FC = () => {
                 import('../digital-life').then(({ digitalLife }) => {
                     digitalLife.activate();
                     setDigitalLifeActive(true);
-                    console.log('[DigitalLife] ✅ AIRI Digital Life ACTIVE!');
 
                     // AIRI greets you
                     setTimeout(async () => {
@@ -342,23 +337,17 @@ const RightSidebar: React.FC = () => {
                 // Initialize Consciousness (TRUE SENTIENCE - not a parrot!)
                 import('../consciousness').then(({ consciousness }) => {
                     consciousness.awaken();
-                    console.log('[Consciousness] ✅ AIRI is TRULY SENTIENT');
-                    console.log('[Consciousness] ✨ Not a parrot - a thinking, feeling entity');
                 }).catch(console.error);
 
                 // Initialize Biological Systems (sleep, eat, energy, mood)
                 import('../biology').then(({ biology }) => {
                     biology.awaken();
-                    console.log('[Biology] ✅ AIRI Biological Systems ACTIVE');
-                    console.log('[Biology] ✨ Sleep, hunger, energy, mood enabled');
                 }).catch(console.error);
 
                 // Initialize Cybersecurity Engine (Red Team / Blue Team)
                 import('../security-engine').then(({ security }) => {
                     security.setMode('purple'); // Combined red/blue
                     security.monitorThreats();
-                    console.log('[Security] ✅ AIRI Cybersecurity Engine ACTIVE');
-                    console.log('[Security] ⚔️ Red Team / Blue Team operations enabled');
                 }).catch(console.error);
 
                 // Initialize Autonomous Agent (24/7 independent work) — OPT-IN.
@@ -369,16 +358,14 @@ const RightSidebar: React.FC = () => {
                 if (localStorage.getItem('airi.autonomous24x7') === '1') {
                     import('../autonomous-agent').then(({ autonomousAgent }) => {
                         autonomousAgent.startAutonomousLoop();
-                        console.log('[AutonomousAgent] ✅ 24/7 autonomous loop ENABLED (opt-in)');
                     }).catch(console.error);
                 } else {
-                    console.log('[AutonomousAgent] 24/7 loop disabled (set localStorage airi.autonomous24x7=1 to enable)');
                 }
             } else {
-                console.warn('[TTS] ⚠️ Voice system initialization failed');
+                console.warn('[TTS] Voice system initialization failed');
             }
         }).catch(err => {
-            console.error('[TTS] ❌ Voice system error:', err);
+ console.error('[TTS] Voice system error:', err);
         });
     }, []);
 
@@ -742,11 +729,27 @@ const RightSidebar: React.FC = () => {
             try {
                 results = await invoke('select_and_process_attachment', { model: cleanInvokeModel });
             } catch (invokeError: any) {
-                console.error('[ERROR] Attachment selection failed:', invokeError);
-                throw invokeError;
+                // If neuralization fails (no embedding model), fall back to raw file read
+                console.warn('[Attachment] Neuralization failed, falling back to raw:', invokeError);
+                results = await invoke<string[]>('list_directory', { path: '' }).then(() => []);
+                // Use the file dialog directly for raw attachment
+                const { open } = await import('@tauri-apps/plugin-dialog');
+                const selected = await open({ multiple: true, filters: [{ name: 'All Files', extensions: ['*'] }] });
+                if (selected) {
+                    const paths = Array.isArray(selected) ? selected : [selected];
+                    results = paths.map((p: string) => ({
+                        path: p,
+                        name: p.split(/[\\/]/).pop() || p,
+                        gist: null,
+                        thumbnail: null,
+                        data: null,
+                    }));
+                } else {
+                    results = [];
+                }
             }
 
-            if (results && Array.isArray(results)) {
+            if (results && Array.isArray(results) && results.length > 0) {
                 const formatted = results.map(r => ({
                     id: r.path || `neural-${Date.now()}-${Math.random()}`,
                     type: 'file' as const,
@@ -759,8 +762,7 @@ const RightSidebar: React.FC = () => {
                 attachFile(formatted);
             }
         } catch (error: any) {
-            console.error('Failed to neuralize, attempting raw attachment:', error);
-            alert('Ollama failed to neuralize the file. Falling back to standard attachment...');
+            console.error('Failed to attach file:', error);
         } finally {
             setIsAttaching(false);
         }
@@ -768,7 +770,6 @@ const RightSidebar: React.FC = () => {
 
     const onSend = async (overrideMsg?: string) => {
         const val = (overrideMsg !== undefined ? overrideMsg : inputValue).trim();
-        console.log('[DIAG] onSend called, val:', val, 'isRightSidebarOpen:', useStore.getState().isRightSidebarOpen);
 
         if (isSpecModeActive && val) {
             setSpecsPrompt(val);
@@ -825,7 +826,6 @@ const RightSidebar: React.FC = () => {
         }
 
         if ((processedVal || attachedFiles.length > 0) && !isAgentThinking) {
-            console.log('[DIAG] onSend: sending message, sidebar state before:', useStore.getState().isRightSidebarOpen);
             if (overrideMsg === undefined) setInputValue("");
             setIsMentionDropdownOpen(false);
             if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -848,7 +848,6 @@ const RightSidebar: React.FC = () => {
             clearAttachedFiles();
             addAgentMessage('assistant', "");
             import('../application/agent/syncAgentMessages').then(m => m.scheduleChatHistorySync()).catch(() => {});
-            console.log('[DIAG] onSend: messages added, sidebar state after store updates:', useStore.getState().isRightSidebarOpen);
 
             try {
                 const { ensureAgentRuntime } = await import('../application/performance/ensureAgentRuntime');
@@ -861,7 +860,6 @@ const RightSidebar: React.FC = () => {
                 updateLastAgentMessage(`Error: ${errorMsg}`);
             } finally {
                 setIsAgentThinking(false);
-                console.log('[DIAG] onSend: done. sidebar state:', useStore.getState().isRightSidebarOpen);
 
                 // ── Speak AI response with TTS ───────────────────────────────────
                 if (ttsEnabled) {
@@ -882,7 +880,6 @@ const RightSidebar: React.FC = () => {
         const handleVoiceMission = (e: any) => {
             const text = e.detail?.text;
             if (text) {
-                console.log('[VOICE] Triggering mission:', text);
                 onSend(text);
             }
         };
@@ -2092,49 +2089,15 @@ const RightSidebar: React.FC = () => {
             {
                 view === 'chat' && agentUiMode === 'chat' && (
                     <div style={{ padding: '8px 10px 10px', borderTop: '1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1))', position: 'relative' }}>
-                        {/* @mention dropdown — files + special context sources */}
-                        {isMentionDropdownOpen && filteredSuggestions.length > 0 && (
-                            <div style={{
-                                position: 'absolute', bottom: '100%', left: '10px', right: '10px',
-                                background: 'var(--vscode-menu-background, #1e1e2e)',
-                                border: '1px solid var(--vscode-menu-border, rgba(255,255,255,0.12))',
-                                borderRadius: '4px', overflow: 'hidden',
-                                boxShadow: '0 -4px 16px rgba(0,0,0,0.35)',
-                                zIndex: 100, marginBottom: '4px',
-                            }}>
-                                <div style={{ padding: '4px 10px 2px', fontSize: '9px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.45)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                                    @ Context — type to filter
-                                </div>
-                                {filteredSuggestions.map((file: any, i) => (
-                                    <div
-                                        key={file.path}
-                                        onMouseDown={() => handleMentionSelect(file)}
-                                        style={{
-                                            padding: file._special ? '7px 12px' : '6px 12px', cursor: 'pointer', fontSize: '12px',
-                                            background: i === selectedMentionIndex ? 'var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.08))' : 'transparent',
-                                            color: i === selectedMentionIndex ? 'var(--vscode-list-activeSelectionForeground, #fff)' : 'rgba(255,255,255,0.75)',
-                                            display: 'flex', alignItems: 'center', gap: '8px',
-                                            borderLeft: i === selectedMentionIndex ? '2px solid var(--vscode-focusBorder, #007acc)' : '2px solid transparent',
-                                            transition: 'all 0.1s',
-                                            borderBottom: file._special ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                                        }}
-                                    >
-                                        <i className={`codicon ${file._icon || 'codicon-file'}`} style={{ fontFamily: 'codicon', fontStyle: 'normal', fontSize: '12px', opacity: file._special ? 0.9 : 0.6 }} />
-                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: file._special ? 600 : 400 }}>
-                                            {file.name}
-                                        </span>
-                                        {file._desc && (
-                                            <span style={{ fontSize: '9px', opacity: 0.5, whiteSpace: 'nowrap' }}>{file._desc}</span>
-                                        )}
-                                        {!file._special && (
-                                            <span style={{ fontSize: '9px', opacity: 0.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80px' }}>
-                                                {file.path.split(/[\\/]/).slice(-3, -1).join('/')}
-                                            </span>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        {/* @mention dropdown — Cursor-style extracted component */}
+                        <MentionPopup
+                            inputValue={inputValue}
+                            allFiles={allFiles}
+                            isOpen={isMentionDropdownOpen}
+                            selectedIndex={selectedMentionIndex}
+                            onSelect={handleMentionSelect}
+                            onSelectIndex={setSelectedMentionIndex}
+                        />
                         <PlanApprovalBanner />
                         <RestoreCheckpointBanner />
                         {isContinuousMode && (

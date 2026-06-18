@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "HADES WebUI Bridge",
+  "version": "1.0.0",
+  "description": "Bridges free web-chat models (Claude/GPT/Qwen/DeepSeek/Gemini) to the HADES IDE's MCP tool server, so the chat can drive real IDE tools with no API key.",
+
+  "permissions": ["storage", "scripting", "alarms"],
+
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://gemini.google.com/*",
+    "https://chat.deepseek.com/*",
+    "https://chat.qwen.ai/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://claude.ai/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*",
+        "https://chat.deepseek.com/*",
+        "https://chat.qwen.ai/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,115 @@
+CVTSS2SD — Convert Scalar Single Precision Floating-Point Value to Scalar Double PrecisionFloating-Point Value
+
+* Index
+
+* December 2023
+
+CVTSS2SD — Convert Scalar Single Precision Floating-Point Value to Scalar Double PrecisionFloating-Point Value
+
+|             Opcode/Instruction             |Op / En|64/32 bit Mode Support|CPUID Feature Flag|                                     Description                                     |
+
+|--------------------------------------------------------------------|-------|----------------------|------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
+
+|        F3 0F 5A /r CVTSS2SD xmm1, xmm2/m32         |  A  |     V/V     |    SSE2    |           Convert one single precision floating-point value in xmm2/m32 to one double precision floating-point value in xmm1. |
+
+|    VEX.LIG.F3.0F.WIG 5A /r VCVTSS2SD xmm1, xmm2, xmm3/m32    |  B  |     V/V     |    AVX    |     Convert one single precision floating-point value in xmm3/m32 to one double precision floating-point value and merge with high bits of xmm2. |
+
+|EVEX.LLIG.F3.0F.W0 5A /r VCVTSS2SD xmm1 {k1}{z}, xmm2, xmm3/m32{sae}|  C  |     V/V     |   AVX512F   |Convert one single precision floating-point value in xmm3/m32 to one double precision floating-point value and merge with high bits of xmm2 under writemask k1. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Tuple Type |  Operand 1  | Operand 2 | Operand 3 |Operand 4|
+
+|-----|-------------|----------------|-------------|-------------|---------|
+
+| A |   N/A   |ModRM:reg (r, w)|ModRM:r/m (r)|   N/A   |  N/A  |
+
+| B |   N/A   | ModRM:reg (w) |VEX.vvvv (r) |ModRM:r/m (r)|  N/A  |
+
+| C |Tuple1 Scalar| ModRM:reg (w) |EVEX.vvvv (r)|ModRM:r/m (r)|  N/A  |
+
+Description ¶
+
+Converts a single precision floating-point value in the “convert-from” source operand to a double precision floating-point value in the destination operand. When the “convert-from” source operand is an XMM register, the single precision floating-point value is contained in the low doubleword of the register. The result is stored in the low quadword of the destination operand.
+
+128-bit Legacy SSE version: The “convert-from” source operand (the second operand) is an XMM register or memory location. Bits (MAXVL-1:64) of the corresponding destination register remain unchanged. The destination operand is an XMM register.
+
+VEX.128 and EVEX encoded versions: The “convert-from” source operand (the third operand) can be an XMM register or a 32-bit memory location. The first source and destination operands are XMM registers. Bits (127:64) of the XMM register destination are copied from the corresponding bits in the first source operand. Bits (MAXVL-1:128) of the destination register are zeroed.
+
+Software should ensure VCVTSS2SD is encoded with VEX.L=0. Encoding VCVTSS2SD with VEX.L=1 may encounter unpredictable behavior across different processor generations.
+
+Operation ¶
+
+VCVTSS2SD (EVEX Encoded Version) ¶
+
+```
+
+IF k1or *no writemask* THEN DEST[63:0] := Convert_Single_Precision_To_Double_Precision_Floating_Point(SRC2[31:0]); ELSE IF *merging-masking* ; merging-masking THEN *DEST[63:0] remains unchanged* ELSE ; zeroing-masking THEN DEST[63:0] = 0 FI; FI; DEST[127:64] := SRC1[127:64] DEST[MAXVL-1:128] := 0
+
+```
+
+VCVTSS2SD (VEX.128 Encoded Version) ¶
+
+```
+
+DEST[63:0] := Convert_Single_Precision_To_Double_Precision_Floating_Point(SRC2[31:0]) DEST[127:64] := SRC1[127:64] DEST[MAXVL-1:128] := 0
+
+```
+
+CVTSS2SD (128-bit Legacy SSE Version) ¶
+
+```
+
+DEST[63:0] := Convert_Single_Precision_To_Double_Precision_Floating_Point(SRC[31:0]); DEST[MAXVL-1:64] (Unmodified)
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+VCVTSS2SD __m128d _mm_cvt_roundss_sd(__m128d a, __m128 b, int r);
+
+```
+
+```
+
+VCVTSS2SD __m128d _mm_mask_cvt_roundss_sd(__m128d s, __mmask8 m, __m128d a,__m128 b, int r);
+
+```
+
+```
+
+VCVTSS2SD __m128d _mm_maskz_cvt_roundss_sd(__mmask8 k, __m128d a, __m128 a, int r);
+
+```
+
+```
+
+VCVTSS2SD __m128d _mm_mask_cvtss_sd(__m128d s, __mmask8 m, __m128d a,__m128 b);
+
+```
+
+```
+
+VCVTSS2SD __m128d _mm_maskz_cvtss_sd(__mmask8 m, __m128d a,__m128 b);
+
+```
+
+```
+
+CVTSS2SD __m128d_mm_cvtss_sd(__m128d a, __m128 a);
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+Invalid, Denormal.
+
+Other Exceptions ¶
+
+VEX-encoded instructions, see Table 2-20, “Type 3 Class Exception Conditions.”
+
+EVEX-encoded instructions, see Table 2-47, “Type E3 Class Exception Conditions.”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

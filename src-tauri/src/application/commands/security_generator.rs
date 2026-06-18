@@ -1,4 +1,4 @@
-//! Tauri IPC for security generators — gated by bug-bounty ToS + Security Researcher tier.
+//! Tauri IPC for security generators.
 
 use serde_json::{json, Value};
 use tauri::State;
@@ -8,18 +8,6 @@ use crate::security_generators::{
 };
 use crate::EditorState;
 
-async fn gate_security(state: &State<'_, EditorState>) -> Result<(), String> {
-    crate::account::require_security_suite(&state.config_dir)?;
-    let ok = crate::account::AccountManager::has_accepted(
-        &crate::account::AccountManager::load(&state.config_dir),
-        "bug-bounty",
-    );
-    if !ok {
-        return Err("Accept Bug Bounty Terms in Settings → Account before using security generators.".into());
-    }
-    Ok(())
-}
-
 #[tauri::command]
 pub async fn security_reverse_shell(
     state: State<'_, EditorState>,
@@ -28,7 +16,6 @@ pub async fn security_reverse_shell(
     port: u16,
     shell: Option<String>,
 ) -> Result<Value, String> {
-    gate_security(&state).await?;
     let payload = reverse_shell(&language, &host, port, shell.as_deref())?;
     Ok(json!({ "language": language, "host": host, "port": port, "payload": payload }))
 }
@@ -40,14 +27,12 @@ pub async fn security_listener(
     host: String,
     port: u16,
 ) -> Result<Value, String> {
-    gate_security(&state).await?;
     let cmd = listener_config(&kind, &host, port)?;
     Ok(json!({ "kind": kind, "command": cmd }))
 }
 
 #[tauri::command]
 pub async fn security_csp_analyze(state: State<'_, EditorState>, header: String) -> Result<Value, String> {
-    gate_security(&state).await?;
     Ok(analyze_csp(&header))
 }
 
@@ -58,7 +43,6 @@ pub async fn security_shellcode_recipe(
     arch: String,
     payload: Option<String>,
 ) -> Result<Value, String> {
-    gate_security(&state).await?;
     Ok(shellcode_recipe(
         &platform,
         &arch,
@@ -72,6 +56,5 @@ pub async fn security_encode_payload(
     payload: String,
     encoding: String,
 ) -> Result<Value, String> {
-    gate_security(&state).await?;
     encode_payload(&payload, &encoding)
 }

@@ -1,0 +1,265 @@
+EACCEPTCOPY — Initialize a Pending Page
+
+* Index
+
+* December 2023
+
+EACCEPTCOPY — Initialize a Pending Page
+
+|   Opcode/Instruction   |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                     Description                     |
+
+|----------------------------|-----|----------------------|------------------|---------------------------------------------------------------------------------------------|
+
+|EAX = 07H ENCLU[EACCEPTCOPY]| IR |     V/V     |    SGX2    |This leaf function initializes a dynamically allocated EPC page from another page in the EPC.|
+
+Instruction Operand Encoding ¶
+
+|Op/En|   EAX    |     RBX     |      RCX      |         RDX          |                  |
+
+|-----|----------------|-----------------------|-------------------------|----------------------------------------|-----------------------------------|
+
+| IR |EACCEPTCOPY (In)|Return Error Code (Out)|Address of a SECINFO (In)|Address of the destination EPC page (In)|Address of the source EPC page (In)|
+
+Description ¶
+
+This leaf function copies the contents of an existing EPC page into an uninitialized EPC page (created by EAUG). After initialization, the instruction may also modify the access rights associated with the destination EPC page. This instruction leaf can only be executed when inside the enclave.
+
+RBX contains the effective address of a SECINFO structure while RCX and RDX each contain the effective address of an EPC page. The table below provides additional information on the memory parameter of the EACCEPTCOPY leaf function.
+
+EACCEPTCOPY Memory Parameter Semantics ¶
+
+|       SECINFO        |    EPCPAGE (Destination)     |    EPCPAGE (Source)    |
+
+|------------------------------------|--------------------------------------|--------------------------------|
+
+|Read access permitted by Non Enclave|Read/Write access permitted by Enclave|Read access permitted by Enclave|
+
+The instruction faults if any of the following:
+
+EACCEPTCOPY Faulting Conditions ¶
+
+| The operands are not properly aligned. |    If security attributes of the SECINFO page make the page inaccessible. |
+
+|-----------------------------------------|------------------------------------------------------------------------------------|
+
+|The EPC page is locked by another thread. |   If security attributes of the source EPC page make the page inaccessible. |
+
+|    The EPC page is not valid. | RBX does not contain an effective address in an EPC page in the running enclave. |
+
+| SECINFO contains an invalid request  |RCX/RDX does not contain an effective address of an EPC page in the running enclave. |
+
+The error codes are:
+
+| Error Code (see Table 38-4) |               Description               |
+
+|-------------------------------|-----------------------------------------------------------------------|
+
+|      No Error      |            EACCEPTCOPY successful. |
+
+|SGX\_PAGE\_ATTRIBUTES\_MISMATCH|The attributes of the target EPC page do not match the expected values. |
+
+Table 38-57. EACCEPTCOPY Return Value in RAX
+
+Concurrency Restrictions ¶
+
+|   Leaf   |  Parameter  |  Base Concurrency Restrictions  |  |  |
+
+|----------------|---------------|-----------------------------------|---|---|
+
+|   Access   | On Conflict |SGX\_CONFLICT VM Exit Qualification|  |  |
+
+| EACCEPTCOPY  |Target [DS:RCX]|      Concurrent       |  |  |
+
+|Source [DS:RDX] | Concurrent  |                  |  |  |
+
+|SECINFO [DS:RBX]| Concurrent  |                  |  |  |
+
+Table 38-58. Base Concurrency Restrictions of EACCEPTCOPY
+
+|           Leaf           |    Parameter    |Additional Concurrency Restrictions|      |     |      |     |  |
+
+|-----------------------------------------------|------------------------|-----------------------------------|-----------|----------|-----------|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT|    vs ETRACK, ETRACKC    |      |     |      |     |  |
+
+|          Access           |   On Conflict    |       Access        |On Conflict| Access |On Conflict|     |  |
+
+|         EACCEPTCOPY         |  Target [DS:RCX]   |       Exclusive       |  \#GP  |Concurrent|      |Concurrent|  |
+
+|        Source [DS:RDX]        |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+|        SECINFO [DS:RBX]        |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+Table 38-59. Additional Concurrency Restrictions of EACCEPTCOPY
+
+Operation ¶
+
+Temp Variables in EACCEPTCOPY Operational Flow ¶
+
+|Name Type Size (bits) Name|    |  |                          |
+
+|--------------------------|-------|---|---------------------------------------------------|
+
+|   SCRATCH\_SECINFO   |SECINFO|512|Scratch storage for holding the contents of DS:RBX.|
+
+IF (DS:RBX is not 64Byte Aligned)
+
+THEN #GP(0); FI;
+
+IF ( (DS:RCX is not 4KByte Aligned) or (DS:RDX is not 4KByte Aligned) )
+
+THEN #GP(0); FI;
+
+IF ((DS:RBX is not within CR\_ELRANGE) or (DS:RCX is not within CR\_ELRANGE) or (DS:RDX is not within CR\_ELRANGE))
+
+THEN #GP(0); FI;
+
+IF (DS:RBX does not resolve within an EPC)
+
+THEN #PF(DS:RBX); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+IF (DS:RDX does not resolve within an EPC)
+
+THEN #PF(DS:RDX); FI;
+
+IF ( (EPCM(DS:RBX &\~FFFH). VALID = 0) or (EPCM(DS:RBX &\~FFFH). R = 0) or (EPCM(DS:RBX &\~FFFH). PENDING ≠ 0) or
+
+(EPCM(DS:RBX &\~FFFH). MODIFIED ≠ 0) or (EPCM(DS:RBX &\~FFFH). BLOCKED ≠ 0) or (EPCM(DS:RBX &\~FFFH). PT ≠ PT\_REG) or
+
+(EPCM(DS:RBX &\~FFFH). ENCLAVESECS ≠ CR\_ACTIVE\_SECS) or
+
+(EPCM(DS:RBX &\~FFFH). ENCLAVEADDRESS ≠ DS:RBX) )
+
+THEN #PF(DS:RBX); FI;
+
+(\* Copy 64 bytes of contents \*)
+
+SCRATCH\_SECINFO := DS:RBX;
+
+(\* Check for misconfigured SECINFO flags\*)
+
+IF ( (SCRATCH\_SECINFO reserved fields are not zero ) or (SCRATCH\_SECINFO.FLAGS.R=0) AND(SCRATCH\_SECINFO.FLAGS.W≠0 ) or
+
+(SCRATCH\_SECINFO.FLAGS.PT is not PT\_REG) )
+
+THEN #GP(0); FI;
+
+(\* Check security attributes of the source EPC page \*)
+
+IF ( (EPCM(DS:RDX). VALID = 0) or (EPCM(DS:RCX). R = 0) or (EPCM(DS:RDX). PENDING ≠ 0) or (EPCM(DS:RDX). MODIFIED ≠ 0) or
+
+(EPCM(DS:RDX). BLOCKED ≠ 0) or (EPCM(DS:RDX). PT ≠ PT\_REG) or (EPCM(DS:RDX). ENCLAVESECS ≠ CR\_ACTIVE\_SECS) or
+
+(EPCM(DS:RDX). ENCLAVEADDRESS ≠ DS:RDX))
+
+THEN #PF(DS:RDX); FI;
+
+(\* Check security attributes of the destination EPC page \*)
+
+IF ( (EPCM(DS:RCX). VALID = 0) or (EPCM(DS:RCX). PENDING ≠ 1) or (EPCM(DS:RCX). MODIFIED ≠ 0) or
+
+(EPCM(DS:RDX). BLOCKED ≠ 0) or (EPCM(DS:RCX). PT ≠ PT\_REG) or (EPCM(DS:RCX). ENCLAVESECS ≠ CR\_ACTIVE\_SECS) )
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_PAGE\_ATTRIBUTES\_MISMATCH;
+
+GOTO DONE;
+
+FI;
+
+(\* Check the destination EPC page for concurrency \*)
+
+IF (destination EPC page in use )
+
+THEN #GP(0); FI;
+
+(\* Re-Check security attributes of the destination EPC page \*)
+
+IF ( (EPCM(DS:RCX). VALID = 0) or (EPCM(DS:RCX). PENDING ≠ 1) or (EPCM(DS:RCX). MODIFIED ≠ 0) or
+
+(EPCM(DS:RCX). R ≠ 1) or (EPCM(DS:RCX). W ≠ 1) or (EPCM(DS:RCX). X ≠ 0) or
+
+(EPCM(DS:RCX). PT ≠ SCRATCH\_SECINFO.FLAGS.PT) or (EPCM(DS:RCX). ENCLAVESECS ≠ CR\_ACTIVE\_SECS) or
+
+(EPCM(DS:RCX). ENCLAVEADDRESS ≠ DS:RCX))
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_PAGE\_ATTRIBUTES\_MISMATCH;
+
+GOTO DONE;
+
+FI;
+
+(\* Copy 4KBbytes form the source to destination EPC page\*)
+
+DS:RCX[32767:0] := DS:RDX[32767:0];
+
+(\* Update EPCM permissions \*)
+
+EPCM(DS:RCX). R := SCRATCH\_SECINFO.FLAGS.R;
+
+EPCM(DS:RCX). W := SCRATCH\_SECINFO.FLAGS.W;
+
+EPCM(DS:RCX). X := SCRATCH\_SECINFO.FLAGS.X;
+
+EPCM(DS:RCX). PENDING := 0;
+
+RFLAGS.ZF := 0;
+
+RAX := 0;
+
+DONE:
+
+RFLAGS.CF,PF,AF,OF,SF := 0;
+
+Flags Affected ¶
+
+Sets ZF if page is not modifiable, otherwise cleared. Clears CF, PF, AF, OF, SF.
+
+Protected Mode Exceptions ¶
+
+|                \#GP(0)                |       If executed outside an enclave. |
+
+|----------------------------------------------------------------------|----------------------------------------------------------|
+
+|If a memory operand effective address is outside the DS segment limit. |                             |
+
+|       If a memory operand is not properly aligned. |                             |
+
+|          If a memory operand is locked. |                             |
+
+|               \#PF(error               |code) If a page fault occurs in accessing memory operands. |
+
+|        If a memory operand is not an EPC page. |                             |
+
+|   If EPC page has incorrect page type or security attributes. |                             |
+
+64-Bit Mode Exceptions ¶
+
+|             \#GP(0)             |       If executed outside an enclave. |
+
+|-----------------------------------------------------------|----------------------------------------------------------|
+
+|    If a memory operand is non-canonical form. |                             |
+
+|    If a memory operand is not properly aligned. |                             |
+
+|       If a memory operand is locked. |                             |
+
+|            \#PF(error             |code) If a page fault occurs in accessing memory operands. |
+
+|     If a memory operand is not an EPC page. |                             |
+
+|If EPC page has incorrect page type or security attributes. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

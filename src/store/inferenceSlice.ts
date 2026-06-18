@@ -1,8 +1,7 @@
-﻿import type { StateCreator } from 'zustand';
+import type { StateCreator } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppState } from './index';
 import { normalizeOllamaUrl } from './utils';
-import { mergeLocalRegistryHints } from '../lib/localOllamaRegistry';
 import { applyLocalOllamaAgentDefaults } from '../lib/localOllamaAgentDefaults';
 
 export interface InferenceSlice {
@@ -186,18 +185,6 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             applyLocalOllamaAgentDefaults(get() as Parameters<typeof applyLocalOllamaAgentDefaults>[0]);
         }
         void get().syncOllamaEndpoint?.();
-        // Cloud AMD requires a live Supabase session — nudge if signed out.
-        if (mode === 'cloud') {
-            import('../tauri_bridge').then(({ invoke }) =>
-                invoke<{ signed_in?: boolean }>('auth_session')
-                    .then((s) => {
-                        if (!s?.signed_in) {
-                            console.warn('[Ollama] Cloud mode needs Settings → Account sign-in.');
-                        }
-                    })
-                    .catch(() => { /* offline */ }),
-            );
-        }
     },
     syncOllamaEndpoint: async () => {
         const mode = get().ollamaServerMode;
@@ -262,13 +249,7 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
     refreshAvailableModels: async (targetProvider?) => {
         const { ollamaUrl } = get();
         try {
-            const keys: any = await invoke('get_api_keys');
-            let acct: any = null;
-            try { acct = await invoke('account_get'); } catch { /* offline */ }
-            const cloudEntitled = !!(
-                acct?.entitlements?.features?.includes('cloud_models')
-                || acct?.trial_active
-            );
+            const keys: any = await invoke('get_api_keys').catch(() => ({}));
             const providers: string[] = ['Ollama'];
             if (keys.google) providers.push('Google');
             if (keys.anthropic) providers.push('Anthropic');
@@ -279,10 +260,6 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             if ((keys as any).mimo) providers.push('Mimo');
             // Interface AI / highwayapi.ai — Claude Opus 4.8 (BYO key).
             if ((keys as any).highwayapi || (keys as any).highwayapi_base_url) providers.push('Highwayapi');
-            // Cyber-Ifrit: show when subscribed/trial OR when a key/base URL is configured.
-            if ((keys as any).cyberifrit || (keys as any).cyberifrit_base_url || cloudEntitled) {
-                providers.push('Cyberifrit');
-            }
             if (typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')) providers.push('Deepseek-ANE');
             if (keys.groq) providers.push('Groq');
             if (keys.xai) providers.push('xAI');
@@ -327,9 +304,10 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                         continue;
                     } else {
                         models = await invoke<string[]>('list_provider_models', { provider: p });
-                        if (p.toLowerCase() === 'ollama' && get().ollamaServerMode === 'local') {
-                            models = mergeLocalRegistryHints(models);
-                        }
+                        // Show only ACTUALLY-INSTALLED Ollama models in the picker —
+                        // do not flood it with registry pull-hints the user hasn't
+                        // downloaded (that belongs in the pull/install wizard). Keeps
+                        // the picker Cursor-clean: exactly `ollama list`.
                         allModels = [...allModels, ...models.map(m => ({ id: m, provider: p.toLowerCase() }))];
                     }
                     if (p.toLowerCase() === 'ollama' && models.length > 0) set({ ollamaStatus: 'running' });
@@ -342,12 +320,6 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                         msg.includes('error trying to connect');
                     if (!quiet) console.error(`Failed to fetch models for ${p}:`, e);
                     if (p.toLowerCase() === 'ollama') set({ ollamaStatus: 'error' });
-                }
-            }
-            // Subscribed users: always surface curated Cyber-Ifrit cloud models.
-            if (cloudEntitled && !allModels.some(m => m.provider === 'cyberifrit')) {
-                for (const id of ['cyberifrit/qwen3.6:35b', 'cyberifrit/qwen2.5-coder:32b', 'cyberifrit/qwen2.5:32b']) {
-                    allModels.push({ id, provider: 'cyberifrit' });
                 }
             }
             // Guarantee Opus 4.8 appears when the Interface AI key is set + enabled,

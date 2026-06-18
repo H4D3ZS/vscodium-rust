@@ -80,32 +80,12 @@ impl Sentient {
         if !k.trim().is_empty() {
             return k;
         }
-        if Self::is_cyberifrit_managed_ollama_url(base_url) {
-            let cfg = crate::account::account_config_dir(&self.brain_dir);
-            if let Some(s) = crate::auth::load_session(&cfg) {
-                if !s.access_token.is_empty() {
-                    return s.access_token;
-                }
-            }
-        }
         String::new()
     }
 
     pub(crate) fn get_key_for_provider(&self, provider: &str) -> String {
         let provider_base = provider.split(':').next().unwrap_or(provider).to_lowercase();
         
-        // 1. Try OAuth token first
-        let lookup_provider = if provider_base.contains("openwebui") {
-            "openwebui"
-        } else if provider_base == "gemini" {
-            "google"
-        } else {
-            &provider_base
-        };
-        if let Some(token) = crate::auth_commands::get_stored_token_sync(lookup_provider) {
-            if !token.is_empty() { return token; }
-        }
-
         let env_var = match provider_base.as_str() {
             "anthropic" => "ANTHROPIC_API_KEY",
             "google" | "gemini" => "GOOGLE_API_KEY",
@@ -155,17 +135,6 @@ impl Sentient {
             }
         }
 
-        // Cyber-Ifrit managed cloud (AMD MI300X Ollama): if no explicit key was
-        // set, authorize with the signed-in SUBSCRIPTION token (Supabase access
-        // token). This is the "pay & subscribe → managed cloud just works, no
-        // BYO key" path — the AMD gateway validates this JWT + the entitlement.
-        if matches!(provider_base.as_str(), "cyberifrit" | "cyber-ifrit" | "cyberifrit-cloud") {
-            let cfg = crate::account::account_config_dir(&self.brain_dir);
-            if let Some(s) = crate::auth::load_session(&cfg) {
-                if !s.access_token.is_empty() { return s.access_token; }
-            }
-        }
-
         self.api_key.clone()
     }
 
@@ -176,6 +145,11 @@ impl Sentient {
             provider.split(':').next().unwrap_or(provider).to_lowercase()
         };
         match provider_base.as_str() {
+            // Headless web-chat models are fronted by the local OpenAI shim (:1539),
+            // which drives the logged-in claude.ai / deepseek session. Keyless.
+            "webchat" | "webchat-claude" | "webchat-deepseek" => {
+                "http://127.0.0.1:1539/v1/chat/completions".to_string()
+            }
             "google" | "gemini" => {
                 if let Ok(url) = std::env::var("GOOGLE_BASE_URL") {
                     if !url.is_empty() {
@@ -674,6 +648,7 @@ impl Sentient {
                 let block_body = rest[..close_pos].trim();
 
                 if !block_body.is_empty() {
+                    // Try existing patterns first (header-based)
                     if let Some(file_path) = Self::extract_file_path_from_block_header(&header, block_body) {
                         let id = format!("auto-write-{}", writes.len());
                         writes.push(ToolCall {
@@ -688,6 +663,25 @@ impl Sentient {
                                 }).to_string(),
                             },
                         });
+                    } else {
+                        // Pattern 4: Infer file path from surrounding text context
+                        let preceding_text = &content[..block_start];
+                        let lang = header.split_whitespace().next().unwrap_or("");
+                        if let Some(file_path) = Self::infer_file_path_from_context(preceding_text, block_body, lang) {
+                            let id = format!("auto-write-{}", writes.len());
+                            writes.push(ToolCall {
+                                id,
+                                type_field: "function".to_string(),
+                                context: None,
+                                function: ToolFunction {
+                                    name: "write_to_file".to_string(),
+                                    arguments: json!({
+                                        "path": file_path,
+                                        "content": block_body
+                                    }).to_string(),
+                                },
+                            });
+                        }
                     }
                 }
                 search_pos = content_start + close_pos + 3;
@@ -732,6 +726,60 @@ impl Sentient {
                         .trim_end_matches("*/").trim_end_matches("-->").trim();
                     if Self::looks_like_file_path(path) {
                         return Some(path.to_string());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Pattern 4: Detect file path from surrounding text (e.g., "build calculator.py")
+    /// Called by try_extract_file_writes_from_text with the text BEFORE the code block.
+    pub(crate) fn infer_file_path_from_context(preceding_text: &str, block_body: &str, lang: &str) -> Option<String> {
+        // Look for patterns like "create/write/build/save X.py" or "X.py that..."
+        let patterns = [
+            r"(?:create|write|build|save|implement|add)\s+(?:a\s+|an\s+|the\s+)?([a-zA-Z0-9_./-]+\.[a-zA-Z]{1,5})\b",
+            r"([a-zA-Z0-9_./-]+\.(?:py|js|ts|tsx|jsx|rs|go|java|cpp|c|h|hpp|rb|php|sh|bash|css|html|json|yaml|yml|toml|sql|md))\s+(?:that|which|with|containing|implementing|wrapping)",
+        ];
+
+        let lang_to_ext: std::collections::HashMap<&str, &str> = [
+            ("python", ".py"), ("javascript", ".js"), ("typescript", ".ts"),
+            ("rust", ".rs"), ("go", ".go"), ("java", ".java"), ("cpp", ".cpp"),
+            ("c", ".c"), ("ruby", ".rb"), ("php", ".php"), ("bash", ".sh"),
+            ("html", ".html"), ("css", ".css"), ("json", ".json"),
+        ].iter().cloned().collect();
+
+        for pattern in &patterns {
+            if let Some(caps) = regex::Regex::new(pattern).ok()?.captures(preceding_text) {
+                if let Some(m) = caps.get(1) {
+                    let path = m.as_str().to_string();
+                    if Self::looks_like_file_path(&path) {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+
+        // Fallback: if lang is known, infer filename from code content
+        if let Some(ext) = lang_to_ext.get(lang.to_lowercase().as_str()) {
+            // Look for class/function names that could be the filename
+            if let Some(first_line) = block_body.lines().next() {
+                // class Calculator → calculator.py
+                if let Some(caps) = regex::Regex::new(r"class\s+(\w+)").ok()?.captures(first_line) {
+                    if let Some(name) = caps.get(1) {
+                        let snake = name.as_str().chars().fold(String::new(), |mut acc, c| {
+                            if c.is_uppercase() && !acc.is_empty() { acc.push('_'); }
+                            acc.push(c.to_lowercase().next().unwrap_or(c));
+                            acc
+                        });
+                        return Some(format!("{}{}", snake, ext));
+                    }
+                }
+                // def calculate → calculate.py
+                if let Some(caps) = regex::Regex::new(r"(?:pub\s+)?(?:async\s+)?fn\s+(\w+)|def\s+(\w+)").ok()?.captures(first_line) {
+                    if let Some(name) = caps.get(1).or_else(|| caps.get(2)) {
+                        return Some(format!("{}{}", name.as_str(), ext));
                     }
                 }
             }

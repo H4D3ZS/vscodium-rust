@@ -104,7 +104,7 @@ export class AIRIToolOrchestrator {
         for (const toolName of toolNames) {
             const tool = this.registeredTools.get(toolName);
             if (!tool) {
-                console.warn(`   ⚠️ Tool not found: ${toolName}`);
+ console.warn(` Tool not found: ${toolName}`);
                 continue;
             }
 
@@ -113,7 +113,7 @@ export class AIRIToolOrchestrator {
                 const result = await this.executeTool(tool, target);
                 scan.results.push(result);
             } catch (error) {
-                console.error(`   ❌ ${tool.name} failed:`, error);
+ console.error(` ${tool.name} failed:`, error);
                 scan.results.push({
                     tool: tool.name,
                     success: false,

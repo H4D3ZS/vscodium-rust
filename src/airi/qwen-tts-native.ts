@@ -67,7 +67,7 @@ export class Qwen3TTSServer {
             } else {
                 this.consecutiveFailures++;
                 if (this.consecutiveFailures >= Qwen3TTSServer.MAX_FAILURES) {
-                    console.warn('[Qwen3-TTS] ⚠ Server unreachable after', this.consecutiveFailures, 'attempts. Will not retry until reset.');
+ console.warn('[Qwen3-TTS] Server unreachable after', this.consecutiveFailures, 'attempts. Will not retry until reset.');
                 }
                 return false;
             }

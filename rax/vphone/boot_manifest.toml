@@ -1,0 +1,31 @@
+# Data-driven boot manifest for the vphone600ap iOS 26.1 kernelcache
+# (sha 7fbcacda36851b1b). Layered on top of the built-in apply_styx_seeds().
+# Edit + re-run with --manifest; NO rebuild needed.
+#
+# Address note: runtime = (IDA_vmaddr - 0xfffffe0006fc8000) + 0x81000000 for
+# __TEXT_EXEC; kernel loaded at 0x81000000 (+ slide), RAM base 0x80000000.
+#
+# Entry kinds:
+#   [[seed]]  addr, width(1/2/4/8), value   -> write little-endian value
+#   [[nop]]   addr                          -> write 0xD503201F (NOP)
+#   [[patch]] addr, bytes="hex"             -> write raw bytes
+#   [[stub]]  addr, ret_value(opt)          -> MOV W0,#ret ; RET at fn entry
+
+# --- Part B.1: single-CPU lock short-circuit ---------------------------------
+# The kernel's contended hw_lock/lck_spin acquire spins forever in single-CPU
+# (lock held by a phantom owner). Stub the contended-acquire helper to return
+# immediately ("acquired"); the caller proceeds. One stub clears pmap_startup's
+# spin and every later contended lock.
+
+[[stub]]
+addr = 0x81B0C29C   # sub_FFFFFE0007AD429C  (contended lock acquire)
+ret_value = 0
+note = "hw_lock contended acquire -> immediate success (single-CPU)"
+
+# pmap_startup lock (qword_FFFFFE00096DCBC8) must be 0 (free) for the CASA
+# acquire to succeed; seed it free in case the kernelcache/our setup left it held.
+[[seed]]
+addr = 0x83714BC8
+width = 8
+value = 0
+note = "pmap_startup hw_lock qword_096DCBC8 = free"

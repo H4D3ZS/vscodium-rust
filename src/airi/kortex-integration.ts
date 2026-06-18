@@ -127,7 +127,7 @@ export class AIRIKortexIntegration {
                     this.missingBackendLogged = true;
                 }
             } else {
-                console.error('[AIRI-Kortex] ❌ Failed to load consciousness:', msg, error);
+ console.error('[AIRI-Kortex] Failed to load consciousness:', msg, error);
             }
             this.isLoaded = true;
         }
@@ -157,7 +157,7 @@ export class AIRIKortexIntegration {
 
 
         } catch (error) {
-            console.error('[AIRI-Kortex] ❌ Failed to save consciousness:', error);
+ console.error('[AIRI-Kortex] Failed to save consciousness:', error);
         }
     }
 
@@ -204,7 +204,7 @@ export class AIRIKortexIntegration {
             return wasUpdated;
 
         } catch (error) {
-            console.error('[AIRI-Kortex] ❌ Failed to encode experience:', error);
+ console.error('[AIRI-Kortex] Failed to encode experience:', error);
             return false;
         }
     }

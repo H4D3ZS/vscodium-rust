@@ -1,6 +1,7 @@
 @import './styles/tokens.css';
 @import './styles/components.css';
 @import './styles/readability.css';
+@import './styles/professional.css';
 
 @font-face {
   font-family: "codicon";
@@ -192,6 +193,28 @@
   --airi-success: #89d185;
   --airi-warning: #cca700;
   --airi-error: #f48771;
+
+  /* Semantic Color Tokens (replace raw hex in components) */
+  --color-success: #10b981;
+  --color-success-muted: rgba(16, 185, 129, 0.15);
+  --color-error: #ef4444;
+  --color-error-muted: rgba(239, 68, 68, 0.15);
+  --color-warning: #f59e0b;
+  --color-warning-muted: rgba(245, 158, 11, 0.15);
+  --color-info: #3b82f6;
+  --color-info-muted: rgba(59, 130, 246, 0.15);
+  --color-purple: #c084fc;
+  --color-purple-muted: rgba(192, 132, 252, 0.15);
+  --color-cyan: #22d3ee;
+  --color-cyan-muted: rgba(34, 211, 238, 0.15);
+  --color-green: #4ade80;
+  --color-green-muted: rgba(74, 222, 128, 0.15);
+  --color-red: #f87171;
+  --color-red-muted: rgba(248, 113, 113, 0.15);
+  --color-orange: #fb923c;
+  --color-orange-muted: rgba(251, 146, 60, 0.15);
+  --color-pink: #f472b6;
+  --color-pink-muted: rgba(244, 114, 182, 0.15);
 
   /* Layout Metrics (Pixel Perfect VS Code) */
   --activity-bar-width: 48px;
@@ -3256,6 +3279,132 @@ body.resizing .resizer-h {
   opacity: 0.35;
   font-size: 10px;
 }
+
+/* Cursor-style diff line accent: a coloured left gutter + richer fill. */
+.composer-inline-diff__line--add {
+  background: rgba(78, 201, 148, 0.13);
+  box-shadow: inset 2px 0 0 rgba(78, 201, 148, 0.55);
+}
+.composer-inline-diff__line--del {
+  background: rgba(248, 113, 113, 0.13);
+  box-shadow: inset 2px 0 0 rgba(248, 113, 113, 0.55);
+}
+
+/* Cursor-style edit card: filename chip + +N/−N badges in the header. */
+.agent-edit-card__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 60%;
+  overflow: hidden;
+}
+.agent-edit-card__name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.82);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-edit-card__stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin-right: 8px;
+}
+.agent-edit-card__add { color: #4ec994; }
+.agent-edit-card__del { color: #f87171; }
+.agent-edit-card:hover {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+/* Cursor-style composer + pills (mode / model selectors). */
+.vscr-composer:focus-within {
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18), 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+}
+
+.vscr-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.72);
+  transition: background 0.15s, border-color 0.15s;
+}
+.vscr-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.vscr-pill__caret {
+  font-family: codicon;
+  font-style: normal;
+  font-size: 9px;
+  opacity: 0.5;
+}
+.vscr-pill--model .vscr-pill__label {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+/* Inline per-file Accept/Reject on edit cards (Cursor-style). */
+.agent-edit-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.agent-edit-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+.agent-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+.agent-edit-btn .codicon { font-family: codicon; font-style: normal; font-size: 10px; }
+.agent-edit-btn:disabled { opacity: 0.5; cursor: default; }
+.agent-edit-btn--reject {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+.agent-edit-btn--reject:hover:not(:disabled) { background: rgba(239, 68, 68, 0.2); }
+.agent-edit-btn--accept {
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+.agent-edit-btn--accept:hover:not(:disabled) { background: rgba(16, 185, 129, 0.26); }
+.agent-edit-decided {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.agent-edit-decided .codicon { font-family: codicon; font-style: normal; font-size: 10px; }
+.agent-edit-decided--ok { color: #34d399; }
+.agent-edit-decided--no { color: #f87171; }
 
 .composer-todo {
   padding: 6px 10px 8px;

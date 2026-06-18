@@ -153,6 +153,21 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
         try { localStorage.setItem('agent.mode', agentMode); } catch { }
         set({ agentMode });
         onAgentModeChanged(agentMode);
+        // Bug-bounty / offensive mode auto-drives the dedicated local Ollama model
+        // `claude-bug-bounty` when it's installed — zero manual switching.
+        const offensive = agentMode === 'BugBounty' || agentMode === 'Bug Bounty'
+            || agentMode === 'RedTeam' || agentMode === 'Red Team';
+        if (offensive) {
+            const models = get().availableModels || [];
+            const match = models.find((m: any) => {
+                const id = (typeof m === 'string' ? m : m.id || m.name || '').toLowerCase();
+                return id.includes('claude-bug-bounty');
+            });
+            if (match) {
+                const id = typeof match === 'string' ? match : (match.id || match.name);
+                if (id && get().agentModel !== id) get().setAgentModel?.(id);
+            }
+        }
     },
     setAgentModel: (agentModel) => {
         const stale = new Set(['antigravity|antigravity-sentient', 'Antigravity|antigravity-sentient']);

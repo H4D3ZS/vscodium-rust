@@ -1,9 +1,7 @@
 # Open-Core Separation Map
 
-> Status: **PRE-SPLIT.** This repo is currently **PRIVATE** and contains both the open
-> client and the proprietary brain. This document is the blueprint for splitting it into
-> a public client + a private backend. Until the split is executed, the whole repo is
-> **All Rights Reserved** (see `PROPRIETARY.md`).
+> Status: **Community edition published** at `H4D3ZS/vscodium-rust` (MIT). The full
+> subscription + hosted-billing IDE remains in the private SaaS fork. See `docs/COMMUNITY.md`.
 
 ## The principle
 

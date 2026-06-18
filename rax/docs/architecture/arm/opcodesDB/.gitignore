@@ -1,0 +1,6 @@
+json/*.json
+
+# eclipse
+*.includepath
+*.project
+

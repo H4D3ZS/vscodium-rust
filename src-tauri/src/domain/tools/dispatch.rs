@@ -111,6 +111,7 @@ impl AiTools {
 
             // Advanced Agentic Operations
             "spawn_subagent" => self.spawn_subagent(arguments).await,
+            "explore_repository" => self.explore_repository(arguments).await,
             "browser_subagent" => AiTools::browser_subagent(Arc::new(self.clone()), arguments).await,
             "perplexity_ask" => AiTools::perplexity_proxy(Arc::new(self.clone()), arguments).await,
             "perplexity_reason" => {
@@ -241,14 +242,6 @@ impl AiTools {
     }
 
     pub(crate) async fn handle_security_generator(&self, name: &str, args: Value) -> Result<Value> {
-        if let Some(dir) = self.config_dir().await {
-            let acct = crate::account::AccountManager::load(&dir);
-            if !crate::account::AccountManager::has_accepted(&acct, "bug-bounty") {
-                return Err(anyhow!(
-                    "Accept Bug Bounty Terms in Settings → Account before using security generators."
-                ));
-            }
-        }
         use crate::security_generators::{
             analyze_csp, encode_payload, listener_config, reverse_shell, shellcode_recipe,
         };
@@ -769,6 +762,8 @@ impl AiTools {
             "get_lsp_diagnostics" => self.get_lsp_diagnostics(arguments).await,
             "web_search" => self.web_search_tool(arguments).await,
             "web_fetch" => self.web_fetch_tool(arguments).await,
+            "crawl_url" => super::websearch::crawl_url_tool(&arguments).await,
+            "deep_crawl" => super::websearch::deep_crawl_tool(&arguments).await,
             "ai_propose_edit" => self.ai_propose_edit(arguments).await,
             "str_replace" => self.str_replace_file(arguments).await,
             "search_replace_edit" => self.search_replace_edit(arguments).await,

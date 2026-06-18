@@ -7,17 +7,12 @@ pub use state::EditorState;
 pub mod vega;
 pub mod infrastructure;
 // ── Overhaul shims (services/workspace/compat batch) — deleted in A1 cleanup.
-pub use domain::services::account;
-pub(crate) use domain::services::ai_auth;
 pub(crate) use infrastructure::airi_bridge;
 pub(crate) use domain::compat::antigravity_compat;
 pub(crate) use domain::workspace::attachment_manager;
-pub use domain::services::auth;
 pub(crate) use infrastructure::binary_analyzer;
 pub(crate) use infrastructure::claurst_bridge;
 pub(crate) use domain::compat::cursor_compat;
-pub use domain::services::enterprise_audit;
-pub use domain::services::enterprise_governance;
 pub(crate) use infrastructure::ghost_runtime;
 pub(crate) use infrastructure::hermes_gateway;
 pub(crate) use domain::extensions::hermes_skills;
@@ -36,6 +31,8 @@ pub(crate) use domain::workspace::visual_lab;
 pub(crate) use domain::workspace::workers;
 pub(crate) use domain::compat::workspace_compat;
 pub mod application;
+pub(crate) use application::asymmetric_orchestrator as triage;
+pub(crate) use application::autonomous_supervisor as supervisor;
 // ── Overhaul shims (commands batch) — deleted in the A1 cleanup commit.
 pub(crate) use application::commands::ai as ai_commands;
 pub(crate) use application::commands::ai_agent as ai_agent_commands;
@@ -45,7 +42,7 @@ pub(crate) use application::commands::android as android_commands;
 pub(crate) use application::commands::ane as ane_commands;
 pub(crate) use application::commands::antigravity as antigravity_commands;
 pub(crate) use application::commands::apex as apex_commands;
-pub use application::commands::auth as auth_commands;
+pub(crate) use application::commands::api_keys as api_keys_commands;
 pub(crate) use application::commands::chunk_secrets as chunk_secrets_commands;
 pub(crate) use application::commands::cursor as cursor_commands;
 pub(crate) use application::commands::debug as debug_commands;
@@ -79,6 +76,7 @@ pub(crate) use application::commands::vega as vega_commands;
 pub(crate) use application::commands::visual as visual_commands;
 pub(crate) use application::commands::voice as voice_commands;
 pub(crate) use application::commands::web as web_commands;
+pub(crate) use application::commands::webui_bridge as webui_bridge_commands;
 pub(crate) use application::commands::window as window_commands;
 pub(crate) use application::commands::workspace as workspace_commands;
 pub(crate) use application::commands::workspace_settings as workspace_settings_commands;
@@ -113,9 +111,11 @@ pub(crate) use domain::mobile::mobile_toolchain;
 pub(crate) use domain::mobile::scrcpy;
 pub use domain::security::apex_orchestrator;
 pub use domain::security::apex_red_team;
+pub use domain::security::finding_ledger;
 pub use domain::security::pentest_executor;
 pub use domain::security::pentest_report;
 pub use domain::security::pentest_scope;
+pub use domain::security::probe_engine;
 pub use domain::security::sec_distro;
 pub(crate) use domain::security::chunk_secrets;
 pub(crate) use domain::security::hunter;
@@ -127,6 +127,7 @@ pub(crate) use domain::security::security_distiller;
 pub(crate) use domain::security::security_generators;
 pub(crate) use domain::security::security_native;
 pub(crate) use domain::security::security_patterns;
+pub(crate) use application::commands::probe as probe_commands;
 pub use domain::memory::aim_store;
 pub use domain::memory::context_quantizer;
 pub use domain::memory::memory_offload;
@@ -216,6 +217,37 @@ pub fn run() {
             let state = app.state::<EditorState>();
             let _app_handle = app.handle().clone();
 
+            // Multi-key probe ledger (brutecat methodology).
+            app.manage(finding_ledger::FindingLedger::new());
+
+            // Triage orchestrator — init with workspace root + Ollama URL.
+            {
+                let workspace = state.editor.active_root
+                    .try_lock()
+                    .ok()
+                    .and_then(|r| r.clone())
+                    .unwrap_or_else(|| state.config_dir.clone());
+                let ollama_url = "http://localhost:11434"; // overridden by user settings later
+                let orch = triage::init(workspace, state.config_dir.clone(), ollama_url);
+                app.manage(orch);
+            }
+
+            // 24/7 autonomous supervisor — durable task queue driven via the WebUI bridge.
+            {
+                let workspace = state.editor.active_root
+                    .try_lock()
+                    .ok()
+                    .and_then(|r| r.clone())
+                    .unwrap_or_else(|| state.config_dir.clone());
+                let sup = supervisor::init(
+                    app.handle().clone(),
+                    state.webui_bridge.clone(),
+                    workspace,
+                    state.config_dir.clone(),
+                );
+                app.manage(sup);
+            }
+
             // Re-hide console if on windows and not debug
             #[cfg(all(windows, not(debug_assertions)))]
             {
@@ -263,17 +295,6 @@ pub fn run() {
             // ChatGPT bridge: lazy-init on first use — a hidden webview costs ~40–80MB RSS.
 
             // ANE warms on first inference / deferred offline stack — not at boot (saves RSS).
-
-            // Start background OAuth listener. Lite: defer 30s off the boot path.
-            let oauth_app_handle = _app_handle.clone();
-            tauri::async_runtime::spawn(async move {
-                if lite {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                }
-                if let Err(e) = auth_commands::start_oauth_listener(14285, oauth_app_handle).await {
-                    eprintln!("Failed to start OAuth listener: {}", e);
-                }
-            });
 
             // Initial working set trim on Windows — drops paged-out memory immediately.
             #[cfg(target_os = "windows")]
@@ -339,60 +360,51 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // ═══ AI Auth & API Keys ═══
-            ai_auth::get_api_keys,
-            ai_auth::save_api_keys,
-            ai_auth::save_api_key,
-            ai_auth::hunt_api_keys,
-            ai_auth::save_ai_session,
-            ai_auth::capture_ai_session,
-            ai_auth::capture_ai_session_now,
-            ai_auth::provider_login_capabilities,
-            auth_commands::start_webui_login,
-            auth_commands::list_webui_sessions,
-            auth_commands::switch_webui_session,
-            auth_commands::delete_webui_session,
-            auth_commands::check_login_status,
-            auth_commands::get_stored_token,
-            auth_commands::send_webui_prompt,
-            auth_commands::save_webui_response,
-            auth_commands::webui_agent_run,
-            auth_commands::toggle_webui_window_visibility,
-            // ═══ Auth (Supabase) ═══
-            auth::auth_sign_up,
-            auth::auth_sign_in,
-            auth::auth_session,
-            auth::auth_sign_out,
-            // ═══ Account / Subscription / ToS ═══
-            account::account_get,
-            account::account_accept_tos,
-            account::account_tos_status,
-            account::account_has_feature,
-            account::account_has_feature_offline,
-            account::account_set_tier,
-            account::account_acquire_addon,
-            account::account_subscribe,
-            account::account_sync,
-            account::account_check_and_count,
-            account::account_usage,
-            account::account_add_tokens,
-            account::account_start_trial,
-            account::account_open_billing,
-            // ═══ Enterprise (audit + org policy) ═══
-            enterprise_audit::enterprise_get_policy,
-            enterprise_audit::enterprise_set_policy,
-            enterprise_audit::enterprise_audit_list,
-            enterprise_audit::enterprise_audit_export,
-            enterprise_audit::enterprise_audit_log,
-            enterprise_audit::enterprise_seed_cyber_policy,
-            enterprise_audit::enterprise_init_engagement,
-            enterprise_audit::enterprise_export_sarif,
+            // ═══ API Keys ═══
+            api_keys_commands::get_api_keys,
+            api_keys_commands::save_api_keys,
+            api_keys_commands::save_api_key,
             // ═══ Security Arsenal (Obsidian-style generators) ═══
             security_generator_commands::security_reverse_shell,
             security_generator_commands::security_listener,
             security_generator_commands::security_csp_analyze,
             security_generator_commands::security_shellcode_recipe,
             security_generator_commands::security_encode_payload,
+            // ═══ Multi-Key API Probe Engine (brutecat methodology) ═══
+            probe_commands::probe_create_session,
+            probe_commands::probe_add_keys,
+            probe_commands::probe_api,
+            probe_commands::probe_visibility_labels,
+            probe_commands::probe_report_vulnerability,
+            probe_commands::probe_verify_finding,
+            probe_commands::probe_get_endpoint_context,
+            probe_commands::probe_confirm_complete,
+            probe_commands::probe_get_operation,
+            probe_commands::probe_session_operations,
+            probe_commands::probe_session_findings,
+            probe_commands::probe_session_stats,
+            probe_commands::probe_add_discovered,
+            probe_commands::probe_list_sessions,
+            // ═══ WebUI→MCP Bridge (ZeroScript-style) ═══
+            webui_bridge_commands::webui_bridge_status,
+            webui_bridge_commands::webui_bridge_providers,
+            webui_bridge_commands::webui_bridge_start_task,
+            webui_bridge_commands::webui_bridge_inject,
+            webui_bridge_commands::webchat_login,
+            webui_bridge_commands::webchat_sessions,
+            // ═══ 24/7 Autonomous Supervisor ═══
+            supervisor::supervisor_enqueue,
+            supervisor::supervisor_status,
+            supervisor::supervisor_pause,
+            supervisor::supervisor_resume,
+            supervisor::supervisor_skip,
+            supervisor::supervisor_clear,
+            supervisor::supervisor_set_config,
+            // ═══ Triage ═══
+            triage::triage_run,
+            triage::triage_last_snapshot,
+            triage::triage_register_drift,
+            triage::triage_stats,
             // ═══ AI Commands ═══
             ai_commands::ai_chat,
             ai_commands::aim_inspect,
@@ -750,6 +762,7 @@ pub fn run() {
             terminal_commands::terminal_terminate,
             terminal_commands::terminal_toggle,
             terminal_commands::get_available_shells,
+            terminal_commands::spawn_opencode_terminal,
             // ═══ File Commands ═══
             file_commands::refresh_file_tree,
             // ═══ MCP ═══

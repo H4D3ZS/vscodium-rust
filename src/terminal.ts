@@ -119,33 +119,52 @@ export class TerminalManager {
     }
   }
 
-  /** Begin polling the backend pending buffer for this terminal's PTY output. */
+  /** Begin adaptive polling: 50ms when active, backs off to 500ms when idle. */
   private startPolling(id: string): void {
     if (this.pollTimers.has(id)) return;
+
+    // Adaptive backoff: emptyStreak counts consecutive empty polls.
+    // Active output → 50ms. Quiet for a while → step up to 150ms, then 500ms.
+    let emptyStreak = 0;
+    let currentInterval = 50;
+    let timerId: ReturnType<typeof setTimeout>;
+
     const tick = async () => {
       if (!this.terminals.has(id)) { this.stopPolling(id); return; }
       try {
         const chunk = await invoke<string>('terminal_take_pending', { id });
         if (chunk) {
+          emptyStreak = 0;
+          currentInterval = 50; // snap back to fast poll on activity
           const inst = this.terminals.get(id);
           if (inst) {
             this.firstDataIds.add(id);
             inst.term.write(chunk);
             inst.lastOutput = chunk;
           }
+        } else {
+          emptyStreak++;
+          // Back off: 5 empty → 150ms, 25 empty → 500ms
+          if (emptyStreak >= 25) currentInterval = 500;
+          else if (emptyStreak >= 5) currentInterval = 150;
         }
       } catch {
         /* backend not ready / terminal gone — keep ticking */
       }
+      // Re-schedule only if not yet stopped
+      if (this.pollTimers.has(id)) {
+        timerId = setTimeout(tick, currentInterval);
+        this.pollTimers.set(id, timerId);
+      }
     };
-    const timer = setInterval(tick, 50);
-    this.pollTimers.set(id, timer);
-    void tick(); // immediate first pull (don't wait a full interval)
+
+    timerId = setTimeout(tick, 0); // immediate first pull
+    this.pollTimers.set(id, timerId);
   }
 
   private stopPolling(id: string): void {
     const t = this.pollTimers.get(id);
-    if (t) { clearInterval(t); this.pollTimers.delete(id); }
+    if (t != null) { clearTimeout(t); this.pollTimers.delete(id); }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -209,7 +228,9 @@ export class TerminalManager {
     groupId?: string,
     cwd?: string,
     /** Must match React/store `instanceId` so `attach()` can find this terminal. */
-    explicitId?: string
+    explicitId?: string,
+    /** Override the Tauri spawn command. When set, invoked as `{ id }` only (no shell arg). */
+    spawnCommand?: string
   ): Promise<string> {
     await this.profilesReady;
     const id =
@@ -336,10 +357,10 @@ export class TerminalManager {
 
     // Spawn shell (Rust `spawn_terminal` only accepts `id` + optional `shell`)
     try {
-      const result = await invoke<{ id?: string; status?: string; pid?: number }>('spawn_terminal', {
-        id,
-        shell: profile.path
-      });
+      const result = await invoke<{ id?: string; status?: string; pid?: number }>(
+        spawnCommand || 'spawn_terminal',
+        spawnCommand ? { id } : { id, shell: profile.path }
+      );
 
       if (result && typeof result === 'object' && 'pid' in result) {
         instance.pid = (result as any).pid;
@@ -406,6 +427,11 @@ export class TerminalManager {
     }
 
     return id;
+  }
+
+  /** Spawn an OpenCode TUI session. Passes provider env vars via the dedicated Tauri command. */
+  async createOpenCodeTerminal(explicitId?: string, groupId?: string): Promise<string> {
+    return this.createTerminal(undefined, groupId, undefined, explicitId, 'spawn_opencode_terminal');
   }
 
   private setupTerminalEvents(instance: TerminalInstance) {
@@ -566,7 +592,8 @@ export class TerminalManager {
     term.loadAddon(fitAddon);
     term.loadAddon(searchAddon);
     term.loadAddon(webLinksAddon);
-    try { term.loadAddon(new WebglAddon()); } catch { try { term.loadAddon(new CanvasAddon()); } catch { /* */ } }
+    // DOM renderer only — AIRI is a virtual output terminal; WebGL keeps the GPU
+    // in a high-power state even when the panel is hidden.
     term.open(element);
 
     const instance: TerminalInstance = {

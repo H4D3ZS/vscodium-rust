@@ -1,0 +1,177 @@
+MOVQ — Move Quadword
+
+* Index
+
+* December 2023
+
+MOVQ — Move Quadword
+
+|       Opcode/Instruction       |Op/ En|64/32-bit Mode|CPUID Feature Flag|         Description         |
+
+|--------------------------------------------|------|--------------|------------------|---------------------------------------------|
+
+|    NP 0F 6F /r MOVQ mm, mm/m64     | A  |   V/V   |    MMX    |   Move quadword from mm/m64 to mm. |
+
+|    NP 0F 7F /r MOVQ mm/m64, mm     | B  |   V/V   |    MMX    |   Move quadword from mm to mm/m64. |
+
+|   F3 0F 7E /r MOVQ xmm1, xmm2/m64    | A  |   V/V   |    SSE2    |  Move quadword from xmm2/mem64 to xmm1. |
+
+|VEX.128. F3.0F.WIG 7E /r VMOVQ xmm1, xmm2/m64| A  |   V/V   |    AVX    |   Move quadword from xmm2 to xmm1. |
+
+|EVEX.128. F3.0F.W1 7E /r VMOVQ xmm1, xmm2/m64| C  |   V/V   |   AVX512F   |  Move quadword from xmm2/m64 to xmm1. |
+
+|   66 0F D6 /r MOVQ xmm2/m64, xmm1    | B  |   V/V   |    SSE2    |  Move quadword from xmm1 to xmm2/mem64. |
+
+|VEX.128.66. 0F.WIG D6 /r VMOVQ xmm1/m64, xmm2| B  |   V/V   |    AVX    |Move quadword from xmm2 register to xmm1/m64. |
+
+|EVEX.128.66. 0F.W1 D6 /r VMOVQ xmm1/m64, xmm2| D  |   V/V   |   AVX512F   |Move quadword from xmm2 register to xmm1/m64. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| Tuple Type | Operand 1 | Operand 2 |Operand 3|Operand 4|
+
+|-----|-------------|-------------|-------------|---------|---------|
+
+| A |   N/A   |ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+| B |   N/A   |ModRM:r/m (w)|ModRM:reg (r)|  N/A  |  N/A  |
+
+| C |Tuple1 Scalar|ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+| D |Tuple1 Scalar|ModRM:r/m (w)|ModRM:reg (r)|  N/A  |  N/A  |
+
+Description ¶
+
+Copies a quadword from the source operand (second operand) to the destination operand (first operand). The source and destination operands can be MMX technology registers, XMM registers, or 64-bit memory locations. This instruction can be used to move a quadword between two MMX technology registers or between an MMX technology register and a 64-bit memory location, or to move data between two XMM registers or between an XMM register and a 64-bit memory location. The instruction cannot be used to transfer data between memory locations.
+
+When the source operand is an XMM register, the low quadword is moved; when the destination operand is an XMM register, the quadword is stored to the low quadword of the register, and the high quadword is cleared to all 0s.
+
+In 64-bit mode and if not encoded using VEX/EVEX, use of the REX prefix in the form of REX.R permits this instruction to access additional registers (XMM8-XMM15).
+
+Note: VEX.vvvv and EVEX.vvvv are reserved and must be 1111b, otherwise instructions will #UD.
+
+If VMOVQ is encoded with VEX.L= 1, an attempt to execute the instruction encoded with VEX.L= 1 will cause an #UD exception.
+
+Operation ¶
+
+MOVQ Instruction When Operating on MMX Technology Registers and Memory Locations ¶
+
+```
+
+DEST := SRC;
+
+```
+
+MOVQ Instruction When Source and Destination Operands are XMM Registers ¶
+
+```
+
+DEST[63:0] := SRC[63:0]; DEST[127:64] := 0000000000000000H;
+
+```
+
+MOVQ Instruction When Source Operand is XMM Register and Destination ¶
+
+```
+
+operand is memory location: DEST := SRC[63:0];
+
+```
+
+MOVQ Instruction When Source Operand is Memory Location and Destination ¶
+
+```
+
+operand is XMM register: DEST[63:0] := SRC; DEST[127:64] := 0000000000000000H;
+
+```
+
+VMOVQ (VEX.128. F3.0F 7E) With XMM Register Source and Destination ¶
+
+```
+
+DEST[63:0] := SRC[63:0] DEST[MAXVL-1:64] := 0
+
+```
+
+VMOVQ (VEX.128.66. 0F D6) With XMM Register Source and Destination ¶
+
+```
+
+DEST[63:0] := SRC[63:0] DEST[MAXVL-1:64] := 0
+
+```
+
+VMOVQ (7E - EVEX Encoded Version) With XMM Register Source and Destination ¶
+
+```
+
+DEST[63:0] := SRC[63:0] DEST[MAXVL-1:64] := 0
+
+```
+
+VMOVQ (D6 - EVEX Encoded Version) With XMM Register Source and Destination ¶
+
+```
+
+DEST[63:0] := SRC[63:0] DEST[MAXVL-1:64] := 0
+
+```
+
+VMOVQ (7E) With Memory Source ¶
+
+```
+
+DEST[63:0] := SRC[63:0] DEST[MAXVL-1:64] := 0
+
+```
+
+VMOVQ (7E - EVEX Encoded Version) With Memory Source ¶
+
+```
+
+DEST[63:0] := SRC[63:0] DEST[:MAXVL-1:64] := 0
+
+```
+
+VMOVQ (D6) With Memory DEST ¶
+
+```
+
+DEST[63:0] := SRC2[63:0]
+
+```
+
+Flags Affected ¶
+
+None.
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+VMOVQ __m128i _mm_loadu_si64( void * s);
+
+```
+
+```
+
+VMOVQ void _mm_storeu_si64( void * d, __m128i s);
+
+```
+
+```
+
+MOVQ m128i _mm_move_epi64(__m128i a)
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+None.
+
+Other Exceptions ¶
+
+See Table 23-8, “Exception Conditions for Legacy SIMD/MMX Instructions without FP Exception,” in the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 3B.
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

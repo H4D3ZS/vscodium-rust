@@ -1,0 +1,111 @@
+VPMADD52LUQ — Packed Multiply of Unsigned 52-Bit Integers and Add the Low 52-Bit Productsto Qword Accumulators
+
+* Index
+
+* December 2023
+
+VPMADD52LUQ — Packed Multiply of Unsigned 52-Bit Integers and Add the Low 52-Bit Productsto Qword Accumulators
+
+|              Opcode/Instruction               |Op/En|64/32 Bit Mode Support|    CPUID    |                                      Description                                      |
+
+|---------------------------------------------------------------------------|-----|----------------------|---------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+
+|EVEX.128.66. 0F38. W1 B4 /r VPMADD52LUQ xmm1 {k1}{z}, xmm2,xmm3/m128/m64bcst | A |     V/V     |AVX512\_IFMA AVX512VL|Multiply unsigned 52-bit integers in xmm2 and xmm3/m128 and add the low 52 bits of the 104-bit product to the qword unsigned integers in xmm1 using writemask k1. |
+
+|EVEX.256.66. 0F38. W1 B4 /r VPMADD52LUQ ymm1 {k1}{z}, ymm2, ymm3/m256/m64bcst| A |     V/V     |AVX512\_IFMA AVX512VL|Multiply unsigned 52-bit integers in ymm2 and ymm3/m256 and add the low 52 bits of the 104-bit product to the qword unsigned integers in ymm1 using writemask k1. |
+
+|EVEX.512.66. 0F38. W1 B4 /r VPMADD52LUQ zmm1 {k1}{z}, zmm2,zmm3/m512/m64bcst | A |     V/V     |  AVX512\_IFMA   |Multiply unsigned 52-bit integers in zmm2 and zmm3/m512 and add the low 52 bits of the 104-bit product to the qword unsigned integers in zmm1 using writemask k1. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|Tuple Type|  Operand 1  | Operand 2 | Operand 3 |Operand 4|
+
+|-----|----------|----------------|-------------|------------|---------|
+
+| A |  Full  |ModRM:reg (r, w)|EVEX.vvvv (r)|ModRM:r/m(r)|  N/A  |
+
+Description ¶
+
+Multiplies packed unsigned 52-bit integers in each qword element of the first source operand (the second operand) with the packed unsigned 52-bit integers in the corresponding elements of the second source operand (the third operand) to form packed 104-bit intermediate results. The low 52-bit, unsigned integer of each 104-bit product is added to the corresponding qword unsigned integer of the destination operand (the first operand) under the writemask k1.
+
+The first source operand is a ZMM/YMM/XMM register. The second source operand can be a ZMM/YMM/XMM register, a 512/256/128-bit memory location or a 512/256/128-bit vector broadcasted from a 64-bit memory location. The destination operand is a ZMM/YMM/XMM register conditionally updated with writemask k1 at 64-bit granularity.
+
+Operation ¶
+
+VPMADD52LUQ (EVEX encoded) ¶
+
+```
+
+(KL, VL) = (2, 128), (4, 256), (8, 512) FOR j := 0 TO KL-1 i := j * 64; IF k1[j] OR *no writemask* THEN IF src2 is Memory AND EVEX.b=1 THEN tsrc2[63:0] := ZeroExtend64(src2[51:0]); ELSE tsrc2[63:0] := ZeroExtend64(src2[i+51:i]; FI; Temp128[127:0] := ZeroExtend64(src1[i+51:i]) * tsrc2[63:0]; Temp2[63:0] := DEST[i+63:i] + ZeroExtend64(temp128[51:0]) ; DEST[i+63:i] := Temp2[63:0]; ELSE IF *zeroing-masking* THEN DEST[i+63:i] := 0; ELSE *merge-masking* DEST[i+63:i] is unchanged; FI; FI; ENDFOR DEST[MAX_VL-1:VL] := 0;
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+VPMADD52LUQ __m512i _mm512_madd52lo_epu64( __m512i a, __m512i b, __m512i c);
+
+```
+
+```
+
+VPMADD52LUQ __m512i _mm512_mask_madd52lo_epu64(__m512i s, __mmask8 k, __m512i a, __m512i b, __m512i c);
+
+```
+
+```
+
+VPMADD52LUQ __m512i _mm512_maskz_madd52lo_epu64( __mmask8 k, __m512i a, __m512i b, __m512i c);
+
+```
+
+```
+
+VPMADD52LUQ __m256i _mm256_madd52lo_epu64( __m256i a, __m256i b, __m256i c);
+
+```
+
+```
+
+VPMADD52LUQ __m256i _mm256_mask_madd52lo_epu64(__m256i s, __mmask8 k, __m256i a, __m256i b, __m256i c);
+
+```
+
+```
+
+VPMADD52LUQ __m256i _mm256_maskz_madd52lo_epu64( __mmask8 k, __m256i a, __m256i b, __m256i c);
+
+```
+
+```
+
+VPMADD52LUQ __m128i _mm_madd52lo_epu64( __m128i a, __m128i b, __m128i c);
+
+```
+
+```
+
+VPMADD52LUQ __m128i _mm_mask_madd52lo_epu64(__m128i s, __mmask8 k, __m128i a, __m128i b, __m128i c);
+
+```
+
+```
+
+VPMADD52LUQ __m128i _mm_maskz_madd52lo_epu64( __mmask8 k, __m128i a, __m128i b, __m128i c);
+
+```
+
+Flags Affected ¶
+
+None.
+
+SIMD Floating-Point Exceptions ¶
+
+None.
+
+Other Exceptions ¶
+
+See Table 2-49, “Type E4 Class Exception Conditions.”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

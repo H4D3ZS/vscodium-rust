@@ -369,7 +369,7 @@ export class AIRIAutonomousAgent {
     } catch (error) {
       task.status = 'failed';
       task.result = String(error);
-      console.error(`[AutonomousAgent] ❌ Task failed: ${task.description}`, error);
+ console.error(`[AutonomousAgent] Task failed: ${task.description}`, error);
     } finally {
       this.isWorking = false;
     }
@@ -422,7 +422,7 @@ export class AIRIAutonomousAgent {
       const result = await Promise.race([fullCall, fullTimeout]);
       return `Mission Accomplished in background loop.\n\nSummary:\n${(result || "").slice(0, 500)}`;
     } catch (err: any) {
-      console.error("[AutonomousAgent] ❌ Execution failed:", err);
+ console.error("[AutonomousAgent] Execution failed:", err);
       throw err;
     }
   }

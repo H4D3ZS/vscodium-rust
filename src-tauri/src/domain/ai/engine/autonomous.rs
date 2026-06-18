@@ -87,49 +87,6 @@ impl Sentient {
             return self.single_shot_completion(req).await;
         }
 
-        // ── SaaS entitlement enforcement (backend — not UI-only) ─────────────
-        {
-            let p = req.provider.to_lowercase();
-            if p.contains("cyberifrit") || p.contains("cyber-ifrit") {
-                let cfg = crate::account::account_config_dir(&self.brain_dir);
-                if let Err(e) = crate::account::require_feature_at(&cfg, "cloud_models") {
-                    return Err(anyhow!(e));
-                }
-            }
-            let mode_l = req.mode.as_deref().unwrap_or("agent").to_ascii_lowercase();
-            let needs_full_agentic = matches!(
-                mode_l.as_str(),
-                "sentient" | "harness" | "planning" | "yolo" | "autonomous"
-            ) || (mode_l.contains("bug") && mode_l.contains("bounty"));
-            if needs_full_agentic {
-                let cfg = crate::account::account_config_dir(&self.brain_dir);
-                if let Err(e) = crate::account::require_feature_at(&cfg, "agentic") {
-                    return Err(anyhow!(e));
-                }
-            }
-        }
-
-        // ── Enterprise org policy (models, offline-only) ─────────────────────
-        {
-            let cfg = crate::account::account_config_dir(&self.brain_dir);
-            if let Err(e) = crate::enterprise_governance::model_allowed(&cfg, &req.model) {
-                return Err(anyhow!(e));
-            }
-            let policy = crate::enterprise_audit::load_policy(&cfg);
-            if policy.audit_enabled && policy.audit_model_calls {
-                let _ = crate::enterprise_audit::append_audit(
-                    &cfg,
-                    "agent",
-                    "model.invoke",
-                    serde_json::json!({
-                        "model": req.model,
-                        "provider": req.provider,
-                        "mode": req.mode,
-                    }),
-                );
-            }
-        }
-
         // Detect "local quantized model" providers early — used throughout the
         // function for budget decisions. Ollama, the antigravity local proxy,
         // AND the local DeepSeek-ANE server (llama.cpp / MLX on Apple Silicon)
@@ -444,6 +401,70 @@ impl Sentient {
         // All together this should stay well under 4K tokens for local models.
         
         let mut messages = req.messages.clone();
+
+        // ── Auto-delegate exploration (FastContext two-agent, Cursor-style) ──
+        // Before the solver's first turn, a dedicated explorer subagent locates
+        // relevant code; we inject compact citations so the main agent reasons on
+        // clean evidence instead of burning tokens on its own read/grep sweeps.
+        // Best-effort — any failure is swallowed and the run proceeds normally.
+        {
+            let mode_l = req.mode.as_deref().unwrap_or("").to_lowercase();
+            let agentic = matches!(mode_l.as_str(), "agent" | "planning" | "sentient" | "harness")
+                || mode_l.contains("agent");
+            let task = req.messages.iter().rev()
+                .find(|m| m.role == "user")
+                .and_then(|m| m.content.as_ref())
+                .map(|c| c.as_str().to_string())
+                .unwrap_or_default();
+            let words = task.split_whitespace().count();
+            let trimmed = task.trim_start();
+            let trivial = trimmed.starts_with('[') || trimmed.starts_with('/');
+            if agentic && req.autonomous && !trivial && words >= 6 {
+                let call_id = uuid::Uuid::new_v4().to_string();
+                self.emit_event("ai-tool-call", json!({
+                    "name": "explore_repository",
+                    "args": json!({ "query": task.chars().take(200).collect::<String>() }).to_string(),
+                    "call_id": call_id,
+                }));
+                let explore = self.ai_tools
+                    .explore_repository(json!({ "query": task, "max_results": 12 }))
+                    .await;
+                let res_val = explore.as_ref().map(|v| v.clone()).unwrap_or_else(|e| json!({ "error": e.to_string() }));
+                self.emit_event("ai-tool-result", json!({
+                    "name": "explore_repository",
+                    "result": res_val.to_string(),
+                    "blocked": false,
+                    "call_id": call_id,
+                }));
+                if let Ok(v) = explore {
+                    let citations = v.get("citations").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+                    if !citations.is_empty() {
+                        let mut ctx = String::from(
+                            "Relevant code located by the repository explorer subagent. \
+                             Use these as your starting evidence (read more only as needed):\n");
+                        for c in citations.iter().take(12) {
+                            let p = c.get("path").and_then(|x| x.as_str()).unwrap_or("");
+                            let lr = c.get("line_range").and_then(|x| x.as_str()).unwrap_or("");
+                            let cx = c.get("context").and_then(|x| x.as_str()).unwrap_or("");
+                            ctx.push_str(&format!(
+                                "- {}{}{}\n",
+                                p,
+                                if lr.is_empty() { String::new() } else { format!(":{}", lr) },
+                                if cx.is_empty() { String::new() } else { format!("  — {}", cx.chars().take(100).collect::<String>()) },
+                            ));
+                        }
+                        messages.push(crate::ai_engine::ChatMessage {
+                            role: "system".to_string(),
+                            content: Some(crate::ai_engine::MessageContent::Text(ctx)),
+                            tool_calls: None,
+                            tool_call_id: None,
+                            metadata: None,
+                        });
+                        println!("[EXPLORE] Auto-delegate injected {} citations", citations.len());
+                    }
+                }
+            }
+        }
 
         // Phase-Wrap tracking: files written in the current context window
         let mut phase_files_written: Vec<String> = Vec::new();
@@ -1054,6 +1075,52 @@ impl Sentient {
                 });
             }
 
+            // ── Fable-5 Critical Thinking: phase-specific reasoning prompts ──
+            // Injects context-aware thinking prompts based on iteration count and
+            // whether recent actions failed. This is the core Fable-5 pattern:
+            // the model MUST reason before acting, not just act.
+            {
+                let has_failures = {
+                    let (fail, _) = crate::agent_harness::check_verification_failure(&messages);
+                    fail
+                };
+
+                // Check for verification failures → inject recovery prompt
+                if has_failures && iteration > 0 {
+                    let (_, failure_summary) = crate::agent_harness::check_verification_failure(&messages);
+                    messages.retain(|m| !(m.role == "system"
+                        && m.content.as_ref().map(|c| c.as_str().contains("[VERIFICATION FAILURE]")).unwrap_or(false)));
+                    messages.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: Some(MessageContent::Text(format!(
+                            "### [VERIFICATION FAILURE]\nThe last action produced errors:\n{}\n\
+                             Do NOT declare success. Fix the error first:\n\
+                             1. Read the error message carefully — what exactly failed?\n\
+                             2. View the relevant file(s) to understand the current state\n\
+                             3. Apply a targeted fix (surgical edit, not full rewrite)\n\
+                             4. Re-run verification to confirm the fix works\n\
+                             Think in `<think>` about the root cause before acting.",
+                            failure_summary
+                        ))),
+                        ..Default::default()
+                    });
+                }
+
+                // Phase-specific thinking prompts (Fable-5 pattern)
+                let thinking_prompt = crate::agent_harness::phase_thinking_prompt(iteration, has_failures);
+                if !thinking_prompt.is_empty() {
+                    messages.retain(|m| !(m.role == "system"
+                        && m.content.as_ref().map(|c| c.as_str().contains("[PHASE THINKING]")).unwrap_or(false)));
+                    messages.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: Some(MessageContent::Text(format!(
+                            "[PHASE THINKING]\n{}", thinking_prompt
+                        ))),
+                        ..Default::default()
+                    });
+                }
+            }
+
             // ── Reflection checkpoint (long-horizon coherence + live plan progress) ──
             // Every few iterations in a persistent run, step the plan forward in the UI
             // and inject a brief reflection so the model re-grounds against its plan
@@ -1501,7 +1568,12 @@ impl Sentient {
                 })
             } else {
                 let is_small_model = Self::is_small_model_name(&active_model);
-                let supports_native_tools = !is_small_model && {
+                // Headless web-chat (claude.ai / deepseek) can't use the API `tools`
+                // array — it only sees prose. Force the text JSON tool protocol so the
+                // model emits ```json {"name","arguments"}``` blocks that
+                // `try_parse_markdown_tool_calls` extracts.
+                let is_webchat = active_provider.to_lowercase().starts_with("webchat");
+                let supports_native_tools = !is_small_model && !is_webchat && {
                     let m = active_model.to_lowercase();
                     // All modern Ollama models ≥8B support OpenAI-compatible function calling.
                     // Only legacy/specialty models need the text-JSON fallback.
@@ -1520,7 +1592,7 @@ impl Sentient {
 
                 let mut ollama_system = system_msg.clone();
 
-                if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
+                if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" || is_webchat {
                     // Gemma 4 thinking mode — Ollama handles chat template; we only prefix system.
                     if Self::is_gemma4_model(&active_model) && !is_chat_mode && !ollama_system.starts_with("<|think|>") {
                         ollama_system = format!("<|think|>\n{ollama_system}");
@@ -1765,6 +1837,13 @@ impl Sentient {
                 }
             }
 
+            // Force tool use for Ollama models — prevents them from outputting
+            // code as plain text instead of using tool calls.
+            if is_ollama && !tools.is_empty() && !is_chat_mode && supports_native_tools_payload {
+                payload["tool_choice"] = json!("required");
+                println!("[AI] Forced tool_choice=required for model {} (tools: {})", active_model, tools.len());
+            }
+
             if active_provider.to_lowercase() == "ollama" {
                 let (ollama_temp, _, _) = Self::ollama_sampling(
                     &active_model,
@@ -1778,16 +1857,10 @@ impl Sentient {
             }
 
             // Get session first (async)
-            let mut session_opt = None;
             if active_provider.ends_with("(Browser)") {
-                let provider_name = active_provider.replace(" (Browser)", "").to_lowercase();
-                session_opt = crate::ai_auth::get_session(&self.auth_state, &provider_name).await;
-                if session_opt.is_none() {
-                    return Err(anyhow!(
-                        "No active browser session for {}. Please login first.",
-                        active_provider
-                    ));
-                }
+                return Err(anyhow!(
+                    "Browser sessions are not available in the community edition. Use an API key instead."
+                ));
             }
 
             let provider_key = self
@@ -1799,24 +1872,7 @@ impl Sentient {
             // Now create the request (must not hold non-Send state across await if any)
             let mut request = self.client.post(endpoint.clone());
 
-            if let Some(session) = session_opt {
-                let provider_name = active_provider.replace(" (Browser)", "").to_lowercase();
-                request = request
-                    .header("Cookie", &session.cookies)
-                    .header("User-Agent", &session.user_agent);
-
-                if provider_name == "claude" {
-                    request = request
-                        .header("Accept", "application/json")
-                        .header("Referer", "https://claude.ai/chat");
-                } else if provider_name == "gemini" {
-                    request = request
-                        .header("x-goog-authuser", "0")
-                        .header("Referer", "https://gemini.google.com/app");
-                }
-            }
-
-            let keyless_providers = ["ollama", "antigravity", "vllm", "lmstudio", "lm-studio", "lm_studio", "litellm", "lite-llm", "lite_llm", "openwebui"];
+            let keyless_providers = ["ollama", "antigravity", "vllm", "lmstudio", "lm-studio", "lm_studio", "litellm", "lite-llm", "lite_llm", "openwebui", "webchat"];
             let is_keyless = keyless_providers.iter().any(|p| active_provider.to_lowercase().starts_with(p));
             if provider_key.is_empty() && !is_keyless {
                 return Err(anyhow!("No API key found for provider: {}. Please run 'Hunt for Working AI Keys' from the model menu, or set it in Settings.", active_provider));
@@ -1825,10 +1881,18 @@ impl Sentient {
             // Send prompt to AI provider
             let request_url = endpoint.clone();
 
+            let active_provider_lc = active_provider.to_lowercase();
             let timeout_secs = if was_advisor_iteration {
                 45 // Planner must not block the agent loop for minutes (Composer-style responsiveness)
-            } else if active_provider.to_lowercase() == "ollama" || active_provider.to_lowercase() == "antigravity" {
-                600 // Local / proxy — large models need warm-up time
+            } else if active_provider_lc == "ollama" || active_provider_lc == "antigravity" {
+                // Local / proxy — 24/7 long generations + cold model loads. The per-chunk
+                // inter-token timeout below is the real hang guard, not this cap.
+                3600
+            } else if active_provider_lc.starts_with("webchat") {
+                // Headless web-chat: a browser round-trip (navigate → type → poll reply)
+                // can take a few minutes, and the FIRST run also waits for a one-time
+                // visible login. Give it generous head-room.
+                900
             } else {
                 120
             };

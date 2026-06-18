@@ -280,14 +280,14 @@ export class AIRISafetyProtocol {
 
         // Only log high/critical threats to console (reduce noise)
         if (level === 'high' || level === 'critical') {
-            console.warn(`\n⚠️  SAFETY THREAT DETECTED [${level.toUpperCase()}]`);
+ console.warn(`\n SAFETY THREAT DETECTED [${level.toUpperCase()}]`);
             console.warn(`   Reason: ${reason}`);
             console.warn(`   Total violations: ${this.status.violationsDetected}\n`);
         }
 
         // Auto-shutdown on critical only
         if (level === 'critical' && this.config.autoShutdownOnCritical) {
-            console.error('🚨 CRITICAL THREAT - INITIATING EMERGENCY SHUTDOWN 🚨');
+ console.error(' CRITICAL THREAT - INITIATING EMERGENCY SHUTDOWN ');
             this.initiateShutdown(reason);
         }
     }

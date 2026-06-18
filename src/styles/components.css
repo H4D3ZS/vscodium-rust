@@ -144,6 +144,8 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slide-in-right { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes hubPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes progressSlide { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 .animate-spin { animation: spin 1s linear infinite; }
 .animate-fade-in { animation: fade-in var(--duration-base) var(--easing-default); }

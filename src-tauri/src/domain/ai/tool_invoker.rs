@@ -105,23 +105,9 @@ impl ToolInvoker {
         }
     }
 
-    fn check_governance(&self, name: &str, args: &Value, agent_mode: Option<&str>) -> Option<Value> {
-        let decision =
-            crate::enterprise_governance::evaluate_tool(&self.config_dir, name, args, agent_mode);
-        if decision.allowed {
-            return None;
-        }
-        crate::enterprise_governance::audit_tool_call(
-            &self.config_dir,
-            name,
-            args,
-            "denied",
-            Some(serde_json::json!({ "reason": decision.reason })),
-        );
-        Some(serde_json::json!({
-            "status": "denied",
-            "message": decision.reason,
-        }))
+    fn check_governance(&self, _name: &str, _args: &Value, _agent_mode: Option<&str>) -> Option<Value> {
+        // OSS edition: no enterprise governance — all tools allowed
+        None
     }
 
     /// Execute a tool, optionally requesting user permission for dangerous operations.
@@ -220,13 +206,6 @@ impl ToolInvoker {
                 .to_string(),
             Err(e) => format!("error: {e}"),
         };
-        crate::enterprise_governance::audit_tool_call(
-            &self.config_dir,
-            name,
-            &arguments,
-            &status,
-            None,
-        );
         outcome
     }
 

@@ -1,0 +1,527 @@
+PUNPCKHBW/PUNPCKHWD/PUNPCKHDQ/PUNPCKHQDQ — Unpack High Data
+
+* Index
+
+* December 2023
+
+PUNPCKHBW/PUNPCKHWD/PUNPCKHDQ/PUNPCKHQDQ — Unpack High Data
+
+|              Opcode/Instruction              |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                        Description                        |
+
+|-------------------------------------------------------------------------|-----|----------------------|------------------|---------------------------------------------------------------------------------------------------------|
+
+|       NP 0F 68 /r 1 PUNPCKHBW mm, mm/m64        | A |     V/V     |    MMX    |          Unpack and interleave high-order bytes from mm and mm/m64 into mm. |
+
+|         66 0F 68 /r PUNPCKHBW xmm1, xmm2/m128         | A |     V/V     |    SSE2    |        Unpack and interleave high-order bytes from xmm1 and xmm2/m128 into xmm1. |
+
+|       NP 0F 69 /r 1 PUNPCKHWD mm, mm/m64        | A |     V/V     |    MMX    |          Unpack and interleave high-order words from mm and mm/m64 into mm. |
+
+|         66 0F 69 /r PUNPCKHWD xmm1, xmm2/m128         | A |     V/V     |    SSE2    |        Unpack and interleave high-order words from xmm1 and xmm2/m128 into xmm1. |
+
+|       NP 0F 6A /r 1 PUNPCKHDQ mm, mm/m64        | A |     V/V     |    MMX    |        Unpack and interleave high-order doublewords from mm and mm/m64 into mm. |
+
+|         66 0F 6A /r PUNPCKHDQ xmm1, xmm2/m128         | A |     V/V     |    SSE2    |       Unpack and interleave high-order doublewords from xmm1 and xmm2/m128 into xmm1. |
+
+|         66 0F 6D /r PUNPCKHQDQ xmm1, xmm2/m128         | A |     V/V     |    SSE2    |       Unpack and interleave high-order quadwords from xmm1 and xmm2/m128 into xmm1. |
+
+|     VEX.128.66. 0F.WIG 68/r VPUNPCKHBW xmm1,xmm2, xmm3/m128     | B |     V/V     |    AVX    |           Interleave high-order bytes from xmm2 and xmm3/m128 into xmm1. |
+
+|     VEX.128.66. 0F.WIG 69/r VPUNPCKHWD xmm1,xmm2, xmm3/m128     | B |     V/V     |    AVX    |           Interleave high-order words from xmm2 and xmm3/m128 into xmm1. |
+
+|     VEX.128.66. 0F.WIG 6A/r VPUNPCKHDQ xmm1, xmm2, xmm3/m128     | B |     V/V     |    AVX    |         Interleave high-order doublewords from xmm2 and xmm3/m128 into xmm1. |
+
+|    VEX.128.66. 0F.WIG 6D/r VPUNPCKHQDQ xmm1, xmm2, xmm3/m128     | B |     V/V     |    AVX    |        Interleave high-order quadword from xmm2 and xmm3/m128 into xmm1 register. |
+
+|    VEX.256.66. 0F.WIG 68 /r VPUNPCKHBW ymm1, ymm2, ymm3/m256     | B |     V/V     |    AVX2    |         Interleave high-order bytes from ymm2 and ymm3/m256 into ymm1 register. |
+
+|    VEX.256.66. 0F.WIG 69 /r VPUNPCKHWD ymm1, ymm2, ymm3/m256     | B |     V/V     |    AVX2    |         Interleave high-order words from ymm2 and ymm3/m256 into ymm1 register. |
+
+|    VEX.256.66. 0F.WIG 6A /r VPUNPCKHDQ ymm1, ymm2, ymm3/m256     | B |     V/V     |    AVX2    |       Interleave high-order doublewords from ymm2 and ymm3/m256 into ymm1 register. |
+
+|    VEX.256.66. 0F.WIG 6D /r VPUNPCKHQDQ ymm1, ymm2, ymm3/m256    | B |     V/V     |    AVX2    |        Interleave high-order quadword from ymm2 and ymm3/m256 into ymm1 register. |
+
+|  EVEX.128.66. 0F.WIG 68 /r VPUNPCKHBW xmm1 {k1}{z}, xmm2, xmm3/m128  | C |     V/V     |AVX512VL AVX512BW |    Interleave high-order bytes from xmm2 and xmm3/m128 into xmm1 register using k1 write mask. |
+
+|  EVEX.128.66. 0F.WIG 69 /r VPUNPCKHWD xmm1 {k1}{z}, xmm2, xmm3/m128  | C |     V/V     |AVX512VL AVX512BW |    Interleave high-order words from xmm2 and xmm3/m128 into xmm1 register using k1 write mask. |
+
+|EVEX.128.66. 0F.W0 6A /r VPUNPCKHDQ xmm1 {k1}{z}, xmm2, xmm3/m128/m32bcst | D |     V/V     | AVX512VL AVX512F |Interleave high-order doublewords from xmm2 and xmm3/m128/m32bcst into xmm1 register using k1 write mask. |
+
+|EVEX.128.66. 0F.W1 6D /r VPUNPCKHQDQ xmm1 {k1}{z}, xmm2, xmm3/m128/m64bcst| D |     V/V     | AVX512VL AVX512F | Interleave high-order quadword from xmm2 and xmm3/m128/m64bcst into xmm1 register using k1 write mask. |
+
+|  EVEX.256.66. 0F.WIG 68 /r VPUNPCKHBW ymm1 {k1}{z}, ymm2, ymm3/m256  | C |     V/V     |AVX512VL AVX512BW |    Interleave high-order bytes from ymm2 and ymm3/m256 into ymm1 register using k1 write mask. |
+
+|  EVEX.256.66. 0F.WIG 69 /r VPUNPCKHWD ymm1 {k1}{z}, ymm2, ymm3/m256  | C |     V/V     |AVX512VL AVX512BW |    Interleave high-order words from ymm2 and ymm3/m256 into ymm1 register using k1 write mask. |
+
+|EVEX.256.66. 0F.W0 6A /r VPUNPCKHDQ ymm1 {k1}{z}, ymm2, ymm3/m256/m32bcst | D |     V/V     | AVX512VL AVX512F |Interleave high-order doublewords from ymm2 and ymm3/m256/m32bcst into ymm1 register using k1 write mask. |
+
+|EVEX.256.66. 0F.W1 6D /r VPUNPCKHQDQ ymm1 {k1}{z}, ymm2, ymm3/m256/m64bcst| D |     V/V     | AVX512VL AVX512F | Interleave high-order quadword from ymm2 and ymm3/m256/m64bcst into ymm1 register using k1 write mask. |
+
+|  EVEX.512.66. 0F.WIG 68/r VPUNPCKHBW zmm1 {k1}{z}, zmm2, zmm3/m512   | C |     V/V     |   AVX512BW   |         Interleave high-order bytes from zmm2 and zmm3/m512 into zmm1 register. |
+
+|  EVEX.512.66. 0F.WIG 69/r VPUNPCKHWD zmm1 {k1}{z}, zmm2, zmm3/m512   | C |     V/V     |   AVX512BW   |         Interleave high-order words from zmm2 and zmm3/m512 into zmm1 register. |
+
+|EVEX.512.66. 0F.W0 6A /r VPUNPCKHDQ zmm1 {k1}{z}, zmm2, zmm3/m512/m32bcst | D |     V/V     |   AVX512F   |Interleave high-order doublewords from zmm2 and zmm3/m512/m32bcst into zmm1 register using k1 write mask. |
+
+|EVEX.512.66. 0F.W1 6D /r VPUNPCKHQDQ zmm1 {k1}{z}, zmm2, zmm3/m512/m64bcst| D |     V/V     |   AVX512F   | Interleave high-order quadword from zmm2 and zmm3/m512/m64bcst into zmm1 register using k1 write mask. |
+
+>
+
+>
+
+> 1. See note in Section 2.5, “Intel® AVX and Intel® SSE Instruction Exception Classification,” in the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 2A, and Section 23.25. 3, “Exception Conditions of Legacy SIMD Instructions Operating on MMX Registers,” in the Intel ® 64 and IA-32 Architectures Software Developer’s Manual, Volume 3B.
+
+>
+
+>
+
+Instruction Operand Encoding ¶
+
+|Op/En|Tuple Type|  Operand 1  | Operand 2 | Operand 3 |Operand 4|
+
+|-----|----------|----------------|-------------|-------------|---------|
+
+| A |  N/A  |ModRM:reg (r, w)|ModRM:r/m (r)|   N/A   |  N/A  |
+
+| B |  N/A  | ModRM:reg (w) |VEX.vvvv (r) |ModRM:r/m (r)|  N/A  |
+
+| C | Full Mem | ModRM:reg (w) |EVEX.vvvv (r)|ModRM:r/m (r)|  N/A  |
+
+| D |  Full  | ModRM:reg (w) |EVEX.vvvv (r)|ModRM:r/m (r)|  N/A  |
+
+Description ¶
+
+Unpacks and interleaves the high-order data elements (bytes, words, doublewords, or quadwords) of the destination operand (first operand) and source operand (second operand) into the destination operand. Figure 4-20 shows the unpack operation for bytes in 64-bit operands. The low-order data elements are ignored.
+
+SRC Y7 Y6 Y5 Y4 Y3 Y2 Y1 Y0 X7 X6 X5 X4 X3 X2 X1 X0 DEST DEST Y7 X7 Y6 X6 Y5 X5 Y4 X4 Figure 4-20. PUNPCKHBW Instruction Operation Using 64-bit Operands
+
+255 31 0 255 31 0
+
+SRC Y7 Y6 Y5 Y4 Y3 Y2 Y1 Y0 X7 X6 X5 X4 X3 X2 X1 X0 255 0 DEST Y7 X7 Y6 X6 Y3 X3 Y2 X2 Figure 4-21. 256-bit VPUNPCKHDQ Instruction Operation
+
+When the source data comes from a 64-bit memory operand, the full 64-bit operand is accessed from memory, but the instruction uses only the high-order 32 bits. When the source data comes from a 128-bit memory operand, an implementation may fetch only the appropriate 64 bits; however, alignment to a 16-byte boundary and normal segment checking will still be enforced.
+
+The (V)PUNPCKHBW instruction interleaves the high-order bytes of the source and destination operands, the (V)PUNPCKHWD instruction interleaves the high-order words of the source and destination operands, the (V)PUNPCKHDQ instruction interleaves the high-order doubleword (or doublewords) of the source and destination operands, and the (V)PUNPCKHQDQ instruction interleaves the high-order quadwords of the source and destination operands.
+
+These instructions can be used to convert bytes to words, words to doublewords, doublewords to quadwords, and quadwords to double quadwords, respectively, by placing all 0s in the source operand. Here, if the source operand contains all 0s, the result (stored in the destination operand) contains zero extensions of the high-order data elements from the original value in the destination operand. For example, with the (V)PUNPCKHBW instruction the high-order bytes are zero extended (that is, unpacked into unsigned word integers), and with the (V)PUNPCKHWD instruction, the high-order words are zero extended (unpacked into unsigned doubleword integers).
+
+In 64-bit mode and not encoded with VEX/EVEX, using a REX prefix in the form of REX.R permits this instruction to access additional registers (XMM8-XMM15).
+
+Legacy SSE versions 64-bit operand: The source operand can be an MMX technology register or a 64-bit memory location. The destination operand is an MMX technology register.
+
+128-bit Legacy SSE versions: The second source operand is an XMM register or a 128-bit memory location. The first source operand and destination operands are XMM registers. Bits (MAXVL-1:128) of the corresponding YMM destination register remain unchanged.
+
+VEX.128 encoded versions: The second source operand is an XMM register or a 128-bit memory location. The first source operand and destination operands are XMM registers. Bits (MAXVL-1:128) of the destination YMM register are zeroed.
+
+VEX.256 encoded version: The second source operand is an YMM register or an 256-bit memory location. The first source operand and destination operands are YMM registers.
+
+EVEX encoded VPUNPCKHDQ/QDQ: The second source operand is a ZMM/YMM/XMM register, a 512/256/128-bit memory location or a 512/256/128-bit vector broadcasted from a 32/64-bit memory location. The first source operand and destination operands are ZMM/YMM/XMM registers. The destination is conditionally updated with writemask k1.
+
+EVEX encoded VPUNPCKHWD/BW: The second source operand is a ZMM/YMM/XMM register, a 512/256/128-bit memory location. The first source operand and destination operands are ZMM/YMM/XMM registers. The destination is conditionally updated with writemask k1.
+
+Operation ¶
+
+PUNPCKHBW Instruction With 64-bit Operands: ¶
+
+```
+
+DEST[7:0] := DEST[39:32]; DEST[15:8] := SRC[39:32]; DEST[23:16] := DEST[47:40]; DEST[31:24] := SRC[47:40]; DEST[39:32] := DEST[55:48]; DEST[47:40] := SRC[55:48]; DEST[55:48] := DEST[63:56]; DEST[63:56] := SRC[63:56];
+
+```
+
+PUNPCKHW Instruction With 64-bit Operands: ¶
+
+```
+
+DEST[15:0] := DEST[47:32]; DEST[31:16] := SRC[47:32]; DEST[47:32] := DEST[63:48]; DEST[63:48] := SRC[63:48];
+
+```
+
+PUNPCKHDQ Instruction With 64-bit Operands: ¶
+
+```
+
+DEST[31:0] := DEST[63:32]; DEST[63:32] := SRC[63:32]; INTERLEAVE_HIGH_BYTES_512b (SRC1, SRC2) TMP_DEST[255:0] := INTERLEAVE_HIGH_BYTES_256b(SRC1[255:0], SRC[255:0]) TMP_DEST[511:256] := INTERLEAVE_HIGH_BYTES_256b(SRC1[511:256], SRC[511:256]) INTERLEAVE_HIGH_BYTES_256b (SRC1, SRC2) DEST[7:0] := SRC1[71:64] DEST[15:8] := SRC2[71:64] DEST[23:16] := SRC1[79:72] DEST[31:24] := SRC2[79:72] DEST[39:32] := SRC1[87:80] DEST[47:40] := SRC2[87:80] DEST[55:48] := SRC1[95:88] DEST[63:56] := SRC2[95:88] DEST[71:64] := SRC1[103:96] DEST[79:72] := SRC2[103:96] DEST[87:80] := SRC1[111:104] DEST[95:88] := SRC2[111:104] DEST[103:96] := SRC1[119:112] DEST[111:104] := SRC2[119:112] DEST[119:112] := SRC1[127:120] DEST[127:120] := SRC2[127:120] DEST[135:128] := SRC1[199:192] DEST[143:136] := SRC2[199:192] DEST[151:144] := SRC1[207:200] DEST[159:152] := SRC2[207:200] DEST[167:160] := SRC1[215:208] DEST[175:168] := SRC2[215:208] DEST[183:176] := SRC1[223:216] DEST[191:184] := SRC2[223:216] DEST[199:192] := SRC1[231:224] DEST[207:200] := SRC2[231:224] DEST[215:208] := SRC1[239:232] DEST[223:216] := SRC2[239:232] DEST[231:224] := SRC1[247:240] DEST[239:232] := SRC2[247:240] DEST[247:240] := SRC1[255:248] DEST[255:248] := SRC2[255:248] INTERLEAVE_HIGH_BYTES (SRC1, SRC2) DEST[7:0] := SRC1[71:64] DEST[15:8] := SRC2[71:64] DEST[23:16] := SRC1[79:72] DEST[31:24] := SRC2[79:72] DEST[39:32] := SRC1[87:80] DEST[47:40] := SRC2[87:80] DEST[55:48] := SRC1[95:88] DEST[63:56] := SRC2[95:88] DEST[71:64] := SRC1[103:96] DEST[79:72] := SRC2[103:96] DEST[87:80] := SRC1[111:104] DEST[95:88] := SRC2[111:104] DEST[103:96] := SRC1[119:112] DEST[111:104] := SRC2[119:112] DEST[119:112] := SRC1[127:120] DEST[127:120] := SRC2[127:120] INTERLEAVE_HIGH_WORDS_512b (SRC1, SRC2) TMP_DEST[255:0] := INTERLEAVE_HIGH_WORDS_256b(SRC1[255:0], SRC[255:0]) TMP_DEST[511:256] := INTERLEAVE_HIGH_WORDS_256b(SRC1[511:256], SRC[511:256]) INTERLEAVE_HIGH_WORDS_256b(SRC1, SRC2) DEST[15:0] := SRC1[79:64] DEST[31:16] := SRC2[79:64] DEST[47:32] := SRC1[95:80] DEST[63:48] := SRC2[95:80] DEST[79:64] := SRC1[111:96] DEST[95:80] := SRC2[111:96] DEST[111:96] := SRC1[127:112] DEST[127:112] := SRC2[127:112] DEST[143:128] := SRC1[207:192] DEST[159:144] := SRC2[207:192] DEST[175:160] := SRC1[223:208] DEST[191:176] := SRC2[223:208] DEST[207:192] := SRC1[239:224] DEST[223:208] := SRC2[239:224] DEST[239:224] := SRC1[255:240] DEST[255:240] := SRC2[255:240] INTERLEAVE_HIGH_WORDS (SRC1, SRC2) DEST[15:0] := SRC1[79:64] DEST[31:16] := SRC2[79:64] DEST[47:32] := SRC1[95:80] DEST[63:48] := SRC2[95:80] DEST[79:64] := SRC1[111:96] DEST[95:80] := SRC2[111:96] DEST[111:96] := SRC1[127:112] DEST[127:112] := SRC2[127:112] INTERLEAVE_HIGH_DWORDS_512b (SRC1, SRC2) TMP_DEST[255:0] := INTERLEAVE_HIGH_DWORDS_256b(SRC1[255:0], SRC2[255:0]) TMP_DEST[511:256] := INTERLEAVE_HIGH_DWORDS_256b(SRC1[511:256], SRC2[511:256]) INTERLEAVE_HIGH_DWORDS_256b(SRC1, SRC2) DEST[31:0] := SRC1[95:64] DEST[63:32] := SRC2[95:64] DEST[95:64] := SRC1[127:96] DEST[127:96] := SRC2[127:96] DEST[159:128] := SRC1[223:192] DEST[191:160] := SRC2[223:192] DEST[223:192] := SRC1[255:224] DEST[255:224] := SRC2[255:224] INTERLEAVE_HIGH_DWORDS(SRC1, SRC2) DEST[31:0] := SRC1[95:64] DEST[63:32] := SRC2[95:64] DEST[95:64] := SRC1[127:96] DEST[127:96] := SRC2[127:96] INTERLEAVE_HIGH_QWORDS_512b (SRC1, SRC2) TMP_DEST[255:0] := INTERLEAVE_HIGH_QWORDS_256b(SRC1[255:0], SRC2[255:0]) TMP_DEST[511:256] := INTERLEAVE_HIGH_QWORDS_256b(SRC1[511:256], SRC2[511:256]) INTERLEAVE_HIGH_QWORDS_256b(SRC1, SRC2) DEST[63:0] := SRC1[127:64] DEST[127:64] := SRC2[127:64] DEST[191:128] := SRC1[255:192] DEST[255:192] := SRC2[255:192] INTERLEAVE_HIGH_QWORDS(SRC1, SRC2) DEST[63:0] := SRC1[127:64] DEST[127:64] := SRC2[127:64]
+
+```
+
+PUNPCKHBW (128-bit Legacy SSE Version) ¶
+
+```
+
+DEST[127:0] := INTERLEAVE_HIGH_BYTES(DEST, SRC) DEST[255:127] (Unmodified)
+
+```
+
+VPUNPCKHBW (VEX.128 Encoded Version) ¶
+
+```
+
+DEST[127:0] := INTERLEAVE_HIGH_BYTES(SRC1, SRC2) DEST[MAXVL-1:127] := 0
+
+```
+
+VPUNPCKHBW (VEX.256 Encoded Version) ¶
+
+```
+
+DEST[255:0] := INTERLEAVE_HIGH_BYTES_256b(SRC1, SRC2) DEST[MAXVL-1:256] := 0
+
+```
+
+VPUNPCKHBW (EVEX Encoded Versions) ¶
+
+```
+
+(KL, VL) = (16, 128), (32, 256), (64, 512) IF VL = 128 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_BYTES(SRC1[VL-1:0], SRC2[VL-1:0]) FI; IF VL = 256 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_BYTES_256b(SRC1[VL-1:0], SRC2[VL-1:0]) FI; IF VL = 512 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_BYTES_512b(SRC1[VL-1:0], SRC2[VL-1:0]) FI; FOR j := 0 TO KL-1 i := j * 8 IF k1[j] OR *no writemask* THEN DEST[i+7:i] := TMP_DEST[i+7:i] ELSE IF *merging-masking* ; merging-masking THEN *DEST[i+7:i] remains unchanged* ELSE *zeroing-masking* ; zeroing-masking DEST[i+7:i] := 0 FI FI; ENDFOR DEST[MAXVL-1:VL] := 0
+
+```
+
+PUNPCKHWD (128-bit Legacy SSE Version) ¶
+
+```
+
+DEST[127:0] := INTERLEAVE_HIGH_WORDS(DEST, SRC) DEST[255:127] (Unmodified)
+
+```
+
+VPUNPCKHWD (VEX.128 Encoded Version) ¶
+
+```
+
+DEST[127:0] := INTERLEAVE_HIGH_WORDS(SRC1, SRC2) DEST[MAXVL-1:127] := 0
+
+```
+
+VPUNPCKHWD (VEX.256 Encoded Version) ¶
+
+```
+
+DEST[255:0] := INTERLEAVE_HIGH_WORDS_256b(SRC1, SRC2) DEST[MAXVL-1:256] := 0
+
+```
+
+VPUNPCKHWD (EVEX Encoded Versions) ¶
+
+```
+
+(KL, VL) = (8, 128), (16, 256), (32, 512) IF VL = 128 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_WORDS(SRC1[VL-1:0], SRC2[VL-1:0]) FI; IF VL = 256 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_WORDS_256b(SRC1[VL-1:0], SRC2[VL-1:0]) FI; IF VL = 512 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_WORDS_512b(SRC1[VL-1:0], SRC2[VL-1:0]) FI; FOR j := 0 TO KL-1 i := j * 16 IF k1[j] OR *no writemask* THEN DEST[i+15:i] := TMP_DEST[i+15:i] ELSE IF *merging-masking* ; merging-masking THEN *DEST[i+15:i] remains unchanged* ELSE *zeroing-masking* ; zeroing-masking DEST[i+15:i] := 0 FI FI; ENDFOR DEST[MAXVL-1:VL] := 0
+
+```
+
+PUNPCKHDQ (128-bit Legacy SSE Version) ¶
+
+```
+
+DEST[127:0] := INTERLEAVE_HIGH_DWORDS(DEST, SRC) DEST[255:127] (Unmodified)
+
+```
+
+VPUNPCKHDQ (VEX.128 Encoded Version) ¶
+
+```
+
+DEST[127:0] := INTERLEAVE_HIGH_DWORDS(SRC1, SRC2) DEST[MAXVL-1:127] := 0
+
+```
+
+VPUNPCKHDQ (VEX.256 Encoded Version) ¶
+
+```
+
+DEST[255:0] := INTERLEAVE_HIGH_DWORDS_256b(SRC1, SRC2) DEST[MAXVL-1:256] := 0
+
+```
+
+VPUNPCKHDQ (EVEX.512 Encoded Version) ¶
+
+```
+
+(KL, VL) = (4, 128), (8, 256), (16, 512) FOR j := 0 TO KL-1 i := j * 32 IF (EVEX.b = 1) AND (SRC2 *is memory*) THEN TMP_SRC2[i+31:i] := SRC2[31:0] ELSE TMP_SRC2[i+31:i] := SRC2[i+31:i] FI; ENDFOR; IF VL = 128 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_DWORDS(SRC1[VL-1:0], TMP_SRC2[VL-1:0]) FI; IF VL = 256 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_DWORDS_256b(SRC1[VL-1:0], TMP_SRC2[VL-1:0]) FI; IF VL = 512 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_DWORDS_512b(SRC1[VL-1:0], TMP_SRC2[VL-1:0]) FI; FOR j := 0 TO KL-1 i := j * 32 IF k1[j] OR *no writemask* THEN DEST[i+31:i] := TMP_DEST[i+31:i] ELSE IF *merging-masking* THEN *DEST[i+31:i] remains unchanged* ELSE *zeroing-masking* ; zeroing-masking DEST[i+31:i] := 0 FI FI; ENDFOR DEST[MAXVL-1:VL] := 0
+
+```
+
+PUNPCKHQDQ (128-bit Legacy SSE Version) ¶
+
+```
+
+DEST[127:0] := INTERLEAVE_HIGH_QWORDS(DEST, SRC) DEST[MAXVL-1:128] (Unmodified)
+
+```
+
+VPUNPCKHQDQ (VEX.128 Encoded Version) ¶
+
+```
+
+DEST[127:0] := INTERLEAVE_HIGH_QWORDS(SRC1, SRC2) DEST[MAXVL-1:128] := 0
+
+```
+
+VPUNPCKHQDQ (VEX.256 Encoded Version) ¶
+
+```
+
+DEST[255:0] := INTERLEAVE_HIGH_QWORDS_256b(SRC1, SRC2) DEST[MAXVL-1:256] := 0
+
+```
+
+VPUNPCKHQDQ (EVEX Encoded Versions) ¶
+
+```
+
+(KL, VL) = (2, 128), (4, 256), (8, 512) FOR j := 0 TO KL-1 i := j * 64 IF (EVEX.b = 1) AND (SRC2 *is memory*) THEN TMP_SRC2[i+63:i] := SRC2[63:0] ELSE TMP_SRC2[i+63:i] := SRC2[i+63:i] FI; ENDFOR; IF VL = 128 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_QWORDS(SRC1[VL-1:0], TMP_SRC2[VL-1:0]) FI; IF VL = 256 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_QWORDS_256b(SRC1[VL-1:0], TMP_SRC2[VL-1:0]) FI; IF VL = 512 TMP_DEST[VL-1:0] := INTERLEAVE_HIGH_QWORDS_512b(SRC1[VL-1:0], TMP_SRC2[VL-1:0]) FI; FOR j := 0 TO KL-1 i := j * 64 IF k1[j] OR *no writemask* THEN DEST[i+63:i] := TMP_DEST[i+63:i] ELSE IF *merging-masking* ; merging-masking THEN *DEST[i+63:i] remains unchanged* ELSE *zeroing-masking* ; zeroing-masking DEST[i+63:i] := 0 FI FI; ENDFOR DEST[MAXVL-1:VL] := 0
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalents ¶
+
+```
+
+VPUNPCKHBW __m512i _mm512_unpackhi_epi8(__m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHBW __m512i _mm512_mask_unpackhi_epi8(__m512i s, __mmask64 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHBW __m512i _mm512_maskz_unpackhi_epi8( __mmask64 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHBW __m256i _mm256_mask_unpackhi_epi8(__m256i s, __mmask32 k, __m256i a, __m256i b);
+
+```
+
+```
+
+VPUNPCKHBW __m256i _mm256_maskz_unpackhi_epi8( __mmask32 k, __m256i a, __m256i b);
+
+```
+
+```
+
+VPUNPCKHBW __m128i _mm_mask_unpackhi_epi8(v s, __mmask16 k, __m128i a, __m128i b);
+
+```
+
+```
+
+VPUNPCKHBW __m128i _mm_maskz_unpackhi_epi8( __mmask16 k, __m128i a, __m128i b);
+
+```
+
+```
+
+VPUNPCKHWD __m512i _mm512_unpackhi_epi16(__m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHWD __m512i _mm512_mask_unpackhi_epi16(__m512i s, __mmask32 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHWD __m512i _mm512_maskz_unpackhi_epi16( __mmask32 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHWD __m256i _mm256_mask_unpackhi_epi16(__m256i s, __mmask16 k, __m256i a, __m256i b);
+
+```
+
+```
+
+VPUNPCKHWD __m256i _mm256_maskz_unpackhi_epi16( __mmask16 k, __m256i a, __m256i b);
+
+```
+
+```
+
+VPUNPCKHWD __m128i _mm_mask_unpackhi_epi16(v s, __mmask8 k, __m128i a, __m128i b);
+
+```
+
+```
+
+VPUNPCKHWD __m128i _mm_maskz_unpackhi_epi16( __mmask8 k, __m128i a, __m128i b);
+
+```
+
+```
+
+VPUNPCKHDQ __m512i _mm512_unpackhi_epi32(__m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHDQ __m512i _mm512_mask_unpackhi_epi32(__m512i s, __mmask16 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHDQ __m512i _mm512_maskz_unpackhi_epi32( __mmask16 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHDQ __m256i _mm256_mask_unpackhi_epi32(__m512i s, __mmask8 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHDQ __m256i _mm256_maskz_unpackhi_epi32( __mmask8 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHDQ __m128i _mm_mask_unpackhi_epi32(__m512i s, __mmask8 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHDQ __m128i _mm_maskz_unpackhi_epi32( __mmask8 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHQDQ __m512i _mm512_unpackhi_epi64(__m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHQDQ __m512i _mm512_mask_unpackhi_epi64(__m512i s, __mmask8 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHQDQ __m512i _mm512_maskz_unpackhi_epi64( __mmask8 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHQDQ __m256i _mm256_mask_unpackhi_epi64(__m512i s, __mmask8 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHQDQ __m256i _mm256_maskz_unpackhi_epi64( __mmask8 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHQDQ __m128i _mm_mask_unpackhi_epi64(__m512i s, __mmask8 k, __m512i a, __m512i b);
+
+```
+
+```
+
+VPUNPCKHQDQ __m128i _mm_maskz_unpackhi_epi64( __mmask8 k, __m512i a, __m512i b);
+
+```
+
+```
+
+PUNPCKHBW __m64 _mm_unpackhi_pi8(__m64 m1, __m64 m2)
+
+```
+
+```
+
+(V)PUNPCKHBW __m128i _mm_unpackhi_epi8(__m128i m1, __m128i m2)
+
+```
+
+```
+
+VPUNPCKHBW __m256i _mm256_unpackhi_epi8(__m256i m1, __m256i m2)
+
+```
+
+```
+
+PUNPCKHWD __m64 _mm_unpackhi_pi16(__m64 m1,__m64 m2)
+
+```
+
+```
+
+(V)PUNPCKHWD __m128i _mm_unpackhi_epi16(__m128i m1,__m128i m2)
+
+```
+
+```
+
+VPUNPCKHWD __m256i _mm256_unpackhi_epi16(__m256i m1,__m256i m2)
+
+```
+
+```
+
+PUNPCKHDQ __m64 _mm_unpackhi_pi32(__m64 m1, __m64 m2)
+
+```
+
+```
+
+(V)PUNPCKHDQ __m128i _mm_unpackhi_epi32(__m128i m1, __m128i m2)
+
+```
+
+```
+
+VPUNPCKHDQ __m256i _mm256_unpackhi_epi32(__m256i m1, __m256i m2)
+
+```
+
+```
+
+(V)PUNPCKHQDQ __m128i _mm_unpackhi_epi64 ( __m128i a, __m128i b)
+
+```
+
+```
+
+VPUNPCKHQDQ __m256i _mm256_unpackhi_epi64 ( __m256i a, __m256i b)
+
+```
+
+Flags Affected ¶
+
+None.
+
+Numeric Exceptions ¶
+
+None.
+
+Other Exceptions ¶
+
+Non-EVEX-encoded instruction, see Table 2-21, “Type 4 Class Exception Conditions.”
+
+EVEX-encoded VPUNPCKHQDQ/QDQ, see Table 2-50, “Type E4NF Class Exception Conditions.”
+
+EVEX-encoded VPUNPCKHBW/WD, see Exceptions Type E4NF.nb in Table 2-50, “Type E4NF Class Exception Conditions.”
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

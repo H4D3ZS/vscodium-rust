@@ -1,7 +1,7 @@
 ﻿import type { StateCreator } from 'zustand';
 import type { AppState } from './index';
 import type { TerminalGroup } from './types';
-import { spawnTerminalGroup } from '../application/terminal/spawnTerminal';
+import { spawnTerminalGroup, spawnOpenCodeGroup } from '../application/terminal/spawnTerminal';
 import { splitTerminalInGroup } from '../application/terminal/splitTerminal';
 import { closeTerminalInstance, closeTerminalGroup } from '../application/terminal/closeTerminal';
 import { getTerminalManager } from '../application/terminal/getTerminalManager';
@@ -11,6 +11,7 @@ export interface TerminalSlice {
     activeTerminalGroupId: string | null;
 
     addTerminalGroup: (shell?: string) => Promise<string>;
+    addOpenCodeTerminalGroup: () => Promise<string>;
     addAiriActivityTerminal: () => Promise<string>;
     splitTerminal: (groupId: string, instanceId: string, direction?: 'horizontal' | 'vertical') => Promise<string>;
     closeTerminalInstance: (groupId: string, instanceId: string) => Promise<void>;
@@ -26,6 +27,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     activeTerminalGroupId: null,
 
     addTerminalGroup: async (shell) => spawnTerminalGroup(shell),
+
+    addOpenCodeTerminalGroup: async () => spawnOpenCodeGroup(),
 
     addAiriActivityTerminal: async () => {
         const terminalManager = await getTerminalManager();

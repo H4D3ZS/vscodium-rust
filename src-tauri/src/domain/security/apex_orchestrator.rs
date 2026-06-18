@@ -108,61 +108,10 @@ impl ApexOrchestrator {
         self.model_overrides.lock().await.insert(engine.to_string(), model.to_string());
     }
 
-    /// Helper to fetch custom settings value from Supabase
-    async fn fetch_supabase_model(&self, key: &str) -> Option<String> {
-        let config_dir = self.config_dir.lock().await.clone()?;
-        let (url, anon_key) = crate::auth::supabase_config(&config_dir);
-        if url.is_empty() || anon_key.is_empty() {
-            return None;
-        }
-
-        let req_url = format!("{}/rest/v1/app_settings?key=eq.{}&select=value", url, key);
-        let res = self.client.get(&req_url)
-            .header("apikey", &anon_key)
-            .header("Authorization", format!("Bearer {}", anon_key))
-            .send()
-            .await
-            .ok()?;
-
-        if res.status().is_success() {
-            let json: Value = res.json().await.ok()?;
-            if let Some(arr) = json.as_array() {
-                if let Some(first) = arr.first() {
-                    if let Some(val) = first.get("value") {
-                        if let Some(s) = val.as_str() {
-                            return Some(s.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Get the active model for an engine, fetching override settings dynamically
+    /// Get the active model for an engine
     async fn get_model(&self, engine: &str) -> String {
         if let Some(m) = self.model_overrides.lock().await.get(engine) {
             return m.clone();
-        }
-
-        // Map engine name to settings key
-        let sb_key = match engine {
-            "architect" => Some("model_architect"),
-            "threat" => Some("model_threat"),
-            "perf" => Some("model_perf"),
-            "self_improve" => Some("model_self_improve"),
-            "explainer" => Some("model_explainer"),
-            "multi_system" => Some("model_multi_system"),
-            "predictor" => Some("model_predictor"),
-            _ => None,
-        };
-
-        if let Some(key) = sb_key {
-            if let Some(override_model) = self.fetch_supabase_model(key).await {
-                if !override_model.trim().is_empty() {
-                    return override_model.trim().to_string();
-                }
-            }
         }
 
         // RAM-tiered default: lite/mid machines collapse all engines onto a

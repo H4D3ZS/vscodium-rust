@@ -1,0 +1,157 @@
+MOVSLDUP — Replicate Single Precision Floating-Point Values
+
+* Index
+
+* December 2023
+
+MOVSLDUP — Replicate Single Precision Floating-Point Values
+
+|          Opcode/Instruction          |Op / En|64/32 bit Mode Support|CPUID Feature Flag|                            Description                            |
+
+|---------------------------------------------------------|-------|----------------------|------------------|---------------------------------------------------------------------------------------------------------------------------|
+
+|     F3 0F 12 /r MOVSLDUP xmm1, xmm2/m128      |  A  |     V/V     |    SSE3    |    Move even index single precision floating-point values from xmm2/mem and duplicate each element into xmm1. |
+
+|  VEX.128. F3.0F.WIG 12 /r VMOVSLDUP xmm1, xmm2/m128  |  A  |     V/V     |    AVX    |    Move even index single precision floating-point values from xmm2/mem and duplicate each element into xmm1. |
+
+|  VEX.256. F3.0F.WIG 12 /r VMOVSLDUP ymm1, ymm2/m256  |  A  |     V/V     |    AVX    |    Move even index single precision floating-point values from ymm2/mem and duplicate each element into ymm1. |
+
+|EVEX.128. F3.0F.W0 12 /r VMOVSLDUP xmm1 {k1}{z}, xmm2/m128|  B  |     V/V     | AVX512VL AVX512F |Move even index single precision floating-point values from xmm2/m128 and duplicate each element into xmm1 under writemask. |
+
+|EVEX.256. F3.0F.W0 12 /r VMOVSLDUP ymm1 {k1}{z}, ymm2/m256|  B  |     V/V     | AVX512VL AVX512F |Move even index single precision floating-point values from ymm2/m256 and duplicate each element into ymm1 under writemask. |
+
+|EVEX.512. F3.0F.W0 12 /r VMOVSLDUP zmm1 {k1}{z}, zmm2/m512|  B  |     V/V     |   AVX512F   |Move even index single precision floating-point values from zmm2/m512 and duplicate each element into zmm1 under writemask. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|Tuple Type| Operand 1 | Operand 2 |Operand 3|Operand 4|
+
+|-----|----------|-------------|-------------|---------|---------|
+
+| A |  N/A  |ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+| B | Full Mem |ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+Description ¶
+
+Duplicates even-indexed single precision floating-point values from the source operand (the second operand). See Figure 4-4. The source operand is an XMM, YMM or ZMM register or 128, 256 or 512-bit memory location and the destination operand is an XMM, YMM or ZMM register.
+
+128-bit Legacy SSE version: Bits (MAXVL-1:128) of the corresponding destination register remain unchanged.
+
+VEX.128 encoded version: Bits (MAXVL-1:128) of the destination register are zeroed.
+
+VEX.256 encoded version: Bits (MAXVL-1:256) of the destination register are zeroed.
+
+EVEX encoded version: The destination operand is updated at 32-bit granularity according to the writemask.
+
+Note: VEX.vvvv and EVEX.vvvv are reserved and must be 1111b otherwise instructions will #UD.
+
+X7 X6 X5 X4 X3 X2 X1 X0 SRC DEST X6 X6 X4 X4 X2 X2 X0 X0 Figure 4-4. MOVSLDUP Operation
+
+Operation ¶
+
+VMOVSLDUP (EVEX Encoded Versions) ¶
+
+```
+
+(KL, VL) = (4, 128), (8, 256), (16, 512) TMP_SRC[31:0] := SRC[31:0] TMP_SRC[63:32] := SRC[31:0] TMP_SRC[95:64] := SRC[95:64] TMP_SRC[127:96] := SRC[95:64] IF VL >= 256 TMP_SRC[159:128] := SRC[159:128] TMP_SRC[191:160] := SRC[159:128] TMP_SRC[223:192] := SRC[223:192] TMP_SRC[255:224] := SRC[223:192] FI; IF VL >= 512 TMP_SRC[287:256] := SRC[287:256] TMP_SRC[319:288] := SRC[287:256] TMP_SRC[351:320] := SRC[351:320] TMP_SRC[383:352] := SRC[351:320] TMP_SRC[415:384] := SRC[415:384] TMP_SRC[447:416] := SRC[415:384] TMP_SRC[479:448] := SRC[479:448] TMP_SRC[511:480] := SRC[479:448] FI; FOR j := 0 TO KL-1 i := j * 32 IF k1[j] OR *no writemask* THEN DEST[i+31:i] := TMP_SRC[i+31:i] ELSE IF *merging-masking* THEN *DEST[i+31:i] remains unchanged* ELSE ; zeroing-masking DEST[i+31:i] := 0 FI FI; ENDFOR DEST[MAXVL-1:VL] := 0
+
+```
+
+VMOVSLDUP (VEX.256 Encoded Version) ¶
+
+```
+
+DEST[31:0] := SRC[31:0] DEST[63:32] := SRC[31:0] DEST[95:64] := SRC[95:64] DEST[127:96] := SRC[95:64] DEST[159:128] := SRC[159:128] DEST[191:160] := SRC[159:128] DEST[223:192] := SRC[223:192] DEST[255:224] := SRC[223:192] DEST[MAXVL-1:256] := 0
+
+```
+
+VMOVSLDUP (VEX.128 Encoded Version) ¶
+
+```
+
+DEST[31:0] := SRC[31:0] DEST[63:32] := SRC[31:0] DEST[95:64] := SRC[95:64] DEST[127:96] := SRC[95:64] DEST[MAXVL-1:128] := 0
+
+```
+
+MOVSLDUP (128-bit Legacy SSE Version) ¶
+
+```
+
+DEST[31:0] := SRC[31:0] DEST[63:32] := SRC[31:0] DEST[95:64] := SRC[95:64] DEST[127:96] := SRC[95:64] DEST[MAXVL-1:128] (Unmodified)
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+VMOVSLDUP __m512 _mm512_moveldup_ps( __m512 a);
+
+```
+
+```
+
+VMOVSLDUP __m512 _mm512_mask_moveldup_ps(__m512 s, __mmask16 k, __m512 a);
+
+```
+
+```
+
+VMOVSLDUP __m512 _mm512_maskz_moveldup_ps( __mmask16 k, __m512 a);
+
+```
+
+```
+
+VMOVSLDUP __m256 _mm256_mask_moveldup_ps(__m256 s, __mmask8 k, __m256 a);
+
+```
+
+```
+
+VMOVSLDUP __m256 _mm256_maskz_moveldup_ps( __mmask8 k, __m256 a);
+
+```
+
+```
+
+VMOVSLDUP __m128 _mm_mask_moveldup_ps(__m128 s, __mmask8 k, __m128 a);
+
+```
+
+```
+
+VMOVSLDUP __m128 _mm_maskz_moveldup_ps( __mmask8 k, __m128 a);
+
+```
+
+```
+
+VMOVSLDUP __m256 _mm256_moveldup_ps (__m256 a);
+
+```
+
+```
+
+VMOVSLDUP __m128 _mm_moveldup_ps (__m128 a);
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+None.
+
+Other Exceptions ¶
+
+Non-EVEX-encoded instruction, see Table 2-21, “Type 4 Class Exception Conditions.”
+
+EVEX-encoded instruction, see Exceptions Type E4NF.nb in Table 2-50, “Type E4NF Class Exception Conditions.”
+
+Additionally:
+
+|\#UD|If EVEX.vvvv ! = 1111B or VEX.vvvv ! = 1111B.|
+
+|----|-------------------------------------------|
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

@@ -164,28 +164,9 @@ impl AiTools {
         Some(state.config_dir.clone())
     }
 
-    /// Backend SaaS gate — complements frontend checks in `agent.ts`.
-    pub(crate) async fn gate_tool_entitlement(&self, tool: &str) -> Result<()> {
-        let Some(dir) = self.config_dir().await else { return Ok(()); };
-        match tool {
-            "aim_pack_context" | "aim_query_spans" => {
-                crate::account::require_feature_at(&dir, "neural_vfs").map_err(|e| anyhow!(e))
-            }
-            "reverse_shell_generate" | "security_listener_generate" | "csp_bypass_analyze"
-            | "shellcode_recipe_generate" | "payload_encode"
-            | "ai_vuln_hunt" | "web_security_audit" | "deep_security_audit" | "weaponize_env"
-            | "network_port_scanner" | "binary_mach_o_scanner" | "generate_0day_exploit"
-            | "apex_red_team_scan" | "apex_scan_url" | "apex_simulate_attack"
-            | "apex_full_sweep" | "apex_pentest_report" | "apex_quick_check" => {
-                crate::account::require_security_suite(&dir).map_err(|e| anyhow!(e))
-            }
-            "apex_architect_design" | "apex_threat_anticipate" | "apex_perf_optimize"
-            | "apex_self_improve" | "apex_security_explain" | "apex_predict_failures"
-            | "spawn_subagent" | "browser_subagent" => {
-                crate::account::require_feature_at(&dir, "agentic").map_err(|e| anyhow!(e))
-            }
-            _ => Ok(()),
-        }
+    /// Backend gate — no entitlement checks in OSS edition.
+    pub(crate) async fn gate_tool_entitlement(&self, _tool: &str) -> Result<()> {
+        Ok(())
     }
 
     pub async fn set_apex(&self, apex: Arc<crate::apex_orchestrator::ApexOrchestrator>) {

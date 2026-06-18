@@ -288,7 +288,7 @@ export class AutonomousAgent {
       this.failedTasks++;
       this.competenceLevel = Math.max(0, this.competenceLevel - 1);
       
-      console.error('[AutonomousAgent] ❌ Task failed:', task.description, e);
+ console.error('[AutonomousAgent] Task failed:', task.description, e);
       task.result = `Failed: ${e.message}`;
     }
 

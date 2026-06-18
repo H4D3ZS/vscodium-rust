@@ -1,0 +1,143 @@
+VCVTPD2QQ — Convert Packed Double Precision Floating-Point Values to Packed QuadwordIntegers
+
+* Index
+
+* December 2023
+
+VCVTPD2QQ — Convert Packed Double Precision Floating-Point Values to Packed QuadwordIntegers
+
+|             Opcode/Instruction             |Op/En|64/32 Bit Mode Support|CPUID Feature Flag|                                 Description                                 |
+
+|---------------------------------------------------------------------|-----|----------------------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+
+| EVEX.128.66. 0F.W1 7B /r VCVTPD2QQ xmm1 {k1}{z}, xmm2/m128/m64bcst | A |     V/V     |AVX512VL AVX512DQ | Convert two packed double precision floating-point values from xmm2/m128/m64bcst to two packed quadword integers in xmm1 with writemask k1. |
+
+| EVEX.256.66. 0F.W1 7B /r VCVTPD2QQ ymm1 {k1}{z}, ymm2/m256/m64bcst | A |     V/V     |AVX512VL AVX512DQ | Convert four packed double precision floating-point values from ymm2/m256/m64bcst to four packed quadword integers in ymm1 with writemask k1. |
+
+|EVEX.512.66. 0F.W1 7B /r VCVTPD2QQ zmm1 {k1}{z}, zmm2/m512/m64bcst{er}| A |     V/V     |   AVX512DQ   |Convert eight packed double precision floating-point values from zmm2/m512/m64bcst to eight packed quadword integers in zmm1 with writemask k1. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|Tuple Type| Operand 1 | Operand 2 |Operand 3|Operand 4|
+
+|-----|----------|-------------|-------------|---------|---------|
+
+| A |  Full  |ModRM:reg (w)|ModRM:r/m (r)|  N/A  |  N/A  |
+
+Description ¶
+
+Converts packed double precision floating-point values in the source operand (second operand) to packed quadword integers in the destination operand (first operand).
+
+EVEX encoded versions: The source operand is a ZMM/YMM/XMM register or a 512/256/128-bit memory location. The destination operation is a ZMM/YMM/XMM register conditionally updated with writemask k1.
+
+When a conversion is inexact, the value returned is rounded according to the rounding control bits in the MXCSR register or the embedded rounding control bits. If a converted result cannot be represented in the destination format, the floating-point invalid exception is raised, and if this exception is masked, the indefinite integer value (2 w -1, where w represents the number of bits in the destination format) is returned.
+
+EVEX.vvvv is reserved and must be 1111b otherwise instructions will #UD.
+
+Operation ¶
+
+VCVTPD2QQ (EVEX Encoded Version) When SRC Operand is a Register ¶
+
+```
+
+(KL, VL) = (2, 128), (4, 256), (8, 512) IF (VL == 512) AND (EVEX.b == 1) THEN SET_ROUNDING_MODE_FOR_THIS_INSTRUCTION(EVEX.RC); ELSE SET_ROUNDING_MODE_FOR_THIS_INSTRUCTION(MXCSR.RC); FI; FOR j := 0 TO KL-1 i := j * 64 IF k1[j] OR *no writemask* THEN DEST[i+63:i] := Convert_Double_Precision_Floating_Point_To_QuadInteger(SRC[i+63:i]) ELSE IF *merging-masking* ; merging-masking THEN *DEST[i+63:i] remains unchanged* ELSE ; zeroing-masking DEST[i+63:i] := 0 FI FI; ENDFOR DEST[MAXVL-1:VL] := 0
+
+```
+
+VCVTPD2QQ (EVEX Encoded Version) When SRC Operand is a Memory Source ¶
+
+```
+
+(KL, VL) = (2, 128), (4, 256), (8, 512) FOR j := 0 TO KL-1 i := j * 64 IF k1[j] OR *no writemask* THEN IF (EVEX.b == 1) THEN DEST[i+63:i] := Convert_Double_Precision_Floating_Point_To_QuadInteger(SRC[63:0]) ELSE DEST[i+63:i] := Convert_Double_Precision_Floating_Point_To_QuadInteger(SRC[i+63:i]) FI; ELSE IF *merging-masking* ; merging-masking THEN *DEST[i+63:i] remains unchanged* ELSE ; zeroing-masking DEST[i+63:i] := 0 FI FI; ENDFOR DEST[MAXVL-1:VL] := 0
+
+```
+
+Intel C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+VCVTPD2QQ __m512i _mm512_cvtpd_epi64( __m512d a);
+
+```
+
+```
+
+VCVTPD2QQ __m512i _mm512_mask_cvtpd_epi64( __m512i s, __mmask8 k, __m512d a);
+
+```
+
+```
+
+VCVTPD2QQ __m512i _mm512_maskz_cvtpd_epi64( __mmask8 k, __m512d a);
+
+```
+
+```
+
+VCVTPD2QQ __m512i _mm512_cvt_roundpd_epi64( __m512d a, int r);
+
+```
+
+```
+
+VCVTPD2QQ __m512i _mm512_mask_cvt_roundpd_epi64( __m512i s, __mmask8 k, __m512d a, int r);
+
+```
+
+```
+
+VCVTPD2QQ __m512i _mm512_maskz_cvt_roundpd_epi64( __mmask8 k, __m512d a, int r);
+
+```
+
+```
+
+VCVTPD2QQ __m256i _mm256_mask_cvtpd_epi64( __m256i s, __mmask8 k, __m256d a);
+
+```
+
+```
+
+VCVTPD2QQ __m256i _mm256_maskz_cvtpd_epi64( __mmask8 k, __m256d a);
+
+```
+
+```
+
+VCVTPD2QQ __m128i _mm_mask_cvtpd_epi64( __m128i s, __mmask8 k, __m128d a);
+
+```
+
+```
+
+VCVTPD2QQ __m128i _mm_maskz_cvtpd_epi64( __mmask8 k, __m128d a);
+
+```
+
+```
+
+VCVTPD2QQ __m256i _mm256_cvtpd_epi64 (__m256d src)
+
+```
+
+```
+
+VCVTPD2QQ __m128i _mm_cvtpd_epi64 (__m128d src)
+
+```
+
+SIMD Floating-Point Exceptions ¶
+
+Invalid, Precision.
+
+Other Exceptions ¶
+
+EVEX-encoded instructions, see Table 2-46, “Type E2 Class Exception Conditions.”
+
+Additionally:
+
+|\#UD|If EVEX.vvvv ! = 1111B.|
+
+|----|----------------------|
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

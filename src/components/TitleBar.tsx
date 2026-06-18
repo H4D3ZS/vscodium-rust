@@ -12,10 +12,8 @@ import { useStore } from '../store';
 // version drift on a frameless window) — and does not depend on core:window
 // capability grants. A JS fallback to getCurrentWindow() is kept for safety.
 async function winMinimize() {
-    console.log('[TitleBar] minimize clicked');
     try {
         await invoke('win_minimize');
-        console.log('[TitleBar] minimize OK (native)');
     } catch (e) {
         console.error('[TitleBar] win_minimize failed, trying JS API:', e);
         try { await getCurrentWindow().minimize(); } catch (e2) { console.error('[TitleBar] JS minimize failed:', e2); }
@@ -23,10 +21,8 @@ async function winMinimize() {
 }
 
 async function winMaximize() {
-    console.log('[TitleBar] maximize clicked');
     try {
         const nowMax = await invoke<boolean>('win_toggle_maximize');
-        console.log('[TitleBar] maximize toggled (native), maximized=', nowMax);
     } catch (e) {
         console.error('[TitleBar] win_toggle_maximize failed, trying JS API:', e);
         try { await getCurrentWindow().toggleMaximize(); } catch (e2) { console.error('[TitleBar] JS maximize failed:', e2); }
@@ -34,10 +30,8 @@ async function winMaximize() {
 }
 
 async function winClose() {
-    console.log('[TitleBar] close clicked');
     try {
         await invoke('win_close');
-        console.log('[TitleBar] close OK (native)');
     } catch (e) {
         console.error('[TitleBar] win_close failed, trying JS API:', e);
         try { await getCurrentWindow().close(); } catch (e2) { console.error('[TitleBar] JS close failed:', e2); }
@@ -454,7 +448,6 @@ function executeMenuAction(item: string) {
             break;
 
         default:
-            console.log(`[TitleBar] Unhandled menu action: ${item}`);
     }
 }
 

@@ -14,7 +14,6 @@ use tauri::AppHandle;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::Semaphore;
 
-use crate::ai_auth::AuthState;
 use crate::ai_tools::AiTools;
 use crate::mcp_registry::{McpRegistry, McpServerConfig};
 use crate::memory_store::MemoryStore;
@@ -65,6 +64,8 @@ pub(crate) const OLLAMA_ESSENTIAL_TOOLS: &[&str] = &[
     "security_scan", "audit_dependencies", "disassemble", "get_binary_info",
     // Common model alias names (resolved via tool_aliases.rs, kept in schema filter)
     "run_terminal_cmd", "run_command", "nmap", "searchsploit", "vuln_hunt",
+    // FastContext repository explorer — dedicated exploration subagent
+    "explore_repository",
     // Live web pentest / bug-bounty against a target URL. Without these, a local
     // security model (e.g. sec-eng-neuraldevil) gets NO web tooling — the first
     // essential-tools retain stripped them before the domain filter could keep
@@ -89,7 +90,6 @@ pub struct Sentient {
     pub(crate) tool_invoker: Arc<ToolInvoker>,
     pub(crate) conversation_state: AsyncMutex<Vec<ChatMessage>>,
     pub(crate) app_handle: std::sync::RwLock<Option<AppHandle>>,
-    pub(crate) auth_state: Arc<AuthState>,
     pub(crate) ollama_url: tokio::sync::Mutex<String>,
     /// Caps concurrent Ollama HTTP calls from this process so one desktop seat
     /// does not trip nginx `limit_conn` on a shared reverse proxy.
@@ -143,7 +143,6 @@ impl Sentient {
     pub fn new(
         api_key: String,
         root_path: PathBuf,
-        auth_state: Arc<AuthState>,
         browser_state: Arc<crate::browser::BrowserState>,
         git_manager: Arc<crate::git::GitManager>,
         config_dir: PathBuf,
@@ -205,7 +204,11 @@ impl Sentient {
 
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(600)) // 10 minute total timeout for heavy local inference
+            // 24/7 coding: a long local generation (or a cold model load) must NOT be
+            // killed by a total-request cap. The real hang guard is the per-chunk
+            // inter-token timeout in the streaming loop (no bytes for N s → error).
+            // Per-request `.timeout()` still tightens this for cloud/advisor calls.
+            .timeout(std::time::Duration::from_secs(3600))
             .no_proxy()
             .build()
             .unwrap_or_else(|_| Client::new());
@@ -222,7 +225,6 @@ impl Sentient {
             tool_invoker,
             conversation_state: AsyncMutex::new(Vec::new()),
             app_handle: std::sync::RwLock::new(None),
-            auth_state,
             ollama_url: tokio::sync::Mutex::new("http://localhost:11434".to_string()),
             ollama_http_sem: Arc::new(Semaphore::new(4)),
             _browser_state: browser_state.clone(),

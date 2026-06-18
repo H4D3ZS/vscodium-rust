@@ -6,9 +6,11 @@ interface InlineDiffPreviewProps {
     newText?: string;
     path?: string;
     maxLines?: number;
+    /** Hide the filename + +N/−N row (when the parent card already shows it). */
+    hideMeta?: boolean;
 }
 
-const InlineDiffPreview: React.FC<InlineDiffPreviewProps> = ({ oldText, newText, path, maxLines = 28 }) => {
+const InlineDiffPreview: React.FC<InlineDiffPreviewProps> = ({ oldText, newText, path, maxLines = 28, hideMeta }) => {
     const lines = useMemo(
         () => computeInlineDiff(oldText || '', newText || '', maxLines),
         [oldText, newText, maxLines],
@@ -21,7 +23,7 @@ const InlineDiffPreview: React.FC<InlineDiffPreviewProps> = ({ oldText, newText,
 
     return (
         <div className="composer-inline-diff">
-            {(path || adds || dels) && (
+            {!hideMeta && (path || adds || dels) && (
                 <div className="composer-inline-diff__meta">
                     {path && <span className="composer-inline-diff__path">{path.split(/[\\/]/).pop()}</span>}
                     <span className="composer-inline-diff__stats">

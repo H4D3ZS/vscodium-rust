@@ -128,14 +128,6 @@ fn ollama_bearer_for(state: &EditorState, ollama_base: &str) -> String {
             }
         }
     }
-    let base = ollama_base.to_lowercase();
-    if base.contains("cyberifrit.xyz") {
-        if let Some(s) = crate::auth::load_session(&state.config_dir) {
-            if !s.access_token.is_empty() {
-                return s.access_token;
-            }
-        }
-    }
     String::new()
 }
 

@@ -1,0 +1,427 @@
+EWB — Invalidate an EPC Page and Write out to Main Memory
+
+* Index
+
+* December 2023
+
+EWB — Invalidate an EPC Page and Write out to Main Memory
+
+| Opcode/Instruction |Op/En|64/32 bit Mode Support|CPUID Feature Flag|                Description                 |
+
+|--------------------|-----|----------------------|------------------|----------------------------------------------------------------------------|
+
+|EAX = 0BH ENCLS[EWB]| IR |     V/V     |    SGX1    |This leaf function invalidates an EPC page and writes it out to main memory. |
+
+Instruction Operand Encoding ¶
+
+|Op/En| EAX  |   RBX    |      RCX      |      RDX       |             |
+
+|-----|--------|----------------|---------------------------|----------------------------|-------------------------|
+
+| IR |EWB (In)|Error code (Out)|Address of an PAGEINFO (In)|Address of the EPC page (In)|Address of a VA slot (In)|
+
+Description ¶
+
+This leaf function copies a page from the EPC to regular main memory. As part of the copying process, the page is cryptographically protected. This instruction can only be executed when current privilege level is 0.
+
+The table below provides additional information on the memory parameter of EPA leaf function.
+
+EWB Memory Parameter Semantics ¶
+
+|   PAGEINFO   | PAGEINFO.SRCPGE | PAGEINFO.PCMD  |  EPCPAGE  |  VASLOT  |
+
+|------------------|------------------|------------------|--------------|--------------|
+
+|Non-EPC R/W access|Non-EPC R/W access|Non-EPC R/W access|EPC R/W access|EPC R/W access|
+
+The error codes are:
+
+|Error Code (see Table 38-4)|           Description            |
+
+|---------------------------|--------------------------------------------------------|
+
+|     No Error     |          EWB successful. |
+
+| SGX\_PAGE\_NOT\_BLOCKED |      If page is not marked as blocked. |
+
+|   SGX\_NOT\_TRACKED   |    If EWB is racing with ETRACK instruction. |
+
+| SGX\_VA\_SLOT\_OCCUPIED |    Version array slot contained valid entry. |
+
+|  SGX\_CHILD\_PRESENT  |Child page present while attempting to page out enclave. |
+
+Table 38-51. EWB Return Value in RAX
+
+Concurrency Restrictions ¶
+
+|  Leaf  |  Parameter  |  Base Concurrency Restrictions  |  |               |
+
+|-----------|---------------|-----------------------------------|----|------------------------------|
+
+| Access  | On Conflict |SGX\_CONFLICT VM Exit Qualification|  |               |
+
+|  EWB  |Source [DS:RCX]|       Exclusive       |\#GP|EPC\_PAGE\_CONFLICT\_EXCEPTION|
+
+|VA [DS:RDX]|  Shared   |        \#GP        |  |               |
+
+Table 38-52. Base Concurrency Restrictions of EWB
+
+|           Leaf           |    Parameter    |Additional Concurrency Restrictions|      |     |      |     |  |
+
+|-----------------------------------------------|------------------------|-----------------------------------|-----------|----------|-----------|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT|    vs ETRACK, ETRACKC    |      |     |      |     |  |
+
+|          Access           |   On Conflict    |       Access        |On Conflict| Access |On Conflict|     |  |
+
+|           EWB           |  Source [DS:RCX]   |      Concurrent       |      |Concurrent|      |Concurrent|  |
+
+|         VA [DS:RDX]         |    Concurrent    |                  |Concurrent |     | Exclusive |     |  |
+
+Table 38-53. Additional Concurrency Restrictions of EWB
+
+Operation ¶
+
+Temp Variables in EWB Operational Flow ¶
+
+|    Name    |  Type  |Size (Bytes)|Description|
+
+|--------------------|-----------|------------|-----------|
+
+|  TMP\_SRCPGE   |Memory page|  4096  |      |
+
+|   TMP\_PCMD   |  PCMD  |  128   |      |
+
+|   TMP\_SECS   |  SECS  |  4096  |      |
+
+|  TMP\_BPEPOCH  | UINT64  |   8   |      |
+
+| TMP\_BPREFCOUNT  | UINT64  |   8   |      |
+
+|  TMP\_HEADER   |MAC Header |  128   |      |
+
+|TMP\_PCMD\_ENCLAVEID| UINT64  |   8   |      |
+
+|   TMP\_VER   | UINT64  |   8   |      |
+
+|   TMP\_PK    | UINT128 |   16   |      |
+
+IF ( (DS:RBX is not 32Byte Aligned) or (DS:RCX is not 4KByte Aligned) )
+
+THEN #GP(0); FI;
+
+IF (DS:RCX does not resolve within an EPC)
+
+THEN #PF(DS:RCX); FI;
+
+IF (DS:RDX is not 8Byte Aligned)
+
+THEN #GP(0); FI;
+
+IF (DS:RDX does not resolve within an EPC)
+
+THEN #PF(DS:RDX); FI;
+
+(\* EPCPAGE and VASLOT should not resolve to the same EPC page\*)
+
+IF (DS:RCX and DS:RDX resolve to the same EPC page)
+
+THEN #GP(0); FI;
+
+TMP\_SRCPGE := DS:RBX.SRCPGE;
+
+(\* Note PAGEINFO.PCMD is overlaid on top of PAGEINFO.SECINFO \*)
+
+TMP\_PCMD := DS:RBX.PCMD;
+
+If (DS:RBX.LINADDR ≠ 0) OR (DS:RBX.SECS ≠ 0)
+
+THEN #GP(0); FI;
+
+IF ( (DS:TMP\_PCMD is not 128Byte Aligned) or (DS:TMP\_SRCPGE is not 4KByte Aligned) )
+
+THEN #GP(0); FI;
+
+(\* Check for concurrent Intel SGX instruction access to the page \*)
+
+IF (Other Intel SGX instruction is accessing page)
+
+THEN
+
+IF (\ \> AND \ \>)
+
+THEN
+
+VMCS.Exit\_reason := SGX\_CONFLICT;
+
+VMCS.Exit\_qualification. code := EPC\_PAGE\_CONFLICT\_EXCEPTION;
+
+VMCS.Exit\_qualification. error := 0;
+
+VMCS.Guest-physical\_address := \ \>;
+
+VMCS.Guest-linear\_address := DS:RCX;
+
+Deliver VMEXIT;
+
+ELSE
+
+\#GP(0);
+
+FI;
+
+FI;
+
+(\*Check if the VA Page is being removed or changed\*)
+
+IF (VA Page is being modified)
+
+THEN #GP(0); FI;
+
+(\* Verify that EPCPAGE and VASLOT page are valid EPC pages and DS:RDX is VA \*)
+
+IF (EPCM(DS:RCX). VALID = 0)
+
+THEN #PF(DS:RCX); FI;
+
+IF ( (EPCM(DS:RDX & \~0FFFH). VALID = 0) or (EPCM(DS:RDX & \~FFFH). PT is not PT\_VA) )
+
+THEN #PF(DS:RDX); FI;
+
+(\* Perform page-type-specific exception checks \*)
+
+IF ( (EPCM(DS:RCX). PT is PT\_REG) or (EPCM(DS:RCX). PT is PT\_TCS) or (EPCM(DS:RCX). PT is PT\_TRIM ) or
+
+(EPCM(DS:RCX). PT is PT\_SS\_FIRST ) or (EPCM(DS:RCX). PT is PT\_SS\_REST))
+
+THEN
+
+TMP\_SECS = Obtain SECS through EPCM(DS:RCX)
+
+(\* Check that EBLOCK has occurred correctly \*)
+
+IF (EBLOCK is not correct)
+
+THEN #GP(0); FI;
+
+FI;
+
+RFLAGS.ZF,CF,PF,AF,OF,SF := 0;
+
+RAX := 0;
+
+(\* Zero out TMP\_HEADER\*)
+
+TMP\_HEADER[ sizeof(TMP\_HEADER) - 1 : 0] := 0;
+
+(\* Perform page-type-specific checks \*)
+
+IF ( (EPCM(DS:RCX). PT is PT\_REG) or (EPCM(DS:RCX). PT is PT\_TCS) or (EPCM(DS:RCX). PT is PT\_TRIM )or
+
+(EPCM(DS:RCX). PT is PT\_SS\_FIRST ) or (EPCM(DS:RCX). PT is PT\_SS\_REST))
+
+THEN
+
+(\* check to see if the page is evictable \*)
+
+IF (EPCM(DS:RCX). BLOCKED = 0)
+
+THEN
+
+RAX := SGX\_PAGE NOT\_BLOCKED;
+
+RFLAGS.ZF := 1;
+
+GOTO ERROR\_EXIT;
+
+FI;
+
+(\* Check if tracking done correctly \*)
+
+IF (Tracking not correct)
+
+THEN
+
+RAX := SGX\_NOT\_TRACKED;
+
+RFLAGS.ZF := 1;
+
+GOTO ERROR\_EXIT;
+
+FI;
+
+(\* Obtain EID to establish cryptographic binding between the paged-out page and the enclave \*)
+
+TMP\_HEADER.EID := TMP\_SECS.EID;
+
+(\* Obtain EID as an enclave handle for software \*)
+
+TMP\_PCMD\_ENCLAVEID := TMP\_SECS.EID;
+
+ELSE IF (EPCM(DS:RCX). PT is PT\_SECS)
+
+(\*check that there are no child pages inside the enclave \*)
+
+IF (DS:RCX has an EPC page associated with it)
+
+THEN
+
+RAX := SGX\_CHILD\_PRESENT;
+
+RFLAGS.ZF := 1;
+
+GOTO ERROR\_EXIT;
+
+FI:
+
+(\* treat SECS as having a child page when VIRTCHILDCNT is non-zero \*)
+
+IF (\ \> AND
+
+\ \> AND
+
+(SECS(DS:RCX). VIRTCHILDCNT ≠ 0))
+
+THEN
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_CHILD\_PRESENT;
+
+GOTO ERROR\_EXIT;
+
+FI;
+
+TMP\_HEADER.EID := 0;
+
+(\* Obtain EID as an enclave handle for software \*)
+
+TMP\_PCMD\_ENCLAVEID := (DS:RCX). EID;
+
+ELSE IF (EPCM(DS:RCX). PT is PT\_VA)
+
+TMP\_HEADER.EID := 0; // Zero is not a special value
+
+(\* No enclave handle for VA pages\*)
+
+TMP\_PCMD\_ENCLAVEID := 0;
+
+FI;
+
+TMP\_HEADER.LINADDR := EPCM(DS:RCX). ENCLAVEADDRESS;
+
+TMP\_HEADER.SECINFO.FLAGS.PT := EPCM(DS:RCX). PT;
+
+TMP\_HEADER.SECINFO.FLAGS.RWX := EPCM(DS:RCX). RWX;
+
+TMP\_HEADER.SECINFO.FLAGS.PENDING := EPCM(DS:RCX). PENDING;
+
+TMP\_HEADER.SECINFO.FLAGS.MODIFIED := EPCM(DS:RCX). MODIFIED;
+
+TMP\_HEADER.SECINFO.FLAGS.PR := EPCM(DS:RCX). PR;
+
+(\* Encrypt the page, DS:RCX could be encrypted in place. AES-GCM produces 2 values, {ciphertext, MAC}. \*)
+
+(\* AES-GCM input parameters: key, GCM Counter, MAC\_HDR, MAC\_HDR\_SIZE, SRC, SRC\_SIZE)\*)
+
+{DS:TMP\_SRCPGE, DS:TMP\_PCMD.MAC} := AES\_GCM\_ENC(CR\_BASE\_PK), (TMP\_VER \<\< 32),
+
+TMP\_HEADER, 128, DS:RCX, 4096);
+
+(\* Write the output \*)
+
+Zero out DS:TMP\_PCMD.SECINFO
+
+DS:TMP\_PCMD.SECINFO.FLAGS.PT := EPCM(DS:RCX). PT;
+
+DS:TMP\_PCMD.SECINFO.FLAGS.RWX := EPCM(DS:RCX). RWX;
+
+DS:TMP\_PCMD.SECINFO.FLAGS.PENDING := EPCM(DS:RCX). PENDING;
+
+DS:TMP\_PCMD.SECINFO.FLAGS.MODIFIED := EPCM(DS:RCX). MODIFIED;
+
+DS:TMP\_PCMD.SECINFO.FLAGS.PR := EPCM(DS:RCX). PR;
+
+DS:TMP\_PCMD.RESERVED := 0;
+
+DS:TMP\_PCMD.ENCLAVEID := TMP\_PCMD\_ENCLAVEID;
+
+DS:RBX.LINADDR := EPCM(DS:RCX). ENCLAVEADDRESS;
+
+(\*Check if version array slot was empty \*)
+
+IF ([DS.RDX])
+
+THEN
+
+RAX := SGX\_VA\_SLOT\_OCCUPIED
+
+RFLAGS.CF := 1;
+
+FI;
+
+(\* Write version to Version Array slot \*)
+
+[DS.RDX] := TMP\_VER;
+
+(\* Free up EPCM Entry \*)
+
+EPCM.(DS:RCX). VALID := 0;
+
+ERROR\_EXIT:
+
+Flags Affected ¶
+
+ZF is set if page is not blocked, not tracked, or a child is present. Otherwise cleared.
+
+CF is set if VA slot is previously occupied, Otherwise cleared.
+
+Protected Mode Exceptions ¶
+
+|                       \#GP(0)                        |If a memory operand effective address is outside the DS segment limit. |
+
+|----------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
+
+|              If a memory operand is not properly aligned. |                                   |
+
+|           If the EPC page and VASLOT resolve to the same EPC page. |                                   |
+
+|If another Intel SGX instruction is concurrently accessing either the target EPC, VA, or SECS pages. |                                   |
+
+|                If the tracking resource is in use. |                                   |
+
+|            If the EPC page or the version array page is invalid. |                                   |
+
+|               If the parameters fail consistency checks. |                                   |
+
+|                       \#PF(error                       |   code) If a page fault occurs in accessing memory operands. |
+
+|               If a memory operand is not an EPC page. |                                   |
+
+|           If one of the EPC memory operands has incorrect page type. |                                   |
+
+64-Bit Mode Exceptions ¶
+
+|                       \#GP(0)                        |    If a memory operand is non-canonical form. |
+
+|----------------------------------------------------------------------------------------------------|----------------------------------------------------------|
+
+|              If a memory operand is not properly aligned. |                             |
+
+|           If the EPC page and VASLOT resolve to the same EPC page. |                             |
+
+|If another Intel SGX instruction is concurrently accessing either the target EPC, VA, or SECS pages. |                             |
+
+|                If the tracking resource is in use. |                             |
+
+|            If the EPC page or the version array page in invalid. |                             |
+
+|               If the parameters fail consistency checks. |                             |
+
+|                       \#PF(error                       |code) If a page fault occurs in accessing memory operands. |
+
+|               If a memory operand is not an EPC page. |                             |
+
+|           If one of the EPC memory operands has incorrect page type. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

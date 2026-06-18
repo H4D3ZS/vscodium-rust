@@ -57,6 +57,7 @@ export interface AgentMessagesSlice {
     resetThread: () => void;
     truncateAgentMessages: (index: number) => void;
     addPendingAgentEdit: (edit: { path: string; tool: string; preview?: string }) => void;
+    removePendingAgentEdit: (path: string) => void;
     clearPendingAgentEdits: () => void;
     openMultiFileReview: () => void;
     closeMultiFileReview: () => void;
@@ -263,14 +264,30 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
     updateLastAgentThought: (thought) => set((state) => {
         const messages = [...state.agentMessages];
         const last = messages[messages.length - 1];
+        // The backend emits `ai-thinking` BOTH as per-token deltas (Ollama native
+        // streaming) and, in a few places, as a full accumulated snapshot. Replacing
+        // blindly showed "one word at a time". Merge intelligently: if the incoming
+        // text already contains everything we have, it's a snapshot → replace; if it's
+        // brand-new text → append; if it's a duplicate tail → ignore.
+        const merge = (cur: string, incoming: string): string => {
+            const c = cur || '';
+            const inc = incoming || '';
+            if (!inc) return c;
+            if (!c) return inc;
+            if (c.endsWith(inc)) return c;                 // duplicate delta
+            if (inc.length >= c.length && inc.startsWith(c)) return inc; // accumulated snapshot
+            return c + inc;                                // new delta → append
+        };
+        let merged = thought;
         if (last?.role === 'assistant') {
+            merged = merge(last.thoughts || '', thought);
             messages[messages.length - 1] = {
                 ...last,
-                thoughts: thought,
+                thoughts: merged,
                 thoughtStartedAt: last.thoughtStartedAt ?? Date.now(),
             };
         }
-        return { agentMessages: messages, currentThought: parseThought(thought) };
+        return { agentMessages: messages, currentThought: parseThought(merged) };
     }),
 
     addAgentArtifact: (art) => {
@@ -307,6 +324,7 @@ export const createAgentMessagesSlice: StateCreator<AppState, [], [], AgentMessa
         }
         return { pendingAgentEdits: [...s.pendingAgentEdits, { ...edit, timestamp: Date.now() }] };
     }),
+    removePendingAgentEdit: (path) => set((s) => ({ pendingAgentEdits: s.pendingAgentEdits.filter(e => e.path !== path) })),
     clearPendingAgentEdits: () => set({ pendingAgentEdits: [] }),
     openMultiFileReview: () => set({ isMultiFileReviewOpen: true }),
     closeMultiFileReview: () => set({ isMultiFileReviewOpen: false, pendingAgentEdits: [] }),

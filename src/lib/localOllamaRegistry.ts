@@ -3,7 +3,7 @@
  * Pull tags from community registries (mostly batiai/*) or HF → Modelfile when noted.
  */
 
-export type LocalModelRole = 'agent' | 'planner' | 'executor' | 'coding' | 'vision';
+export type LocalModelRole = 'agent' | 'planner' | 'executor' | 'coding' | 'vision' | 'explorer';
 
 export interface LocalOllamaEntry {
   /** `ollama pull` tag — runs 100% on your machine once downloaded. */
@@ -127,6 +127,26 @@ export const LOCAL_OLLAMA_REGISTRY: LocalOllamaEntry[] = [
     tags: ['reasoning', 'planner'],
     role: 'planner',
     desc: 'DeepSeek R1 8B — local reasoning/planner on modest hardware.',
+  },
+  {
+    pullTag: 'hf.co/mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF:Q4_K_M',
+    ramGb: 8,
+    tags: ['explorer', 'fast', 'context', 'subagent', 'read-only'],
+    role: 'explorer',
+    desc: 'FastContext 4B Q4_K_M — Microsoft repo-exploration subagent (GGUF). Parallel READ/GLOB/GREP, returns compact file citations. Reduces main agent tokens by 60%.',
+    hfRepo: 'mitkox/FastContext-1.0-4B-SFT-Q4_K_M-GGUF',
+    recommended: true,
+    rank: 8,
+  },
+  {
+    pullTag: 'hf.co/yuxinlu1/gemma-4-12B-coder-fable5-composer2.5-v1-GGUF:Q4_K_M',
+    ramGb: 16,
+    tags: ['agent', 'coding', 'reasoning', 'thinking', 'fable5', 'composer2', 'rank-9'],
+    role: 'agent',
+    desc: 'Gemma4-12B-Coder — Composer 2.5 + Fable 5 CoT distilled. Thinks before coding, verifiable solutions. Best local agent at 12B.',
+    hfRepo: 'yuxinlu1/gemma-4-12B-coder-fable5-composer2.5-v1-GGUF',
+    recommended: true,
+    rank: 9,
   },
 ];
 

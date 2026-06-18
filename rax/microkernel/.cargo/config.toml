@@ -1,0 +1,13 @@
+# Default target for bare-metal builds
+[build]
+target = "x86_64-unknown-none"
+
+[target.x86_64-unknown-none]
+linker = "rust-lld"
+rustflags = ["-C", "relocation-model=static"]
+
+# Build commands:
+# Bare-metal:  cargo build --release -Z build-std=core -Z build-std-features=compiler-builtins-mem
+# Usermode:    cargo build --release --features usermode --target x86_64-unknown-linux-gnu
+[target.x86_64-unknown-linux-gnu]
+linker = "x86_64-linux-gnu-gcc"

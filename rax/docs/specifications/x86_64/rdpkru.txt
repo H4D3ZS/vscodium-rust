@@ -1,0 +1,77 @@
+RDPKRU — Read Protection Key Rights for User Pages
+
+* Index
+
+* December 2023
+
+RDPKRU — Read Protection Key Rights for User Pages
+
+| Opcode\* |Instruction|Op/En|64/32bit Mode Support|CPUID Feature Flag|  Description   |
+
+|-----------|-----------|-----|---------------------|------------------|--------------------|
+
+|NP 0F 01 EE| RDPKRU  | ZO |     V/V     |   OSPKE    |Reads PKRU into EAX.|
+
+Instruction Operand Encoding ¶
+
+|Op/En|Operand 1|Operand 2|Operand 3|Operand 4|
+
+|-----|---------|---------|---------|---------|
+
+| ZO |  N/A  |  N/A  |  N/A  |  N/A  |
+
+Description ¶
+
+Reads the value of PKRU into EAX and clears EDX. ECX must be 0 when RDPKRU is executed; otherwise, a general-protection exception (#GP) occurs.
+
+RDPKRU can be executed only if CR4. PKE = 1; otherwise, an invalid-opcode exception (#UD) occurs. Software can discover the value of CR4. PKE by examining CPUID.(EAX=07H,ECX=0H):ECX.OSPKE [bit 4].
+
+On processors that support the Intel 64 Architecture, the high-order 32-bits of RCX are ignored and the high-order 32-bits of RDX and RAX are cleared.
+
+Operation ¶
+
+```
+
+IF (ECX = 0) THEN EAX := PKRU; EDX := 0; ELSE #GP(0); FI;
+
+```
+
+Flags Affected ¶
+
+None.
+
+C/C++ Compiler Intrinsic Equivalent ¶
+
+```
+
+RDPKRU uint32_t _rdpkru_u32(void);
+
+```
+
+Protected Mode Exceptions ¶
+
+|  \#GP(0)  |    If ECX ≠ 0. |
+
+|---------------|---------------------------|
+
+|   \#UD   |If the LOCK prefix is used. |
+
+|If CR4. PKE = 0. |              |
+
+Real-Address Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+Virtual-8086 Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+Compatibility Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+64-Bit Mode Exceptions ¶
+
+Same exceptions as in protected mode.
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

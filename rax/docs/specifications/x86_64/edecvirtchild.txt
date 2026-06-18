@@ -1,0 +1,245 @@
+EDECVIRTCHILD — Decrement VIRTCHILDCNT in SECS
+
+* Index
+
+* December 2023
+
+EDECVIRTCHILD — Decrement VIRTCHILDCNT in SECS
+
+|   Opcode/Instruction   |Op/En|64/32 bit Mode Support|CPUID Feature Flag|            Description            |
+
+|------------------------------|-----|----------------------|------------------|----------------------------------------------------------|
+
+|EAX = 00H ENCLV[EDECVIRTCHILD]| IR |     V/V     |   EAX  |This leaf function decrements the SECS VIRTCHILDCNT field. |
+
+Instruction Operand Encoding ¶
+
+|Op/En|    EAX    |     RBX     |       RCX       |              |
+
+|-----|------------------|-----------------------|-------------------------------|----------------------------|
+
+| IR |EDECVIRTCHILD (In)|Return error code (Out)|Address of an enclave page (In)|Address of an SECS page (In)|
+
+Description ¶
+
+This instruction decrements the SECS VIRTCHILDCNT field. This instruction can only be executed when current privilege level is 0.
+
+The content of RCX is an effective address of an EPC page. The DS segment is used to create linear address. Segment override is not supported.
+
+EDECVIRTCHILD Memory Parameter Semantics ¶
+
+|         EPCPAGE         |       SECS       |
+
+|------------------------------------------|--------------------------------|
+
+|Read/Write access permitted by Non Enclave|Read access permitted by Enclave|
+
+The instruction faults if any of the following:
+
+EDECVIRTCHILD Faulting Conditions ¶
+
+|A memory operand effective address is outside the DS segment limit (32b mode). |       A page fault occurs in accessing memory operands. |
+
+|------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+
+|           DS segment is unusable (32b mode). |    RBX does not refer to an enclave page (REG, TCS, TRIM, SECS). |
+
+|      A memory address is in a non-canonical form (64b mode). |           RCX does not refer to an SECS page. |
+
+|         A memory operand is not properly aligned. |RBX does not refer to an enclave page associated with SECS referenced in RCX.|
+
+Concurrency Restrictions ¶
+
+|  Leaf   |  Parameter  |  Base Concurrency Restrictions  |             |  |
+
+|-------------|---------------|-----------------------------------|-------------------------|---|
+
+|  Access  | On Conflict |SGX\_CONFLICT VM Exit Qualification|             |  |
+
+|EDECVIRTCHILD|Target [DS:RBX]|       Shared        |SGX\_EPC\_PAGE\_ CONFLICT|  |
+
+|SECS [DS:RCX]| Concurrent  |                  |             |  |
+
+Table 38-76. Base Concurrency Restrictions of EDECVIRTCHILD
+
+|           Leaf           |    Parameter    |Additional Concurrency Restrictions|      |     |      |     |  |
+
+|-----------------------------------------------|------------------------|-----------------------------------|-----------|----------|-----------|----------|---|
+
+|vs EACCEPT, EACCEPTCOPY, EMODPE, EMODPR, EMODT|vs EADD, EEXTEND, EINIT|    vs ETRACK, ETRACKC    |      |     |      |     |  |
+
+|          Access           |   On Conflict    |       Access        |On Conflict| Access |On Conflict|     |  |
+
+|         EDECVIRTCHILD         |  Target [DS:RBX]   |      Concurrent       |      |Concurrent|      |Concurrent|  |
+
+|         SECS [DS:RCX]         |    Concurrent    |                  |Concurrent |     |Concurrent |     |  |
+
+Table 38-77. Additional Concurrency Restrictions of EDECVIRTCHILD
+
+Operation ¶
+
+Temp Variables in EDECVIRTCHILD Operational Flow ¶
+
+|   Name    |   Type   |Size (bits)|           Description            |
+
+|-----------------|----------------|-----------|--------------------------------------------------------|
+
+|  TMP\_SECS  |Physical Address|  64   |Physical address of the SECS of the page being modified. |
+
+|TMP\_VIRTCHILDCNT|  Integer   |  64   |       Number of virtual child pages. |
+
+EDECVIRTCHILD Return Value in RAX ¶
+
+|     Error     |Value|             Description             |
+
+|------------------------|-----|---------------------------------------------------------------|
+
+|    No Error    | 0 |          EDECVIRTCHILD Successful. |
+
+|SGX\_EPC\_PAGE\_CONFLICT|   |Failure due to concurrent operation of another SGX instruction. |
+
+| SGX\_INVALID\_COUNTER |   |   Attempt to decrement counter that is already zero. |
+
+(\* check alignment of DS:RBX \*)
+
+IF (DS:RBX is not 4K aligned) THEN
+
+\#GP(0); FI;
+
+(\* check DS:RBX is an linear address of an EPC page \*)
+
+IF (DS:RBX does not resolve within an EPC) THEN
+
+\#PF(DS:RBX, PFEC.SGX); FI;
+
+(\* check DS:RCX is an linear address of an EPC page \*)
+
+IF (DS:RCX does not resolve within an EPC) THEN
+
+\#PF(DS:RCX, PFEC.SGX); FI;
+
+(\* Check the EPCPAGE for concurrency \*)
+
+IF (EPCPAGE is being modified) THEN
+
+RFLAGS.ZF = 1;
+
+RAX = SGX\_EPC\_PAGE\_CONFLICT;
+
+goto DONE;
+
+FI;
+
+(\* check that the EPC page is valid \*)
+
+IF (EPCM(DS:RBX). VALID = 0) THEN
+
+\#PF(DS:RBX, PFEC.SGX); FI;
+
+(\* check that the EPC page has the correct type and that the back pointer matches the pointer passed as the pointer to parent \*)
+
+IF ((EPCM(DS:RBX). PAGE\_TYPE = PT\_REG) or
+
+(EPCM(DS:RBX). PAGE\_TYPE = PT\_TCS) or
+
+(EPCM(DS:RBX). PAGE\_TYPE = PT\_TRIM) or
+
+(EPCM(DS:RBX). PAGE\_TYPE = PT\_SS\_FIRST) or
+
+(EPCM(DS:RBX). PAGE\_TYPE = PT\_SS\_REST))
+
+THEN
+
+(\* get the SECS of DS:RBX \*)
+
+TMP\_SECS := Address of SECS for (DS:RBX);
+
+ELSE IF (EPCM(DS:RBX). PAGE\_TYPE = PT\_SECS) THEN
+
+(\* get the physical address of DS:RBX \*)
+
+TMP\_SECS := Physical\_Address(DS:RBX);
+
+ELSE
+
+(\* EDECVIRTCHILD called on page of incorrect type \*)
+
+\#PF(DS:RBX, PFEC.SGX); FI;
+
+IF (TMP\_SECS ≠ Physical\_Address(DS:RCX)) THEN
+
+\#GP(0); FI;
+
+(\* Atomically decrement virtchild counter and check for underflow \*)
+
+Locked\_Decrement(SECS(TMP\_SECS). VIRTCHILDCNT);
+
+IF (There was an underflow) THEN
+
+Locked\_Increment(SECS(TMP\_SECS). VIRTCHILDCNT);
+
+RFLAGS.ZF := 1;
+
+RAX := SGX\_INVALID\_COUNTER;
+
+goto DONE;
+
+FI;
+
+RFLAGS.ZF := 0;
+
+RAX := 0;
+
+DONE:
+
+(\* clear flags \*)
+
+RFLAGS.CF := 0;
+
+RFLAGS.PF := 0;
+
+RFLAGS.AF := 0;
+
+RFLAGS.OF := 0;
+
+RFLAGS.SF := 0;
+
+Flags Affected ¶
+
+ZF is set if EDECVIRTCHILD fails due to concurrent operation with another SGX instruction, or if there is a VIRTCHILDCNT underflow. Otherwise cleared.
+
+Protected Mode Exceptions ¶
+
+|                  \#GP(0)                  |If a memory operand effective address is outside the DS segment limit. |
+
+|-----------------------------------------------------------------------------|----------------------------------------------------------------------|
+
+|             If DS segment is unusable. |                                   |
+
+|        If a memory operand is not properly aligned. |                                   |
+
+|RBX does not refer to an enclave page associated with SECS referenced in RCX.|                                   |
+
+|                 \#PF(error                 |   code) If a page fault occurs in accessing memory operands. |
+
+|   If RBX does not refer to an enclave page (REG, TCS, TRIM, SECS). |                                   |
+
+|          If RCX does not refer to an SECS page. |                                   |
+
+64-Bit Mode Exceptions ¶
+
+|                  \#GP(0)                  |   If a memory address is in a non-canonical form. |
+
+|-----------------------------------------------------------------------------|----------------------------------------------------------|
+
+|        If a memory operand is not properly aligned. |                             |
+
+|RBX does not refer to an enclave page associated with SECS referenced in RCX.|                             |
+
+|                 \#PF(error                 |code) If a page fault occurs in accessing memory operands. |
+
+|   If RBX does not refer to an enclave page (REG, TCS, TRIM, SECS). |                             |
+
+|          If RCX does not refer to an SECS page. |                             |
+
+This UNOFFICIAL, mechanically-separated, non-verified reference is provided for convenience, but it may be incomplete or b r oke n in various obvious or non-obvious ways. Refer to Intel® 64 and IA-32 Architectures Software Developer’s Manual for anything serious.

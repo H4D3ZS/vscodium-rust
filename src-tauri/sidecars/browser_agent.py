@@ -176,6 +176,18 @@ def do(action, args):
     if action == "cookies":
         return {"cookies": _page.context.cookies()}
 
+    if action == "add_cookies":
+        # Restore a previously-saved login. Cookies are added to the context
+        # (carried on every request); localStorage is restored separately via
+        # `eval` once the origin is loaded. Bad/expired cookies are ignored.
+        cookies = args.get("cookies") or []
+        if cookies:
+            try:
+                _page.context.add_cookies(cookies)
+            except Exception as e:
+                log(f"[sidecar] add_cookies partial failure: {e}")
+        return {"added": len(cookies)}
+
     if action == "http":
         # Send a crafted request through the browser's network context (carries
         # the stealth profile + cookies). Useful for authenticated probing.

@@ -1,0 +1,2696 @@
+The PIT: A System Clock
+The Programmable Interval Timer (PIT, model 8253 or 8254), also called the System Clock, is a very useful chip for accurately generating interrupts at regular time intervals. The chip itself has 3 channels: Channel 0 is tied to is tied to IRQ0, to interrupt the CPU at predictable and regular times, Channel 1 is system specific, and Channel 2 is connected to the system speaker. As you can see, this single chip offers several very important services to the system.
+
+The only channels that you should every be concerned with are Channels 0 and 2. You may use Channel 2 in order to make the computer beep. In this section of the tutorial, we are only concerned with Channel 0 - mapped to IRQ0. This single channel of the timer will allow you to accurately schedule new processes later on, as well as allow the current task to wait for a certain period of time (as will be demonstrated shortly). By default, this channel of the timer is set to generate an IRQ0 18.222 times per second. It is the IBM PC/AT BIOS that defaults it to this. A reader of this tutorial has informed me that this 18.222Hz tick rate was used in order for the tick count to cycle at 0.055 seconds. Using a 16-bit timer tick counter, the counter will overflow and wrap around to 0 once every hour.
+
+To set the rate at which channel 0 of the timer fires off an IRQ0, we must use our outportb function to write to I/O ports. There is a Data register for each of the timer's 3 channels at 0x40, 0x41, and 0x42 respectively, and a Command register at 0x43. The data rate is actually a 'divisor' register for this device. The timer will divide it's input clock of 1.19MHz (1193180Hz) by the number you give it in the data register to figure out how many times per second to fire the signal for that channel. You must first select the channel that we want to update using the command register before writing to the data/divisor register. What is shown in the following two tables is the bit definitions for the command register, as well as some timer modes.
+
+7	6	5	4	3	1	0
+CNTR	RW	Mode	BCD
+CNTR - Counter # (0-2)
+RW - Read Write mode
+(1 = LSB, 2 = MSB, 3 = LSB then MSB)
+Mode - See right table
+BCD - (0 = 16-bit counter,
+1 = 4x BCD decade counters)
+Mode	Description
+0	Interrupt on terminal count
+1	Hardware Retriggerable one shot
+2	Rate Generator
+3	Square Wave Mode
+4	Software Strobe
+5	Hardware Strobe
+Bit definitions for 8253 and 8254 chip's Command Register located at 0x43
+To set channel 0's Data register, we need to select counter 0 and some modes in the Command register first. The divisor value we want to write to the Data register is a 16-bit value, so we will need to transfer both the MSB (Most Significant Byte) and LSB (Least Significant Byte) to the data register. This is a 16-bit value, we aren't sending data in BCD (Binary Coded Decimal), so the BCD field should be set to 0. Finally, we want to generate a Square Wave: Mode 3. The resultant byte that we should set in the Command register is 0x36. The above 2 paragraphs and tables can be summed up into this function. Use it if you wish, we won't use it in this tutorial to keep things simple. For accurate and easy timekeeping, I recommend setting to 100Hz in a real kernel.
+
+void timer_phase(int hz)
+{
+    int divisor = 1193180 / hz;       /* Calculate our divisor */
+    outportb(0x43, 0x36);             /* Set our command byte 0x36 */
+    outportb(0x40, divisor & 0xFF);   /* Set low byte of divisor */
+    outportb(0x40, divisor >> 8);     /* Set high byte of divisor */
+}
+		
+Not bad, eh?
+Create a file called 'timer.c', and add it to your 'build.bat' as you've been shown in the previous sections of this tutorial. As you analyse the following code, you will see that we keep track of the amount of ticks that the timer has fired. This can be used as a 'system uptime counter' as your kernel gets more complicated. The timer interrupt here simply uses the default 18.222Hz to figure out when it should display a simple "One second has passed" message every second. If you decide to use the 'timer_phase' function in your code, you should change the 'timer_ticks % 18 == 0' line in 'timer_handler' to 'timer_ticks % 100 == 0' instead. You could set the timer phase from any function in the kernel, however I recommend setting it in 'timer_install' if anything, to keep things organized.
+
+#include < system.h >
+
+/* This will keep track of how many ticks that the system
+*  has been running for */
+int timer_ticks = 0;
+
+/* Handles the timer. In this case, it's very simple: We
+*  increment the 'timer_ticks' variable every time the
+*  timer fires. By default, the timer fires 18.222 times
+*  per second. Why 18.222Hz? Some engineer at IBM must've
+*  been smoking something funky */
+void timer_handler(struct regs *r)
+{
+    /* Increment our 'tick count' */
+    timer_ticks++;
+
+    /* Every 18 clocks (approximately 1 second), we will
+    *  display a message on the screen */
+    if (timer_ticks % 18 == 0)
+    {
+        puts("One second has passed\n");
+    }
+}
+
+/* Sets up the system clock by installing the timer handler
+*  into IRQ0 */
+void timer_install()
+{
+    /* Installs 'timer_handler' to IRQ0 */
+    irq_install_handler(0, timer_handler);
+}
+		
+Example of using the system timer: 'timer.c'
+Remember to add a call to 'timer_install' in the 'main' function in 'main.c'. Having trouble? Remember to add a function prototype of 'timer_install' to 'system.h'! The next bit of code is more of a demonstration of what you can do with the system timer. If you look carefully, this simple function waits in a loop until the given time in 'ticks' or timer phases has gone by. This is almost the same as the standard C library's function 'delay', depending on your timer phase that you set:
+
+/* This will continuously loop until the given time has
+*  been reached */
+void timer_wait(int ticks)
+{
+    unsigned long eticks;
+
+    eticks = timer_ticks + ticks;
+    while(timer_ticks < eticks);
+}
+If you wish, add this to 'timer.c' and a prototype to 'system.h'
+Next, we will discuss how to use the keyboard. This involves installing a custom IRQ handler just like this tutorial, with hardware I/O on each interrupt.
+
+<< IRQs and the PICs	Contact Brandon F.	The Keyboard >>
+
+------------------
+
+Programmable Interval Timer
+Jump to navigationJump to search
+The Programmable Interval Timer (PIT) chip (Intel 8253/8254) basically consists of an oscillator, a prescaler and 3 independent frequency dividers. Each frequency divider has an output, which is used to allow the timer to control external circuitry (for example, IRQ 0).
+
+
+Contents
+1	The Oscillator
+2	Frequency Dividers
+3	PIT Timer Accuracy
+4	Outputs
+4.1	Channel 0
+4.2	Channel 1
+4.3	Channel 2
+5	I/O Ports
+6	Operating Modes
+6.1	Mode 0 – Interrupt On Terminal Count
+6.2	Mode 1 – Hardware Re-triggerable One-shot
+6.3	Mode 2 – Rate Generator
+6.4	Mode 3 – Square Wave Generator
+6.5	Mode 4 – Software Triggered Strobe
+6.6	Mode 5 – Hardware Triggered Strobe
+7	Counter Latch Command
+8	Read Back Command
+8.1	Read Back Status Byte
+9	Reading The Current Count
+10	Setting The Reload Value
+11	PIT Channel 0 Example Code
+12	Uses for the Timer IRQ
+12.1	Using the IRQ to Implement sleep
+12.2	Using the IRQ for Preemptive Multitasking
+13	See Also
+13.1	Articles
+13.2	Threads
+13.3	External Links
+The Oscillator
+The oscillator used by the PIT chip runs at (roughly) 1.193182 MHz. The reason for this requires a trip back into history (to the later half of the 1970's)...
+
+The original PC used a single "base oscillator" to generate a frequency of 14.31818 MHz because this frequency was commonly used in television circuitry at the time. This base frequency was divided by 3 to give a frequency of 4.77272666 MHz that was used by the CPU, and divided by 4 to give a frequency of 3.579545 MHz that was used by the CGA video controller. By logically ANDing these signals together a frequency equivalent to the base frequency divided by 12 was created. This frequency is 1.1931816666 MHz (where the 6666 part is recurring). At the time it was a brilliant method of reducing costs, as the 14.31818 MHz oscillator was cheap due to mass production and it was cheaper to derive the other frequencies from this than to have several oscillators. In modern computers, where the cost of electronics is much less, and the CPU and video run at much higher frequencies the PIT lives on as a reminder of "the good ole' days".
+
+Frequency Dividers
+The basic principle of a frequency divider is to divide one frequency to obtain a slower frequency. This is typically done by using a counter. Each "pulse" from the input frequency causes the counter to be decreased, and when that counter has reached zero a pulse is generated on the output and the counter is reset. For example, if the input signal is 200 Hz and the counter is reset to a value of ten each time, then the output frequency would be 200/10, or 20 Hz.
+
+The PIT has only 16 bits that are used as frequency divider, which can represent the values from 0 to 65535. Since the frequency can't be divided by 0 in a sane way, many implementations use 0 to represent the value 65536 (or 10000 when programmed in BCD mode).
+
+The PIT chip has three separate frequency dividers (or 3 separate channels) that are programmable, in that the value of the "reset counter" is set by software (the OS). Software also specifies an action to be taken when the counter reaches zero on each individual channel. In this way, each channel can be used in one of several "modes" – for example, as a frequency divider (where the count is automatically reset) or as a "one shot" timer (where the count isn't automatically reset).
+
+Each PIT channel also has a "gate input" pin which can be used to control whether the input signal (the 1.19MHz one) gets to the channel or not. For PIT channels 0 and 1, the associated gate input pin is not connected to anything. The PIT channel 2 gate is controlled by IO port 0x61, bit 0.
+
+PIT Timer Accuracy
+The accuracy of the PIT timer depends on the quality of the oscillator used, and is typically accurate to within +/- 1.73 seconds per day. There are many causes for this inaccuracy, however because of this there isn't much point in specifying times or frequencies to more than five or six digits.
+
+Outputs
+Channel 0 is connected directly to IRQ0, so it is best to use it only for purposes that should generate interrupts. Channel 1 is unusable, and may not even exist. Channel 2 is connected to the PC speaker, but can be used for other purposes without producing audible speaker tones.
+
+Channel 0
+The output from PIT channel 0 is connected to the PIC chip, so that it generates an "IRQ 0". Typically during boot the BIOS sets channel 0 with a count of 65535 or 0 (which translates to 65536), which gives an output frequency of 18.2065 Hz (or an IRQ every 54.9254 ms). Channel 0 is probably the most useful PIT channel, as it is the only channel that is connected to an IRQ. It can be used to generate an infinte series of "timer ticks" at a frequency of your choice (as long as it is higher than 18 Hz), or to generate single CPU interrupts (in "one shot" mode) after programmable short delays (less than an 18th of a second).
+
+When choosing an operating mode, below, it is useful to remember that the IRQ0 is generated by the rising edge of the Channel 0 output voltage (ie. the transition from "low" to "high", only).
+
+Channel 1
+The output for PIT channel 1 was once used (in conjunction with the DMA controller's channel 0) for refreshing the DRAM (Dynamic Random Access Memory) or RAM. Typically, each bit in RAM consists of a capacitor which holds a tiny charge representing the state of that bit, however (due to leakage) these capacitors need to be "refreshed" periodically so that they don't forget their state.
+
+On later machines, the DRAM refresh is done with dedicated hardware and the PIT (and DMA controller) is no longer used. On modern computers where the functionality of the PIT is implemented in a large scale integrated circuit, PIT channel 1 is no longer usable and may not be implemented at all.
+
+Channel 2
+The output of PIT channel 2 is connected to the PC speaker, so the frequency of the output determines the frequency of the sound produced by the speaker. This is the only channel where the gate input can be controlled by software (via bit 0 of I/O port 0x61), and the only channel where its output (a high or low voltage) can be read by software (via bit 5 of I/O port 0x61). Details of how to program the PC speaker can be found here.
+
+I/O Ports
+The PIT chip uses the following I/O ports:
+
+I/O port     Usage
+0x40         Channel 0 data port (read/write)
+0x41         Channel 1 data port (read/write)
+0x42         Channel 2 data port (read/write)
+0x43         Mode/Command register (write only, a read is ignored)
+Each 8 bit data port is the same, and is used to set the counter's 16 bit reload value or read the channel's 16 bit current count (more on this later). The PIT channel's current count and reload value should not be confused. In general, when the current count reaches zero the PIT channel's output is changed and the current count is reloaded with the reload value, however this isn't always the case. How the current count and reload value are used and what they contain depends on which mode the PIT channel is configured to use.
+
+The Mode/Command register at I/O address 0x43 contains the following:
+
+Bits         Usage
+7 and 6      Select channel :
+                0 0 = Channel 0
+                0 1 = Channel 1
+                1 0 = Channel 2
+                1 1 = Read-back command (8254 only)
+5 and 4      Access mode :
+                0 0 = Latch count value command
+                0 1 = Access mode: lobyte only
+                1 0 = Access mode: hibyte only
+                1 1 = Access mode: lobyte/hibyte
+3 to 1       Operating mode :
+                0 0 0 = Mode 0 (interrupt on terminal count)
+                0 0 1 = Mode 1 (hardware re-triggerable one-shot)
+                0 1 0 = Mode 2 (rate generator)
+                0 1 1 = Mode 3 (square wave generator)
+                1 0 0 = Mode 4 (software triggered strobe)
+                1 0 1 = Mode 5 (hardware triggered strobe)
+                1 1 0 = Mode 2 (rate generator, same as 010b)
+                1 1 1 = Mode 3 (square wave generator, same as 011b)
+0            BCD/Binary mode: 0 = 16-bit binary, 1 = four-digit BCD
+The "Select Channel" bits select which channel is being configured, and must always be valid on every write of the mode/command register, regardless of the other bits or the type of operation being performed. The "read back" (both bits set) is not supported on the old 8253 chips but should be supported on all AT and later computers except for PS/2 (i.e. anything that isn't obsolete will support it). The "read back" command is discussed later.
+
+The "Access Mode" bits tell the PIT what access mode you wish to use for the selected channel, and also specify the "counter latch" command to the CTC. These bits must be valid on every write to the mode/command register. For the "read back" command, these bits have a different meaning. For the remaining combinations, these bits specify what order data will be read and written to the data port for the associated PIT channel. Because the data port is an 8 bit I/O port and the values involved are all 16 bit, the PIT chip needs to know what byte each read or write to the data port wants. For "lobyte only" and "hibyte only", only the lowest/highest 8 bits of the counter value is read or written to/from the data port – the respective other 8 bits are zeroed (e.g. with "lobyte only", the highest 8 bits will be zeroed). For the "lobyte/hibyte" mode, 16 bits are always transferred as a pair, with the lowest 8 bits followed by the highest 8 bits (both 8 bit transfers are to the same IO port, sequentially – a word transfer will not work).
+
+The "Operating Mode" bits specify which mode the selected PIT channel should operate in. For the "read back" command and the "counter latch" command, these bits have different meanings (see the information corresponding to these commands below). There are 6 different operating modes. Each operating mode will be discussed separately later.
+
+The "BCD/Binary" bit determines if the PIT channel will operate in binary mode or BCD mode (where each 4 bits of the counter represent a decimal digit, and the counter holds values from 0000 to 9999). 80x86 PCs only use binary mode (BCD mode is ugly and limits the range of counts/frequencies possible). Although it should still be possible to use BCD mode, it may not work properly on some "compatible" chips. For the "read back" command and the "counter latch" command, this bit has different meanings (see the information corresponding to these commands below).
+
+Operating Modes
+While each operating mode behaves differently, some things are common to all operating modes. This includes:
+
+Initial Output State
+Every time the mode/command register is written to, all internal logic in the selected PIT channel is reset, and the output immediately goes to its initial state (which depends on the mode).
+Changing Reload Value
+A new reload value can be written to a PIT channel's data port at any time. The operating mode determines the exact effect that this will have.
+Current Counter
+The current counter value is always either decremented or reset to the reload value on the falling edge of the (1.193182 MHz) input signal.
+Current Counter Reload
+In modes where the current count is decremented when it is reloaded, the current count is not decremented on the same input clock pulse as the reload – it starts decrementing on the next input clock pulse.
+Mode 0 – Interrupt On Terminal Count
+For this mode, when the mode/command register is written the output signal goes low and the PIT waits for the reload register to be set by software, to begin the countdown. After the reload register has been set, the current count will be set to the reload value on the next falling edge of the (1.193182 MHz) input signal. Subsequent falling edges of the input signal will decrement the current count (if the gate input is high on the preceding rising edge of the input signal).
+
+When the current count decrements from one to zero, the output goes high and remains high until another mode/command register is written or the reload register is set again. The current count will wrap around to 0xFFFF (or 0x9999 in BCD mode) and continue to decrement until the mode/command register or the reload register are set, however this will not affect the output pin state.
+
+The reload value can be changed at any time. In "lobyte/hibyte" access mode counting will stop when the first byte of the reload value is set. Once the full reload value is set (in any access mode), the next falling edge of the (1.193182 MHz) input signal will cause the new reload value to be copied into the current count, and the countdown will continue from the new value.
+
+Note: despite the misleading name of this mode, it only generates interrupts on channel 0.
+
+Mode 1 – Hardware Re-triggerable One-shot
+This mode is similar to mode 0 above, however counting doesn't start until a rising edge of the gate input is detected. For this reason it is not usable for PIT channels 0 or 1 (where the gate input can't be changed).
+
+When the mode/command register is written the output signal goes high and the PIT waits for the reload register to be set by software. After the reload register has been set the PIT will wait for the next rising edge of the gate input. Once this occurs, the output signal will go low and the current count will be set to the reload value on the next falling edge of the (1.193182 MHz) input signal. Subsequent falling edges of the input signal will decrement the current count.
+
+When the current count decrements from one to zero, the output goes high and remains high until another mode/command register is written or the reload register is set again. The current count will wrap around to 0xFFFF (or 0x9999 in BCD mode) and continue to decrement until the mode/command register or the reload register are set, however this will not affect the output pin state.
+
+If the gate input signal goes low during this process it will have no effect. However, if the gate input goes high again it will cause the current count to be reloaded from the reload register on the next falling edge of the input signal, and restart the count again (the same as when counting first started).
+
+The reload value can be changed at any time, however the new value will not affect the current count until the current count is reloaded (on the next rising edge of the gate input). So if you want to do this, clear and then reset bit 0 of IO port 0x61, after modifying the reload value.
+
+Mode 2 – Rate Generator
+This mode operates as a frequency divider.
+
+When the mode/command register is written the output signal goes high and the PIT waits for the reload register to be set by software. After the reload register has been set, the current count will be set to the reload value on the next falling edge of the (1.193182 MHz) input signal. Subsequent falling edges of the input signal will decrement the current count (if the gate input is high on the preceding rising edge of the input signal).
+
+When the current count decrements from two to one, the output goes low, and on the next falling edge of the (1.193182 MHz) input signal it will go high again and the current count will be set to the reload value and counting will continue.
+
+If the gate input goes low, counting stops and the output goes high immediately. Once the gate input has returned high, the next falling edge on input signal will cause the current count to be set to the reload value and operation will continue.
+
+The reload value can be changed at any time, however the new value will not affect the current count until the current count is reloaded (when it is decreased from two to one, or the gate input going low then high). When this occurs counting will continue using the new reload value.
+
+A reload value (or divisor) of one must not be used with this mode.
+
+This mode creates a high output signal that drops low for one input signal cycle (0.8381 uS), which is too fast to make a difference to the PC speaker (see mode 3). For this reason mode 2 is useless for producing sounds with PIT channel 2.
+
+Typically, OSes and BIOSes use mode 3 (see below) for PIT channel 0 to generate IRQ 0 timer ticks, but some use mode 2 instead, to gain frequency accuracy (frequency = 1193182 / reload_value Hz).
+
+Mode 3 – Square Wave Generator
+For mode 3, the PIT channel operates as a frequency divider like mode 2, however the output signal is fed into an internal "flip flop" to produce a square wave (rather than a short pulse). The flip flop changes its output state each time its input state (or the output of the PIT channel's frequency divider) changes. This causes the actual output to change state half as often, so to compensate for this the current count is decremented twice on each falling edge of the input signal (instead of once), and the current count is set to the reload value twice as often.
+
+When the mode/command register is written the output signal goes high and the PIT waits for the reload register to be set by software. After the reload register has been set, the current count will be set to the reload value on the next falling edge of the (1.193182 MHz) input signal. Subsequent falling edges of the input signal will decrement the current count twice (if the gate input is high on the preceding rising edge of the input signal).
+
+Note: under normal circumstances the output state will be low 50% of the time when the mode/command register is written. The output will then go high, which will generate an immediate (perhaps spurious) IRQ0. The other 50% of the time the output will already be high, and there will be no IRQ0 generated.
+
+For even reload values, when the current count decrements from two to zero the output of the flip-flop changes state; the current count will be reset to the reload value and counting will continue.
+
+For odd reload values, the current count is always set to one less than the reload value. If the output of the flip flop is low when the current count decrements from two to zero it will behave the same as the equivalent even reload value. However, if the output of the flip flop is high the reload will be delayed for one input signal cycle (0.8381 uS), which causes the "high" pulse to be slightly longer and the duty cycle will not be exactly 50%. Because the reload value is rounded down to the nearest even number anyway, it is recommended that only even reload values be used (which means you should mask the value before sending it to the port).
+
+Note: This even value limitation on the reload value in mode 3 reduces the number of possible output frequencies in half. If you want to be able to control the frequency of IRQ0 to a somewhat higher degree, then think about using mode 2 instead for channel 0.
+
+On channel 2, if the gate input goes low, counting stops and the output goes high immediately. Once the gate input has returned high, the next falling edge on input signal will cause the current count to be set to the reload value and operation will continue (with the output left high).
+
+The reload value can be changed at any time, however the new value will not affect the current count until the current count is reloaded (when it is decreased from two to zero, or the gate input going low then high). When this occurs counting will continue using the new reload value.
+
+A reload value (or divisor) of one must not be used with this mode.
+
+Mode 4 – Software Triggered Strobe
+Mode four operates as a retriggerable delay, and generates a pulse when the current count reaches zero.
+
+When the mode/command register is written the output signal goes high and the PIT waits for the reload register to be set by software. After the reload register has been set, the current count will be set to the reload value on the next falling edge of the (1.193182 MHz) input signal. Subsequent falling edges of the input signal will decrement the current count (if the gate input is high on the preceding rising edge of the input signal).
+
+When the current count decrements from one to zero, the output goes low for one cycle of the input signal (0.8381 uS). The current count will wrap around to 0xFFFF (or 0x9999 in BCD mode) and continue to decrement until the mode/command register or the reload register are set, however this will not affect the output state.
+
+If the gate input goes low, counting stops but the output will not be affected and the current count will not be reset to the reload value.
+
+The reload value can be changed at any time. When the new value has been set (both bytes for "lobyte/hibyte" access mode) it will be loaded into the current count on the next falling edge of the (1.193182 MHz) input signal, and counting will continue using the new reload value.
+
+Mode 5 – Hardware Triggered Strobe
+Mode 5 is similar to mode 4, except that it waits for the rising edge of the gate input to trigger (or re-trigger) the delay period (like mode 1). For this reason it is not usable for PIT channels 0 or 1 (where the gate input can't be changed).
+
+When the mode/command register is written the output signal goes high and the PIT waits for the reload register to be set by software. After the reload register has been set the PIT will wait for the next rising edge of the gate input. Once this occurs, the current count will be set to the reload value on the next falling edge of the (1.193182 MHz) input signal. Subsequent falling edges of the input signal will decrement the current count.
+
+When the current count decrements from one to zero, the output goes low for one cycle of the input signal (0.8381 uS). The current count will wrap around to 0xFFFF (or 0x9999 in BCD mode) and continue to decrement until the mode/command register or the reload register are set, however this will not affect the output state.
+
+If the gate input signal goes low during this process it will have no effect. However, if the gate input goes high again it will cause the current count to be reloaded from the reload register on the next falling edge of the input signal, and restart the count again (the same as when counting first started).
+
+The reload value can be changed at any time, however the new value will not affect the current count until the current count is reloaded (on the next rising edge of the gate input). When this occurs counting will continue using the new reload value.
+
+Counter Latch Command
+To prevent the current count from being updated, it is possible to "latch" a PIT channel using the latch command. To do this, send the value CC000000 (in binary) to the mode/command register (I/O port 0x43), where 'CC' corresponds to the channel number. When the latch command has been sent, the current count is copied into an internal "latch register" which can then be read via the data port corresponding to the selected channel (I/O ports 0x40 to 0x42). The value kept in the latch register remains the same until it has been fully read, or until a new mode/command register is written.
+
+The main benefit of the latch command is that it allows both bytes of the current count to be read without inconsistencies. For example, if you didn't use the latch command, then the current count may decrease from 0x0200 to 0x01FF after you've read the low byte but before you've read the high byte, so that your software thinks the counter was 0x0100 instead of 0x0200 (or 0x01FF).
+
+While the latch command should not affect the current count, on some (old/dodgy) motherboards sending the latch command can cause a cycle of the input signal to be occasionally missed, which would cause the current count to be decremented 0.8381ms later than it should be. If you're sending the latch command often this could cause accuracy problems (but if you need to send the latch command often you may wish to consider redesigning your code anyway).
+
+Read Back Command
+The read back command is a special command sent to the mode/command register (I/O port 0x43). The "read back" is not supported on the old 8253 chips but should be supported on all AT and later computers except for PS/2 (i.e. anything that isn't obsolete will support it).
+
+For the read back command, the mode/command register uses the following format:
+
+Bits         Usage
+7 and 6      Must be set for the read back command
+5            Latch count flag (0 = latch count, 1 = don't latch count)
+4            Latch status flag (0 = latch status, 1 = don't latch status)
+3            Read back timer channel 2 (1 = yes, 0 = no)
+2            Read back timer channel 1 (1 = yes, 0 = no)
+1            Read back timer channel 0 (1 = yes, 0 = no)
+0            Reserved (should be clear)
+Note: Be careful with bits 4 and 5 – they are inverted.
+
+Bits 1 to 3 of the read back command select which PIT channels are affected, and allow multiple channels to be selected at the same time.
+
+If bit 5 is clear, then any/all PIT channels selected with bits 1 to 3 will have their current count copied into their latch register (similar to sending the latch command, except it works for multiple channels with one command).
+
+If bit 4 is clear, then for any/all PIT channels selected with bits 1 to 3, the next read of the corresponding data port will return a status byte (discussed below).
+
+Read Back Status Byte
+After sending a read back command with bit 4 clear, reading the data port for each selected channel will return a status value with the following format:
+
+Bit/s        Usage
+7            Output pin state
+6            Null count flags
+5 and 4      Access mode :
+                0 0 = Latch count value command
+                0 1 = Access mode: lobyte only
+                1 0 = Access mode: hibyte only
+                1 1 = Access mode: lobyte/hibyte
+3 to 1       Operating mode :
+                0 0 0 = Mode 0 (interrupt on terminal count)
+                0 0 1 = Mode 1 (hardware re-triggerable one-shot)
+                0 1 0 = Mode 2 (rate generator)
+                0 1 1 = Mode 3 (square wave generator)
+                1 0 0 = Mode 4 (software triggered strobe)
+                1 0 1 = Mode 5 (hardware triggered strobe)
+                1 1 0 = Mode 2 (rate generator, same as 010b)
+                1 1 1 = Mode 3 (square wave generator, same as 011b)
+0            BCD/Binary mode: 0 = 16-bit binary, 1 = four-digit BCD
+The bottom six bits return the values that where programmed into the mode/command register when the channel was last initialized.
+
+Bit 7 indicates the state of the PIT channel's output pin at the moment that the read-back command was issued.
+
+Bit 6 indicates whether a newly-programmed divisor value has been loaded into the current count yet (if clear) or the channel is still waiting for a trigger signal or for the current count to count down to zero before a newly programmed reload value is loaded into the current count (if set). This bit is set when the mode/command register is initialized or when a new reload value is written, and cleared when the reload value is copied into the current count.
+
+Reading The Current Count
+To read the current count using the "lobyte only" or "hibyte only" access modes, you can just do an "in al,0x40" (for PIT channel 0) without problems. For frequencies higher than 4.7 KHz it can be easiest to set the high byte of the reload value to zero, and then use the "lobyte only" access mode to minimize hassles.
+
+For the "lobyte/hibyte" access mode you need to send the latch command (described above) to avoid getting wrong results. If any other code could try set the PIT channel's reload value or read its current count after you've sent the latch command but before you've read the highest 8 bits, then you have to prevent it. Disabling interrupts works for single CPU computers. For example, to read the count of PIT channel 0 you could use something like:
+
+unsigned read_pit_count(void) {
+	unsigned count = 0;
+	
+	// Disable interrupts
+	cli();
+	
+	// al = channel in bits 6 and 7, remaining bits clear
+	outb(0x43,0b0000000);
+	
+	count = inb(0x40);		// Low byte
+	count |= inb(0x40)<<8;		// High byte
+	
+	return count;
+}
+Setting The Reload Value
+To set the reload value, just send the value/s to the corresponding data port. For the "lobyte only" or "hibyte only" access modes this only takes a single "out 0x40,al" (for PIT channel 0).
+
+For the "lobyte/hibyte" access mode you need to send the low 8 bits followed by the high 8 bits. You must prevent other code from setting the PIT channel's reload value or reading its current count once you've sent the lowest 8 bits. Disabling interrupts works for single CPU computers. For example:
+
+void set_pit_count(unsigned count) {
+	// Disable interrupts
+	cli();
+	
+	// Set low byte
+	outb(0x40,count&0xFF);		// Low byte
+	outb(0x40,(count&0xFF00)>>8);	// High byte
+	return;
+}
+It should be noted that a reload value of zero can be used to specify a divisor of 65536. This is how the BIOS gets an IRQ 0 frequency as low as 18.2065 Hz.
+
+PIT Channel 0 Example Code
+The following example code was written for NASM, but hasn't been tested.
+
+The idea is to provide a single routine to initialize PIT channel 0 for any (possible) frequency and use IRQ 0 to accurately keep track of real time in milliseconds since the PIT was configured.
+
+For the sake of accuracy, the initialization code will calculate the number of whole milliseconds to add to the "system timer tick" each IRQ, and the number of "fractions of a millisecond" to avoid drift. This may be important, for example if the PIT is set for 700 Hz it'd work out to (roughly) 1.42857 ms between IRQs, so keeping track of whole milliseconds only would lead to huge inaccuracies.
+
+Hopefully, everyone is familiar with fixed point mathematics. For example, with the "32.32" notation I'll be using, if the high 32-bit value is equal to 0x00000001 and the low 32-bit value is equal to 0x80000000 then the combined value would be 1.5. In a similar way, the fraction 0.75 is represented with 0xC000000, 0.125 is represented with 0x20000000 and 0.12345 would be represented with 0x1F9A6B50.
+
+To begin with, this following code contains all of the data used by this example. It is assumed that the ".bss" section is filled with zeros.
+
+section .bss
+system_timer_fractions:  resd 1          ; Fractions of 1 ms since timer initialized
+system_timer_ms:         resd 1          ; Number of whole ms since timer initialized
+IRQ0_fractions:          resd 1          ; Fractions of 1 ms between IRQs
+IRQ0_ms:                 resd 1          ; Number of whole ms between IRQs
+IRQ0_frequency:          resd 1          ; Actual frequency of PIT
+PIT_reload_value:        resw 1          ; Current PIT reload value
+section .text
+Next is the handler for IRQ 0. It's fairly simple (all it does it add 2 64 bit fixed point values and send an EOI to the PIC chip).
+
+IRQ0_handler:
+	push eax
+	push ebx
+ 
+	mov eax, [IRQ0_fractions]
+	mov ebx, [IRQ0_ms]                    ; eax.ebx = amount of time between IRQs
+	add [system_timer_fractions], eax     ; Update system timer tick fractions
+	adc [system_timer_ms], ebx            ; Update system timer tick milli-seconds
+ 
+	mov al, 0x20
+	out 0x20, al                          ; Send the EOI to the PIC
+
+	pop ebx
+	pop eax
+	iretd
+Now for the tricky bit – the initialization routine. The PIT can't generate some frequencies. For example if you want 8000 Hz then you've got a choice of 8007.93 Hz or 7954.544 Hz. In this case the following code will find the nearest possible frequency. Once it has calculated the nearest possible frequency it will reverse the calculation to find the actual frequency selected (rounded to the nearest integer, intended for display purposes only).
+
+For some extra accuracy, I also use "3579545 / 3" instead of 1193182 Hz. This is mostly pointless due to inaccurate hardware (I just like being correct).
+
+ ;Input
+ ; ebx   Desired PIT frequency in Hz
+ 
+ init_PIT:
+    pushad
+ 
+    ; Do some checking
+ 
+    mov eax,0x10000                   ;eax = reload value for slowest possible frequency (65536)
+    cmp ebx,18                        ;Is the requested frequency too low?
+    jbe .gotReloadValue               ; yes, use slowest possible frequency
+ 
+    mov eax,1                         ;ax = reload value for fastest possible frequency (1)
+    cmp ebx,1193181                   ;Is the requested frequency too high?
+    jae .gotReloadValue               ; yes, use fastest possible frequency
+ 
+    ; Calculate the reload value
+ 
+    mov eax,3579545
+    mov edx,0                         ;edx:eax = 3579545
+    div ebx                           ;eax = 3579545 / frequency, edx = remainder
+    cmp edx,3579545 / 2               ;Is the remainder more than half?
+    jb .l1                            ; no, round down
+    inc eax                           ; yes, round up
+ .l1:
+    mov ebx,3
+    mov edx,0                         ;edx:eax = 3579545 * 256 / frequency
+    div ebx                           ;eax = (3579545 * 256 / 3 * 256) / frequency
+    cmp edx,3 / 2                     ;Is the remainder more than half?
+    jb .l2                            ; no, round down
+    inc eax                           ; yes, round up
+ .l2:
+ 
+ 
+ ; Store the reload value and calculate the actual frequency
+ 
+ .gotReloadValue:
+    push eax                          ;Store reload_value for later
+    mov [PIT_reload_value],ax         ;Store the reload value for later
+    mov ebx,eax                       ;ebx = reload value
+ 
+    mov eax,3579545
+    mov edx,0                         ;edx:eax = 3579545
+    div ebx                           ;eax = 3579545 / reload_value, edx = remainder
+    cmp edx,3579545 / 2               ;Is the remainder more than half?
+    jb .l3                            ; no, round down
+    inc eax                           ; yes, round up
+ .l3:
+    mov ebx,3
+    mov edx,0                         ;edx:eax = 3579545 / reload_value
+    div ebx                           ;eax = (3579545 / 3) / frequency
+    cmp edx,3 / 2                     ;Is the remainder more than half?
+    jb .l4                            ; no, round down
+    inc eax                           ; yes, round up
+ .l4:
+    mov [IRQ0_frequency],eax          ;Store the actual frequency for displaying later
+ 
+ 
+ ; Calculate the amount of time between IRQs in 32.32 fixed point
+ ;
+ ; Note: The basic formula is:
+ ;           time in ms = reload_value / (3579545 / 3) * 1000
+ ;       This can be rearranged in the following way:
+ ;           time in ms = reload_value * 3000 / 3579545
+ ;           time in ms = reload_value * 3000 / 3579545 * (2^42)/(2^42)
+ ;           time in ms = reload_value * 3000 * (2^42) / 3579545 / (2^42)
+ ;           time in ms * 2^32 = reload_value * 3000 * (2^42) / 3579545 / (2^42) * (2^32)
+ ;           time in ms * 2^32 = reload_value * 3000 * (2^42) / 3579545 / (2^10)
+ 
+    pop ebx                           ;ebx = reload_value
+    mov eax,0xDBB3A062                ;eax = 3000 * (2^42) / 3579545
+    mul ebx                           ;edx:eax = reload_value * 3000 * (2^42) / 3579545
+    shrd eax,edx,10
+    shr edx,10                        ;edx:eax = reload_value * 3000 * (2^42) / 3579545 / (2^10)
+ 
+    mov [IRQ0_ms],edx                 ;Set whole ms between IRQs
+    mov [IRQ0_fractions],eax          ;Set fractions of 1 ms between IRQs
+ 
+ 
+ ; Program the PIT channel
+ 
+    pushfd
+    cli                               ;Disabled interrupts (just in case)
+ 
+    mov al,00110100b                  ;channel 0, lobyte/hibyte, rate generator
+    out 0x43, al
+ 
+    mov ax,[PIT_reload_value]         ;ax = 16 bit reload value
+    out 0x40,al                       ;Set low byte of PIT reload value
+    mov al,ah                         ;ax = high 8 bits of reload value
+    out 0x40,al                       ;Set high byte of PIT reload value
+ 
+    popfd
+ 
+    popad
+    ret
+Note: you also need to install an IDT entry for IRQ 0, and unmask it in the PIC chip (or I/O APIC).
+
+Of course it's easier to configure the PIT to a fixed value, but where's the fun in that? :-)
+
+Uses for the Timer IRQ
+Using the IRQ to Implement sleep
+The PIT's generating a hardware interrupt every n milliseconds allows you to create a simple timer. Start with a global variable that contains the delay:
+
+volatile uint32_t CountDown;
+Next, every time the timer interrupt is called, decrement this variable until 0 is stored.
+
+ section .text
+ global TimerIRQ
+ TimerIRQ:
+     push eax
+     mov eax, [CountDown]
+     test eax, eax
+     jz TimerDone
+     dec eax
+     mov [CountDown], eax
+ TimerDone:
+     pop eax
+     iretd
+Finally, create a function sleep that waits the interval, in milliseconds.
+
+void sleep(uint32_t millis) {
+    CountDown = millis;
+    while (CountDown > 0) {
+        halt();
+    }
+}
+In a multitasking system, consider using a linked list or array of these CountDown variables. If your multitasking system supports interprocess communication, you can also store the semaphore/exchange where two processes can talk to, have the interrupt send a message to the waiting process when the timer is done, and have the waiting process block all execution until that message comes:
+
+#define COUNTDOWN_DONE_MSG 1
+struct TimerBlock {
+    EXCHANGE e;
+    uint32_t CountDown;
+} timerblocks[20];
+
+void TimerIRQ(void) /* called from Assembly */
+{
+    uint8_t i;
+    
+    for (i = 0; i < 20; i++)
+        if (timerblocks[i].CountDown > 0) {
+            timerblocks[i].CountDown--;
+            if (timerblocks[i].CountDown == 0)
+                SendMessage(timerblocks[i].e, COUNTDOWN_DONE_MESSAGE);
+        }
+}
+
+void Sleep(uint32_t delay)
+{
+    struct TimerBlock *t;
+
+    if ((t = findTimerBlock()) == nil)
+        return;
+    t->CountDown = delay;
+    WaitForMessageFrom(t->e = getCrntExch());
+}
+In your documentation, note the interval of the timer. For example, if the timer interval is 10 milliseconds per tick, tell the programmer to issue
+
+Sleep(100);
+to sleep for a single second.
+
+Using the IRQ for Preemptive Multitasking
+The timer IRQ can also be used to perform preemptive multitasking. To give the currently running task some time to run, set a threshold, for example of 3 ticks. Use a global variable like the one before but go up from 0, and when that variable hits 3, switch tasks. How you do so is up to you.
+
+See Also
+Articles
+Time And Date
+RTC
+Threads
+External Links
+Programmable Interval Timer on Wikipedia
+The PIT: A System Clock on osdever
+
+---------
+
+82C54
+CHMOS PROGRAMMABLE INTERVAL TIMER
+Y
+Compatible with all Intel and most
+other microprocessors
+YHigh Speed, ‘‘Zero Wait State’’
+Operation with 8 MHz 8086/88 and
+80186/188
+YHandles Inputs from DC
+Ð 10 MHz for 82C54-2
+Y
+Available in EXPRESS
+Ð Standard Temperature Range
+Ð Extended Temperature Range
+YThree independent 16-bit counters
+YLow Power CHMOS
+Ð ICC e 10 mA @ 8 MHz Count
+frequency
+YCompletely TTL Compatible
+YSix Programmable Counter Modes
+YBinary or BCD counting
+YStatus Read Back Command
+YAvailable in 24-Pin DIP and 28-Pin PLCC
+The Intel 82C54 is a high-performance, CHMOS version of the industry standard 8254 counter/timer which is
+designed to solve the timing control problems common in microcomputer system design. It provides three
+independent 16-bit counters, each capable of handling clock inputs up to 10 MHz. All modes are software
+programmable. The 82C54 is pin compatible with the HMOS 8254, and is a superset of the 8253.
+Six programmable timer modes allow the 82C54 to be used as an event counter, elapsed time indicator,
+programmable one-shot, and in many other applications.
+The 82C54 is fabricated on Intel’s advanced CHMOS III technology which provides low power consumption
+with performance equal to or greater than the equivalent HMOS product. The 82C54 is available in 24-pin DIP
+and 28-pin plastic leaded chip carrier (PLCC) packages.
+231244 – 3
+PLASTIC LEADED CHIP CARRIER
+231244 –1
+Figure 1. 82C54 Block Diagram
+231244 – 2
+Diagrams are for pin reference only.
+Package sizes are not to scale.
+Figure 2. 82C54 Pinout
+October 1994
+Order Number: 231244-00682C54
+Table 1. Pin Description
+Pin Number
+Symbol
+Type
+PLCCD7-D01-82-9I/OData: Bidirectional tri-state data bus lines,
+connected to system data bus.
+CLK 0
+OUT 09
+1010
+12I
+OClock 0: Clock input of Counter 0.
+Output 0: Output of Counter 0.
+GATE 0
+GND11
+1213
+14IGate 0: Gate input of Counter 0.
+Ground: Power supply connection.
+OUT 11316OOut 1: Output of Counter 1.
+GATE 11417IGate 1: Gate input of Counter 1.
+CLK 11518IClock 1: Clock input of Counter 1.
+GATE 2
+OUT 216
+1719
+20I
+OGate 2: Gate input of Counter 2.
+Out 2: Output of Counter 2.
+CLK 2
+A1, A018
+20-1921
+23-22I
+IClock 2: Clock input of Counter 2.
+Address: Used to select one of the three Counters
+or the Control Word Register for read or write
+operations. Normally connected to the system
+address bus.
+CS2124I
+RD2226I
+WR2327I
+VCC
+NC2428
+1, 11, 15, 25
+FUNCTIONAL DESCRIPTION
+General
+The 82C54 is a programmable interval timer/counter
+designed for use with Intel microcomputer systems.
+It is a general purpose, multi-timing element that can
+be treated as an array of I/O ports in the system
+software.
+The 82C54 solves one of the most common prob-
+lems in any microcomputer system, the generation
+of accurate time delays under software control. In-
+stead of setting up timing loops in software, the pro-
+grammer configures the 82C54 to match his require-
+ments and programs one of the counters for the de-
+2
+Function
+DIPA1A0Selects
+0
+0
+1
+10
+1
+0
+1Counter 0
+Counter 1
+Counter 2
+Control Word Register
+Chip Select: A low on this input enables the 82C54
+to respond to RD and WR signals. RD and WR are
+ignored otherwise.
+Read Control: This input is low during CPU read
+operations.
+Write Control: This input is low during CPU write
+operations.
+Power: a 5V power supply connection.
+No Connect
+sired delay. After the desired delay, the 82C54 will
+interrupt the CPU. Software overhead is minimal and
+variable length delays can easily be accommodated.
+Some of the other counter/timer functions common
+to microcomputers which can be implemented with
+the 82C54 are:
+# Real time clock
+# Even counter
+# Digital one-shot
+# Programmable rate generator
+# Square wave generator
+# Binary rate multiplier
+# Complex waveform generator
+# Complex motor controller82C54
+Block Diagram
+CONTROL WORD REGISTER
+DATA BUS BUFFER
+This 3-state, bi-directional, 8-bit buffer is used to in-
+terface the 82C54 to the system bus (see Figure 3).
+The Control Word Register (see Figure 4) is selected
+by the Read/Write Logic when A1, A0 e 11. If the
+CPU then does a write operation to the 82C54, the
+data is stored in the Control Word Register and is
+interpreted as a Control Word used to define the
+operation of the Counters.
+The Control Word Register can only be written to;
+status information is available with the Read-Back
+Command.
+231244 –4
+Figure 3. Block Diagram Showing Data Bus
+Buffer and Read/Write Logic Functions
+231244 – 5
+READ/WRITE LOGIC
+The Read/Write Logic accepts inputs from the sys-
+tem bus and generates control signals for the other
+functional blocks of the 82C54. A1 and A0 select
+one of the three counters or the Control Word Regis-
+ter to be read from/written into. A ‘‘low’’ on the RD
+input tells the 82C54 that the CPU is reading one of
+the counters. A ‘‘low’’ on the WR input tells the
+82C54 that the CPU is writing either a Control Word
+or an initial count. Both RD and WR are qualified by
+CS; RD and WR are ignored unless the 82C54 has
+been selected by holding CS low.
+The WRÝ and CLK signals should be synchronous.
+This is accomplished by using a CLK input signal to
+the 82C54 counters which is a derivative of the sys-
+tem clock source. Another technique is to externally
+synchronize the WRÝ and CLK input signals. This is
+done by gating WRÝ with CLK.
+Figure 4. Block Diagram Showing Control Word
+Register and Counter Functions
+COUNTER 0, COUNTER 1, COUNTER 2
+These three functional blocks are identical in opera-
+tion, so only a single Counter will be described. The
+internal block diagram of a single counter is shown
+in Figure 5.
+The Counters are fully independent. Each Counter
+may operate in a different Mode.
+The Control Word Register is shown in the figure; it
+is not part of the Counter itself, but its contents de-
+termine how the Counter operates.
+382C54
+stored in the CR and later transferred to the CE. The
+Control Logic allows one register at a time to be
+loaded from the internal bus. Both bytes are trans-
+ferred to the CE simultaneously. CRM and CRL are
+cleared when the Counter is programmed. In this
+way, if the Counter has been programmed for one
+byte counts (either most significant byte only or least
+significant byte only) the other byte will be zero.
+Note that the CE cannot be written into; whenever a
+count is written, it is written into the CR.
+The Control Logic is also shown in the diagram. CLK
+n, GATE n, and OUT n are all connected to the out-
+side world through the Control Logic.
+82C54 SYSTEM INTERFACE
+231244 –6
+Figure 5. Internal Block Diagram of a Counter
+The status register, shown in the Figure, when
+latched, contains the current contents of the Control
+Word Register and status of the output and null
+count flag. (See detailed explanation of the Read-
+Back command.)
+The actual counter is labelled CE (for ‘‘Counting Ele-
+ment’’). It is a 16-bit presettable synchronous down
+counter.
+The 82C54 is treated by the systems software as an
+array of peripheral I/O ports; three are counters and
+the fourth is a control register for MODE program-
+ming.
+Basically, the select inputs A0, A1 connect to the A0,
+A1 address bus signals of the CPU. The CS can be
+derived directly from the address bus using a linear
+select method. Or it can be connected to the output
+of a decoder, such as an Intel 8205 for larger sys-
+tems.
+OLM and OLL are two 8-bit latches. OL stands for
+‘‘Output Latch’’; the subscripts M and L stand for
+‘‘Most significant byte’’ and ‘‘Least significant byte’’
+respectively. Both are normally referred to as one
+unit and called just OL. These latches normally ‘‘fol-
+low’’ the CE, but if a suitable Counter Latch Com-
+mand is sent to the 82C54, the latches ‘‘latch’’ the
+present count until read by the CPU and then return
+to ‘‘following’’ the CE. One latch at a time is enabled
+by the counter’s Control Logic to drive the internal
+bus. This is how the 16-bit Counter communicates
+over the 8-bit internal bus. Note that the CE itself
+cannot be read; whenever you read the count, it is
+the OL that is being read.
+Similarly, there are two 8-bit registers called CRM
+and CRL (for ‘‘Count Register’’). Both are normally
+referred to as one unit and called just CR. When a
+new count is written to the Counter, the count is
+4
+231244 – 7
+Figure 6. 82C54 System Interface82C54
+OPERATIONAL DESCRIPTIONProgramming the 82C54
+GeneralCounters are programmed by writing a Control Word
+and then an initial count. The control word format is
+shown in Figure 7.
+After power-up, the state of the 82C54 is undefined.
+The Mode, count value, and output of all Counters
+are undefined.
+How each Counter operates is determined when it is
+programmed. Each Counter must be programmed
+before it can be used. Unused counters need not be
+programmed.
+All Control Words are written into the Control Word
+Register, which is selected when A1, A0 e 11. The
+Control Word itself specifies which Counter is being
+programmed.
+By contrast, initial counts are written into the Coun-
+ters, not the Control Word Register. The A1, A0 in-
+puts are used to select the Counter to be written
+into. The format of the initial count is determined by
+the Control Word used.
+Control Word Format
+A1, A0 e 11
+CS e 0
+RD e 1
+WR e 0
+D7D6D5D4D3D2D1D0
+SC1SC0RW1RW0M2M1M0BCD
+SC Ð Select Counter:
+SC1
+SC0
+M Ð MODE:
+M2M1M0000Mode 0
+00Select Counter 001Select Counter 1001Mode 1
+10Select Counter 2X10Mode 2
+11Read-Back Command
+(See Read Operations)X11Mode 3
+100Mode 4
+101Mode 5
+RW Ð Read/Write:
+RW1 RW0
+0
+0
+Counter Latch Command (see Read
+Operations)BCD:0Binary Counter 16-bits
+1Binary Coded Decimal (BCD) Counter
+(4 Decades)
+01Read/Write least significant byte only.
+10Read/Write most significant byte only.
+11Read/Write least significant byte first,
+then most significant byte.
+NOTE: Don’t care bits (X) should be 0 to insure
+compatibility with future Intel products.
+Figure 7. Control Word Format
+582C54
+Write Operations
+The programming procedure for the 82C54 is very
+flexible. Only two conventions need to be remem-
+bered:
+1) For each Counter, the Control Word must be
+written before the initial count is written.
+2) The initial count must follow the count format
+specified in the Control Word (least significant
+byte only, most significant byte only, or least sig-
+nificant byte and then most significant byte).
+Since the Control Word Register and the three
+Counters have separate addresses (selected by the
+A1, A0 inputs), and each Control Word specifies the
+Counter it applies to (SC0, SC1 bits), no special in-
+struction sequence is required. Any programming
+sequence that follows the conventions above is ac-
+ceptable.
+A new initial count may be written to a Counter at
+any time without affecting the Counter’s pro-
+grammed Mode in any way. Counting will be affected
+as described in the Mode definitions. The new count
+must follow the programmed count format.
+If a Counter is programmed to read/write two-byte
+counts, the following precaution applies: A program
+must not transfer control between writing the first
+and second byte to another routine which also writes
+into that same Counter. Otherwise, the Counter will
+be loaded with an incorrect count.
+Counter 0
+Counter 0
+Counter 0
+Counter 1
+Counter 1
+Counter 1
+Counter 2
+Counter 2
+Counter 2A1
+1
+0
+0
+1
+0
+0
+1
+1
+1A0
+1
+0
+0
+1
+1
+1
+1
+0
+0Control Word Ð
+Control Word Ð
+Control Word Ð
+LSB of count Ð
+MSB of count Ð
+LSB of count Ð
+MSB of count Ð
+LSB of count Ð
+MSB of count ÐCounter 2
+Counter 1
+Counter 0
+Counter 2
+Counter 2
+Counter 1
+Counter 1
+Counter 0
+Counter 0A1
+1
+1
+1
+1
+1
+0
+0
+0
+0A0
+1
+1
+1
+0
+0
+1
+1
+0
+0
+Control Word Ð Counter 0
+Counter Word Ð Counter 1
+Control Word Ð Counter 2
+LSB of count Ð Counter 2
+LSB of count Ð Counter 1
+LSB of count Ð Counter 0
+MSB of count Ð Counter 0
+MSB of count Ð Counter 1
+MSB of count Ð Counter 2A1
+1
+1
+1
+1
+0
+0
+0
+0
+1A0
+1
+1
+1
+0
+1
+0
+0
+1
+0Control Word Ð
+Control Word Ð
+LSB of count Ð
+Control Word Ð
+LSB of count Ð
+MSB of count Ð
+LSB of count Ð
+MSB of count Ð
+MSB of count ÐCounter 1
+Counter 0
+Counter 1
+Counter 2
+Counter 0
+Counter 1
+Counter 2
+Counter 0
+Counter 2A1
+1
+1
+0
+1
+0
+0
+1
+0
+1A0
+1
+1
+1
+1
+0
+1
+0
+0
+0
+Control Word Ð
+LSB of count Ð
+MSB of count Ð
+Control Word Ð
+LSB of count Ð
+MSB of count Ð
+Control Word Ð
+LSB of count Ð
+MSB of count Ð
+NOTE:
+In all four examples, all counters are programmed to read/write two-byte counts.
+These are only four of many possible programming sequences.
+Figure 8. A Few Possible Programming Sequences
+Read Operations
+It is often desirable to read the value of a Counter
+without disturbing the count in progress. This is easi-
+ly done in the 82C54.
+There are three possible methods for reading the
+counters: a simple read operation, the Counter
+6
+Latch Command, and the Read-Back Command.
+Each is explained below. The first method is to per-
+form a simple read operation. To read the Counter,
+which is selected with the A1, A0 inputs, the CLK
+input of the selected Counter must be inhibited by
+using either the GATE input or external logic. Other-
+wise, the count may be in the process of changing
+when it is read, giving an undefined result.82C54
+gramming operations of other Counters may be in-
+serted between them.
+COUNTER LATCH COMMAND
+The second method uses the ‘‘Counter Latch Com-
+mand’’. Like a Control Word, this command is written
+to the Control Word Register, which is selected
+when A1, A0 e 11. Also like a Control Word, the
+SC0, SC1 bits select one of the three Counters, but
+two other bits, D5 and D4, distinguish this command
+from a Control Word.
+Another feature of the 82C54 is that reads and
+writes of the same Counter may be interleaved; for
+example, if the Counter is programmed for two byte
+counts, the following sequence is valid.
+1. Read least significant byte.
+2. Write new least significant byte.
+3. Read most significant byte.
+4. Write new most significant byte.
+A1, A0 e 11; CS e 0; RD e 1; WR e 0
+D7D6D5D4D3D2D1D0
+SC1SC000XXXX
+SC1, SC0 - specify counter to be latched
+SC1SC0Counter
+0
+0
+1
+10
+1
+0
+10
+1
+2
+Read-Back Command
+D5,D4 - 00 designates Counter Latch Command
+X - don’t care
+NOTE:
+Don’t care bits (X) should be 0 to insure compatibility
+with future Intel products.
+If a Counter is programmed to read/write two-byte
+counts, the following precaution applies; A program
+must not transfer control between reading the first
+and second byte to another routine which also reads
+from that same Counter. Otherwise, an incorrect
+count will be read.
+READ-BACK COMMAND
+The third method uses the Read-Back command.
+This command allows the user to check the count
+value, programmed Mode, and current state of the
+OUT pin and Null Count flag of the selected coun-
+ter(s).
+The command is written into the Control Word Reg-
+ister and has the format shown in Figure 10. The
+command applies to the counters selected by set-
+ting their corresponding bits D3,D2,D1 e 1.
+Figure 9. Counter Latching Command Format
+A0, A1 e 11
+The selected Counter’s output latch (OL) latches the
+count at the time the Counter Latch Command is
+received. This count is held in the latch until it is read
+by the CPU (or until the Counter is reprogrammed).
+The count is then unlatched automatically and the
+OL returns to ‘‘following’’ the counting element (CE).
+This allows reading the contents of the Counters
+‘‘on the fly’’ without affecting counting in progress.
+Multiple Counter Latch Commands may be used to
+latch more than one Counter. Each latched Coun-
+ter’s OL holds its count until it is read. Counter Latch
+Commands do not affect the programmed Mode of
+the Counter in any way.
+If a Counter is latched and then, some time later,
+latched again before the count is read, the second
+Counter Latch Command is ignored. The count read
+will be the count at the time the first Counter Latch
+Command was issued.
+With either method, the count must be read accord-
+ing to the programmed format; specifically, if the
+Counter is programmed for two byte counts, two
+bytes must be read. The two bytes do not have to be
+read one right after the other; read or write or pro-
+D 7 D6
+1
+1
+D5
+CS e 0
+D4
+RD e 1
+D3
+WR e 0
+D2
+D1
+COUNT STATUS CNT 2 CNT 1 CNT 0
+D0
+0
+D5: 0 e Latch count of selected counter(s)
+D4: 0 e Latch status of selected counter(s)
+D3: 1 e Select counter 2
+D2: 1 e Select counter 1
+D1: 1 e Select counter 0
+D0: Reserved for future expansion; must be 0
+Figure 10. Read-Back Command Format
+The read-back command may be used to latch multi-
+ple counter output latches (OL) by setting the
+COUNT bit D5 e 0 and selecting the desired coun-
+ter(s). This single command is functionally equiva-
+lent to several counter latch commands, one for
+each counter latched. Each counter’s latched count
+is held until it is read (or the counter is repro-
+grammed). That counter is automatically unlatched
+when read, but other counters remain latched until
+they are read. If multiple count read-back commands
+are issued to the same counter without reading the
+782C54
+count, all but the first are ignored; i.e., the count
+which will be read is the count at the time the first
+read-back command was issued.
+The read-back command may also be used to latch
+status information of selected counter(s) by setting
+STATUS bit D4 e 0. Status must be latched to be
+read; status of a counter is accessed by a read from
+that counter.
+The counter status format is shown in Figure 11. Bits
+D5 through D0 contain the counter’s programmed
+Mode exactly as written in the last Mode Control
+Word. OUTPUT bit D7 contains the current state of
+the OUT pin. This allows the user to monitor the
+counter’s output via software, possibly eliminating
+some hardware from a system.
+D7
+D6
+D5
+D4
+D3 D2 D1
+D0
+D7 1 e Out Pin is 1
+0 e Out Pin is 0
+D6 1 e Null count
+0 e Count available for reading
+D5-D0 Counter Programmed Mode (See Figure 7)
+Figure 11. Status Byte
+NULL COUNT bit D6 indicates when the last count
+written to the counter register (CR) has been loaded
+into the counting element (CE). The exact time this
+happens depends on the Mode of the counter and is
+described in the Mode Definitions, but until the count
+is loaded into the counting element (CE), it can’t be
+read from the counter. If the count is latched or read
+before this time, the count value will not reflect the
+new count just written. The operation of Null Count
+is shown in Figure 12.
+Null count e 1
+Null count e 1
+Null count e 0
+[1] Only the counter specified by the control word will
+have its null count set to 1. Null count bits of other
+counters are unaffected.
+[2] If the counter is programmed for two-byte counts
+(least significant byte then most significant byte) null
+count goes to 1 when the second byte is written.
+Figure 12. Null Count Operation
+Both count and status of the selected counter(s)
+may be latched simultaneously by setting both
+COUNT and STATUS bits D5,D4 e 0. This is func-
+tionally the same as issuing two separate read-back
+commands at once, and the above discussions ap-
+ply here also. Specifically, if multiple count and/or
+status read-back commands are issued to the same
+counter(s) without any intervening reads, all but the
+first are ignored. This is illustrated in Figure 13.
+If both count and status of a counter are latched, the
+first read operation of that counter will return latched
+status, regardless of which was latched first. The
+next one or two reads (depending on whether the
+counter is programmed for one or two type counts)
+return latched count. Subsequent reads return un-
+latched count.
+Description
+Results
+11000010Read back count and status of
+Counter 0Count and status latched
+for Counter 0
+11100100Read back status of Counter 1Status latched for Counter 1
+11101100Read back status of Counters 2, 1 Status latched for Counter
+2, but not Counter 1
+11011000Read back count of Counter 2Count latched for Counter 2
+11000100Read back count and status of
+Counter 1Count latched for Counter 1,
+but not status
+11100010Read back status of Counter 1Command ignored, status
+already latched for Counter 1
+Figure 13. Read-Back Command Example
+8
+CAUSES:
+If multiple status latch operations of the counter(s)
+are performed without reading the status, all but the
+first are ignored; i.e., the status that will be read is
+the status of the counter at the time the first status
+read-back command was issued.
+NULL
+OUTPUT
+RW1 RW0 M2 M1 M0 BCD
+COUNT
+Command
+D7 D6 D5 D4 D3 D2 D1 D0
+THIS ACTION:
+A. Write to the control
+word register: [1]
+B. Write to the count
+register (CR); [2]
+C. New count is loaded
+into CE (CR x CE);82C54
+CS
+0RD
+1WR
+0A1
+0A0
+0Write into Counter 0
+01001Write into Counter 1
+0
+01
+10
+01
+10
+1Write into Counter 2
+Write Control Word
+0
+00
+01
+10
+00
+1Read from Counter 0
+Read from Counter 1
+0
+00
+01
+11
+10
+1Read from Counter 2
+No-Operation (3-State)
+1
+0X
+1X
+1X
+XX
+XNo-Operation (3-State)
+No-Operation (3-State)
+Figure 14. Read/Write Operations Summary
+Mode Definitions
+The following are defined for use in describing the
+operation of the 82C54.
+CLK PULSE: a rising edge, then a falling edge, in
+that order, of a Counter’s CLK input.
+TRIGGER: a rising edge of a Counter’s GATE in-
+put.
+COUNTER LOADING: the transfer of a count from
+the CR to the CE (refer to
+the ‘‘Functional Descrip-
+tion’’)
+GATE e 1 enables counting; GATE e 0 disables
+counting. GATE has no effect on OUT.
+After the Control Word and initial count are written to
+a Counter, the initial count will be loaded on the next
+CLK pulse. This CLK pulse does not decrement the
+count, so for an initial count of N, OUT does not go
+high until N a 1 CLK pulses after the initial count is
+written.
+If a new count is written to the Counter, it will be
+loaded on the next CLK pulse and counting will con-
+tinue from the new count. If a two-byte count is writ-
+ten, the following happens:
+1) Writing the first byte does not disable counting.
+OUT is set low immediately (no clock pulse re-
+quired).
+2) Writing the second byte allows the new count to
+be loaded on the next CLK pulse.
+3) When there is a count in progress, writing a new
+LSB before the counter has counted down to 0
+and rolled over to FFFFh, WILL stop the counter.
+However, if the LSB is loaded AFTER the counter
+has rolled over to FFFFh, so that an MSB now
+exists in the counter, then the counter WILL NOT
+stop.
+This allows the counting sequence to be synchroniz-
+ed by software. Again, OUT does not go high until N
+a 1 CLK pulses after the new count of N is written.
+MODE 0: INTERRUPT ON TERMINAL COUNT
+Mode 0 is typically used for event counting. After the
+Control Word is written, OUT is initially low, and will
+remain low until the Counter reaches zero. OUT then
+goes high and remains high until a new count or a
+new Mode 0 Control Word is written into the Coun-
+ter.
+982C54
+If an initial count is written while GATE e 0, it will
+still be loaded on the next CLK pulse. When GATE
+goes high, OUT will go high N CLK pulses later; no
+CLK pulse is needed to load the Counter as this has
+already been done.
+MODE 1: HARDWARE RETRIGGERABLE
+ONE-SHOT
+OUT will be initially high. OUT will go low on the CLK
+pulse following a trigger to begin the one-shot pulse,
+and will remain low until the Counter reaches zero.
+OUT will then go high and remain high until the CLK
+pulse after the next trigger.
+After writing the Control Word and initial count, the
+Counter is armed. A trigger results in loading the
+Counter and setting OUT low on the next CLK pulse,
+thus starting the one-shot pulse. An initial count of N
+will result in a one-shot pulse N CLK cycles in dura-
+tion. The one-shot is retriggerable, hence OUT will
+remain low for N CLK pulses after any trigger. The
+one-shot pulse can be repeated without rewriting the
+same count into the counter. GATE has no effect on
+OUT.
+If a new count is written to the Counter during a one-
+shot pulse, the current one-shot is not affected un-
+less the Counter is retriggered. In that case, the
+Counter is loaded with the new count and the one-
+shot pulse continues until the new count expires.
+231244 –8
+NOTE:
+The Following Conventions Apply To All Mode Timing
+Diagrams:
+1. Counters are programmed for binary (not BCD)
+counting and for Reading/Writing least significant byte
+(LSB) only.
+2. The counter is always selected (CS always low).
+3. CW stands for ‘‘Control Word’’; CW e 10 means a
+control word of 10, hex is written to the counter.
+4. LSB stands for ‘‘Least Significant Byte’’ of count.
+5. Numbers below diagrams are count values.
+The lower number is the least significant byte.
+The upper number is the most significant byte. Since
+the counter is programmed to Read/Write LSB only,
+the most significant byte cannot be read.
+N stands for an undefined count.
+Vertical lines show transitions between count values.
+Figure 15. Mode 0
+231244 – 9
+Figure 16. Mode 1
+1082C54
+MODE 2: RATE GENERATOR
+This Mode functions like a divide-by-N counter. It is
+typicially used to generate a Real Time Clock inter-
+rupt. OUT will initially be high. When the initial count
+has decremented to 1, OUT goes low for one CLK
+pulse. OUT then goes high again, the Counter re-
+loads the initial count and the process is repeated.
+Mode 2 is periodic; the same sequence is repeated
+indefinitely. For an initial count of N, the sequence
+repeats every N CLK cycles.
+GATE e 1 enables counting; GATE e 0 disables
+counting. If GATE goes low during an output pulse,
+OUT is set high immediately. A trigger reloads the
+Counter with the initial count on the next CLK pulse;
+OUT goes low N CLK pulses after the trigger. Thus
+the GATE input can be used to synchronize the
+Counter.
+After writing a Control Word and initial count, the
+Counter will be loaded on the next CLK pulse. OUT
+goes low N CLK Pulses after the initial count is writ-
+ten. This allows the Counter to be synchronized by
+software also.
+Writing a new count while counting does not affect
+the current counting sequence. If a trigger is re-
+ceived after writing a new count but before the end
+of the current period, the Counter will be loaded with
+the new count on the next CLK pulse and counting
+will continue from the new count. Otherwise, the
+new count will be loaded at the end of the current
+counting cycle. In mode 2, a COUNT of 1 is illegal.
+MODE 3: SQUARE WAVE MODE
+Mode 3 is typically used for Baud rate generation.
+Mode 3 is similar to Mode 2 except for the duty cycle
+of OUT. OUT will initially be high. When half the ini-
+tial count has expired, OUT goes low for the remain-
+der of the count. Mode 3 is periodic; the sequence
+above is repeated indefinitely. An initial count of N
+results in a square wave with a period of N CLK
+cycles.
+GATE e 1 enables counting; GATE e 0 disables
+counting. If GATE goes low while OUT is low, OUT is
+set high immediately; no CLK pulse is required. A
+trigger reloads the Counter with the initial count on
+the next CLK pulse. Thus the GATE input can be
+used to synchronize the Counter.
+After writing a Control Word and initial count, the
+Counter will be loaded on the next CLK pulse. This
+allows the Counter to be synchronized by software
+also.
+Writing a new count while counting does not affect
+the current counting sequence. If a trigger is re-
+ceived after writing a new count but before the end
+of the current half-cycle of the square wave, the
+Counter will be loaded with the new count on the
+next CLK pulse and counting will continue from the
+new count. Otherwise, the new count will be loaded
+at the end of the current half-cycle.
+Mode 3 is implemented as follows:
+Even counts: OUT is initially high. The initial count is
+loaded on one CLK pulse and then is decremented
+by two on succeeding CLK pulses. When the count
+expires OUT changes value and the Counter is re-
+loaded with the initial count. The above process is
+repeated indefinitely.
+231244 – 10
+NOTE:
+A GATE transition should not occur one clock prior to
+terminal count.
+Figure 17. Mode 2
+Odd counts: OUT is initially high. The initial count
+minus one (an even number) is loaded on one CLK
+pulse and then is decremented by two on succeed-
+ing CLK pulses. One CLK pulse after the count ex-
+pires, OUT goes low and the Counter is reloaded
+with the initial count minus one. Succeeding CLK
+pulses decrement the count by two. When the count
+expires, OUT goes high again and the Counter is
+reloaded with the initial count minus one. The above
+process is repeated indefinitely. So for odd counts,
+1182C54
+OUT will be high for (N a 1)/2 counts and low for
+(N b 1)/2 counts.
+1) Writing the first byte has no effect on counting.
+2) Writing the second byte allows the new count to
+be loaded on the next CLK pulse.
+This allows the sequence to be ‘‘retriggered’’ by
+software. OUT strobes low N a 1 CLK pulses after
+the new count of N is written.
+231244 – 11
+NOTE:
+A GATE transition should not occur one clock prior to
+terminal count.
+Figure 18. Mode 3
+MODE 4: SOFTWARE TRIGGERED STROBE
+OUT will be initially high. When the initial count ex-
+pires, OUT will go low for one CLK pulse and then
+go high again. The counting sequence is ‘‘triggered’’
+by writing the initial count.
+GATE e 1 enables counting; GATE e 0 disables
+counting. GATE has no effect on OUT.
+After writing a Control Word and initial count, the
+Counter will be loaded on the next CLK pulse. This
+CLK pulse does not decrement the count, so for an
+initial count of N, OUT does not strobe low until
+N a 1 CLK pulses after the initial count is written.
+If a new count is written during counting, it will be
+loaded on the next CLK pulse and counting will con-
+tinue from the new count. If a two-byte count is writ-
+ten, the following happens:
+12
+231244 – 12
+Figure 19. Mode 4
+MODE 5: HARDWARE TRIGGERED STROBE
+(RETRIGGERABLE)
+OUT will initially be high. Counting is triggered by a
+rising edge of GATE. When the initial count has ex-
+pired, OUT will go low for one CLK pulse and then
+go high again.82C54
+After writing the Control Word and initial count, the
+counter will not be loaded until the CLK pulse after a
+trigger. This CLK pulse does not decrement the
+count, so for an initial count of N, OUT does not
+strobe low until N a 1 CLK pulses after a trigger.
+A trigger results in the Counter being loaded with the
+initial count on the next CLK pulse. The counting
+sequence is retriggerable. OUT will not strobe low
+for N a 1 CLK pulses after any trigger. GATE has
+no effect on OUT.
+If a new count is written during counting, the current
+counting sequence will not be affected. If a trigger
+occurs after the new count is written but before the
+current count expires, the Counter will be loaded
+with the new count on the next CLK pulse and
+counting will continue from there.
+Signal
+Status
+ModesLow
+Or Going
+Low
+0RisingHigh
+Disables
+countingÐEnables
+counting
+1Ð1) Initiates
+counting
+2) Resets output
+after next
+clockÐ
+21) Disables
+counting
+2) Sets output
+immediately
+highInitiates
+countingEnables
+counting
+Initiates
+countingEnables
+counting
+3
+1) Disables
+counting
+2) Sets output
+immediately
+high
+4Disables
+countingÐEnables
+counting
+5ÐInitiates
+countingÐ
+Figure 21. Gate Pin Operations Summary
+MODE
+MIN
+MAX
+COUNT COUNT
+010
+110
+220
+320
+410
+NOTE:
+0 is equivalent to 216 for binary counting and 104 for
+BCD counting
+Figure 22. Minimum and Maximum initial Counts
+231244 – 13
+Figure 20. Mode 5
+1382C54
+Operation Common to All Modes
+Programming
+high logic level does not have to be maintained until
+the next rising edge of CLK. Note that in Modes 2
+and 3, the GATE input is both edge- and level-sensi-
+tive. In Modes 2 and 3, if a CLK source other than
+the system clock is used, GATE should be pulsed
+immediately following WR of a new count value.
+When a Control Word is written to a Counter, all
+Control Logic is immediately reset and OUT goes to
+a known initial state; no CLK pulses are required for
+this.COUNTER
+GATENew counts are loaded and Counters are decre-
+mented on the falling edge of CLK.
+The GATE input is always sampled on the rising
+edge of CLK. In Modes 0, 2, 3, and 4 the GATE input
+is level sensitive, and the logic level is sampled on
+the rising edge of CLK. In Modes 1, 2, 3, and 5 the
+GATE input is rising-edge sensitive. In these Modes,
+a rising edge of GATE (trigger) sets an edge-sensi-
+tive flip-flop in the Counter. This flip-flop is then sam-
+pled on the next rising edge of CLK; the flip-flop is
+reset immediately after it is sampled. In this way, a
+trigger will be detected no matter when it occursÐa
+14
+The largest possible initial count is 0; this is equiva-
+lent to 216 for binary counting and 104 for BCD
+counting.
+The Counter does not stop when it reaches zero. In
+Modes 0, 1, 4, and 5 the Counter ‘‘wraps around’’ to
+the highest count, either FFFF hex for binary count-
+ing or 9999 for BCD counting, and continues count-
+ing. Modes 2 and 3 are periodic; the Counter reloads
+itself with the initial count and continues counting
+from there.82C54
+ABSOLUTE MAXIMUM RATINGS*
+NOTICE: This is a production data sheet. The specifi-
+cations are subject to change without notice.
+Ambient Temperature Under Bias.ÀÀÀÀÀÀ0§ C to 70§ C
+Storage Temperature ÀÀÀÀÀÀÀÀÀÀÀÀ b 65§ to a 150§ C
+Supply Voltage ÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀ b 0.5 to a 8.0V
+Operating Voltage ÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀ a 4V to a 7V
+Voltage on any InputÀÀÀÀÀÀÀÀÀÀGND b 2V to a 6.5V
+Voltage on any Output ÀÀGND b 0.5V to VCC a 0.5V
+Power Dissipation ÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀ1 Watt
+*WARNING: Stressing the device beyond the ‘‘Absolute
+Maximum Ratings’’ may cause permanent damage.
+These are stress ratings only. Operation beyond the
+‘‘Operating Conditions’’ is not recommended and ex-
+tended exposure beyond the ‘‘Operating Conditions’’
+may affect device reliability.
+D.C. CHARACTERISTICS
+(TA e 0§ C to 70§ C, VCC e 5V g 10%, GND e 0V) (TA e b 40§ C to a 85§ C for Extended Temperature)
+MinMaxUnits
+VIL
+Symbol
+Input Low Voltage
+Parameter
+b 0.50.8V
+VIHInput High Voltage2.0VCC a 0.5V
+VOLOutput Low VoltageVOHOutput High VoltageIILInput Load CurrentIOFLOutput Float Leakage CurrentICC
+0.4
+Test Conditions
+VIOL e 2.5 mA
+V
+VIOH e b 2.5 mA
+IOH e b 100 mA
+g 2.0mAVIN e VCC to 0V
+g 10mAVOUT e VCC to 0.0V
+VCC Supply Current20mAICCSBVCC Supply Current-Standby10mACLK Freq e DC
+CS e VCC.
+All Inputs/Data Bus VCC
+All Outputs Floating
+ICCSB1VCC Supply Current-Standby150mACLK Freq e DC
+CS e VCC. All Other Inputs,
+I/O Pins e VGND, Outputs Open
+CINInput Capacitance10pFfc e 1 MHz
+CI/OI/O Capacitance20pFCOUTOutput Capacitance20pFUnmeasured pins
+returned to GND(5)
+3.0
+VCC b 0.4
+Clk Freq e
+8MHz 82C54
+10MHz 82C54-2
+A.C. CHARACTERISTICS
+(TA e 0§ C to 70§ C, VCC e 5V g 10%, GND e 0V) (TA e b 40§ C to a 85§ C for Extended Temperature)
+BUS PARAMETERS (Note 1)
+READ CYCLE
+Symbol
+82C54-2
+Parameter
+Min
+Units
+Max
+tARAddress Stable Before RDv30ns
+tSRCS Stable Before RDv0ns
+tRAAddress Hold Time After RDu0ns
+tRRRD Pulse Width95ns
+tRDData Delay from RDv85tADData Delay from Address185ns
+tDFRDu to Data Floating565ns
+tRVCommand Recovery Time165
+ns
+ns
+NOTE:
+1. AC timings measured at VOH e 2.0V, VOL e 0.8V.
+1582C54
+A.C. CHARACTERISTICS (Continued)
+WRITE CYCLE
+Symbol
+82C54-2
+Parameter
+Min
+v
+tAWAddress Stable Before WR
+tSWCS Stable Before WR
+tWAAddress Hold Time After WR
+tWWWR Pulse Width
+tDWData Setup Time Before WR
+tWD
+tRVData Hold Time After WR
+Command Recovery Time
+v
+u
+u
+u
+Units
+Max
+0ns
+0ns
+0ns
+95ns
+95ns
+0
+165ns
+ns
+CLOCK AND GATE
+Symbol
+82C54-2
+Parameter
+Units
+MinMax
+DC
+tCLK
+tPWHClock Period
+High Pulse Width100
+30(3)tPWL
+TRLow Pulse Width
+Clock Rise Time50(3)tFClock Fall TimetGWGate Width High50ns
+tGL
+tGS
+tGHGate Width Low
+Gate Setup Time to CLK
+Gate Hold Time After CLK50
+40
+50(2)ns
+ns
+ns
+TOD
+tODGu
+u
+Output Delay from CLKv
+Output Delay from Gatev
+tWC
+tWGCLK Delay for Loading(4)
+Gate Delay for Sampling(4)
+tWO
+tCLOUT Delay from Mode Write
+CLK Set Up for Count Latch
+25
+25
+ns
+ns
+ns
+ns
+ns
+100
+100ns
+ns
+b555
+40ns
+ns
+b 40240
+40ns
+ns
+0
+NOTES:
+2. In Modes 1 and 5 triggers are sampled on each rising clock edge. A second trigger within 70 ns for the 82C54-2 of the
+rising clock edge may not be detected.
+3. Low-going glitches that violate tPWH, tPWL may cause errors requiring counter reprogramming.
+4. Except for Extended Temp., See Extended Temp. A.C. Characteristics below.
+5. Sampled not 100% tested. TA e 25§ C.
+6. If CLK present at TWC min then Count equals N a 2 CLK pulses, TWC max equals Count N a 1 CLK pulse. TWC min to
+TWC max, count will be either N a 1 or N a 2 CLK pulses.
+7. In Modes 1 and 5, if GATE is present when writing a new Count value, at TWG min Counter will not be triggered, at TWG
+max Counter will be triggered.
+8. If CLK present when writing a Counter Latch or ReadBack Command, at TCL min CLK will be reflected in count value
+latched, at TCL max CLK will not be reflected in the count value latched. Writing a Counter Latch or ReadBack Command
+between TCL min and TWL max will result in a latched count vallue which is g one least significant bit.
+EXTENDED TEMPERATURE (TA e b 40§ C to a 85§ C for Extended Temperature)
+82C54-2
+Symbol
+Parameter
+Min
+Max
+b 25
+tWC
+CLK Delay for Loading
+25
+tWG
+16
+Gate Delay for Sampling
+b 25
+25
+Units
+ns
+ns82C54
+WAVEFORMS
+WRITE
+231244 – 14
+READ
+231244 – 15
+RECOVERY
+231244 – 16
+1782C54
+CLOCK AND GATE
+231244 – 17
+* Last byte of count being written
+A.C. TESTING INPUT, OUTPUT WAVEFORM
+A.C. TESTING LOAD CIRCUIT
+INPUT/OUTPUT
+231244 – 18
+A.C. Testing: Inputs are driven at 2.4V for a logic ‘‘1’’ and 0.45V
+for a logic ‘‘0.’’ Timing measurements are made at 2.0V for a logic
+‘‘1’’ and 0.8V for a logic ‘‘0.’’
+REVISION SUMMARY
+The following list represents the key differences be-
+tween Rev. 005 and 006 of the 82C54 Data Sheet.
+1. References to and specifications for the 8 MHz
+82C54 are removed. Only the 10 MHz 82C52-2
+remains in production.
+18
+231244 – 19
+CL e 150 pF
+CL includes jig capacitance
+
+-----------
+
+
+September 1993 Order Number: 231164-005
+8254
+PROGRAMMABLE INTERVAL TIMER
+Y Compatible with All Intel and Most
+Other Microprocessors
+Y Handles Inputs from DC to 10 MHz
+Ð 8 MHz 8254
+Ð 10 MHz 8254-2
+Y Status Read-Back Command
+Y Six Programmable Counter Modes
+Y Three Independent 16-Bit Counters
+Y Binary or BCD Counting
+Y Single a5V Supply
+Y Available in EXPRESS
+Ð Standard Temperature Range
+The Intel 8254 is a counter/timer device designed to solve the common timing control problems in microcomputer system design. It provides three independent 16-bit counters, each capable of handling clock inputs up
+to 10 MHz. All modes are software programmable. The 8254 is a superset of the 8253.
+The 8254 uses HMOS technology and comes in a 24-pin plastic or CERDIP package.
+231164 –1
+Figure 1. 8254 Block Diagram
+231164 –2
+Figure 2. Pin Configuration
+8254
+Table 1. Pin Description
+Symbol Pin Type Name and Function No.
+D7–D0 1 –8 I/O DATA: Bi-directional three state data bus lines, connected to system
+data bus.
+CLK 0 9 I CLOCK 0: Clock input of Counter 0.
+OUT 0 10 O OUTPUT 0: Output of Counter 0.
+GATE 0 11 I GATE 0: Gate input of Counter 0.
+GND 12 GROUND: Power supply connection.
+VCC 24 POWER: a5V power supply connection.
+WR 23 I WRITE CONTROL: This input is low during CPU write operations.
+RD 22 I READ CONTROL: This input is low during CPU read operations.
+CS 21 I CHIP SELECT: A low on this input enables the 8254 to respond to
+RD and WR signals. RD and WR are ignored otherwise.
+A1, A0 20 –19 I ADDRESS: Used to select one of the three Counters or the Control
+Word Register for read or write operations. Normally connected to
+the system address bus.
+A1 A0 Selects
+0 0 Counter 0
+0 1 Counter 1
+1 0 Counter 2
+1 1 Control Word Register
+CLK 2 18 I CLOCK 2: Clock input of Counter 2.
+OUT 2 17 O OUT 2: Output of Counter 2.
+GATE 2 16 I GATE 2: Gate input of Counter 2.
+CLK 1 15 I CLOCK 1: Clock input of Counter 1.
+GATE 1 14 I GATE 1: Gate input of Counter 1.
+OUT 1 13 O OUT 1: Output of Counter 1.
+FUNCTIONAL DESCRIPTION
+General
+The 8254 is a programmable interval timer/counter
+designed for use with Intel microcomputer systems.
+It is a general purpose, multi-timing element that can
+be treated as an array of I/O ports in the system
+software.
+The 8254 solves one of the most common problems
+in any microcomputer system, the generation of accurate time delays under software control. Instead of
+setting up timing loops in software, the programmer
+configures the 8254 to match his requirements and
+programs one of the counters for the desired delay.
+After the desired delay, the 8254 will interrupt the
+CPU. Software overhead is minimal and variable
+length delays can easily be accommodated.
+Some of the other counter/timer functions common
+to microcomputers which can be implemented with
+the 8254 are:
+# Real time clock
+# Event-counter
+# Digital one-shot
+# Programmable rate generator
+# Square wave generator
+# Binary rate multiplier
+# Complex waveform generator
+# Complex motor controller
+Block Diagram
+DATA BUS BUFFER
+This 3-state, bi-directional, 8-bit buffer is used to interface the 8254 to the system bus (see Figure 3).
+2
+8254
+231164 –3
+Figure 3. Block Diagram Showing Data Bus Buffer and Read/Write Logic Functions
+READ/WRITE LOGIC
+The Read/Write Logic accepts inputs from the system bus and generates control signals for the other
+functional blocks of the 8254. A1 and A0 select one
+of the three counters or the Control Word Register
+to be read from/written into. A ‘‘low’’ on the RD input tells the 8254 that the CPU is reading one of the
+counters. A ‘‘low’’ on the WR input tells the 8254
+that the CPU is writing either a Control Word or an
+initial count. Both RD and WR are qualified by CS;
+RD and WR are ignored unless the 8254 has been
+selected by holding CS low.
+CONTROL WORD REGISTER
+The Control Word Register (see Figure 4) is selected
+by the Read/Write Logic when A1,A0 e 11. If the
+CPU then does a write operation to the 8254, the
+data is stored in the Control Word Register and is
+interpreted as a Control Word used to define the
+operation of the Counters.
+The Control Word Register can only be written to;
+status information is available with the Read-Back
+Command.
+COUNTER 0, COUNTER 1, COUNTER 2
+These three functional blocks are identical in operation, so only a single Counter will be described. The
+internal block diagram of a single counter is shown
+in Figure 5.
+The Counters are fully independent. Each Counter
+may operate in a different Mode.
+The Control Word Register is shown in the figure; it
+is not part of the Counter itself, but its contents determine how the Counter operates.
+The status register, shown in Figure 5, when
+latched, contains the current contents of the Control
+Word Register and status of the output and null
+count flag. (See detailed explanation of the ReadBack command.)
+The actual counter is labelled CE (for ‘‘Counting Element’’). It is a 16-bit presettable synchronous down
+counter.
+OLM and OLL are two 8-bit latches. OL stands for
+‘‘Output Latch’’; the subscripts M and L stand for
+‘‘Most significant byte’’ and ‘‘Least significant byte’’
+3
+8254
+231164 –4
+Figure 4. Block Diagram Showing Control Word Register and Counter Functions
+231164 –5
+Figure 5. Internal Block Diagram of a Counter
+4
+8254
+respectively. Both are normally referred to as one
+unit and called just OL. These latches normally ‘‘follow’’ the CE, but if a suitable Counter Latch Command is sent to the 8254, the latches ‘‘latch’’ the
+present count until read by the CPU and then return
+to ‘‘following’’ the CE. One latch at a time is enabled
+by the counter’s Control Logic to drive the internal
+bus. This is how the 16-bit Counter communicates
+over the 8-bit internal bus. Note that the CE itself
+cannot be read; whenever you read the count, it is
+the OL that is being read.
+Similarly, there are two 8-bit registers called CRM
+and CRL (for ‘‘Count Register’’). Both are normally
+referred to as one unit and called just CR. When a
+new count is written to the Counter, the count is
+stored in the CR and later transferred to the CE. The
+Control Logic allows one register at a time to be
+loaded from the internal bus. Both bytes are transferred to the CE simultaneously. CRM and CRL are
+cleared when the Counter is programmed. In this
+way, if the Counter has been programmed for one
+byte counts (either most significant byte only or least
+significant byte only) the other byte will be zero.
+Note that the CE cannot be written into; whenever a
+count is written, it is written into the CR.
+The Control Logic is also shown in the diagram.
+CLK n, GATE n, and OUT n are all connected to the
+outside world through the Control Logic.
+8254 SYSTEM INTERFACE
+The 8254 is a component of the Intel Microcomputer
+Systems and interfaces in the same manner as all
+other peripherals of the family. It is treated by the
+system’s software as an array of peripheral I/O
+ports; three are counters and the fourth is a control
+register for MODE programming.
+Basically, the select inputs A0,A1 connect to the A0,
+A1 address bus signals of the CPU. The CS can be
+derived directly from the address bus using a linear
+select method. Or it can be connected to the output
+of a decoder, such as an Intel 8205 for larger systems.
+OPERATIONAL DESCRIPTION
+General
+After power-up, the state of the 8254 is undefined.
+The Mode, count value, and output of all Counters
+are undefined.
+How each Counter operates is determined when it is
+programmed. Each Counter must be programmed
+before it can be used. Unused counters need not be
+programmed.
+Programming the 8254
+Counters are programmed by writing a Control Word
+and then an initial count.
+The Control Words are written into the Control Word
+Register, which is selected when A1,A0 e 11. The
+Control Word itself specifies which Counter is being
+programmed.
+231164 –6
+Figure 6. 8254 System Interface
+5
+8254
+Control Word Format
+A1,A0 e 11 CS e 0 RD e 1 WR e 0
+D7 D6 D5 D4 D3 D2 D1 D0
+SC1 SC0 RW1 RW0 M2 M1 M0 BCD
+SCÐSelect Counter
+SC1 SC0
+0 0 Select Counter 0
+0 1 Select Counter 1
+1 0 Select Counter 2
+1 1 Read-Back Command
+(see Read Operations)
+RWÐRead/Write
+RW1 RW0
+0 0 Counter Latch Command (see Read
+Operations)
+0 1 Read/Write least significant byte only
+1 0 Read/Write most significant byte only
+1 1 Read/Write least significant byte first,
+then most significant byte
+MÐMode
+M2 M1 M0
+0 0 0 Mode 0
+0 0 1 Mode 1
+X 1 0 Mode 2
+X 1 1 Mode 3
+1 0 0 Mode 4
+1 0 1 Mode 5
+BCD
+0 Binary Counter 16-bits
+1 Binary Coded Decimal (BCD) Counter
+(4 Decades)
+NOTE:
+Don’t care bits (X) should be 0 to insure compatibility with future Intel products.
+Figure 7. Control Word Format
+By contrast, initial counts are written into the Counters, not the Control Word Register. The A1,A0 inputs are used to select the Counter to be written
+into. The format of the initial count is determined by
+the Control Word used.
+Write Operations
+The programming procedure for the 8254 is very
+flexible. Only two conventions need to be remembered:
+1) For each Counter, the Control Word must be written before the initial count is written.
+2) The initial count must follow the count format
+specified in the Control Word (least significant
+byte only, most significant byte only, or least significant byte and then most significant byte).
+Since the Control Word Register and the three
+Counters have separate addresses (selected by the
+A1,A0 inputs), and each Control Word specifies the
+Counter it applies to (SC0,SC1 bits), no special instruction sequence is required. Any programming
+sequence that follows the conventions in Figure 7 is
+acceptable.
+A new initial count may be written to a Counter at
+any time without affecting the Counter’s programmed Mode in any way. Counting will be affected
+as described in the Mode definitions. The new count
+must follow the programmed count format.
+If a Counter is programmed to read/write two-byte
+counts, the following precaution applies: A program
+must not transfer control between writing the first
+and second byte to another routine which also writes
+into that same Counter. Otherwise, the Counter will
+be loaded with an incorrect count.
+6
+8254
+A1 A0
+Control WordÐCounter 0 1 1
+LSB of countÐCounter 0 0 0
+MSB of countÐCounter 0 0 0
+Control WordÐCounter 1 1 1
+LSB of countÐCounter 1 0 1
+MSB of countÐCounter 1 0 1
+Control WordÐCounter 2 1 1
+LSB of countÐCounter 2 1 0
+MSB of countÐCounter 2 1 0
+A1 A0
+Control WordÐCounter 0 1 1
+Control WordÐCounter 1 1 1
+Control WordÐCounter 2 1 1
+LSB of countÐCounter 2 1 0
+LSB of countÐCounter 1 0 1
+LSB of countÐCounter 0 0 0
+MSB of countÐCounter 0 0 0
+MSB of countÐCounter 1 0 1
+MSB of countÐCounter 2 1 0
+A1 A0
+Control WordÐCounter 2 1 1
+Control WordÐCounter 1 1 1
+Control WordÐCounter 0 1 1
+LSB of countÐCounter 2 1 0
+MSB of countÐCounter 2 1 0
+LSB of countÐCounter 1 0 1
+MSB of countÐCounter 1 0 1
+LSB of countÐCounter 0 0 0
+MSB of countÐCounter 0 0 0
+A1 A0
+Control WordÐCounter 1 1 1
+Control WordÐCounter 0 1 1
+LSB of countÐCounter 1 0 1
+Control WordÐCounter 2 1 1
+LSB of countÐCounter 0 0 0
+MSB of countÐCounter 1 0 1
+LSB of countÐCounter 2 1 0
+MSB of countÐCounter 0 0 0
+MSB of countÐCounter 2 1 0
+NOTE:
+In all four examples, all Counters are programmed to read/write two-byte counts. These are only four of many possible
+programming sequences.
+Figure 8. A Few Possible Programming Sequences
+Read Operations
+It is often desirable to read the value of a Counter
+without disturbing the count in progress. This is easily done in the 8254.
+There are three possible methods for reading the
+counters: a simple read operation, the Counter
+Latch Command, and the Read-Back Command.
+Each is explained below. The first method is to perform a simple read operation. To read the Counter,
+which is selected with the A1, A0 inputs, the CLK
+input of the selected Counter must be inhibited by
+using either the GATE input or external logic. Otherwise, the count may be in the process of changing
+when it is read, giving an undefined result.
+COUNTER LATCH COMMAND
+The second method uses the ‘‘Counter Latch Command’’. Like a Control Word, this command is written
+to the Control Word Register, which is selected
+when A1,A0 e 11. Also like a Control Word, the
+SC0, SC1 bits select one of the three Counters, but
+two other bits, D5 and D4, distinguish this command
+from a Control Word.
+A1,A0 e 11; CS e 0; RD e 1; WR e 0
+D7 D6 D5 D4 D3 D2 D1 D0
+SC1 SC0 0 0 X X X X
+SC1,SC0Ðspecify counter to be latched
+SC1 SC0 Counter
+00 0
+01 1
+10 2
+1 1 Read-Back Command
+D5,D4Ð00 designates Counter Latch Command
+XÐdon’t care
+NOTE:
+Don’t care bits (X) should be 0 to insure compatibility
+with future Intel products.
+Figure 9. Counter Latching Command Format
+7
+8254
+The selected Counter’s output latch (OL) latches the
+count at the time the Counter Latch Command is
+received. This count is held in the latch until it is read
+by the CPU (or until the Counter is reprogrammed).
+The count is then unlatched automatically and the
+OL returns to ‘‘following’’ the counting element (CE).
+This allows reading the contents of the Counters
+‘‘on the fly’’ without affecting counting in progress.
+Multiple Counter Latch Commands may be used to
+latch more than one Counter. Each latched Counter’s OL holds its count until it is read. Counter Latch
+Commands do not affect the programmed Mode of
+the Counter in any way.
+If a Counter is latched and then, some time later,
+latched again before the count is read, the second
+Counter Latch Command is ignored. The count read
+will be the count at the time the first Counter Latch
+Command was issued.
+With either method, the count must be read according to the programmed format; specifically, if the
+Counter is programmed for two byte counts, two
+bytes must be read. The two bytes do not have to be
+read one right after the other; read or write or programming operations of other Counters may be inserted between them.
+Another feature of the 8254 is that reads and writes
+of the same Counter may be interleaved; for example, if the Counter is programmed for two byte
+counts, the following sequence is valid.
+1) Read least significant byte.
+2) Write new least significant byte.
+3) Read most significant byte.
+4) Write new most significant byte.
+If a Counter is programmed to read/write two-byte
+counts, the following precaution applies: A program
+must not transfer control between reading the first
+and second byte to another routine which also reads
+from that same Counter. Otherwise, an incorrect
+count will be read.
+READ-BACK COMMAND
+The third method uses the Read-Back Command.
+This command allows the user to check the count
+value, programmed Mode, and current states of the
+OUT pin and Null Count flag of the selected counter(s).
+The command is written into the Control Word Register and has the format shown in Figure 10. The
+command applies to the counters selected by setting their corresponding bits D3, D2, D1 e 1.
+A0, A1 e 11 CS e 0 RD e 1 WR e 0
+D7 D6 D5 D4 D3 D2 D1 D0
+1 1 COUNT STATUS CNT 2 CNT 1 CNT 0 0
+D5: 0 e Latch count of selected counter(s)
+D4: 0 e Latch status of selected counters(s)
+D3: 1 e Select Counter 2
+D2: 1 e Select Counter 1
+D1: 1 e Select Counter 0
+D0: Reserved for future expansion; Must be 0
+Figure 10. Read-Back Command Format
+The read-back command may be used to latch multiple counter output latches (OL) by setting the
+COUNT bit D5 e 0 and selecting the desired counter(s). This single command is functionally equivalent to several counter latch commands, one for
+each counter latched. Each counter’s latched count
+is held until it is read (or the counter is reprogrammed). The counter is automatically unlatched
+when read, but other counters remain latched until
+they are read. If multiple count read-back commands
+are issued to the same counter without reading the
+count, all but the first are ignored; i.e., the count
+which will be read is the count at the time the first
+read-back command was issued.
+The read-back command may also be used to latch
+status information of selected counter(s) by setting
+STATUS bit D4 e 0. Status must be latched to be
+read; status of a counter is accessed by a read from
+that counter.
+The counter status format is shown in Figure 11. Bits
+D5 through D0 contain the counter’s programmed
+Mode exactly as written in the last Mode Control
+Word. OUTPUT bit D7 contains the current state of
+the OUT pin. This allows the user to monitor the
+counter’s output via software, possibly eliminating
+some hardware from a system.
+D7 D6 D5 D4 D3 D2 D1 D0
+Output Null RW1 RW0 M2 M1 M0 BCD Count
+D7 1 e OUT Pin is 1
+0 e OUT Pin is 0
+D6 1 e Null Count
+0 e Count available for reading
+D5–D0 Counter programmed mode (see Figure
+7)
+Figure 11. Status Byte
+8
+8254
+NULL COUNT bit D6 indicates when the last count
+written to the counter register (CR) has been loaded
+into the counting element (CE). The exact time this
+happens depends on the Mode of the counter and is
+described in the Mode Definitions, but until the count
+is loaded into the counting element (CE), it can’t be
+read from the counter. If the count is latched or read
+before this time, the count value will not reflect the
+new count just written. The operation of Null Count
+is shown in Figure 12.
+This Action Causes
+A. Write to the control word register;(1) Null Count e 1
+B. Write to the count register (CR);(2) Null Count e 1
+C. New Count is loaded into Null Count e 0
+CE (CRxCE);
+NOTE:
+1. Only the counter specified by the control word will
+have its Null Count set to 1. Null count bits of other
+counters are unaffected.
+2. If the counter is programmed for two-byte counts
+(least significant byte then most significant byte) Null
+Count goes to 1 when the second byte is written.
+Figure 12. Null Count Operation
+If multiple status latch operations of the counter(s)
+are performed without reading the status, all but the
+first are ignored; i.e., the status that will be read is
+the status of the counter at the time the first status
+read-back command was issued.
+Both count and status of the selected counter(s)
+may be latched simultaneously by setting both
+COUNT and STATUS bits D5,D4 e 0. This is functionally the same as issuing two separate read-back
+commands at once, and the above discussions apply here also. Specifically, if multiple count and/or
+status read-back commands are issued to the same
+counter(s) without any intervening reads, all but the
+first are ignored. This is illustrated in Figure 13.
+If both count and status of a counter are latched, the
+first read operation of that counter will return latched
+status, regardless of which was latched first. The
+next one or two reads (depending on whether the
+counter is programmed for one or two type counts)
+return latched count. Subsequent reads return unlatched count.
+CS RD WR A1 A0
+0 1 0 0 0 Write into Counter 0
+0 1 0 0 1 Write into Counter 1
+0 1 0 1 0 Write into Counter 2
+0 1 0 1 1 Write Control Word
+0 0 1 0 0 Read from Counter 0
+0 0 1 0 1 Read from Counter 1
+0 0 1 1 0 Read from Counter 2
+0 0 1 1 1 No-Operation (3-State)
+1 X X X X No-Operation (3-State)
+0 1 1 X X No-Operation (3-State)
+Figure 14. Read/Write Operations Summary
+Command Description Result D7 D6 D5 D4 D3 D2 D1 D0
+11000010 Read back count and status of Count and status latched
+Counter 0 for Counter 0
+11100100 Read back status of Counter 1 Status latched for Counter 1
+11101100 Read back status of Counters 2, 1 Status latched for Counter
+2, but not Counter 1
+11011000 Read back count of Counter 2 Count latched for Counter 2
+11000100 Read back count and status of Count latched for Counter 1,
+Counter 1 but not status
+11100010 Read back status of Counter 1 Command ignored, status
+already latched for Counter 1
+Figure 13. Read-Back Command Example
+9
+8254
+Mode Definitions
+The following are defined for use in describing the
+operation of the 8254.
+CLK Pulse: a rising edge, then a falling edge, in
+that order, of a Counter’s CLK input.
+Trigger: a rising edge of a Counter’s GATE
+input.
+Counter loading: the transfer of a count from the CR
+to the CE (refer to the ‘‘Functional
+Description’’)
+MODE 0: INTERRUPT ON TERMINAL COUNT
+Mode 0 is typically used for event counting. After the
+Control Word is written, OUT is initially low, and will
+remain low until the Counter reaches zero. OUT then
+goes high and remains high until a new count or a
+new Mode 0 Control Word is written into the Counter.
+GATE e 1 enables counting; GATE e 0 disables
+counting. GATE has no effect on OUT.
+After the Control Word and initial count are written to
+a Counter, the initial count will be loaded on the next
+CLK pulse. This CLK pulse does not decrement the
+count, so for an initial count of N, OUT does not go
+high until N a 1 CLK pulses after the initial count is
+written.
+If a new count is written to the Counter, it will be
+loaded on the next CLK pulse and counting will continue from the new count. If a two-byte count is written, the following happens:
+1) Writing the first byte disables counting. OUT is set
+low immediately (no clock pulse required)
+2) Writing the second byte allows the new count to
+be loaded on the next CLK pulse.
+This allows the counting sequence to be synchronized by software. Again, OUT does not go high until
+Na1 CLK pulses after the new count of N is written.
+If an initial count is written while GATE e 0, it will
+still be loaded on the next CLK pulse. When GATE
+goes high, OUT will go high N CLK pulses later; no
+CLK pulse is needed to load the Counter as this has
+already been done.
+MODE 1: HARDWARE RETRIGGERABLE
+ONE-SHOT
+OUT will be initially high. OUT will go low on the CLK
+pulse following a trigger to begin the one-shot pulse,
+and will remain low until the Counter reaches zero.
+OUT will then go high and remain high until the CLK
+pulse after the next trigger.
+After writing the Control Word and initial count, the
+Counter is armed. A trigger results in loading the
+Counter and setting OUT low on the next CLK pulse,
+thus starting the one-shot pulse. An initial count of N
+will result in a one-shot pulse N CLK cycles in duration. The one-shot is retriggerable, hence OUT will
+remain low for N CLK pulses after any trigger. The
+one-shot pulse can be repeated without rewriting the
+same count into the counter. GATE has no effect on
+OUT.
+If a new count is written to the Counter during a oneshot pulse, the current one-shot is not affected unless the counter is retriggered. In that case, the
+Counter is loaded with the new count and the oneshot pulse continues until the new count expires.
+MODE 2: RATE GENERATOR
+This Mode functions like a divide-by-N counter. It is
+typically used to generate a Real Time Clock interrupt. OUT will initially be high. When the initial count
+has decremented to 1, OUT goes low for one CLK
+pulse. OUT then goes high again, the Counter reloads the initial count and the process is repeated.
+Mode 2 is periodic; the same sequence is repeated
+indefinitely. For an initial count of N, the sequence
+repeats every N CLK cycles.
+GATE e 1 enables counting; GATE e 0 disables
+counting. If GATE goes low during an output pulse,
+OUT is set high immediately. A trigger reloads the
+Counter with the initial count on the next CLK pulse;
+OUT goes low N CLK pulses after the trigger. Thus
+the GATE input can be used to synchronize the
+Counter.
+After writing a Control Word and initial count, the
+Counter will be loaded on the next CLK pulse. OUT
+goes low N CLK Pulses after the initial count is written. This allows the Counter to be synchronized by
+software also.
+Writing a new count while counting does not affect
+the current counting sequence. If a trigger is received after writing a new count but before the end
+of the current period, the Counter will be loaded with
+the new count on the next CLK pulse and counting
+will continue from the new count. Otherwise, the
+new count will be loaded at the end of the current
+counting cycle. In mode 2, a COUNT of 1 is illegal.
+MODE 3: SQUARE WAVE MODE
+Mode 3 is typically used for Baud rate generation.
+Mode 3 is similar to Mode 2 except for the duty cycle
+of OUT. OUT will initially be high. When half the
+10
+8254
+231164 –7
+NOTE:
+The following conventions apply to all mode timing diagrams:
+1. Counters are programmed for binary (not BCD) counting and for reading/writing least significant byte (LSB) only.
+2. The counter is always selected (CS always low).
+3. CW stands for ‘‘Control Word’’; CW e 10 means a control word of 10 HEX is written to the counter.
+4. LSB stands for ‘‘Least Significant Byte’’ of count.
+5. Numbers below diagrams are count values. The lower number is the least significant byte. The upper number is the
+most significant byte. Since the counter is programmed to read/write LSB only, the most significant byte cannot be read.
+N stands for an undefined count.
+Vertical lines show transitions between count values.
+Figure 15. Mode 0
+11
+8254
+231164 –8
+Figure 16. Mode 1
+initial count has expired, OUT goes low for the remainder of the count. Mode 3 is periodic; the sequence above is repeated indefinitely. An initial
+count of N results in a square wave with a period of
+N CLK cycles.
+GATE e 1 enables counting; GATE e 0 disables
+counting. If GATE goes low while OUT is low, OUT is
+set high immediately; no CLK pulse is required. A
+trigger reloads the Counter with the initial count on
+the next CLK pulse. Thus the GATE input can be
+used to synchronize the Counter.
+After writing a Control Word and initial count, the
+Counter will be loaded on the next CLK pulse. This
+allows the Counter to be synchronized by software
+also.
+Writing a new count while counting does not affect
+the current counting sequence. If a trigger is received after writing a new count but before the end
+of the current half-cycle of the square wave, the
+Counter will be loaded with the new count on the
+next CLK pulse and counting will continue from the
+12
+8254
+231164 –9
+NOTE:
+A GATE transition should not occur one clock prior to terminal count.
+Figure 17. Mode 2
+new count. Otherwise, the new count will be loaded
+at the end of the current half-cycle.
+Mode 3 is implemented as follows:
+Even counts: OUT is initially high. The initial count is
+loaded on one CLK pulse and then is decremented
+by two on succeeding CLK pulses. When the count
+expires OUT changes value and the Counter is reloaded with the initial count. The above process is
+repeated indefinitely.
+Odd counts: OUT is initially high. The initial count
+minus one (an even number) is loaded on one CLK
+pulse and then is decremented by two on succeeding CLK pulses. One CLK pulse after the count expires, OUT goes low and the Counter is reloaded
+with the initial count minus one. Succeeding CLK
+pulses decrement the count by two. When the count
+expires, OUT goes high again and the Counter is
+reloaded with the initial count minus one. The above
+process is repeated indefinitely. So for odd counts,
+OUT will be high for (N a 1)/2 counts and low for
+(N b 1)/2 counts.
+13
+8254
+231164 –10
+NOTE:
+A GATE transition should not occur one clock prior to terminal count.
+Figure 18. Mode 3
+14
+8254
+MODE 4: SOFTWARE TRIGGERED STROBE
+OUT will be initially high. When the initial count expires, OUT will go low for one CLK pulse and then
+go high again. The counting sequence is ‘‘triggered’’
+by writing the initial count.
+GATE e 1 enables counting; GATE e 0 disables
+counting. GATE has no effect on OUT.
+After writing a Control Word and initial count, the
+Counter will be loaded on the next CLK pulse. This
+CLK pulse does not decrement the count, so for an
+initial count of N, OUT does not strobe low until N a
+1 CLK pulses after the initial count is written.
+If a new count is written during counting, it will be
+loaded on the next CLK pulse and counting will continue from the new count. If a two-byte count is written, the following happens:
+1) Writing the first byte has no effect on counting.
+2) Writing the second byte allows the new count to
+be loaded on the next CLK pulse.
+This allows the sequence to be ‘‘retriggered’’ by
+software. OUT strobes low N a 1 CLK pulses after
+the new count of N is written.
+231164 –11
+Figure 19. Mode 4
+15
+8254
+MODE 5: HARDWARE TRIGGERED STROBE
+(RETRIGGERABLE)
+OUT will initially be high. Counting is triggered by a
+rising edge of GATE. When the initial count has expired, OUT will go low for one CLK pulse and then
+go high again.
+After writing the Control Word and initial count, the
+counter will not be loaded until the CLK pulse after a
+trigger. This CLK pulse does not decrement the
+count, so for an initial count of N, OUT does not
+strobe low until N a 1 CLK pulses after a trigger.
+A trigger results in the Counter being loaded with the
+initial count on the next CLK pulse. The counting
+sequence is retriggerable. OUT will not strobe low
+for N a 1 CLK pulses after any trigger. GATE has
+no effect on OUT.
+If a new count is written during counting, the current
+counting sequence will not be affected. If a trigger
+occurs after the new count is written but before the
+current count expires, the Counter will be loaded
+with the new count on the next CLK pulse and
+counting will continue from there.
+231164 –12
+Figure 20. Mode 5
+16
+8254
+Signal Low
+Status Or Going Rising High
+Modes Low
+0 Disables Ð Ð Enables
+Counting Counting
+1 Ð Ð 1) Initiates Ð Ð
+Counting
+2) Resets Output
+after Next
+Clock
+2 1) Disables
+Counting Initiates Enables
+2) Sets Output Counting Counting
+Immediately
+High
+3 1) Disables
+Counting Initiates Enables
+2) Sets Output Counting Counting
+Immediately
+High
+4 Disables Ð Ð Enables
+Counting Counting
+5 Ð Ð Initiates Ð Ð
+Counting
+Figure 21. Gate Pin Operations Summary
+Mode Min Max
+Count Count
+01 0
+11 0
+22 0
+32 0
+41 0
+51 0
+NOTE:
+0 is equivalent to 216 for binary counting and 104 for
+BCD counting.
+Figure 22. Minimum and Maximum Initial Counts
+Operation Common to All Modes
+PROGRAMMING
+When a Control Word is written to a Counter, all
+Control Logic is immediately reset and OUT goes to
+a known initial state; no CLK pulses are required for
+this.
+GATE
+The GATE input is always sampled on the rising
+edge of CLK. In Modes 0, 2, 3, and 4 the GATE input
+is level sensitive, and the logic level is sampled on
+the rising edge of CLK. In Modes 1, 2, 3, and 5 the
+GATE input is rising-edge sensitive. In these Modes,
+a rising edge of GATE (trigger) sets an edge-sensitive flip-flop in the Counter. This flip-flop is then sampled on the next rising edge of CLK; the flip-flop is
+reset immediately after it is sampled. In this way, a
+trigger will be detected no matter when it occursÐa
+high logic level does not have to be maintained until
+the next rising edge of CLK. Note that in Modes 2
+and 3, the GATE input is both edge- and level-sensitive. In Modes 2 and 3, if a CLK source other than
+the system clock is used, GATE should be pulsed
+immediately following WR of a new count value.
+COUNTER
+New counts are loaded and Counters are decremented on the falling edge of CLK.
+The largest possible initial count is 0; this is equivalent to 216 for binary counting and 104 for BCD
+counting.
+The Counter does not stop when it reaches zero. In
+Modes 0, 1, 4, and 5 the Counter ‘‘wraps around’’ to
+the highest count, either FFFF hex for binary counting or 9999 for BCD counting, and continues counting. Modes 2 and 3 are periodic; the Counter reloads
+itself with the initial count and continues counting
+from there.
+17
+8254
+ABSOLUTE MAXIMUM RATINGS*
+Ambient Temperature Under Bias ÀÀÀÀÀÀ0§C to 70§C
+Storage Temperature ÀÀÀÀÀÀÀÀÀÀb65§C to a150§C
+Voltage on Any Pin with
+Respect to GroundÀÀÀÀÀÀÀÀÀÀÀÀÀÀb0.5V to a7V
+Power Dissipation ÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀ1W
+NOTICE: This is a production data sheet. The specifications are subject to change without notice.
+*WARNING: Stressing the device beyond the ‘‘Absolute
+Maximum Ratings’’ may cause permanent damage.
+These are stress ratings only. Operation beyond the
+‘‘Operating Conditions’’ is not recommended and extended exposure beyond the ‘‘Operating Conditions’’
+may affect device reliability.
+D.C. CHARACTERISTICS TA e 0§C to 70§C, VCC e 5V g10%
+Symbol Parameter Min Max Units Test Conditions
+VIL Input Low Voltage b0.5 0.8 V
+VIH Input High Voltage 2.0 VCC a0.5V V
+VOL Output Low Voltage 0.45 V IOL e 2.0 mA
+VOH Output High Voltage 2.4 V IOH e b400 mA
+IIL Input Load Current g10 mA VIN e VCC to 0V
+IOFL Output Float Leakage g10 mA VOUT e VCC to 0.45V
+ICC VCC Supply Current 170 mA
+CIN Input Capacitance 10 pF fc e 1 MHz
+CI/0 I/O Capacitance 20 pF Unmeasured pins
+returned to VSS(4)
+A.C. CHARACTERISTICS TA e 0§C to 70§C, VCC e 5V g10%, GND e 0V
+Bus Parameters(1)
+READ CYCLE
+Symbol Parameter
+8254 8254-2
+Unit
+Min Max Min Max
+tAR Address Stable Before RDv 45 30 ns
+tSR CS Stable Before RD v 0 0 ns
+tRA Address Hold Time After RD u 0 0 ns
+tRR RD Pulse Width 150 95 ns
+tRD Data Delay from RD v 120 85 ns
+tAD Data Delay from Address 220 185 ns
+tDF RD uto Data Floating 5 90 5 65 ns
+tRV Command Recovery Time 200 165 ns
+NOTE:
+1. AC timings measured at VOH e 2.0V, VOL e 0.8V.
+18
+8254
+A.C. CHARACTERISTICS TA e 0§C to 70§C, VCC e 5V g10%, GND e 0V (Continued)
+WRITE CYCLE
+Symbol Parameter
+8254 8254-2
+Unit
+Min Max Min Max
+tAW Address Stable Before WR v 0 0 ns
+tSW CS Stable Before WRv 0 0 ns
+tWA Address Hold Time After WR v 0 0 ns
+tWW WR Pulse Width 150 95 ns
+tDW Data Setup Time Before WR u 120 95 ns
+tWD Data Hold Time After WR u 0 0 ns
+tRV Command Recovery Time 200 165 ns
+CLOCK AND GATE
+Symbol Parameter
+8254 8254-2
+Unit
+Min Max Min Max
+tCLK Clock Period 125 DC 100 DC ns
+tPWH High Pulse Width 60(3) 30(3) ns
+tPWL Low Pulse Width 60(3) 50(3) ns
+tR Clock Rise Time 25 25 ns
+tF Clock Fall Time 25 25 ns
+tGW Gate Width High 50 50 ns
+tGL Gate Width Low 50 50 ns
+tGS Gate Setup Time to CLK u 50 40 ns
+tGH Gate Setup Time After CLK u 50(2) 50(2) ns
+tOD Output Delay from CLK v 150 100 ns
+tODG Output Delay from Gate v 120 100 ns
+tWC CLK Delay for Loading v 0 55 0 55 ns
+tWG Gate Delay for Sampling b5 50 b5 40 ns
+tWO OUT Delay from Mode Write 260 240 ns
+tCL CLK Set Up for Count Latch b40 45 b40 40 ns
+NOTES:
+2. In Modes 1 and 5 triggers are sampled on each rising clock edge. A second trigger within 120 ns (70 ns for the 8254-2) of
+the rising clock edge may not be detected.
+3. Low-going glitches that violate tPWH, tPWL may cause errors requiring counter reprogramming.
+4. Sampled, not 100% tested. TA e 25§C.
+5. If CLK present at TWC min then Count equals Na2 CLK pulses, TWC max equals Count Na1 CLK pulse. TWC min to
+TWC max, count will be either Na1 or Na2 CLK pulses.
+6. In Modes 1 and 5, if GATE is present when writing a new Count value, at TWG min Counter will not be triggered, at TWG
+max Counter will be triggered.
+7. If CLK present when writing a Counter Latch or ReadBack Command, at TCL min CLK will be reflected in count value
+latched, at TCL max CLK will not be reflected in the count value latched.
+19
+8254
+WAVEFORMS
+WRITE
+231164 –13
+READ
+231164 –14
+20
+8254
+WAVEFORMS (Continued)
+RECOVERY
+231164 –15
+CLOCK AND GATE
+231164 –16
+*Last byte of count being written.
+A.C. TESTING INPUT, OUTPUT WAVEFORM
+231164 –17
+A.C. Testing: Inputs are driven at 2.4V for a Logic ‘‘1’’ and 0.45V
+for a Logic ‘‘0.’’ Timing measurements are made at 2.0V for a
+Logic ‘‘1’’ and 0.8V for a Logic ‘‘0’’.
+A.C. TESTING LOAD CIRCUIT
+231164 –18
+CL e 150 pF
+CL Includes Jig Capacitance
+REVISION SUMMARY
+The following list represents the key differences between Rev. 004 and Rev. 005 of the 8254 Data
+Sheet.
+1. References to and specifications for the 5 MHz
+8254-5 are removed. Only the 8 MHz 8254 and
+the 10 MHz 8254-2 remain in production.
+21

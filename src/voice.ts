@@ -243,7 +243,7 @@ export async function initTTS(): Promise<boolean> {
         console.log(`[TTS] 🎯 TTS Provider: ${ttsProvider}`);
         return true;
     } catch (e) {
-        console.error('[TTS] ❌ Error initializing TTS:', e);
+ console.error('[TTS] Error initializing TTS:', e);
         ttsProvider = 'qwen'; // Fallback to local
         console.log('[TTS] ⚠️  Using Qwen3-TTS (local) as fallback');
         return false;
@@ -263,7 +263,7 @@ export function setProvider(provider: typeof ttsProvider): void {
         qwenNativeTTS.reset();
         qwenNativeTTS.start().then(ok => {
             if (!ok) {
-                console.warn('[TTS] ⚠ Qwen3-TTS native server not reachable. Run: python Qwen3-TTS/api_server.py');
+ console.warn('[TTS] Qwen3-TTS native server not reachable. Run: python Qwen3-TTS/api_server.py');
             }
         }).catch(() => { /* swallow */ });
     }

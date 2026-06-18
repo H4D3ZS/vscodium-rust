@@ -6,6 +6,33 @@ import type { TerminalSplitLayout } from '../../domain/terminal/TerminalLayout';
  * Spawn a new terminal group + first instance.
  * Returns the group id for UI selection.
  */
+/** Spawn an OpenCode TUI terminal group, pre-wired with IDE AI provider config. */
+export async function spawnOpenCodeGroup(): Promise<string> {
+    const terminalManager = await getTerminalManager();
+    const groupId = `group-opencode-${Date.now()}`;
+    const instanceId = `term-opencode-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    await terminalManager.createOpenCodeTerminal(instanceId, groupId);
+
+    useStore.setState((s) => ({
+        terminalGroups: [
+            ...s.terminalGroups,
+            {
+                id: groupId,
+                name: 'OpenCode',
+                instances: [instanceId],
+                activeInstanceId: instanceId,
+                layout: 'single' as TerminalSplitLayout,
+            },
+        ],
+        activeTerminalGroupId: groupId,
+        activePanelTab: 'TERMINAL',
+        isBottomPanelOpen: true,
+    }));
+
+    return groupId;
+}
+
 export async function spawnTerminalGroup(shell?: string): Promise<string> {
     const terminalManager = await getTerminalManager();
     const id = `group-${Date.now()}`;

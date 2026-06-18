@@ -360,6 +360,29 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
     }
 
 
+    // Headless web-chat models — drive your logged-in free web chat as a model
+    // (no API key, no usage caps). Backed by the local OpenAI shim on :1539.
+    items.push({
+        label: "🤖 Claude (Web · headless)",
+        value: "webchat-claude|webchat-claude",
+        desc: "Your free claude.ai session as an agentic model — 24/7, no API key"
+    });
+    items.push({
+        label: "🐬 DeepSeek (Web · headless)",
+        value: "webchat-deepseek|webchat-deepseek",
+        desc: "Your free deepseek.com session as an agentic model — 24/7"
+    });
+    items.push({
+        label: "🔑 Web login: Claude (one-time)",
+        value: "action|webchat_login|claude",
+        desc: "Opens Firefox once to log in; the session is saved for headless use"
+    });
+    items.push({
+        label: "🔑 Web login: DeepSeek (one-time)",
+        value: "action|webchat_login|deepseek",
+        desc: "Opens Firefox once to log in; the session is saved for headless use"
+    });
+
     // Add Browser login options
     items.push({
         label: "☁️ Login to Claude (Browser)",
@@ -393,6 +416,18 @@ export function openModelDropdown(element: HTMLElement, onSelect: (label: string
         if (val === "action|check_ollama") {
             const store = (window as any).useStore;
             if (store) store.getState().refreshAvailableModels("ollama");
+            return;
+        }
+        if (val.startsWith("action|webchat_login|")) {
+            const provider = val.split("|")[2];
+            const store = (window as any).useStore;
+            store?.getState?.().addToast?.(`Opening ${provider} login — finish signing in, then it runs headless.`, 'info');
+            invoke("webchat_login", { provider })
+                .then((msg) => store?.getState?.().addToast?.(String(msg), 'success'))
+                .catch(err => {
+                    console.error("webchat login failed:", err);
+                    store?.getState?.().addToast?.(`Web login failed: ${err}`, 'error');
+                });
             return;
         }
         if (val.startsWith("action|login|")) {
@@ -1391,30 +1426,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         if (handled) return;
     }
 
-    // ── Bug Bounty / offensive-security ToS gate (tied to the account) ──────
-    // Offensive modes require accepting the authorized-use Terms of Service,
-    // recorded on the account (backend `account.rs`). Block until accepted.
-    {
-        const _mode = store.getState().agentMode;
-        const _offensivePrompt = /^\s*\[(?:PERSONA|INTENT|SCOPE)/i.test(userPrompt)
-            || !!inferSecurityIntent(userPrompt);
-        const _offensive = _mode === 'BugBounty' || _mode === 'Bug Bounty'
-            || _mode === 'RedTeam' || _mode === 'Red Team'
-            || _offensivePrompt;
-        if (_offensive) {
-            try {
-                const accepted = await invoke<boolean>('account_tos_status', { docId: 'bug-bounty' });
-                if (!accepted) {
-                    store.getState().addAgentMessage?.('assistant',
-                        '🛡️ **Bug Bounty Terms required.** Offensive-security features need you to accept the authorized-use Terms of Service first.\n\n' +
-                        'Open **Settings → Account & Terms → Bug Bounty**, review and accept, then resend your request.');
-                    try { store.getState().openSettings?.('agent'); } catch { /* */ }
-                    store.getState().setIsAgentThinking?.(false);
-                    return;
-                }
-            } catch { /* backend hiccup — do not hard-block on a transient error */ }
-        }
-    }
+    // OSS community build: no SaaS account, no ToS gate. Offensive-security
+    // modes (Bug Bounty / Red Team) run unrestricted — legal authorization is
+    // the user's responsibility, as stated in the system prompt.
 
     // Antigravity cascade — brain + trajectory persistence for this agent run
     {
@@ -1425,36 +1439,8 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
     }
 
-    // ── Pro agentic mode gate (Sentient / Harness / Planning) ─────────────
-    // Tries online check first, falls back to cached tier for offline use
-    {
-        const mode = store.getState().agentMode || '';
-        const modeL = mode.toLowerCase();
-        const needsProAgentic = modeL === 'sentient' || modeL === 'harness' || modeL === 'planning'
-            || modeL === 'yolo' || modeL.includes('bug bounty') || modeL === 'bugbounty';
-        if (needsProAgentic) {
-            let ok = false;
-            try {
-                // Try online check first (most accurate)
-                ok = await invoke<boolean>('account_has_feature', { feature: 'agentic' });
-            } catch {
-                // Backend unavailable — check cached tier (offline support)
-                try {
-                    ok = await invoke<boolean>('account_has_feature_offline', { feature: 'agentic' });
-                } catch {
-                    // No cached tier either
-                }
-            }
-            if (!ok) {
-                store.getState().addAgentMessage?.('assistant',
-                    '🔒 **Full agentic modes (Sentient, Harness, Bug Bounty) require Pro Developer or higher.**\n\n' +
-                    'Community tier includes basic chat + local Ollama. Start the **1-day free trial** or subscribe in **Settings → Account**.');
-                try { store.getState().openSettings?.('agent'); } catch { /* */ }
-                store.getState().setIsAgentThinking?.(false);
-                return;
-            }
-        }
-    }
+    // OSS community build: all agentic modes (Sentient, Harness, Planning,
+    // YOLO, Bug Bounty) are unlocked — no Pro/feature gate.
 
     // Persistent agentic modes (Bug Bounty, Harness, Sentient, …) — auto-enable
     // YOLO + diff auto-accept so tools run without manual Allow / Apply clicks.
@@ -1463,61 +1449,9 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         await ensureAgenticAutonomy(store.getState().agentMode);
     }
 
-    // ── Subscription quota gate (tied to the account) ──────────────────────
-    // Each AI turn counts against the plan's request budget (backend
-    // `account_check_and_count` — local-authoritative, mirrored to Supabase when
-    // signed in). When over the cap, block and point to upgrade. A transient
-    // backend error never hard-blocks the user.
-    try {
-        const q = await invoke<{ allowed: boolean; reason?: string; used_day?: number; limit_day?: number; used_month?: number; limit_month?: number; tier?: string }>('account_check_and_count');
-        if (q && q.allowed === false) {
-            const cap = q.reason === 'tokens'
-                ? `monthly token budget (${(q as any).used_tokens}/${(q as any).limit_tokens})`
-                : q.reason === 'daily'
-                ? `daily limit (${q.used_day}/${q.limit_day})`
-                : `monthly limit (${q.used_month}/${q.limit_month})`;
-            store.getState().addAgentMessage?.('assistant',
-                `⏳ **Request quota reached.** You hit your ${q.tier || ''} ${cap}.\n\n` +
-                'Open **Settings → Account & Terms** to upgrade your plan for a higher budget. ' +
-                'Local Ollama models always run free — switch the model picker to a local model to keep working.');
-            try { store.getState().openSettings?.('agent'); } catch { /* */ }
-            store.getState().setIsAgentThinking?.(false);
-            return;
-        }
-    } catch { /* backend hiccup — do not hard-block on a transient error */ }
-
-    // ── Managed-cloud gating (the thing they pay us for) ───────────────────
-    // Cyber-Ifrit Cloud (our hosted AMD models) needs an active plan or the free
-    // trial. Local Ollama + the user's own API keys (BYOB) are ALWAYS free — so
-    // after the trial, an unpaid user keeps a fully working IDE, just on their
-    // own compute/keys. (The AMD gateway also enforces this server-side.)
-    try {
-        const model = store.getState().agentModel || '';
-        const provider = (model.split('|')[0] || '').toLowerCase();
-        const isManagedCloud = provider.includes('cyberifrit') || provider.includes('cyber-ifrit');
-        if (isManagedCloud) {
-            let ok = false;
-            try {
-                ok = await invoke<boolean>('account_has_feature', { feature: 'cloud_models' });
-            } catch {
-                // Offline fallback: check cached tier
-                try {
-                    ok = await invoke<boolean>('account_has_feature_offline', { feature: 'cloud_models' });
-                } catch {
-                    // No cached tier
-                }
-            }
-            if (!ok) {
-                store.getState().addAgentMessage?.('assistant',
-                    '🔒 **Cyber-Ifrit Cloud is a paid feature.** Our hosted models need an active plan or the free trial.\n\n' +
-                    'You can keep working **free right now** — switch the model picker to a **local Ollama** model or **your own API key** (BYOB). ' +
-                    'Or open **Settings → Account** to start the 1-day free trial or subscribe.');
-                try { store.getState().openSettings?.('agent'); } catch { /* */ }
-                store.getState().setIsAgentThinking?.(false);
-                return;
-            }
-        }
-    } catch { /* backend hiccup — don't hard-block */ }
+    // OSS community build: no subscription quota and no managed-cloud paywall.
+    // Local Ollama, BYO API keys, and any cloud endpoint the user configures all
+    // run free and unmetered.
 
     // ── Auto-open the live activity terminal (once) ────────────────────────
     // Surfaces what the agent is doing in real time — every tool call + live
@@ -1640,6 +1574,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
     ]);
     const selectedIsCloudModel = CLOUD_PROVIDER_PREFIXES.has(selectedProviderPrefix)
+        || selectedProviderPrefix.startsWith('webchat') // headless web-chat shim, not Ollama
         || isHighwayApiModel(selectedModelLower)
         || selectedModelLower.includes('gemini') || selectedModelLower.includes('claude')
         || selectedModelLower.includes('gpt-') || selectedModelLower.includes('o1-')
@@ -1674,7 +1609,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
         }
 
         if (!probeOk) {
-            console.error('[Agent] ❌ Ollama pre-flight check FAILED:', lastErrorMsg);
+ console.error('[Agent] Ollama pre-flight check FAILED:', lastErrorMsg);
             store.getState().setIsAgentThinking?.(false);
             const tryHint = managedCloud
                 ? '**Try:** Settings → Ollama → **Cloud Model** → **Reconnect**. Confirm you are signed in with an active subscription.'
@@ -2014,7 +1949,12 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
             'cyberifrit', 'mimo', 'vllm', 'lmstudio', 'litellm', 'deepseek', 'groq', 'mistral',
             'cohere', 'xai', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
         ]);
-        if (!CLOUD_PROVIDERS.has(normalizedProvider) && !isHighwayApiModel(routingModel)) {
+        // webchat-* are headless web-chat "models" fronted by the local OpenAI shim
+        // (:1539) — they are NOT Ollama and must keep their own provider even when
+        // the local inference backend is Ollama.
+        if (!CLOUD_PROVIDERS.has(normalizedProvider)
+            && !normalizedProvider.startsWith('webchat')
+            && !isHighwayApiModel(routingModel)) {
             routingProvider = 'ollama';
         }
         routingOllamaUrl = preflightOllamaUrlOverride || store.getState().ollamaUrl || '';
@@ -2315,7 +2255,7 @@ export async function sendAgentMessage(userPrompt: string, onUpdate?: (msg: stri
 
             // Allow prompt to fall through to the Rust ai_chat autonomous execution loop!
         } catch (err: any) {
-            console.error('[Agent] ❌ AIRI Sentient Core memory update failed:', err);
+ console.error('[Agent] AIRI Sentient Core memory update failed:', err);
         }
     }
 
@@ -2492,7 +2432,10 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
     // action turn so stale state from a prior turn never leaks into this one.
     try {
         const ps = store.getState() as any;
-        const wantPlanner = hybridPlannerAllowed(ps) && looksLikeActionRequest(userPrompt);
+        // Web-chat models are strong enough to plan themselves; don't delegate iter-0
+        // to a separate (possibly cloud) planner — it mixes sessions and adds latency.
+        const isWebchatExecutor = String(routingProvider).toLowerCase().startsWith('webchat');
+        const wantPlanner = !isWebchatExecutor && hybridPlannerAllowed(ps) && looksLikeActionRequest(userPrompt);
         let plannerSpec = '';
         if (wantPlanner) {
             if (!ps.hybridAuto && ps.plannerModel) {
@@ -2530,9 +2473,9 @@ ${preview ? preview + '\n' : ''}Call aim_pack_context for the full semantic map.
         });
 
         if (routingProvider === 'ollama') {
-            store.getState().updateLastAgentMessage?.(
-                `⏳ *Loading **${routingModel}** on local Ollama — first reply can take 1–2 min while the model loads…*`,
-            );
+                store.getState().updateLastAgentMessage?.(
+                    `⏳ *Loading **${routingModel}** on local Ollama — first reply can take 30s–1 min while the model loads into GPU…*`,
+                );
         }
 
         const { beginAgentRun, isAgentRunAborted, registerStreamPollTimer, clearStreamPollTimer, startAgentRunWatchdog, stopAgentRunWatchdog, bumpAgentRunActivity } =
