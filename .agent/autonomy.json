@@ -1,7 +1,0 @@
-{
-  "secure_mode": false,
-  "artifact_review": "always_ask",
-  "terminal_auto": "auto",
-  "browser_js": "always_ask",
-  "file_access": "ask"
-}
