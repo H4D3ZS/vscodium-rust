@@ -588,8 +588,11 @@ export class CybersecurityEngine {
 // Export singleton
 export const security = new CybersecurityEngine();
 
-// Auto-initialize
+// Auto-initialize only if explicitly enabled via localStorage
 if (typeof window !== 'undefined') {
-  
-  security.monitorThreats();
+  try {
+    if (localStorage.getItem('security-engine') === '1') {
+      security.monitorThreats();
+    }
+  } catch { /* no localStorage */ }
 }

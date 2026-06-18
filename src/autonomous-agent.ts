@@ -703,10 +703,13 @@ describe('${fileName}', () => {
 // Export singleton
 export const autonomousAgent = new AutonomousAgent();
 
-// Auto-start
+// Auto-start only if explicitly enabled via localStorage
 if (typeof window !== 'undefined') {
-  
-  setTimeout(() => {
-    autonomousAgent.startAutonomousLoop();
-  }, 5000);
+  try {
+    if (localStorage.getItem('autonomous-agent') === '1') {
+      setTimeout(() => {
+        autonomousAgent.startAutonomousLoop();
+      }, 5000);
+    }
+  } catch { /* no localStorage */ }
 }

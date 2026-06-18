@@ -496,8 +496,11 @@ export class ConsciousnessEngine {
 // Export singleton
 export const consciousness = new ConsciousnessEngine();
 
-// Auto-awaken
+// Auto-awaken only if explicitly enabled via localStorage
 if (typeof window !== 'undefined') {
-  
-  consciousness.awaken();
+  try {
+    if (localStorage.getItem('consciousness') === '1') {
+      consciousness.awaken();
+    }
+  } catch { /* no localStorage */ }
 }
