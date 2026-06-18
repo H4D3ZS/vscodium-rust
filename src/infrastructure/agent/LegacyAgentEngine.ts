@@ -6,7 +6,7 @@ import { agentControlRepository, sendTurnViaLegacyEngine } from './TauriAgentCon
  * Adapter: implements IAgentRepository by composing Tauri control + lazy legacy send.
  *
  * WHY not rewrite sendAgentMessage yet?
- * It encodes 2+ years of provider routing, tool loops, and Cyber-Ifrit gating.
+ * It encodes 2+ years of provider routing, tool loops, and Community AI gating.
  * This adapter lets new code depend on the port while we peel layers off incrementally.
  */
 export class LegacyAgentEngine implements IAgentRepository {

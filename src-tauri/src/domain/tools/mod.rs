@@ -6,7 +6,6 @@ pub mod dispatch;
 pub mod fs_tools;
 pub mod registry;
 pub mod schemas;
-pub mod security_tools;
 pub mod shell;
 pub mod web_edit;
 

@@ -11,7 +11,7 @@ export function applyOfflineCyberDefaults(): void {
     if (typeof localStorage === 'undefined') return;
     if (localStorage.getItem(MIGRATION_KEY)) return;
 
-    const cloudOnboarded = localStorage.getItem('cyberifrit.cloudOnboarded') === '1';
+    const cloudOnboarded = localStorage.getItem('COMMUNITYAI.cloudOnboarded') === '1';
     if (!cloudOnboarded && localStorage.getItem('ollamaServerMode') !== 'cloud') {
         localStorage.setItem('ollamaServerMode', 'local');
         localStorage.setItem('inferenceBackend', 'ollama');

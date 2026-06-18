@@ -96,8 +96,6 @@ const App: React.FC = () => {
 
         const { setActiveRoot, activeRoot, refreshFileTree } = useStore.getState();
 
-        let unsubBilling: (() => void) | undefined;
-
         scheduleDeferredInit(() => {
             const st = useStore.getState();
             import('./lib/agentAutonomy').then(({ ensureAgenticAutonomy }) => {
@@ -109,31 +107,7 @@ const App: React.FC = () => {
             void st.syncOllamaEndpoint?.()
                 .then(() => st.refreshAvailableModels())
                 .catch(() => st.refreshAvailableModels());
-            import('./lib/billingSync').then((m) => {
-                unsubBilling = m.wireBillingFocusSync();
-            });
         }, DEFERRED_INIT_MS);
-
-        // Default subscribed users to managed cloud model (Cyber-Ifrit Qwen 35B).
-        scheduleDeferredInit(() => invoke<any>('account_get').then((acct) => {
-            if (!acct?.signed_in) return;
-            import('./application/enterprise/applyEnterprisePolicy').then((m) =>
-                m.applyEnterprisePolicyFromAccount(acct),
-            );
-            const features: string[] = acct?.entitlements?.features || [];
-            const hasCloud = features.includes('cloud_models') || acct?.trial_active;
-            const st = useStore.getState();
-            if (hasCloud && !localStorage.getItem('cyberifrit.cloudOnboarded')) {
-                try { localStorage.setItem('cyberifrit.cloudOnboarded', '1'); } catch { /* */ }
-                st.setOllamaServerMode?.('cloud');
-                void st.syncOllamaEndpoint?.().then(() => st.refreshAvailableModels());
-            }
-            const current = (st.agentModel || '').trim();
-            const prefersOffline = localStorage.getItem('ide.offline-cyber-boot-v1') === '1';
-            if (!current && hasCloud && !prefersOffline) {
-                st.setAgentModel?.('cyberifrit|cyberifrit/qwen3.6:35b');
-            }
-        }).catch(() => { /* offline / first launch */ }), DEFERRED_INIT_MS + 1_000);
 
         import('./application/workspace/restoreWorkspaceOnBoot').then(({ restoreWorkspaceOnBoot }) =>
             restoreWorkspaceOnBoot(activeRoot, {
@@ -179,7 +153,6 @@ const App: React.FC = () => {
         return () => {
             unsubAgentRuntime?.();
             unsubMemoryGov?.();
-            unsubBilling?.();
         };
     }, []);
 

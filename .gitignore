@@ -75,7 +75,7 @@ src-tauri/.hades/
 **/.hades/ml/data/val.csv
 
 # Proprietary — has own git repo, not a submodule
-Virtual-iPhone-Emulator/
+External-Mobile-Emulator/
 
 # Rust
 src-tauri/target/
@@ -102,7 +102,7 @@ src-tauri/trace-*.json
 src-tauri/ai_chat.log
 
 # ── Proprietary iPhone emulator (standalone app, firmware, doc) ──
-Virtual-iPhone-Emulator/
+External-Mobile-Emulator/
 *.ipsw
 IPHONE_EMULATOR_INTEGRATION.md
 
@@ -141,6 +141,6 @@ airi/packages/font-xiaolai/
 kortex/llama.cpp/models/*.gguf
 src/public/models/airi.vrm
 
-# Separate repo (Cyber-Ifrit portfolio/website) — has its own git, never embed here
-Cyber-Ifrit-Portfolio/
+# Separate repo (Community AI portfolio/website) — has its own git, never embed here
+Community AI-Portfolio/
 /Vega/

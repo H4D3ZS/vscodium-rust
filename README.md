@@ -28,13 +28,13 @@ See [docs/FRIEND_OF_AI_ENGINEERS.md](docs/FRIEND_OF_AI_ENGINEERS.md) for the ful
 
 ## ☁️ Open-Core / Cloud AI
 
-The **IDE client** is open (MIT, when published as `cyber-ifrit-ide`) and fully usable
+The **IDE client** is open (MIT, when published as `Community AI-ide`) and fully usable
 on its own with **local Ollama** — your data never leaves your machine.
 
 **Cloud AI routing, Neural VFS compression, and subscription management are proprietary
-services** hosted on Cyber-Ifrit infrastructure (AMD MI300X backend) — they are **not**
+services** hosted on Community AI infrastructure (AMD MI300X backend) — they are **not**
 part of the open client. To use cloud AI features, subscribe at
-**https://cyberifrit.xyz/pricing**. See `SEPARATION.md`, `PROPRIETARY.md`, and
+**https://example.invalid**. See `SEPARATION.md`, `PROPRIETARY.md`, and
 `FULL_SPLIT_PLAN.md` for the architecture.
 
 > This repository is currently **private** and **All Rights Reserved** (`PROPRIETARY.md`)
@@ -100,9 +100,9 @@ Built by a researcher for researchers. VSCodium-Rust is an elite tool for **Secu
 
 ## ☁️ Cloud AI & Neural VFS
 
-The Cyber-Ifrit IDE client is open-source under the MIT License. 
-Cloud AI routing, Neural VFS compression, and subscription management are **proprietary services** hosted on Cyber-Ifrit infrastructure. 
-To use AI features, you must subscribe to Cyber-Ifrit Cloud at https://cyberifrit.xyz/pricing
+The Community AI IDE client is open-source under the MIT License. 
+Cloud AI routing, Neural VFS compression, and subscription management are **proprietary services** hosted on Community AI infrastructure. 
+To use AI features, you must subscribe to Community AI Cloud at https://example.invalid
 
 ---
 

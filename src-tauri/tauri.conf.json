@@ -36,7 +36,7 @@
           "$HOME/Library/Caches/**"
         ]
       },
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* http://127.0.0.1:11434 http://localhost:5173 http://localhost:5175 https://*.gallery.vsassets.io https://open-vsx.org https://api.github.com https://github.com https://api.cyberifrit.xyz https://releases.cyberifrit.xyz; script-src 'self' https://cdn.jsdelivr.net; frame-src 'self' http://localhost:5173 http://localhost:5175; worker-src 'self' blob: https://cdn.jsdelivr.net; img-src 'self' data: https: asset: http://asset.localhost https://asset.localhost http://127.0.0.1:* http://localhost:*; style-src 'self' 'unsafe-inline' data: http://localhost:5173 http://localhost:5175 https://fonts.googleapis.com asset:; font-src 'self' data: https://fonts.gstatic.com asset:;"
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* http://127.0.0.1:11434 http://localhost:5173 http://localhost:5175 https://*.gallery.vsassets.io https://open-vsx.org https://api.github.com https://github.com https://example.invalid https://example.invalid; script-src 'self' https://cdn.jsdelivr.net; frame-src 'self' http://localhost:5173 http://localhost:5175; worker-src 'self' blob: https://cdn.jsdelivr.net; img-src 'self' data: https: asset: http://asset.localhost https://asset.localhost http://127.0.0.1:* http://localhost:*; style-src 'self' 'unsafe-inline' data: http://localhost:5173 http://localhost:5175 https://fonts.googleapis.com asset:; font-src 'self' data: https://fonts.gstatic.com asset:;"
     }
   },
   "bundle": {

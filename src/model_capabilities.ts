@@ -6,7 +6,7 @@ export type ProviderName =
     | 'anthropic' | 'openAI' | 'deepseek' | 'ollama' | 'vLLM' | 'openRouter'
     | 'gemini' | 'groq' | 'xAI' | 'mistral' | 'lmStudio' | 'liteLLM'
     | 'openAICompatible' | 'googleVertex' | 'microsoftAzure' | 'awsBedrock'
-    | 'antigravity' | 'mimo' | 'cyberifrit' | 'highwayapi';
+    | 'antigravity' | 'mimo' | 'COMMUNITYAI' | 'highwayapi';
 
 export type FeatureName = 'Chat' | 'Apply' | 'Autocomplete' | 'QuickEdit' | 'SCM';
 
@@ -83,7 +83,7 @@ export const defaultProviderEndpoints: Partial<Record<ProviderName, string>> = {
     lmStudio: 'http://localhost:1234',
     antigravity: 'http://127.0.0.1:1536',
     mimo: 'https://api.xiaomimimo.com/v1',
-    cyberifrit: 'https://ai.cyberifrit.xyz',
+    COMMUNITYAI: 'https://example.invalid',
     // JieKou AI / Highway API — OpenAI-compatible Claude Opus 4.8.
     highwayapi: 'https://api.highwayapi.ai/openai',
 };
@@ -365,9 +365,9 @@ const providerModelDbs: Partial<Record<ProviderName, Record<string, ModelCapabil
     mistral: mistralModels,
     groq: groqModels,
     ollama: ollamaModels,
-    // Cyber-Ifrit hosts arbitrary named models (your AMD backend), so there's no
+    // Community AI hosts arbitrary named models (your AMD backend), so there's no
     // fixed catalog — names resolve via fuzzyLookup / defaultCaps at runtime.
-    cyberifrit: {},
+    COMMUNITYAI: {},
 };
 
 // ── Fuzzy fallback lookup ─────────────────────────────────────────────────────
@@ -517,7 +517,7 @@ export const providerDisplayInfo: Record<ProviderName, { title: string; icon?: s
     awsBedrock: { title: 'AWS Bedrock' },
     antigravity: { title: 'AIM Proxy (local)' },
     mimo: { title: 'Xiaomi MiMo' },
-    cyberifrit: { title: 'Cyber-Ifrit Cloud' },
+    COMMUNITYAI: { title: 'Community AI Cloud' },
     highwayapi: { title: 'Interface AI (Opus 4.8)' },
 };
 

@@ -1,4 +1,4 @@
-﻿import type { StateCreator } from 'zustand';
+import type { StateCreator } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppState } from './index';
 import { normalizeOllamaUrl } from './utils';
@@ -81,8 +81,8 @@ export interface InferenceSlice {
     setAwsBedrockEndpoint: (v: string) => void;
 }
 
-/** Managed Cyber-Ifrit cloud Ollama (AMD MI300X gateway). */
-export const CYBERIFRIT_CLOUD_OLLAMA_URL = 'https://ai.cyberifrit.xyz';
+/** Managed Community AI cloud Ollama (AMD MI300X gateway). */
+export const COMMUNITYAI_CLOUD_OLLAMA_URL = 'https://example.invalid';
 const LOCAL_OLLAMA_URL = 'http://127.0.0.1:11434';
 
 function readStoredOllamaUrl(): string {
@@ -105,7 +105,7 @@ function readStoredOllamaServerMode(): 'local' | 'cloud' | 'remote' {
 
 function resolveOllamaUrlForMode(mode: 'local' | 'cloud' | 'remote', customUrl: string): string {
     if (mode === 'local') return LOCAL_OLLAMA_URL;
-    if (mode === 'cloud') return CYBERIFRIT_CLOUD_OLLAMA_URL;
+    if (mode === 'cloud') return COMMUNITYAI_CLOUD_OLLAMA_URL;
     const trimmed = customUrl.trim();
     return trimmed ? normalizeOllamaUrl(trimmed) : LOCAL_OLLAMA_URL;
 }
@@ -180,7 +180,7 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
         try {
             localStorage.setItem('ollamaServerMode', mode);
             localStorage.setItem('ollamaUrl', url);
-            if (mode === 'cloud') localStorage.setItem('customOllamaUrl', CYBERIFRIT_CLOUD_OLLAMA_URL);
+            if (mode === 'cloud') localStorage.setItem('customOllamaUrl', COMMUNITYAI_CLOUD_OLLAMA_URL);
         } catch { /* ignore */ }
         if (mode === 'local') {
             applyLocalOllamaAgentDefaults(get() as Parameters<typeof applyLocalOllamaAgentDefaults>[0]);
@@ -263,12 +263,7 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
         const { ollamaUrl } = get();
         try {
             const keys: any = await invoke('get_api_keys');
-            let acct: any = null;
-            try { acct = await invoke('account_get'); } catch { /* offline */ }
-            const cloudEntitled = !!(
-                acct?.entitlements?.features?.includes('cloud_models')
-                || acct?.trial_active
-            );
+            const cloudEntitled = false;
             const providers: string[] = ['Ollama'];
             if (keys.google) providers.push('Google');
             if (keys.anthropic) providers.push('Anthropic');
@@ -279,9 +274,9 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             if ((keys as any).mimo) providers.push('Mimo');
             // Interface AI / highwayapi.ai — Claude Opus 4.8 (BYO key).
             if ((keys as any).highwayapi || (keys as any).highwayapi_base_url) providers.push('Highwayapi');
-            // Cyber-Ifrit: show when subscribed/trial OR when a key/base URL is configured.
-            if ((keys as any).cyberifrit || (keys as any).cyberifrit_base_url || cloudEntitled) {
-                providers.push('Cyberifrit');
+            // Community AI: show when subscribed/trial OR when a key/base URL is configured.
+            if ((keys as any).COMMUNITYAI || (keys as any).COMMUNITYAI_base_url || cloudEntitled) {
+                providers.push('COMMUNITYAI');
             }
             if (typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')) providers.push('Deepseek-ANE');
             if (keys.groq) providers.push('Groq');
@@ -290,7 +285,7 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
             if (keys.alibaba) providers.push('Alibaba');
             if ((keys as any).nvidia) providers.push('Nvidia');
             // WebUI / personal-subscription models DISABLED — they scrape a browser session
-            // and don't work reliably. Focus is API-key (BYOK) + Cyber-Ifrit Cloud.
+            // and don't work reliably. Focus is API-key (BYOK) + Community AI Cloud.
             // Flip WEBUI_MODELS_ENABLED to true to re-enable.
             const WEBUI_MODELS_ENABLED = false;
             if (WEBUI_MODELS_ENABLED) {
@@ -344,10 +339,10 @@ export const createInferenceSlice: StateCreator<AppState, [], [], InferenceSlice
                     if (p.toLowerCase() === 'ollama') set({ ollamaStatus: 'error' });
                 }
             }
-            // Subscribed users: always surface curated Cyber-Ifrit cloud models.
-            if (cloudEntitled && !allModels.some(m => m.provider === 'cyberifrit')) {
-                for (const id of ['cyberifrit/qwen3.6:35b', 'cyberifrit/qwen2.5-coder:32b', 'cyberifrit/qwen2.5:32b']) {
-                    allModels.push({ id, provider: 'cyberifrit' });
+            // Subscribed users: always surface curated Community AI cloud models.
+            if (cloudEntitled && !allModels.some(m => m.provider === 'COMMUNITYAI')) {
+                for (const id of ['COMMUNITYAI/qwen3.6:35b', 'COMMUNITYAI/qwen2.5-coder:32b', 'COMMUNITYAI/qwen2.5:32b']) {
+                    allModels.push({ id, provider: 'COMMUNITYAI' });
                 }
             }
             // Guarantee Opus 4.8 appears when the Interface AI key is set + enabled,
