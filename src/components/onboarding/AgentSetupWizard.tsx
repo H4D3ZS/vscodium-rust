@@ -12,14 +12,14 @@ const PERSONAS: { id: Persona; title: string; desc: string; mode: string; modelH
         title: 'Software engineer',
         desc: 'Ship features with the engineering harness loop.',
         mode: 'Harness',
-        modelHint: 'Local: `ollama pull gemma4:12b` — strong SWE + agentic on 16 GB. Cloud: Cyber-Ifrit or BugTraceAI.',
+        modelHint: 'Local: `ollama pull gemma4:12b` — strong SWE + agentic on 16 GB. Cloud: Community AI or BugTraceAI.',
     },
     {
         id: 'bounty',
         title: 'Bug bounty / pentest',
         desc: 'Offensive tooling, browser recon, structured reports.',
         mode: 'BugBounty',
-        modelHint: 'Use BugTraceAI or Cyber-Ifrit cloud — not “Antigravity” (that is workflow memory, not a model).',
+        modelHint: 'Use BugTraceAI or Community AI cloud — not “Antigravity” (that is workflow memory, not a model).',
     },
     {
         id: 'ml',
@@ -118,7 +118,7 @@ const AgentSetupWizard: React.FC = () => {
                                 <strong>Mode → {chosen.mode}</strong> — set in the chat toolbar pill (Bug Bounty, Harness, Sentient…).
                             </li>
                             <li>
-                                <strong>Model</strong> — second pill in chat; must be a real Ollama/Cyber-Ifrit model.
+                                <strong>Model</strong> — second pill in chat; must be a real Ollama/Community AI model.
                             </li>
                             <li>{chosen.modelHint}</li>
                             <li>

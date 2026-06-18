@@ -3,7 +3,7 @@ import { useStore } from '../../store';
 
 const CLOUD_PROVIDERS = new Set([
     'google', 'gemini', 'anthropic', 'openai', 'azure', 'bedrock', 'vertex',
-    'cyberifrit', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
+    'COMMUNITYAI', 'mimo', 'deepseek', 'groq', 'mistral', 'cohere', 'xai', 'litellm',
     'openrouter', 'cerebras', 'highwayapi', 'interfaceai', 'jiekou', 'antigravity',
 ]);
 

@@ -1,4 +1,0 @@
-# Local secrets on the VPS — never commit
-.env
-.env.*
-!.env.example

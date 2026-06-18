@@ -93,7 +93,7 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
         const saved = localStorage.getItem('agentModel') || '';
         const oldDefaults = new Set([
             'Ollama|airi-fast:latest', 'Ollama|qwen3:35b', 'qwen3:35b',
-            'cyberifrit|qwen3:35b', 'cyberifrit|cyberifrit/qwen3:35b',
+            'COMMUNITYAI|qwen3:35b', 'COMMUNITYAI|COMMUNITYAI/qwen3:35b',
             'huihui_ai/qwen2.5-coder-abliterate:7b', 'Ollama|huihui_ai/qwen2.5-coder-abliterate:7b',
             // Legacy fake model — Antigravity is a workflow layer, not an LLM id.
             'Antigravity|antigravity-sentient', 'antigravity|antigravity-sentient',
@@ -157,7 +157,7 @@ export const createAgentModesSlice: StateCreator<AppState, [], [], AgentModesSli
     setAgentModel: (agentModel) => {
         const stale = new Set(['antigravity|antigravity-sentient', 'Antigravity|antigravity-sentient']);
         if (stale.has(agentModel)) {
-            console.warn('[agent] antigravity-sentient is not a real model — pick Ollama/Cyber-Ifrit from the toolbar.');
+            console.warn('[agent] antigravity-sentient is not a real model — pick Ollama/Community AI from the toolbar.');
             agentModel = '';
         }
         try { localStorage.setItem('agentModel', agentModel); } catch { }

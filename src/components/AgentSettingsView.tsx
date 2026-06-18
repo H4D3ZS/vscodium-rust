@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '../tauri_bridge';
 import { useStore } from '../store';
-import { CYBERIFRIT_CLOUD_OLLAMA_URL } from '../store/inferenceSlice';
+import { COMMUNITYAI_CLOUD_OLLAMA_URL } from '../store/inferenceSlice';
 import { classifyModels, modelKey } from '../model_capabilities';
 import { WORKSTATION_PRESETS, applyWorkstationPreset } from '../lib/workstationPresets';
 import { COMPOSER2_BLOG_URL, COMPOSER2_STACKS, applyComposer2Stack } from '../lib/composer2Stack';
@@ -164,7 +164,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         openrouter: '',
         deepseek: '',
         mimo: '',
-        cyberifrit: '',
+        COMMUNITYAI: '',
         highwayapi: '',
         mistral: '',
         xai: '',
@@ -177,7 +177,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
         anthropic_base_url: '',
         google_base_url: '',
         mimo_base_url: '',
-        cyberifrit_base_url: '',
+        COMMUNITYAI_base_url: '',
         highwayapi_base_url: '',
     });
     const [realApiKey, setRealApiKey] = useState(''); // Store real ElevenLabs key separately
@@ -232,7 +232,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         openrouter: (keys as any).openrouter ? '••••••••' + ((keys as any).openrouter.slice(-4)) : '',
                         deepseek: (keys as any).deepseek ? '••••••••' + String((keys as any).deepseek).slice(-4) : '',
                         mimo: (keys as any).mimo ? '••••••••' + String((keys as any).mimo).slice(-4) : '',
-                        cyberifrit: (keys as any).cyberifrit ? '••••••••' + String((keys as any).cyberifrit).slice(-4) : '',
+                        COMMUNITYAI: (keys as any).COMMUNITYAI ? '••••••••' + String((keys as any).COMMUNITYAI).slice(-4) : '',
                         highwayapi: (keys as any).highwayapi ? '••••••••' + String((keys as any).highwayapi).slice(-4) : '',
                         mistral: (keys as any).mistral ? '********' + String((keys as any).mistral).slice(-4) : '',
                         xai: (keys as any).xai ? '********' + String((keys as any).xai).slice(-4) : '',
@@ -245,7 +245,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         anthropic_base_url: (keys as any).anthropic_base_url || '',
                         google_base_url: (keys as any).google_base_url || '',
                         mimo_base_url: (keys as any).mimo_base_url || '',
-                        cyberifrit_base_url: (keys as any).cyberifrit_base_url || '',
+                        COMMUNITYAI_base_url: (keys as any).COMMUNITYAI_base_url || '',
                         highwayapi_base_url: (keys as any).highwayapi_base_url || '',
                     };
                     console.log('[Settings] Setting apiKeys state:', {
@@ -358,14 +358,14 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
             if ((apiKeys as any).mimo && !isMaskedApiKey((apiKeys as any).mimo)) {
                 keysToSave.mimo = (apiKeys as any).mimo;
             }
-            if ((apiKeys as any).cyberifrit && !isMaskedApiKey((apiKeys as any).cyberifrit)) {
-                keysToSave.cyberifrit = (apiKeys as any).cyberifrit;
+            if ((apiKeys as any).COMMUNITYAI && !isMaskedApiKey((apiKeys as any).COMMUNITYAI)) {
+                keysToSave.COMMUNITYAI = (apiKeys as any).COMMUNITYAI;
             }
             if ((apiKeys as any).highwayapi && !isMaskedApiKey((apiKeys as any).highwayapi)) {
                 keysToSave.highwayapi = (apiKeys as any).highwayapi;
             }
             if ((apiKeys as any).mimo_base_url) { keysToSave.mimo_base_url = (apiKeys as any).mimo_base_url; }
-            if ((apiKeys as any).cyberifrit_base_url) { keysToSave.cyberifrit_base_url = (apiKeys as any).cyberifrit_base_url; }
+            if ((apiKeys as any).COMMUNITYAI_base_url) { keysToSave.COMMUNITYAI_base_url = (apiKeys as any).COMMUNITYAI_base_url; }
             if ((apiKeys as any).highwayapi_base_url !== undefined) { keysToSave.highwayapi_base_url = (apiKeys as any).highwayapi_base_url; }
             if ((apiKeys as any).mistral && !isMaskedApiKey((apiKeys as any).mistral)) {
                 keysToSave.mistral = (apiKeys as any).mistral;
@@ -1048,12 +1048,12 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {([
                             {
-                                key: 'cyberifrit',
-                                label: 'Cyber-Ifrit Cloud (subscription · AMD MI300X)',
+                                key: 'COMMUNITYAI',
+                                label: 'Community AI Cloud (subscription · AMD MI300X)',
                                 placeholder: 'subscription token / JWT',
-                                baseUrlKey: 'cyberifrit_base_url',
-                                baseUrlLabel: 'Cyber-Ifrit endpoint (dynamic — default api.cyberifrit.xyz)',
-                                baseUrlPlaceholder: 'https://api.cyberifrit.xyz'
+                                baseUrlKey: 'COMMUNITYAI_base_url',
+                                baseUrlLabel: 'Community AI endpoint (dynamic — default api.example.invalid)',
+                                baseUrlPlaceholder: 'https://example.invalid'
                             },
                             {
                                 key: 'anthropic',
@@ -1223,8 +1223,8 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                             {
                                 id: 'cloud' as const,
                                 title: 'Cloud Model',
-                                hint: 'Cyber-Ifrit AMD',
-                                endpoint: 'ai.cyberifrit.xyz',
+                                hint: 'Community AI AMD',
+                                endpoint: 'ai.example.invalid',
                                 accent: '#a855f7',
                                 icon: 'cloud',
                             },
@@ -1290,7 +1290,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                         {ollamaServerMode === 'cloud' && (
                             <>
                                 <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: '#c4b5fd' }}>
-                                    Cyber-Ifrit Cloud — Pro plan or free trial
+                                    Community AI Cloud — Pro plan or free trial
                                 </div>
                                 <p style={{ margin: '0 0 10px', fontSize: '11px', opacity: 0.65, lineHeight: 1.45 }}>
                                     Sign in, then start the <strong>1-day free trial</strong> (Settings → Account) or subscribe to Pro+.
@@ -1300,7 +1300,7 @@ const AgentSettingsView: React.FC<AgentSettingsViewProps> = ({ category, hideHea
                                     padding: '8px 10px', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace',
                                     background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.25)', color: '#ddd6fe',
                                 }}>
-                                    {CYBERIFRIT_CLOUD_OLLAMA_URL}
+                                    {COMMUNITYAI_CLOUD_OLLAMA_URL}
                                 </div>
                             </>
                         )}

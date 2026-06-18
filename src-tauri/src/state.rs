@@ -36,7 +36,6 @@ use crate::hades_harness;
 use crate::context_indexer::ContextIndexer;
 use crate::vector_indexer::VectorIndexer;
 use crate::git_checkpoints::GitCheckpoint;
-use crate::iphone_emulator::IPhoneEmulatorManager;
 use crate::hades_vision;
 use crate::apex_orchestrator::ApexOrchestrator;
 use tauri::Manager;
@@ -158,16 +157,6 @@ pub struct AiState {
     pub harness: Arc<hades_harness::HadesHarness>,
 }
 
-/// Mobile tooling: Android SDK/Gradle/logcat, iOS simulator manager.
-pub struct MobileState {
-    pub active_device: tokio::sync::Mutex<Option<String>>,
-    pub android_sdk_path: tokio::sync::Mutex<Option<String>>,
-    pub android: Arc<crate::architecture::application::android_service::AndroidService>,
-    pub gradle: Arc<crate::architecture::application::gradle_service::GradleService>,
-    pub logcat: Arc<crate::logcat_service::LogcatService>,
-    pub iphone: Arc<IPhoneEmulatorManager>,
-}
-
 /// Extension-host state: sidecar host, keybindings, activation, context keys.
 pub struct ExtensionState {
     pub host: Arc<tokio::sync::Mutex<ExtensionHostManager>>,
@@ -214,7 +203,6 @@ pub struct EditorState {
     pub editor: EditorCore,
     pub terminal: TerminalState,
     pub ai: AiState,
-    pub mobile: MobileState,
     pub ext: ExtensionState,
     pub memory: MemoryState,
     pub services: ServiceState,
@@ -514,16 +502,7 @@ impl EditorState {
                     false
                 )),
                 harness: hades_harness,
-            },
-            mobile: MobileState {
-                active_device: tokio::sync::Mutex::new(None),
-                android_sdk_path: tokio::sync::Mutex::new(None),
-                android: Arc::new(crate::architecture::application::android_service::AndroidService::new()),
-                gradle: Arc::new(crate::architecture::application::gradle_service::GradleService::new()),
-                logcat: Arc::new(crate::logcat_service::LogcatService::new()),
-                iphone: Arc::new(IPhoneEmulatorManager::new()),
-            },
-            ext: ExtensionState {
+            },            ext: ExtensionState {
                 host: Arc::new(tokio::sync::Mutex::new(ExtensionHostManager::new(ext_dirs))),
                 keybindings: Arc::new(tokio::sync::Mutex::new(KeybindingRegistry::new())),
                 activation: Arc::new(tokio::sync::Mutex::new(ActivationManager::new())),

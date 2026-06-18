@@ -719,7 +719,7 @@ pub fn workspace_lsp_id(root: &Path) -> Option<BundledLspId> {
 
 fn mirror_base() -> String {
     std::env::var("LSP_BUNDLE_MIRROR")
-        .or_else(|_| std::env::var("CYBERIFRIT_LSP_MIRROR"))
+        .or_else(|_| std::env::var("COMMUNITYAI_LSP_MIRROR"))
         .unwrap_or_else(|_| "https://github.com/rust-lang/rust-analyzer/releases/download".to_string())
 }
 
