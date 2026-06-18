@@ -26,10 +26,15 @@ impl IPhoneEmulatorManager {
         }
     }
 
-    /// Find the acheron executable in the project tree or PATH.
+    /// Find the emulator executable in the project tree or PATH.
+    /// Checks both acheron (legacy C++) and rax-vphone-boot (new Rust engine).
     pub fn find_acheron(project_path: &str) -> PathBuf {
         let root = PathBuf::from(project_path);
         let candidates = [
+            // New Rust engine (rax-vphone-boot)
+            root.join("rax").join("target").join("release").join("rax-vphone-boot.exe"),
+            root.join("rax").join("target").join("release").join("rax-vphone-boot"),
+            // Legacy C++ engine (acheron)
             root.join("build").join("Release").join("acheron.exe"),
             root.join("build").join("acheron.exe"),
             root.join("acheron.exe"),
