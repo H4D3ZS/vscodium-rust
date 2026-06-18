@@ -8,6 +8,56 @@ use tauri::{Manager, Emitter};
 use super::types::*;
 use super::sentient::{Sentient, OLLAMA_ESSENTIAL_TOOLS};
 
+/// Domain-specific tool allowlists. Keywords → tool names.
+/// Replaces the if/else-if chain that was copy-pasted per domain.
+static DOMAIN_TOOL_MAP: &[(&[&str], &[&str])] = &[
+    (&["rust", "cargo"], &[
+        "view_file","list_files","write_to_file","str_replace","search_replace_edit",
+        "apply_shadow_patch","fast_apply","patch_file_content","search_codebase",
+        "find_symbols","grep","run_command","dev_cargo_diagnostics","verify_implementation",
+        "git_status","git_diff","git_add","git_commit","save_knowledge_brief",
+    ]),
+    (&["pentest","exploit","vuln","security","red team","attack","weaponize","payload","bug bounty","malware","reverse","ctf"], &[
+        "view_file","list_files","grep","search_codebase","find_symbols",
+        "find_by_name","get_directory_structure","read_file_lines",
+        "run_command","write_to_file","str_replace","search_replace_edit",
+        "apply_shadow_patch","create_directory",
+        "secrets_scan","weaponize_env","sec_distro_inventory","apex_red_team_scan","apex_quick_check",
+        "apex_threat_anticipate","apex_simulate_attack","apex_pentest_report",
+        "apex_scan_url","binary_mach_o_scanner","file_entropy_analysis",
+        "network_port_scanner","extract_strings","hex_dump",
+        "exploit_lookup","network_scan","reverse_shell_generate",
+        "payload_encode","shellcode_recipe_generate","security_listener_generate",
+        "csp_bypass_analyze","security_scan","audit_dependencies",
+        "web_security_audit","deep_security_audit","ai_vuln_hunt",
+        "web_fetch","web_search","perplexity_ask","browser_open","browser_navigate",
+        "browser_screenshot","browser_read_dom",
+        "project_rules","save_knowledge_brief","verify_implementation",
+    ]),
+    (&["react","typescript","frontend","javascript"], &[
+        "view_file","list_files","write_to_file","str_replace","search_replace_edit",
+        "apply_shadow_patch","fast_apply","search_codebase","find_symbols",
+        "grep","run_command","verify_implementation","save_knowledge_brief",
+    ]),
+    (&["android","adb","apk"], &[
+        "view_file","list_files","write_to_file","str_replace","run_command",
+        "grep","search_codebase","save_knowledge_brief",
+    ]),
+];
+
+/// Resolve domain-specific tool allowlist from task description keywords.
+fn resolve_domain_tools(task_desc: &str) -> Option<&'static [&'static str]> {
+    for (keywords, tools) in DOMAIN_TOOL_MAP {
+        if keywords.iter().any(|kw| task_desc.contains(kw)) {
+            return Some(tools);
+        }
+    }
+    None
+}
+
+/// Result of slash command handling.
+enum SlashResult { Handled(String), Continue }
+
 impl Sentient {
     pub async fn autonomous_loop(
         self: Arc<Self>, 
@@ -420,123 +470,11 @@ impl Sentient {
         // 1. Handle Slash Commands
         if let Some(msg) = messages.last() {
             if let Some(content) = &msg.content {
-                if content.as_str().trim() == "/clear" {
-                    {
-                        let mut state = self.conversation_state.lock().await;
-                        state.clear();
-                    }
-                    self.memory_store.clear().await;
-                    println!("[AI] Context cleared via /clear");
-                    return Ok("Context cleared.".to_string());
+                let cmd_text = content.as_str().trim().to_string();
+                match self.handle_slash_command(&cmd_text, &mut messages).await? {
+                    SlashResult::Handled(response) => return Ok(response),
+                    SlashResult::Continue => {}
                 }
-
-                if content.as_str().trim().starts_with("/advisor") {
-                    let parts: Vec<&str> = content.as_str().split_whitespace().collect();
-                    if parts.len() > 1 {
-                        let model = parts[1];
-                        if model == "off" {
-                            self.set_advisor_model(None).await;
-                            return Ok("Advisor model disabled.".to_string());
-                        } else {
-                            self.set_advisor_model(Some(model.to_string())).await;
-                            return Ok(format!("Advisor model set to: {}", model));
-                        }
-                    } else {
-                        let current = self.advisor_model.lock().await;
-                        return Ok(format!("Current advisor model: {:?}", *current));
-                    }
-                }
-
-                if content.as_str().trim().starts_with("/ultraplan") {
-                    println!("[AI] UltraPlan mode activated.");
-                    let mut state = self.conversation_state.lock().await;
-                    let ultraplan_instruction = ChatMessage {
-                        role: "system".to_string(),
-                        content: Some(MessageContent::Text("ULTRA-PLAN MODE: You are tasked with a high-complexity architectural plan. \
-                            Break this down into multiple logical phases. Use `list_files` and `view_file` to perform exhaustive research first. \
-                            Do not stop until you have a complete implementation strategy documented in `task.md` and `implementation_plan.md`.".to_string())),
-                        tool_calls: None,
-                        tool_call_id: None,
-                        metadata: None,
-                    };
-                    state.push(ultraplan_instruction);
-                    return Ok("UltraPlan mode activated. I am now analyzing the codebase for a deep architectural strategy.".to_string());
-                }
-
-                if content.as_str().trim().starts_with("/insights") {
-                    println!("[AI] Generating project insights.");
-                    let root_path = self.ai_tools.get_root_path();
-                    let report = format!(
-                        "Project: {}\nPath: {}\nOS: {}\n\nCore Modules: ai_engine, ai_tools, mcp_registry, terminal_manager\n\
-                        Security: AuthState active, Tool permissions enabled.\n\
-                        Phase 9 Features: Advisor Delegation, UltraPlan mode, Local Context Awareness.",
-                        root_path.file_name().unwrap_or_default().to_string_lossy(),
-                        root_path.display(),
-                        std::env::consts::OS
-                    );
-                    return Ok(format!("### Project Insights\n\n{}", report));
-                }
-
-                if content.as_str().trim() == "/help" {
-                    let help_text = "### Available Commands\n\n\
-                        - `/clear`: Clear the current conversation context.\n\
-                        - `/resume`: Restore the last persistent session.\n\
-                        - `/compact`: Compress long context history.\n\
-                        - `/advisor <model>|off`: Set a high-tier model for initial reasoning.\n\
-                        - `/ultraplan <goal>`: Trigger deep architectural planning loop.\n\
-                        - `/insights`: Generate a project structure and health report.\n\
-                        - `/doctor`: Run system environment diagnostics.\n\
-                        - `/tools`: List all available tools and their schemas.\n\
-                        - `/diff`: View changes in the current workspace.\n\
-                        - `/commit`: Stage and commit changes automatically.\n\
-                        - `/yolo`: Toggle Yolo Mode — full sentient autonomy, no blockers, 200 iterations.";
-                    return Ok(help_text.to_string());
-                }
-
-                if content.as_str().trim() == "/yolo" {
-                    let new_state = !self.is_yolo_mode();
-                    self.set_yolo_mode(new_state);
-                    let status = if new_state {
-                        "🔥 **YOLO MODE ENGAGED** — Full sentient autonomy. Pre-flight checks disabled. Auto-applying patches. 200 iteration ceiling. I will not stop until MISSION_ACCOMPLISHED."
-                    } else {
-                        "✅ Yolo mode disengaged. Back to standard verification flow."
-                    };
-                    return Ok(status.to_string());
-                }
-
-                // Handle Workflow Slash Commands
-                if content.as_str().trim().starts_with('/') {
-                    let cmd = content.as_str().trim()[1..].to_string();
-                    // Strip arguments after space if any
-                    let cmd_name = cmd.split_whitespace().next().unwrap_or(&cmd).to_string();
-                    let workflows = self.workflow_engine.get_workflows();
-                    if let Some(wf) = workflows.iter().find(|w| w.name == cmd_name) {
-                        println!("[AI] Executing workflow: {} ({} steps)", wf.name, wf.steps.len());
-                        // Inject the workflow as a system instruction into the conversation
-                        // but do NOT return — let the autonomous loop continue and execute the steps
-                        let wf_instruction = ChatMessage {
-                            role: "system".to_string(),
-                            content: Some(MessageContent::Text(format!(
-                                "WORKFLOW ACTIVATED: {}\nDescription: {}\n\nYou MUST follow these steps sequentially and use tools to execute each one:\n{}",
-                                wf.name, wf.description, 
-                                wf.steps.iter().enumerate().map(|(i, s)| format!("{}. {}", i+1, s)).collect::<Vec<_>>().join("\n")
-                            ))),
-                            tool_calls: None,
-                            tool_call_id: None,
-                            metadata: None,
-                        };
-                        messages.push(wf_instruction);
-                        // Replace the user message with a clear instruction to execute
-                        if let Some(last_user) = messages.iter_mut().rev().find(|m| m.role == "user") {
-                            last_user.content = Some(MessageContent::Text(format!(
-                                "Execute the workflow '{}' now. Follow every step sequentially using your tools. Do NOT just describe — actually execute each step.",
-                                wf.name
-                            )));
-                        }
-                        // Fall through to the autonomous loop below
-                    }
-                }
-
             }
         }
 
@@ -661,57 +599,12 @@ impl Sentient {
             });
 
             // Task-aware secondary filter: reduce tool set further based on task domain.
-            // Detects keywords in the first user message and drops irrelevant tool groups.
+            // Data-driven: keywords → tool allowlists via DOMAIN_TOOL_MAP.
             let task_desc = messages.iter().rev()
                 .find(|m| m.role == "user")
                 .and_then(|m| m.content.as_ref().map(|c| c.as_str().to_lowercase()))
                 .unwrap_or_default();
-            let domain_tools: Option<&[&str]> = if task_desc.contains("rust") || task_desc.contains("cargo") {
-                Some(&["view_file","list_files","write_to_file","str_replace","search_replace_edit",
-                       "apply_shadow_patch","fast_apply","patch_file_content","search_codebase",
-                       "find_symbols","grep","run_command","dev_cargo_diagnostics","verify_implementation",
-                       "git_status","git_diff","git_add","git_commit","save_knowledge_brief"])
-            } else if task_desc.contains("pentest") || task_desc.contains("exploit")
-                || task_desc.contains("vuln") || task_desc.contains("security")
-                || task_desc.contains("red team") || task_desc.contains("attack")
-                || task_desc.contains("weaponize") || task_desc.contains("payload")
-                || task_desc.contains("bug bounty") || task_desc.contains("malware")
-                || task_desc.contains("reverse") || task_desc.contains("ctf")
-            {
-                Some(&[
-                    // Recon
-                    "view_file","list_files","grep","search_codebase","find_symbols",
-                    "find_by_name","get_directory_structure","read_file_lines",
-                    // Execution (PoC builds, payload runs)
-                    "run_command","write_to_file","str_replace","search_replace_edit",
-                    "apply_shadow_patch","create_directory",
-                    // Offensive security — CORE STRENGTH, never strip
-                    "secrets_scan","weaponize_env","sec_distro_inventory","apex_red_team_scan","apex_quick_check",
-                    "apex_threat_anticipate","apex_simulate_attack","apex_pentest_report",
-                    "apex_scan_url","binary_mach_o_scanner","file_entropy_analysis",
-                    "network_port_scanner","extract_strings","hex_dump",
-                    "exploit_lookup","network_scan","reverse_shell_generate",
-                    "payload_encode","shellcode_recipe_generate","security_listener_generate",
-                    "csp_bypass_analyze","security_scan","audit_dependencies",
-                    // Live web pentest — the high-value meta-tool for "audit this url"
-                    "web_security_audit","deep_security_audit","ai_vuln_hunt",
-                    // Research
-                    "web_fetch","web_search","perplexity_ask","browser_open","browser_navigate",
-                    "browser_screenshot","browser_read_dom",
-                    // Workflow
-                    "project_rules","save_knowledge_brief","verify_implementation",
-                ])
-            } else if task_desc.contains("react") || task_desc.contains("typescript") || task_desc.contains("frontend") || task_desc.contains("javascript") {
-                Some(&["view_file","list_files","write_to_file","str_replace","search_replace_edit",
-                       "apply_shadow_patch","fast_apply","search_codebase","find_symbols",
-                       "grep","run_command","verify_implementation","save_knowledge_brief"])
-            } else if task_desc.contains("android") || task_desc.contains("adb") || task_desc.contains("apk") {
-                Some(&["view_file","list_files","write_to_file","str_replace","run_command",
-                       "grep","search_codebase","save_knowledge_brief"])
-            } else {
-                None
-            };
-            if let Some(domain) = domain_tools {
+            if let Some(domain) = resolve_domain_tools(&task_desc) {
                 tools.retain(|t| {
                     let name = t["function"]["name"].as_str()
                         .or_else(|| t["name"].as_str())
@@ -964,7 +857,7 @@ impl Sentient {
             let system_prompt = format!(
                 "{}{}",
                 system_prompt,
-                crate::agent_harness::harness_system_addon(&req.model),
+                crate::agent_harness::harness_system_addon(&req.model, is_small_model),
             );
 
             if let Some(sys_msg) = messages.iter_mut().find(|m| m.role == "system") {
@@ -1387,6 +1280,9 @@ impl Sentient {
                     s.contains("[PLAN PHASE")
                         || s.contains("[REFLECTION CHECKPOINT]")
                         || s.contains("[PHASE:")
+                        || s.contains("[PERSONA:")
+                        || s.contains("[TASK PROGRESS]")
+                        || s.contains("[ZERO-GREP ENFORCED]")
                 };
                 let mut stable: Vec<String> = Vec::new();
                 let mut volatile: Vec<String> = Vec::new();
@@ -1686,7 +1582,13 @@ impl Sentient {
                 if has_completion_keyword {
                     println!("[Harness] Mission accomplished signal detected. Synchronizing memories...");
                     let h_arc_opt = {
-                        let h_lock = self.app_handle.read().unwrap();
+                        let h_lock = match self.app_handle.read() {
+                            Ok(guard) => guard,
+                            Err(e) => {
+                                eprintln!("[AI] app_handle lock poisoned: {}", e);
+                                e.into_inner()
+                            }
+                        };
                         h_lock.as_ref().map(|h| {
                             let state: tauri::State<crate::EditorState> = h.state();
                             state.ai.harness.clone()
@@ -2568,16 +2470,18 @@ impl Sentient {
                     let content_str = content.as_str();
                     let parsed_tools = self.try_parse_markdown_tool_calls(content_str);
                     if !parsed_tools.is_empty() {
-                        let last_msg = messages.last_mut().unwrap();
-                        last_msg.tool_calls = Some(parsed_tools.clone());
+                        if let Some(last_msg) = messages.last_mut() {
+                            last_msg.tool_calls = Some(parsed_tools.clone());
+                        }
                         chat_message.tool_calls = Some(parsed_tools);
                     } else {
                         // Cursor-style Apply: scan for annotated code blocks and auto-write them
                         let file_writes = self.try_extract_file_writes_from_text(content_str);
                         if !file_writes.is_empty() {
                             println!("[AutoApply] Extracted {} file write(s) from AI text response", file_writes.len());
-                            let last_msg = messages.last_mut().unwrap();
-                            last_msg.tool_calls = Some(file_writes.clone());
+                            if let Some(last_msg) = messages.last_mut() {
+                                last_msg.tool_calls = Some(file_writes.clone());
+                            }
                             chat_message.tool_calls = Some(file_writes);
                         }
                     }
@@ -3013,9 +2917,9 @@ impl Sentient {
                         tool_call_id: Some(tool_call.id.clone()),
                         metadata: Some(json!({"iteration": iteration})),
                     });
-                    self.memory_store
-                        .store_message(messages.last().unwrap())
-                        .await;
+                    if let Some(last) = messages.last() {
+                        self.memory_store.store_message(last).await;
+                    }
 
                     // In yolo/Sentient mode, never hard-pause on notify_user — just continue
                     let is_sentient = req.mode.as_deref() == Some("Sentient");
@@ -3393,9 +3297,21 @@ impl Sentient {
                             "stuck": stuck,
                             "tools_this_turn": tools_run_this_turn,
                         }));
+                        // Small models drift back to prose; re-show the exact
+                        // single-format contract so the next turn is a tool call.
+                        let nudge_text = if Self::is_small_model_name(&active_model) {
+                            format!(
+                                "{}\n\nYou replied with PROSE and no tool call. That is not allowed. \
+                                 Emit the next step NOW as ONE fenced JSON block, nothing else:\n\
+                                 ```json\n{{\"name\": \"view_file\", \"arguments\": {{\"path\": \"REPLACE\"}}}}\n```",
+                                nudge_for_mode
+                            )
+                        } else {
+                            nudge_for_mode.to_string()
+                        };
                         messages.push(ChatMessage {
                             role: "user".to_string(),
-                            content: Some(MessageContent::Text(nudge_for_mode.to_string())),
+                            content: Some(MessageContent::Text(nudge_text)),
                             ..Default::default()
                         });
                         // Clear stuck history after one nudge so the model gets
@@ -3491,6 +3407,111 @@ impl Sentient {
         };
         println!("[AI] Max iterations ({}) reached. Returning last response.", max_iterations);
         Ok(last_content)
+    }
+
+    /// Handle slash commands. Returns `Handled(response)` for commands that
+    /// short-circuit the loop, or `Continue` for workflow commands that inject
+    /// context and let the loop proceed.
+    async fn handle_slash_command(
+        &self,
+        cmd: &str,
+        messages: &mut Vec<ChatMessage>,
+    ) -> Result<SlashResult> {
+        if cmd == "/clear" {
+            { self.conversation_state.lock().await.clear(); }
+            self.memory_store.clear().await;
+            println!("[AI] Context cleared via /clear");
+            return Ok(SlashResult::Handled("Context cleared.".into()));
+        }
+        if cmd.starts_with("/advisor") {
+            let parts: Vec<&str> = cmd.split_whitespace().collect();
+            if parts.len() > 1 {
+                let model = parts[1];
+                if model == "off" {
+                    self.set_advisor_model(None).await;
+                    return Ok(SlashResult::Handled("Advisor model disabled.".into()));
+                }
+                self.set_advisor_model(Some(model.to_string())).await;
+                return Ok(SlashResult::Handled(format!("Advisor model set to: {}", model)));
+            }
+            let current = self.advisor_model.lock().await;
+            return Ok(SlashResult::Handled(format!("Current advisor model: {:?}", *current)));
+        }
+        if cmd.starts_with("/ultraplan") {
+            println!("[AI] UltraPlan mode activated.");
+            self.conversation_state.lock().await.push(ChatMessage {
+                role: "system".into(),
+                content: Some(MessageContent::Text(
+                    "ULTRA-PLAN MODE: You are tasked with a high-complexity architectural plan. \
+                     Break this down into multiple logical phases. Use `list_files` and `view_file` \
+                     to perform exhaustive research first. Do not stop until you have a complete \
+                     implementation strategy documented in `task.md` and `implementation_plan.md`.".into()
+                )),
+                ..Default::default()
+            });
+            return Ok(SlashResult::Handled(
+                "UltraPlan mode activated. I am now analyzing the codebase for a deep architectural strategy.".into()
+            ));
+        }
+        if cmd.starts_with("/insights") {
+            println!("[AI] Generating project insights.");
+            let root_path = self.ai_tools.get_root_path();
+            return Ok(SlashResult::Handled(format!(
+                "### Project Insights\n\nProject: {}\nPath: {}\nOS: {}\n\nCore Modules: ai_engine, ai_tools, mcp_registry, terminal_manager\n\
+                Security: AuthState active, Tool permissions enabled.\n\
+                Phase 9 Features: Advisor Delegation, UltraPlan mode, Local Context Awareness.",
+                root_path.file_name().unwrap_or_default().to_string_lossy(),
+                root_path.display(), std::env::consts::OS
+            )));
+        }
+        if cmd == "/help" {
+            return Ok(SlashResult::Handled(
+                "### Available Commands\n\n\
+                 - `/clear`: Clear the current conversation context.\n\
+                 - `/resume`: Restore the last persistent session.\n\
+                 - `/compact`: Compress long context history.\n\
+                 - `/advisor <model>|off`: Set a high-tier model for initial reasoning.\n\
+                 - `/ultraplan <goal>`: Trigger deep architectural planning loop.\n\
+                 - `/insights`: Generate a project structure and health report.\n\
+                 - `/doctor`: Run system environment diagnostics.\n\
+                 - `/tools`: List all available tools and their schemas.\n\
+                 - `/diff`: View changes in the current workspace.\n\
+                 - `/commit`: Stage and commit changes automatically.\n\
+                 - `/yolo`: Toggle Yolo Mode — full sentient autonomy, no blockers, 200 iterations.".into()
+            ));
+        }
+        if cmd == "/yolo" {
+            let new_state = !self.is_yolo_mode();
+            self.set_yolo_mode(new_state);
+            return Ok(SlashResult::Handled(if new_state {
+                "🔥 **YOLO MODE ENGAGED** — Full sentient autonomy. Pre-flight checks disabled. Auto-applying patches. 200 iteration ceiling. I will not stop until MISSION_ACCOMPLISHED.".into()
+            } else {
+                "✅ Yolo mode disengaged. Back to standard verification flow.".into()
+            }));
+        }
+        // Workflow slash commands: inject workflow context but let the loop continue
+        if cmd.starts_with('/') {
+            let cmd_name = cmd[1..].split_whitespace().next().unwrap_or(&cmd[1..]);
+            if let Some(wf) = self.workflow_engine.get_workflows().iter().find(|w| w.name == cmd_name) {
+                println!("[AI] Executing workflow: {} ({} steps)", wf.name, wf.steps.len());
+                messages.push(ChatMessage {
+                    role: "system".into(),
+                    content: Some(MessageContent::Text(format!(
+                        "WORKFLOW ACTIVATED: {}\nDescription: {}\n\nYou MUST follow these steps sequentially and use tools to execute each one:\n{}",
+                        wf.name, wf.description,
+                        wf.steps.iter().enumerate().map(|(i, s)| format!("{}. {}", i+1, s)).collect::<Vec<_>>().join("\n")
+                    ))),
+                    ..Default::default()
+                });
+                if let Some(last_user) = messages.iter_mut().rev().find(|m| m.role == "user") {
+                    last_user.content = Some(MessageContent::Text(format!(
+                        "Execute the workflow '{}' now. Follow every step sequentially using your tools. Do NOT just describe — actually execute each step.",
+                        wf.name
+                    )));
+                }
+            }
+        }
+        Ok(SlashResult::Continue)
     }
 
 }

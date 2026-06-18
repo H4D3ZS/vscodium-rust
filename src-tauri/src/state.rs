@@ -26,6 +26,7 @@ use crate::workers;
 use crate::attachment_manager::{AttachmentManager};
 use crate::knowledge_distiller::KnowledgeDistiller;
 use crate::patch_engine;
+use crate::semantic_firewall::SemanticFirewall;
 use crate::ghost_runtime;
 use crate::kairos;
 use crate::mcp_server;
@@ -33,7 +34,9 @@ use crate::vfs_bridge;
 use crate::shadow_workspace;
 use crate::memory_layer;
 use crate::hades_harness;
+use crate::code_bloat_enforcer::CodeBloatEnforcer;
 use crate::context_indexer::ContextIndexer;
+use crate::structural_blueprints::StructuralBlueprints;
 use crate::vector_indexer::VectorIndexer;
 use crate::git_checkpoints::GitCheckpoint;
 use crate::iphone_emulator::IPhoneEmulatorManager;
@@ -184,6 +187,8 @@ pub struct MemoryState {
     pub layer: Arc<memory_layer::MemoryLayer>,
     pub context_indexer: Arc<ContextIndexer>,
     pub vector_indexer: Arc<VectorIndexer>,
+    pub bloat_enforcer: Arc<tokio::sync::Mutex<CodeBloatEnforcer>>,
+    pub blueprints: Arc<StructuralBlueprints>,
     pub distiller: Arc<KnowledgeDistiller>,
     pub attachments: Arc<AttachmentManager>,
 }
@@ -202,6 +207,7 @@ pub struct ServiceState {
     pub git_checkpoints: Arc<GitCheckpoint>,
     pub patch_engine: Arc<tokio::sync::Mutex<patch_engine::PatchEngine>>,
     pub shadow_workspace: Arc<shadow_workspace::ShadowWorkspace>,
+    pub firewall: Arc<tokio::sync::Mutex<SemanticFirewall>>,
     pub ghost_runtime: Arc<ghost_runtime::GhostRuntime>,
     pub kairos: Arc<kairos::KairosEngine>,
     /// Pending tool-permission approvals: tool_id → oneshot sender.
@@ -391,6 +397,10 @@ impl EditorState {
             });
         }
 
+        // Initialize Code Bloat Enforcer for structural analysis
+        let bloat_enforcer = Arc::new(tokio::sync::Mutex::new(CodeBloatEnforcer::new()));
+        let blueprints = Arc::new(StructuralBlueprints::new(root.clone()));
+
         // Initialize Git Checkpoints (auto-snapshot before AI edits)
         let git_checkpoints = Arc::new(GitCheckpoint::new(root.clone()));
 
@@ -475,7 +485,7 @@ impl EditorState {
                     font_size: 14,
                 }),
                 lsp_router: Arc::new(tokio::sync::Mutex::new(lsp_router_inst)),
-                lsp_diagnostics: shared_lsp_diags,
+                lsp_diagnostics: shared_lsp_diags.clone(),
                 active_root: tokio::sync::Mutex::new(Some(root.clone())),
             },
             terminal: TerminalState {
@@ -536,6 +546,8 @@ impl EditorState {
                 layer: memory_layer,
                 context_indexer,
                 vector_indexer,
+                bloat_enforcer,
+                blueprints,
                 distiller: knowledge_distiller,
                 attachments: attachment_manager,
             },
@@ -552,6 +564,9 @@ impl EditorState {
                 git_checkpoints,
                 patch_engine,
                 shadow_workspace,
+                firewall: Arc::new(tokio::sync::Mutex::new(
+                    SemanticFirewall::new(shared_lsp_diags.clone()),
+                )),
                 ghost_runtime,
                 kairos,
                 // Share the same Arc as Sentient so respond_tool_permission resolves

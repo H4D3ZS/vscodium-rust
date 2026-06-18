@@ -290,7 +290,7 @@ impl AiTools {
                 let encoding = args.get("encoding").and_then(|v| v.as_str()).unwrap_or("base64");
                 encode_payload(payload, encoding).map_err(|e| anyhow!(e))
             }
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown security generator tool: {}", name)),
         }
     }
 
@@ -648,9 +648,9 @@ impl AiTools {
                                     name,
                                     text.chars().take(4000).collect::<String>()
                                 ));
-                            }
-                        }
-                    }
+        }
+    }
+}
                 }
             }
         }
@@ -777,7 +777,7 @@ impl AiTools {
             "preview_shadow_diff" => self.preview_shadow_diff(arguments).await,
             "apply_shadow_patch" => self.apply_shadow_patch(arguments).await,
             "ghost_test" => self.ghost_test(arguments).await,
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown filesystem tool: {}", name)),
         }
     }
 
@@ -791,7 +791,7 @@ impl AiTools {
             "terminal_terminate" => self.terminal_terminate(arguments).await,
             "terminal_get_status" => self.terminal_get_status(arguments).await,
             "terminal_list" => self.terminal_get_state(arguments).await,
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown terminal tool: {}", name)),
         }
     }
 
@@ -807,7 +807,7 @@ impl AiTools {
             "browser_click" => self.browser_click(arguments).await,
             "browser_type" => self.browser_type(arguments).await,
             "browser_read_dom" => self.browser_read_dom(arguments).await,
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown browser tool: {}", name)),
         }
     }
 
@@ -818,7 +818,7 @@ impl AiTools {
             "git_commit" => self.git_commit(arguments).await,
             "git_diff" => self.git_diff(arguments).await,
             "git_log" => self.git_log(arguments).await,
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown git tool: {}", name)),
         }
     }
 
@@ -826,7 +826,7 @@ impl AiTools {
         match name {
             "get_system_info" => self.get_system_info(arguments).await,
             "get_system_health" => self.get_system_health(arguments).await,
-            _ => unreachable!(),
+            _ => Err(anyhow!("Unknown system tool: {}", name)),
         }
     }
 
@@ -870,7 +870,7 @@ impl AiTools {
                 "ts" | "tsx" => "(function_declaration name: (identifier) @name) @item (class_declaration name: (identifier) @name) @item (interface_declaration name: (identifier) @name) @item (variable_declarator name: (identifier) @name value: (arrow_function)) @item",
                 "js" | "jsx" => "(function_declaration name: (identifier) @name) @item (class_declaration name: (identifier) @name) @item",
                 "py" => "(function_definition name: (identifier) @name) @item (class_definition name: (identifier) @name) @item",
-                _ => unreachable!(),
+                _ => return Err(anyhow!("Unsupported language for symbol analysis: {}", ext)),
             };
 
             let query = Query::new(&lang, query_str).map_err(|e| anyhow!(e.to_string()))?;

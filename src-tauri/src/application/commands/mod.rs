@@ -15,6 +15,7 @@ pub mod debug;
 pub mod editor;
 pub mod extensions;
 pub mod file;
+pub mod firewall;
 pub mod git;
 pub mod gradle;
 pub mod inference;

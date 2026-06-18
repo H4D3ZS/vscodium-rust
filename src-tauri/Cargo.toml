@@ -33,23 +33,23 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-fs = "2"
 
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = "1.0.150"
 semver = "1.0"
 ropey = "1.6"
-tree-sitter = "0.26"
-tree-sitter-rust = "0.24"
+tree-sitter = "0.26.9"
+tree-sitter-rust = "0.24.2"
 tree-sitter-typescript = "=0.23.0" # 0.23.2 parser.c fails MSVC 14.50 (C2099)
 tree-sitter-javascript = "0.23"
-tree-sitter-python = "0.23"
+tree-sitter-python = "0.25"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "net", "time", "fs"] }
 walkdir = "2"
 tauri-plugin-dialog = "2"
-portable-pty = "0.8.1"
+portable-pty = "0.9.0"
 tokio-util = { version = "0.7.10", features = ["codec"] }
 lsp-types = "0.94.1"
 axum = "0.7"
 anyhow = "1"
-reqwest = { version = "0.11", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 ripgrep = "15.1.0"
 ripgrep-api = "0.2.0"
 sysinfo = "0.30"
@@ -61,7 +61,7 @@ base64 = "0.21"
 glob = "0.3"
 regex = "1.12.3"
 ignore = "0.4"
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1.23.3", features = ["v4", "serde"] }
 futures = "0.3.32"
 async-trait = "0.1.89"
 url = "2.5"

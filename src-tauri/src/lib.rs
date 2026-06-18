@@ -52,6 +52,7 @@ pub(crate) use application::commands::debug as debug_commands;
 pub(crate) use application::commands::editor as editor_commands;
 pub(crate) use application::commands::extensions as extensions_commands;
 pub(crate) use application::commands::file as file_commands;
+pub(crate) use application::commands::firewall as firewall_commands;
 pub use application::commands::git as git_commands;
 pub(crate) use application::commands::gradle as gradle_commands;
 pub(crate) use application::commands::inference as inference_commands;
@@ -98,6 +99,7 @@ pub mod domain;
 pub(crate) use domain::vcs::git;
 pub(crate) use domain::vcs::git_checkpoints;
 pub(crate) use domain::vcs::patch_engine;
+pub(crate) use domain::vcs::semantic_firewall;
 pub(crate) use domain::vcs::shadow_workspace;
 pub(crate) use domain::mobile::android_sdk;
 pub(crate) use domain::mobile::emulator_stream;
@@ -132,10 +134,12 @@ pub use domain::memory::memory_optimizer;
 pub(crate) use domain::memory::memory_layer;
 pub(crate) use domain::memory::memory_store;
 pub(crate) use domain::indexing::ann_index;
+pub(crate) use domain::indexing::code_bloat_enforcer;
 pub(crate) use domain::indexing::context_indexer;
 pub(crate) use domain::indexing::embeddings;
 pub(crate) use domain::indexing::knowledge_distiller;
 pub(crate) use domain::indexing::ripgrep_search;
+pub(crate) use domain::indexing::structural_blueprints;
 pub(crate) use domain::indexing::symbols;
 pub(crate) use domain::indexing::vector_indexer;
 pub(crate) use domain::editor::debug_adapter;
@@ -677,6 +681,15 @@ pub fn run() {
             ai_project_commands::update_project_memory,
             file_commands::get_file_tree,
             file_commands::validate_path,
+            // ═══ Semantic Firewall ═══
+            firewall_commands::firewall_validate_proposal,
+            firewall_commands::firewall_reset_session,
+            firewall_commands::firewall_iteration_count,
+            firewall_commands::bloat_analyze_proposal,
+            firewall_commands::bloat_load_symbols,
+            firewall_commands::blueprints_generate_project,
+            firewall_commands::blueprints_generate_file,
+            firewall_commands::blueprints_serialize,
             // ═══ Extensions ═══
             extensions_commands::install_extension,
             extensions_commands::uninstall_extension,

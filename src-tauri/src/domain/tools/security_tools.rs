@@ -1,11 +1,64 @@
 //! Security tools: scanners, entropy/secrets, vuln hunting, audits, OAST, Vega.
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
 use tauri::Manager;
 use super::registry::AiTools;
 use super::registry::{push_activity, extract_json_loose, model_size_hint, is_security_model};
+
+/// File extensions considered source code for security scanning.
+const CODE_EXTS: &[&str] = &[
+    "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "kt", "rb", "php",
+    "c", "cpp", "cc", "h", "hpp", "cs", "swift", "zig", "lua", "sh", "bash",
+];
+
+/// Directories to skip during security scans.
+const SKIP_DIRS: &[&str] = &[
+    "node_modules", "target", "dist", "build", ".git", "vendor",
+    "third_party", "__pycache__", ".venv", "venv", "out",
+];
+
+/// Rank a severity string for sorting (lower = more critical).
+fn severity_rank(s: &str) -> u8 {
+    match s.to_uppercase().as_str() {
+        "CRITICAL" => 0,
+        "HIGH" => 1,
+        "MEDIUM" => 2,
+        "LOW" => 3,
+        _ => 4,
+    }
+}
+
+/// Sort findings by severity and count by severity level.
+fn consolidate_findings(findings: &mut [Value]) -> BTreeMap<String, u64> {
+    findings.sort_by_key(|f| {
+        let sev = f.get("severity")
+            .and_then(|v| v.as_str())
+            .unwrap_or("UNKNOWN");
+        severity_rank(sev)
+    });
+    let mut counts = BTreeMap::new();
+    for f in findings.iter() {
+        let sev = f.get("severity")
+            .and_then(|v| v.as_str())
+            .unwrap_or("UNKNOWN")
+            .to_uppercase();
+        *counts.entry(sev).or_insert(0) += 1;
+    }
+    counts
+}
+
+/// Check if a directory name should be skipped.
+fn should_skip_dir(name: &str) -> bool {
+    SKIP_DIRS.contains(&name)
+}
+
+/// Check if a file extension is a code file.
+fn is_code_ext(ext: &str) -> bool {
+    CODE_EXTS.contains(&ext)
+}
 
 impl AiTools {
     pub(crate) async fn network_port_scanner(&self, args: Value) -> Result<Value> {
@@ -942,43 +995,71 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
         let headers = nav.get("headers").cloned().unwrap_or_else(|| json!({}));
         let hget = |name: &str| headers.get(name).and_then(|v| v.as_str()).map(|s| s.to_string());
 
-        // ── Pass 1: response security headers ────────────────────────────────
-        if hget("content-security-policy").is_none() {
-            add(&mut findings, "MEDIUM", "CWE-693", "headers",
-                "Missing Content-Security-Policy",
-                "No `content-security-policy` response header".to_string(),
-                "Define a restrictive CSP (default-src 'self'; …) to mitigate XSS/data injection.", "high");
+        // ── Pass 1: response security headers (table-driven) ───────────────
+        struct HeaderCheck {
+            name: &'static str,
+            severity: &'static str,
+            cwe: &'static str,
+            title: &'static str,
+            evidence: &'static str,
+            remediation: &'static str,
+            https_only: bool,
+            condition: fn(&str, bool) -> bool,  // (csp_value, is_https) -> should_check
         }
-        if is_https && hget("strict-transport-security").is_none() {
-            add(&mut findings, "MEDIUM", "CWE-319", "headers",
-                "Missing HSTS (Strict-Transport-Security)",
-                "HTTPS page without `strict-transport-security`".to_string(),
-                "Send `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`.", "high");
-        }
+
+        static HEADER_CHECKS: &[HeaderCheck] = &[
+            HeaderCheck {
+                name: "content-security-policy", severity: "MEDIUM", cwe: "CWE-693",
+                title: "Missing Content-Security-Policy",
+                evidence: "No `content-security-policy` response header",
+                remediation: "Define a restrictive CSP (default-src 'self'; …) to mitigate XSS/data injection.",
+                https_only: false, condition: |_csp, _| true,
+            },
+            HeaderCheck {
+                name: "strict-transport-security", severity: "MEDIUM", cwe: "CWE-319",
+                title: "Missing HSTS (Strict-Transport-Security)",
+                evidence: "HTTPS page without `strict-transport-security`",
+                remediation: "Send `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`.",
+                https_only: true, condition: |_csp, _| true,
+            },
+            HeaderCheck {
+                name: "x-frame-options", severity: "MEDIUM", cwe: "CWE-1021",
+                title: "Clickjacking: no X-Frame-Options / frame-ancestors",
+                evidence: "Neither `x-frame-options` nor CSP `frame-ancestors` present",
+                remediation: "Add `X-Frame-Options: DENY` or CSP `frame-ancestors 'none'`.",
+                https_only: false, condition: |csp, _| !csp.to_lowercase().contains("frame-ancestors"),
+            },
+            HeaderCheck {
+                name: "x-content-type-options", severity: "LOW", cwe: "CWE-693",
+                title: "Missing X-Content-Type-Options",
+                evidence: "No `x-content-type-options: nosniff`",
+                remediation: "Add `X-Content-Type-Options: nosniff` to stop MIME sniffing.",
+                https_only: false, condition: |_csp, _| true,
+            },
+            HeaderCheck {
+                name: "referrer-policy", severity: "LOW", cwe: "CWE-200",
+                title: "Missing Referrer-Policy",
+                evidence: "No `referrer-policy` header",
+                remediation: "Add `Referrer-Policy: strict-origin-when-cross-origin`.",
+                https_only: false, condition: |_csp, _| true,
+            },
+            HeaderCheck {
+                name: "permissions-policy", severity: "INFO", cwe: "CWE-693",
+                title: "Missing Permissions-Policy",
+                evidence: "No `permissions-policy` header",
+                remediation: "Restrict powerful features via `Permissions-Policy`.",
+                https_only: false, condition: |_csp, _| true,
+            },
+        ];
+
         let csp = hget("content-security-policy").unwrap_or_default();
-        if hget("x-frame-options").is_none() && !csp.to_lowercase().contains("frame-ancestors") {
-            add(&mut findings, "MEDIUM", "CWE-1021", "headers",
-                "Clickjacking: no X-Frame-Options / frame-ancestors",
-                "Neither `x-frame-options` nor CSP `frame-ancestors` present".to_string(),
-                "Add `X-Frame-Options: DENY` or CSP `frame-ancestors 'none'`.", "high");
-        }
-        if hget("x-content-type-options").is_none() {
-            add(&mut findings, "LOW", "CWE-693", "headers",
-                "Missing X-Content-Type-Options",
-                "No `x-content-type-options: nosniff`".to_string(),
-                "Add `X-Content-Type-Options: nosniff` to stop MIME sniffing.", "high");
-        }
-        if hget("referrer-policy").is_none() {
-            add(&mut findings, "LOW", "CWE-200", "headers",
-                "Missing Referrer-Policy",
-                "No `referrer-policy` header".to_string(),
-                "Add `Referrer-Policy: strict-origin-when-cross-origin`.", "medium");
-        }
-        if hget("permissions-policy").is_none() {
-            add(&mut findings, "INFO", "CWE-693", "headers",
-                "Missing Permissions-Policy",
-                "No `permissions-policy` header".to_string(),
-                "Restrict powerful features via `Permissions-Policy`.", "medium");
+        for check in HEADER_CHECKS {
+            if check.https_only && !is_https { continue; }
+            if !(check.condition)(&csp, is_https) { continue; }
+            if hget(check.name).is_none() {
+                add(&mut findings, check.severity, check.cwe, "headers",
+                    check.title, check.evidence.to_string(), check.remediation, "high");
+            }
         }
         // Information-disclosure banners.
         for (h, label) in [("server", "Server"), ("x-powered-by", "X-Powered-By"),
@@ -993,7 +1074,44 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
             }
         }
 
-        // ── Pass 2: cookie flags ─────────────────────────────────────────────
+        // ── Pass 2: cookie flags (table-driven) ────────────────────────────
+        struct CookieCheck {
+            condition: fn(bool, bool, &str) -> bool,  // (secure, http_only, same_site) -> should_flag
+            severity: &'static str,
+            cwe: &'static str,
+            title: &'static str,
+            evidence_fn: fn(&str) -> String,  // cookie_name -> evidence
+            remediation: &'static str,
+            confidence: &'static str,
+        }
+
+        static COOKIE_CHECKS: &[CookieCheck] = &[
+            CookieCheck {
+                condition: |secure, _, _| !secure,
+                severity: "MEDIUM", cwe: "CWE-614",
+                title: "Cookie without Secure flag",
+                evidence_fn: |name| format!("Cookie `{}` lacks Secure on an HTTPS site", name),
+                remediation: "Set the `Secure` attribute so cookies are only sent over TLS.",
+                confidence: "high",
+            },
+            CookieCheck {
+                condition: |_, http_only, _| !http_only,
+                severity: "MEDIUM", cwe: "CWE-1004",
+                title: "Cookie without HttpOnly flag",
+                evidence_fn: |name| format!("Cookie `{}` is readable from JavaScript (no HttpOnly)", name),
+                remediation: "Set `HttpOnly` to block script access (XSS token theft).",
+                confidence: "medium",
+            },
+            CookieCheck {
+                condition: |_, _, same_site| same_site.is_empty() || same_site.eq_ignore_ascii_case("none"),
+                severity: "LOW", cwe: "CWE-1275",
+                title: "Cookie with weak SameSite policy",
+                evidence_fn: |name| format!("Cookie `{}` SameSite='(weak)'", name),
+                remediation: "Set `SameSite=Lax` or `Strict` to reduce CSRF exposure.",
+                confidence: "medium",
+            },
+        ];
+
         if let Ok(ck) = self.browser_state.cmd("cookies", json!({}), 15).await {
             if let Some(cookies) = ck.get("cookies").and_then(|v| v.as_array()) {
                 for c in cookies {
@@ -1001,23 +1119,11 @@ Reply ONLY with a JSON array of CONFIRMED findings; each item: \
                     let secure = c.get("secure").and_then(|v| v.as_bool()).unwrap_or(false);
                     let http_only = c.get("httpOnly").and_then(|v| v.as_bool()).unwrap_or(false);
                     let same_site = c.get("sameSite").and_then(|v| v.as_str()).unwrap_or("");
-                    if is_https && !secure {
-                        add(&mut findings, "MEDIUM", "CWE-614", "cookies",
-                            "Cookie without Secure flag",
-                            format!("Cookie `{}` lacks Secure on an HTTPS site", name),
-                            "Set the `Secure` attribute so cookies are only sent over TLS.", "high");
-                    }
-                    if !http_only {
-                        add(&mut findings, "MEDIUM", "CWE-1004", "cookies",
-                            "Cookie without HttpOnly flag",
-                            format!("Cookie `{}` is readable from JavaScript (no HttpOnly)", name),
-                            "Set `HttpOnly` to block script access (XSS token theft).", "medium");
-                    }
-                    if same_site.is_empty() || same_site.eq_ignore_ascii_case("none") {
-                        add(&mut findings, "LOW", "CWE-1275", "cookies",
-                            "Cookie with weak SameSite policy",
-                            format!("Cookie `{}` SameSite='{}'", name, same_site),
-                            "Set `SameSite=Lax` or `Strict` to reduce CSRF exposure.", "medium");
+                    for check in COOKIE_CHECKS {
+                        if (check.condition)(secure, http_only, same_site) {
+                            add(&mut findings, check.severity, check.cwe, "cookies",
+                                check.title, (check.evidence_fn)(name), check.remediation, check.confidence);
+                        }
                     }
                 }
             }

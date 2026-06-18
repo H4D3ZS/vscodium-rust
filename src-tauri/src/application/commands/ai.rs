@@ -7,6 +7,70 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::fs;
 
+/// Detect provider from model name string. Returns (provider, model, ollama_url).
+fn detect_provider(model: &str, ollama_url: &str) -> (String, String, Option<String>) {
+    let ml = model.to_lowercase();
+    if model.contains(':') || (!ml.contains('.') && model.contains('/'))
+        || ml.starts_with("llama") || ml.starts_with("qwen") || ml.starts_with("deepseek")
+        || ml.starts_with("gemma") || ml.starts_with("mistral") || ml.starts_with("phi")
+        || ml.starts_with("codellama")
+    {
+        ("ollama".into(), model.to_string(), Some(ollama_url.to_string()))
+    } else if ml.contains("claude-opus-4-8") {
+        ("highwayapi".into(), model.to_string(), None)
+    } else if ml.contains("claude") {
+        ("anthropic".into(), model.to_string(), None)
+    } else if ml.contains("gemini") {
+        ("google".into(), model.to_string(), None)
+    } else if ml.contains("gpt") || ml.contains("o1") || ml.contains("o3") {
+        ("openai".into(), model.to_string(), None)
+    } else {
+        ("ollama".into(), model.to_string(), Some(ollama_url.to_string()))
+    }
+}
+
+/// Build a simple AI request with system + user messages.
+fn simple_ai_request(
+    provider: &str,
+    model: &str,
+    system: &str,
+    user: &str,
+    temperature: f32,
+    mode: &str,
+) -> AiRequest {
+    AiRequest {
+        provider: provider.to_string(),
+        model: model.to_string(),
+        messages: vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: Some(MessageContent::Text(system.to_string())),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: Some(MessageContent::Text(user.to_string())),
+                tool_calls: None,
+                tool_call_id: None,
+                metadata: None,
+            },
+        ],
+        temperature: Some(temperature),
+        autonomous: false,
+        cyber_mode: None,
+        root_access: Some(false),
+        mode: Some(mode.to_string()),
+        ollama_url: None,
+        tools: None,
+        reasoning_budget: None,
+        reasoning_effort: None,
+        reasoning_enabled: None,
+        feature: None,
+    }
+}
+
 #[tauri::command]
 pub async fn grep_files(
     state: State<'_, EditorState>,
@@ -311,22 +375,7 @@ pub async fn ai_inline_complete(
         let url = if p_lc == "ollama" || p_lc == "antigravity" { Some(ollama_url_val.clone()) } else { None };
         (p_lc, m.to_string(), url)
     } else {
-        // Detect provider from the active model string.
-        let m = current_model.as_str();
-        if m.contains(':') || (!m.contains('.') && m.contains('/')) || m.to_lowercase().starts_with("llama") || m.to_lowercase().starts_with("qwen") || m.to_lowercase().starts_with("deepseek") || m.to_lowercase().starts_with("gemma") || m.to_lowercase().starts_with("mistral") || m.to_lowercase().starts_with("phi") || m.to_lowercase().starts_with("codellama") {
-            ("ollama".to_string(), m.to_string(), Some(ollama_url_val))
-        } else if m.to_lowercase().contains("claude-opus-4-8") {
-            ("highwayapi".to_string(), m.to_string(), None)
-        } else if m.to_lowercase().contains("claude") {
-            ("anthropic".to_string(), m.to_string(), None)
-        } else if m.to_lowercase().contains("gemini") {
-            ("google".to_string(), m.to_string(), None)
-        } else if m.to_lowercase().contains("gpt") || m.to_lowercase().contains("o1") || m.to_lowercase().contains("o3") {
-            ("openai".to_string(), m.to_string(), None)
-        } else {
-            // Fallback: try as Ollama
-            ("ollama".to_string(), m.to_string(), Some(ollama_url_val))
-        }
+        detect_provider(&current_model, &ollama_url_val)
     };
 
     // For Ollama models that support FIM tokens (qwen2.5-coder, deepseek-coder, codellama)
@@ -475,15 +524,7 @@ pub async fn predict_next_edit(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or(current_model);
     let ollama_url_val = state.ai.ollama_url.lock().await.clone();
-    let (provider, model, ollama_url) = {
-        let m = model_name.as_str();
-        let ml = m.to_lowercase();
-        if ml.contains("claude-opus-4-8") { ("highwayapi".to_string(), m.to_string(), None) }
-        else if ml.contains("claude") { ("anthropic".to_string(), m.to_string(), None) }
-        else if ml.contains("gemini") { ("google".to_string(), m.to_string(), None) }
-        else if ml.contains("gpt") || ml.contains("o1") || ml.contains("o3") { ("openai".to_string(), m.to_string(), None) }
-        else { ("ollama".to_string(), m.to_string(), Some(ollama_url_val)) }
-    };
+    let (provider, model, ollama_url) = detect_provider(&model_name, &ollama_url_val);
 
     // Number the lines so the model can reference exact line numbers (1-based).
     let numbered: String = content
@@ -593,47 +634,18 @@ pub async fn ai_explain_code(
     file_path: String,
     detail_level: String,
 ) -> Result<String, String> {
+    let model = state.ai.current_model.lock().await.clone();
     let prompt = format!(
         "Explain what this {} code does in {} detail level:\n\n```\n{}\n```\n\nProvide a clear explanation covering:\n1. What the code does (plain English)\n2. Key logic flow\n3. Any important patterns or concepts used",
         file_path.split('.').last().unwrap_or("code"),
         detail_level,
         code
     );
-    
-    let request = AiRequest {
-        provider: "google".to_string(),
-        model: state.ai.current_model.lock().await.clone(),
-        messages: vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: Some(MessageContent::Text(
-                    "You are a code explanation assistant. Explain code clearly in plain English.".to_string()
-                )),
-                tool_calls: None,
-                tool_call_id: None,
-                metadata: None,
-            },
-            ChatMessage {
-                role: "user".to_string(),
-                content: Some(MessageContent::Text(prompt)),
-                tool_calls: None,
-                tool_call_id: None,
-                metadata: None,
-            },
-        ],
-        temperature: Some(0.3),
-        autonomous: false,
-        cyber_mode: None,
-        root_access: Some(false),
-        mode: Some("Explain".to_string()),
-        ollama_url: None,
-        tools: None,
-        reasoning_budget: None,
-        reasoning_effort: None,
-        reasoning_enabled: None,
-        feature: None,
-    };
-
+    let request = simple_ai_request(
+        "google", &model,
+        "You are a code explanation assistant. Explain code clearly in plain English.",
+        &prompt, 0.3, "Explain",
+    );
     state.ai.engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
 }
 
@@ -645,45 +657,16 @@ pub async fn ai_document_code(
     format: String,
     language: String,
 ) -> Result<String, String> {
+    let model = state.ai.current_model.lock().await.clone();
     let prompt = format!(
         "Generate {} documentation for this {} code:\n\n```{}\n```\n\nInclude:\n- Function/class descriptions\n- Parameter explanations\n- Return value descriptions\n- Usage examples if helpful",
         format, language, code
     );
-    
-    let request = AiRequest {
-        provider: "google".to_string(),
-        model: state.ai.current_model.lock().await.clone(),
-        messages: vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: Some(MessageContent::Text(
-                    "You are a documentation generator. Generate clean, professional code documentation.".to_string()
-                )),
-                tool_calls: None,
-                tool_call_id: None,
-                metadata: None,
-            },
-            ChatMessage {
-                role: "user".to_string(),
-                content: Some(MessageContent::Text(prompt)),
-                tool_calls: None,
-                tool_call_id: None,
-                metadata: None,
-            },
-        ],
-        temperature: Some(0.2),
-        autonomous: false,
-        cyber_mode: None,
-        root_access: Some(false),
-        mode: Some("Document".to_string()),
-        ollama_url: None,
-        tools: None,
-        reasoning_budget: None,
-        reasoning_effort: None,
-        reasoning_enabled: None,
-        feature: None,
-    };
-
+    let request = simple_ai_request(
+        "google", &model,
+        "You are a documentation generator. Generate clean, professional code documentation.",
+        &prompt, 0.3, "Document",
+    );
     state.ai.engine.clone().autonomous_loop(request, None).await.map_err(|e| e.to_string())
 }
 

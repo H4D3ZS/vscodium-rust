@@ -4,4 +4,5 @@
 pub mod git;
 pub mod git_checkpoints;
 pub mod patch_engine;
+pub mod semantic_firewall;
 pub mod shadow_workspace;

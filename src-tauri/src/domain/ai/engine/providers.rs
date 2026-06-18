@@ -598,84 +598,34 @@ impl Sentient {
 
     /// Ollama GET from Rust so the webview is not subject to nginx CORS.
     pub async fn ollama_native_get(&self, path: String) -> Result<Value> {
-        let _permit = self.ollama_http_permit().await;
-        let base = {
-            let u = self.ollama_url.lock().await;
-            normalize_ollama_base_url(&u)
-        };
-        let bearer = self.ollama_bearer_for_base(&base).trim().to_string();
-        let urls = Self::ollama_try_urls(&base, &path);
-
-        'attempt: for attempt in 0u32..6u32 {
-            let mut last: Option<String> = None;
-            for url in &urls {
-                let mut req = self.client.get(url);
-                if !bearer.is_empty() {
-                    req = req.bearer_auth(&bearer);
-                }
-                match req.send().await {
-                    Ok(resp) => {
-                        let status = resp.status();
-                        let code = status.as_u16();
-                        let bytes = resp.bytes().await?;
-                        if status.is_success() {
-                            let v: Value = serde_json::from_slice(&bytes).map_err(|e| {
-                                anyhow!("ollama_native_get JSON: {} (status {})", e, status)
-                            })?;
-                            return Ok(v);
-                        }
-                        if code == 404 && urls.len() > 1 && !url.contains("/v1/api/") {
-                            last = Some(format!("GET {} -> 404", url));
-                            continue;
-                        }
-                        if (code == 503 || code == 429) && attempt < 5 {
-                            let ms = 400u64 * (1u64 << attempt).min(10_000);
-                            tokio::time::sleep(Duration::from_millis(ms)).await;
-                            continue 'attempt;
-                        }
-                        let preview: String =
-                            String::from_utf8_lossy(&bytes).chars().take(280).collect();
-                        return Err(anyhow!("GET {} -> {}: {}", url, status, preview));
-                    }
-                    Err(e) => {
-                        last = Some(e.to_string());
-                        continue;
-                    }
-                }
-            }
-            if attempt < 5 {
-                if last
-                    .as_ref()
-                    .map(|s| s.contains("503") || s.contains("429"))
-                    .unwrap_or(false)
-                {
-                    let ms = 400u64 * (1u64 << attempt).min(10_000);
-                    tokio::time::sleep(Duration::from_millis(ms)).await;
-                    continue 'attempt;
-                }
-            }
-            return Err(anyhow!(
-                "ollama_native_get exhausted fallbacks: {}",
-                last.unwrap_or_default()
-            ));
-        }
-        unreachable!()
+        self.ollama_request("GET", &path, None).await
     }
 
     /// Ollama POST from Rust (same CORS bypass + `/v1` fallback as GET).
     pub async fn ollama_native_post(&self, path: String, body: Value) -> Result<Value> {
+        self.ollama_request("POST", &path, Some(&body)).await
+    }
+
+    /// Unified Ollama HTTP request with retry, fallback URLs, and CORS bypass.
+    async fn ollama_request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
         let _permit = self.ollama_http_permit().await;
         let base = {
             let u = self.ollama_url.lock().await;
             normalize_ollama_base_url(&u)
         };
         let bearer = self.ollama_bearer_for_base(&base).trim().to_string();
-        let urls = Self::ollama_try_urls(&base, &path);
+        let urls = Self::ollama_try_urls(&base, path);
 
         'attempt: for attempt in 0u32..6u32 {
             let mut last: Option<String> = None;
             for url in &urls {
-                let mut req = self.client.post(url).json(&body);
+                let mut req = match method {
+                    "POST" => self.client.post(url),
+                    _ => self.client.get(url),
+                };
+                if let Some(b) = body {
+                    req = req.json(b);
+                }
                 if !bearer.is_empty() {
                     req = req.bearer_auth(&bearer);
                 }
@@ -686,12 +636,12 @@ impl Sentient {
                         let bytes = resp.bytes().await?;
                         if status.is_success() {
                             let v: Value = serde_json::from_slice(&bytes).map_err(|e| {
-                                anyhow!("ollama_native_post JSON: {} (status {})", e, status)
+                                anyhow!("ollama_request JSON: {} (status {})", e, status)
                             })?;
                             return Ok(v);
                         }
                         if code == 404 && urls.len() > 1 && !url.contains("/v1/api/") {
-                            last = Some(format!("POST {} -> 404", url));
+                            last = Some(format!("{} {} -> 404", method, url));
                             continue;
                         }
                         if (code == 503 || code == 429) && attempt < 5 {
@@ -701,7 +651,7 @@ impl Sentient {
                         }
                         let preview: String =
                             String::from_utf8_lossy(&bytes).chars().take(280).collect();
-                        return Err(anyhow!("POST {} -> {}: {}", url, status, preview));
+                        return Err(anyhow!("{} {} -> {}: {}", method, url, status, preview));
                     }
                     Err(e) => {
                         last = Some(e.to_string());
@@ -717,7 +667,8 @@ impl Sentient {
                 }
             }
             return Err(anyhow!(
-                "ollama_native_post exhausted fallbacks: {}",
+                "ollama_request({}) exhausted fallbacks: {}",
+                method,
                 last.unwrap_or_default()
             ));
         }

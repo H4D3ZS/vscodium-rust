@@ -231,4 +231,24 @@ impl AiTools {
         self.root_path.lock().await.clone()
     }
 
+    /// Resolve a file path argument against the project root, with path traversal protection.
+    pub(crate) async fn resolve_path(&self, args: &Value, key: &str) -> Result<(PathBuf, PathBuf)> {
+        let path_str = args.get(key)
+            .or_else(|| args.get("path"))
+            .or_else(|| args.get("TargetFile"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing '{}'", key))?;
+        let root = self.root_path.lock().await.clone();
+        let full = self.validate_path(&root, path_str)?;
+        Ok((root, full))
+    }
+
+    /// Emit a Tauri event if app handle is available. Fire-and-forget.
+    pub(crate) fn emit_tool_event(&self, event: &str, payload: Value) {
+        if let Ok(guard) = self.app_handle.try_lock() {
+            if let Some(handle) = guard.as_ref() {
+                let _ = handle.emit(event, payload);
+            }
+        }
+    }
 }

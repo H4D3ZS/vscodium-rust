@@ -1,29 +1,63 @@
 use crate::{EditorState, domain::FileEntry};
 use tauri::State;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs;
 use ropey::Rope;
 
-pub async fn is_path_valid(_state: &EditorState, _path: &PathBuf) -> Result<(), String> {
-    // Basic validation logic
+/// Validate that a path is within the project root and not a blocked directory.
+fn validate_path_against_root(path: &str, root: &Path) -> Result<PathBuf, String> {
+    let p = PathBuf::from(path);
+    let full = if p.is_absolute() { p } else { root.join(&p) };
+    let canon = std::fs::canonicalize(&full)
+        .unwrap_or_else(|_| full.clone());
+    if !canon.starts_with(root) {
+        return Err(format!("Path escapes project root: {}", path));
+    }
+    // Block hidden dirs and common non-project dirs
+    let s = canon.to_string_lossy();
+    for blocked in &[".git", "node_modules", "target", ".hades_cache"] {
+        if s.contains(&format!("/{}/", blocked)) || s.contains(&format!("\\{}\\", blocked)) {
+            return Err(format!("Path targets blocked directory: {}", blocked));
+        }
+    }
+    Ok(canon)
+}
+
+pub async fn is_path_valid(state: &EditorState, path: &PathBuf) -> Result<(), String> {
+    let root = state.editor.active_root.lock().await
+        .clone()
+        .ok_or_else(|| "No project root set".to_string())?;
+    validate_path_against_root(&path.to_string_lossy(), &root)?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn create_dir(path: String) -> Result<(), String> {
-    fs::create_dir_all(path).map_err(|e| e.to_string())?;
+pub async fn create_dir(state: State<'_, EditorState>, path: String) -> Result<(), String> {
+    let root = state.editor.active_root.lock().await
+        .clone()
+        .ok_or_else(|| "No project root set".to_string())?;
+    let full = validate_path_against_root(&path, &root)?;
+    fs::create_dir_all(&full).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn create_directory(path: String) -> Result<(), String> {
-    fs::create_dir_all(path).map_err(|e| e.to_string())?;
+pub async fn create_directory(state: State<'_, EditorState>, path: String) -> Result<(), String> {
+    let root = state.editor.active_root.lock().await
+        .clone()
+        .ok_or_else(|| "No project root set".to_string())?;
+    let full = validate_path_against_root(&path, &root)?;
+    fs::create_dir_all(&full).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn create_file(path: String) -> Result<(), String> {
-    fs::File::create(path).map_err(|e| e.to_string())?;
+pub async fn create_file(state: State<'_, EditorState>, path: String) -> Result<(), String> {
+    let root = state.editor.active_root.lock().await
+        .clone()
+        .ok_or_else(|| "No project root set".to_string())?;
+    let full = validate_path_against_root(&path, &root)?;
+    fs::File::create(&full).map_err(|e| e.to_string())?;
     Ok(())
 }
 

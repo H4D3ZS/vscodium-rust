@@ -352,17 +352,6 @@ fn strip_html(html: &str) -> String {
     clean.trim().to_string()
 }
 
-#[allow(dead_code)]
-fn extract_title(html: &str) -> Option<String> {
-    let title_start = html.to_lowercase().find("<title>")?;
-    let title_end = html.to_lowercase().find("</title>")?;
-    if title_end > title_start {
-        Some(html[title_start + 7..title_end].trim().to_string())
-    } else {
-        None
-    }
-}
-
 fn get_dom_summary(html: &str) -> String {
     let mut summary = Vec::new();
     
