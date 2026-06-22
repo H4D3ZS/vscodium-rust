@@ -53,7 +53,7 @@ reqwest = { version = "0.11", features = ["json", "stream"] }
 ripgrep = "15.1.0"
 ripgrep-api = "0.2.0"
 sysinfo = "0.30"
-lz4_flex = "0.11"
+lz4_flex = "0.13"
 zip = "0.6"
 flate2 = "1"
 rand = { version = "=0.8.5", features = ["small_rng"] }
