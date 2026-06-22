@@ -74,7 +74,7 @@ chrono = "0.4"
 dirs = "5"
 libaim = { path = "../kortex/libaim" }
 daemon = { path = "../kortex/daemon" }
-candle-core = "=0.7.1"
+candle-core = "=0.8.3"
 half = { version = "=2.3.1", default-features = false, features = ["num-traits", "rand_distr"] }
 which = "6.0"
 diffy = "0.3"
