@@ -71,7 +71,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tracing-chrome = "0.7.2"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = "0.4"
-dirs = "5"
+dirs = "6"
 libaim = { path = "../kortex/libaim" }
 daemon = { path = "../kortex/daemon" }
 candle-core = "=0.7.1"
