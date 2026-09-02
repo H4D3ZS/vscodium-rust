@@ -1,0 +1,104 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VSCodium Rust IDE",
+  "version": "1.0.0",
+  "identifier": "vscodium-rust",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run prebuild:sidecar && npm run build",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "VSCodium Rust IDE",
+        "url": "index.html",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": false,
+        "maximized": false,
+        "additionalBrowserArgs": "--disable-features=msTrackingPrevention --js-flags=--max-old-space-size=1024 --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-gpu-vsync"
+      }
+    ],
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$CACHE/**",
+          "$HOME/Library/Caches/**"
+        ]
+      },
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* http://127.0.0.1:11434 http://localhost:5173 http://localhost:5175 https://*.gallery.vsassets.io https://open-vsx.org https://api.github.com https://github.com https://api.cyberifrit.xyz https://releases.cyberifrit.xyz; script-src 'self' https://cdn.jsdelivr.net; frame-src 'self' http://localhost:5173 http://localhost:5175; worker-src 'self' blob: https://cdn.jsdelivr.net; img-src 'self' data: https: asset: http://asset.localhost https://asset.localhost http://127.0.0.1:* http://localhost:*; style-src 'self' 'unsafe-inline' data: http://localhost:5173 http://localhost:5175 https://fonts.googleapis.com asset:; font-src 'self' data: https://fonts.gstatic.com asset:;"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "deb",
+      "rpm",
+      "appimage",
+      "dmg",
+      "app"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "binaries/**/*",
+      "ext-host/*",
+      "bundles/*",
+      "../third_party/free-claude-code/server.py",
+      "../third_party/free-claude-code/pyproject.toml",
+      "../third_party/free-claude-code/uv.lock",
+      "../third_party/free-claude-code/.env.example",
+      "../third_party/free-claude-code/api",
+      "../third_party/free-claude-code/cli",
+      "../third_party/free-claude-code/config",
+      "../third_party/free-claude-code/core",
+      "../third_party/free-claude-code/providers",
+      "../third_party/free-claude-code/messaging",
+      "ioscpy/device/**/*"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "Apple Development"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": false,
+      "pubkey": "YOUR_PUBLIC_KEY_HERE",
+      "endpoints": [
+        "https://your-updater-server.com/update"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

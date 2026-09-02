@@ -1,0 +1,26 @@
+//! Logcat streaming — thin Tauri adapters.
+
+use serde_json::json;
+use tauri::{AppHandle, State};
+
+#[tauri::command]
+pub async fn logcat_start(
+    state: State<'_, std::sync::Arc<crate::EditorState>>,
+    app: AppHandle,
+    device: Option<String>,
+    filter: Option<String>,
+) -> Result<serde_json::Value, String> {
+    state.mobile.logcat.start(app, device, filter)?;
+    Ok(json!({ "status": "running" }))
+}
+
+#[tauri::command]
+pub async fn logcat_stop(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<serde_json::Value, String> {
+    state.mobile.logcat.stop()?;
+    Ok(json!({ "status": "stopped" }))
+}
+
+#[tauri::command]
+pub async fn logcat_status(state: State<'_, std::sync::Arc<crate::EditorState>>) -> Result<serde_json::Value, String> {
+    Ok(json!({ "running": state.mobile.logcat.is_running() }))
+}

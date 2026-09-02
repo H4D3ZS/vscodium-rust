@@ -1,0 +1,379 @@
+/**
+ * Infrastructure: Tauri event → Zustand store bridge for agent streaming.
+ *
+ * WHY extracted from agent.ts?
+ * - agent.ts was 4k lines; listeners ran at import time risk.
+ * - React owns the message list — we removed legacy DOM writes (saves RAM + duplicate nodes).
+ * - Single place to audit which events mutate store state.
+ */
+import { listen } from '../../tauri_bridge';
+import { invoke } from '../../tauri_bridge';
+import { useStore } from '../../store';
+import { extractSearchReplaceBlocks } from '../../model_capabilities';
+import { MAX_WEBUI_RESPONSE_CACHE_ENTRIES } from '../../domain/agent/AgentSessionPolicy';
+import { SubAgentManager } from '../../task_manager';
+import {
+    agUpsertSubagent,
+    persistAgentTrajectoryEvent,
+    agSaveTrajectory,
+    type TrajectoryRecord,
+} from '../../infrastructure/antigravity/antigravityClient';
+import {
+    navigatePendingChange,
+    acceptFocusedPendingChange,
+    rejectFocusedPendingChange,
+} from '../../application/editor/navigatePendingChange';
+import { notifyAgentComplete } from '../../application/agent/notifyAgentComplete';
+import { cleanAgentContent, shouldReplaceAgentContent } from '../../domain/agent/cleanAgentContent';
+
+let attached = false;
+
+const AI_CONTENT_MIN_MS = 80;
+const AI_CONTENT_MAX = 48_000;
+let _aiContentPending: string | null = null;
+let _aiContentTimer: ReturnType<typeof setTimeout> | null = null;
+let _aiContentLastFlush = 0;
+
+function capForRender(s: string): string {
+    if (s.length <= AI_CONTENT_MAX) return s;
+    const head = s.slice(0, 32_000);
+    const tail = s.slice(-12_000);
+    const omitted = s.length - head.length - tail.length;
+    return `${head}\n\n_…(${(omitted / 1024).toFixed(0)} KB omitted from view to protect renderer memory)…_\n\n${tail}`;
+}
+
+function flushAiContent(): void {
+    if (_aiContentPending == null) return;
+    const c = _aiContentPending;
+    _aiContentPending = null;
+    if (_aiContentTimer) { clearTimeout(_aiContentTimer); _aiContentTimer = null; }
+    _aiContentLastFlush = Date.now();
+    const { updateLastAgentMessage } = useStore.getState();
+    updateLastAgentMessage(cleanAgentContent(capForRender(c)));
+}
+
+function scheduleAiContent(content: string): void {
+    _aiContentPending = content;
+    const since = Date.now() - _aiContentLastFlush;
+    if (!_aiContentTimer && since >= AI_CONTENT_MIN_MS) { flushAiContent(); return; }
+    if (!_aiContentTimer) {
+        _aiContentTimer = setTimeout(() => { _aiContentTimer = null; flushAiContent(); }, Math.max(0, AI_CONTENT_MIN_MS - since));
+    }
+}
+
+function boundedWebUiCache(): Record<string, string> {
+    const w = window as any;
+    if (!w.__hadesWebUiResponseCache) w.__hadesWebUiResponseCache = {};
+    const cache = w.__hadesWebUiResponseCache as Record<string, string>;
+    const keys = Object.keys(cache);
+    while (keys.length > MAX_WEBUI_RESPONSE_CACHE_ENTRIES) {
+        delete cache[keys[0]];
+        keys.shift();
+    }
+    return cache;
+}
+
+function agentKeydownHandler(e: KeyboardEvent): void {
+    if (!e.altKey) return;
+    if (e.key === 'j' || e.key === 'J') {
+        e.preventDefault();
+        navigatePendingChange('next');
+    } else if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        navigatePendingChange('prev');
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        acceptFocusedPendingChange();
+    } else if (e.key === 'Backspace' && e.shiftKey) {
+        e.preventDefault();
+        rejectFocusedPendingChange();
+    }
+}
+
+let agentShortcutsInstalled = false;
+export function registerAgentKeyboardShortcuts(): void {
+    if (agentShortcutsInstalled) return;
+    agentShortcutsInstalled = true;
+    window.addEventListener('keydown', agentKeydownHandler);
+}
+
+export function unregisterAgentKeyboardShortcuts(): void {
+    window.removeEventListener('keydown', agentKeydownHandler);
+}
+
+export async function attachAgentStreamSubscriber(): Promise<void> {
+    if (attached) return;
+    attached = true;
+
+    listen('ai-content', (event: any) => {
+        const { setIsAgentThinking } = useStore.getState();
+        setIsAgentThinking(false);
+        const raw = typeof event.payload === 'object' && event.payload.content
+            ? event.payload.content
+            : (typeof event.payload === 'string' ? event.payload : '');
+        const content = cleanAgentContent(raw);
+
+        scheduleAiContent(raw);
+
+        useStore.getState().finalizeAgentToolBlocks?.();
+        if (/MISSION_ACCOMPLISHED|TASK_COMPLETE/i.test(raw)) {
+            const mode = useStore.getState().agentMode || 'Agent';
+            void notifyAgentComplete({
+                reason: 'mission',
+                mode,
+                detail: 'Deliverables ready — review reports/ exploits/ recon/',
+            });
+        }
+        import('../../application/agent/syncAgentMessages').then(m => m.scheduleChatHistorySync()).catch(() => {});
+
+        const stFa = useStore.getState() as any;
+        if (stFa.betaFastApply !== false && (content.includes('<<<<<<< ORIGINAL') || content.includes('<<<< SEARCH') || content.includes('<<<<<<< SEARCH'))) {
+            const blocks = extractSearchReplaceBlocks(content);
+            const activeFile = stFa.activeEditorPath || stFa.tabs?.find((t: any) => t.id === stFa.activeTabId)?.path;
+            if (blocks.length > 0 && activeFile) {
+                blocks.forEach((blk: any) => {
+                    invoke('preview_search_replace', {
+                        path: activeFile,
+                        searchText: blk.original,
+                        replaceText: blk.updated,
+                        description: 'Fast apply (Composer-style)',
+                    }).catch(() => { /* non-fatal */ });
+                });
+            }
+        }
+    });
+
+    listen('ai-content-delta', (event: any) => {
+        const { appendLastAgentMessage } = useStore.getState();
+        const delta = typeof event.payload === 'object' && event.payload.delta
+            ? event.payload.delta
+            : (typeof event.payload === 'string' ? event.payload : '');
+        if (!delta) return;
+        // Drop streaming tool-call JSON fragments from chat (terminal shows tooling).
+        const t = delta.trim();
+        if (t.startsWith('{') && (t.includes('"status"') || t.includes('"arguments"'))) return;
+        if (/^Executing tool:/i.test(t)) return;
+        appendLastAgentMessage(delta);
+    });
+
+    // React chat panel owns rendering — no DOM injection for aim-active.
+
+    listen('session-captured', (event: any) => {
+        const { setSession, setAiStatus, refreshAvailableModels, addAgentMessage } = useStore.getState() as any;
+        setSession?.(event.payload);
+        const { provider, cookies, userAgent } = event.payload;
+        invoke('save_ai_session', {
+            session: { provider, cookies, user_agent: userAgent },
+        }).then(() => {
+            setAiStatus?.('alive');
+            refreshAvailableModels?.(provider);
+            addAgentMessage?.('assistant', `✅ Session for **${provider}** synced successfully.`);
+        }).catch(err => console.error('save_ai_session failed:', err));
+    });
+
+    // Store reference for cleanup
+    const contentDeltaHandler = (event: CustomEvent) => {
+        const { appendLastAgentMessage } = useStore.getState();
+        if (event.detail?.delta) appendLastAgentMessage(event.detail.delta);
+    };
+    (window as any).__agentContentDeltaHandler = contentDeltaHandler;
+    window.addEventListener('airi:ai-content-delta' as any, contentDeltaHandler);
+
+    listen<any>('ai-tool-call', (event) => {
+        if (!event.payload?.name) return;
+        void import('../../application/agent/agentRunSession').then(({ bumpAgentRunActivity }) =>
+            bumpAgentRunActivity(),
+        ).catch(() => {});
+        const { addAgentStep, updateAgentStepStatus } = useStore.getState();
+        const toolName = event.payload.name || 'tool_call';
+        let type: any = 'other';
+        if (toolName.startsWith('git_')) type = 'git';
+        else if (toolName.startsWith('terminal_')) type = 'terminal';
+        else if (toolName.includes('file') || toolName.includes('glob')) type = 'filesystem';
+        else if (toolName.startsWith('browser_')) type = 'browser';
+        else if (toolName.includes('health') || toolName.includes('system')) type = 'system';
+        let args: any = {};
+        try {
+            args = typeof event.payload.args === 'string' ? JSON.parse(event.payload.args) : event.payload.args;
+        } catch { args = { raw: event.payload.args }; }
+        addAgentStep(toolName, type, args, event.payload.call_id);
+        updateAgentStepStatus(toolName, 'running', 'Executing...', undefined, event.payload.call_id);
+    });
+
+    listen<any>('update-agent-task', (event) => {
+        useStore.getState().updateAgentTask({ ...event.payload, updatedAt: Date.now() });
+    });
+
+    listen<any>('add-agent-step', (event) => {
+        useStore.getState().addAgentStep(event.payload.name, event.payload.type || 'other', {});
+    });
+
+    listen<any>('notify-user', (event) => {
+        const { setAgentBlocked, addAgentMessage } = useStore.getState();
+        const { message, blocked } = event.payload;
+        setAgentBlocked(blocked);
+        addAgentMessage('assistant', blocked ? `⚠️ **Action Required**: ${message}` : `ℹ️ ${message}`);
+    });
+
+    listen<any>('ai-artifact', (event) => {
+        useStore.getState().addAgentArtifact(event.payload);
+    });
+
+    // Proactive VRAM offload warning: the backend predicts CPU-spill BEFORE the
+    // run so a slow prefill doesn't look like a hang. Surface it once as an
+    // assistant note with the actionable -ngl / model-size guidance.
+    listen<any>('ai-offload-warning', (event) => {
+        const p = event.payload || {};
+        const msg = String(p.message || '').trim();
+        if (!msg) return;
+        const icon = p.risk === 'CpuOnly' ? '🐢' : '⚠️';
+        useStore.getState().addAgentMessage(
+            'assistant',
+            `${icon} **Local model offload**: ${msg}`,
+        );
+    });
+
+    listen<any>('canvas-updated', async (event) => {
+        const { normalizeCanvasSpec } = await import('../../domain/canvas/CanvasSpec');
+        const spec = normalizeCanvasSpec(event.payload);
+        if (spec) useStore.getState().upsertCanvas(spec, { open: true });
+    });
+
+    listen<any>('webui-response', (event) => {
+        const payload = event.payload || {};
+        const text = String(payload.text || '').trim();
+        if (!text) return;
+        const key = `${payload.provider || 'webui'}:${payload.window || ''}`;
+        const cache = boundedWebUiCache();
+        if (cache[key] === text) return;
+        cache[key] = text;
+        useStore.getState().addAgentMessage('assistant', `### ${payload.provider || 'WebUI'} response\n\n${text}`);
+    });
+
+    listen<any>('ai-advisor-fallback', (event) => {
+        const msg = event.payload?.error
+            ? `Planner timed out or failed — continuing with executor (${event.payload?.fallback_model || 'primary model'}).`
+            : 'Planner unavailable — continuing with executor.';
+        useStore.getState().addAgentMessage('assistant', `ℹ️ ${msg}`);
+        useStore.getState().setAgentCurrentAction(null);
+    });
+
+    listen<any>('propose-edit', (event) => {
+        const { proposePendingChange } = useStore.getState();
+        const { path, old_content, new_content, description } = event.payload;
+        proposePendingChange({
+            path,
+            oldContent: old_content,
+            newContent: new_content,
+            description: description || 'AI suggested modification',
+        });
+    });
+
+    listen<any>('subagent-progress', (event) => {
+        SubAgentManager.handleProgress(event.payload);
+        const state = useStore.getState();
+        const root = state.activeRoot;
+        const cascadeId = state.activeCascadeId;
+        const p = event.payload || {};
+        const taskId = p.task_id || p.id || 'subagent';
+        if (root && cascadeId) {
+            void agUpsertSubagent(root, cascadeId, {
+                id: taskId,
+                name: p.title || `Subagent ${String(taskId).slice(0, 6)}`,
+                role: p.role,
+                status: p.status || 'running',
+                parent_id: cascadeId,
+                started_at: Date.now(),
+                summary: p.message,
+                progress: p.progress,
+            });
+            void persistAgentTrajectoryEvent(root, cascadeId, {
+                kind: 'subagent',
+                title: p.message || p.title || 'Subagent progress',
+                detail: p.result || p.error,
+                subagentId: taskId,
+                success: p.status === 'completed',
+            });
+        }
+    });
+
+    listen<any>('ai-action', (event: any) => {
+        // Payload may be a string OR an object like { action, tool } (backend
+        // changed). Never store a raw object — it gets rendered in a <span> and
+        // crashes the whole React tree ("Objects are not valid as a React child"),
+        // which blanks the IDE. Coerce to a readable string.
+        const p = event.payload;
+        let text: string;
+        if (typeof p === 'string') text = p;
+        else if (p && typeof p === 'object') text = [p.action, p.tool].filter(Boolean).join(' · ') || '';
+        else text = p == null ? '' : String(p);
+        useStore.getState().setAgentCurrentAction(text || null);
+    });
+
+    listen<string>('ai-stopped', () => {
+        const state = useStore.getState();
+        state.setIsAgentPaused(false);
+        state.setAgentCurrentAction(null);
+        state.setIsAgentThinking(false);
+        void notifyAgentComplete({
+            reason: 'stopped',
+            mode: state.agentMode || 'Agent',
+        });
+    });
+
+    listen<any>('ai-mission-complete', (event) => {
+        const mode = event.payload?.mode || useStore.getState().agentMode || 'Agent';
+        const state = useStore.getState();
+        state.pushTrajectoryEvent?.({
+            kind: 'tool_result',
+            tool: 'mission',
+            title: '✓ Mission complete',
+            detail: `${mode} finished — review reports/ exploits/ recon/ for deliverables`,
+            success: true,
+        });
+        const root = state.activeRoot;
+        if (root) {
+            const msgs = state.agentMessages || [];
+            const lastUser = [...msgs].reverse().find(m => m.role === 'user');
+            const cascadeId = state.activeCascadeId || `run-${Date.now()}`;
+            const finished = Date.now();
+            const record: TrajectoryRecord = {
+                id: cascadeId,
+                objective: (lastUser?.content || 'Agent mission').slice(0, 500),
+                status: 'completed',
+                started_at: finished - 1000,
+                finished_at: finished,
+                steps: (state.agentTrajectory || []).map((e, i) => ({
+                    id: `step-${i}`,
+                    kind: e.kind,
+                    title: e.title,
+                    detail: e.detail,
+                    tool: e.tool,
+                    timestamp: finished,
+                    success: e.success,
+                })),
+                subagents: [],
+                artifact_paths: [],
+                summary: event.payload?.detail || 'Mission complete',
+            };
+            void agSaveTrajectory(root, record).catch(() => {});
+            void invoke('workspace_save_agent_run', {
+                run: {
+                    id: cascadeId,
+                    objective: record.objective,
+                    status: 'completed',
+                    started_at: record.started_at,
+                    finished_at: finished,
+                    tool_count: state.agentSteps?.length ?? 0,
+                    summary: record.summary,
+                },
+                root,
+            }).catch(() => {});
+        }
+        void notifyAgentComplete({
+            reason: 'mission',
+            mode,
+            detail: 'Mission accomplished — review your artifacts.',
+        });
+    });
+}

@@ -1,0 +1,192 @@
+/**
+ * Readability layer — higher contrast secondary text, clearer panel chrome,
+ * and consistent typography on dark / true-black themes.
+ */
+
+:root {
+    --vscode-foreground: var(--vscode-editor-foreground, #d4d4d4);
+    --vscode-descriptionForeground: #b4b4b4;
+    --readability-muted: rgba(255, 255, 255, 0.78);
+    --readability-subtle: rgba(255, 255, 255, 0.62);
+    --readability-faint: rgba(255, 255, 255, 0.48);
+    --readability-panel-border: rgba(255, 255, 255, 0.12);
+    --readability-surface-raised: color-mix(in srgb, var(--vscode-editor-background) 92%, #ffffff 8%);
+}
+
+body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    color: var(--vscode-foreground);
+}
+
+/* ── Panel tabs (Problems, Terminal, Logcat, …) ── */
+.panel-tab {
+    color: var(--readability-subtle) !important;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+}
+
+.panel-tab:hover {
+    color: var(--vscode-foreground) !important;
+}
+
+.panel-tab.active {
+    color: var(--vscode-foreground) !important;
+    font-weight: 600;
+}
+
+.panel-tab.active::after {
+    background: var(--vscode-focusBorder, #007acc) !important;
+    height: 2px;
+}
+
+/* ── Bottom / side panel separation ── */
+.bottom-panel,
+.panel-header,
+.panel-content {
+    border-color: var(--readability-panel-border);
+}
+
+/* ── Status bar — slightly taller, clearer text ── */
+.status-bar,
+.statusbar,
+[class*="status-bar"] {
+    min-height: 24px !important;
+    max-height: 24px !important;
+    font-size: 12px !important;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+}
+
+.status-bar .status-item,
+.statusbar .status-item {
+    opacity: 0.95;
+}
+
+/* ── Inputs & chat ── */
+input::placeholder,
+textarea::placeholder,
+.agent-mission-input::placeholder {
+    color: var(--vscode-input-placeholderForeground, #b0b0b0) !important;
+    opacity: 1 !important;
+}
+
+.agent-mission-input {
+    color: var(--vscode-input-foreground, var(--vscode-foreground)) !important;
+}
+
+/* ── Settings page ── */
+.settings-sidebar-group {
+    opacity: 0.62 !important;
+}
+
+.settings-sidebar-item {
+    color: var(--readability-muted) !important;
+}
+
+.settings-sidebar-item:hover {
+    color: var(--vscode-foreground) !important;
+}
+
+.settings-tab {
+    opacity: 0.72 !important;
+}
+
+.settings-tab.active {
+    opacity: 1 !important;
+}
+
+.settings-section-subtitle,
+.settings-row-description {
+    opacity: 0.82 !important;
+    color: var(--vscode-descriptionForeground) !important;
+}
+
+.settings-card-title {
+    opacity: 0.85 !important;
+}
+
+.settings-search-input::placeholder {
+    opacity: 0.65 !important;
+}
+
+/* ── Agent-first IDE roadmap panel ── */
+.agent-first-ide-panel {
+    color: var(--vscode-foreground);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.agent-first-ide-panel .afi-lead {
+    color: var(--vscode-descriptionForeground);
+    margin: 0 0 12px;
+}
+
+.agent-first-ide-panel .afi-muted {
+    color: var(--readability-muted);
+}
+
+.agent-first-ide-panel .afi-subtle {
+    color: var(--readability-subtle);
+    font-size: 12px;
+}
+
+.agent-first-ide-panel .afi-table-head {
+    color: var(--readability-muted);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.agent-first-ide-panel .afi-desc {
+    color: var(--vscode-descriptionForeground);
+    margin-top: 4px;
+    font-size: 12px;
+}
+
+.agent-first-ide-panel .afi-path {
+    color: var(--readability-subtle);
+    font-family: var(--font-mono, Consolas, monospace);
+    font-size: 11px;
+}
+
+.agent-first-ide-panel .afi-tier {
+    font-weight: 600;
+}
+
+.agent-first-ide-panel table {
+    border: 1px solid var(--readability-panel-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.agent-first-ide-panel tbody tr {
+    border-top: 1px solid var(--readability-panel-border);
+}
+
+.agent-first-ide-panel tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.agent-first-ide-panel .afi-filter-btn {
+    color: var(--readability-muted);
+    border: 1px solid var(--readability-panel-border);
+    background: transparent;
+}
+
+.agent-first-ide-panel .afi-filter-btn.is-active {
+    color: var(--vscode-foreground);
+    border-color: var(--vscode-focusBorder, #58a6ff);
+    background: rgba(88, 166, 255, 0.12);
+}
+
+/* ── Generic muted text helper (prefer over inline opacity < 0.6) ── */
+.text-muted {
+    color: var(--readability-muted);
+}
+
+.text-subtle {
+    color: var(--readability-subtle);
+}

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vscodium-rust ide</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/codicons/codicon.css" />
+  <!--
+    Monaco's AMD loader is bundled by the @monaco-editor/react npm package
+    we already import. Loading it again from a CDN re-declares
+    `_amdLoaderGlobal` and throws a SyntaxError, so we omit it here.
+  -->
+</head>
+
+<body>
+  <!-- React Mount Point -->
+  <div id="root"></div>
+  <script type="module" src="/main.tsx"></script>
+
+</body>
+
+</html>

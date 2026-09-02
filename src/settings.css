@@ -1,0 +1,700 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ *  Settings — modern dark UI
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.settings-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--vscode-editor-background, #0d1117);
+    color: var(--vscode-foreground, #e6edf3);
+    font-family: var(--font-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+    font-size: 13px;
+}
+
+/* ── Header ── */
+.settings-header {
+    flex: 0 0 auto;
+    padding: 16px 28px 0;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.08));
+    background: var(--vscode-editor-background, #0d1117);
+}
+
+.settings-title-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.settings-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.3px;
+    color: var(--vscode-foreground, #e6edf3);
+}
+
+.settings-search-wrapper {
+    position: relative;
+    flex: 1;
+    max-width: 480px;
+}
+
+.settings-search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0.4;
+    font-size: 13px;
+    pointer-events: none;
+}
+
+.settings-search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 10px 6px 30px;
+    background: rgba(255,255,255,0.05);
+    color: var(--vscode-foreground, #e6edf3);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.settings-search-input:focus {
+    border-color: var(--vscode-focusBorder, #4f8ef7);
+    background: rgba(255,255,255,0.07);
+}
+
+.settings-search-input::placeholder {
+    opacity: 0.4;
+}
+
+/* ── Top tabs ── */
+.settings-tabs {
+    display: flex;
+    gap: 0;
+}
+
+.settings-tab {
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    opacity: 0.55;
+    border-bottom: 2px solid transparent;
+    transition: opacity 0.15s, border-color 0.15s;
+    letter-spacing: 0.1px;
+}
+
+.settings-tab.active {
+    opacity: 1;
+    border-bottom-color: var(--vscode-focusBorder, #4f8ef7);
+    color: var(--vscode-focusBorder, #4f8ef7);
+}
+
+.settings-tab:hover:not(.active) {
+    opacity: 0.8;
+}
+
+/* ── Body layout ── */
+.settings-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* ── Sidebar ── */
+.settings-sidebar {
+    flex: 0 0 228px;
+    border-right: 1px solid rgba(255,255,255,0.06);
+    padding: 8px 0 16px;
+    overflow-y: auto;
+    background: color-mix(in srgb, var(--vscode-sideBar-background, #161b22) 100%, transparent 0%);
+}
+
+.settings-sidebar::-webkit-scrollbar { width: 4px; }
+.settings-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+.settings-sidebar-group {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--vscode-descriptionForeground, rgba(255,255,255,0.58));
+    padding: 14px 16px 4px;
+}
+
+.settings-sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 16px 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    color: var(--readability-muted, rgba(255,255,255,0.78));
+    border-radius: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.settings-sidebar-item i {
+    font-size: 14px;
+    flex-shrink: 0;
+    width: 16px;
+    text-align: center;
+}
+
+.settings-sidebar-item:hover {
+    background: rgba(255,255,255,0.05);
+    color: rgba(255,255,255,0.9);
+}
+
+.settings-sidebar-item.active {
+    background: rgba(79,142,247,0.1);
+    border-left-color: var(--vscode-focusBorder, #4f8ef7);
+    color: #ffffff;
+    font-weight: 500;
+}
+
+.settings-sidebar-item.active i {
+    color: var(--vscode-focusBorder, #4f8ef7);
+}
+
+/* ── Main content pane ── */
+.settings-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px 40px;
+    max-width: 920px;
+}
+
+.settings-plan-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+    align-items: stretch;
+}
+
+.settings-plan-grid > div {
+    display: flex;
+    flex-direction: column;
+    min-height: 118px;
+}
+
+.settings-content::-webkit-scrollbar { width: 6px; }
+.settings-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+/* ── Section title ── */
+.settings-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    letter-spacing: -0.2px;
+    color: var(--vscode-foreground);
+}
+
+.settings-section-subtitle {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground, rgba(255,255,255,0.78));
+    margin: 0 0 20px;
+    line-height: 1.55;
+}
+
+/* ── Settings row ── */
+.settings-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.settings-row:last-child {
+    border-bottom: none;
+}
+
+.settings-row-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-row-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--vscode-foreground);
+    margin-bottom: 2px;
+}
+
+.settings-row-description {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground, rgba(255,255,255,0.78));
+    line-height: 1.55;
+    max-width: 480px;
+}
+
+.settings-row-control {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ── Card ── */
+.settings-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+
+.settings-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.7;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+
+/* ── Form controls ── */
+.settings-input {
+    background: rgba(255,255,255,0.06);
+    color: var(--vscode-foreground);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 5px;
+    padding: 5px 9px;
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+    font-family: inherit;
+}
+
+.settings-input:focus {
+    border-color: var(--vscode-focusBorder, #4f8ef7);
+    background: rgba(255,255,255,0.08);
+}
+
+.settings-select {
+    background: rgba(255,255,255,0.06);
+    color: var(--vscode-foreground);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 5px;
+    padding: 5px 24px 5px 9px;
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.4)'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    transition: border-color 0.15s;
+}
+
+.settings-select:focus {
+    border-color: var(--vscode-focusBorder, #4f8ef7);
+}
+
+.settings-select option {
+    background: var(--vscode-dropdown-background, #1e2532);
+}
+
+/* ── Toggle switch ── */
+.settings-toggle-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-toggle {
+    position: relative;
+    width: 34px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.settings-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+
+.settings-toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.12);
+    border-radius: 18px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.settings-toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    left: 3px;
+    top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+
+.settings-toggle input:checked + .settings-toggle-slider {
+    background: var(--vscode-focusBorder, #4f8ef7);
+}
+
+.settings-toggle input:checked + .settings-toggle-slider::before {
+    transform: translateX(16px);
+}
+
+/* ── Checkbox ── */
+.settings-checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    cursor: pointer;
+}
+
+.settings-checkbox {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--vscode-focusBorder, #4f8ef7);
+}
+
+/* ── Button ── */
+.settings-button {
+    padding: 5px 12px;
+    background: rgba(79,142,247,0.12);
+    color: #4f8ef7;
+    border: 1px solid rgba(79,142,247,0.3);
+    border-radius: 5px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-family: inherit;
+}
+
+.settings-button:hover {
+    background: rgba(79,142,247,0.2);
+}
+
+.settings-button.danger {
+    background: rgba(248,81,73,0.1);
+    color: #f85149;
+    border-color: rgba(248,81,73,0.3);
+}
+
+.settings-button.danger:hover {
+    background: rgba(248,81,73,0.2);
+}
+
+.settings-button.success {
+    background: rgba(63,185,80,0.1);
+    color: #3fb950;
+    border-color: rgba(63,185,80,0.3);
+}
+
+/* ── Tag/badge ── */
+.settings-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.settings-badge.local {
+    background: rgba(16,185,129,0.15);
+    color: #10b981;
+    border: 1px solid rgba(16,185,129,0.3);
+}
+
+.settings-badge.new {
+    background: rgba(168,85,247,0.15);
+    color: #c084fc;
+    border: 1px solid rgba(168,85,247,0.3);
+}
+
+.settings-badge.beta {
+    background: rgba(245,158,11,0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(245,158,11,0.3);
+}
+
+/* ── Divider ── */
+.settings-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.06);
+    margin: 20px 0;
+}
+
+/* ── solid-card (reused from old) ── */
+.solid-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+}
+
+/* ── Provider card ── */
+.provider-card {
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    transition: border-color 0.15s;
+}
+
+.provider-card:hover {
+    border-color: rgba(255,255,255,0.12);
+}
+
+.provider-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.provider-card-name {
+    font-size: 13px;
+    font-weight: 600;
+    flex: 1;
+}
+
+/* ── Steering item ── */
+.steering-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.steering-item:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255,255,255,0.12);
+}
+
+.steering-item.active {
+    border-color: rgba(168,85,247,0.4);
+    background: rgba(168,85,247,0.06);
+}
+
+/* ── Hook item ── */
+.hook-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+/* ── Generic sidebar hover row ── */
+.sidebar-hover-row:hover {
+    background: rgba(255,255,255,0.04);
+}
+
+/* ── Privacy row ── */
+.privacy-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.privacy-item:last-child {
+    border-bottom: none;
+}
+
+/* ── Limited Premium add-on card ── */
+.settings-premium-card {
+    position: relative;
+    margin-bottom: 8px;
+    padding: 18px 20px;
+    border-radius: 12px !important;
+    border: 1px solid rgba(224, 175, 104, 0.35);
+    background:
+        linear-gradient(135deg, rgba(224, 175, 104, 0.14) 0%, rgba(120, 80, 30, 0.08) 45%, rgba(255, 255, 255, 0.02) 100%) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+    overflow: hidden;
+}
+
+.settings-premium-card--owned {
+    border-color: rgba(158, 206, 106, 0.4);
+    background: linear-gradient(135deg, rgba(158, 206, 106, 0.12), rgba(255, 255, 255, 0.02)) !important;
+}
+
+.settings-premium-badge {
+    display: inline-block;
+    margin-bottom: 14px;
+    padding: 4px 10px;
+    border-radius: 999px !important;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #1a1206;
+    background: linear-gradient(180deg, #f0d090 0%, #d4a853 100%) !important;
+    box-shadow: 0 2px 8px rgba(212, 168, 83, 0.35) !important;
+}
+
+.settings-premium-layout {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 18px;
+    align-items: start;
+}
+
+@media (max-width: 720px) {
+    .settings-premium-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.settings-premium-icon-wrap {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(224, 175, 104, 0.15);
+    border: 1px solid rgba(224, 175, 104, 0.25);
+}
+
+.settings-premium-icon {
+    font-size: 22px;
+    color: #e0af68;
+}
+
+.settings-premium-title {
+    margin: 0 0 6px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #f5e6c8;
+    letter-spacing: -0.2px;
+}
+
+.settings-premium-desc {
+    margin: 0 0 10px;
+    font-size: 12px;
+    line-height: 1.55;
+    opacity: 0.72;
+    max-width: 420px;
+}
+
+.settings-premium-features {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 11px;
+    line-height: 1.6;
+    opacity: 0.65;
+}
+
+.settings-premium-cta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    min-width: 140px;
+}
+
+.settings-premium-price {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.settings-premium-amount {
+    font-size: 28px;
+    font-weight: 800;
+    color: #f0d090;
+    line-height: 1;
+}
+
+.settings-premium-period {
+    font-size: 12px;
+    opacity: 0.55;
+}
+
+.settings-premium-fx {
+    font-size: 10px;
+    opacity: 0.45;
+}
+
+.settings-premium-btn {
+    margin-top: 4px;
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px !important;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    color: #1a1206;
+    background: linear-gradient(180deg, #f0d090 0%, #d4a853 100%) !important;
+    box-shadow: 0 4px 14px rgba(212, 168, 83, 0.35) !important;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    white-space: nowrap;
+}
+
+.settings-premium-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(212, 168, 83, 0.45) !important;
+}
+
+.settings-premium-btn:disabled {
+    cursor: default;
+    color: #9ece6a;
+    background: rgba(158, 206, 106, 0.15) !important;
+    box-shadow: none !important;
+}
+
+/* ── Milestone C: in-section item chips ─────────────────────────────────── */
+.settings-subnav {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+}
+.settings-chip {
+    background: transparent;
+    border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+    color: var(--color-text-secondary, #b8b8b8);
+    border-radius: var(--radius-md, 3px);
+    padding: 3px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background var(--duration-fast, 100ms) ease;
+}
+.settings-chip:hover {
+    background: var(--color-hover, rgba(255, 255, 255, 0.05));
+}
+.settings-chip.active {
+    background: var(--color-accent, #007acc);
+    border-color: var(--color-accent, #007acc);
+    color: #fff;
+}

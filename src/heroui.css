@@ -1,0 +1,40 @@
+/*
+ * HeroUI + Tailwind layer.
+ *
+ * `@tailwind base` is REQUIRED — the HeroUI plugin injects its theme CSS
+ * variables (--heroui-*) into the base layer. Preflight (the global reset) is
+ * disabled in tailwind.config.cjs (corePlugins.preflight=false), so `base` here
+ * emits only HeroUI's design tokens, NOT a reset that would clobber the existing
+ * hand-rolled IDE CSS. This is what lets HeroUI coexist with styles.css et al.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark theme for the Mermaid viewer's reactflow Controls + MiniMap (scoped via
+   .mmd-flow so it never touches the Visual Lab canvas). */
+.mmd-flow .react-flow__controls {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.mmd-flow .react-flow__controls-button {
+    background: transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    color: #cbd5e1;
+}
+.mmd-flow .react-flow__controls-button:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+.mmd-flow .react-flow__controls-button svg {
+    fill: #cbd5e1;
+}
+.mmd-flow .react-flow__minimap {
+    border-radius: 10px;
+    overflow: hidden;
+}
+.mmd-flow .react-flow__attribution {
+    display: none;
+}
